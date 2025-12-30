@@ -100,19 +100,47 @@ impl FromStr for AdapterType {
 
 impl From<&str> for AdapterType {
     fn from(s: &str) -> Self {
-        s.parse().unwrap_or_default()
+        match s.parse() {
+            Ok(t) => t,
+            Err(_) => {
+                tracing::warn!(
+                    input = %s,
+                    default = "Standard",
+                    "Invalid adapter type string, defaulting to Standard"
+                );
+                AdapterType::Standard
+            }
+        }
     }
 }
 
 impl From<Option<&str>> for AdapterType {
     fn from(s: Option<&str>) -> Self {
-        s.map(AdapterType::from).unwrap_or_default()
+        match s {
+            Some(val) => AdapterType::from(val),
+            None => {
+                tracing::debug!(
+                    default = "Standard",
+                    "No adapter type string provided, defaulting to Standard"
+                );
+                AdapterType::Standard
+            }
+        }
     }
 }
 
 impl From<Option<String>> for AdapterType {
     fn from(s: Option<String>) -> Self {
-        s.as_deref().map(AdapterType::from).unwrap_or_default()
+        match s {
+            Some(ref val) => AdapterType::from(val.as_str()),
+            None => {
+                tracing::debug!(
+                    default = "Standard",
+                    "No adapter type string provided, defaulting to Standard"
+                );
+                AdapterType::Standard
+            }
+        }
     }
 }
 

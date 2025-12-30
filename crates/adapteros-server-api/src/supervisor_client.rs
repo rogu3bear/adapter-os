@@ -81,14 +81,27 @@ impl SupervisorClient {
 
     /// Create a new supervisor client from environment variable
     ///
-    /// Reads `SUPERVISOR_API_URL` environment variable, or constructs URL from `AOS_PANEL_PORT`
-    pub fn from_env() -> Self {
-        let base_url = std::env::var("SUPERVISOR_API_URL").unwrap_or_else(|_| {
-            // Respect AOS_PANEL_PORT for port offset strategy
-            let port = std::env::var("AOS_PANEL_PORT").unwrap_or_else(|_| "3301".to_string());
-            format!("http://localhost:{}", port)
+    /// Reads `SUPERVISOR_API_URL` environment variable, or constructs URL from `AOS_PANEL_PORT`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `AosError::Config` if neither `SUPERVISOR_API_URL` nor `AOS_PANEL_PORT` is set.
+    /// This prevents silent fallback to hardcoded localhost addresses which could cause
+    /// connection failures or security issues in production environments.
+    pub fn from_env() -> Result<Self> {
+        let base_url = std::env::var("SUPERVISOR_API_URL").or_else(|_| {
+            // Fall back to constructing URL from AOS_PANEL_PORT
+            std::env::var("AOS_PANEL_PORT").map(|port| format!("http://127.0.0.1:{}", port))
         });
-        Self::new(base_url)
+
+        match base_url {
+            Ok(url) => Ok(Self::new(url)),
+            Err(_) => Err(AosError::Config(
+                "Neither SUPERVISOR_API_URL nor AOS_PANEL_PORT is set. \
+                 Configure one of these environment variables to connect to the supervisor."
+                    .to_string(),
+            )),
+        }
     }
 
     /// Set request timeout
@@ -544,15 +557,54 @@ mod tests {
     #[test]
     fn test_client_from_env() {
         std::env::set_var("SUPERVISOR_API_URL", "http://custom:8080");
-        let client = match build_client_or_skip(SupervisorClient::from_env) {
-            Some(client) => client,
-            None => {
-                std::env::remove_var("SUPERVISOR_API_URL");
+        let result = SupervisorClient::from_env();
+        std::env::remove_var("SUPERVISOR_API_URL");
+
+        let client = match result {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("Skipping test: {}", e);
                 return;
             }
         };
         assert_eq!(client.base_url, "http://custom:8080");
+    }
+
+    #[test]
+    fn test_client_from_env_missing_vars() {
+        // Clear both potential env vars
         std::env::remove_var("SUPERVISOR_API_URL");
+        std::env::remove_var("AOS_PANEL_PORT");
+
+        let result = SupervisorClient::from_env();
+        assert!(result.is_err(), "Expected error when no env vars are set");
+
+        if let Err(e) = result {
+            let msg = e.to_string();
+            assert!(
+                msg.contains("SUPERVISOR_API_URL") && msg.contains("AOS_PANEL_PORT"),
+                "Error message should mention both env vars: {}",
+                msg
+            );
+        }
+    }
+
+    #[test]
+    fn test_client_from_env_panel_port_fallback() {
+        std::env::remove_var("SUPERVISOR_API_URL");
+        std::env::set_var("AOS_PANEL_PORT", "9999");
+
+        let result = SupervisorClient::from_env();
+        std::env::remove_var("AOS_PANEL_PORT");
+
+        let client = match result {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("Skipping test: {}", e);
+                return;
+            }
+        };
+        assert_eq!(client.base_url, "http://127.0.0.1:9999");
     }
 
     #[test]

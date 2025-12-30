@@ -184,7 +184,7 @@ export const AdapterDetail: React.FC = () => {
       <div className="flex items-center justify-center h-screen">
         <Card className="w-96">
           <CardHeader>
-            <CardTitle className="text-red-600">Error</CardTitle>
+            <CardTitle className="text-destructive">Error</CardTitle>
           </CardHeader>
           <CardContent>
             <p>{error || 'Adapter not found'}</p>
@@ -206,7 +206,7 @@ export const AdapterDetail: React.FC = () => {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">{adapter.adapter_name || adapter.name}</h1>
-          <p className="text-gray-500">
+          <p className="text-muted-foreground">
             {adapter.tenant_namespace && `${adapter.tenant_namespace}/`}
             {adapter.domain && `${adapter.domain}/`}
             {adapter.purpose}
@@ -234,13 +234,13 @@ export const AdapterDetail: React.FC = () => {
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-2">
-              <Activity className="h-5 w-5 text-gray-500" />
+              <Activity className="h-5 w-5 text-muted-foreground" />
               <div>
-                <p className="text-sm text-gray-500">Release State</p>
+                <p className="text-sm text-muted-foreground">Release State</p>
                 <Badge variant={getLifecycleVariant(releaseState || 'draft')}>
                   {releaseState || 'draft'}
                 </Badge>
-                <p className="text-sm text-gray-500 mt-2">Runtime State</p>
+                <p className="text-sm text-muted-foreground mt-2">Runtime State</p>
                 <Badge className={`bg-${getStateColor(runtimeState || 'unloaded')}-500`}>
                   {LIFECYCLE_STATE_LABELS[runtimeState || 'unloaded'] || runtimeState || 'unloaded'}
                 </Badge>
@@ -252,9 +252,9 @@ export const AdapterDetail: React.FC = () => {
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-2">
-              <Database className="h-5 w-5 text-gray-500" />
+              <Database className="h-5 w-5 text-muted-foreground" />
               <div>
-                <p className="text-sm text-gray-500">Memory</p>
+                <p className="text-sm text-muted-foreground">Memory</p>
                 <p className="text-2xl font-bold">
                   {formatMB(adapter.memory_bytes)}
                 </p>
@@ -266,9 +266,9 @@ export const AdapterDetail: React.FC = () => {
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-2">
-              <Activity className="h-5 w-5 text-gray-500" />
+              <Activity className="h-5 w-5 text-muted-foreground" />
               <div>
-                <p className="text-sm text-gray-500">Activations</p>
+                <p className="text-sm text-muted-foreground">Activations</p>
                 <p className="text-2xl font-bold">{formatCount(adapter.activation_count)}</p>
               </div>
             </div>
@@ -278,9 +278,9 @@ export const AdapterDetail: React.FC = () => {
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-2">
-              <Clock className="h-5 w-5 text-gray-500" />
+              <Clock className="h-5 w-5 text-muted-foreground" />
               <div>
-                <p className="text-sm text-gray-500">Last Active</p>
+                <p className="text-sm text-muted-foreground">Last Active</p>
                 <p className="text-sm">
                   {adapter.last_activated
                     ? new Date(adapter.last_activated).toLocaleString()
@@ -300,24 +300,24 @@ export const AdapterDetail: React.FC = () => {
         <CardContent>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <p className="text-sm text-gray-500">Adapter ID</p>
+              <p className="text-sm text-muted-foreground">Adapter ID</p>
               <p className="font-mono text-sm">{adapter.adapter.adapter_id}</p>
             </div>
             <div>
-              <p className="text-sm text-gray-500">Hash (B3)</p>
+              <p className="text-sm text-muted-foreground">Hash (B3)</p>
               <p className="font-mono text-sm truncate">{adapter.hash_b3}</p>
             </div>
             <div>
-              <p className="text-sm text-gray-500">Rank</p>
+              <p className="text-sm text-muted-foreground">Rank</p>
               <p>{adapter.rank}</p>
             </div>
             <div>
-              <p className="text-sm text-gray-500">Alpha</p>
+              <p className="text-sm text-muted-foreground">Alpha</p>
               <p>{adapter.alpha}</p>
             </div>
             <div className="space-y-2">
               <div className="flex items-center gap-2">
-                <p className="text-sm text-gray-500">Strength</p>
+                <p className="text-sm text-muted-foreground">Strength</p>
                 {isUpdatingStrength && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
               </div>
               <p className="font-medium">{(strength ?? adapter.lora_strength ?? 1).toFixed(2)}</p>
@@ -336,26 +336,26 @@ export const AdapterDetail: React.FC = () => {
               </div>
             </div>
             <div>
-              <p className="text-sm text-gray-500">Category</p>
+              <p className="text-sm text-muted-foreground">Category</p>
               <p>{adapter.category}</p>
             </div>
             <div>
-              <p className="text-sm text-gray-500">Scope</p>
+              <p className="text-sm text-muted-foreground">Scope</p>
               <p>{adapter.lora_scope ?? adapter.scope}</p>
             </div>
             {adapter.framework && (
               <div>
-                <p className="text-sm text-gray-500">Framework</p>
+                <p className="text-sm text-muted-foreground">Framework</p>
                 <p>{adapter.framework}</p>
               </div>
             )}
             <div>
-              <p className="text-sm text-gray-500">LoRA Tier</p>
+              <p className="text-sm text-muted-foreground">LoRA Tier</p>
               <p>{adapter.lora_tier ?? adapter.tier}</p>
             </div>
             {adapter.adapter?.lifecycle_state && (
               <div>
-                <p className="text-sm text-gray-500">Lifecycle State</p>
+                <p className="text-sm text-muted-foreground">Lifecycle State</p>
                 <Badge variant={getLifecycleVariant(adapter.adapter.lifecycle_state)}>
                   {adapter.adapter.lifecycle_state}
                 </Badge>
@@ -363,7 +363,7 @@ export const AdapterDetail: React.FC = () => {
             )}
             {adapter.adapter?.version && (
               <div>
-                <p className="text-sm text-gray-500">Version</p>
+                <p className="text-sm text-muted-foreground">Version</p>
                 <p>{adapter.adapter.version}</p>
               </div>
             )}
@@ -418,16 +418,16 @@ export const AdapterDetail: React.FC = () => {
             {lineage.ancestors && lineage.ancestors.length > 0 && (
               <div className="mb-4">
                 <h4 className="font-semibold mb-2">Ancestors</h4>
-                <div className="space-y-2 pl-4 border-l-2 border-gray-300">
+                <div className="space-y-2 pl-4 border-l-2 border-border">
                   {lineage.ancestors.map((ancestor) => (
                     <div
                       key={ancestor.adapter_id}
-                      className="flex items-center justify-between p-2 bg-gray-50 rounded cursor-pointer hover:bg-gray-100"
+                      className="flex items-center justify-between p-2 bg-muted/50 rounded cursor-pointer hover:bg-muted"
                       onClick={() => navigate(buildAdapterDetailLink(ancestor.adapter_id))}
                     >
                       <div>
                         <p className="font-medium">{ancestor.adapter_name || ancestor.adapter_id}</p>
-                        <p className="text-sm text-gray-500">{ancestor.revision}</p>
+                        <p className="text-sm text-muted-foreground">{ancestor.revision}</p>
                       </div>
                       <Badge>{ancestor.current_state}</Badge>
                     </div>
@@ -438,9 +438,9 @@ export const AdapterDetail: React.FC = () => {
 
             {/* Current Adapter */}
             {lineage.self_node && (
-              <div className="my-4 p-4 bg-blue-50 border-2 border-blue-500 rounded">
-                <p className="font-bold text-blue-900">Current Adapter</p>
-                <p className="text-sm text-blue-700">
+              <div className="my-4 p-4 bg-primary/10 border-2 border-primary rounded">
+                <p className="font-bold text-primary">Current Adapter</p>
+                <p className="text-sm text-primary/80">
                   {lineage.self_node.adapter_name || lineage.self_node.adapter_id}
                 </p>
               </div>
@@ -450,16 +450,16 @@ export const AdapterDetail: React.FC = () => {
             {lineage.descendants && lineage.descendants.length > 0 && (
               <div>
                 <h4 className="font-semibold mb-2">Descendants</h4>
-                <div className="space-y-2 pl-4 border-l-2 border-gray-300">
+                <div className="space-y-2 pl-4 border-l-2 border-border">
                   {lineage.descendants.map((descendant) => (
                     <div
                       key={descendant.adapter_id}
-                      className="flex items-center justify-between p-2 bg-gray-50 rounded cursor-pointer hover:bg-gray-100"
+                      className="flex items-center justify-between p-2 bg-muted/50 rounded cursor-pointer hover:bg-muted"
                       onClick={() => navigate(buildAdapterDetailLink(descendant.adapter_id))}
                     >
                       <div>
                         <p className="font-medium">{descendant.adapter_name || descendant.adapter_id}</p>
-                        <div className="flex items-center gap-2 text-sm text-gray-500">
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
                           <span>{descendant.revision}</span>
                           {descendant.fork_type && (
                             <Badge variant="outline">{descendant.fork_type}</Badge>
@@ -474,7 +474,7 @@ export const AdapterDetail: React.FC = () => {
             )}
 
             {(!lineage.ancestors || lineage.ancestors.length === 0) && (!lineage.descendants || lineage.descendants.length === 0) && (
-              <p className="text-center text-gray-500 py-4">
+              <p className="text-center text-muted-foreground py-4">
                 This adapter has no parent or children.
               </p>
             )}

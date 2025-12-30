@@ -129,6 +129,7 @@ export function LoginCredentialsForm({
             data-cy="login-email"
             placeholder="you@example.com"
             autoComplete="email"
+            autoFocus
             aria-describedby={errors.email ? 'email-error' : undefined}
             aria-invalid={errors.email ? 'true' : 'false'}
             {...register('email')}

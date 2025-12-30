@@ -1,4 +1,3 @@
-// @ts-nocheck
 import type { ApiClient } from '@/api/client';
 import * as types from '@/api/types';
 import * as trainingTypes from '@/api/training-types';
@@ -131,10 +130,10 @@ export class TrainingService {
    * GET /v1/training/jobs/:jobId/metrics
    *
    * @param jobId - Training job ID
-   * @returns Training metrics
+   * @returns Training metrics list response with time-series data
    */
-  async getTrainingMetrics(jobId: string): Promise<trainingTypes.TrainingMetrics> {
-    return this.client.request<trainingTypes.TrainingMetrics>(`/v1/training/jobs/${jobId}/metrics`);
+  async getTrainingMetrics(jobId: string): Promise<trainingTypes.TrainingMetricsListResponse> {
+    return this.client.request<trainingTypes.TrainingMetricsListResponse>(`/v1/training/jobs/${jobId}/metrics`);
   }
 
   /**
@@ -310,6 +309,7 @@ export class TrainingService {
     type UploadDatasetResponse = {
       schema_version?: string;
       dataset_id: string;
+      dataset_version_id?: string;
       name: string;
       description?: string;
       file_count?: number;
@@ -317,6 +317,7 @@ export class TrainingService {
       format?: string;
       hash?: string;
       storage_path?: string;
+      status?: string;
       created_at?: string;
     };
 
@@ -327,6 +328,7 @@ export class TrainingService {
     return {
       schema_version: raw.schema_version ?? '1.0',
       dataset_id: raw.dataset_id,
+      dataset_version_id: raw.dataset_version_id,
       name: raw.name,
       description: raw.description ?? null,
       file_count: raw.file_count ?? request.files?.length ?? 0,
@@ -334,7 +336,8 @@ export class TrainingService {
       format: raw.format ?? request.format ?? 'jsonl',
       hash: raw.hash ?? '',
       storage_path: raw.storage_path ?? '',
-      validation_status: 'pending' as const,
+      status: raw.status ?? 'created',
+      validation_status: 'pending' as trainingTypes.DatasetValidationStatus,
       validation_errors: null,
       created_by: 'current-user',
       created_at: createdAt,
@@ -571,7 +574,7 @@ export class TrainingService {
     }
     if (params?.cursors) {
       Object.entries(params.cursors).forEach(([level, cursor]) => {
-        queryParams.append(`cursor[${level}]`, cursor);
+        queryParams.append(`cursor[${level}]`, String(cursor));
       });
     }
     const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
@@ -1054,5 +1057,212 @@ export class TrainingService {
     return this.client.request<types.RollbackResponse>(`/v1/golden/${encodeURIComponent(stage)}/rollback`, {
       method: 'POST',
     });
+  }
+
+  // ============================================================================
+  // Chunked Upload Management
+  // ============================================================================
+
+  /**
+   * Initiate a chunked upload session for large dataset files.
+   *
+   * POST /v1/datasets/chunked-upload/initiate
+   *
+   * @param fileName - Name of the file being uploaded
+   * @param totalSize - Total file size in bytes
+   * @param contentType - Optional content type (e.g., application/gzip)
+   * @param chunkSize - Optional preferred chunk size (will be clamped to valid range)
+   * @param workspaceId - Optional workspace ID for tenant isolation
+   * @returns Session details including session_id and chunk configuration
+   */
+  async initiateChunkedUpload(
+    fileName: string,
+    totalSize: number,
+    contentType?: string,
+    chunkSize?: number,
+    workspaceId?: string
+  ): Promise<trainingTypes.InitiateChunkedUploadResponse> {
+    const request: trainingTypes.InitiateChunkedUploadRequest = {
+      file_name: fileName,
+      total_size: totalSize,
+      content_type: contentType,
+      chunk_size: chunkSize,
+      workspace_id: workspaceId,
+    };
+
+    return this.client.request<trainingTypes.InitiateChunkedUploadResponse>(
+      '/v1/datasets/chunked-upload/initiate',
+      {
+        method: 'POST',
+        body: JSON.stringify(request),
+      }
+    );
+  }
+
+  /**
+   * Upload a single chunk of data for an active upload session.
+   *
+   * POST /v1/datasets/chunked-upload/:sessionId/chunk?chunk_index=N
+   *
+   * @param sessionId - Upload session ID
+   * @param chunkIndex - Zero-based index of this chunk
+   * @param data - Blob containing the chunk data
+   * @returns Chunk upload result including hash and progress
+   */
+  async uploadChunk(
+    sessionId: string,
+    chunkIndex: number,
+    data: Blob
+  ): Promise<trainingTypes.UploadChunkResponse> {
+    const encodedSessionId = encodeURIComponent(sessionId);
+    const path = '/v1/datasets/chunked-upload/' + encodedSessionId + '/chunk?chunk_index=' + chunkIndex;
+    const url = this.client.buildUrl(path);
+    const requestId = await this.client.createRequestId('POST', '/v1/datasets/chunked-upload/' + sessionId + '/chunk', 'chunk-' + chunkIndex);
+    this.client.recordRequest(requestId, 'POST', '/v1/datasets/chunked-upload/' + sessionId + '/chunk');
+    const token = this.client.getToken();
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'X-Request-ID': requestId,
+        ...(token ? { Authorization: 'Bearer ' + token } : {}),
+      },
+      body: data,
+      credentials: 'omit',
+    });
+
+    if (!response.ok) {
+      let errorMessage = 'HTTP ' + response.status + ': ' + response.statusText;
+      try {
+        const error = await response.json();
+        errorMessage = error.error || error.message || errorMessage;
+      } catch {
+        // Use status text
+      }
+      throw new Error(errorMessage);
+    }
+
+    return response.json() as Promise<trainingTypes.UploadChunkResponse>;
+  }
+
+  /**
+   * Retry uploading a chunk (replaces existing chunk if present).
+   *
+   * PUT /v1/datasets/chunked-upload/:sessionId/chunk?chunk_index=N
+   *
+   * @param sessionId - Upload session ID
+   * @param chunkIndex - Zero-based index of the chunk to retry
+   * @param data - Blob containing the chunk data
+   * @param expectedHash - Optional expected hash for validation
+   * @returns Retry result including previous hash if replaced
+   */
+  async retryChunk(
+    sessionId: string,
+    chunkIndex: number,
+    data: Blob,
+    expectedHash?: string
+  ): Promise<trainingTypes.RetryChunkResponse> {
+    const encodedSessionId = encodeURIComponent(sessionId);
+    let path = '/v1/datasets/chunked-upload/' + encodedSessionId + '/chunk?chunk_index=' + chunkIndex;
+    if (expectedHash) {
+      path += '&expected_hash=' + encodeURIComponent(expectedHash);
+    }
+    const url = this.client.buildUrl(path);
+    const requestId = await this.client.createRequestId('PUT', '/v1/datasets/chunked-upload/' + sessionId + '/chunk', 'retry-' + chunkIndex);
+    this.client.recordRequest(requestId, 'PUT', '/v1/datasets/chunked-upload/' + sessionId + '/chunk');
+    const token = this.client.getToken();
+
+    const response = await fetch(url, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'X-Request-ID': requestId,
+        ...(token ? { Authorization: 'Bearer ' + token } : {}),
+      },
+      body: data,
+      credentials: 'omit',
+    });
+
+    if (!response.ok) {
+      let errorMessage = 'HTTP ' + response.status + ': ' + response.statusText;
+      try {
+        const error = await response.json();
+        errorMessage = error.error || error.message || errorMessage;
+      } catch {
+        // Use status text
+      }
+      throw new Error(errorMessage);
+    }
+
+    return response.json() as Promise<trainingTypes.RetryChunkResponse>;
+  }
+
+  /**
+   * Get the status of an upload session.
+   *
+   * GET /v1/datasets/chunked-upload/:sessionId/status
+   *
+   * @param sessionId - Upload session ID
+   * @returns Session status including received chunks and completion state
+   */
+  async getUploadSessionStatus(sessionId: string): Promise<trainingTypes.UploadSessionStatusResponse> {
+    const encodedSessionId = encodeURIComponent(sessionId);
+    return this.client.request<trainingTypes.UploadSessionStatusResponse>(
+      '/v1/datasets/chunked-upload/' + encodedSessionId + '/status'
+    );
+  }
+
+  /**
+   * Complete a chunked upload and create the dataset.
+   *
+   * POST /v1/datasets/chunked-upload/:sessionId/complete
+   *
+   * @param sessionId - Upload session ID
+   * @param options - Optional dataset metadata (name, description, format, workspace_id)
+   * @returns Created dataset information
+   */
+  async completeChunkedUpload(
+    sessionId: string,
+    options?: trainingTypes.CompleteChunkedUploadRequest
+  ): Promise<trainingTypes.CompleteChunkedUploadResponse> {
+    const encodedSessionId = encodeURIComponent(sessionId);
+    return this.client.request<trainingTypes.CompleteChunkedUploadResponse>(
+      '/v1/datasets/chunked-upload/' + encodedSessionId + '/complete',
+      {
+        method: 'POST',
+        body: JSON.stringify(options || {}),
+      }
+    );
+  }
+
+  /**
+   * List all active upload sessions.
+   *
+   * GET /v1/datasets/chunked-upload/sessions
+   *
+   * @returns List of active upload sessions with progress info
+   */
+  async listUploadSessions(): Promise<trainingTypes.ListUploadSessionsResponse> {
+    return this.client.request<trainingTypes.ListUploadSessionsResponse>(
+      '/v1/datasets/chunked-upload/sessions'
+    );
+  }
+
+  /**
+   * Cancel an active chunked upload session.
+   *
+   * DELETE /v1/datasets/chunked-upload/:sessionId
+   *
+   * @param sessionId - Upload session ID to cancel
+   */
+  async cancelChunkedUpload(sessionId: string): Promise<void> {
+    const encodedSessionId = encodeURIComponent(sessionId);
+    return this.client.request<void>(
+      '/v1/datasets/chunked-upload/' + encodedSessionId,
+      {
+        method: 'DELETE',
+      }
+    );
   }
 }

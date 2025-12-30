@@ -672,6 +672,7 @@ impl Db {
                 pinned_adapter_ids: row.pinned_adapter_ids.clone(),
                 codebase_adapter_id: None, // Not in SQL schema, set to None for migration
                 status,
+                archived_at: None,
             };
 
             let session_key = format!("tenant/{}/chat_session/{}", tenant_id, session_id);

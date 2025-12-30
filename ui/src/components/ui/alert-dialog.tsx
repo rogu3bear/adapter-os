@@ -59,6 +59,7 @@ function AlertDialogContent({
       <AlertDialogOverlay />
       <AlertDialogPrimitive.Content
         data-slot="alert-dialog-content"
+        aria-modal="true"
         className={cn(
           FROST_BACKGROUND,
           MENU_ANIMATION_CLASSES,

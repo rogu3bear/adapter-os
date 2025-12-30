@@ -71,7 +71,19 @@ pub async fn start_service(
 
     info!(service_id = %service_id, user = %claims.sub, "Starting service");
 
-    let client = SupervisorClient::from_env();
+    let client = match SupervisorClient::from_env() {
+        Ok(c) => c,
+        Err(e) => {
+            error!(error = %e, "Supervisor client configuration error");
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(
+                    ErrorResponse::new(format!("Supervisor not configured: {}", e))
+                        .with_code("SUPERVISOR_NOT_CONFIGURED"),
+                ),
+            ));
+        }
+    };
 
     match client.start_service(&service_id).await {
         Ok(message) => {
@@ -128,7 +140,19 @@ pub async fn stop_service(
 
     info!(service_id = %service_id, user = %claims.sub, "Stopping service");
 
-    let client = SupervisorClient::from_env();
+    let client = match SupervisorClient::from_env() {
+        Ok(c) => c,
+        Err(e) => {
+            error!(error = %e, "Supervisor client configuration error");
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(
+                    ErrorResponse::new(format!("Supervisor not configured: {}", e))
+                        .with_code("SUPERVISOR_NOT_CONFIGURED"),
+                ),
+            ));
+        }
+    };
 
     match client.stop_service(&service_id).await {
         Ok(message) => {
@@ -185,7 +209,19 @@ pub async fn restart_service(
 
     info!(service_id = %service_id, user = %claims.sub, "Restarting service");
 
-    let client = SupervisorClient::from_env();
+    let client = match SupervisorClient::from_env() {
+        Ok(c) => c,
+        Err(e) => {
+            error!(error = %e, "Supervisor client configuration error");
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(
+                    ErrorResponse::new(format!("Supervisor not configured: {}", e))
+                        .with_code("SUPERVISOR_NOT_CONFIGURED"),
+                ),
+            ));
+        }
+    };
 
     match client.restart_service(&service_id).await {
         Ok(message) => {
@@ -237,7 +273,19 @@ pub async fn start_essential_services(
 
     info!(user = %claims.sub, "Starting all essential services");
 
-    let client = SupervisorClient::from_env();
+    let client = match SupervisorClient::from_env() {
+        Ok(c) => c,
+        Err(e) => {
+            error!(error = %e, "Supervisor client configuration error");
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(
+                    ErrorResponse::new(format!("Supervisor not configured: {}", e))
+                        .with_code("SUPERVISOR_NOT_CONFIGURED"),
+                ),
+            ));
+        }
+    };
 
     match client.start_essential_services().await {
         Ok(message) => {
@@ -285,7 +333,19 @@ pub async fn stop_essential_services(
 
     info!(user = %claims.sub, "Stopping all essential services");
 
-    let client = SupervisorClient::from_env();
+    let client = match SupervisorClient::from_env() {
+        Ok(c) => c,
+        Err(e) => {
+            error!(error = %e, "Supervisor client configuration error");
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(
+                    ErrorResponse::new(format!("Supervisor not configured: {}", e))
+                        .with_code("SUPERVISOR_NOT_CONFIGURED"),
+                ),
+            ));
+        }
+    };
 
     match client.stop_essential_services().await {
         Ok(message) => {
@@ -340,7 +400,19 @@ pub async fn get_service_logs(
 
     info!(service_id = %service_id, lines = params.lines, user = %claims.sub, "Fetching service logs");
 
-    let client = SupervisorClient::from_env();
+    let client = match SupervisorClient::from_env() {
+        Ok(c) => c,
+        Err(e) => {
+            error!(error = %e, "Supervisor client configuration error");
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(
+                    ErrorResponse::new(format!("Supervisor not configured: {}", e))
+                        .with_code("SUPERVISOR_NOT_CONFIGURED"),
+                ),
+            ));
+        }
+    };
 
     match client
         .get_service_logs(&service_id, Some(params.lines))

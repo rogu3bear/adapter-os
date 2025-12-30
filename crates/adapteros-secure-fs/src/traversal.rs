@@ -279,12 +279,26 @@ fn check_dangerous_absolute_paths(path_str: &str) -> Result<()> {
 pub fn check_no_symlinks(path: impl AsRef<Path>) -> Result<()> {
     let path = path.as_ref();
 
-    // Check if the path itself is a symlink (only if it exists)
-    if path.exists() && path.is_symlink() {
-        return Err(AosError::Io(format!(
-            "Path is a symlink, which is not allowed: {}",
-            path.display()
-        )));
+    // Check if the path itself is a symlink using atomic symlink_metadata
+    // This prevents TOCTOU race conditions where exists() and is_symlink() are separate calls
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            if metadata.file_type().is_symlink() {
+                return Err(AosError::Io(format!(
+                    "Path is a symlink, which is not allowed: {}",
+                    path.display()
+                )));
+            }
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // Path doesn't exist, which is fine for some operations
+        }
+        Err(e) => {
+            return Err(AosError::Io(format!(
+                "Failed to check path metadata: {}",
+                e
+            )));
+        }
     }
 
     // Walk through each component and check if any intermediate path is a symlink
@@ -301,12 +315,25 @@ pub fn check_no_symlinks(path: impl AsRef<Path>) -> Result<()> {
             continue;
         }
 
-        // Only check for symlinks if the intermediate path exists
-        if current.exists() && current.is_symlink() {
-            return Err(AosError::Io(format!(
-                "Path contains symlink component, which is not allowed: {}",
-                current.display()
-            )));
+        // Check for symlinks using atomic symlink_metadata to prevent TOCTOU race conditions
+        match std::fs::symlink_metadata(&current) {
+            Ok(metadata) => {
+                if metadata.file_type().is_symlink() {
+                    return Err(AosError::Io(format!(
+                        "Path contains symlink component, which is not allowed: {}",
+                        current.display()
+                    )));
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                // Path doesn't exist, which is fine for some operations
+            }
+            Err(e) => {
+                return Err(AosError::Io(format!(
+                    "Failed to check path component metadata: {}",
+                    e
+                )));
+            }
         }
     }
 

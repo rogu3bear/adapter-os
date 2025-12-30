@@ -50,6 +50,9 @@ pub struct ChatSessionKv {
     #[serde(default)]
     pub codebase_adapter_id: Option<String>,
     pub status: String,
+    /// Timestamp when session was archived (if applicable)
+    #[serde(default)]
+    pub archived_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -226,6 +229,7 @@ impl ChatSessionKvRepository {
             pinned_adapter_ids: params.pinned_adapter_ids.clone(),
             codebase_adapter_id: params.codebase_adapter_id.clone(),
             status: "active".to_string(),
+            archived_at: None,
         };
         let payload = serde_json::to_vec(&session).map_err(AosError::Serialization)?;
         self.backend

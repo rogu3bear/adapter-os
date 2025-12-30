@@ -184,7 +184,12 @@ pub async fn update_chat_tag(
                 ),
             )
         })?
-        .unwrap();
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("Tag not found after update").with_code("NOT_FOUND")),
+            )
+        })?;
 
     Ok(Json(updated_tag))
 }

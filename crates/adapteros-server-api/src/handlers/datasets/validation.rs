@@ -1419,7 +1419,10 @@ pub async fn validate_dataset(
 
         // Derive validation seed from determinism context if available
         let (validation_seed_hex, determinism_mode_str) = {
-            let config = state.config.read().unwrap();
+            let config = state.config.read().unwrap_or_else(|e| {
+                tracing::warn!("Config lock poisoned in validation handler, recovering");
+                e.into_inner()
+            });
             let determinism_mode = config.general.as_ref().and_then(|g| g.determinism_mode);
 
             if let Some(ref mode) = determinism_mode {

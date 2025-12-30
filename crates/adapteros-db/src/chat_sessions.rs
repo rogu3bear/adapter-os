@@ -62,6 +62,14 @@ pub struct ChatSession {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
     pub codebase_adapter_id: Option<String>,
+    /// Session lifecycle status: active, archived, or deleted
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub status: Option<String>,
+    /// Timestamp when session was archived (if applicable)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub archived_at: Option<String>,
 }
 
 /// Chat message record
@@ -343,6 +351,8 @@ impl From<ChatSessionKv> for ChatSession {
             tags_json: kv.tags_json,
             pinned_adapter_ids: kv.pinned_adapter_ids,
             codebase_adapter_id: kv.codebase_adapter_id,
+            status: Some(kv.status),
+            archived_at: kv.archived_at,
         }
     }
 }
@@ -692,7 +702,8 @@ impl Db {
             r#"
             SELECT id, tenant_id, user_id, created_by, stack_id, collection_id, document_id,
                    name, title, source_type, source_ref_id,
-                   created_at, updated_at, last_activity_at, metadata_json, tags_json, pinned_adapter_ids
+                   created_at, updated_at, last_activity_at, metadata_json, tags_json, pinned_adapter_ids,
+                   codebase_adapter_id, status, archived_at
             FROM chat_sessions
             WHERE id = ?
             "#,

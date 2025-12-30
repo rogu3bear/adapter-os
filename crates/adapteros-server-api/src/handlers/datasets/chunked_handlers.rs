@@ -16,6 +16,7 @@ use super::upload::build_training_rows_from_jsonl_bytes;
 use super::validation::{
     CompositeValidator, FileExistsRule, FileExtensionRule, FileSizeRule, ValidationConfig,
 };
+use crate::api_error::ApiError;
 use crate::audit_helper::{actions, log_failure_or_warn, log_success_or_warn, resources};
 use crate::auth::Claims;
 use crate::citations::build_dataset_index;
@@ -168,8 +169,17 @@ pub async fn complete_chunked_upload(
     if UploadSessionManager::is_session_expired(&session) {
         return Err(not_found("Upload session"));
     }
-    if UploadSessionManager::is_session_expired(&session) {
-        return Err(not_found("Upload session"));
+
+    // Validate workspace_id consistency between session and request for tenant isolation
+    if let Some(ref session_workspace_id) = session.workspace_id {
+        if let Some(ref request_workspace_id) = request.workspace_id {
+            if session_workspace_id != request_workspace_id {
+                return Err(ApiError::bad_request(
+                    "Workspace ID mismatch: session was created for a different workspace",
+                )
+                .into());
+            }
+        }
     }
 
     // Determine workspace_id: prefer request, fall back to session, fall back to tenant

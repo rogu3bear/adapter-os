@@ -42,8 +42,8 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
   const [showSpawnModal, setShowSpawnModal] = useState(false);
   const [debugWorkerId, setDebugWorkerId] = useState<string | null>(null);
   const [hotSwapOpen, setHotSwapOpen] = useState(false);
-  const [hotSwapAdd, setHotSwapAdd] = useState('');
-  const [hotSwapRemove, setHotSwapRemove] = useState('');
+  const [oldAdapterId, setOldAdapterId] = useState('');
+  const [newAdapterId, setNewAdapterId] = useState('');
   const [error, setError] = useState<Error | null>(null);
 
   // Filters
@@ -355,33 +355,39 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
       <Dialog open={hotSwapOpen} onOpenChange={setHotSwapOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Hot-swap Adapters</DialogTitle>
+            <DialogTitle>Hot-swap Adapter</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div>
-              <label className="font-medium text-sm mb-1">Add (comma-separated adapter IDs)</label>
-              <Input value={hotSwapAdd} onChange={(e) => setHotSwapAdd(e.target.value)} placeholder="adapter_a,adapter_b" />
+              <label className="font-medium text-sm mb-1">Old Adapter ID (to unload)</label>
+              <Input value={oldAdapterId} onChange={(e) => setOldAdapterId(e.target.value)} placeholder="adapter_to_replace" />
             </div>
             <div>
-              <label className="font-medium text-sm mb-1">Remove (comma-separated adapter IDs)</label>
-              <Input value={hotSwapRemove} onChange={(e) => setHotSwapRemove(e.target.value)} placeholder="adapter_x,adapter_y" />
+              <label className="font-medium text-sm mb-1">New Adapter ID (to load)</label>
+              <Input value={newAdapterId} onChange={(e) => setNewAdapterId(e.target.value)} placeholder="adapter_to_load" />
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setHotSwapOpen(false)}>Cancel</Button>
             <Button onClick={async () => {
               try {
-                const add = hotSwapAdd.split(',').map(s => s.trim()).filter(Boolean);
-                const remove = hotSwapRemove.split(',').map(s => s.trim()).filter(Boolean);
-                await apiClient.swapAdapters(add, remove, true);
+                if (!oldAdapterId.trim() || !newAdapterId.trim()) {
+                  toast.error('Both adapter IDs are required');
+                  return;
+                }
+                const result = await apiClient.swapAdapters(oldAdapterId.trim(), newAdapterId.trim(), false);
                 setHotSwapOpen(false);
-                setHotSwapAdd('');
-                setHotSwapRemove('');
-                toast.success('Hot-swap committed');
+                setOldAdapterId('');
+                setNewAdapterId('');
+                if (result.success) {
+                  toast.success(`Hot-swap completed in ${result.durationMs}ms`);
+                } else {
+                  toast.error(result.message || 'Hot-swap failed');
+                }
               } catch (err) {
                 toast.error('Hot-swap failed');
               }
-            }}>Commit</Button>
+            }}>Swap</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -3,11 +3,16 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Settings, FileText, Database, Zap, Folder } from 'lucide-react';
+import { Settings, FileText, Database, Zap, Folder, AlertTriangle } from 'lucide-react';
 import { useTrainingWizardContext } from '@/components/TrainingWizard/context';
 
 export function ReviewStep() {
-  const { state } = useTrainingWizardContext();
+  const { state, datasets } = useTrainingWizardContext();
+
+  // Find the selected dataset to get version information
+  const selectedDataset = state.datasetId
+    ? datasets.find(d => d.id === state.datasetId)
+    : null;
 
   return (
     <div className="space-y-4">
@@ -85,6 +90,29 @@ export function ReviewStep() {
                 <div>
                   <p className="font-medium">Dataset Path</p>
                   <p className="text-muted-foreground font-mono text-xs">{state.datasetPath}</p>
+                </div>
+              )}
+              {state.datasetId && (
+                <div>
+                  <p className="font-medium">Dataset ID</p>
+                  <p className="text-muted-foreground font-mono text-xs">{state.datasetId}</p>
+                </div>
+              )}
+              {state.datasetId && (
+                <div>
+                  <p className="font-medium">Dataset Version</p>
+                  {selectedDataset?.dataset_version_id ? (
+                    <Badge variant="outline" className="font-mono text-xs">
+                      {selectedDataset.dataset_version_id.length > 12
+                        ? `${selectedDataset.dataset_version_id.slice(0, 12)}...`
+                        : selectedDataset.dataset_version_id}
+                    </Badge>
+                  ) : (
+                    <div className="flex items-center gap-1 text-amber-600">
+                      <AlertTriangle className="h-3 w-3" />
+                      <span className="text-xs">No version available</span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

@@ -2,6 +2,7 @@ import { Component, ReactNode } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { AlertTriangle } from 'lucide-react';
+import { logger } from '@/utils/logger';
 
 interface Props {
   children: ReactNode;
@@ -41,13 +42,12 @@ export class ApiErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
-    // Log error details for debugging
-    console.error('ApiErrorBoundary caught error:', {
-      error,
-      errorInfo: info,
-      componentStack: info.componentStack,
-      timestamp: new Date().toISOString(),
-    });
+    // Log error details for debugging using structured logger
+    logger.error('ApiErrorBoundary caught error', {
+      component: 'ApiErrorBoundary',
+      operation: 'componentDidCatch',
+      details: info.componentStack ?? undefined,
+    }, error);
   }
 
   handleRetry = () => {

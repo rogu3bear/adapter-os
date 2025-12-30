@@ -7,10 +7,12 @@ export type DatasetSummary = {
   file_count: number;
   total_size_bytes: number;
   validation_errors?: string;
+  dataset_version_id?: string;
 };
 
 export interface WizardState {
   currentStep?: number;
+  simpleMode?: boolean;
   category: AdapterCategory | null;
   name: string;
   description: string;

@@ -125,6 +125,15 @@ export function SimpleDatasetStep() {
                         <Badge variant="outline" className="text-xs">
                           {dataset.validation_status}
                         </Badge>
+                        {dataset.dataset_version_id ? (
+                          <Badge variant="outline" className="text-xs font-mono">
+                            v:{dataset.dataset_version_id.slice(0, 8)}
+                          </Badge>
+                        ) : (
+                          <Badge variant="destructive" className="text-xs">
+                            (no version)
+                          </Badge>
+                        )}
                       </div>
                       <span className="text-xs text-muted-foreground ml-auto">
                         {dataset.file_count} files • {formatBytes(dataset.total_size_bytes)}
@@ -154,7 +163,7 @@ export function SimpleDatasetStep() {
                       Current status: {selectedDataset.validation_status}.
                     </p>
                     {selectedDataset.validation_errors && (
-                      <p className="text-sm mt-2 font-mono">
+                      <p className="text-sm mt-2 font-mono whitespace-pre-wrap">
                         {selectedDataset.validation_errors}
                       </p>
                     )}
@@ -408,8 +417,18 @@ export function SimpleDatasetStep() {
               onClick={handleCreateAndValidateDataset}
               disabled={createStatus !== 'idle'}
             >
-              {createStatus === 'creating' && 'Uploading...'}
-              {createStatus === 'validating' && TERMS.datasetValidating}
+              {createStatus === 'creating' && (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Uploading...
+                </>
+              )}
+              {createStatus === 'validating' && (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  {TERMS.datasetValidating}
+                </>
+              )}
               {createStatus === 'idle' && 'Create & validate collection'}
             </Button>
             {createdDatasetId && (

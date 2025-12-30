@@ -94,6 +94,7 @@ export function TenantFormModal({ open, onOpenChange, tenant }: TenantFormModalP
               <Input
                 id="name"
                 placeholder="acme-corp"
+                autoFocus
                 {...register('name')}
               />
               {errors.name && (

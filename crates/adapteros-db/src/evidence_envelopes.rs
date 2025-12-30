@@ -199,7 +199,7 @@ impl Db {
         match (&envelope.previous_root, &tail) {
             (Some(prev), Some((expected_root, seq))) if prev != expected_root => {
                 return Err(evidence_chain_divergence(format!(
-                    "PREVIOUS_ROOT_MISMATCH: Expected previous_root = {} (sequence {}), \
+                    "PREVIOUS_ROOT_MISMATCH: previous_root mismatch. Expected previous_root = {} (sequence {}), \
                      but envelope has previous_root = {}. Chain linkage is broken.",
                     expected_root.to_short_hex(),
                     seq,

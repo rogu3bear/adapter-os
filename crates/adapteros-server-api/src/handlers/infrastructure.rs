@@ -465,7 +465,11 @@ pub async fn get_base_model_status(
 
     // Authenticated path - return full data
     // PRD-RECT-002: Validate caller has access to the requested tenant
-    let claims_inner = claims.as_ref().map(|c| &c.0).unwrap(); // Safe: checked is_authenticated above
+    // SAFETY: is_authenticated was checked above at line 451, so claims must be Some
+    let claims_inner = claims
+        .as_ref()
+        .map(|c| &c.0)
+        .expect("claims must exist when is_authenticated is true");
     let tenant_id = query
         .tenant_id
         .clone()

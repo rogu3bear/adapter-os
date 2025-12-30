@@ -73,7 +73,7 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
   const [validationError, setValidationError] = useState<string | null>(null);
   const [showResumeDialog, setShowResumeDialog] = useState(false);
   const [savedState, setSavedState] = useState<WizardState | null>(null);
-  const [simpleMode, setSimpleMode] = useState(true); // Default to simple mode for MVP
+  const [simpleModeLocal, setSimpleModeLocal] = useState(true); // Local state, synced from persisted state
   const [simpleDatasetMode, setSimpleDatasetMode] = useState<SimpleDatasetMode>('existing');
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -98,6 +98,7 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
 
   const initialState: WizardState = {
     currentStep: 0,
+    simpleMode: true, // Default to simple mode for MVP
     category: null,
     name: '',
     description: '',
@@ -134,6 +135,22 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
 
   const [currentStep, setCurrentStep] = useState(state.currentStep || 0);
 
+  // Derive simpleMode from persisted state, falling back to local state on first render
+  const simpleMode = state.simpleMode ?? simpleModeLocal;
+
+  // Update simpleMode in both local state and persisted state
+  const setSimpleMode = useCallback((value: boolean) => {
+    setSimpleModeLocal(value);
+    setPersistedState({ simpleMode: value });
+  }, [setPersistedState]);
+
+  // Sync simpleMode from persisted state on initial load
+  useEffect(() => {
+    if (state.simpleMode !== undefined) {
+      setSimpleModeLocal(state.simpleMode);
+    }
+  }, [state.simpleMode]);
+
   // Sync currentStep with state persistence
   useEffect(() => {
     setPersistedState({ currentStep });
@@ -159,7 +176,8 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
           validation_status: d.validation_status ?? 'draft',
           file_count: d.file_count || 0,
           total_size_bytes: d.total_size_bytes || 0,
-          validation_errors: Array.isArray(d.validation_errors) ? d.validation_errors.join('; ') : (d.validation_errors ?? undefined),
+          validation_errors: Array.isArray(d.validation_errors) ? d.validation_errors.join('\n') : (d.validation_errors ?? undefined),
+          dataset_version_id: d.dataset_version_id ?? undefined,
         }));
         setDatasets(mappedDatasets);
       } catch (error) {
@@ -183,8 +201,14 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
   const handleResume = () => {
     // loadSavedState already updates the persisted state
     const restoredState = loadSavedState();
-    if (restoredState && restoredState.currentStep !== undefined) {
-      setCurrentStep(restoredState.currentStep);
+    if (restoredState) {
+      if (restoredState.currentStep !== undefined) {
+        setCurrentStep(restoredState.currentStep);
+      }
+      // Restore simpleMode from saved state
+      if (restoredState.simpleMode !== undefined) {
+        setSimpleModeLocal(restoredState.simpleMode);
+      }
     }
     setShowResumeDialog(false);
   };
@@ -194,6 +218,7 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
     // Reset to initial state
     setPersistedState(initialState as WizardState & Record<string, unknown>);
     setCurrentStep(0);
+    setSimpleModeLocal(true); // Reset to default simple mode
     setSimpleDatasetMode('existing');
     setUploadFiles([]);
     setValidationResult(null);
@@ -288,7 +313,8 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
           validation_status: response.validation_status,
           file_count: response.file_count || 0,
           total_size_bytes: response.total_size_bytes || 0,
-          validation_errors: Array.isArray(response.validation_errors) ? response.validation_errors.join('; ') : (response.validation_errors ?? undefined)
+          validation_errors: Array.isArray(response.validation_errors) ? response.validation_errors.join('\n') : (response.validation_errors ?? undefined),
+          dataset_version_id: response.dataset_version_id ?? undefined,
         },
         ...prev.filter(d => d.id !== newDatasetId),
       ]);
@@ -479,6 +505,14 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
           setIsLoading(false);
           return;
         }
+        // Dataset version is required for training
+        if (selectedDataset && !selectedDataset.dataset_version_id) {
+          setValidationError(
+            `Dataset "${selectedDataset.name}" has no version. A dataset version is required for training.`
+          );
+          setIsLoading(false);
+          return;
+        }
         // Set all required defaults for simple mode
         if (!stateToValidate.name || stateToValidate.name.trim() === '') {
           stateToValidate.name = `adapter-${Date.now()}`;
@@ -525,6 +559,14 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
         if (selectedDataset && selectedDataset.validation_status !== 'valid') {
           setValidationError(
             `Collection ${selectedDataset.id} is not validated (status: ${selectedDataset.validation_status}). Please run validation first.`
+          );
+          setIsLoading(false);
+          return;
+        }
+        // Dataset version is required for training
+        if (selectedDataset && !selectedDataset.dataset_version_id) {
+          setValidationError(
+            `Dataset "${selectedDataset.name}" has no version. A dataset version is required for training.`
           );
           setIsLoading(false);
           return;
@@ -642,8 +684,15 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
       } else if (stateToValidate.dataSourceType === 'repository' && stateToValidate.repositoryId) {
         trainingRequest.repo_id = stateToValidate.repositoryId;
       } else if (stateToValidate.dataSourceType === 'dataset' && stateToValidate.datasetId) {
-        // Dataset-based training
+        // Dataset-based training - server requires dataset_version_ids
+        const datasetForSubmit = datasets.find(d => d.id === stateToValidate.datasetId);
         trainingRequest.dataset_id = stateToValidate.datasetId;
+        if (datasetForSubmit?.dataset_version_id) {
+          trainingRequest.dataset_version_ids = [{
+            dataset_version_id: datasetForSubmit.dataset_version_id,
+            weight: 1.0,
+          }];
+        }
       } else if (stateToValidate.dataSourceType === 'directory') {
         // Directory-based training
         trainingRequest.directory_root = stateToValidate.directoryRoot;
@@ -895,6 +944,16 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
           {savedState && (
             <div className="space-y-2 text-sm">
               <div className="flex items-center gap-2">
+                <span className="text-muted-foreground">Mode:</span>
+                <span className="font-medium flex items-center gap-1">
+                  {(savedState as WizardState).simpleMode !== false ? (
+                    <><Sparkles className="h-3 w-3" /> Simple</>
+                  ) : (
+                    'Advanced'
+                  )}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
                 <span className="text-muted-foreground">Adapter:</span>
                 <span className="font-medium">{(savedState as WizardState).name || 'Untitled'}</span>
               </div>
@@ -907,7 +966,9 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
               {(savedState as WizardState)?.currentStep !== undefined && (
                 <div className="flex items-center gap-2">
                   <span className="text-muted-foreground">Progress:</span>
-                  <span className="font-medium">Step {((savedState as WizardState)?.currentStep ?? 0) + 1} of 7</span>
+                  <span className="font-medium">
+                    Step {((savedState as WizardState)?.currentStep ?? 0) + 1} of {(savedState as WizardState).simpleMode !== false ? 3 : 7}
+                  </span>
                 </div>
               )}
             </div>
@@ -962,8 +1023,14 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
               size="sm"
               onClick={() => {
                 const saved = loadSavedState();
-                if (saved && saved.currentStep !== undefined) {
-                  setCurrentStep(saved.currentStep);
+                if (saved) {
+                  if (saved.currentStep !== undefined) {
+                    setCurrentStep(saved.currentStep);
+                  }
+                  // Restore simpleMode from saved state
+                  if (saved.simpleMode !== undefined) {
+                    setSimpleModeLocal(saved.simpleMode);
+                  }
                 }
               }}
               className="text-xs"

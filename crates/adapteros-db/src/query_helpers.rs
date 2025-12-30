@@ -4,11 +4,14 @@
 //! - Error mapping helpers
 //! - Dynamic query builders
 //! - Batch operation tracking
+//! - Query timing and timeout warning helpers
 //! - Common row mapping utilities
 
 use adapteros_core::{AosError, Result};
 use sqlx::Database;
 use std::fmt::Display;
+use std::future::Future;
+use std::time::{Duration, Instant};
 
 /// Map sqlx errors to AosError::Database with context
 ///
@@ -256,6 +259,145 @@ impl FilterBuilder {
 // Note: execute_filtered_query was removed due to trait bound complexity.
 // Users should build queries manually using the FilterBuilder pattern shown in audit.rs
 
+/// Default threshold for warning about slow queries (25 seconds).
+/// This is 5 seconds before the 30-second busy_timeout to give early warning.
+pub const SLOW_QUERY_THRESHOLD: Duration = Duration::from_secs(25);
+
+/// Execute an async operation with timing and log a warning if it approaches the busy_timeout.
+///
+/// This helper wraps any async database operation and logs a warning if the operation
+/// takes longer than the specified threshold (default 25 seconds), which is 5 seconds
+/// before the SQLite busy_timeout of 30 seconds.
+///
+/// # Arguments
+/// * `operation_name` - A descriptive name for the operation (for logging)
+/// * `future` - The async operation to execute
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// # use adapteros_db::query_helpers::timed_query;
+/// # use sqlx::SqlitePool;
+/// # async fn example(pool: &SqlitePool) -> adapteros_core::Result<()> {
+/// let adapters = timed_query("fetch_all_adapters", async {
+///     sqlx::query_as::<_, (String,)>("SELECT id FROM adapters")
+///         .fetch_all(pool)
+///         .await
+/// }).await?;
+/// # Ok(())
+/// # }
+/// ```
+pub async fn timed_query<F, T, E>(operation_name: &str, future: F) -> std::result::Result<T, E>
+where
+    F: Future<Output = std::result::Result<T, E>>,
+    E: std::fmt::Display,
+{
+    timed_query_with_threshold(operation_name, future, SLOW_QUERY_THRESHOLD).await
+}
+
+/// Execute an async operation with timing using a custom threshold.
+///
+/// # Arguments
+/// * `operation_name` - A descriptive name for the operation (for logging)
+/// * `future` - The async operation to execute
+/// * `threshold` - Duration threshold for warning (default uses SLOW_QUERY_THRESHOLD)
+pub async fn timed_query_with_threshold<F, T, E>(
+    operation_name: &str,
+    future: F,
+    threshold: Duration,
+) -> std::result::Result<T, E>
+where
+    F: Future<Output = std::result::Result<T, E>>,
+    E: std::fmt::Display,
+{
+    let start = Instant::now();
+    let result = future.await;
+    let duration = start.elapsed();
+
+    if duration > threshold {
+        tracing::warn!(
+            operation = %operation_name,
+            duration_ms = duration.as_millis() as u64,
+            threshold_ms = threshold.as_millis() as u64,
+            "Query approaching busy_timeout threshold (30s)"
+        );
+    }
+
+    result
+}
+
+/// Track query execution time and log if approaching busy_timeout.
+///
+/// Use this for manual timing when wrapping with `timed_query` is not convenient.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// # use adapteros_db::query_helpers::QueryTimer;
+/// let timer = QueryTimer::start("complex_join");
+/// // ... perform database operations ...
+/// timer.finish(); // Logs warning if > 25 seconds
+/// ```
+pub struct QueryTimer {
+    operation: String,
+    start: Instant,
+    threshold: Duration,
+}
+
+impl QueryTimer {
+    /// Start timing a query operation
+    pub fn start(operation: impl Into<String>) -> Self {
+        Self {
+            operation: operation.into(),
+            start: Instant::now(),
+            threshold: SLOW_QUERY_THRESHOLD,
+        }
+    }
+
+    /// Start timing with a custom threshold
+    pub fn start_with_threshold(operation: impl Into<String>, threshold: Duration) -> Self {
+        Self {
+            operation: operation.into(),
+            start: Instant::now(),
+            threshold,
+        }
+    }
+
+    /// Get elapsed time without finishing
+    pub fn elapsed(&self) -> Duration {
+        self.start.elapsed()
+    }
+
+    /// Finish timing and log warning if threshold exceeded
+    pub fn finish(self) -> Duration {
+        let duration = self.start.elapsed();
+        if duration > self.threshold {
+            tracing::warn!(
+                operation = %self.operation,
+                duration_ms = duration.as_millis() as u64,
+                threshold_ms = self.threshold.as_millis() as u64,
+                "Query approaching busy_timeout threshold (30s)"
+            );
+        }
+        duration
+    }
+
+    /// Finish timing with additional context on slow queries
+    pub fn finish_with_context(self, context: &str) -> Duration {
+        let duration = self.start.elapsed();
+        if duration > self.threshold {
+            tracing::warn!(
+                operation = %self.operation,
+                context = %context,
+                duration_ms = duration.as_millis() as u64,
+                threshold_ms = self.threshold.as_millis() as u64,
+                "Query approaching busy_timeout threshold (30s)"
+            );
+        }
+        duration
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -325,5 +467,48 @@ mod tests {
             }
             _ => panic!("Expected Database error"),
         }
+    }
+
+    #[test]
+    fn test_query_timer_fast() {
+        let timer = QueryTimer::start("fast_query");
+        std::thread::sleep(Duration::from_millis(10));
+        let duration = timer.finish();
+        assert!(duration < Duration::from_secs(1));
+    }
+
+    #[test]
+    fn test_query_timer_with_custom_threshold() {
+        let timer = QueryTimer::start_with_threshold("custom_query", Duration::from_millis(50));
+        std::thread::sleep(Duration::from_millis(10));
+        let duration = timer.finish();
+        assert!(duration < Duration::from_millis(50));
+    }
+
+    #[test]
+    fn test_query_timer_elapsed() {
+        let timer = QueryTimer::start("check_elapsed");
+        std::thread::sleep(Duration::from_millis(10));
+        let elapsed = timer.elapsed();
+        assert!(elapsed >= Duration::from_millis(10));
+        let _ = timer.finish();
+    }
+
+    #[tokio::test]
+    async fn test_timed_query_fast() {
+        let result: std::result::Result<i32, String> =
+            timed_query("test_fast", async { Ok(42) }).await;
+        assert_eq!(result.unwrap(), 42);
+    }
+
+    #[tokio::test]
+    async fn test_timed_query_with_threshold() {
+        let result: std::result::Result<&str, String> = timed_query_with_threshold(
+            "test_threshold",
+            async { Ok("success") },
+            Duration::from_secs(1),
+        )
+        .await;
+        assert_eq!(result.unwrap(), "success");
     }
 }

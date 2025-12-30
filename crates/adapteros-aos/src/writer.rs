@@ -299,9 +299,11 @@ impl AosWriter {
         let manifest_size = manifest_json.len() as u64;
         let total_size = manifest_offset + manifest_size;
 
-        // Write archive
-        let mut file = File::create(output_path)
-            .map_err(|e| AosError::Io(format!("Failed to create archive: {}", e)))?;
+        // Write archive atomically: write to temp file first, then rename
+        let temp_path = output_path.with_extension("aos.tmp");
+
+        let mut file = File::create(&temp_path)
+            .map_err(|e| AosError::Io(format!("Failed to create temp archive: {}", e)))?;
 
         // Write 64-byte header
         let mut header = [0u8; HEADER_SIZE];
@@ -326,6 +328,12 @@ impl AosWriter {
             .map_err(|e| AosError::Io(format!("Failed to write manifest: {}", e)))?;
         file.flush()
             .map_err(|e| AosError::Io(format!("Failed to flush archive: {}", e)))?;
+        file.sync_all()
+            .map_err(|e| AosError::Io(format!("Failed to sync archive: {}", e)))?;
+
+        // Atomic rename from temp file to final destination
+        std::fs::rename(&temp_path, output_path)
+            .map_err(|e| AosError::Io(format!("Failed to finalize archive: {}", e)))?;
 
         info!(
             path = %output_path.display(),

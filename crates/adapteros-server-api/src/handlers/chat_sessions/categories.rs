@@ -189,7 +189,12 @@ pub async fn update_chat_category(
                 ),
             )
         })?
-        .unwrap();
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("Category not found after update").with_code("NOT_FOUND")),
+            )
+        })?;
 
     Ok(Json(updated))
 }

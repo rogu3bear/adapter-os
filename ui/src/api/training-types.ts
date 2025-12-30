@@ -23,7 +23,7 @@ export interface TrainingJob extends TrainingJobResponse {
   coreml_used?: boolean;
 
   // Dataset trust info (from dataset version trust snapshot)
-  dataset_trust_state?: string;
+  dataset_trust_state?: TrustState;
   dataset_trust_reason?: string;
 
   // Stack/adapter relationship
@@ -135,22 +135,75 @@ export type DataLineageMode = components['schemas']['DataLineageMode'];
 export type BranchClassification = components['schemas']['BranchClassification'];
 
 // ============================================================================
-// TRAINING STATUS ENUM
-// TODO: Backend should expose this as an enum in OpenAPI schema
+// ENUMS FROM OPENAPI SCHEMA
 // ============================================================================
-export type TrainingStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'paused';
+// Template literal keeps string unions while sourcing values from OpenAPI enums.
+export type TrainingStatus = `${components['schemas']['TrainingStatus']}`;
+export type TrustState = `${components['schemas']['TrustState']}`;
+export type DatasetSourceType = `${components['schemas']['DatasetSourceType']}`;
 
 // ============================================================================
-// TRUST STATE ENUM
-// TODO: Backend should expose this as an enum in OpenAPI schema
+// TYPE GUARD FUNCTIONS
 // ============================================================================
-export type TrustState = 'allowed' | 'allowed_with_warning' | 'blocked' | 'needs_approval' | 'unknown';
+// These functions provide runtime validation for enum values, replacing
+// unsafe `as TypeName` assertions with proper type narrowing.
 
-// ============================================================================
-// DATASET SOURCE TYPE ENUM
-// TODO: Backend should expose this as an enum in OpenAPI schema
-// ============================================================================
-export type DatasetSourceType = 'code_repo' | 'uploaded_files' | 'generated';
+/**
+ * Type guard for TrainingStatus enum values.
+ * Use this instead of `as TrainingStatus` assertions to validate runtime values.
+ *
+ * @param value - The unknown value to validate
+ * @returns True if the value is a valid TrainingStatus
+ *
+ * @example
+ * ```typescript
+ * const status = event.target.value;
+ * if (isTrainingStatus(status)) {
+ *   setFilter(status); // status is now typed as TrainingStatus
+ * }
+ * ```
+ */
+export function isTrainingStatus(value: unknown): value is TrainingStatus {
+  return ['pending', 'running', 'completed', 'failed', 'cancelled', 'paused'].includes(value as string);
+}
+
+/**
+ * Type guard for TrustState enum values.
+ * Use this instead of `as TrustState` assertions to validate runtime values.
+ *
+ * @param value - The unknown value to validate
+ * @returns True if the value is a valid TrustState
+ *
+ * @example
+ * ```typescript
+ * const trustState = formData.trust_state;
+ * if (isTrustState(trustState)) {
+ *   updateTrust(trustState); // trustState is now typed as TrustState
+ * }
+ * ```
+ */
+export function isTrustState(value: unknown): value is TrustState {
+  return ['allowed', 'allowed_with_warning', 'blocked', 'needs_approval', 'unknown'].includes(value as string);
+}
+
+/**
+ * Type guard for DatasetSourceType enum values.
+ * Use this instead of `as DatasetSourceType` assertions to validate runtime values.
+ *
+ * @param value - The unknown value to validate
+ * @returns True if the value is a valid DatasetSourceType
+ *
+ * @example
+ * ```typescript
+ * const sourceType = selectValue;
+ * if (isDatasetSourceType(sourceType)) {
+ *   createDataset({ source_type: sourceType }); // sourceType is now typed as DatasetSourceType
+ * }
+ * ```
+ */
+export function isDatasetSourceType(value: unknown): value is DatasetSourceType {
+  return ['code_repo', 'uploaded_files', 'generated'].includes(value as string);
+}
 
 // ============================================================================
 // UI-ONLY TYPES (Not sent to backend)
@@ -196,6 +249,7 @@ export interface DatasetVersionSummary {
   hash_b3?: string;
   storage_path?: string;
   trust_state?: TrustState;
+  repo_slug?: string;
   created_at: string;
 }
 
@@ -203,6 +257,41 @@ export interface DatasetVersionListResponse {
   schema_version: string;
   dataset_id: string;
   versions: DatasetVersionSummary[];
+}
+
+// ============================================================================
+// TRAINING METRICS FROM BACKEND
+// ============================================================================
+
+/**
+ * Individual training metric entry for time-series data.
+ * Returned by GET /v1/training/jobs/:jobId/metrics endpoint.
+ */
+export interface TrainingMetricEntry {
+  /** Metric step (training iteration) */
+  step: number;
+  /** Loss value at this step */
+  loss: number;
+  /** Learning rate at this step (optional - not stored per-step in current schema) */
+  learning_rate?: number;
+  /** Training epoch */
+  epoch: number;
+  /** Tokens processed up to this point */
+  tokens_processed?: number;
+  /** Timestamp of this metric */
+  timestamp: string;
+}
+
+/**
+ * Training metrics list response for time-series metrics endpoint.
+ * Returned by GET /v1/training/jobs/:jobId/metrics endpoint.
+ */
+export interface TrainingMetricsListResponse {
+  schema_version: string;
+  /** Training job ID */
+  job_id: string;
+  /** Time-series metrics */
+  metrics: TrainingMetricEntry[];
 }
 
 // ============================================================================
@@ -416,6 +505,7 @@ export interface CreateDatasetFromDocumentsRequest {
 export interface CreateDatasetFromDocumentsResponse {
   schema_version: string;
   dataset_id: string;
+  dataset_version_id?: string;
   name: string;
   description?: string;
   file_count: number;
@@ -630,4 +720,187 @@ export interface DriftMetrics {
   drift_tokens?: number;
   baseline_loss?: number;
   window_seconds?: number;
+}
+
+// ============================================================================
+// CHUNKED UPLOAD TYPES
+// ============================================================================
+
+/**
+ * Request to initiate a chunked upload session.
+ * Backend: POST /v1/datasets/chunked-upload/initiate
+ */
+export interface InitiateChunkedUploadRequest {
+  /** File name being uploaded */
+  file_name: string;
+  /** Total file size in bytes */
+  total_size: number;
+  /** Content type (e.g., application/gzip) */
+  content_type?: string;
+  /** Chunk size preference (will be clamped to valid range) */
+  chunk_size?: number;
+  /** Optional workspace ID for tenant isolation */
+  workspace_id?: string;
+}
+
+/**
+ * Response from initiating a chunked upload.
+ * Backend: POST /v1/datasets/chunked-upload/initiate
+ */
+export interface InitiateChunkedUploadResponse {
+  /** Unique session identifier */
+  session_id: string;
+  /** Chunk size that will be used */
+  chunk_size: number;
+  /** Expected number of chunks */
+  expected_chunks: number;
+  /** Whether compression is detected */
+  compression_format: string;
+}
+
+/**
+ * Response from uploading a chunk.
+ * Backend: POST /v1/datasets/chunked-upload/:sessionId/chunk
+ */
+export interface UploadChunkResponse {
+  /** Session ID */
+  session_id: string;
+  /** Chunk index that was uploaded */
+  chunk_index: number;
+  /** BLAKE3 hash of this chunk */
+  chunk_hash: string;
+  /** Total chunks received so far */
+  chunks_received: number;
+  /** Total expected chunks */
+  expected_chunks: number;
+  /** Is upload complete (all chunks received)? */
+  is_complete: boolean;
+  /** Resume token for resuming from next chunk (if not complete) */
+  resume_token?: string;
+}
+
+/**
+ * Response from retrying a chunk upload.
+ * Backend: PUT /v1/datasets/chunked-upload/:sessionId/chunk
+ */
+export interface RetryChunkResponse {
+  /** Session ID */
+  session_id: string;
+  /** Chunk index that was retried */
+  chunk_index: number;
+  /** BLAKE3 hash of the new chunk */
+  chunk_hash: string;
+  /** Previous hash if this was replacing an existing chunk */
+  previous_hash?: string;
+  /** Total chunks received so far */
+  chunks_received: number;
+  /** Total expected chunks */
+  expected_chunks: number;
+  /** Is upload complete (all chunks received)? */
+  is_complete: boolean;
+  /** Whether this was actually a retry (chunk existed before) */
+  was_retry: boolean;
+}
+
+/**
+ * Request to complete a chunked upload and create the dataset.
+ * Backend: POST /v1/datasets/chunked-upload/:sessionId/complete
+ */
+export interface CompleteChunkedUploadRequest {
+  /** Dataset name (optional, defaults to file name) */
+  name?: string;
+  /** Dataset description */
+  description?: string;
+  /** Dataset format (e.g., "jsonl", "json", "csv") */
+  format?: string;
+  /** Optional workspace ID for tenant isolation (should match initiate request) */
+  workspace_id?: string;
+}
+
+/**
+ * Response from completing a chunked upload.
+ * Backend: POST /v1/datasets/chunked-upload/:sessionId/complete
+ */
+export interface CompleteChunkedUploadResponse {
+  /** Created dataset ID */
+  dataset_id: string;
+  /** The dataset version ID created for this upload */
+  dataset_version_id?: string;
+  /** Dataset name */
+  name: string;
+  /** Dataset hash (manifest-derived BLAKE3) */
+  hash: string;
+  /** Total file size in bytes */
+  total_size_bytes: number;
+  /** Storage path */
+  storage_path: string;
+  /** Timestamp when dataset was created */
+  created_at: string;
+  /** Workspace ID if dataset was scoped to a workspace */
+  workspace_id?: string;
+}
+
+/**
+ * Response for getting upload session status.
+ * Backend: GET /v1/datasets/chunked-upload/:sessionId/status
+ */
+export interface UploadSessionStatusResponse {
+  /** Session ID */
+  session_id: string;
+  /** Original file name */
+  file_name: string;
+  /** Total file size in bytes */
+  total_size: number;
+  /** Chunk size for this upload */
+  chunk_size: number;
+  /** Expected number of chunks */
+  expected_chunks: number;
+  /** Number of chunks received */
+  chunks_received: number;
+  /** List of chunk indices that have been received */
+  received_chunk_indices: number[];
+  /** Whether all chunks have been received */
+  is_complete: boolean;
+  /** Session creation timestamp (RFC3339) */
+  created_at: string;
+  /** Compression format detected */
+  compression_format: string;
+}
+
+/**
+ * Summary of an upload session for listing.
+ * Backend: GET /v1/datasets/chunked-upload/sessions
+ */
+export interface UploadSessionSummary {
+  /** Session ID */
+  session_id: string;
+  /** Original file name */
+  file_name: string;
+  /** Total file size in bytes */
+  total_size: number;
+  /** Number of chunks received */
+  chunks_received: number;
+  /** Total expected chunks */
+  expected_chunks: number;
+  /** Upload progress percentage */
+  progress_percent: number;
+  /** Session creation timestamp (RFC3339) */
+  created_at: string;
+  /** Age of the session in seconds */
+  age_seconds: number;
+  /** Whether the session has expired */
+  is_expired: boolean;
+}
+
+/**
+ * Response for listing upload sessions.
+ * Backend: GET /v1/datasets/chunked-upload/sessions
+ */
+export interface ListUploadSessionsResponse {
+  /** List of active upload sessions */
+  sessions: UploadSessionSummary[];
+  /** Total number of active sessions */
+  total_count: number;
+  /** Maximum allowed concurrent sessions */
+  max_sessions: number;
 }

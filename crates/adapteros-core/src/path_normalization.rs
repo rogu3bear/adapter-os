@@ -45,6 +45,7 @@
 //! - v1: Platform-native separators (non-deterministic)
 //! - v2: Normalized forward slashes everywhere (this implementation)
 
+use crate::AosError;
 use std::cmp::Ordering;
 use std::path::Path;
 use unicode_normalization::UnicodeNormalization;
@@ -64,6 +65,11 @@ use unicode_normalization::UnicodeNormalization;
 /// # Returns
 ///
 /// A normalized string representation suitable for deterministic comparison.
+/// Uses lossy conversion for non-UTF8 paths (replaces invalid sequences with U+FFFD).
+///
+/// # Note
+///
+/// For strict handling of non-UTF8 paths, use [`try_normalize_path_for_sorting`] instead.
 ///
 /// # Examples
 ///
@@ -91,6 +97,59 @@ pub fn normalize_path_for_sorting(path: &Path) -> String {
     // Apply Unicode NFC normalization for consistent representation
     // This ensures that equivalent Unicode sequences compare as equal
     normalized.nfc().collect()
+}
+
+/// Normalize a path to a canonical form for deterministic sorting, with explicit error handling.
+///
+/// This function is the strict version of [`normalize_path_for_sorting`] that returns
+/// an error for paths containing non-UTF8 characters instead of using lossy conversion.
+///
+/// # Arguments
+///
+/// * `path` - The path to normalize
+///
+/// # Returns
+///
+/// `Ok(String)` with the normalized path, or `Err(AosError::Validation)` if the path
+/// contains non-UTF8 characters.
+///
+/// # Examples
+///
+/// ```rust
+/// use adapteros_core::path_normalization::try_normalize_path_for_sorting;
+/// use std::path::Path;
+///
+/// let result = try_normalize_path_for_sorting(Path::new("foo/bar"));
+/// assert!(result.is_ok());
+/// assert_eq!(result.unwrap(), "foo/bar");
+/// ```
+pub fn try_normalize_path_for_sorting(path: &Path) -> Result<String, AosError> {
+    // Check for non-UTF8 paths explicitly
+    let path_str = path.to_str().ok_or_else(|| {
+        tracing::warn!(
+            path = ?path,
+            "Path contains non-UTF8 characters, cannot normalize for deterministic sorting"
+        );
+        AosError::Validation(format!(
+            "Path contains non-UTF8 characters, cannot normalize: {:?}",
+            path
+        ))
+    })?;
+
+    let mut normalized = path_str.replace('\\', "/");
+
+    // Collapse multiple consecutive slashes into single slash
+    while normalized.contains("//") {
+        normalized = normalized.replace("//", "/");
+    }
+
+    // Remove trailing slash (but preserve root "/")
+    if normalized.len() > 1 && normalized.ends_with('/') {
+        normalized.pop();
+    }
+
+    // Apply Unicode NFC normalization for consistent representation
+    Ok(normalized.nfc().collect())
 }
 
 /// Compare two paths deterministically for sorting.
@@ -280,5 +339,30 @@ mod tests {
             nfc_normalized, nfd_normalized,
             "Unicode NFC normalization should make equivalent paths equal"
         );
+    }
+
+    #[test]
+    fn test_try_normalize_path_for_sorting() {
+        use super::try_normalize_path_for_sorting;
+
+        // Valid UTF-8 paths should succeed
+        let result = try_normalize_path_for_sorting(Path::new("foo/bar"));
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "foo/bar");
+
+        // Backslash normalization should work
+        let result = try_normalize_path_for_sorting(Path::new("foo\\bar\\baz"));
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "foo/bar/baz");
+
+        // Double slashes should be collapsed
+        let result = try_normalize_path_for_sorting(Path::new("foo//bar"));
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "foo/bar");
+
+        // Trailing slash should be removed
+        let result = try_normalize_path_for_sorting(Path::new("foo/bar/"));
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "foo/bar");
     }
 }

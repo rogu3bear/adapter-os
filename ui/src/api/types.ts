@@ -102,6 +102,10 @@ export * from './api-types';
 // These take precedence over policyTypes for PolicyCheck, PolicyPreflightResponse
 export * from './adapter-types';
 
+// Domain types - AdapterSwapResponse for adapter hot-swap operations
+export type { AdapterSwapResponse } from './domain-types';
+
+
 // ============================================================================
 // API utilities
 // ============================================================================

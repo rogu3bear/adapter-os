@@ -420,13 +420,48 @@ pub(crate) async fn package_and_register_adapter(
             }
             let dest = repo_dir.join(format!("{}.aos", version_label));
             if dest != packaged.weights_path {
-                if let Err(e) = tokio::fs::copy(&packaged.weights_path, &dest).await {
+                // Atomic copy: write to temp file first, verify hash, then rename
+                let temp_dest = dest.with_extension("aos.tmp");
+                if let Err(e) = tokio::fs::copy(&packaged.weights_path, &temp_dest).await {
                     warn!(
                         job_id = %job_id,
                         error = %e,
                         dest = %dest.display(),
                         "Failed to copy packaged artifact to versioned path"
                     );
+                    // Clean up temp file if it exists
+                    let _ = tokio::fs::remove_file(&temp_dest).await;
+                } else {
+                    // Verify the copy succeeded by reading and hashing
+                    match tokio::fs::read(&temp_dest).await {
+                        Ok(bytes) => {
+                            let actual_hash = blake3::hash(&bytes).to_hex().to_string();
+                            // Atomic rename only after successful copy
+                            if let Err(e) = tokio::fs::rename(&temp_dest, &dest).await {
+                                warn!(
+                                    job_id = %job_id,
+                                    error = %e,
+                                    "Failed to finalize artifact copy"
+                                );
+                                let _ = tokio::fs::remove_file(&temp_dest).await;
+                            } else {
+                                info!(
+                                    job_id = %job_id,
+                                    hash = %actual_hash,
+                                    dest = %dest.display(),
+                                    "Artifact copied and verified"
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            warn!(
+                                job_id = %job_id,
+                                error = %e,
+                                "Failed to verify copied artifact"
+                            );
+                            let _ = tokio::fs::remove_file(&temp_dest).await;
+                        }
+                    }
                 }
             }
             dest
@@ -434,6 +469,7 @@ pub(crate) async fn package_and_register_adapter(
             packaged.weights_path.clone()
         };
 
+        // Read artifact for verification - return error instead of using fallback
         let (hash, size_bytes) = tokio::fs::read(&target)
             .await
             .map(|bytes| {
@@ -442,7 +478,7 @@ pub(crate) async fn package_and_register_adapter(
                     bytes.len() as i64,
                 )
             })
-            .unwrap_or_else(|_| (packaged.hash_b3.clone(), 0));
+            .map_err(|e| anyhow::anyhow!("Failed to read artifact for verification: {}", e))?;
 
         (target, hash, size_bytes)
     };
