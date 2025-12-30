@@ -266,6 +266,7 @@ dependencies = [
  "adapteros-lora-router",
  "adapteros-lora-worker",
  "adapteros-manifest",
+ "adapteros-normalization",
  "adapteros-orchestrator",
  "adapteros-platform",
  "adapteros-policy",
@@ -438,6 +439,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tracing",
+ "unicode-normalization",
  "utoipa",
  "zip 1.1.4",
 ]
@@ -486,12 +488,15 @@ dependencies = [
 name = "adapteros-db"
 version = "0.11.0"
 dependencies = [
+ "adapteros-aos",
  "adapteros-api-types",
  "adapteros-artifacts",
  "adapteros-config",
  "adapteros-core",
  "adapteros-crypto",
  "adapteros-lora-lifecycle",
+ "adapteros-normalization",
+ "adapteros-single-file-adapter",
  "adapteros-storage",
  "adapteros-telemetry",
  "adapteros-types",
@@ -982,6 +987,7 @@ dependencies = [
  "adapteros-lora-router",
  "adapteros-manifest",
  "adapteros-memory",
+ "adapteros-normalization",
  "adapteros-platform",
  "adapteros-policy",
  "adapteros-profiler",
@@ -1158,6 +1164,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "adapteros-normalization"
+version = "0.11.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "adapteros-numerics"
 version = "0.11.0"
 dependencies = [
@@ -1184,10 +1197,12 @@ dependencies = [
  "adapteros-lora-router",
  "adapteros-lora-worker",
  "adapteros-manifest",
+ "adapteros-normalization",
  "adapteros-platform",
  "adapteros-policy",
  "adapteros-registry",
  "adapteros-sbom",
+ "adapteros-storage",
  "adapteros-telemetry",
  "adapteros-types",
  "anyhow",
