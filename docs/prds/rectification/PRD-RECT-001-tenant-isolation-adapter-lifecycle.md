@@ -43,6 +43,18 @@ If an endpoint is intentionally cross-tenant (admin/system tooling), it must:
 - Document in code comment that it is intentionally cross-tenant.
 - Continue to use `validate_tenant_isolation` or equivalent admin allowlist checks.
 
+## Lifecycle Rules (Reference)
+
+Lifecycle transitions must follow the canonical state machine defined in `crates/adapteros-core/src/lifecycle.rs` and enforced by DB triggers:
+
+- Draft → Training → Ready → Active → Deprecated → Retired
+- Rollback: Active → Ready
+- Failure: any non-terminal → Failed
+- Ephemeral tier: cannot enter Deprecated; Active → Retired allowed
+- Terminal states: Retired and Failed (no transitions out)
+
+Database triggers also block invalid lifecycle inserts (e.g., ephemeral + deprecated) and updates that violate the transition graph.
+
 ## Implementation Notes (Concrete Targets)
 
 Search targets (initial seed list):

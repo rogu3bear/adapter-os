@@ -29,10 +29,19 @@ pub fn reject_forbidden_tmp_path(path: &Path, kind: &str) -> Result<()> {
 pub fn reject_forbidden_tmp_path_like(candidate: &str, kind: &str) -> Result<()> {
     let mut normalized = candidate;
 
-    for prefix in ["sqlite://", "sqlite:", "file://", "file:"] {
-        if let Some(stripped) = normalized.strip_prefix(prefix) {
-            normalized = stripped;
-            break;
+    // Strip ALL URI scheme prefixes to prevent bypass attacks like "file:sqlite:///tmp/db"
+    // Use outer loop to handle multiple/nested prefixes
+    loop {
+        let mut stripped = false;
+        for prefix in ["sqlite://", "sqlite:", "file://", "file:"] {
+            if let Some(s) = normalized.strip_prefix(prefix) {
+                normalized = s;
+                stripped = true;
+                break; // Break inner loop, continue outer
+            }
+        }
+        if !stripped {
+            break; // No more prefixes found
         }
     }
 

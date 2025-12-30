@@ -250,10 +250,18 @@ export function ChatHistorySidebar({
               filteredSessions.map(session => (
                 <div
                   key={session.id}
+                  role="button"
+                  tabIndex={0}
                   className={`group p-3 rounded-lg border cursor-pointer transition-colors hover:bg-muted ${
                     activeSessionId === session.id ? 'bg-muted border-primary' : ''
                   }`}
                   onClick={() => onLoadSession(session.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      onLoadSession(session.id);
+                    }
+                  }}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
@@ -277,7 +285,13 @@ export function ChatHistorySidebar({
                         <>
                           <div className="flex items-center justify-between">
                             <p className="text-sm font-medium truncate">{session.name}</p>
-                            <div className="flex items-center gap-1 ml-2" onClick={(e) => e.stopPropagation()}>
+                            <div
+                              role="button"
+                              tabIndex={0}
+                              className="flex items-center gap-1 ml-2"
+                              onClick={(e) => e.stopPropagation()}
+                              onKeyDown={(e) => e.stopPropagation()}
+                            >
                               <Button
                                 variant="ghost"
                                 size="icon"

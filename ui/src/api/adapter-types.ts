@@ -204,6 +204,21 @@ export interface Adapter extends AdapterUIExtensions {
   runtime_state?: string;
   scope?: AdapterScope;
   stats?: CamelCaseKeys<AdapterStatsGenerated>;
+
+  // Codebase adapter fields (from migration 0261)
+  /** Adapter classification: 'standard' (portable), 'codebase' (stream-scoped), 'core' (baseline) */
+  adapter_type?: 'standard' | 'codebase' | 'core';
+  /** Base adapter ID for codebase adapters (the core adapter they extend as delta) */
+  base_adapter_id?: string;
+  /** Exclusive session binding for codebase adapters */
+  stream_session_id?: string;
+  /**
+   * Activation threshold for auto-versioning (default: 100).
+   * Must be a positive integer.
+   */
+  versioning_threshold?: number;
+  /** BLAKE3 hash of fused CoreML package for deployment verification */
+  coreml_package_hash?: string;
 }
 
 // CoreML package/export state (minimal surface for UI)
@@ -1071,6 +1086,19 @@ export interface AdapterWithAttachMode extends Adapter {
   published_at?: string;
   /** Short description of the adapter */
   short_description?: string;
+}
+
+// ============================================================================
+// Validation Helpers
+// ============================================================================
+
+/**
+ * Validates that a versioning_threshold value is a positive integer.
+ * @param value - The value to validate
+ * @returns true if the value is a positive integer, false otherwise
+ */
+export function validateVersioningThreshold(value: number): boolean {
+  return Number.isInteger(value) && value > 0;
 }
 
 // Re-export commonly used types for convenience

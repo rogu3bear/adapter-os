@@ -2053,10 +2053,18 @@ function ChatInterfaceInner({
                   recentSessions.map(session => (
                     <div
                       key={session.id}
+                      role="button"
+                      tabIndex={0}
                       className={`group p-3 rounded-lg border cursor-pointer transition-colors hover:bg-muted ${
                         currentSessionId === session.id ? 'bg-muted border-primary' : ''
                       }`}
                       onClick={() => handleLoadSession(session.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          handleLoadSession(session.id);
+                        }
+                      }}
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex-1 min-w-0">
@@ -2086,7 +2094,13 @@ function ChatInterfaceInner({
                             <>
                               <div className="flex items-center justify-between">
                                 <p className="text-sm font-medium truncate">{session.name}</p>
-                                <div className="flex items-center gap-1 ml-2" onClick={(e) => e.stopPropagation()}>
+                                <div
+                                  role="button"
+                                  tabIndex={0}
+                                  className="flex items-center gap-1 ml-2"
+                                  onClick={(e) => e.stopPropagation()}
+                                  onKeyDown={(e) => e.stopPropagation()}
+                                >
                                   <Button
                                     variant="ghost"
                                     size="icon"

@@ -7,7 +7,7 @@ use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use std::sync::Arc;
-use tracing::warn;
+use tracing::{error, warn};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -841,7 +841,9 @@ impl Db {
                 .map_err(|e| AosError::Database(format!("Failed to get document status: {}", e)))?;
 
         let Some((current_status,)) = row else {
-            tx.rollback().await.ok();
+            if let Err(e) = tx.rollback().await {
+                error!(error = %e, "Transaction rollback failed - connection may be in inconsistent state");
+            }
             return Err(AosError::NotFound(format!(
                 "Document not found: {}",
                 document_id
@@ -850,7 +852,9 @@ impl Db {
 
         // Only allow transition from pending or failed (retry)
         if current_status != "pending" && current_status != "failed" {
-            tx.rollback().await.ok();
+            if let Err(e) = tx.rollback().await {
+                error!(error = %e, "Transaction rollback failed - connection may be in inconsistent state");
+            }
             return Ok(false);
         }
 
@@ -872,7 +876,9 @@ impl Db {
 
         if result.rows_affected() == 0 {
             // Race condition - another process got there first
-            tx.rollback().await.ok();
+            if let Err(e) = tx.rollback().await {
+                error!(error = %e, "Transaction rollback failed - connection may be in inconsistent state");
+            }
             return Ok(false);
         }
 

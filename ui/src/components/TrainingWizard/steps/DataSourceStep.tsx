@@ -10,6 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useTrainingWizardContext } from '@/components/TrainingWizard/context';
 import { Database, GitBranch, FileText, Code, Folder, CheckCircle, AlertTriangle } from 'lucide-react';
 
+type DataSourceType = 'template' | 'repository' | 'dataset' | 'custom' | 'directory';
+
 export function DataSourceStep() {
   const {
     state,
@@ -20,6 +22,25 @@ export function DataSourceStep() {
     datasets,
   } = useTrainingWizardContext();
 
+  const handleCardClick = (sourceType: DataSourceType, isLocked: boolean) => {
+    if (isLocked) return;
+    updateState({ dataSourceType: sourceType });
+  };
+
+  const handleKeyDown = (event: React.KeyboardEvent, sourceType: DataSourceType, isLocked: boolean) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      handleCardClick(sourceType, isLocked);
+    }
+  };
+
+  const getCardClassName = (sourceType: DataSourceType, isLocked: boolean) => {
+    const isSelected = state.dataSourceType === sourceType;
+    return `transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+      isSelected ? 'border-primary bg-primary/5' : ''
+    } ${isLocked ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`;
+  };
+
   return (
     <div className="space-y-4">
       {dataSourceLocked && (
@@ -27,15 +48,15 @@ export function DataSourceStep() {
           Dataset source is locked by the workflow. Training will use the selected dataset.
         </p>
       )}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4" role="listbox" aria-label="Data source selection">
         <Card
-          className={`transition-all ${
-            state.dataSourceType === 'template' ? 'border-primary bg-primary/5' : ''
-          } ${dataSourceLocked ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-          onClick={() => {
-            if (dataSourceLocked) return;
-            updateState({ dataSourceType: 'template' });
-          }}
+          role="option"
+          tabIndex={dataSourceLocked ? -1 : 0}
+          aria-selected={state.dataSourceType === 'template'}
+          aria-disabled={dataSourceLocked}
+          className={getCardClassName('template', dataSourceLocked)}
+          onClick={() => handleCardClick('template', dataSourceLocked)}
+          onKeyDown={(event) => handleKeyDown(event, 'template', dataSourceLocked)}
         >
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -48,13 +69,13 @@ export function DataSourceStep() {
         </Card>
 
         <Card
-          className={`transition-all ${
-            state.dataSourceType === 'repository' ? 'border-primary bg-primary/5' : ''
-          } ${dataSourceLocked ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-          onClick={() => {
-            if (dataSourceLocked) return;
-            updateState({ dataSourceType: 'repository' });
-          }}
+          role="option"
+          tabIndex={dataSourceLocked ? -1 : 0}
+          aria-selected={state.dataSourceType === 'repository'}
+          aria-disabled={dataSourceLocked}
+          className={getCardClassName('repository', dataSourceLocked)}
+          onClick={() => handleCardClick('repository', dataSourceLocked)}
+          onKeyDown={(event) => handleKeyDown(event, 'repository', dataSourceLocked)}
         >
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -67,10 +88,14 @@ export function DataSourceStep() {
         </Card>
 
         <Card
-          className={`transition-all ${
+          role="option"
+          tabIndex={0}
+          aria-selected={state.dataSourceType === 'dataset'}
+          className={`transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
             state.dataSourceType === 'dataset' ? 'border-primary bg-primary/5' : ''
           } cursor-pointer`}
           onClick={() => updateState({ dataSourceType: 'dataset' })}
+          onKeyDown={(event) => handleKeyDown(event, 'dataset', false)}
         >
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -83,13 +108,13 @@ export function DataSourceStep() {
         </Card>
 
         <Card
-          className={`transition-all ${
-            state.dataSourceType === 'custom' ? 'border-primary bg-primary/5' : ''
-          } ${dataSourceLocked ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-          onClick={() => {
-            if (dataSourceLocked) return;
-            updateState({ dataSourceType: 'custom' });
-          }}
+          role="option"
+          tabIndex={dataSourceLocked ? -1 : 0}
+          aria-selected={state.dataSourceType === 'custom'}
+          aria-disabled={dataSourceLocked}
+          className={getCardClassName('custom', dataSourceLocked)}
+          onClick={() => handleCardClick('custom', dataSourceLocked)}
+          onKeyDown={(event) => handleKeyDown(event, 'custom', dataSourceLocked)}
         >
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -102,13 +127,13 @@ export function DataSourceStep() {
         </Card>
 
         <Card
-          className={`transition-all ${
-            state.dataSourceType === 'directory' ? 'border-primary bg-primary/5' : ''
-          } ${dataSourceLocked ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-          onClick={() => {
-            if (dataSourceLocked) return;
-            updateState({ dataSourceType: 'directory' });
-          }}
+          role="option"
+          tabIndex={dataSourceLocked ? -1 : 0}
+          aria-selected={state.dataSourceType === 'directory'}
+          aria-disabled={dataSourceLocked}
+          className={getCardClassName('directory', dataSourceLocked)}
+          onClick={() => handleCardClick('directory', dataSourceLocked)}
+          onKeyDown={(event) => handleKeyDown(event, 'directory', dataSourceLocked)}
         >
           <CardHeader>
             <CardTitle className="flex items-center gap-2">

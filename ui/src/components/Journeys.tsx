@@ -6,6 +6,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'; // Add Accordion
 import { Input } from '@/components/ui/input'; // Add Input
 import { Button } from '@/components/ui/button'; // Add Button for pagination
+import { LoadingState } from '@/components/ui/loading-state';
+import { errorRecoveryTemplates } from '@/components/ui/error-recovery';
 import Mermaid from 'react-mermaid'; // Add Mermaid
 import { apiClient } from '@/api/services';
 import { JourneyResponse } from '@/api/types';
@@ -29,7 +31,7 @@ export function Journeys({ user, selectedTenant }: JourneysProps) {
     setPage(0); // Reset page
   }, [idInput]);
 
-  const { data: journeyData, isLoading, error } = useQuery({
+  const { data: journeyData, isLoading, error, refetch } = useQuery({
     queryKey: ['journey', activeTab, journeyId, selectedTenant],
     queryFn: async () => {
       return apiClient.getJourney(activeTab, journeyId);
@@ -37,8 +39,8 @@ export function Journeys({ user, selectedTenant }: JourneysProps) {
     enabled: !!selectedTenant && !!journeyId,
   });
 
-  if (isLoading) return <div>Loading journey...</div>;
-  if (error) return <div>Error loading journey: {(error as Error).message}</div>;
+  if (isLoading) return <LoadingState message="Loading journey..." />;
+  if (error) return errorRecoveryTemplates.genericError(error, () => refetch());
 
   const paginatedStates = journeyData ? journeyData.states.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE) : [];
   const totalPages = Math.ceil((journeyData?.states.length || 0) / PAGE_SIZE);

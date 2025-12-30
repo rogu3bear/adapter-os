@@ -23,9 +23,15 @@ pub fn validate_adapter_id(id: &str) -> Result<(), AosError> {
 
     // Check maximum length
     if id.len() > 64 {
-        return Err(AosError::Validation(
-            "Adapter ID must be 64 characters or less".to_string(),
-        ));
+        return Err(AosError::Validation(format!(
+            "Adapter ID must be 64 characters or less (got {} chars for '{}')",
+            id.len(),
+            if id.len() > 32 {
+                format!("{}...", &id[..32])
+            } else {
+                id.to_string()
+            }
+        )));
     }
 
     // Check allowed characters (alphanumeric, hyphens, underscores)
@@ -33,35 +39,42 @@ pub fn validate_adapter_id(id: &str) -> Result<(), AosError> {
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
     {
-        return Err(AosError::Validation(
-            "Adapter ID must contain only ASCII alphanumeric characters, hyphens, and underscores"
-                .to_string(),
-        ));
+        let invalid_chars: Vec<char> = id
+            .chars()
+            .filter(|c| !c.is_ascii_alphanumeric() && *c != '-' && *c != '_')
+            .collect();
+        return Err(AosError::Validation(format!(
+            "Adapter ID '{}' contains invalid characters: {:?}. Only ASCII alphanumeric, hyphens, and underscores are allowed",
+            id, invalid_chars
+        )));
     }
 
     // Must start with alphanumeric character
     if let Some(first) = id.chars().next() {
         if !first.is_ascii_alphanumeric() {
-            return Err(AosError::Validation(
-                "Adapter ID must start with an alphanumeric character".to_string(),
-            ));
+            return Err(AosError::Validation(format!(
+                "Adapter ID '{}' must start with an alphanumeric character (got '{}')",
+                id, first
+            )));
         }
     }
 
     // Must end with alphanumeric character
     if let Some(last) = id.chars().last() {
         if !last.is_ascii_alphanumeric() {
-            return Err(AosError::Validation(
-                "Adapter ID must end with an alphanumeric character".to_string(),
-            ));
+            return Err(AosError::Validation(format!(
+                "Adapter ID '{}' must end with an alphanumeric character (got '{}')",
+                id, last
+            )));
         }
     }
 
     // No consecutive hyphens or underscores
     if id.contains("--") || id.contains("__") || id.contains("-_") || id.contains("_-") {
-        return Err(AosError::Validation(
-            "Adapter ID cannot contain consecutive hyphens or underscores".to_string(),
-        ));
+        return Err(AosError::Validation(format!(
+            "Adapter ID '{}' cannot contain consecutive hyphens or underscores",
+            id
+        )));
     }
 
     // Check reserved prefixes
@@ -69,8 +82,8 @@ pub fn validate_adapter_id(id: &str) -> Result<(), AosError> {
     for prefix in RESERVED_ADAPTER_PREFIXES {
         if lower_id.starts_with(prefix) {
             return Err(AosError::Validation(format!(
-                "Adapter ID cannot start with reserved prefix '{}'",
-                prefix
+                "Adapter ID '{}' cannot start with reserved prefix '{}'",
+                id, prefix
             )));
         }
     }
@@ -214,20 +227,23 @@ pub fn validate_name(name: &str) -> Result<(), AosError> {
 
 pub fn validate_hash_b3(hash: &str) -> Result<(), AosError> {
     if !hash.starts_with("b3:") {
-        return Err(AosError::Validation(
-            "Hash must start with 'b3:'".to_string(),
-        ));
+        return Err(AosError::Validation(format!(
+            "Hash must start with 'b3:' (got '{}')",
+            hash
+        )));
     }
 
     let hex_part = &hash[3..];
     if hex_part.len() != 64 {
-        return Err(AosError::Validation(
-            "B3 hash hex part must be 64 characters".to_string(),
-        ));
+        return Err(AosError::Validation(format!(
+            "B3 hash hex part must be 64 characters (got {} chars in '{}')",
+            hex_part.len(),
+            hash
+        )));
     }
 
     hex::decode(hex_part)
-        .map_err(|e| AosError::Validation(format!("Invalid hex in hash: {}", e)))?;
+        .map_err(|e| AosError::Validation(format!("Invalid hex in hash '{}': {}", hash, e)))?;
 
     Ok(())
 }
@@ -277,9 +293,10 @@ pub fn validate_file_paths(paths: &[String]) -> Result<(), AosError> {
     }
 
     if paths.len() > 100 {
-        return Err(AosError::Validation(
-            "Cannot specify more than 100 file paths".to_string(),
-        ));
+        return Err(AosError::Validation(format!(
+            "Cannot specify more than 100 file paths (got {})",
+            paths.len()
+        )));
     }
 
     for path in paths {
@@ -290,20 +307,28 @@ pub fn validate_file_paths(paths: &[String]) -> Result<(), AosError> {
             ));
         }
         if path.len() > 512 {
-            return Err(AosError::Validation(
-                "File path must be 512 characters or less".to_string(),
-            ));
+            return Err(AosError::Validation(format!(
+                "File path must be 512 characters or less (got {} chars for '{}')",
+                path.len(),
+                if path.len() > 64 {
+                    format!("{}...", &path[..64])
+                } else {
+                    path.clone()
+                }
+            )));
         }
         if std::path::Path::new(trimmed).is_absolute() {
-            return Err(AosError::Validation(
-                "File paths cannot be absolute".to_string(),
-            ));
+            return Err(AosError::Validation(format!(
+                "File paths cannot be absolute (got '{}')",
+                trimmed
+            )));
         }
         // Prevent path traversal attacks
         if trimmed.contains("..") {
-            return Err(AosError::Validation(
-                "File paths cannot contain '..'".to_string(),
-            ));
+            return Err(AosError::Validation(format!(
+                "File paths cannot contain '..' (got '{}')",
+                trimmed
+            )));
         }
     }
 

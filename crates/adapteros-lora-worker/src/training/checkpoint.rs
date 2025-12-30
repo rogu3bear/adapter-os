@@ -82,11 +82,20 @@ impl TrainingCheckpoint {
         })?;
 
         // Rename is atomic on POSIX systems
-        tokio::fs::rename(&temp_path, path).await.map_err(|e| {
-            // Clean up temp file on error
-            let _ = std::fs::remove_file(&temp_path);
-            AosError::Training(format!("Failed to rename checkpoint file: {}", e))
-        })?;
+        if let Err(e) = tokio::fs::rename(&temp_path, path).await {
+            // Clean up temp file on error using async delete
+            if let Err(cleanup_err) = tokio::fs::remove_file(&temp_path).await {
+                tracing::warn!(
+                    path = %temp_path.display(),
+                    error = %cleanup_err,
+                    "Failed to clean up temp checkpoint file"
+                );
+            }
+            return Err(AosError::Training(format!(
+                "Failed to rename checkpoint file: {}",
+                e
+            )));
+        }
 
         info!(
             path = %path.display(),

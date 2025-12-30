@@ -42,6 +42,7 @@ import { PublishAdapterDialog } from '@/components/training/PublishAdapterDialog
 import type {
   TrainingJob,
   TrainingMetrics,
+  TrainingMetricsListResponse,
   TrainingArtifact,
   TrainingConfig,
   BackendAttempt,
@@ -85,6 +86,26 @@ const formatDuration = (seconds?: number) => {
   if (hours > 0) return `${hours}h ${remainingMins}m`;
   if (mins > 0) return `${mins}m ${secs}s`;
   return `${secs}s`;
+};
+
+/**
+ * Transforms backend TrainingMetricsListResponse to UI-friendly TrainingMetrics.
+ * Extracts the latest metric entry from the time-series array.
+ */
+const transformMetricsResponse = (response: TrainingMetricsListResponse): TrainingMetrics => {
+  const entries = response.metrics;
+  if (!entries || entries.length === 0) {
+    return {};
+  }
+  // Get the latest metric entry (last in the array, highest step)
+  const latest = entries[entries.length - 1];
+  return {
+    step: latest.step,
+    loss: latest.loss,
+    learning_rate: latest.learning_rate,
+    epoch: latest.epoch,
+    tokens_processed: latest.tokens_processed,
+  };
 };
 
 export function buildBackendTimeline(job: TrainingJob, backendLabel: string): BackendTimelineEntry[] {
@@ -184,7 +205,8 @@ function TrainingJobDetailContent() {
     queryKey: ['training-job-metrics', jobId],
     queryFn: async () => {
       if (!jobId) return null;
-      return await apiClient.getTrainingMetrics(jobId);
+      const response = await apiClient.getTrainingMetrics(jobId);
+      return transformMetricsResponse(response);
     },
     enabled: !!jobId,
     refetchInterval: () => isJobActive(job) ? 5000 : false,

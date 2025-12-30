@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from './button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from './card';
 import { CheckCircle, Circle } from 'lucide-react';
@@ -57,6 +57,24 @@ export function Wizard({
   const isLastStep = currentStep === steps.length - 1;
   const isFirstStep = currentStep === 0;
 
+  // Track step transitions for fade animation
+  const [isTransitioning, setIsTransitioning] = useState(false);
+  const [displayedStep, setDisplayedStep] = useState(currentStep);
+
+  useEffect(() => {
+    if (currentStep !== displayedStep) {
+      // Start fade out
+      setIsTransitioning(true);
+      // After fade out completes, update displayed step and fade in
+      const timer = setTimeout(() => {
+        setDisplayedStep(currentStep);
+        setIsTransitioning(false);
+      }, 150); // Match the CSS transition duration
+      return () => clearTimeout(timer);
+    }
+    return undefined;
+  }, [currentStep, displayedStep]);
+
   return (
     <div className="space-y-6">
       {/* Wizard Header */}
@@ -67,48 +85,69 @@ export function Wizard({
       )}
 
       {/* Step Indicator */}
-      <div className="flex items-center justify-between mb-8">
-        {steps.map((step, index) => (
-          <React.Fragment key={step.id}>
-            <div className="flex flex-col items-center flex-1">
-              <div
-                className={`flex items-center justify-center w-10 h-10 rounded-full border-2 transition-colors ${
-                  index < currentStep
-                    ? 'bg-primary border-primary text-primary-foreground'
-                    : index === currentStep
-                    ? 'bg-primary border-primary text-primary-foreground'
-                    : 'bg-background border-muted-foreground text-muted-foreground'
-                }`}
-              >
-                {index < currentStep ? (
-                  <CheckCircle className="h-5 w-5" />
-                ) : (
-                  <Circle className="h-5 w-5" />
-                )}
-              </div>
-              <div className="mt-2 text-center">
-                <p
-                  className={`text-sm font-medium ${
-                    index <= currentStep ? 'text-foreground' : 'text-muted-foreground'
-                  }`}
+      <nav aria-label="Wizard progress" className="mb-8">
+        <div
+          role="tablist"
+          aria-label={`${steps.length} step wizard`}
+          className="flex items-center justify-between overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-muted"
+        >
+          {steps.map((step, index) => {
+            const isCompleted = index < currentStep;
+            const isCurrent = index === currentStep;
+            const stepStatus = isCompleted ? 'completed' : isCurrent ? 'current' : 'upcoming';
+
+            return (
+              <React.Fragment key={step.id}>
+                <div
+                  role="tab"
+                  aria-selected={isCurrent}
+                  aria-current={isCurrent ? 'step' : undefined}
+                  aria-label={`Step ${index + 1} of ${steps.length}: ${step.title}${step.description ? `, ${step.description}` : ''} (${stepStatus})`}
+                  tabIndex={isCurrent ? 0 : -1}
+                  className="flex flex-col items-center flex-1 min-w-[80px] md:min-w-[120px]"
                 >
-                  {step.title}
-                </p>
-                {step.description && (
-                  <p className="text-xs text-muted-foreground">{step.description}</p>
+                  <div
+                    className={`flex items-center justify-center w-10 h-10 rounded-full border-2 transition-colors ${
+                      isCompleted
+                        ? 'bg-primary border-primary text-primary-foreground'
+                        : isCurrent
+                        ? 'bg-primary border-primary text-primary-foreground'
+                        : 'bg-background border-muted-foreground text-muted-foreground'
+                    }`}
+                    aria-hidden="true"
+                  >
+                    {isCompleted ? (
+                      <CheckCircle className="h-5 w-5" />
+                    ) : (
+                      <Circle className="h-5 w-5" />
+                    )}
+                  </div>
+                  <div className="mt-2 text-center">
+                    <p
+                      className={`text-xs md:text-sm font-medium whitespace-nowrap ${
+                        index <= currentStep ? 'text-foreground' : 'text-muted-foreground'
+                      }`}
+                    >
+                      {step.title}
+                    </p>
+                    {step.description && (
+                      <p className="hidden md:block text-xs text-muted-foreground">{step.description}</p>
+                    )}
+                  </div>
+                </div>
+                {index < steps.length - 1 && (
+                  <div
+                    aria-hidden="true"
+                    className={`flex-1 h-0.5 mx-2 md:mx-4 min-w-[20px] transition-colors ${
+                      isCompleted ? 'bg-primary' : 'bg-muted'
+                    }`}
+                  />
                 )}
-              </div>
-            </div>
-            {index < steps.length - 1 && (
-              <div
-                className={`flex-1 h-0.5 mx-4 transition-colors ${
-                  index < currentStep ? 'bg-primary' : 'bg-muted'
-                }`}
-              />
-            )}
-          </React.Fragment>
-        ))}
-      </div>
+              </React.Fragment>
+            );
+          })}
+        </div>
+      </nav>
 
       {/* Step Content */}
       <Card>
@@ -118,7 +157,15 @@ export function Wizard({
             <p className="text-sm text-muted-foreground">{steps[currentStep].description}</p>
           )}
         </CardHeader>
-        <CardContent className="min-h-[400px]">{steps[currentStep].component}</CardContent>
+        <CardContent className="min-h-[400px]">
+          <div
+            className={`transition-opacity duration-150 ease-in-out ${
+              isTransitioning ? 'opacity-0' : 'opacity-100'
+            }`}
+          >
+            {steps[displayedStep].component}
+          </div>
+        </CardContent>
         <CardFooter className="flex justify-between">
           <div>
             {onCancel && (

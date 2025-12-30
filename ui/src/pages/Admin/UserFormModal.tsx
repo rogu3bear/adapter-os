@@ -124,6 +124,7 @@ export function UserFormModal({ open, onOpenChange, user }: UserFormModalProps) 
                 type="email"
                 placeholder="user@example.com"
                 disabled={isEdit}
+                autoFocus
                 {...register('email')}
               />
               {errors.email && (

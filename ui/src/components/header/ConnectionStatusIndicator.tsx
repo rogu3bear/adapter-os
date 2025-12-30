@@ -54,26 +54,26 @@ const STATUS_CONFIG: Record<
   live: {
     label: 'Live',
     icon: Wifi,
-    badgeClass: 'text-green-700 border-green-300 bg-green-50 hover:bg-green-100',
-    dotClass: 'bg-green-500 animate-pulse',
+    badgeClass: 'text-green-700 dark:text-green-400 border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-900/20 hover:bg-green-100 dark:hover:bg-green-900/30',
+    dotClass: 'bg-green-500 dark:bg-green-400 animate-pulse',
   },
   partial: {
     label: 'Partial',
     icon: AlertTriangle,
-    badgeClass: 'text-amber-700 border-amber-300 bg-amber-50 hover:bg-amber-100',
-    dotClass: 'bg-amber-500',
+    badgeClass: 'text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-100 dark:hover:bg-amber-900/30',
+    dotClass: 'bg-amber-500 dark:bg-amber-400',
   },
   polling: {
     label: 'Polling',
     icon: Activity,
-    badgeClass: 'text-blue-700 border-blue-300 bg-blue-50 hover:bg-blue-100',
-    dotClass: 'bg-blue-500',
+    badgeClass: 'text-blue-700 dark:text-blue-400 border-blue-300 dark:border-blue-700 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30',
+    dotClass: 'bg-blue-500 dark:bg-blue-400',
   },
   offline: {
     label: 'Offline',
     icon: WifiOff,
-    badgeClass: 'text-gray-600 border-gray-300 bg-gray-50 hover:bg-gray-100',
-    dotClass: 'bg-gray-400',
+    badgeClass: 'text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-800/70',
+    dotClass: 'bg-gray-400 dark:bg-gray-500',
   },
 };
 
@@ -89,38 +89,38 @@ const MODEL_STATUS_CONFIG: Record<
   'no-model': {
     label: 'No Model',
     icon: ServerOff,
-    badgeClass: 'text-gray-600 border-gray-300 bg-gray-50 hover:bg-gray-100',
-    dotClass: 'bg-gray-400',
+    badgeClass: 'text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-800/70',
+    dotClass: 'bg-gray-400 dark:bg-gray-500',
   },
   loading: {
     label: 'Loading Model',
     icon: Loader2,
-    badgeClass: 'text-blue-700 border-blue-300 bg-blue-50 hover:bg-blue-100',
-    dotClass: 'bg-blue-500 animate-pulse',
+    badgeClass: 'text-blue-700 dark:text-blue-400 border-blue-300 dark:border-blue-700 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30',
+    dotClass: 'bg-blue-500 dark:bg-blue-400 animate-pulse',
   },
   ready: {
     label: 'Model Ready',
     icon: Cpu,
-    badgeClass: 'text-green-700 border-green-300 bg-green-50 hover:bg-green-100',
-    dotClass: 'bg-green-500',
+    badgeClass: 'text-green-700 dark:text-green-400 border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-900/20 hover:bg-green-100 dark:hover:bg-green-900/30',
+    dotClass: 'bg-green-500 dark:bg-green-400',
   },
   unloading: {
     label: 'Unloading',
     icon: Loader2,
-    badgeClass: 'text-amber-700 border-amber-300 bg-amber-50 hover:bg-amber-100',
-    dotClass: 'bg-amber-500',
+    badgeClass: 'text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-100 dark:hover:bg-amber-900/30',
+    dotClass: 'bg-amber-500 dark:bg-amber-400',
   },
   error: {
     label: 'Model Error',
     icon: AlertTriangle,
-    badgeClass: 'text-red-700 border-red-300 bg-red-50 hover:bg-red-100',
-    dotClass: 'bg-red-500',
+    badgeClass: 'text-red-700 dark:text-red-400 border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30',
+    dotClass: 'bg-red-500 dark:bg-red-400',
   },
   checking: {
     label: 'Checking',
     icon: Loader2,
-    badgeClass: 'text-gray-600 border-gray-300 bg-gray-50 hover:bg-gray-100',
-    dotClass: 'bg-gray-400',
+    badgeClass: 'text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-800/70',
+    dotClass: 'bg-gray-400 dark:bg-gray-500',
   },
 };
 
@@ -183,7 +183,7 @@ export function ConnectionStatusIndicator({
           <span className="truncate">{statusLabel}</span>
           <span className="text-[10px] uppercase text-muted-foreground">Details</span>
           {hasBackgroundErrors && (
-            <span className="ml-0.5 flex items-center gap-0.5 text-amber-600">
+            <span className="ml-0.5 flex items-center gap-0.5 text-amber-600 dark:text-amber-400">
               <AlertCircle className="h-3 w-3" />
               <span className="text-[10px]">{backgroundErrorCount}</span>
             </span>
@@ -204,7 +204,7 @@ export function ConnectionStatusIndicator({
         <Icon className={cn('h-3 w-3', modelStatus === 'loading' && 'animate-spin')} />
         {statusLabel}
         {hasBackgroundErrors && (
-          <span className="ml-1 flex items-center gap-0.5 text-amber-600">
+          <span className="ml-1 flex items-center gap-0.5 text-amber-600 dark:text-amber-400">
             <AlertCircle className="h-3 w-3" />
             {backgroundErrorCount}
           </span>
@@ -221,7 +221,7 @@ export function ConnectionStatusIndicator({
           variant="outline"
           className={cn(
             'gap-1.5 text-xs font-normal cursor-pointer select-none',
-            hasBackgroundErrors && 'border-amber-300',
+            hasBackgroundErrors && 'border-amber-300 dark:border-amber-700',
             config.badgeClass,
             className
           )}
@@ -230,7 +230,7 @@ export function ConnectionStatusIndicator({
           <Icon className={cn('h-3 w-3', modelStatus === 'loading' && 'animate-spin')} />
           {statusLabel}
           {hasBackgroundErrors && (
-            <span className="ml-0.5 flex items-center gap-0.5 text-amber-600">
+            <span className="ml-0.5 flex items-center gap-0.5 text-amber-600 dark:text-amber-400">
               <AlertCircle className="h-3 w-3" />
               <span className="text-[10px]">{backgroundErrorCount}</span>
             </span>
@@ -246,11 +246,11 @@ export function ConnectionStatusIndicator({
             className={cn(
               'text-xs font-normal',
               modelStatus === 'error'
-                ? 'text-red-600'
+                ? 'text-red-600 dark:text-red-400'
                 : modelStatus === 'loading' || modelStatus === 'unloading' || modelStatus === 'checking'
-                  ? 'text-blue-600'
+                  ? 'text-blue-600 dark:text-blue-400'
                   : modelReady
-                    ? 'text-green-600'
+                    ? 'text-green-600 dark:text-green-400'
                     : 'text-muted-foreground',
             )}
           >
@@ -278,7 +278,7 @@ export function ConnectionStatusIndicator({
         
         {/* Model error if any */}
         {modelError && (
-          <DropdownMenuItem disabled className="text-xs text-red-600">
+          <DropdownMenuItem disabled className="text-xs text-red-600 dark:text-red-400">
             <AlertTriangle className="h-3 w-3 mr-2" />
             {modelError}
           </DropdownMenuItem>
@@ -307,14 +307,14 @@ export function ConnectionStatusIndicator({
             <span className="text-sm truncate">{formatStreamId(id)}</span>
             <div className="flex items-center gap-2">
               {status.reconnecting && (
-                <span className="text-xs text-amber-600">
+                <span className="text-xs text-amber-600 dark:text-amber-400">
                   Retry {status.reconnectAttempt || 1}
                 </span>
               )}
               <span
                 className={cn(
                   'h-2 w-2 rounded-full',
-                  status.connected ? 'bg-green-500' : status.reconnecting ? 'bg-amber-500' : 'bg-gray-400'
+                  status.connected ? 'bg-green-500 dark:bg-green-400' : status.reconnecting ? 'bg-amber-500 dark:bg-amber-400' : 'bg-gray-400 dark:bg-gray-500'
                 )}
               />
             </div>
@@ -350,11 +350,11 @@ export function ConnectionStatusIndicator({
           <>
             <DropdownMenuSeparator />
             <DropdownMenuLabel className="flex items-center justify-between">
-              <span className="flex items-center gap-1.5 text-amber-600">
+              <span className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
                 <AlertCircle className="h-3.5 w-3.5" />
                 Background Errors
               </span>
-              <span className="text-xs font-normal text-amber-600">
+              <span className="text-xs font-normal text-amber-600 dark:text-amber-400">
                 {backgroundErrorCount} {backgroundErrorCount === 1 ? 'error' : 'errors'}
               </span>
             </DropdownMenuLabel>

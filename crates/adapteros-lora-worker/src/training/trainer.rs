@@ -2597,6 +2597,28 @@ impl MicroLoRATrainer {
             .as_secs();
         format!("microlora_{}", timestamp)
     }
+
+    /// Explicitly release GPU kernel resources
+    ///
+    /// This method should be called when training completes or fails to ensure
+    /// GPU resources are released promptly. While Drop will also release them,
+    /// calling this explicitly provides better control and logging.
+    pub fn release_kernels(&mut self) {
+        if let Some(kernels) = self.kernels.take() {
+            tracing::info!("Training complete, releasing GPU kernels");
+            drop(kernels);
+        }
+    }
+}
+
+impl Drop for MicroLoRATrainer {
+    fn drop(&mut self) {
+        if let Some(kernels) = self.kernels.take() {
+            tracing::debug!("Releasing GPU kernel resources");
+            // The kernels will be dropped here, releasing GPU resources
+            drop(kernels);
+        }
+    }
 }
 
 #[cfg(test)]

@@ -437,43 +437,61 @@ pub(crate) async fn run_training_job(
                     let job_id_for_det = job_id_inner.clone();
                     let jobs_ref_for_fallback = jobs_ref_inner.clone();
                     let job_id_for_fallback = job_id_inner.clone();
+
+                    // Add atomic flag to prevent dual execution of progress updates
+                    use std::sync::atomic::Ordering;
+                    let executed = Arc::new(AtomicBool::new(false));
+                    let executed_clone = executed.clone();
+
                     if let Err(e) = spawn_deterministic(
                         format!(
                             "training-progress:{}:epoch-{}",
                             job_id_for_det, metrics.epoch
                         ),
                         async move {
-                            let mut jobs = jobs_ref_for_det.write().await;
-                            if let Some(job) = jobs.get_mut(&job_id_for_det) {
-                                job.current_epoch = metrics.epoch;
-                                job.current_loss = metrics.loss;
-                                job.tokens_per_second = metrics.tokens_per_sec;
-                                job.examples_processed = Some(metrics.total_examples_processed);
-                                job.tokens_processed = Some(metrics.total_tokens_processed);
-                                job.throughput_examples_per_sec = Some(metrics.examples_per_sec);
-                                if job.total_epochs > 0 {
-                                    job.progress_pct =
-                                        (metrics.epoch as f32 / job.total_epochs as f32) * 100.0;
+                            // Only execute if not already executed by fallback
+                            if executed_clone
+                                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                                .is_ok()
+                            {
+                                let mut jobs = jobs_ref_for_det.write().await;
+                                if let Some(job) = jobs.get_mut(&job_id_for_det) {
+                                    job.current_epoch = metrics.epoch;
+                                    job.current_loss = metrics.loss;
+                                    job.tokens_per_second = metrics.tokens_per_sec;
+                                    job.examples_processed = Some(metrics.total_examples_processed);
+                                    job.tokens_processed = Some(metrics.total_tokens_processed);
+                                    job.throughput_examples_per_sec = Some(metrics.examples_per_sec);
+                                    if job.total_epochs > 0 {
+                                        job.progress_pct =
+                                            (metrics.epoch as f32 / job.total_epochs as f32) * 100.0;
+                                    }
                                 }
                             }
                         },
                     ) {
                         tracing::warn!("Failed to spawn deterministic progress update: {}", e);
-                        tokio::spawn(async move {
-                            let mut jobs = jobs_ref_for_fallback.write().await;
-                            if let Some(job) = jobs.get_mut(&job_id_for_fallback) {
-                                job.current_epoch = metrics.epoch;
-                                job.current_loss = metrics.loss;
-                                job.tokens_per_second = metrics.tokens_per_sec;
-                                job.examples_processed = Some(metrics.total_examples_processed);
-                                job.tokens_processed = Some(metrics.total_tokens_processed);
-                                job.throughput_examples_per_sec = Some(metrics.examples_per_sec);
-                                if job.total_epochs > 0 {
-                                    job.progress_pct =
-                                        (metrics.epoch as f32 / job.total_epochs as f32) * 100.0;
+                        // Only run fallback if deterministic didn't execute
+                        if executed
+                            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                            .is_ok()
+                        {
+                            tokio::spawn(async move {
+                                let mut jobs = jobs_ref_for_fallback.write().await;
+                                if let Some(job) = jobs.get_mut(&job_id_for_fallback) {
+                                    job.current_epoch = metrics.epoch;
+                                    job.current_loss = metrics.loss;
+                                    job.tokens_per_second = metrics.tokens_per_sec;
+                                    job.examples_processed = Some(metrics.total_examples_processed);
+                                    job.tokens_processed = Some(metrics.total_tokens_processed);
+                                    job.throughput_examples_per_sec = Some(metrics.examples_per_sec);
+                                    if job.total_epochs > 0 {
+                                        job.progress_pct =
+                                            (metrics.epoch as f32 / job.total_epochs as f32) * 100.0;
+                                    }
                                 }
-                            }
-                        });
+                            });
+                        }
                     }
                 })
                 .await

@@ -39,7 +39,7 @@ export function BulkActionBar({
     <div className={`fixed bottom-4 left-1/2 transform -translate-x-1/2
                      bg-primary text-primary-foreground px-4 py-3 rounded-lg
                      shadow-lg border border-border z-50 flex items-center gap-4
-                     min-w-[300px] ${className}`}>
+                     min-w-[250px] sm:min-w-[300px] ${className}`}>
       <div className="flex items-center gap-2 flex-1">
         <span className="text-sm font-medium">
           {selectedItems.length} {itemName} selected

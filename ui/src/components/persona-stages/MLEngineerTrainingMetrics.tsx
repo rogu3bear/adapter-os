@@ -37,7 +37,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiClient } from '@/api/services';
-import { TrainingJob, TrainingMetrics } from '@/api/training-types';
+import { TrainingJob, TrainingMetrics, TrainingMetricsListResponse } from '@/api/training-types';
 import { logger } from '@/utils/logger';
 import { METRIC_COLORS } from '@/constants/chart-colors';
 
@@ -47,6 +47,26 @@ interface ExtendedMetrics extends TrainingMetrics {
   gpu_memory_gb?: number;
   step_time_ms?: number;
 }
+
+/**
+ * Transforms backend TrainingMetricsListResponse to UI-friendly TrainingMetrics.
+ * Extracts the latest metric entry from the time-series array.
+ */
+const transformMetricsResponse = (response: TrainingMetricsListResponse): TrainingMetrics => {
+  const entries = response.metrics;
+  if (!entries || entries.length === 0) {
+    return {};
+  }
+  // Get the latest metric entry (last in the array, highest step)
+  const latest = entries[entries.length - 1];
+  return {
+    step: latest.step,
+    loss: latest.loss,
+    learning_rate: latest.learning_rate,
+    epoch: latest.epoch,
+    tokens_processed: latest.tokens_processed,
+  };
+};
 
 interface MetricsDataPoint {
   step: number;
@@ -108,12 +128,13 @@ export default function MLEngineerTrainingMetrics() {
 
     try {
       setIsLoading(true);
-      const [job, metrics] = await Promise.all([
+      const [job, metricsResponse] = await Promise.all([
         apiClient.getTrainingJob(jobId),
         apiClient.getTrainingMetrics(jobId),
       ]);
 
       setSelectedJob(job);
+      const metrics = transformMetricsResponse(metricsResponse);
 
       // Build metrics history from available data
       // In production, this would come from a streaming endpoint or metrics history API

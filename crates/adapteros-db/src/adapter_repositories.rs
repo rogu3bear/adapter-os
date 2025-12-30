@@ -10,7 +10,7 @@ use sqlx::QueryBuilder;
 use sqlx::{Executor, Row, Sqlite, Transaction};
 use std::collections::HashSet;
 use std::str::FromStr;
-use tracing::warn;
+use tracing::{error, warn};
 use uuid::Uuid;
 
 use crate::Db;
@@ -1614,7 +1614,9 @@ impl Db {
             .map_err(|e| AosError::Database(e.to_string()))?;
 
             if existing_active.is_some() {
-                tx.rollback().await.ok();
+                if let Err(e) = tx.rollback().await {
+                    error!(error = %e, "Transaction rollback failed - connection may be in inconsistent state");
+                }
                 return Err(AosError::Validation(
                     "branch already has active version; use promote_adapter_version to deprecate it first"
                         .to_string(),
@@ -1715,7 +1717,9 @@ impl Db {
         .map_err(|e| AosError::Database(e.to_string()))?
         .ok_or_else(|| AosError::NotFound(format!("adapter version {}", version_id)))?;
         if target_version.repo_id != repo_id || target_version.tenant_id != tenant_id {
-            tx.rollback().await.ok();
+            if let Err(e) = tx.rollback().await {
+                error!(error = %e, "Transaction rollback failed - connection may be in inconsistent state");
+            }
             return Err(AosError::Validation(
                 "version does not belong to the provided repository or tenant".to_string(),
             ));
@@ -1725,7 +1729,9 @@ impl Db {
 
         let target_state = normalize_release_state(&target_version.release_state);
         if target_state != "ready" && target_state != "active" {
-            tx.rollback().await.ok();
+            if let Err(e) = tx.rollback().await {
+                error!(error = %e, "Transaction rollback failed - connection may be in inconsistent state");
+            }
             return Err(AosError::Validation(
                 "promotion requires version in Ready or Active state".to_string(),
             ));
@@ -1738,32 +1744,42 @@ impl Db {
             linked_datasets.is_empty() && target_version.data_spec_hash.is_none();
         let branch_classification = target_version.branch_classification.to_ascii_lowercase();
         if is_legacy_unpinned && branch_classification != "sandbox" {
-            tx.rollback().await.ok();
+            if let Err(e) = tx.rollback().await {
+                error!(error = %e, "Transaction rollback failed - connection may be in inconsistent state");
+            }
             return Err(AosError::Validation(
                 "legacy_unpinned adapters can only be promoted on sandbox branches".to_string(),
             ));
         }
         if target_version.coreml_used && target_version.coreml_device_type.is_none() {
-            tx.rollback().await.ok();
+            if let Err(e) = tx.rollback().await {
+                error!(error = %e, "Transaction rollback failed - connection may be in inconsistent state");
+            }
             return Err(AosError::Validation(
                 "coreml_used=true requires coreml_device_type before promotion".to_string(),
             ));
         }
         if linked_datasets.is_empty() {
-            tx.rollback().await.ok();
+            if let Err(e) = tx.rollback().await {
+                error!(error = %e, "Transaction rollback failed - connection may be in inconsistent state");
+            }
             return Err(AosError::Validation(
                 "promotion requires dataset_version_ids; synthetic/dataset-only adapters cannot be activated"
                     .to_string(),
             ));
         }
         if !linked_datasets.is_empty() && target_version.data_spec_hash.is_none() {
-            tx.rollback().await.ok();
+            if let Err(e) = tx.rollback().await {
+                error!(error = %e, "Transaction rollback failed - connection may be in inconsistent state");
+            }
             return Err(AosError::Validation(
                 "data_spec_hash is required when dataset_version_ids are present".to_string(),
             ));
         }
         if target_version.coreml_used && linked_datasets.is_empty() {
-            tx.rollback().await.ok();
+            if let Err(e) = tx.rollback().await {
+                error!(error = %e, "Transaction rollback failed - connection may be in inconsistent state");
+            }
             return Err(AosError::Validation(
                 "coreml-trained adapters must record dataset_version_ids".to_string(),
             ));
@@ -1985,7 +2001,9 @@ impl Db {
             || target_version.tenant_id != tenant_id
             || target_version.branch != branch
         {
-            tx.rollback().await.ok();
+            if let Err(e) = tx.rollback().await {
+                error!(error = %e, "Transaction rollback failed - connection may be in inconsistent state");
+            }
             return Err(AosError::Validation(
                 "rollback target must belong to the provided repository/branch".to_string(),
             ));
@@ -2106,7 +2124,9 @@ impl Db {
             || failed_version.tenant_id != tenant_id
             || failed_version.branch != branch
         {
-            tx.rollback().await.ok();
+            if let Err(e) = tx.rollback().await {
+                error!(error = %e, "Transaction rollback failed - connection may be in inconsistent state");
+            }
             return Err(AosError::Validation(
                 "failed version does not belong to the provided repository/branch".to_string(),
             ));

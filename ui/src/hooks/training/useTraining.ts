@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import { useQuery, useMutation, useQueryClient, UseQueryOptions, UseMutationOptions, type QueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/services';
 import type {
+  TrainingMetricsListResponse,
   TrainingJob,
   TrainingTemplate,
   Dataset,
@@ -31,6 +32,7 @@ export class WorkspaceChangedError extends Error {
     this.name = 'WorkspaceChangedError';
   }
 }
+
 
 type TrainingMetrics = {
   step?: number;
@@ -71,6 +73,7 @@ export async function invalidateTrainingCaches(queryClient: QueryClient, tenantI
   ]);
 }
 
+
 // Training Jobs Hooks
 
 export function useTrainingJobs(
@@ -90,6 +93,7 @@ export function useTrainingJobs(
     ...options,
   });
 }
+
 
 export function useTrainingJob(
   jobId: string,
@@ -114,6 +118,7 @@ export function useTrainingJob(
   });
 }
 
+
 export function useStartTraining(
   options?: UseMutationOptions<TrainingJob, Error, StartTrainingRequest>
 ) {
@@ -133,6 +138,7 @@ export function useStartTraining(
     ...options,
   });
 }
+
 
 export function useCancelJob(
   options?: UseMutationOptions<void, Error, string>
@@ -154,6 +160,7 @@ export function useCancelJob(
   });
 }
 
+
 export function useJobLogs(
   jobId: string,
   options?: Omit<UseQueryOptions<string[], Error>, 'queryKey' | 'queryFn'>
@@ -170,6 +177,29 @@ export function useJobLogs(
   });
 }
 
+
+
+/**
+ * Transforms backend TrainingMetricsListResponse to UI-friendly TrainingMetrics.
+ * Extracts the latest metric entry from the time-series array.
+ */
+function transformMetricsResponse(response: TrainingMetricsListResponse): TrainingMetrics {
+  const entries = response.metrics;
+  if (!entries || entries.length === 0) {
+    return {};
+  }
+  // Get the latest metric entry (last in the array, highest step)
+  const latest = entries[entries.length - 1];
+  return {
+    step: latest.step,
+    loss: latest.loss,
+    learning_rate: latest.learning_rate,
+    epoch: latest.epoch,
+    tokens_processed: latest.tokens_processed,
+  };
+}
+
+
 export function useJobMetrics(
   jobId: string,
   options?: Omit<UseQueryOptions<TrainingMetrics, Error>, 'queryKey' | 'queryFn'>
@@ -179,7 +209,10 @@ export function useJobMetrics(
 
   return useQuery<TrainingMetrics, Error>({
     queryKey: QUERY_KEYS.jobMetrics(jobId),
-    queryFn: () => apiClient.getTrainingMetrics(jobId),
+    queryFn: async () => {
+      const response = await apiClient.getTrainingMetrics(jobId);
+      return transformMetricsResponse(response);
+    },
     enabled: !!jobId,
     refetchInterval: 2000, // Poll every 2 seconds for active jobs
     ...options,
@@ -201,6 +234,7 @@ export function useJobArtifacts(
   });
 }
 
+
 // Datasets Hooks
 
 export function useDatasets(
@@ -217,6 +251,7 @@ export function useDatasets(
   });
 }
 
+
 export function useDataset(
   datasetId: string,
   options?: Omit<UseQueryOptions<Dataset, Error>, 'queryKey' | 'queryFn'>
@@ -232,6 +267,7 @@ export function useDataset(
   });
 }
 
+
 export function useDatasetVersions(
   datasetId: string,
   options?: Omit<UseQueryOptions<DatasetVersionListResponse, Error>, 'queryKey' | 'queryFn'>
@@ -246,6 +282,7 @@ export function useDatasetVersions(
     ...options,
   });
 }
+
 
 export function useCreateDataset(
   options?: UseMutationOptions<DatasetResponse, Error, CreateDatasetRequest>
@@ -267,6 +304,7 @@ export function useCreateDataset(
   });
 }
 
+
 export function useValidateDataset(
   options?: UseMutationOptions<DatasetValidationResult, Error, string>
 ) {
@@ -287,6 +325,7 @@ export function useValidateDataset(
   });
 }
 
+
 export function useDeleteDataset(
   options?: UseMutationOptions<void, Error, string>
 ) {
@@ -306,6 +345,7 @@ export function useDeleteDataset(
     ...options,
   });
 }
+
 
 /**
  * Create a training dataset from existing documents or a document collection.
@@ -347,6 +387,7 @@ export function useCreateDatasetFromDocuments(
   });
 }
 
+
 // Templates Hooks
 
 export function useTemplates(
@@ -362,6 +403,7 @@ export function useTemplates(
   });
 }
 
+
 export function useTemplate(
   templateId: string,
   options?: Omit<UseQueryOptions<TrainingTemplate, Error>, 'queryKey' | 'queryFn'>
@@ -376,6 +418,7 @@ export function useTemplate(
     ...options,
   });
 }
+
 
 // Chat Bootstrap Hooks
 
@@ -399,6 +442,7 @@ export function useChatBootstrap(
     ...options,
   });
 }
+
 
 /**
  * Mutation hook to create a chat session from a training job
@@ -431,6 +475,7 @@ export function useCreateChatFromJob(
     },
   });
 }
+
 
 // Export as namespace for cleaner usage
 export const useTraining = {

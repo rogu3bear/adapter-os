@@ -578,6 +578,15 @@ pub async fn streaming_infer(
                         .with_details("Session does not belong to your tenant")
                         .into());
                 }
+                // Validate session lifecycle state
+                if session.archived_at.is_some() {
+                    return Err(ApiError::forbidden("Session has been archived").into());
+                }
+                if let Some(ref status) = session.status {
+                    if status == "deleted" || status == "inactive" {
+                        return Err(ApiError::forbidden(format!("Session is {}", status)).into());
+                    }
+                }
             }
             Ok(None) => {
                 return Err(ApiError::not_found("Session").into());

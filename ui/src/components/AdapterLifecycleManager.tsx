@@ -273,23 +273,23 @@ export function AdapterLifecycleManager({
 
   const getStateIcon = (state: AdapterState) => {
     switch (state) {
-      case 'unloaded': return <Square className="h-4 w-4 text-gray-500" />;
-      case 'cold': return <Snowflake className="h-4 w-4 text-gray-400" />;
-      case 'warm': return <Thermometer className="h-4 w-4 text-gray-500" />;
-      case 'hot': return <Flame className="h-4 w-4 text-gray-600" />;
-      case 'resident': return <Anchor className="h-4 w-4 text-gray-600" />;
-      default: return <Activity className="h-4 w-4 text-gray-500" />;
+      case 'unloaded': return <Square className="h-4 w-4 text-muted-foreground" />;
+      case 'cold': return <Snowflake className="h-4 w-4 text-blue-500 dark:text-blue-400" />;
+      case 'warm': return <Thermometer className="h-4 w-4 text-orange-500 dark:text-orange-400" />;
+      case 'hot': return <Flame className="h-4 w-4 text-red-500 dark:text-red-400" />;
+      case 'resident': return <Anchor className="h-4 w-4 text-purple-500 dark:text-purple-400" />;
+      default: return <Activity className="h-4 w-4 text-muted-foreground" />;
     }
   };
 
   const getStateColor = (state: AdapterState) => {
     switch (state) {
-      case 'unloaded': return 'bg-gray-100 text-gray-800';
-      case 'cold': return 'bg-blue-100 text-blue-800';
-      case 'warm': return 'bg-orange-100 text-orange-800';
-      case 'hot': return 'bg-red-100 text-red-800';
-      case 'resident': return 'bg-purple-100 text-purple-800';
-      default: return 'bg-gray-100 text-gray-800';
+      case 'unloaded': return 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200';
+      case 'cold': return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300';
+      case 'warm': return 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300';
+      case 'hot': return 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300';
+      case 'resident': return 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300';
+      default: return 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200';
     }
   };
 
@@ -305,12 +305,12 @@ export function AdapterLifecycleManager({
 
   const getEvictionPriorityColor = (priority: EvictionPriority) => {
     switch (priority) {
-      case 'never': return 'bg-green-100 text-green-800';
-      case 'low': return 'bg-blue-100 text-blue-800';
-      case 'normal': return 'bg-yellow-100 text-yellow-800';
-      case 'high': return 'bg-orange-100 text-orange-800';
-      case 'critical': return 'bg-red-100 text-red-800';
-      default: return 'bg-gray-100 text-gray-800';
+      case 'never': return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300';
+      case 'low': return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300';
+      case 'normal': return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300';
+      case 'high': return 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300';
+      case 'critical': return 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300';
+      default: return 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200';
     }
   };
 
@@ -500,19 +500,19 @@ export function AdapterLifecycleManager({
         <Alert
           className={
             statusMessage.variant === 'success'
-              ? 'border-green-200 bg-green-50'
+              ? 'border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-900/30'
               : statusMessage.variant === 'warning'
-                ? 'border-amber-200 bg-amber-50'
-                : 'border-blue-200 bg-blue-50'
+                ? 'border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/30'
+                : 'border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-900/30'
           }
         >
           <AlertDescription
             className={
               statusMessage.variant === 'success'
-                ? 'text-green-700'
+                ? 'text-green-700 dark:text-green-300'
                 : statusMessage.variant === 'warning'
-                  ? 'text-amber-700'
-                  : 'text-blue-700'
+                  ? 'text-amber-700 dark:text-amber-300'
+                  : 'text-blue-700 dark:text-blue-300'
             }
           >
             {statusMessage.message}
@@ -629,7 +629,7 @@ export function AdapterLifecycleManager({
                           </Badge>
                         )}
                         {adapter.pinned && (
-                          <Pin className="h-4 w-4 text-purple-500" />
+                          <Pin className="h-4 w-4 text-purple-500 dark:text-purple-400" />
                         )}
                       </div>
                     </TableCell>

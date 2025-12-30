@@ -897,3 +897,154 @@ export function isInferenceDoneEvent(data: unknown): data is Extract<InferenceEv
 export function isInferenceErrorEvent(data: unknown): data is Extract<InferenceEvent, { event: 'Error' }> {
   return typeof data === 'object' && data !== null && 'event' in data && (data as InferenceEvent).event === 'Error';
 }
+
+// ============================================================================
+// Session Progress Stream Events
+// Endpoint: /v1/streams/datasets/{dataset_id}/progress (SSE)
+// ============================================================================
+
+/**
+ * Ingestion phase for dataset/session progress
+ * Matches IngestionPhase enum from crates/adapteros-server-api/src/state.rs
+ */
+export type IngestionPhase =
+  | 'scanning'
+  | 'parsing'
+  | 'analyzing'
+  | 'generating'
+  | 'uploading'
+  | 'validating'
+  | 'computing_statistics'
+  | 'completed'
+  | 'failed';
+
+/**
+ * Session-based dataset ingestion progress event for SSE streaming
+ * Matches SessionProgressEvent from crates/adapteros-server-api/src/state.rs
+ */
+export interface SessionProgressEvent {
+  /** Collection session ID */
+  session_id: string;
+
+  /** Associated dataset ID (optional during initial phases) */
+  dataset_id?: string;
+
+  /** Current ingestion phase */
+  phase: IngestionPhase;
+
+  /** Sub-phase within the current phase (e.g., "tokenizing", "embedding") */
+  sub_phase?: string;
+
+  /** Current file being processed */
+  current_file?: string;
+
+  /** Overall percentage complete (0.0 to 100.0) */
+  percentage_complete: number;
+
+  /** Percentage complete within current phase (0.0 to 100.0) */
+  phase_percentage?: number;
+
+  /** Total number of files to process */
+  total_files?: number;
+
+  /** Number of files processed so far */
+  files_processed?: number;
+
+  /** Total bytes to process */
+  total_bytes?: number;
+
+  /** Bytes processed so far */
+  bytes_processed?: number;
+
+  /** Human-readable status message */
+  message: string;
+
+  /** Error message if phase is 'failed' */
+  error?: string;
+
+  /** ISO8601 timestamp */
+  timestamp: string;
+
+  /** Additional metadata (phase-specific data) */
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Dataset progress event for SSE streaming
+ * Matches DatasetProgressEvent from crates/adapteros-server-api/src/state.rs
+ */
+export interface DatasetProgressEvent {
+  /** Dataset ID */
+  dataset_id: string;
+
+  /** Event type: "upload", "validation", "statistics" */
+  event_type: string;
+
+  /** Current file being processed */
+  current_file?: string;
+
+  /** Percentage complete (0.0 to 100.0) */
+  percentage_complete: number;
+
+  /** Total number of files */
+  total_files?: number;
+
+  /** Number of files processed */
+  files_processed?: number;
+
+  /** Human-readable status message */
+  message: string;
+
+  /** ISO8601 timestamp */
+  timestamp: string;
+}
+
+/**
+ * Union of all session/dataset progress stream events
+ */
+export type SessionStreamEvent = SessionProgressEvent | DatasetProgressEvent;
+
+/**
+ * Type guard to check if an event is a SessionProgressEvent
+ */
+export function isSessionProgressEvent(data: unknown): data is SessionProgressEvent {
+  return (
+    typeof data === 'object' &&
+    data !== null &&
+    'session_id' in data &&
+    'phase' in data &&
+    'percentage_complete' in data &&
+    'message' in data &&
+    'timestamp' in data
+  );
+}
+
+/**
+ * Type guard to check if an event is a DatasetProgressEvent
+ */
+export function isDatasetProgressEvent(data: unknown): data is DatasetProgressEvent {
+  return (
+    typeof data === 'object' &&
+    data !== null &&
+    'dataset_id' in data &&
+    'event_type' in data &&
+    'percentage_complete' in data &&
+    'message' in data &&
+    'timestamp' in data &&
+    !('session_id' in data)
+  );
+}
+
+/**
+ * Helper to check if an ingestion phase indicates completion
+ */
+export function isIngestionComplete(phase: IngestionPhase): boolean {
+  return phase === 'completed' || phase === 'failed';
+}
+
+/**
+ * Helper to check if an ingestion phase indicates failure
+ */
+export function isIngestionFailed(phase: IngestionPhase): boolean {
+  return phase === 'failed';
+}

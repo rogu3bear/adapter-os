@@ -33,25 +33,29 @@ starting-backend
 loading-base-models
    |
    v
-loading-adapters
-   |
-   v
-worker-discovery
-   |
-   v
-ready <──────────────────┐
+loading-adapters ───────────────┐
+   |                            |
+   v                            |
+worker-discovery                |
+   |                            |
+   v                            |
+ready <─────────────────────────┘
    |                     |
    ├──────> degraded ────┘
    |
-   v
-fully-ready
-   |
-   v
-draining
+   ├──────> maintenance ──┐
+   |                      |
+   v                      v
+fully-ready            draining
+   |                      |
+   v                      v
+draining               stopping
    |
    v
 stopping
 ```
+
+Note: `loading-adapters` may transition directly to `ready` when worker discovery is skipped, and `maintenance` can return to `ready` or proceed to `draining`.
 
 ## Phase Descriptions
 
@@ -95,6 +99,7 @@ loading-policies -> starting-backend
 starting-backend -> loading-base-models
 loading-base-models -> loading-adapters
 loading-adapters -> worker-discovery
+loading-adapters -> ready (legacy skip worker-discovery)
 worker-discovery -> ready
 ready -> fully-ready
 ready -> maintenance
@@ -110,6 +115,25 @@ maintenance -> draining
 draining -> stopping
 * -> failed (from any non-terminal state)
 ```
+
+## Determinism And Integrity Gates
+
+These guarantees are enforced alongside the boot lifecycle to keep training and registry state reproducible:
+
+- **Seed derivation**: Deterministic seeds use HKDF-SHA256 with a BLAKE3 global seed; fixed seed overrides replace the global seed and `AOS_DEBUG_DETERMINISM=1` logs seed inputs and tie-breaks.
+- **Code ingestion ordering**: Sample ordering is deterministic (qualified name → file path → span start/end → symbol kind → language → id) and codebase adapter IDs normalize repo_slug + commit.
+- **Dataset uploads**: JSONL uploads generate deterministic row_ids (prompt/response/metadata/split/weight); chunked JSONL detects codebase payloads, records per-session dataset versions, and syncs dataset metadata + versions to KV.
+- **Scan root datasets**: Scan-root ingestion records per-root metadata and content hashes; versioned canonical artifacts live under `files/{workspace_id}/{dataset_id}/versions/{version_id}/canonical.jsonl` with content-addressable copies in `canonical/{category}/{hash_prefix}/{content_hash}/...`.
+- **Adapter registration**: Content hash is computed from manifest + canonical weights (fallback to `hash_b3` only when needed); missing `.aos` file hashes are computed and manifest hash/schema metadata are captured.
+- **Alias swap gating**: Preflight checks include maintenance mode, file integrity, manifest/content hash presence, and lifecycle/tenant/repo scope uniqueness checks.
+- **Lifecycle enforcement**: Trigger failures use the `LIFECYCLE_VIOLATION:` prefix; retired/failed are terminal and adapter lifecycle history is validated.
+- **Dataset validation**: Structural validation runs record determinism seed/mode and feed trust/safety status updates.
+
+### Storage Reconciliation Tests
+
+`crates/adapteros-server-api/src/reconciler/storage_reconciler.rs` includes integration tests that
+exercise storage reconciliation for dataset files (missing/orphan detection, hash/size mismatches,
+empty files, and stale upload scans).
 
 ## Boot Report
 
@@ -644,6 +668,9 @@ The `normalize_repo_slug` function in `crates/adapteros-orchestrator/src/code_in
 | `__weird__` | `weird` |
 | `""` (empty) | `repo` |
 
+**Explicit overrides:** CLI-provided slugs (`--repo-slug`, `--override-repo-slug`) are normalized
+with the same rules before adapter IDs, dataset tags, or metadata are written.
+
 #### Repository Identifier Normalization (`normalize_repo_id`)
 
 The `normalize_repo_id` function normalizes full repository identifiers (URLs or paths):
@@ -709,9 +736,11 @@ The `repo_slug` is stored in multiple locations:
 
 | Table | Column | Purpose |
 |-------|--------|---------|
+| `training_datasets` | `repo_slug` | Dataset-level tagging and filtering |
 | `codebase_dataset_rows` | `repo_slug` | Training sample provenance |
 | `codebase_dataset_rows` | `repo_identifier` | Full normalized repo ID |
 | Adapter metadata JSON | `repo_slug` | Adapter origin tracking |
+| `.aos` manifest | `repo_slug` | Package-level provenance |
 
 This enables queries like:
 - Find all training samples from a repository
@@ -801,68 +830,6 @@ aosctl adapter ensure-codebase --session-id 550e8400-e29b-41d4-a716-446655440000
 
 Session IDs must be valid UUIDs when explicitly provided.
 
-### .aos Metadata Registration
-
-The `.aos` file format embeds comprehensive metadata for adapter registration:
-
-#### Manifest Structure
-
-```json
-{
-  "adapter_id": "tenant/domain/purpose/revision",
-  "name": "Human-readable name",
-  "version": "1.0.0",
-  "rank": 16,
-  "alpha": 32.0,
-  "base_model": "meta-llama/Llama-3.1-8B",
-  "target_modules": ["q_proj", "v_proj"],
-  "category": "code",
-  "tier": "warm",
-  "weights_hash": "abc123...",
-  "training_config": {
-    "learning_rate": 0.0001,
-    "batch_size": 4,
-    "epochs": 3
-  },
-  "metadata": {
-    "repo_name": "adapter-os",
-    "repo_commit": "abc123def",
-    "dataset_hash": "...",
-    "scope_path": "code/rust/completion/v1"
-  }
-}
-```
-
-#### Metadata Extraction
-
-The `AosMetadata` type extracts registration data from `.aos` files:
-
-```rust
-let metadata = AosMetadata::from_file("/path/to/adapter.aos").await?;
-let params = AdapterRegistrationBuilder::new()
-    .adapter_id(&metadata.adapter_id)
-    .name(metadata.name.as_deref().unwrap_or("unnamed"))
-    .hash_b3(&metadata.weights_hash.unwrap_or_default())
-    .rank(metadata.rank as i32)
-    .with_aos_metadata(metadata)
-    .build()?;
-```
-
-#### MoE Support
-
-For Mixture of Experts models, additional metadata tracks expert configuration:
-
-```json
-{
-  "moe_config": {
-    "num_experts": 8,
-    "num_experts_per_token": 2,
-    "lora_strategy": "routing_weighted_shared",
-    "use_routing_weights": true
-  }
-}
-```
-
 ### Branch and Commit Recording
 
 The code ingestion pipeline captures comprehensive git metadata for traceability and reproducibility:
@@ -902,11 +869,11 @@ CLI and CI/CD pipelines can override auto-detected values:
 
 ```bash
 aosctl adapter ensure-codebase \
-    --scope-repo my-project \
-    --scope-branch feature/xyz \
-    --scope-commit abc123def \
-    --scope-scan-root src/lib \
-    --scope-remote-url git@github.com:org/repo
+    --repo-name my-project \
+    --override-branch feature/xyz \
+    --override-commit abc123def \
+    --override-scan-root src/lib \
+    --override-remote-url git@github.com:org/repo
 ```
 
 ### Dataset Storage Layout
@@ -1019,15 +986,21 @@ struct ScanRootMetadata {
 #### Registration Builder
 
 ```rust
+let aos_meta = AosRegistrationMetadata::new()
+    .aos_file_path(aos_path)
+    .aos_file_hash(aos_hash)
+    .manifest_schema_version(manifest_version)
+    .manifest_metadata(manifest_metadata);
+
 let params = AdapterRegistrationBuilder::new()
-    .adapter_id(&metadata.adapter_id)
-    .name(metadata.name.as_deref().unwrap_or("unnamed"))
-    .hash_b3(&metadata.weights_hash.unwrap_or_default())
-    .rank(metadata.rank as i32)
+    .adapter_id(adapter_id)
+    .name(adapter_name)
+    .hash_b3(weights_hash)
+    .rank(rank as i32)
     .repo_id(Some(repo_id.to_string()))
     .commit_sha(Some(commit_sha.to_string()))
     .repo_path(Some(scan_root_path.to_string()))  // New: scan root tracking
-    .with_aos_metadata(metadata)
+    .with_aos_metadata(&aos_meta)
     .build()?;
 ```
 
@@ -1192,6 +1165,102 @@ Alias swaps use copy-then-rename for atomicity:
 3. On POSIX systems, rename overwrites existing file atomically
 4. On failure, cleanup temp file and abort
 
+### Terminal State Enforcement
+
+Adapters in terminal lifecycle states (`retired`, `failed`) are blocked from activation:
+
+| Terminal State | Can Activate | Recovery Path |
+|----------------|--------------|---------------|
+| `retired` | No | Create new adapter version |
+| `failed` | No | Investigate failure, retrain |
+
+The preflight system enforces terminal state blocking at the application layer,
+while SQL triggers (migration 0075) enforce at the database layer.
+
+### Repository Dataset Creation
+
+For repository-based ingestion, datasets are created via `create_dataset_from_repo()`:
+
+```rust
+let (dataset_id, version_id) = db.create_dataset_from_repo(
+    "adapter-os",                                // repo_name
+    "https://github.com/org/adapter-os",        // repo_url
+    "/path/to/repo",                            // repo_path
+    "abc123def456",                             // commit_sha
+    Some("main"),                               // branch
+    Some("tenant-123"),                         // tenant_id
+    Some("user@example.com"),                   // created_by
+).await?;
+```
+
+This sets:
+- `collection_method`: `"pipeline"` (automated ingestion)
+- `dataset_type`: `"training"`
+- `format`: `"custom"` (repo-derived)
+- `status`: `"processing"`
+
+### KV Dual-Write Pattern
+
+Dataset records are synchronized to the KV store using a non-blocking dual-write pattern:
+
+```rust
+// After SQL insert, sync to KV (failures logged but don't block)
+db.dual_write_dataset_to_kv(&tenant_id, &dataset_id).await?;
+```
+
+Storage modes control sync behavior:
+- `SqlOnly`: No KV sync
+- `DualWrite`: Write to both, read from SQL
+- `KvPrimary`: Write to both, read from KV
+- `KvOnly`: KV only (migration complete)
+
+---
+
+## Deterministic Execution and Reproducibility
+
+AdapterOS provides comprehensive determinism guarantees for reproducible training and inference.
+
+### Seed Derivation from Boot Manifest
+
+The system uses HKDF-SHA256 for all seed derivation with domain separation:
+
+1. **Global Seed**: Derived from BLAKE3 hash of manifest/request inputs
+2. **Component Seeds**: Each component (router, sampler, dropout) derives its own seed using a unique label
+3. **Request Seeds**: Full context isolation via manifest hash, tenant ID, request ID, worker ID, and nonce
+
+### Determinism Modes
+
+| Mode | Description | Use Case |
+|------|-------------|----------|
+| **Strict** | Requires manifest hash; fails if missing | Production inference |
+| **BestEffort** | Uses manifest hash when present; fallback otherwise | Development/testing |
+| **NonDeterministic** | Random seed (debug builds only) | Benchmarking |
+
+### Critical Invariants
+
+The following invariants must be maintained for determinism:
+
+- **Q15 denominator**: Must be exactly 32767.0 (not 32768.0)
+- **KDF**: HKDF-SHA256 only (no other key derivation functions)
+- **Compiler flags**: No `-ffast-math`
+- **Ordering**: Deterministic sorting with tie-breaking
+- **RNG**: Use `derive_seed()`, never `thread_rng()`
+
+### Dataset and Training Reproducibility
+
+- Content-based seeding from git commit SHA + dataset hash + config
+- Dataset versions tracked with BLAKE3 hashes
+- Training jobs record `is_deterministic_run`, `global_seed_hex`, `seed_mode`
+
+### Verification
+
+Run determinism self-test:
+```bash
+make determinism-check
+```
+
+See [DETERMINISM.md](DETERMINISM.md) for detailed implementation guide.
+
 ---
 
 ## Lifecycle Rules
@@ -1274,6 +1343,454 @@ Running again is idempotent - duplicates are not created.
 
 ---
 
+## Set 34 Enhancements
+
+Set 34 introduces comprehensive improvements to codebase ingestion, dataset management, lifecycle normalization, and preflight validation.
+
+### Repo Scope in Ingestion Metadata
+
+The code ingestion pipeline now captures enhanced repository scope metadata for precise adapter provenance tracking.
+
+#### RepoScopeConfig
+
+Repository scope filtering configuration allows selective inclusion/exclusion of files:
+
+```rust
+struct RepoScopeConfig {
+    /// Paths to include (e.g., ["src/", "lib/"])
+    include_paths: Vec<String>,
+    /// Paths to exclude (e.g., ["tests/", "vendor/"])
+    exclude_paths: Vec<String>,
+    /// File extensions to include (e.g., ["rs", "py"])
+    include_extensions: Vec<String>,
+    /// File extensions to exclude (e.g., ["md", "txt"])
+    exclude_extensions: Vec<String>,
+}
+```
+
+#### CodebaseScopeMetadata
+
+CLI and CI/CD pipelines can override auto-detected repository metadata:
+
+```rust
+struct CodebaseScopeMetadata {
+    repo: Option<String>,         // Override repository name
+    repo_slug: Option<String>,    // Override repository slug
+    branch: Option<String>,       // Override branch name
+    commit: Option<String>,       // Override commit SHA
+    scan_root: Option<String>,    // Override scan root path
+    remote_url: Option<String>,   // Override remote URL
+}
+```
+
+**CLI Usage:**
+
+```bash
+aosctl adapter ensure-codebase \
+    --repo-name my-project \
+    --override-repo-slug my_project \
+    --override-branch feature/xyz \
+    --override-commit abc123def \
+    --override-scan-root src/lib \
+    --override-remote-url git@github.com:org/repo
+```
+
+### Stream Mode Flag Preservation and Manifest Persistence
+
+The ingestion pipeline supports streaming progress events with configurable formats:
+
+#### StreamConfig
+
+```rust
+struct StreamConfig {
+    enabled: bool,           // Whether streaming is enabled
+    format: StreamFormat,    // Output format: Json or Text
+    interval_ms: u64,        // Minimum interval between events (0 = every event)
+}
+
+enum StreamFormat {
+    Json,   // JSON Lines format for machine parsing
+    Text,   // Human-readable text format
+}
+```
+
+#### Manifest Persistence
+
+The `.aos` package format embeds comprehensive metadata in a persisted manifest:
+
+```json
+{
+  "adapter_id": "tenant/domain/purpose/revision",
+  "name": "Human-readable name",
+  "version": "1.0.0",
+  "rank": 16,
+  "alpha": 32.0,
+  "base_model": "meta-llama/Llama-3.1-8B",
+  "target_modules": ["q_proj", "v_proj"],
+  "scope_repo": "adapter-os",
+  "scope_branch": "main",
+  "scope_commit": "abc123def",
+  "scope_scan_root": "crates/",
+  "scope_remote_url": "git@github.com:org/adapter-os",
+  "scan_roots": [
+    {"path": "crates/", "label": "main", "file_count": 150},
+    {"path": "libs/", "label": "deps", "file_count": 30}
+  ],
+  "session_id": "550e8400-e29b-41d4-a716-446655440000",
+  "stream_mode": true,
+  "metadata": {
+    "stream_format": "json",
+    "stream_interval_ms": "250"
+  }
+}
+```
+
+The manifest is persisted:
+1. Inside the `.aos` file during packaging
+2. In the adapter registry database upon registration
+3. In the boot report for version tracking
+
+### Dataset Rows for Stream Runs and Dataset Storage
+
+#### Codebase Dataset Rows for Streaming Runs
+
+Streaming ingestion runs now persist `codebase_dataset_rows` entries for each prompt/response pair.
+Each row carries the run's `training_config_hash` in `metadata_json` for deterministic traceability
+alongside repository and symbol provenance fields.
+
+#### Dataset Storage Abstraction
+
+Dataset file writes flow through the dataset storage layout (`files/...` and `canonical/...` paths),
+ensuring parent directories exist before disk space checks and keeping canonical storage deterministic.
+
+#### Training Dataset Creation with Branch/Run Tracking
+
+Datasets now capture branch and commit information for reproducibility:
+
+```rust
+struct CreateDatasetParams {
+    id: Option<String>,
+    name: String,
+    format: String,                    // patches, jsonl, txt, custom, parquet, csv
+    hash_b3: String,                   // BLAKE3 hash
+    storage_path: String,
+    tenant_id: Option<String>,
+    category: Option<String>,          // codebase, metrics, synthetic, upload
+    repo_slug: Option<String>,         // Repository slug for filtering
+    branch: Option<String>,            // Git branch name
+    commit_sha: Option<String>,        // Git commit SHA at creation time
+    // ... additional fields
+}
+```
+
+**Valid Categories:**
+
+| Category | Description |
+|----------|-------------|
+| `codebase` | Derived from code ingestion |
+| `metrics` | System metrics datasets |
+| `synthetic` | Generated/synthetic datasets |
+| `upload` | User-uploaded datasets |
+| `patches` | Code patch datasets |
+| `general` | General purpose datasets |
+| `other` | Other categories |
+
+#### Training Job Dataset Links
+
+Training jobs can now link to multiple datasets with roles and weights:
+
+```rust
+struct TrainingJobDatasetLink {
+    id: String,
+    training_job_id: String,
+    dataset_id: String,
+    dataset_version_id: Option<String>,
+    role: String,                      // primary, validation, supplementary
+    ordinal: i32,                      // Ordering for curriculum learning
+    weight: Option<f64>,               // Weight in training mix
+    hash_b3_at_link: Option<String>,   // Snapshot for reproducibility
+    tenant_id: Option<String>,
+    created_at: String,
+}
+```
+
+### Dataset Safety Tracking
+
+Set 34 introduces comprehensive safety tracking for datasets before training.
+
+#### Safety Signals
+
+| Signal | Status Values | Description |
+|--------|---------------|-------------|
+| `pii_status` | clean, warn, block, unknown | Personally Identifiable Information detection |
+| `toxicity_status` | clean, warn, block, unknown | Toxicity detection |
+| `leak_status` | clean, warn, block, unknown | Data leak detection |
+| `anomaly_status` | clean, warn, block, unknown | Anomaly detection |
+
+#### Trust States
+
+Aggregate trust states determine if a dataset can be used for training:
+
+| State | Description | Training Allowed |
+|-------|-------------|------------------|
+| `allowed` | Dataset is safe for training | Yes |
+| `allowed_with_warning` | Dataset can be used but has warnings | Yes |
+| `blocked` | Dataset must not be used for training | No |
+| `needs_approval` | Dataset requires manual review | No |
+| `unknown` | Trust state has not been determined | No |
+
+#### Safety Status Derivation
+
+Overall safety status is derived from individual signals:
+
+```text
+Priority: block > warn > unknown > clean
+
+If any signal is "block" -> overall is "block"
+If any signal is "warn"  -> overall is "warn"
+If all signals "unknown" -> overall is "unknown"
+Otherwise               -> overall is "clean"
+```
+
+Safety updates emit validation runs per signal (`pii`, `toxicity`, `leak`, `anomaly`) in
+`dataset_version_validations`, mapping `clean -> valid`, `warn -> warn`, `block -> block`,
+and `unknown -> pending` for audit history.
+
+#### API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/v1/datasets/{id}/safety` | POST | Update safety signals |
+| `/v1/datasets/{id}/safety-check` | GET | Check if dataset is safe for training |
+| `/v1/datasets/{id}/trust_override` | POST | Apply admin trust override |
+| `/v1/datasets/{id}/versions/{ver}/safety` | POST | Update version-specific safety |
+| `/v1/datasets/{id}/versions/{ver}/safety-check` | GET | Check version safety |
+| `/v1/datasets/{id}/versions/{ver}/trust-override` | POST | Override version trust |
+
+### .aos Metadata Registration
+
+The adapter registration process now captures comprehensive `.aos` metadata for provenance tracking.
+When a `.aos` file path is provided, registration parses the embedded manifest to backfill
+`manifest_hash`, `manifest_schema_version`, `metadata_json`, `category`, `tier`, and (when resolvable)
+`base_model_id` before persistence.
+
+#### Registration with AOS Metadata
+
+```rust
+let aos_meta = AosRegistrationMetadata::new()
+    .aos_file_path(aos_path)
+    .aos_file_hash(aos_hash)
+    .manifest_schema_version(manifest_version)
+    .manifest_metadata(manifest_metadata);
+
+let params = AdapterRegistrationBuilder::new()
+    .adapter_id(adapter_id)
+    .name(adapter_name)
+    .hash_b3(weights_hash)
+    .rank(rank as i32)
+    .repo_id(Some(repo_id.to_string()))
+    .commit_sha(Some(commit_sha.to_string()))
+    .repo_path(Some(scan_root_path.to_string()))  // Scan root tracking
+    .with_aos_metadata(&aos_meta)
+    .build()?;
+
+let row_id = db.register_adapter(params).await?;
+```
+
+#### Metadata Fields Persisted
+
+| Field | Description | Source |
+|-------|-------------|--------|
+| `repo_name` | Raw repository name | Git directory name |
+| `repo_slug` | Normalized slug | `normalize_repo_slug()` |
+| `repo_commit` | Full commit SHA | Git HEAD |
+| `repo_short_commit` | 8-character SHA | Derived |
+| `repo_path` | Repository root path | Filesystem |
+| `scan_root_path` | Scan root absolute path | Input or repo root |
+| `scan_root_relative` | Relative path from repo | Computed |
+| `repo_remote` | Remote URL | Git remote |
+| `repo_branch` | Branch name | Git HEAD |
+| `dataset_hash` | BLAKE3 of training data | Computed |
+| `session_name` | Human-readable session name | CLI input |
+| `session_tags` | Comma-separated tags | CLI input |
+
+### Lifecycle Normalization
+
+Set 34 introduces database-level enforcement of lifecycle state transitions via SQL triggers.
+Migration `0068_metadata_normalization.sql` also normalizes legacy lifecycle states for
+`adapter_stacks` using the same mappings as adapters (pending/published/archived/error/disabled/inactive).
+
+#### Lifecycle States
+
+The system supports 7 lifecycle states:
+
+| State | Description | Terminal |
+|-------|-------------|----------|
+| `draft` | Initial state, not yet trained | No |
+| `training` | Training job in progress | No |
+| `ready` | Training complete, awaiting activation | No |
+| `active` | Promoted to production | No |
+| `deprecated` | Marked for deprecation | No |
+| `retired` | End-of-life, cleanup pending | Semi (only -> failed) |
+| `failed` | Terminal failure state | Yes |
+
+#### Valid Transitions
+
+```text
+Standard Path:
+draft -> training -> ready -> active -> deprecated -> retired
+
+Special Paths:
+- active -> ready (rollback for production issues)
+- active -> retired (ephemeral tier only, skip deprecated)
+- any state -> failed (failure path)
+- retired -> failed (post-retirement issue discovered)
+
+Blocked Transitions:
+- failed -> * (fully terminal)
+- retired -> * (except retired -> failed)
+- Skipping states (e.g., draft -> ready)
+- Backward transitions (except active -> ready rollback)
+```
+
+#### Tier-Specific Rules
+
+| Tier | Deprecated Allowed | Direct Retirement |
+|------|-------------------|-------------------|
+| `ephemeral` | No | Yes (active -> retired) |
+| `warm` | Yes | No (must go through deprecated) |
+| `persistent` | Yes | No (must go through deprecated) |
+
+#### Database Enforcement
+
+Transitions are enforced at the database level via triggers:
+
+```sql
+CREATE TRIGGER enforce_adapter_lifecycle_transitions
+BEFORE UPDATE OF lifecycle_state ON adapters
+FOR EACH ROW
+WHEN OLD.lifecycle_state != NEW.lifecycle_state
+BEGIN
+    -- Rule 1: Failed state is fully terminal
+    SELECT CASE
+        WHEN OLD.lifecycle_state = 'failed'
+        THEN RAISE(ABORT, 'LIFECYCLE_VIOLATION: Cannot transition from failed state')
+    END;
+
+    -- Rule 2: Ephemeral adapters cannot be deprecated
+    SELECT CASE
+        WHEN OLD.tier = 'ephemeral' AND NEW.lifecycle_state = 'deprecated'
+        THEN RAISE(ABORT, 'LIFECYCLE_VIOLATION: Ephemeral tier cannot be deprecated')
+    END;
+
+    -- Additional rules...
+END;
+```
+
+#### Transition Rules Table
+
+The `lifecycle_transition_rules` table serves as both documentation and programmatic reference:
+
+```sql
+SELECT from_state, to_state, description, is_rollback
+FROM lifecycle_transition_rules;
+```
+
+### Alias Swap Preflight Gating
+
+Set 34 introduces mandatory preflight checks before alias swap operations.
+
+#### Gate Function
+
+```rust
+use adapteros_cli::commands::preflight::gate_alias_swap;
+
+// Simple gating (default config)
+gate_alias_swap("my-adapter", &db).await?;
+
+// Custom configuration
+let config = AliasSwapGateConfig {
+    force: false,
+    skip_maintenance_check: false,
+    skip_conflict_check: false,
+    tenant_id: Some("tenant-123".to_string()),
+    allow_training_state: true,
+};
+gate_alias_swap_with_config("my-adapter", &db, &config).await?;
+```
+
+#### Preflight Checks
+
+| Check | Status | Failure Behavior |
+|-------|--------|------------------|
+| Adapter Exists | Required | Abort swap |
+| AOS File Path Set | Required | Abort swap |
+| AOS File Hash Set | Required | Abort swap |
+| Content Hash (BLAKE3) | Warning | Continue with warning |
+| Lifecycle State Valid | Required | Abort swap |
+| Repo/Branch Uniqueness | Required | Abort swap |
+| System Not in Maintenance | Required | Abort swap |
+| Tenant Isolation | Required | Abort swap |
+| File Exists on Disk | Required | Abort swap |
+| File Size >= 256 bytes | Warning | Continue with warning |
+| Header Readable | Required | Abort swap |
+
+#### Block Reasons
+
+```rust
+enum AliasSwapBlockReason {
+    AdapterNotFound,           // Target adapter not in registry
+    AdapterFileNotFound,       // .aos file not on disk
+    AdapterFileCorrupted,      // File unreadable or malformed
+    InvalidManifest,           // Missing or invalid manifest
+    MissingHash,               // Required hash not set
+    InvalidLifecycleState,     // State doesn't permit activation
+    ConflictingAdapters,       // Another adapter active for same repo/branch
+    MaintenanceMode,           // System in maintenance mode
+    TenantIsolationViolation,  // Would cross tenant boundaries
+    DatabaseError,             // Database error during validation
+}
+```
+
+#### Activation Gating
+
+For lifecycle activation (transition to 'active' state), use the activation gate:
+
+```rust
+use adapteros_cli::commands::preflight::{gate_activation, ActivationGateConfig};
+
+// Simple gating
+gate_activation("my-adapter", &db).await?;
+
+// Custom configuration
+let config = ActivationGateConfig {
+    skip_maintenance_check: false,
+    skip_conflict_check: false,
+    skip_file_readiness: false,
+    tenant_id: None,
+    allow_from_training: false,  // Set true to allow training -> active
+};
+gate_activation_with_config("my-adapter", &db, &config).await?;
+```
+
+#### Quick File Readiness Check
+
+For real-time gating during inference:
+
+```rust
+use adapteros_cli::commands::preflight::require_adapter_file_ready;
+
+// Lightweight validation before hot-swap
+require_adapter_file_ready(Path::new("/path/to/adapter.aos"))?;
+```
+
+This performs:
+1. File existence check
+2. File readability check
+3. Minimum size validation (256 bytes)
+
+---
+
 ## Related Documentation
 
 - [BOOT_WALKTHROUGH.md](./BOOT_WALKTHROUGH.md) - Narrative boot sequence guide
@@ -1281,3 +1798,4 @@ Running again is idempotent - duplicates are not created.
 - [ARCHITECTURE.md](./ARCHITECTURE.md) - Overall system architecture
 - [SECURITY.md](./SECURITY.md) - Security model and threat analysis
 - [OPERATIONS.md](./OPERATIONS.md) - Operational procedures
+- [DETERMINISM.md](./DETERMINISM.md) - Deterministic execution guide

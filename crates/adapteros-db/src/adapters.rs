@@ -3549,7 +3549,6 @@ impl Db {
         }
 
         let id = Uuid::now_v7().to_string();
-        let mut sql_inserted = false;
         let mut dual_write_completed = false;
         let dual_write_timer =
             if self.storage_mode().write_to_sql() && self.storage_mode().write_to_kv() {
@@ -3558,135 +3557,191 @@ impl Db {
                 None
             };
 
+        // For dual-write mode with strict atomicity, we need to:
+        // 1. Start a transaction BEFORE any writes
+        // 2. Execute SQL insert within transaction (don't commit yet)
+        // 3. Execute KV write
+        // 4. If both succeed, commit the transaction
+        // 5. If KV fails, rollback the transaction (not committed yet, so this works atomically)
+        let needs_dual_write = self.storage_mode().write_to_sql()
+            && self.storage_mode().write_to_kv()
+            && self.get_adapter_kv_repo(&params.tenant_id).is_some();
+
         // Write to SQL when allowed by storage mode
         if self.storage_mode().write_to_sql() {
             if let Some(pool) = self.pool_opt() {
-                sqlx::query(
-                    "INSERT INTO adapters (id, tenant_id, adapter_id, name, hash_b3, rank, alpha, lora_strength, tier, targets_json, acl_json, languages_json, framework, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, expires_at, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, aos_file_path, aos_file_hash, base_model_id, recommended_for_moe, manifest_schema_version, content_hash_b3, metadata_json, provenance_json, repo_path, codebase_scope, dataset_version_id, registration_timestamp, manifest_hash, version, lifecycle_state, current_state, pinned, memory_bytes, activation_count, load_state, active)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, '1.0.0', 'draft', 'unloaded', 0, 0, 0, 'cold', 1)"
-                )
-                .bind(&id)
-                .bind(&params.tenant_id)
-                .bind(&params.adapter_id)
-                .bind(&params.name)
-                .bind(&params.hash_b3)
-                .bind(params.rank)
-                .bind(params.alpha)
-                .bind(&params.lora_strength)
-                .bind(&params.tier)
-                .bind(&params.targets_json)
-                .bind(&params.acl_json)
-                .bind(&params.languages_json)
-                .bind(&params.framework)
-                .bind(&params.category)
-                .bind(&params.scope)
-                .bind(&params.framework_id)
-                .bind(&params.framework_version)
-                .bind(&params.repo_id)
-                .bind(&params.commit_sha)
-                .bind(&params.intent)
-                .bind(&params.expires_at)
-                .bind(&params.adapter_name)
-                .bind(&params.tenant_namespace)
-                .bind(&params.domain)
-                .bind(&params.purpose)
-                .bind(&params.revision)
-                .bind(&params.parent_id)
-                .bind(&params.fork_type)
-                .bind(&params.fork_reason)
-                .bind(&params.aos_file_path)
-                .bind(&params.aos_file_hash)
-                .bind(&params.base_model_id)
-                .bind(params.recommended_for_moe.unwrap_or(true))
-                .bind(&params.manifest_schema_version)
-                .bind(&params.content_hash_b3)
-                .bind(&params.metadata_json)
-                .bind(&params.provenance_json)
-                .bind(&params.repo_path)
-                .bind(&params.codebase_scope)
-                .bind(&params.dataset_version_id)
-                .bind(&params.registration_timestamp)
-                .bind(&params.manifest_hash)
-                .execute(pool)
-                .await
-                .map_err(|e| AosError::database(e.to_string()))?;
-                sql_inserted = true;
+                if needs_dual_write && self.dual_write_requires_strict() {
+                    // Use transaction-based atomic dual-write for strict mode
+                    let mut tx = sqlx::Acquire::begin(pool)
+                        .await
+                        .map_err(|e| AosError::database(e.to_string()))?;
+
+                    // SQL insert within transaction (don't commit yet)
+                    sqlx::query(
+                        "INSERT INTO adapters (id, tenant_id, adapter_id, name, hash_b3, rank, alpha, lora_strength, tier, targets_json, acl_json, languages_json, framework, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, expires_at, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, aos_file_path, aos_file_hash, base_model_id, recommended_for_moe, manifest_schema_version, content_hash_b3, metadata_json, provenance_json, repo_path, codebase_scope, dataset_version_id, registration_timestamp, manifest_hash, version, lifecycle_state, current_state, pinned, memory_bytes, activation_count, load_state, active)
+                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, '1.0.0', 'draft', 'unloaded', 0, 0, 0, 'cold', 1)"
+                    )
+                    .bind(&id)
+                    .bind(&params.tenant_id)
+                    .bind(&params.adapter_id)
+                    .bind(&params.name)
+                    .bind(&params.hash_b3)
+                    .bind(params.rank)
+                    .bind(params.alpha)
+                    .bind(&params.lora_strength)
+                    .bind(&params.tier)
+                    .bind(&params.targets_json)
+                    .bind(&params.acl_json)
+                    .bind(&params.languages_json)
+                    .bind(&params.framework)
+                    .bind(&params.category)
+                    .bind(&params.scope)
+                    .bind(&params.framework_id)
+                    .bind(&params.framework_version)
+                    .bind(&params.repo_id)
+                    .bind(&params.commit_sha)
+                    .bind(&params.intent)
+                    .bind(&params.expires_at)
+                    .bind(&params.adapter_name)
+                    .bind(&params.tenant_namespace)
+                    .bind(&params.domain)
+                    .bind(&params.purpose)
+                    .bind(&params.revision)
+                    .bind(&params.parent_id)
+                    .bind(&params.fork_type)
+                    .bind(&params.fork_reason)
+                    .bind(&params.aos_file_path)
+                    .bind(&params.aos_file_hash)
+                    .bind(&params.base_model_id)
+                    .bind(params.recommended_for_moe.unwrap_or(true))
+                    .bind(&params.manifest_schema_version)
+                    .bind(&params.content_hash_b3)
+                    .bind(&params.metadata_json)
+                    .bind(&params.provenance_json)
+                    .bind(&params.repo_path)
+                    .bind(&params.codebase_scope)
+                    .bind(&params.dataset_version_id)
+                    .bind(&params.registration_timestamp)
+                    .bind(&params.manifest_hash)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| AosError::database(e.to_string()))?;
+
+                    // KV write - if this fails, we can rollback SQL (not committed yet)
+                    if let Some(repo) = self.get_adapter_kv_repo(&params.tenant_id) {
+                        match repo.register_adapter_kv_with_id(&id, params.clone()).await {
+                            Ok(_) => {
+                                // Both succeeded, now commit the SQL transaction
+                                tx.commit()
+                                    .await
+                                    .map_err(|e| AosError::database(e.to_string()))?;
+                                dual_write_completed = true;
+                                debug!(adapter_id = %id, tenant_id = %params.tenant_id, mode = "dual-write-strict", "Adapter registered atomically in both SQL and KV backends");
+                            }
+                            Err(e) => {
+                                // KV failed, rollback SQL (not committed yet, so this works atomically)
+                                error!(
+                                    error = %e,
+                                    adapter_id = %id,
+                                    tenant_id = %params.tenant_id,
+                                    mode = "dual-write-strict",
+                                    "KV write failed in strict atomic mode - rolling back uncommitted SQL transaction"
+                                );
+                                if let Err(rollback_err) = tx.rollback().await {
+                                    error!(
+                                        error = %rollback_err,
+                                        adapter_id = %id,
+                                        "Transaction rollback failed after KV write failure - connection may be in inconsistent state"
+                                    );
+                                }
+                                return Err(AosError::database(format!(
+                                    "KV write failed in strict mode for adapter_id={id}: {e}"
+                                )));
+                            }
+                        }
+                    }
+                } else {
+                    // Non-strict mode or SQL-only: use direct execute (auto-commit)
+                    sqlx::query(
+                        "INSERT INTO adapters (id, tenant_id, adapter_id, name, hash_b3, rank, alpha, lora_strength, tier, targets_json, acl_json, languages_json, framework, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, expires_at, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, aos_file_path, aos_file_hash, base_model_id, recommended_for_moe, manifest_schema_version, content_hash_b3, metadata_json, provenance_json, repo_path, codebase_scope, dataset_version_id, registration_timestamp, manifest_hash, version, lifecycle_state, current_state, pinned, memory_bytes, activation_count, load_state, active)
+                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, '1.0.0', 'draft', 'unloaded', 0, 0, 0, 'cold', 1)"
+                    )
+                    .bind(&id)
+                    .bind(&params.tenant_id)
+                    .bind(&params.adapter_id)
+                    .bind(&params.name)
+                    .bind(&params.hash_b3)
+                    .bind(params.rank)
+                    .bind(params.alpha)
+                    .bind(&params.lora_strength)
+                    .bind(&params.tier)
+                    .bind(&params.targets_json)
+                    .bind(&params.acl_json)
+                    .bind(&params.languages_json)
+                    .bind(&params.framework)
+                    .bind(&params.category)
+                    .bind(&params.scope)
+                    .bind(&params.framework_id)
+                    .bind(&params.framework_version)
+                    .bind(&params.repo_id)
+                    .bind(&params.commit_sha)
+                    .bind(&params.intent)
+                    .bind(&params.expires_at)
+                    .bind(&params.adapter_name)
+                    .bind(&params.tenant_namespace)
+                    .bind(&params.domain)
+                    .bind(&params.purpose)
+                    .bind(&params.revision)
+                    .bind(&params.parent_id)
+                    .bind(&params.fork_type)
+                    .bind(&params.fork_reason)
+                    .bind(&params.aos_file_path)
+                    .bind(&params.aos_file_hash)
+                    .bind(&params.base_model_id)
+                    .bind(params.recommended_for_moe.unwrap_or(true))
+                    .bind(&params.manifest_schema_version)
+                    .bind(&params.content_hash_b3)
+                    .bind(&params.metadata_json)
+                    .bind(&params.provenance_json)
+                    .bind(&params.repo_path)
+                    .bind(&params.codebase_scope)
+                    .bind(&params.dataset_version_id)
+                    .bind(&params.registration_timestamp)
+                    .bind(&params.manifest_hash)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| AosError::database(e.to_string()))?;
+
+                    // KV write (non-strict dual-write mode) - best effort, log on failure
+                    if let Some(repo) = self.get_adapter_kv_repo(&params.tenant_id) {
+                        if let Err(e) = repo.register_adapter_kv_with_id(&id, params.clone()).await
+                        {
+                            warn!(error = %e, adapter_id = %id, mode = "dual-write", "Failed to write adapter to KV backend");
+                        } else {
+                            dual_write_completed = true;
+                            debug!(adapter_id = %id, tenant_id = %params.tenant_id, mode = "dual-write", "Adapter registered in both SQL and KV backends");
+                        }
+                    }
+                }
             } else if !self.storage_mode().write_to_kv() {
                 // No SQL pool and not writing to KV means we cannot satisfy the write
                 return Err(AosError::database(
                     "SQL backend unavailable for adapter registration".to_string(),
                 ));
-            }
-        }
-
-        // KV write (dual-write mode) - use same ID as SQL for consistency
-        if let Some(repo) = self.get_adapter_kv_repo(&params.tenant_id) {
-            if let Err(e) = repo.register_adapter_kv_with_id(&id, params.clone()).await {
-                if self.dual_write_requires_strict() {
-                    error!(
-                        error = %e,
-                        adapter_id = %id,
-                        tenant_id = %params.tenant_id,
-                        mode = "dual-write-strict",
-                        "KV write failed in strict atomic mode - rolling back SQL insert"
-                    );
-
-                    if sql_inserted {
-                        match self.pool_opt() {
-                            Some(pool) => {
-                                // Use a transaction for the rollback to ensure atomicity
-                                // and avoid partial state on concurrent access
-                                let rollback_result = async {
-                                    let mut tx = sqlx::Acquire::begin(pool).await?;
-                                    sqlx::query("DELETE FROM adapters WHERE id = ?")
-                                        .bind(&id)
-                                        .execute(&mut *tx)
-                                        .await?;
-                                    tx.commit().await?;
-                                    Ok::<_, sqlx::Error>(())
-                                }
-                                .await;
-
-                                if let Err(rollback_err) = rollback_result {
-                                    error!(
-                                        original_error = %e,
-                                        rollback_error = %rollback_err,
-                                        adapter_id = %id,
-                                        tenant_id = %params.tenant_id,
-                                        "CRITICAL: Failed to rollback SQL insert after KV failure"
-                                    );
-                                    return Err(AosError::database(format!(
-                                        "KV write failed and rollback failed (adapter_id: {id}). Manual repair required."
-                                    )));
-                                }
-                            }
-                            None => {
-                                // CRITICAL: This is a point of no return - SQL committed but KV failed
-                                // and we cannot rollback. System is in an inconsistent state.
-                                error!(
-                                    original_error = %e,
-                                    adapter_id = %id,
-                                    tenant_id = %params.tenant_id,
-                                    "DUAL-WRITE INCONSISTENCY: KV write failed but SQL pool unavailable; cannot rollback SQL insert. Use ensure_consistency() to repair."
-                                );
-                                return Err(AosError::dual_write_inconsistency(
-                                    "adapter",
-                                    &id,
-                                    format!("KV write failed and SQL rollback unavailable: {e}"),
-                                ));
-                            }
-                        }
-                    }
-
-                    return Err(AosError::database(format!(
-                        "KV write failed in strict mode for adapter_id={id}: {e}"
-                    )));
-                } else {
-                    warn!(error = %e, adapter_id = %id, mode = "dual-write", "Failed to write adapter to KV backend");
-                }
             } else {
-                dual_write_completed = sql_inserted;
-                debug!(adapter_id = %id, tenant_id = %params.tenant_id, mode = "dual-write", "Adapter registered in both SQL and KV backends");
+                // SQL pool unavailable but KV is enabled - write to KV only
+                if let Some(repo) = self.get_adapter_kv_repo(&params.tenant_id) {
+                    repo.register_adapter_kv_with_id(&id, params.clone())
+                        .await
+                        .map_err(|e| AosError::database(e.to_string()))?;
+                }
+            }
+        } else {
+            // SQL writes disabled - write to KV only if enabled
+            if let Some(repo) = self.get_adapter_kv_repo(&params.tenant_id) {
+                repo.register_adapter_kv_with_id(&id, params.clone())
+                    .await
+                    .map_err(|e| AosError::database(e.to_string()))?;
             }
         }
 

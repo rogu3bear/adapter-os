@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import { apiClient } from '@/api/services';
 
-import { TrainingJob, TrainingSession, TrainingMetrics, TrainingArtifactsResponse } from '@/api/types';
+import { TrainingJob, TrainingSession, TrainingMetrics, TrainingMetricsListResponse, TrainingArtifactsResponse } from '@/api/types';
 import { logger, toError } from '@/utils/logger';
 import { toast } from 'sonner';
 import { usePolling } from '@/hooks/realtime/usePolling';
@@ -36,6 +36,26 @@ import { useQuery } from '@tanstack/react-query';
 import { calculateTrainingETA, formatDuration as formatDurationUtil } from '@/utils/trainingEta';
 import { formatDurationSeconds, formatRelativeTime } from '@/lib/formatters';
 import { buildInferenceLink } from '@/utils/navLinks';
+
+/**
+ * Transforms backend TrainingMetricsListResponse to UI-friendly TrainingMetrics.
+ * Extracts the latest metric entry from the time-series array.
+ */
+const transformMetricsResponse = (response: TrainingMetricsListResponse): TrainingMetrics => {
+  const entries = response.metrics;
+  if (!entries || entries.length === 0) {
+    return {};
+  }
+  // Get the latest metric entry (last in the array, highest step)
+  const latest = entries[entries.length - 1];
+  return {
+    step: latest.step,
+    loss: latest.loss,
+    learning_rate: latest.learning_rate,
+    epoch: latest.epoch,
+    tokens_processed: latest.tokens_processed,
+  };
+};
 
 interface TrainingMonitorProps {
   sessionId?: string;
@@ -70,6 +90,16 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
   const [stopError, setStopError] = useState<Error | null>(null);
   const [isPolling, setIsPolling] = useState(true);
   const logScrollRef = useRef<HTMLDivElement>(null);
+
+  // Track component mount state to prevent state updates after unmount
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   // Track SSE connection state for polling coordination
   const sseConnectedRef = useRef(false);
@@ -136,7 +166,7 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
       };
     } else if (jobId) {
       // Job mode: fetch job data with metrics/logs
-      const [jobData, metricsData, logsData] = await Promise.all([
+      const [jobData, metricsResponse, logsData] = await Promise.all([
         apiClient.getTrainingJob(jobId),
         apiClient.getTrainingMetrics(jobId),
         apiClient.getTrainingLogs(jobId)
@@ -154,7 +184,7 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
       return {
         session: null,
         job: jobData,
-        metrics: metricsData,
+        metrics: transformMetricsResponse(metricsResponse),
         logs: logsData,
         artifacts: artifactsData
       };
@@ -284,24 +314,31 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
       });
 
       await apiClient.cancelTraining(jobId);
-      setIsPolling(false);
-      toast.success('Training job cancelled successfully');
 
-      logger.info('Training job cancelled', {
-        component: 'TrainingMonitor',
-        operation: 'handleStop',
-        jobId
-      });
+      // Only update state if component is still mounted
+      if (isMountedRef.current) {
+        setIsPolling(false);
+        toast.success('Training job cancelled successfully');
+
+        logger.info('Training job cancelled', {
+          component: 'TrainingMonitor',
+          operation: 'handleStop',
+          jobId
+        });
+      }
     } catch (err) {
-      const error = err instanceof Error ? err : new Error('Failed to cancel training');
-      logger.error('Failed to cancel training', {
-        component: 'TrainingMonitor',
-        operation: 'handleStop',
-        jobId,
-        error: error.message
-      });
-      setStopError(error);
-      toast.error(`Failed to cancel training: ${error.message}`);
+      // Only update state if component is still mounted
+      if (isMountedRef.current) {
+        const error = err instanceof Error ? err : new Error('Failed to cancel training');
+        logger.error('Failed to cancel training', {
+          component: 'TrainingMonitor',
+          operation: 'handleStop',
+          jobId,
+          error: error.message
+        });
+        setStopError(error);
+        toast.error(`Failed to cancel training: ${error.message}`);
+      }
     }
   };
 

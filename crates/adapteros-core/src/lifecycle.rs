@@ -1337,7 +1337,14 @@ impl LifecycleValidator {
         let tier = context
             .get("tier")
             .and_then(|v| v.as_str())
-            .unwrap_or("persistent");
+            .unwrap_or_else(|| {
+                tracing::debug!(
+                    context = ?context,
+                    default = "persistent",
+                    "Missing 'tier' in validation context, defaulting to 'persistent'"
+                );
+                "persistent"
+            });
 
         if !from.can_transition_to_for_tier(to, tier) {
             Some(ConstraintViolation::error(
@@ -1361,7 +1368,14 @@ impl LifecycleValidator {
         let has_artifact = context
             .get("has_artifact")
             .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+            .unwrap_or_else(|| {
+                tracing::debug!(
+                    context = ?context,
+                    default = false,
+                    "Missing 'has_artifact' in validation context, defaulting to false"
+                );
+                false
+            });
 
         if !has_artifact {
             Some(ConstraintViolation::error(
@@ -1382,7 +1396,14 @@ impl LifecycleValidator {
         let has_evidence = context
             .get("has_training_evidence")
             .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+            .unwrap_or_else(|| {
+                tracing::debug!(
+                    context = ?context,
+                    default = false,
+                    "Missing 'has_training_evidence' in validation context, defaulting to false"
+                );
+                false
+            });
 
         if !has_evidence {
             Some(ConstraintViolation::error(
@@ -1404,7 +1425,14 @@ impl LifecycleValidator {
             .get("conflicting_adapters")
             .and_then(|v| v.as_array())
             .map(|arr| arr.len())
-            .unwrap_or(0);
+            .unwrap_or_else(|| {
+                tracing::debug!(
+                    context = ?context,
+                    default = 0,
+                    "Missing 'conflicting_adapters' in validation context, defaulting to 0"
+                );
+                0
+            });
 
         if conflicting > 0 {
             let adapters: Vec<String> = context
@@ -1443,7 +1471,14 @@ impl LifecycleValidator {
         let active_refs = context
             .get("active_references")
             .and_then(|v| v.as_u64())
-            .unwrap_or(0);
+            .unwrap_or_else(|| {
+                tracing::debug!(
+                    context = ?context,
+                    default = 0,
+                    "Missing 'active_references' in validation context, defaulting to 0"
+                );
+                0
+            });
 
         if active_refs > 0 {
             Some(
@@ -1473,12 +1508,26 @@ impl LifecycleValidator {
         let bypass_preflight = context
             .get("bypass_preflight")
             .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+            .unwrap_or_else(|| {
+                tracing::debug!(
+                    context = ?context,
+                    default = false,
+                    "Missing 'bypass_preflight' in validation context, defaulting to false"
+                );
+                false
+            });
 
         let is_hotfix = context
             .get("is_hotfix")
             .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+            .unwrap_or_else(|| {
+                tracing::debug!(
+                    context = ?context,
+                    default = false,
+                    "Missing 'is_hotfix' in validation context, defaulting to false"
+                );
+                false
+            });
 
         if bypass_preflight || is_hotfix {
             return None;
@@ -1488,7 +1537,14 @@ impl LifecycleValidator {
         let preflight_status = context
             .get("preflight_status")
             .and_then(|v| v.as_str())
-            .unwrap_or("pending");
+            .unwrap_or_else(|| {
+                tracing::debug!(
+                    context = ?context,
+                    default = "pending",
+                    "Missing 'preflight_status' in validation context, defaulting to 'pending'"
+                );
+                "pending"
+            });
 
         if preflight_status != "passed" {
             Some(ConstraintViolation::error(

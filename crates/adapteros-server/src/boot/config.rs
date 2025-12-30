@@ -216,6 +216,17 @@ pub async fn initialize_config(cli: &Cli) -> Result<ConfigContext> {
         }
     }
 
+    // Validate production environment configuration
+    {
+        let cfg = server_config
+            .read()
+            .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?;
+        if let Err(e) = validate_production_config(&cfg) {
+            error!(error = %e, "FATAL: production config validation failed");
+            std::process::exit(1);
+        }
+    }
+
     // Set up panic hook to capture panics to log and write crash snapshots
     {
         let cfg = server_config
@@ -378,4 +389,84 @@ fn latest_log_tail(log_dir: &str, prefix: &str, max_lines: usize) -> Vec<String>
     }
 
     Vec::new()
+}
+
+/// Validate production-specific configuration requirements.
+///
+/// When `AOS_PRODUCTION_MODE` is true (or server.production_mode in config),
+/// this function enforces that critical security settings are properly configured
+/// and not set to placeholder values.
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - JWT secret contains "REPLACE" placeholder or is empty in production mode
+/// - CORS origins contain "REPLACE" placeholder in production mode (warning only)
+fn validate_production_config(config: &Config) -> Result<()> {
+    // Check if production mode is enabled via env var or config
+    let production_mode = std::env::var("AOS_PRODUCTION_MODE")
+        .ok()
+        .map(|v| {
+            matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(config.server.production_mode);
+
+    if !production_mode {
+        return Ok(());
+    }
+
+    info!("Validating production configuration requirements");
+
+    // Validate JWT secret is not a placeholder
+    let jwt_secret = std::env::var("AOS_SECURITY_JWT_SECRET")
+        .unwrap_or_else(|_| config.security.jwt_secret.clone());
+
+    if jwt_secret.is_empty() {
+        return Err(anyhow::anyhow!(
+            "AOS_SECURITY_JWT_SECRET must be set in production mode. \
+             Generate a secure secret with: openssl rand -base64 32"
+        ));
+    }
+
+    if jwt_secret.contains("REPLACE") || jwt_secret.contains("changeme") {
+        return Err(anyhow::anyhow!(
+            "AOS_SECURITY_JWT_SECRET contains a placeholder value ('REPLACE' or 'changeme'). \
+             Set a secure secret for production. Generate with: openssl rand -base64 32"
+        ));
+    }
+
+    // Warn about minimum secret length (but don't block)
+    if jwt_secret.len() < 32 {
+        warn!(
+            secret_len = jwt_secret.len(),
+            "JWT secret is shorter than recommended (32+ characters). Consider using a longer secret."
+        );
+    }
+
+    // Check CORS origins configuration (warning only, not blocking)
+    let allowed_origins = std::env::var("ALLOWED_ORIGINS").unwrap_or_default();
+    if allowed_origins.contains("REPLACE") {
+        warn!(
+            "ALLOWED_ORIGINS contains placeholder value. Configure proper CORS origins for production."
+        );
+    } else if allowed_origins.is_empty() {
+        warn!(
+            "ALLOWED_ORIGINS not configured for production. \
+             Consider setting explicit origins for better security."
+        );
+    }
+
+    // Check for wildcard CORS in production (security warning)
+    if allowed_origins == "*" {
+        warn!(
+            "ALLOWED_ORIGINS is set to wildcard '*' in production mode. \
+             This allows requests from any origin and may pose a security risk."
+        );
+    }
+
+    info!("Production configuration validation passed");
+    Ok(())
 }

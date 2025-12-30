@@ -32,13 +32,11 @@ source scripts/lib/freeze-guard.sh
 : "${SKIP_WORKER:=0}"
 : "${AOS_QUICK_BOOT:=0}"
 : "${AOS_LOG_PROFILE:=json}"
-: "${AOS_DEBUG_LOG:=$SCRIPT_DIR/.cursor/debug.log}"
 
 VERBOSE=0
 TRACE=0
 SCRIPT_LOG="$AOS_LOG_DIR/start.log"
 READYZ_TIMELINE_PATH="$AOS_LOG_DIR/readyz-timeline.jsonl"
-DEBUG_LOG_PATH="$AOS_DEBUG_LOG"
 
 # Animation characters
 SPINNER_CHARS="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"

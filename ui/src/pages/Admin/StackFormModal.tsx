@@ -311,6 +311,7 @@ export function StackFormModal({ open, onOpenChange, stack, initialAdapterId, on
               <Input
                 id="name"
                 placeholder="my-stack"
+                autoFocus
                 {...register('name')}
               />
               {errors.name && (

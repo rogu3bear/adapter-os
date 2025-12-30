@@ -585,6 +585,21 @@ impl CompressionHandler {
 
             let output_path = output_dir.join(entry_name);
 
+            // Security: Check if output_path is a symlink before canonicalize to prevent TOCTOU attacks
+            // An attacker could create a symlink race condition between exists() and canonicalize()
+            if output_path.exists() {
+                let metadata = std::fs::symlink_metadata(&output_path).context(format!(
+                    "Failed to get metadata for: {}",
+                    output_path.display()
+                ))?;
+                if metadata.file_type().is_symlink() {
+                    return Err(anyhow!(
+                        "Entry path is a symlink, rejecting for security: {}",
+                        output_path.display()
+                    ));
+                }
+            }
+
             // Security: Verify resolved path stays within output directory
             // Use lexical comparison since output_path may not exist yet
             let canonical_output_dir = output_dir
@@ -601,6 +616,17 @@ impl CompressionHandler {
                 // File doesn't exist yet, check the parent directory
                 if let Some(parent) = output_path.parent() {
                     if parent.exists() {
+                        // Also check if parent is a symlink
+                        let parent_metadata = std::fs::symlink_metadata(parent).context(
+                            format!("Failed to get metadata for parent: {}", parent.display()),
+                        )?;
+                        if parent_metadata.file_type().is_symlink() {
+                            return Err(anyhow!(
+                                "Parent path is a symlink, rejecting for security: {}",
+                                parent.display()
+                            ));
+                        }
+
                         let canonical_parent = parent
                             .canonicalize()
                             .context("Failed to canonicalize parent directory")?;

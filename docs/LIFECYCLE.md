@@ -2,50 +2,280 @@
 
 **Canonical reference for adapter and base model lifecycle management**
 
-**Last Updated:** 2025-12-24
+**Last Updated:** 2025-12-29
 
 ---
 
 ## Table of Contents
 
 1. [Overview](#overview)
-2. [Lifecycle States](#lifecycle-states)
-3. [State Transitions](#state-transitions)
-4. [Memory Implications](#memory-implications)
-5. [Cold → Warm → Hot Progression](#cold--warm--hot-progression)
-6. [Pinning and Lifecycle](#pinning-and-lifecycle)
-7. [State Machine Diagram](#state-machine-diagram)
-8. [Code Examples](#code-examples)
-9. [Database Integration](#database-integration)
-10. [Troubleshooting](#troubleshooting)
+2. [Two Lifecycle Systems](#two-lifecycle-systems)
+3. [Business Lifecycle States](#business-lifecycle-states)
+4. [Runtime Lifecycle States](#runtime-lifecycle-states)
+5. [State Transitions](#state-transitions)
+6. [Memory Implications](#memory-implications)
+7. [Unloaded → Loaded → Active Progression](#unloaded--loaded--active-progression)
+8. [Pinning and Lifecycle](#pinning-and-lifecycle)
+9. [State Machine Diagram](#state-machine-diagram)
+10. [Code Examples](#code-examples)
+11. [Database Integration](#database-integration)
+12. [Troubleshooting](#troubleshooting)
 
 ---
 
 ## Overview
 
-AdapterOS manages the complete lifecycle of **base models** (Layer 1) and **adapters** (Layer 2) through a series of well-defined states. The lifecycle system ensures:
+AdapterOS manages the complete lifecycle of **base models** (Layer 1) and **adapters** (Layer 2) through two complementary lifecycle systems:
+
+1. **Business Lifecycle** - Tracks the maturity and availability of adapters from creation through retirement
+2. **Runtime Lifecycle** - Tracks the memory/GPU state of adapters for hot-swap and inference
+
+The lifecycle systems ensure:
 
 - **Memory efficiency**: Adapters are loaded only when needed
 - **Performance optimization**: Hot paths minimize latency
 - **Resource isolation**: Per-tenant memory quotas are enforced
 - **Reliability**: State transitions are atomic and recoverable
 - **Observability**: All transitions are logged and tracked in the database
+- **Version control**: Semantic versioning tracks adapter evolution
+- **Tier-specific rules**: Ephemeral, warm, and persistent adapters have different lifecycle paths
 
 ### Key Components
 
 | Component | Location | Purpose |
 |-----------|----------|---------|
-| **LifecycleState** | `crates/adapteros-lora-worker/src/lifecycle_state.rs` | Core state enum definition |
+| **LifecycleState (Business)** | `crates/adapteros-core/src/lifecycle.rs` | Business lifecycle enum (7 states) |
+| **LifecycleState (Runtime)** | `crates/adapteros-lora-worker/src/lifecycle_state.rs` | Runtime/memory lifecycle enum (6 states) |
+| **LifecycleTransition** | `crates/adapteros-core/src/lifecycle.rs` | Validates business state transitions |
 | **BaseModelState** | `crates/adapteros-lora-worker/src/base_model_state.rs` | Base model tracking |
 | **AdapterTable** | `crates/adapteros-lora-worker/src/adapter_hotswap.rs` | Adapter hotswap coordination |
 | **AdapterStore** | `crates/adapteros-core/src/adapter_store.rs` | RCU-style reference counting |
 | **RequestPinner** | `crates/adapteros-lora-worker/src/request_pinner.rs` | RAII pinning guard |
+| **Lifecycle DB** | `crates/adapteros-db/src/lifecycle.rs` | Database transition operations |
+| **SQL Triggers** | `migrations/0075_lifecycle_state_transition_triggers.sql` | Database-level state machine enforcement |
 
 ---
 
-## Lifecycle States
+## Two Lifecycle Systems
 
-The `LifecycleState` enum defines the canonical progression for both base models and adapters:
+AdapterOS uses two distinct but complementary lifecycle systems:
+
+### Business Lifecycle (Adapter Maturity)
+
+Tracks the **development and deployment maturity** of an adapter:
+
+```
+Draft → Training → Ready → Active → Deprecated → Retired
+                     ↘         ↘  ↖ (rollback)
+                      └──────────► Failed
+```
+
+**Location:** `crates/adapteros-core/src/lifecycle.rs`
+
+**Use cases:**
+- Version control and promotion workflows
+- Training pipeline integration
+- Deprecation and retirement policies
+- Audit trails for adapter changes
+
+### Runtime Lifecycle (Memory State)
+
+Tracks the **GPU/memory state** of an adapter for serving:
+
+```
+Unloaded → Loading → Loaded → Active → Unloading → Unloaded
+    ↓          ↓         ↓        ↓         ↓
+    └─────────→  Error  ←─────────┘─────────┘
+```
+
+**Location:** `crates/adapteros-lora-worker/src/lifecycle_state.rs`
+
+**Use cases:**
+- Hot-swap coordination
+- Memory pressure handling
+- Inference request routing
+- VRAM allocation tracking
+
+### Relationship Between Systems
+
+| Business State | Can Be Loaded? | Typical Runtime State |
+|---------------|---------------|----------------------|
+| Draft | No | N/A (not loadable) |
+| Training | No | N/A (training in progress) |
+| Ready | Yes | Unloaded or Loaded (staged) |
+| Active | Yes | Loaded or Active (serving) |
+| Deprecated | Yes | Active (still routable) |
+| Retired | No | Unloaded (cleaned up) |
+| Failed | No | N/A (not loadable) |
+
+---
+
+## Business Lifecycle States
+
+The business lifecycle enum (`adapteros_core::lifecycle::LifecycleState`) defines adapter maturity:
+
+```rust
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LifecycleState {
+    Draft,       // Under development, .aos missing or incomplete
+    Training,    // Training job running
+    Ready,       // .aos uploaded, hash verified, basic validation passed
+    Active,      // Production-ready and available for use
+    Deprecated,  // Still functional but discouraged, migration recommended
+    Retired,     // No longer available, cannot be loaded
+    Failed,      // Training or validation failed; not routable
+}
+```
+
+### State Definitions
+
+#### 1. Draft
+
+**Definition:** Adapter version created; `.aos` file missing or incomplete.
+
+**Characteristics:**
+- **Loadable:** No
+- **Mutable:** Yes (weights can be modified)
+- **Serving capability:** Cannot serve requests
+
+**Use cases:**
+- New adapter registration
+- Work-in-progress development
+- Pre-training configuration
+
+**Valid transitions:** Draft → Training, Draft → Failed
+
+#### 2. Training
+
+**Definition:** Training job is actively running for this adapter.
+
+**Characteristics:**
+- **Loadable:** No
+- **Mutable:** Yes (training in progress)
+- **Serving capability:** Cannot serve requests
+
+**Use cases:**
+- Active LoRA fine-tuning
+- Dataset processing
+- Hyperparameter optimization
+
+**Valid transitions:** Training → Ready, Training → Failed
+
+#### 3. Ready
+
+**Definition:** Artifact uploaded and validated; ready for activation.
+
+**Characteristics:**
+- **Loadable:** Yes (can be preloaded)
+- **Mutable:** No (artifact is immutable)
+- **Serving capability:** Can serve requests if loaded
+
+**Requirements to enter Ready:**
+- `.aos` file path must be set
+- `.aos` file hash must be verified
+- `content_hash_b3` must be computed (BLAKE3 of manifest + canonical weights)
+- `manifest_hash` must be computed (BLAKE3 of manifest bytes)
+
+> **Note:** Adapters registered before hash fields were mandatory may be blocked
+> from activation. Use `aosctl adapter repair-hashes` to compute missing hashes.
+
+**Valid transitions:** Ready → Active, Ready → Failed
+
+#### 4. Active
+
+**Definition:** Production-ready and available for routing.
+
+**Characteristics:**
+- **Loadable:** Yes
+- **Mutable:** No
+- **Serving capability:** Primary serving state
+
+**Requirements to enter Active:**
+- All Ready requirements met
+- Training snapshot/metrics evidence exists
+- Unique per (repo_id, branch) for codebase adapters
+
+**Valid transitions:** Active → Deprecated, Active → Ready (rollback), Active → Retired (ephemeral only), Active → Failed
+
+#### 5. Deprecated
+
+**Definition:** Still functional but discouraged; migration recommended.
+
+**Characteristics:**
+- **Loadable:** Yes (for rollback scenarios)
+- **Mutable:** No
+- **Serving capability:** Can serve requests (for rollback)
+
+**Use cases:**
+- Graceful migration to newer versions
+- Rollback availability window
+- End-of-life announcements
+
+**Tier restriction:** Ephemeral adapters cannot be deprecated (must go directly to Retired)
+
+**Valid transitions:** Deprecated → Retired, Deprecated → Failed
+
+#### 6. Retired
+
+**Definition:** No longer available; cannot be loaded.
+
+**Characteristics:**
+- **Loadable:** No
+- **Mutable:** No
+- **Serving capability:** Cannot serve requests
+- **Terminal state:** No transitions out
+
+**Use cases:**
+- End-of-life adapters
+- Audit record preservation
+- Storage cleanup candidates
+
+**Valid transitions:** None (terminal state)
+
+#### 7. Failed
+
+**Definition:** Training or validation failed; not routable.
+
+**Characteristics:**
+- **Loadable:** No
+- **Mutable:** No
+- **Serving capability:** Cannot serve requests
+- **Terminal state:** No transitions out
+
+**Common failure scenarios:**
+- Training job failure
+- Validation errors
+- Corrupt artifact detection
+- Policy violations
+
+**Valid transitions:** None (terminal state)
+
+### Tier-Specific Rules
+
+```rust
+impl LifecycleState {
+    /// Ephemeral adapters cannot be deprecated
+    pub fn is_valid_for_tier(&self, tier: &str) -> bool {
+        match (self, tier) {
+            (LifecycleState::Deprecated, "ephemeral") => false,
+            _ => true,
+        }
+    }
+}
+```
+
+| Tier | Can Deprecated? | Typical Path |
+|------|-----------------|--------------|
+| Ephemeral | No | Active → Retired |
+| Warm | Yes | Active → Deprecated → Retired |
+| Persistent | Yes | Active → Deprecated → Retired |
+
+---
+
+## Runtime Lifecycle States
+
+The runtime lifecycle enum (`adapteros_lora_worker::lifecycle_state::LifecycleState`) tracks memory state:
 
 ```rust
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -59,7 +289,7 @@ pub enum LifecycleState {
 }
 ```
 
-### State Definitions
+### Runtime State Definitions
 
 #### 1. Unloaded
 
@@ -69,7 +299,7 @@ pub enum LifecycleState {
 - **VRAM usage:** 0 MB
 - **Load latency:** ~500ms (disk I/O + decompression)
 - **CPU overhead:** Initial parse of `.aos` format or SafeTensors
-- **Serving capability:** ❌ Cannot serve requests
+- **Serving capability:** Cannot serve requests
 
 **Use cases:**
 - Default state for newly registered adapters
@@ -93,7 +323,7 @@ LifecycleState::Unloaded => ModelLoadStatus::NoModel
   - Decompressing SafeTensors or Q15 weights
   - Allocating GPU buffers
   - Compiling Metal kernels (if CoreML)
-- **Serving capability:** ❌ Cannot serve requests
+- **Serving capability:** Cannot serve requests
 
 **Failure modes:**
 - Disk I/O errors → `LifecycleState::Error`
@@ -113,7 +343,7 @@ LifecycleState::Loading => ModelLoadStatus::Loading
 - **VRAM usage:** ~100-150 MB (depends on rank)
 - **Activation latency:** ~5-50ms (swap into active set)
 - **State:** Staged in `AdapterTable::staged` HashMap
-- **Serving capability:** ❌ Not in active stack
+- **Serving capability:** Not in active stack
 
 **Use cases:**
 - **Preloading:** Preparing adapters for future swap
@@ -139,7 +369,7 @@ LifecycleState::Loaded => ModelLoadStatus::Ready
 - **VRAM usage:** ~150-200 MB (fully optimized)
 - **Inference latency:** ~1-5ms per request
 - **State:** Present in `AdapterTable::active` HashMap
-- **Serving capability:** ✅ Can serve requests
+- **Serving capability:** Can serve requests
 - **Reference counting:** Pinned during active requests
 
 **Optimizations:**
@@ -170,7 +400,7 @@ LifecycleState::Active => ModelLoadStatus::Ready
   - Decrement reference counts to zero
   - Release GPU buffers
   - Free system memory
-- **Serving capability:** ❌ No longer accepts new requests
+- **Serving capability:** No longer accepts new requests
 
 **Graceful shutdown:**
 ```rust
@@ -196,7 +426,7 @@ LifecycleState::Unloading => ModelLoadStatus::Unloading
 **Characteristics:**
 - **VRAM usage:** 0 MB (cleaned up)
 - **Error persistence:** Stored in database for debugging
-- **Serving capability:** ❌ Cannot serve requests
+- **Serving capability:** Cannot serve requests
 - **Recovery:** Manual intervention required (reload or delete)
 
 **Common error scenarios:**
@@ -221,7 +451,64 @@ LifecycleState::Error => ModelLoadStatus::Error
 
 ## State Transitions
 
-### Valid Transition Paths
+### Business Lifecycle Transitions
+
+The business lifecycle enforces a strict state machine for adapter maturity:
+
+#### Valid Transition Paths
+
+```
+Draft → Training → Ready → Active → Deprecated → Retired
+  ↘         ↘        ↘       ↘  ↖ (rollback)     ↗
+   └────────┴────────┴───────┴──► Failed    (ephemeral: Active → Retired)
+```
+
+#### Business Transition Matrix
+
+| From / To | Draft | Training | Ready | Active | Deprecated | Retired | Failed |
+|-----------|-------|----------|-------|--------|------------|---------|--------|
+| **Draft** | - | Yes | No | No | No | No | Yes |
+| **Training** | No | - | Yes | No | No | No | Yes |
+| **Ready** | No | No | - | Yes | No | No | Yes |
+| **Active** | No | No | Yes* | - | Yes | Yes** | Yes |
+| **Deprecated** | No | No | No | No | - | Yes | Yes |
+| **Retired** | No | No | No | No | No | - | No |
+| **Failed** | No | No | No | No | No | No | - |
+
+\* Active → Ready is allowed for rollback
+\*\* Active → Retired is only allowed for ephemeral tier adapters
+
+#### Database-Level Enforcement
+
+Business lifecycle transitions are enforced at the database level via SQL triggers (see `migrations/0075_lifecycle_state_transition_triggers.sql`):
+
+```sql
+-- Reference table for valid lifecycle state transitions
+CREATE TABLE lifecycle_transition_rules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_state TEXT NOT NULL,
+    to_state TEXT NOT NULL,
+    description TEXT,
+    is_rollback INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(from_state, to_state)
+);
+
+-- Seeded valid transitions
+INSERT INTO lifecycle_transition_rules (from_state, to_state, description) VALUES
+    ('draft', 'training', 'Start training job'),
+    ('training', 'ready', 'Training completed successfully'),
+    ('ready', 'active', 'Promote to production'),
+    ('active', 'deprecated', 'Mark for deprecation'),
+    ('active', 'ready', 'Rollback from production'),
+    ('active', 'retired', 'Direct retirement (ephemeral tier only)'),
+    ('deprecated', 'retired', 'Complete retirement');
+```
+
+### Runtime Lifecycle Transitions
+
+The runtime lifecycle tracks memory/GPU state for serving:
+
+#### Valid Transition Paths
 
 ```
 Unloaded → Loading → Loaded → Active → Unloading → Unloaded
@@ -229,18 +516,18 @@ Unloaded → Loading → Loaded → Active → Unloading → Unloaded
    └─────────→  Error  ←─────────┘─────────┘
 ```
 
-### Transition Matrix
+#### Runtime Transition Matrix
 
 | From / To | Unloaded | Loading | Loaded | Active | Unloading | Error |
 |-----------|----------|---------|--------|--------|-----------|-------|
-| **Unloaded** | - | ✅ Load | ❌ | ❌ | ❌ | ✅ Corrupt file |
-| **Loading** | ❌ | - | ✅ Success | ❌ | ❌ | ✅ Load failed |
-| **Loaded** | ❌ | ❌ | - | ✅ Swap in | ✅ Evict | ✅ Validation failed |
-| **Active** | ❌ | ❌ | ❌ | - | ✅ Swap out | ✅ Runtime error |
-| **Unloading** | ✅ Cleanup done | ❌ | ❌ | ❌ | - | ✅ Cleanup failed |
-| **Error** | ✅ Manual reset | ❌ | ❌ | ❌ | ❌ | - |
+| **Unloaded** | - | Yes (Load) | No | No | No | Yes (Corrupt file) |
+| **Loading** | No | - | Yes (Success) | No | No | Yes (Load failed) |
+| **Loaded** | No | No | - | Yes (Swap in) | Yes (Evict) | Yes (Validation failed) |
+| **Active** | No | No | No | - | Yes (Swap out) | Yes (Runtime error) |
+| **Unloading** | Yes (Cleanup done) | No | No | No | - | Yes (Cleanup failed) |
+| **Error** | Yes (Manual reset) | No | No | No | No | - |
 
-### Transition Triggers
+### Runtime Transition Triggers
 
 #### 1. Unloaded → Loading
 
@@ -472,11 +759,11 @@ if let Err(evict_err) = lifecycle.handle_memory_pressure(&profiler) {
 
 ---
 
-## Cold → Warm → Hot Progression
+## Unloaded → Loaded → Active Progression
 
-AdapterOS uses a **thermal metaphor** to describe adapter activation performance:
+AdapterOS describes adapter activation performance along the runtime progression:
 
-### Cold Adapter (Unloaded)
+### Unloaded Adapter
 
 **Latency:** ~500ms first-request latency
 
@@ -489,9 +776,9 @@ AdapterOS uses a **thermal metaphor** to describe adapter activation performance
 
 **Use case:** Rarely-used adapters, long-tail traffic
 
-**Optimization:** Use preload API to transition to Warm
+**Optimization:** Use preload API to transition to Loaded
 
-### Warm Adapter (Loaded)
+### Loaded Adapter
 
 **Latency:** ~5-50ms activation latency
 
@@ -507,9 +794,9 @@ AdapterOS uses a **thermal metaphor** to describe adapter activation performance
 
 **Use case:** Hot-standby for predictable traffic spikes
 
-**Optimization:** Include in active stack to transition to Hot
+**Optimization:** Include in active stack to transition to Active
 
-### Hot Adapter (Active)
+### Active Adapter
 
 **Latency:** ~1-5ms per-request overhead
 
@@ -529,7 +816,7 @@ AdapterOS uses a **thermal metaphor** to describe adapter activation performance
 
 **Optimization:** Use pinning to prevent eviction
 
-### State Diagram: Cold → Warm → Hot
+### State Diagram: Unloaded → Loaded → Active
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -537,7 +824,6 @@ AdapterOS uses a **thermal metaphor** to describe adapter activation performance
 └─────────────────────────────────────────────────────────────┘
 
     Unloaded             Loaded              Active
-   (Cold 🧊)           (Warm 🌡️)          (Hot 🔥)
        │                   │                  │
        │  preload()        │   swap()         │
        │  ~500ms           │   ~5-50ms        │  inference
@@ -556,10 +842,10 @@ AdapterOS uses a **thermal metaphor** to describe adapter activation performance
 
 | Transition | Latency | Blocking? | Reversible? |
 |------------|---------|-----------|-------------|
-| Cold → Warm | 500ms | Yes (async) | Yes (evict) |
-| Warm → Hot | 5-50ms | No (atomic) | Yes (swap) |
-| Hot → Warm | 2-10ms | No (atomic) | Yes (swap) |
-| Warm → Cold | 50-200ms | Yes (drain) | Yes (preload) |
+| Unloaded → Loaded | 500ms | Yes (async) | Yes (evict) |
+| Loaded → Active | 5-50ms | No (atomic) | Yes (swap) |
+| Active → Loaded | 2-10ms | No (atomic) | Yes (swap) |
+| Loaded → Unloaded | 50-200ms | Yes (drain) | Yes (preload) |
 
 ---
 
@@ -678,11 +964,75 @@ aosctl unpin-adapter --id my-critical-adapter
 
 ## State Machine Diagram
 
-### Full Lifecycle State Machine
+### Business Lifecycle State Machine (7 States)
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Unloaded: Adapter registered
+    [*] --> Draft: Adapter registered
+
+    Draft --> Training: Start training
+    Draft --> Failed: Registration error
+
+    Training --> Ready: Training success
+    Training --> Failed: Training error
+
+    Ready --> Active: Promote to production
+    Ready --> Failed: Validation error
+
+    Active --> Deprecated: Mark for deprecation
+    Active --> Ready: Rollback
+    Active --> Retired: Direct retire (ephemeral only)
+    Active --> Failed: Runtime error
+
+    Deprecated --> Retired: Complete retirement
+    Deprecated --> Failed: Deprecation error
+
+    Retired --> [*]: Adapter archived
+    Failed --> [*]: Adapter archived
+
+    note right of Draft
+        Mutable: Yes
+        Loadable: No
+    end note
+
+    note right of Training
+        Mutable: Yes
+        Loadable: No
+    end note
+
+    note right of Ready
+        Mutable: No
+        Loadable: Yes
+    end note
+
+    note right of Active
+        Mutable: No
+        Loadable: Yes
+        Serving: Primary
+    end note
+
+    note right of Deprecated
+        Mutable: No
+        Loadable: Yes
+        Serving: Rollback
+    end note
+
+    note right of Retired
+        Terminal: Yes
+        Loadable: No
+    end note
+
+    note right of Failed
+        Terminal: Yes
+        Loadable: No
+    end note
+```
+
+### Runtime Lifecycle State Machine (6 States)
+
+```mermaid
+stateDiagram-v2
+    [*] --> Unloaded: Adapter ready for loading
 
     Unloaded --> Loading: preload() / API load
     Loading --> Loaded: Load success
@@ -700,7 +1050,7 @@ stateDiagram-v2
 
     Error --> Unloaded: Manual reset / delete
 
-    Unloaded --> [*]: Adapter deleted
+    Unloaded --> [*]: Adapter unloaded
 
     note right of Unloaded
         VRAM: 0 MB
@@ -709,7 +1059,7 @@ stateDiagram-v2
     end note
 
     note right of Loading
-        VRAM: 0 → 100 MB
+        VRAM: 0 -> 100 MB
         Duration: 100-500ms
         Serving: No
     end note
@@ -723,12 +1073,12 @@ stateDiagram-v2
     note right of Active
         VRAM: 150-200 MB
         Latency: ~1-5ms
-        Serving: Yes ✅
+        Serving: Yes
         Pinned during requests
     end note
 
     note right of Unloading
-        VRAM: 200 → 0 MB
+        VRAM: 200 -> 0 MB
         Duration: 50-200ms
         Serving: No
         Waits for refcount drain
@@ -1068,104 +1418,174 @@ async fn memory_pressure_example() -> Result<()> {
 
 ## Database Integration
 
-### Schema: adapter_lifecycle_history
+### Business Lifecycle Schema
+
+The business lifecycle uses version history tables for audit trails:
+
+#### Schema: adapter_lifecycle_history
 
 ```sql
 CREATE TABLE adapter_lifecycle_history (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id TEXT PRIMARY KEY,
+    adapter_pk TEXT NOT NULL,  -- FK to adapters.id
     tenant_id TEXT NOT NULL,
-    adapter_id TEXT NOT NULL,
-    from_state TEXT NOT NULL,
-    to_state TEXT NOT NULL,
-    trigger TEXT, -- 'preload', 'swap', 'evict', 'error'
-    error_message TEXT,
-    memory_usage_mb INTEGER,
-    transitioned_at TEXT DEFAULT (datetime('now')),
+    version TEXT NOT NULL,
+    lifecycle_state TEXT NOT NULL,  -- draft, training, ready, active, deprecated, retired, failed
+    previous_lifecycle_state TEXT,
+    reason TEXT,
+    initiated_by TEXT NOT NULL,
+    metadata_json TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
 
-    FOREIGN KEY (tenant_id, adapter_id)
-        REFERENCES adapters(tenant_id, adapter_id)
-        ON DELETE CASCADE
+    FOREIGN KEY (adapter_pk) REFERENCES adapters(id) ON DELETE CASCADE
 );
-
-CREATE INDEX idx_adapter_lifecycle_history_adapter
-    ON adapter_lifecycle_history(tenant_id, adapter_id, transitioned_at);
 ```
 
-### Schema: adapters (current state)
+#### Schema: adapters (lifecycle_state column)
 
 ```sql
 CREATE TABLE adapters (
+    id TEXT PRIMARY KEY,
     tenant_id TEXT NOT NULL,
-    adapter_id TEXT NOT NULL,
+    adapter_id TEXT NOT NULL UNIQUE,
     name TEXT,
     hash_b3 TEXT NOT NULL,
     rank INTEGER,
-    current_state TEXT DEFAULT 'unloaded', -- LifecycleState enum
-    memory_bytes INTEGER,
-    loaded_at TEXT,
-    error_message TEXT,
+    tier TEXT DEFAULT 'warm',  -- ephemeral, warm, persistent
+    lifecycle_state TEXT DEFAULT 'draft',  -- Business lifecycle state
+    version TEXT DEFAULT '1.0.0',
+    aos_file_path TEXT,
+    aos_file_hash TEXT,
+    content_hash_b3 TEXT,
+    repo_id TEXT,
+    metadata_json TEXT,
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now')),
 
-    PRIMARY KEY (tenant_id, adapter_id)
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id)
 );
 ```
 
-### Triggers: Automatic Lifecycle Logging
+#### Schema: lifecycle_transition_rules
 
 ```sql
-CREATE TRIGGER adapter_lifecycle_logger
-AFTER UPDATE OF current_state ON adapters
-WHEN NEW.current_state != OLD.current_state
+-- Reference table for valid lifecycle state transitions
+CREATE TABLE lifecycle_transition_rules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_state TEXT NOT NULL,
+    to_state TEXT NOT NULL,
+    description TEXT,
+    is_rollback INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(from_state, to_state)
+);
+```
+
+### Database Triggers for Business Lifecycle
+
+The business lifecycle is enforced at the database level via SQL triggers:
+
+```sql
+-- Enforce state machine rules
+CREATE TRIGGER enforce_adapter_lifecycle_transitions
+BEFORE UPDATE OF lifecycle_state ON adapters
+FOR EACH ROW
+WHEN OLD.lifecycle_state != NEW.lifecycle_state
 BEGIN
-    INSERT INTO adapter_lifecycle_history (
-        tenant_id, adapter_id, from_state, to_state, memory_usage_mb
-    ) VALUES (
-        NEW.tenant_id,
-        NEW.adapter_id,
-        OLD.current_state,
-        NEW.current_state,
-        NEW.memory_bytes / (1024 * 1024)
-    );
+    -- Rule 1: Terminal states cannot transition out (retired, failed)
+    SELECT CASE
+        WHEN OLD.lifecycle_state = 'retired'
+        THEN RAISE(ABORT, 'LIFECYCLE_VIOLATION: Cannot transition from retired state')
+        WHEN OLD.lifecycle_state = 'failed'
+        THEN RAISE(ABORT, 'LIFECYCLE_VIOLATION: Cannot transition from failed state')
+    END;
+
+    -- Rule 2: Ephemeral tier adapters cannot be deprecated
+    SELECT CASE
+        WHEN OLD.tier = 'ephemeral' AND NEW.lifecycle_state = 'deprecated'
+        THEN RAISE(ABORT, 'LIFECYCLE_VIOLATION: Ephemeral adapters cannot be deprecated')
+    END;
+
+    -- Rule 3: Validate transition is in allowed rules
+    SELECT CASE
+        WHEN NEW.lifecycle_state = 'failed'
+        THEN NULL  -- Valid: any -> failed
+        WHEN NOT EXISTS (
+            SELECT 1 FROM lifecycle_transition_rules
+            WHERE from_state = OLD.lifecycle_state AND to_state = NEW.lifecycle_state
+        )
+        THEN RAISE(ABORT, 'LIFECYCLE_VIOLATION: Invalid state transition')
+    END;
 END;
+```
+
+### Runtime Lifecycle Tracking
+
+The runtime lifecycle is tracked via the `base_model_status` table:
+
+```sql
+CREATE TABLE base_model_status (
+    tenant_id TEXT PRIMARY KEY,
+    model_id TEXT,
+    status TEXT DEFAULT 'no-model',  -- Runtime status: no-model, loading, ready, unloading, error
+    error_message TEXT,
+    memory_usage_mb INTEGER,
+    loaded_at TEXT,
+    updated_at TEXT DEFAULT (datetime('now')),
+
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+);
 ```
 
 ### Query Examples
 
-**Find all adapters currently in Active state:**
+**Find all adapters currently in Active state (business lifecycle):**
 ```sql
-SELECT adapter_id, name, memory_bytes, loaded_at
+SELECT adapter_id, name, version, tier, created_at
 FROM adapters
 WHERE tenant_id = 'tenant-prod'
-  AND current_state = 'active'
-ORDER BY loaded_at DESC;
+  AND lifecycle_state = 'active'
+ORDER BY created_at DESC;
 ```
 
 **Lifecycle history for debugging:**
 ```sql
 SELECT
-    from_state,
-    to_state,
-    trigger,
-    error_message,
-    transitioned_at
-FROM adapter_lifecycle_history
-WHERE tenant_id = 'tenant-prod'
-  AND adapter_id = 'my-adapter'
-ORDER BY transitioned_at DESC
+    alh.lifecycle_state,
+    alh.previous_lifecycle_state,
+    alh.reason,
+    alh.initiated_by,
+    alh.version,
+    alh.created_at
+FROM adapter_lifecycle_history alh
+JOIN adapters a ON alh.adapter_pk = a.id
+WHERE a.adapter_id = 'my-adapter'
+ORDER BY alh.created_at DESC
 LIMIT 20;
 ```
 
-**Memory usage over time:**
+**Find adapters by tier and lifecycle state:**
 ```sql
-SELECT
-    to_state,
-    AVG(memory_usage_mb) as avg_memory_mb,
-    COUNT(*) as transition_count
-FROM adapter_lifecycle_history
-WHERE tenant_id = 'tenant-prod'
-  AND transitioned_at > datetime('now', '-1 day')
-GROUP BY to_state;
+SELECT adapter_id, name, lifecycle_state, version
+FROM adapters
+WHERE tier = 'ephemeral'
+  AND lifecycle_state IN ('active', 'deprecated')
+ORDER BY created_at DESC;
+```
+
+**Check valid transitions from a given state:**
+```sql
+SELECT to_state, description, is_rollback
+FROM lifecycle_transition_rules
+WHERE from_state = 'active'
+ORDER BY is_rollback, to_state;
+```
+
+**Runtime status for a tenant:**
+```sql
+SELECT model_id, status, memory_usage_mb, error_message, loaded_at
+FROM base_model_status
+WHERE tenant_id = 'tenant-prod';
 ```
 
 ---
@@ -1306,64 +1726,123 @@ aosctl adapter register --id my-adapter --file ./my-adapter.aos
 
 ---
 
+### Issue 5: Adapter Missing Hash Fields (Preflight Failure)
+
+**Symptoms:**
+- Preflight fails with error: `[PREFLIGHT_MISSING_CONTENT_HASH]` or `[PREFLIGHT_MISSING_MANIFEST_HASH]`
+- Alias swap blocked even though adapter has a valid `.aos` file
+- Adapter was registered before hash fields became mandatory
+
+**Root cause:**
+Adapters registered before the hash validation hardening (migration 0075+) may be missing:
+- `content_hash_b3`: BLAKE3 hash of manifest bytes + canonical segment payload
+- `manifest_hash`: BLAKE3 hash of manifest bytes alone
+
+These fields are now required for integrity verification and deterministic routing.
+
+**Diagnosis:**
+```bash
+# Check specific adapter hash fields
+aosctl adapter info --id my-adapter --json | jq '.content_hash_b3, .manifest_hash'
+
+# Find all adapters with missing hashes for a tenant
+aosctl adapter migrate-hashes --tenant-id my-tenant --dry-run
+```
+
+**Resolution (single adapter):**
+```bash
+# Repair hashes for a single adapter
+aosctl adapter repair-hashes --adapter-id my-adapter
+
+# Preview changes without updating
+aosctl adapter repair-hashes --adapter-id my-adapter --dry-run
+```
+
+**Resolution (batch migration):**
+```bash
+# Repair all adapters for a specific tenant
+aosctl adapter migrate-hashes --tenant-id my-tenant
+
+# Repair all adapters across all tenants
+aosctl adapter migrate-hashes --all-tenants --batch-size 50
+
+# Preview changes first
+aosctl adapter migrate-hashes --all-tenants --dry-run
+```
+
+**Migration report:**
+After running the migration command, a summary is printed showing:
+- Total adapters processed
+- Successfully repaired count
+- Skipped count (already had hashes)
+- Failed count (missing .aos file or parse errors)
+
+Adapters that failed migration are listed with their error details. These typically need:
+- Re-registering if the `.aos` file was deleted
+- Manual investigation if the `.aos` file is corrupted
+
+---
+
+### Migration Notes
+
+#### Migration 0075: Business Lifecycle State Transition Triggers
+
+This migration establishes database-level enforcement of the 7-state business lifecycle:
+
+```sql
+-- Key additions in migration 0075:
+--   1. lifecycle_transition_rules table for reference and validation
+--   2. Support for all 7 states: draft, training, ready, active, deprecated, retired, failed
+--   3. Terminal state enforcement for both retired and failed
+--   4. Ephemeral tier restriction (cannot be deprecated)
+--   5. Rollback support (active -> ready)
+--   6. Consistent error codes (LIFECYCLE_VIOLATION prefix)
+
+-- Full migration: migrations/0075_lifecycle_state_transition_triggers.sql
+```
+
+**State Machine Summary:**
+- **Forward path:** draft -> training -> ready -> active -> deprecated -> retired
+- **Rollback:** active -> ready (for production issues)
+- **Failure:** any (non-terminal) -> failed
+- **Terminal states:** retired, failed (no transitions out)
+- **Tier-specific:** ephemeral cannot enter deprecated
+
+### Testing Lifecycle Transitions
+
+Tests for lifecycle enforcement are in:
+- `crates/adapteros-db/tests/lifecycle_trigger_tests.rs` - SQL trigger tests
+- `crates/adapteros-db/tests/lifecycle_rules_tests.rs` - Transition rule tests
+- `crates/adapteros-core/src/lifecycle.rs` - Unit tests for LifecycleTransition
+
+---
+
 ## References
 
 ### Source Files
 
 | File | Purpose |
 |------|---------|
-| `crates/adapteros-lora-worker/src/lifecycle_state.rs` | Core LifecycleState enum |
-| `crates/adapteros-lora-worker/src/base_model_state.rs` | Base model tracking |
+| `crates/adapteros-core/src/lifecycle.rs` | Business lifecycle enum (7 states) and validation |
+| `crates/adapteros-lora-worker/src/lifecycle_state.rs` | Runtime lifecycle enum (6 states) |
+| `crates/adapteros-db/src/lifecycle.rs` | Database transition operations |
+| `crates/adapteros-lora-worker/src/base_model_state.rs` | Base model state tracking |
 | `crates/adapteros-lora-worker/src/adapter_hotswap.rs` | AdapterTable hotswap logic |
 | `crates/adapteros-core/src/adapter_store.rs` | RCU reference counting |
 | `crates/adapteros-lora-worker/src/request_pinner.rs` | Snapshot pinning |
-| `tests/e2e_adapter_lifecycle.rs` | E2E lifecycle tests |
+| `migrations/0075_lifecycle_state_transition_triggers.sql` | Database-level enforcement |
 
 ### Related Documentation
 
 - [Architecture Overview](./ARCHITECTURE.md) - System design and components
 - [API Reference](./API_REFERENCE.md) - REST API endpoints
 - [Training Guide](./TRAINING.md) - Adapter training workflow
-- [Memory Management](./MEMORY.md) - VRAM quotas and pressure handling
 - [Troubleshooting Guide](./TROUBLESHOOTING.md) - Common issues
-
-### Migration Notes (0075_lifecycle_state_transition_triggers.sql)
-
-```sql
--- Trigger to enforce valid lifecycle transitions
-CREATE TRIGGER enforce_lifecycle_transitions
-BEFORE UPDATE OF current_state ON adapters
-BEGIN
-    SELECT CASE
-        -- Unloaded can only transition to Loading or Error
-        WHEN OLD.current_state = 'unloaded' AND NEW.current_state NOT IN ('loading', 'error')
-        THEN RAISE(ABORT, 'Invalid transition: unloaded can only go to loading or error')
-
-        -- Loading can only transition to Loaded or Error
-        WHEN OLD.current_state = 'loading' AND NEW.current_state NOT IN ('loaded', 'error')
-        THEN RAISE(ABORT, 'Invalid transition: loading can only go to loaded or error')
-
-        -- Loaded can transition to Active, Unloading, or Error
-        WHEN OLD.current_state = 'loaded' AND NEW.current_state NOT IN ('active', 'unloading', 'error')
-        THEN RAISE(ABORT, 'Invalid transition: loaded can only go to active, unloading, or error')
-
-        -- Active can transition to Unloading or Error
-        WHEN OLD.current_state = 'active' AND NEW.current_state NOT IN ('unloading', 'error')
-        THEN RAISE(ABORT, 'Invalid transition: active can only go to unloading or error')
-
-        -- Unloading can only transition to Unloaded or Error
-        WHEN OLD.current_state = 'unloading' AND NEW.current_state NOT IN ('unloaded', 'error')
-        THEN RAISE(ABORT, 'Invalid transition: unloading can only go to unloaded or error')
-
-        -- Error can only transition to Unloaded (manual reset)
-        WHEN OLD.current_state = 'error' AND NEW.current_state != 'unloaded'
-        THEN RAISE(ABORT, 'Invalid transition: error can only go to unloaded (manual reset)')
-    END;
-END;
-```
+- [PRD-RECT-001](./prds/rectification/PRD-RECT-001-tenant-isolation-adapter-lifecycle.md) - Tenant isolation for lifecycle
+- [PRD-RECT-002](./prds/rectification/PRD-RECT-002-worker-lifecycle-tenant-scoping.md) - Worker lifecycle scoping
 
 ---
 
-**Document Version:** 1.0
-**Last Updated:** 2025-12-24
+**Document Version:** 2.0
+**Last Updated:** 2025-12-29
 **Maintained By:** AdapterOS Core Team

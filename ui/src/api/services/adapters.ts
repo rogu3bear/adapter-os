@@ -307,18 +307,27 @@ export class AdaptersService {
   }
 
   /**
-   * Swap adapters in memory
+   * Swap adapters in memory (hot-swap)
    *
    * POST /v1/adapters/swap
    *
-   * @param add - Adapter IDs to add
-   * @param remove - Adapter IDs to remove
-   * @param commit - Whether to commit the swap
+   * @param oldAdapterId - ID of the adapter to replace (unload)
+   * @param newAdapterId - ID of the adapter to load
+   * @param dryRun - If true, only validate the swap without executing (default: true)
+   * @returns Swap result with success status, timing, and VRAM delta
    */
-  async swapAdapters(add: string[], remove: string[], commit: boolean = false): Promise<void> {
-    return this.client.request<void>('/v1/adapters/swap', {
+  async swapAdapters(
+    oldAdapterId: string,
+    newAdapterId: string,
+    dryRun: boolean = true
+  ): Promise<types.AdapterSwapResponse> {
+    return this.client.request<types.AdapterSwapResponse>('/v1/adapters/swap', {
       method: 'POST',
-      body: JSON.stringify({ add, remove, commit }),
+      body: JSON.stringify({
+        old_adapter_id: oldAdapterId,
+        new_adapter_id: newAdapterId,
+        dry_run: dryRun,
+      }),
     });
   }
 
