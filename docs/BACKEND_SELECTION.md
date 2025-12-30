@@ -33,10 +33,26 @@ The backend selection system is implemented in `/Users/mln-dev/Dev/adapter-os/cr
 
 ### Key Design Principles
 
-1. **CoreML-first priority**: ANE provides deterministic execution with 50% power savings
+1. **CoreML-first priority**: ANE provides deterministic execution with 50% power savings, **except for live codebase adapters which require MLX/Metal**
 2. **Graceful fallbacks**: Automatic degradation when preferred backends are unavailable
 3. **Deterministic selection**: Same inputs always produce the same backend choice
 4. **Model caching**: Backends share a per-worker model cache to deduplicate loaded models
+
+### Codebase Adapter Backend Override
+
+When a session is bound to a **live codebase adapter**, the backend selection bypasses the CoreML-first rule:
+
+```rust
+// Backend selection with codebase adapter check
+if session.has_live_codebase_adapter() {
+    // CoreML cannot hot-swap; force MLX or Metal
+    return select_non_coreml_backend(capabilities);
+}
+// Normal CoreML-first selection
+return auto_select_backend(capabilities);
+```
+
+**Rationale**: Live codebase adapters receive incremental updates during the session. CoreML packages are compiled and immutable, so they cannot reflect these updates. MLX and Metal backends support per-request adapter loading.
 
 ---
 
@@ -823,6 +839,36 @@ export AOS_MODEL_CACHE_MAX_MB=24576  # 24GB cache
 ```bash
 cargo build --features multi-backend,mlx
 ```
+
+---
+
+### Codebase Adapter Workflows
+
+Codebase adapters require different backends depending on their state:
+
+| Codebase Adapter State | Recommended Backend | Rationale |
+|------------------------|---------------------|-----------|
+| **Live** (bound to session) | MLX or Metal | Receives incremental updates; requires hot-swap |
+| **Frozen** (versioned, unbound) | CoreML (pre-fused) | Stable state; benefits from ANE |
+
+**Live Codebase Session:**
+
+```bash
+# Force MLX for live codebase sessions
+export AOS_MODEL_BACKEND=mlx
+export AOS_FORCE_BACKEND_FOR_CODEBASE=true
+```
+
+**Frozen Codebase Deployment:**
+
+```bash
+# Use CoreML for frozen codebase adapters
+export AOS_MODEL_BACKEND=coreml
+# Pre-fused package includes frozen codebase adapter
+export AOS_MODEL_PATH=./fused-codebase.mlpackage
+```
+
+**Note:** The system automatically selects MLX/Metal when a live codebase adapter is detected, even if `AOS_MODEL_BACKEND=coreml` is set. See [Codebase Adapter Backend Override](#codebase-adapter-backend-override).
 
 ---
 

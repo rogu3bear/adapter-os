@@ -391,7 +391,85 @@ All components follow AdapterOS guidelines:
 
 ---
 
-## 4. Tutorials and Cross-Tab Synchronization
+## 4. Codebase Adapter Training
+
+**Route:** `/training/codebase`
+**Access:** All authenticated users
+**Component:** `CodebaseAdapterTraining.tsx`
+
+### Features
+
+#### Step 1: Select Repository
+- Connect to Git repository (GitHub, GitLab, local)
+- Select branch and commit
+- Preview repository structure
+- Auto-detect language and framework
+
+#### Step 2: Configure Codebase Adapter
+- **Base Adapter**: Select core adapter as baseline (e.g., `core.adapteros`)
+- **Adapter Name**: Auto-generated from repo slug and commit
+- **Versioning Threshold**: Activation count before auto-version (default: 100)
+- **Scope**: Full repo or specific directories
+
+#### Step 3: Bind to Session
+- Create new chat session with bound adapter
+- Or bind to existing session (exclusive binding)
+- Start inference with codebase context
+
+### Constraints
+
+| Constraint | Description | Enforcement |
+|------------|-------------|-------------|
+| **One Per Session** | Only one codebase adapter per chat session | UI prevents binding second adapter |
+| **Live Updates Only on MLX/Metal** | CoreML not supported for live adapters | Backend selector disabled for CoreML |
+| **Freeze Before Export** | Must unbind before CoreML export | "Freeze to CoreML" action required |
+| **Session Scope** | Adapter context tied to session | Unbind on session end |
+
+### Workflow
+
+```
+┌──────────────┐      ┌──────────────┐      ┌──────────────┐
+│ Select Repo  │ ──→  │  Configure   │ ──→  │ Bind & Chat  │
+│  (Git/Local) │      │  (Adapter)   │      │  (Session)   │
+└──────────────┘      └──────────────┘      └──────────────┘
+                                                   │
+                                                   ▼
+                                            ┌──────────────┐
+                                            │ Freeze to    │
+                                            │   CoreML     │
+                                            │ (Optional)   │
+                                            └──────────────┘
+```
+
+### API Endpoints Used
+
+- `POST /v1/adapters/codebase` - Create codebase adapter
+- `GET /v1/adapters/codebase/:id` - Get adapter details
+- `POST /v1/adapters/codebase/:id/bind` - Bind to session
+- `POST /v1/adapters/codebase/:id/unbind` - Unbind from session (triggers version)
+- `POST /v1/adapters/codebase/:id/version` - Manual version bump
+- `POST /v1/adapters/codebase/:id/verify` - Verify deployment readiness
+
+### Navigation
+
+```
+📁 Training
+  ├── 📤 Single-File Trainer (/trainer)
+  ├── 📊 Training Monitor (/training)
+  └── 🗂️ Codebase Adapter (/training/codebase)
+```
+
+### Code Quality
+
+- ✅ TypeScript strict mode
+- ✅ Real-time session binding status
+- ✅ Backend compatibility validation
+- ✅ Freeze confirmation dialog
+- ✅ Version history display
+
+---
+
+## 5. Tutorials and Cross-Tab Synchronization
 
 **Routes:** Contextual tutorials available on multiple pages  
 **Access:** All authenticated users  

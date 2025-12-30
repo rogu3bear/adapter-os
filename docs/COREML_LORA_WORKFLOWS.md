@@ -265,6 +265,15 @@ Runtime sidecar would enable **dynamic hot-swapping** of LoRA adapters at runtim
 
 ⚠️ **STUB MODE** - Infrastructure exists but LoRA computation is not implemented
 
+> **WARNING: Runtime sidecar only applies logit deltas, not full LoRA computation.**
+>
+> The sidecar path intercepts base model outputs and adds LoRA delta contributions, but does not perform true intermediate-layer fusion. For production workloads requiring full LoRA fidelity, **use offline pre-fusion**.
+>
+> Current runtime behavior:
+> - `load_adapter()` - Caches adapter weights (works)
+> - `attach_adapter()` - Marks adapter as active (works)
+> - `run_step()` - Returns base model logits + stub delta (NOT full LoRA)
+
 **What's Implemented:**
 - ✅ Adapter caching (`load_adapter`, `adapter_cache` storage)
 - ✅ Hot-swap logic (`attach_adapter`, `detach_adapter`)
@@ -335,6 +344,37 @@ Once implemented, use runtime sidecar when:
 | **Runtime Overhead** | +5-7ms | Per inference request |
 | **Throughput** | 28-30ms/token | ~27% slower than pre-fusion |
 | **Memory Usage** | +500MB | Per loaded adapter |
+
+### Codebase Adapter Requirements
+
+Codebase adapters have special constraints for CoreML:
+
+1. **Must Be Frozen Before Export**: Codebase adapters bound to live sessions cannot be exported. The session must be unbound first, which triggers automatic versioning.
+
+2. **Freeze Workflow:**
+
+```bash
+# 1. Unbind the codebase adapter from its session
+curl -X POST "$AOS_BASE_URL/v1/adapters/codebase/$ADAPTER_ID/unbind" \
+  -H "Authorization: Bearer $AOS_TOKEN"
+
+# 2. Verify the adapter is now frozen (lifecycle_state != "live")
+curl "$AOS_BASE_URL/v1/adapters/codebase/$ADAPTER_ID" \
+  -H "Authorization: Bearer $AOS_TOKEN"
+
+# 3. Pre-fuse with base adapter
+cargo run --bin aosctl -- coreml fuse \
+  --base ./adapters/core.aos \
+  --adapter ./adapters/frozen_codebase.aos \
+  --output ./fused.safetensors
+
+# 4. Convert to CoreML
+python scripts/convert_mlx_to_coreml.py \
+  --input ./fused.safetensors \
+  --output ./fused.mlpackage
+```
+
+3. **Why Freezing Is Required**: CoreML packages are immutable after compilation. A live codebase adapter may receive incremental updates from the session, which would invalidate any compiled package. Freezing ensures the adapter state is stable before export.
 
 ---
 

@@ -707,6 +707,105 @@ This prevents cross-contamination between different adapter configurations.
 
 ---
 
+## Codebase Adapter Determinism Requirements
+
+Deterministic replay with codebase adapters requires additional constraints beyond standard adapter determinism.
+
+### Single Codebase Adapter Per Stream
+
+For deterministic replay to work with codebase adapters:
+
+1. **One Adapter Per Stream**: Each inference stream must use exactly one codebase adapter. Mixing adapters within a stream breaks the determinism chain.
+
+2. **Pinned Throughout Request**: The codebase adapter is pinned at request start and cannot change until the request completes.
+
+3. **Recorded in Replay Metadata**: The codebase adapter ID and version are recorded in `replay_metadata` for exact reconstruction.
+
+```sql
+-- Replay metadata includes codebase adapter binding
+SELECT
+    manifest_hash,
+    adapter_ids_json,    -- Includes codebase adapter ID
+    rag_snapshot_hash
+FROM replay_metadata
+WHERE inference_id = 'inf-123';
+```
+
+### Frozen CoreML Packages for Static Releases
+
+For production deployments requiring strict determinism:
+
+| Release Type | Adapter State | Backend | Determinism Level |
+|--------------|---------------|---------|-------------------|
+| **Development** | Live (MLX/Metal) | MLX | HKDF-seeded |
+| **Staging** | Frozen (MLX) | MLX | HKDF-seeded |
+| **Production** | Frozen (CoreML fused) | CoreML/ANE | Bit-exact (ANE) |
+
+**Production Workflow:**
+
+```bash
+# 1. Freeze codebase adapter (unbind from session)
+curl -X POST "$AOS_BASE_URL/v1/adapters/codebase/$ADAPTER_ID/unbind"
+
+# 2. Pre-fuse into base model
+cargo run --bin aosctl -- coreml fuse \
+  --adapter ./frozen-codebase.aos \
+  --base ./base-model.safetensors \
+  --output ./fused.safetensors
+
+# 3. Convert to CoreML package
+python scripts/convert_mlx_to_coreml.py \
+  --input ./fused.safetensors \
+  --output ./fused.mlpackage
+
+# 4. Deploy with ANE for guaranteed determinism
+export AOS_MODEL_BACKEND=coreml
+export AOS_MODEL_PATH=./fused.mlpackage
+```
+
+### Replay Requirements
+
+To replay an inference that used a codebase adapter:
+
+1. **Same Codebase Adapter Version**: The exact version must be available
+2. **Same Base Adapter**: The base adapter referenced by the codebase adapter
+3. **Same Manifest Hash**: System state must match
+4. **Same Backend**: CoreML replay requires CoreML; MLX replay requires MLX
+
+```rust
+let replay_request = ReplayRequest {
+    original_inference_id: "inf-123",
+    // Must have access to original codebase adapter version
+    verify_codebase_adapter: true,
+};
+
+let result = replay(replay_request)?;
+if result.degraded {
+    // Codebase adapter version may be missing
+    warn!("Replay degraded: {:?}", result.missing_adapters);
+}
+```
+
+### Version Pinning for Determinism
+
+Codebase adapters auto-version when unbound from sessions. For deterministic builds:
+
+1. **Pin Specific Version**: Reference the exact version ID, not the latest
+2. **Include in Manifest**: Add codebase adapter version to manifest hash
+3. **Archive Versions**: Keep historical versions for replay capability
+
+```yaml
+# Example manifest with pinned codebase adapter version
+adapters:
+  - id: "code.myrepo.abc123.v1.2.0"
+    type: codebase
+    base_adapter_id: "core.adapteros"
+    frozen: true
+    coreml_package_hash: "blake3:..."
+```
+
+---
+
 ## Verification Procedures
 
 ### 1. Determinism Self-Test

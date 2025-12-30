@@ -465,6 +465,22 @@ Content-Type: application/json
 - `GET /v1/adapter-stacks/{id}/history` - Version history
 - `GET /v1/adapter-stacks/{id}/policies` - Policies assigned to stack
 
+**Codebase Adapter Constraints:**
+
+Codebase adapters (`adapter_type: "codebase"`) have additional constraints:
+
+- **Single-Stream Rule**: Only one codebase adapter may be active per `stream_session_id` at a time
+- **Frozen State**: When `frozen=true`, the adapter requires CoreML metadata for deployment
+- **Deployment Verification**: Use `POST /v1/adapters/codebase/{id}/verify` before activation
+
+**Codebase-Specific Endpoints:**
+- `POST /v1/adapters/codebase` - Create codebase adapter
+- `GET /v1/adapters/codebase/{id}` - Get codebase adapter details
+- `POST /v1/adapters/codebase/{id}/bind` - Bind to session
+- `POST /v1/adapters/codebase/{id}/unbind` - Unbind from session (triggers versioning)
+- `POST /v1/adapters/codebase/{id}/version` - Create new version
+- `POST /v1/adapters/codebase/{id}/verify` - Verify deployment readiness
+
 ### Inference
 
 **Single Inference:**
@@ -591,6 +607,28 @@ Authorization: Bearer <token>
 - `GET /v1/training/jobs/{job_id}/artifacts` - Output artifacts
 - `GET /v1/training/templates` - List templates
 - `GET /v1/training/templates/{template_id}` - Get template
+
+**Codebase Adapter Training Constraints:**
+
+When training codebase adapters:
+
+1. **Frozen Requirement for CoreML**: Codebase adapters must be frozen (`frozen=true`) before CoreML export
+2. **CoreML Metadata**: Frozen adapters require CoreML metadata to be present for deterministic deployment
+3. **Promotion Path**: `live (MLX/Metal) → freeze → CoreML export`
+
+The training job artifact response includes `coreml_export` status when applicable:
+```json
+{
+  "job_id": "job-789",
+  "coreml_export": {
+    "status": "succeeded",
+    "fusion_verified": true,
+    "fused_manifest_hash": "blake3:..."
+  }
+}
+```
+
+If `coreml_export.status` is `"metadata_only"` or `"failed"`, the adapter cannot be deployed in deterministic/ANE mode.
 
 ### Datasets
 

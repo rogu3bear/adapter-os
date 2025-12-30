@@ -165,7 +165,7 @@ erDiagram
 ```sql
 CREATE TABLE tenants (
     id TEXT PRIMARY KEY,
-    name TEXT UNIQUE NOT NULL,
+    name TEXT NOT NULL,
     itar_flag INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -481,7 +481,8 @@ CREATE TABLE adapter_stacks (
     version INTEGER,
     created_by TEXT,
     created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now'))
+    updated_at TEXT DEFAULT (datetime('now')),
+    UNIQUE (tenant_id, name)
 );
 ```
 

@@ -342,6 +342,62 @@ AOS_TELEMETRY_ENABLED=true
 - `AOS_MODEL_BACKEND=mlx` by default; `auto` selects CoreML > Metal > MLX
 - Model auto-detected from `config.json` if architecture not specified
 
+#### Backend Selection for Codebase Adapters
+
+Codebase adapters have special backend requirements due to their session-scoped, live-updating nature.
+
+**Live Codebase Sessions:**
+
+When running inference with a live codebase adapter (bound to an active session), configure:
+
+```bash
+# Required: Use MLX or Metal for live codebase adapters
+export AOS_MODEL_BACKEND=mlx  # or 'metal'
+
+# CoreML is NOT compatible with live codebase adapters
+# Setting 'coreml' will auto-downgrade to mlx for codebase sessions
+```
+
+**Why CoreML Doesn't Work:**
+- CoreML packages are compiled and immutable
+- Live codebase adapters receive incremental updates during the session
+- Updates cannot be reflected in a pre-compiled package
+
+**Frozen Codebase Adapters (CoreML Deployment):**
+
+To deploy a frozen codebase adapter on CoreML:
+
+```bash
+# 1. Freeze the adapter (unbind from session)
+# This triggers automatic versioning
+
+# 2. Pre-fuse the frozen adapter into base weights
+cargo run --bin aosctl -- coreml fuse \
+  --adapter ./frozen-codebase.aos \
+  --base ./base-model.safetensors \
+  --output ./fused.safetensors
+
+# 3. Convert to CoreML package
+python scripts/convert_mlx_to_coreml.py \
+  --input ./fused.safetensors \
+  --output ./fused-codebase.mlpackage
+
+# 4. Deploy with CoreML backend
+export AOS_MODEL_BACKEND=coreml
+export AOS_MODEL_PATH=./fused-codebase.mlpackage
+```
+
+**Configuration Validation:**
+
+The system validates backend compatibility at startup:
+
+| Scenario | AOS_MODEL_BACKEND | Codebase Adapter State | Result |
+|----------|-------------------|------------------------|--------|
+| Live session | `coreml` | Live (bound) | Auto-downgrade to MLX + warning |
+| Live session | `mlx` | Live (bound) | OK |
+| Deployment | `coreml` | Frozen (fused package) | OK |
+| Deployment | `mlx` | Frozen | OK (but wastes ANE) |
+
 #### Server Configuration
 
 | Variable | Default | Purpose | Example |

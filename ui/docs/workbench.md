@@ -59,6 +59,96 @@ The Workbench is the unified chat hub at `/chat`. It provides a three-column lay
 - **Active Dataset Chip** - Shows selected dataset, click X to clear
 - **Active Stack Chip** - Shows selected stack name
 
+### Codebase Mode
+
+When a chat session is bound to a codebase adapter, the Workbench displays special indicators and controls.
+
+#### Top Bar Indicators
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ [Stream] [Developer] [Dataset] [Stack] [Codebase: myrepo@abc123 v1.2] [Export]│
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+The **Codebase Chip** shows:
+- Repository identifier (e.g., `myrepo`)
+- Commit SHA (truncated, e.g., `@abc123`)
+- Version string (e.g., `v1.2`)
+- Backend mode indicator (MLX/Metal icon)
+
+#### Left Rail: Codebase Panel
+
+When a codebase adapter is bound, an additional panel appears in the left rail:
+
+```
+┌──────────────────┐
+│ Codebase Adapter │
+│ ─────────────────│
+│ myrepo@abc123    │
+│ Version: v1.2.0  │
+│ Stream: #a7f3    │
+│ Backend: MLX     │
+│ ─────────────────│
+│ [Freeze to       │
+│  CoreML]         │
+│ ─────────────────│
+│ Activations: 47  │
+│ Threshold: 100   │
+└──────────────────┘
+```
+
+**Panel Contents:**
+- **Repository/Commit**: The bound codebase adapter's repo and commit
+- **Version**: Current version (auto-increments on threshold)
+- **Stream ID**: The unique stream identifier for this session
+- **Backend**: Current backend (always MLX/Metal for live adapters)
+- **Freeze to CoreML**: Action button to freeze and export (see below)
+- **Activations/Threshold**: Progress toward auto-versioning
+
+#### Exclusive Binding Rules
+
+- **One Codebase Adapter Per Session**: The UI prevents binding multiple codebase adapters to the same session
+- **Bound At Session Start**: Codebase adapter is typically bound when chat begins
+- **Unbind Triggers Versioning**: When the session ends or adapter is unbound, a new version is created
+
+#### "Freeze to CoreML" Action
+
+The "Freeze to CoreML" button is a **deliberate action** that:
+
+1. **Unbinds** the codebase adapter from the session
+2. **Triggers versioning** (creates a new frozen version)
+3. **Initiates pre-fusion** with the base adapter
+4. **Exports to CoreML** package format
+
+```
+⚠️ Warning: Freezing ends live updates to this adapter.
+   The session will continue without a codebase adapter.
+
+   [Cancel] [Freeze and Export]
+```
+
+This is typically done when:
+- Development is complete and ready for production
+- A stable checkpoint is needed for deployment
+- The team wants to create a reproducible artifact
+
+#### Visual States
+
+| State | Top Bar Chip | Left Rail | Notes |
+|-------|--------------|-----------|-------|
+| No codebase adapter | (hidden) | Normal tabs | Standard chat mode |
+| Live codebase adapter | `[Codebase: repo@sha v1.x]` | Codebase panel visible | MLX/Metal backend |
+| Frozen (post-freeze) | `[Codebase: repo@sha v1.x ❄️]` | Panel shows "Frozen" | Ready for CoreML export |
+
+#### State Persistence
+
+| Key | Description |
+|-----|-------------|
+| `workbench:codebaseAdapter:current` | Currently bound codebase adapter ID |
+| `workbench:codebaseAdapter:version` | Current version string |
+| `workbench:codebaseAdapter:streamId` | Stream ID for correlation |
+
 ## Keyboard Shortcuts
 
 | Key | Action |
