@@ -19,6 +19,7 @@ use crate::security::{
 use crate::state::AppState;
 use crate::types::ErrorResponse;
 use adapteros_core::identity::IdentityEnvelope;
+use adapteros_core::tenant::TenantId;
 use adapteros_db::auth_sessions_kv::AuthSessionKvRepository;
 use adapteros_db::users::Role;
 use axum::{
@@ -184,6 +185,24 @@ fn dev_no_auth_claims() -> Claims {
         auth_mode: AuthMode::DevBypass,
         principal_type: Some(PrincipalType::DevBypass),
     }
+}
+
+fn dev_no_auth_tenant_override(headers: &HeaderMap) -> Option<String> {
+    let tenant_id = headers
+        .get("X-Tenant-Id")
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())?;
+
+    if TenantId::new(tenant_id.to_string()).is_err() {
+        tracing::warn!(
+            tenant_id = %tenant_id,
+            "Ignoring invalid dev no-auth tenant override"
+        );
+        return None;
+    }
+
+    Some(tenant_id.to_string())
 }
 
 fn extract_tenant_id_from_path(path: &str) -> Option<String> {
@@ -622,6 +641,10 @@ pub async fn auth_middleware(
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     if dev_no_auth_enabled() {
         let mut claims = dev_no_auth_claims();
+        if let Some(tenant_id) = dev_no_auth_tenant_override(req.headers()) {
+            tracing::debug!(tenant_id = %tenant_id, "Using dev no-auth tenant override");
+            claims.tenant_id = tenant_id;
+        }
         let auth_mode = AuthMode::DevBypass;
         let principal =
             build_principal_from_claims(&mut claims, PrincipalType::DevBypass, auth_mode.clone());

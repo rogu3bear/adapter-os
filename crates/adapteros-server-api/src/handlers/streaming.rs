@@ -19,6 +19,41 @@ use std::time::Duration;
 use tracing::{info, warn};
 use utoipa::ToSchema;
 
+// ============================================================================
+// ID Obfuscation for User-Facing Streams
+// ============================================================================
+
+/// Per-stream salt for ID obfuscation. Generated once per SSE connection
+/// to prevent correlation of internal IDs across different streaming sessions.
+struct StreamSalt([u8; 32]);
+
+impl StreamSalt {
+    fn new() -> Self {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let mut salt = [0u8; 32];
+        // Use a combination of timestamp and random-like data for the salt
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        salt[..16].copy_from_slice(&ts.to_le_bytes());
+        // Fill remaining bytes with additional entropy from address space
+        let ptr = &salt as *const _ as usize;
+        salt[16..24].copy_from_slice(&ptr.to_le_bytes());
+        Self(salt)
+    }
+}
+
+/// Obfuscate an internal ID for user-facing output using BLAKE3 keyed hash.
+/// Returns a 16-character hex string that cannot be reversed to the original ID.
+/// The same internal ID will produce the same obfuscated ID within a single
+/// streaming session (using the same salt), but different IDs across sessions.
+fn obfuscate_id(internal_id: &str, salt: &StreamSalt) -> String {
+    let hash = blake3::keyed_hash(&salt.0, internal_id.as_bytes());
+    // Return first 8 bytes (16 hex chars) for a compact but collision-resistant ID
+    hex::encode(&hash.as_bytes()[..8])
+}
+
 /// HEAD handler for SSE endpoints - returns 200 OK for preflight checks
 /// This allows clients to verify endpoint availability without starting a stream
 pub async fn sse_preflight_check() -> StatusCode {
@@ -235,10 +270,20 @@ pub async fn telemetry_events_stream(
     // Capture tenant_id for filtering
     let tenant_id = claims.tenant_id.clone();
 
+    // Generate per-stream salt for ID obfuscation to prevent correlation across sessions
+    let salt = StreamSalt::new();
+
     // Track error_sent to terminate stream after one error
     let stream = stream::unfold(
-        (state, initial_timestamp, tenant_id, has_permission, false),
-        |(state, last_timestamp, tenant_id, has_permission, error_sent)| async move {
+        (
+            state,
+            initial_timestamp,
+            tenant_id,
+            has_permission,
+            false,
+            salt,
+        ),
+        |(state, last_timestamp, tenant_id, has_permission, error_sent, salt)| async move {
             if !has_permission {
                 if error_sent {
                     // Already sent error, terminate stream
@@ -249,7 +294,7 @@ pub async fn telemetry_events_stream(
                     Ok(Event::default()
                         .event("error")
                         .data("{\"error\": \"Permission denied - TelemetryView required\"}")),
-                    (state, last_timestamp, tenant_id, false, true),
+                    (state, last_timestamp, tenant_id, false, true, salt),
                 ));
             }
             // Poll every 2 seconds for new events
@@ -274,7 +319,7 @@ pub async fn telemetry_events_stream(
                     let error_json = format!("{{\"error\": \"telemetry query failed: {}\"}}", err);
                     return Some((
                         Ok(Event::default().event("error").data(error_json)),
-                        (state, last_timestamp, tenant_id, has_permission, true),
+                        (state, last_timestamp, tenant_id, has_permission, true, salt),
                     ));
                 }
             };
@@ -291,23 +336,32 @@ pub async fn telemetry_events_stream(
                     Ok(Event::default()
                         .event("telemetry")
                         .data("{\"events\": [], \"count\": 0}")),
-                    (state, current_timestamp, tenant_id, has_permission, false),
+                    (
+                        state,
+                        current_timestamp,
+                        tenant_id,
+                        has_permission,
+                        false,
+                        salt,
+                    ),
                 ));
             }
 
             // CRITICAL: Filter events by tenant_id for multi-tenant isolation
+            // NOTE: Internal IDs (event_id, trace_id) are obfuscated to prevent
+            // leaking internal system identifiers to user-facing streams
             let stream_events: Vec<TelemetryStreamEvent> = events
                 .iter()
                 .filter(|e| e.identity.tenant_id == tenant_id)
                 .map(|e| TelemetryStreamEvent {
-                    event_id: e.id.clone(),
+                    event_id: obfuscate_id(&e.id, &salt),
                     timestamp: e.timestamp.timestamp() as u64,
                     event_type: e.event_type.clone(),
                     tenant_id: e.identity.tenant_id.clone(),
                     level: format!("{:?}", e.level),
                     message: e.message.clone(),
                     component: e.component.clone(),
-                    trace_id: e.trace_id.clone(),
+                    trace_id: e.trace_id.as_ref().map(|id| obfuscate_id(id, &salt)),
                 })
                 .collect();
 
@@ -317,7 +371,14 @@ pub async fn telemetry_events_stream(
                     Ok(Event::default()
                         .event("telemetry")
                         .data("{\"events\": [], \"count\": 0}")),
-                    (state, current_timestamp, tenant_id, has_permission, false),
+                    (
+                        state,
+                        current_timestamp,
+                        tenant_id,
+                        has_permission,
+                        false,
+                        salt,
+                    ),
                 ));
             }
 
@@ -334,14 +395,28 @@ pub async fn telemetry_events_stream(
                         Ok(Event::default()
                             .event("error")
                             .data(format!("{{\"error\": \"serialization failed: {}\"}}", e))),
-                        (state, current_timestamp, tenant_id, has_permission, false),
+                        (
+                            state,
+                            current_timestamp,
+                            tenant_id,
+                            has_permission,
+                            false,
+                            salt,
+                        ),
                     ));
                 }
             };
 
             Some((
                 Ok(Event::default().event("telemetry").data(json)),
-                (state, current_timestamp, tenant_id, has_permission, false),
+                (
+                    state,
+                    current_timestamp,
+                    tenant_id,
+                    has_permission,
+                    false,
+                    salt,
+                ),
             ))
         },
     );

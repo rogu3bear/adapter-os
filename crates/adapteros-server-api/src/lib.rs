@@ -23,6 +23,7 @@ pub mod inference_core;
 pub mod ip_extraction;
 pub mod kv_isolation;
 pub mod lifecycle;
+pub mod live_data;
 pub mod load_coordinator;
 pub mod mfa;
 pub mod middleware;
