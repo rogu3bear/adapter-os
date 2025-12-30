@@ -1248,4 +1248,133 @@ mod tests {
             .iter()
             .any(|v| matches!(v.violation_type, SafetyViolationType::HateSpeech)));
     }
+
+    // === EDGE CASES FOR LENGTH ENFORCEMENT ===
+
+    #[test]
+    fn test_edge_case_empty_content() {
+        // EDGE CASE: Empty string
+        let config = OutputConfig::default();
+        let policy = OutputPolicy::new(config);
+
+        let result = policy.enforce_length("", Some(ResponseLength::Brief));
+
+        assert!(!result.was_truncated);
+        assert_eq!(result.content, "");
+        assert_eq!(result.original_length, 0);
+    }
+
+    #[test]
+    fn test_edge_case_content_exactly_at_limit() {
+        // EDGE CASE: Content exactly at limit
+        let config = OutputConfig::default();
+        let policy = OutputPolicy::new(config);
+
+        let content = "a".repeat(500); // Exactly at Brief limit
+        let result = policy.enforce_length(&content, Some(ResponseLength::Brief));
+
+        assert!(!result.was_truncated);
+        assert_eq!(result.final_length, 500);
+    }
+
+    #[test]
+    fn test_edge_case_content_one_over_limit() {
+        // EDGE CASE: Content just over limit
+        let config = OutputConfig::default();
+        let policy = OutputPolicy::new(config);
+
+        let content = "a".repeat(501); // Just over Brief limit
+        let result = policy.enforce_length(&content, Some(ResponseLength::Brief));
+
+        assert!(result.was_truncated);
+        assert!(result.final_length <= 500);
+    }
+
+    #[test]
+    fn test_edge_case_no_sentence_boundary() {
+        // EDGE CASE: Content with no sentence boundaries
+        let config = OutputConfig::default();
+        let policy = OutputPolicy::new(config);
+
+        let content = "a ".repeat(300); // No periods, just spaces
+        let result = policy.enforce_length(&content, Some(ResponseLength::Brief));
+
+        assert!(result.was_truncated);
+        // Should fall back to word boundary
+        assert!(result.content.ends_with("[...]"));
+    }
+
+    #[test]
+    fn test_edge_case_unicode_content() {
+        // EDGE CASE: Unicode characters (byte length != char count)
+        let config = OutputConfig::default();
+        let policy = OutputPolicy::new(config);
+
+        // Each emoji is 4 bytes but 1 grapheme
+        let content = "Hello 👋 World 🌍 Test 🧪";
+        let result = policy.enforce_length(content, None);
+
+        // Should handle gracefully
+        assert!(result.original_length > 0);
+    }
+
+    #[test]
+    fn test_edge_case_very_long_word() {
+        // EDGE CASE: Single word longer than limit
+        let config = OutputConfig::default();
+        let policy = OutputPolicy::new(config);
+
+        let content = "a".repeat(600); // Single "word" longer than Brief
+        let result = policy.enforce_length(&content, Some(ResponseLength::Brief));
+
+        assert!(result.was_truncated);
+        // Should truncate even without word boundary
+    }
+
+    #[test]
+    fn test_edge_case_custom_zero_limit() {
+        // EDGE CASE: Zero limit (pathological)
+        let config = OutputConfig::default();
+        let policy = OutputPolicy::new(config);
+
+        let content = "Hello world";
+        let result = policy.enforce_length(content, Some(ResponseLength::Custom(0)));
+
+        assert!(result.was_truncated);
+        // Should handle gracefully (may include just indicator)
+    }
+
+    #[test]
+    fn test_edge_case_newlines_in_content() {
+        // EDGE CASE: Content with newlines
+        let config = OutputConfig::default();
+        let policy = OutputPolicy::new(config);
+
+        let content = "First line.\nSecond line.\nThird line.";
+        let result = policy.enforce_length(content, Some(ResponseLength::Custom(25)));
+
+        assert!(result.was_truncated);
+        // Should handle newlines appropriately
+    }
+
+    #[test]
+    fn test_edge_case_sentence_at_exact_boundary() {
+        // EDGE CASE: Sentence ends exactly at limit
+        let config = OutputConfig::default();
+        let policy = OutputPolicy::new(config);
+
+        // "Hello. World." = 13 chars total
+        // With limit=20, "Hello. " (7 chars) fits comfortably with indicator
+        let content = "Hello. World.";
+        let result = policy.enforce_length(content, Some(ResponseLength::Custom(20)));
+
+        // First sentence should be preserved when there's room
+        assert!(result.content.contains("Hello"));
+
+        // Also verify: very small limit forces minimal content
+        let result_small = policy.enforce_length(content, Some(ResponseLength::Custom(7)));
+        // " [...]" indicator is 6 chars, leaving only 1 char for content
+        // KNOWN LIMITATION: Truncation indicator may dominate small limits
+        assert!(result_small.was_truncated);
+    }
 }
