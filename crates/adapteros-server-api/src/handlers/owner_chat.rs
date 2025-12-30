@@ -603,7 +603,7 @@ fn generate_response(message: &str, context: &Option<ChatContext>) -> OwnerChatR
     // Check for adapter-related queries
     if message_lower.contains("adapter") || message_lower.contains("adapters") {
         return OwnerChatResponse {
-            response: "I can help you manage adapters. Adapters are LoRA weights that customize model behavior. You can view all adapters, check their status, load/unload them, or register new ones.".to_string(),
+            response: "LoRA adapters customize model behavior. View all adapters, check status, load/unload, or register new ones.".to_string(),
             suggested_cli: Some("aosctl adapter list".to_string()),
             relevant_links: vec!["/adapters".to_string()],
             source: None,
@@ -613,7 +613,7 @@ fn generate_response(message: &str, context: &Option<ChatContext>) -> OwnerChatR
     // Check for training-related queries
     if message_lower.contains("training") || message_lower.contains("train") {
         return OwnerChatResponse {
-            response: "I can help you with training workflows. You can create datasets, start training jobs, monitor progress, and view completed jobs. Training creates new adapters from your data.".to_string(),
+            response: "Create adapters via training workflows. Create datasets, start jobs, monitor progress, and view completed jobs.".to_string(),
             suggested_cli: Some("aosctl training jobs".to_string()),
             relevant_links: vec!["/training".to_string(), "/training/datasets".to_string()],
             source: None,
@@ -625,7 +625,7 @@ fn generate_response(message: &str, context: &Option<ChatContext>) -> OwnerChatR
         || message_lower.contains("health")
         || message_lower.contains("system")
     {
-        let mut response = "I can show you system health and status. ".to_string();
+        let mut response = "System health and status information available. ".to_string();
 
         // Add context-aware information if available
         if let Some(ctx) = context {
@@ -655,7 +655,7 @@ fn generate_response(message: &str, context: &Option<ChatContext>) -> OwnerChatR
     // Check for model-related queries
     if message_lower.contains("model") || message_lower.contains("models") {
         return OwnerChatResponse {
-            response: "I can help you manage base models. Base models are the foundation models (like Qwen, LLaMA) that adapters are applied to. You can view available models, import new ones, or check model status.".to_string(),
+            response: "Base models (Qwen, LLaMA) are the foundation that adapters are applied to. View available models, import new ones, or check status.".to_string(),
             suggested_cli: Some("aosctl models list".to_string()),
             relevant_links: vec!["/base-models".to_string()],
             source: None,
@@ -665,7 +665,7 @@ fn generate_response(message: &str, context: &Option<ChatContext>) -> OwnerChatR
     // Check for stack-related queries
     if message_lower.contains("stack") || message_lower.contains("stacks") {
         return OwnerChatResponse {
-            response: "I can help you manage adapter stacks. Stacks are pre-configured combinations of adapters that work together. You can create custom stacks, activate them, or view existing stacks.".to_string(),
+            response: "Adapter stacks are pre-configured combinations of adapters. Create custom stacks, activate them, or view existing stacks.".to_string(),
             suggested_cli: Some("aosctl stack list".to_string()),
             relevant_links: vec!["/admin/stacks".to_string()],
             source: None,
@@ -675,7 +675,7 @@ fn generate_response(message: &str, context: &Option<ChatContext>) -> OwnerChatR
     // Check for tenant-related queries
     if message_lower.contains("tenant") || message_lower.contains("tenants") {
         return OwnerChatResponse {
-            response: "I can help you manage tenants. Tenants provide isolation between different users or organizations. You can create new tenants, manage permissions, or view tenant usage.".to_string(),
+            response: "Manage tenants for isolation between users or organizations. Create tenants, manage permissions, or view usage.".to_string(),
             suggested_cli: Some("aosctl tenant list".to_string()),
             relevant_links: vec!["/admin/tenants".to_string()],
             source: None,
@@ -689,7 +689,7 @@ fn generate_response(message: &str, context: &Option<ChatContext>) -> OwnerChatR
         || message_lower.contains("worker")
     {
         return OwnerChatResponse {
-            response: "I can help you manage cluster nodes and workers. Nodes are individual machines in your cluster, and workers handle training and inference tasks. You can view node status, spawn workers, or troubleshoot issues.".to_string(),
+            response: "Nodes are machines in the cluster; workers handle training and inference. View status, spawn workers, or troubleshoot.".to_string(),
             suggested_cli: Some("aosctl node list".to_string()),
             relevant_links: vec!["/system".to_string(), "/admin/workers".to_string()],
             source: None,
@@ -703,7 +703,7 @@ fn generate_response(message: &str, context: &Option<ChatContext>) -> OwnerChatR
         || message_lower.contains("generate")
     {
         return OwnerChatResponse {
-            response: "I can help you run inference. Inference is when you use a model (with optional adapters) to generate text, answer questions, or complete tasks. You can run batch inference or use the chat interface.".to_string(),
+            response: "Inference uses a model with optional adapters to generate text or answer questions. Run batch inference or use the chat interface.".to_string(),
             suggested_cli: Some("aosctl infer --prompt \"Your prompt here\"".to_string()),
             relevant_links: vec!["/inference".to_string()],
             source: None,
@@ -716,7 +716,7 @@ fn generate_response(message: &str, context: &Option<ChatContext>) -> OwnerChatR
         || message_lower.contains("compliance")
     {
         return OwnerChatResponse {
-            response: "I can help you manage policies. AdapterOS enforces 23 canonical policy packs covering determinism, egress control, evidence tracking, and more. You can view active policies, validate configurations, or apply new policies.".to_string(),
+            response: "AdapterOS enforces 23 canonical policy packs covering determinism, egress control, and evidence tracking. View, validate, or apply policies.".to_string(),
             suggested_cli: Some("aosctl policies list".to_string()),
             relevant_links: vec!["/admin/policies".to_string()],
             source: None,
@@ -730,7 +730,7 @@ fn generate_response(message: &str, context: &Option<ChatContext>) -> OwnerChatR
         || message_lower.contains("performance")
     {
         return OwnerChatResponse {
-            response: "I can help you view system metrics and monitoring data. You can track adapter performance, system resources, training progress, and inference latency. Real-time metrics are available on the system overview page.".to_string(),
+            response: "Track adapter performance, system resources, training progress, and inference latency. Real-time metrics on the system overview page.".to_string(),
             suggested_cli: Some("aosctl metrics snapshot".to_string()),
             relevant_links: vec!["/system".to_string(), "/metrics".to_string()],
             source: None,
@@ -746,7 +746,7 @@ fn generate_response(message: &str, context: &Option<ChatContext>) -> OwnerChatR
         || message_lower.contains("docs")
     {
         return OwnerChatResponse {
-            response: "I'm here to help! I can provide information about adapters, training, system status, models, stacks, tenants, nodes, inference, policies, and metrics. Try asking me about any of these topics, or check the documentation for detailed guides.".to_string(),
+            response: "Get help on: adapters, training, system status, models, stacks, tenants, nodes, inference, policies, and metrics. See documentation for detailed guides.".to_string(),
             suggested_cli: Some("aosctl --help".to_string()),
             relevant_links: vec![
                 "/adapters".to_string(),
@@ -760,18 +760,17 @@ fn generate_response(message: &str, context: &Option<ChatContext>) -> OwnerChatR
 
     // Default response for unrecognized queries
     OwnerChatResponse {
-        response: "I'm here to help with AdapterOS system management. I can assist with:\n\
-            • Adapters - View, load, register, and manage LoRA adapters\n\
+        response: "AdapterOS system management topics:\n\
+            • Adapters - View, load, register, manage LoRA adapters\n\
             • Training - Create datasets, start jobs, monitor progress\n\
-            • System Status - Check health, metrics, and resource usage\n\
-            • Models - Manage base models and configurations\n\
-            • Stacks - Create and manage adapter combinations\n\
-            • Tenants - Manage multi-tenant isolation\n\
-            • Nodes - Monitor cluster nodes and workers\n\
-            • Inference - Run text generation and chat\n\
-            • Policies - View and enforce policy packs\n\
-            • Metrics - Track performance and resource usage\n\n\
-            What would you like to know more about?"
+            • System Status - Health, metrics, resource usage\n\
+            • Models - Base models and configurations\n\
+            • Stacks - Adapter combinations\n\
+            • Tenants - Multi-tenant isolation\n\
+            • Nodes - Cluster nodes and workers\n\
+            • Inference - Text generation and chat\n\
+            • Policies - Policy pack enforcement\n\
+            • Metrics - Performance tracking"
             .to_string(),
         suggested_cli: Some("aosctl --help".to_string()),
         relevant_links: vec![
@@ -988,7 +987,7 @@ mod tests {
         db.migrate().await.expect("migrate");
 
         let user_message = "How do I manage adapters?";
-        let assistant_response = "I can help you manage adapters. Adapters are LoRA weights...";
+        let assistant_response = "LoRA adapters customize model behavior. View all adapters...";
 
         // Capture evidence - should not fail even though we're not creating records
         let result = capture_chat_evidence(&db, user_message, assistant_response).await;

@@ -249,10 +249,38 @@ impl ResponseSchemaValidator {
             version: "1.0.0".to_string(),
         };
 
+        // Grouped response schema - for categorized/structured outputs
+        let grouped_response_schema = ResponseSchema {
+            name: "grouped_response".to_string(),
+            schema: json!({
+                "type": "object",
+                "required": ["schema_version", "groups", "total_items"],
+                "properties": {
+                    "schema_version": {"type": "string"},
+                    "total_items": {"type": "integer", "minimum": 0},
+                    "groups": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": ["heading", "items"],
+                            "properties": {
+                                "heading": {"type": "string"},
+                                "items": {"type": "array"},
+                                "item_count": {"type": "integer"}
+                            }
+                        }
+                    }
+                }
+            }),
+            required: true,
+            version: "1.0.0".to_string(),
+        };
+
         // Register schemas (ignore errors for defaults)
         let _ = self.register_schema(inference_schema);
         let _ = self.register_schema(model_list_schema);
         let _ = self.register_schema(error_schema);
+        let _ = self.register_schema(grouped_response_schema);
     }
 
     /// Emit validation telemetry
@@ -294,6 +322,85 @@ impl ResponseSchemaValidator {
     /// Check if a schema is registered
     pub fn has_schema(&self, name: &str) -> bool {
         self.schemas.contains_key(name)
+    }
+
+    /// Validate grouping completeness for grouped responses
+    ///
+    /// Ensures that:
+    /// - Sum of group item counts equals total_items
+    /// - No empty groups (unless allow_empty_groups is true)
+    /// - All group headings are non-empty strings
+    pub fn validate_grouping_completeness(
+        response: &Value,
+        allow_empty_groups: bool,
+    ) -> std::result::Result<(), Vec<String>> {
+        let mut errors = Vec::new();
+
+        // Get total_items
+        let total_items = response
+            .get("total_items")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+
+        // Get groups array
+        let groups = match response.get("groups").and_then(|g| g.as_array()) {
+            Some(g) => g,
+            None => {
+                errors.push("Missing or invalid 'groups' array".to_string());
+                return Err(errors);
+            }
+        };
+
+        let mut computed_total: u64 = 0;
+
+        for (idx, group) in groups.iter().enumerate() {
+            // Validate heading is non-empty
+            match group.get("heading").and_then(|h| h.as_str()) {
+                Some("") => {
+                    errors.push(format!("Group {} has empty heading", idx));
+                }
+                None => {
+                    errors.push(format!("Group {} missing heading", idx));
+                }
+                _ => {}
+            }
+
+            // Get items array and count
+            let items = group.get("items").and_then(|i| i.as_array());
+            let item_count = group
+                .get("item_count")
+                .and_then(|c| c.as_u64())
+                .or_else(|| items.map(|i| i.len() as u64))
+                .unwrap_or(0);
+
+            // Check for empty groups
+            if !allow_empty_groups && item_count == 0 {
+                errors.push(format!(
+                    "Group {} ('{}') is empty",
+                    idx,
+                    group
+                        .get("heading")
+                        .and_then(|h| h.as_str())
+                        .unwrap_or("unknown")
+                ));
+            }
+
+            computed_total += item_count;
+        }
+
+        // Verify total matches
+        if computed_total != total_items {
+            errors.push(format!(
+                "Item count mismatch: total_items={} but sum of groups={}",
+                total_items, computed_total
+            ));
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
     }
 }
 
@@ -478,10 +585,147 @@ mod tests {
         assert!(validator.has_schema("inference_response"));
         assert!(validator.has_schema("model_list_response"));
         assert!(validator.has_schema("error_response"));
+        assert!(validator.has_schema("grouped_response"));
 
         let names = validator.get_schema_names();
         assert!(names.contains(&"inference_response".to_string()));
         assert!(names.contains(&"model_list_response".to_string()));
         assert!(names.contains(&"error_response".to_string()));
+        assert!(names.contains(&"grouped_response".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_valid_grouped_response() {
+        let validator = ResponseSchemaValidator::new(None);
+
+        let response = json!({
+            "schema_version": "1.0",
+            "total_items": 5,
+            "groups": [
+                {
+                    "heading": "Category A",
+                    "items": [{"id": 1}, {"id": 2}],
+                    "item_count": 2
+                },
+                {
+                    "heading": "Category B",
+                    "items": [{"id": 3}, {"id": 4}, {"id": 5}],
+                    "item_count": 3
+                }
+            ]
+        });
+
+        let result = validator
+            .validate_response(&response, "grouped_response")
+            .await;
+        assert!(result.is_ok());
+        assert!(result.expect("Validation failed").valid);
+    }
+
+    #[tokio::test]
+    async fn test_invalid_grouped_response_missing_groups() {
+        let validator = ResponseSchemaValidator::new(None);
+
+        let response = json!({
+            "schema_version": "1.0",
+            "total_items": 5
+            // Missing groups
+        });
+
+        let result = validator
+            .validate_response(&response, "grouped_response")
+            .await;
+        assert!(result.is_ok());
+        let validation = result.expect("Validation failed");
+        assert!(!validation.valid);
+        assert!(validation.errors.iter().any(|e| e.contains("groups")));
+    }
+
+    #[test]
+    fn test_validate_grouping_completeness_valid() {
+        let response = json!({
+            "schema_version": "1.0",
+            "total_items": 5,
+            "groups": [
+                {
+                    "heading": "Category A",
+                    "items": [{"id": 1}, {"id": 2}],
+                    "item_count": 2
+                },
+                {
+                    "heading": "Category B",
+                    "items": [{"id": 3}, {"id": 4}, {"id": 5}],
+                    "item_count": 3
+                }
+            ]
+        });
+
+        let result = ResponseSchemaValidator::validate_grouping_completeness(&response, false);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_grouping_completeness_count_mismatch() {
+        let response = json!({
+            "schema_version": "1.0",
+            "total_items": 10, // Wrong count
+            "groups": [
+                {
+                    "heading": "Category A",
+                    "items": [{"id": 1}, {"id": 2}],
+                    "item_count": 2
+                }
+            ]
+        });
+
+        let result = ResponseSchemaValidator::validate_grouping_completeness(&response, false);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e.contains("mismatch")));
+    }
+
+    #[test]
+    fn test_validate_grouping_completeness_empty_heading() {
+        let response = json!({
+            "schema_version": "1.0",
+            "total_items": 2,
+            "groups": [
+                {
+                    "heading": "", // Empty heading
+                    "items": [{"id": 1}, {"id": 2}],
+                    "item_count": 2
+                }
+            ]
+        });
+
+        let result = ResponseSchemaValidator::validate_grouping_completeness(&response, false);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e.contains("empty heading")));
+    }
+
+    #[test]
+    fn test_validate_grouping_completeness_empty_group() {
+        let response = json!({
+            "schema_version": "1.0",
+            "total_items": 0,
+            "groups": [
+                {
+                    "heading": "Empty Category",
+                    "items": [],
+                    "item_count": 0
+                }
+            ]
+        });
+
+        // Without allowing empty groups
+        let result = ResponseSchemaValidator::validate_grouping_completeness(&response, false);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e.contains("is empty")));
+
+        // With allowing empty groups
+        let result = ResponseSchemaValidator::validate_grouping_completeness(&response, true);
+        assert!(result.is_ok());
     }
 }

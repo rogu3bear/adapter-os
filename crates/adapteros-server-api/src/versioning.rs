@@ -172,7 +172,7 @@ pub fn add_version_headers(mut response: Response, version: ApiVersion) -> Respo
         headers.insert(
             "Sunset",
             HeaderValue::from_str(&deprecation.sunset_at)
-                .unwrap_or_else(|_| HeaderValue::from_static("2025-12-31")),
+                .unwrap_or_else(|_| HeaderValue::from_static("9999-12-31")),
         );
 
         headers.insert(
