@@ -3,9 +3,7 @@
 //! This module provides a lightweight job wrapper around the CoreML kernel export helper so
 //! orchestrator/CLI layers can trigger an opt-in `.aos` → CoreML fused package export.
 
-#[cfg(not(feature = "coreml-backend"))]
-use adapteros_core::AosError;
-use adapteros_core::{B3Hash, Result};
+use adapteros_core::{AosError, B3Hash, Result};
 #[cfg(feature = "coreml-backend")]
 use adapteros_lora_kernel_coreml::export::{
     export_coreml_adapter, validate_coreml_fusion, CoreMLExportOutcome, CoreMLExportRequest,
@@ -58,6 +56,9 @@ pub struct CoreMLExportRecord {
     pub adapter_hash: B3Hash,
     pub base_model_id: Option<String>,
     pub adapter_id: Option<String>,
+    /// Indicates whether the fused package differs from the base manifest.
+    #[serde(default)]
+    pub fusion_verified: bool,
 }
 
 /// Run a CoreML export job and return a record that can be persisted by callers.
@@ -69,7 +70,6 @@ pub fn run_coreml_export(job: CoreMLExportJob) -> Result<CoreMLExportRecord> {
         output_package: job.output_package.clone(),
         compute_units: job.compute_units,
     })?;
-
     Ok(CoreMLExportRecord {
         fused_package: outcome.fused_package,
         metadata_path: outcome.metadata_path,
@@ -78,6 +78,7 @@ pub fn run_coreml_export(job: CoreMLExportJob) -> Result<CoreMLExportRecord> {
         adapter_hash: outcome.adapter_hash,
         base_model_id: job.base_model_id,
         adapter_id: job.adapter_id,
+        fusion_verified: outcome.fusion_verified,
     })
 }
 
@@ -92,7 +93,14 @@ pub fn run_coreml_export(_job: CoreMLExportJob) -> Result<CoreMLExportRecord> {
 /// Validate a fused package using its emitted metadata JSON.
 #[cfg(feature = "coreml-backend")]
 pub fn verify_coreml_export(metadata_path: &Path) -> Result<CoreMLFusionMetadata> {
-    validate_coreml_fusion(metadata_path)
+    let metadata = validate_coreml_fusion(metadata_path)?;
+    if metadata.base_manifest_hash == metadata.fused_manifest_hash {
+        return Err(AosError::Validation(
+            "CoreML fusion verification failed: fused manifest hash matches base (export is a copy)"
+                .to_string(),
+        ));
+    }
+    Ok(metadata)
 }
 
 /// Stubbed verification for builds without CoreML enabled.

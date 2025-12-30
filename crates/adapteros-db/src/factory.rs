@@ -5,14 +5,20 @@
 
 use crate::{Db, KvDb, StorageMode};
 use adapteros_core::{AosError, Result};
-use serde_json::json;
 use sqlx::sqlite::SqlitePoolOptions;
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tracing::info;
+use std::time::Duration;
+use tracing::{info, warn};
+
+/// SQLite statement cache capacity.
+/// Reduced from 100 to 50 to limit memory usage per connection.
+/// Each cached statement uses memory proportional to query complexity.
+const STATEMENT_CACHE_CAPACITY: usize = 50;
+
+/// Threshold for warning about estimated cache memory usage (bytes).
+/// Based on average ~5KB per cached statement (conservative estimate).
+const CACHE_MEMORY_WARNING_THRESHOLD: usize = STATEMENT_CACHE_CAPACITY * 5 * 1024;
 
 /// Storage backend selection
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,39 +35,6 @@ pub enum StorageBackend {
 
 /// Database factory for creating Db instances
 pub struct DbFactory;
-
-fn agent_log(
-    hypothesis_id: &'static str,
-    location: &'static str,
-    message: &'static str,
-    data: serde_json::Value,
-) {
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    // #region agent log
-    if let Ok(mut file) = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open("/Users/mln-dev/Dev/adapter-os/.cursor/debug.log")
-    {
-        let _ = writeln!(
-            file,
-            "{}",
-            json!({
-                "sessionId": "debug-session",
-                "runId": "pre-fix",
-                "hypothesisId": hypothesis_id,
-                "location": location,
-                "message": message,
-                "data": data,
-                "timestamp": timestamp,
-            })
-        );
-    }
-    // #endregion
-}
 
 impl DbFactory {
     /// Create a Db instance based on configuration
@@ -84,18 +57,6 @@ impl DbFactory {
         kv_path: Option<&Path>,
         tantivy_path: Option<&Path>,
     ) -> Result<Db> {
-        agent_log(
-            "H1",
-            "factory.rs:53",
-            "db_factory_create_start",
-            json!({
-                "database_url": database_url,
-                "pool_size": database_pool_size,
-                "storage_backend": format!("{:?}", storage_backend),
-                "kv_path": kv_path.map(|p| p.display().to_string()),
-                "tantivy_path": tantivy_path.map(|p| p.display().to_string()),
-            }),
-        );
         // Create SQL pool unless running KV-only
         // NOTE: If KvOnly is later downgraded by the coverage guard, any code path
         // that touches `pool()` will panic unless a pool exists. Keep this in mind
@@ -133,49 +94,8 @@ impl DbFactory {
             (None, kv_opt) => Db::new_kv_only(kv_opt.clone(), storage_mode),
         };
 
-        agent_log(
-            "H1",
-            "factory.rs:85",
-            "db_factory_create_resolved",
-            json!({
-                "storage_mode": format!("{:?}", storage_mode),
-                "has_sql_pool": pool.is_some(),
-                "has_kv_backend": kv.is_some(),
-            }),
-        );
+        db.enforce_kv_only_guard()?;
 
-        agent_log(
-            "H4",
-            "factory.rs:150",
-            "kv_only_guard_enter",
-            json!({
-                "storage_mode": format!("{:?}", storage_mode),
-                "has_sql_pool": pool.is_some(),
-                "has_kv_backend": kv.is_some(),
-            }),
-        );
-
-        db.enforce_kv_only_guard().map_err(|e| {
-            agent_log(
-                "H4",
-                "factory.rs:160",
-                "kv_only_guard_err",
-                json!({
-                    "storage_mode": format!("{:?}", storage_mode),
-                    "error": format!("{}", e),
-                }),
-            );
-            e
-        })?;
-
-        agent_log(
-            "H4",
-            "factory.rs:169",
-            "kv_only_guard_ok",
-            json!({
-                "storage_mode": format!("{:?}", storage_mode),
-            }),
-        );
         Ok(db)
     }
 
@@ -184,22 +104,12 @@ impl DbFactory {
         use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqliteSynchronous};
         use std::str::FromStr;
 
-        agent_log(
-            "H2",
-            "factory.rs:99",
-            "sql_pool_connecting",
-            json!({
-                "database_url": database_url,
-                "pool_size": pool_size,
-            }),
-        );
-
         let options = SqliteConnectOptions::from_str(&format!("sqlite://{}", database_url))?
             .create_if_missing(true)
             .journal_mode(SqliteJournalMode::Wal)
             .synchronous(SqliteSynchronous::Normal)
             .busy_timeout(Duration::from_secs(30))
-            .statement_cache_capacity(100)
+            .statement_cache_capacity(STATEMENT_CACHE_CAPACITY)
             .foreign_keys(true);
 
         let pool = SqlitePoolOptions::new()
@@ -208,22 +118,23 @@ impl DbFactory {
             .await
             .map_err(|e| AosError::Database(format!("Failed to connect to database: {}", e)))?;
 
+        // Estimate and warn about potential cache memory usage
+        let estimated_cache_memory = pool_size as usize * CACHE_MEMORY_WARNING_THRESHOLD;
+        if estimated_cache_memory > 10 * 1024 * 1024 {
+            // > 10MB total
+            warn!(
+                pool_size = pool_size,
+                cache_capacity = STATEMENT_CACHE_CAPACITY,
+                estimated_cache_mb = estimated_cache_memory / (1024 * 1024),
+                "Statement cache memory usage may be high with current pool size"
+            );
+        }
+
         info!(
             database_url = %database_url,
             pool_size = pool_size,
+            statement_cache_capacity = STATEMENT_CACHE_CAPACITY,
             "SQL connection pool initialized"
-        );
-
-        agent_log(
-            "H2",
-            "factory.rs:117",
-            "sql_pool_connected",
-            json!({
-                "database_url": database_url,
-                "pool_size": pool_size,
-                "journal_mode": "Wal",
-                "synchronous": "Normal",
-            }),
         );
 
         Ok(pool)
@@ -241,15 +152,6 @@ impl DbFactory {
         // Open redb backend using existing KvDb::init_redb
         info!(kv_path = ?kv_path, "Opening redb backend");
         let kv_db = KvDb::init_redb(kv_path)?;
-
-        agent_log(
-            "H3",
-            "factory.rs:131",
-            "kv_backend_initialized",
-            json!({
-                "kv_path": kv_path.display().to_string(),
-            }),
-        );
 
         info!("KV backend initialized successfully");
         Ok(kv_db)

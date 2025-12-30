@@ -524,7 +524,11 @@ impl Db {
         }
         if let Some(enabled) = filter.enabled {
             query.push_str(" AND enabled = ?");
-            binds.push(if enabled { "1".to_string() } else { "0".to_string() });
+            binds.push(if enabled {
+                "1".to_string()
+            } else {
+                "0".to_string()
+            });
         }
         if let Some(scope_target) = &filter.scope_target {
             query.push_str(" AND scope_target = ?");
@@ -655,13 +659,14 @@ impl Db {
     /// * `rule_id` - The rule ID to update
     /// * `enabled` - Whether the rule should be enabled
     pub async fn set_lifecycle_rule_enabled(&self, rule_id: &str, enabled: bool) -> Result<()> {
-        let result =
-            sqlx::query("UPDATE lifecycle_rules SET enabled = ?, updated_at = datetime('now') WHERE id = ?")
-                .bind(if enabled { 1 } else { 0 })
-                .bind(rule_id)
-                .execute(self.pool())
-                .await
-                .map_err(|e| AosError::Database(format!("Failed to update lifecycle rule: {}", e)))?;
+        let result = sqlx::query(
+            "UPDATE lifecycle_rules SET enabled = ?, updated_at = datetime('now') WHERE id = ?",
+        )
+        .bind(if enabled { 1 } else { 0 })
+        .bind(rule_id)
+        .execute(self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to update lifecycle rule: {}", e)))?;
 
         if result.rows_affected() == 0 {
             return Err(AosError::NotFound(format!(
@@ -794,9 +799,8 @@ impl Db {
             AosError::Validation(format!("Invalid from_state '{}': {}", from_state, e))
         })?;
 
-        let to = LifecycleState::from_str(to_state).map_err(|e| {
-            AosError::Validation(format!("Invalid to_state '{}': {}", to_state, e))
-        })?;
+        let to = LifecycleState::from_str(to_state)
+            .map_err(|e| AosError::Validation(format!("Invalid to_state '{}': {}", to_state, e)))?;
 
         // Check basic transition validity using tier-specific rules
         if !from.can_transition_to_for_tier(to, tier) {
@@ -900,15 +904,9 @@ impl Db {
             .into_iter()
             .filter(|rule| match &rule.scope {
                 LifecycleRuleScope::System => true,
-                LifecycleRuleScope::Tenant => {
-                    rule.scope_target.as_deref() == Some(tenant_id)
-                }
-                LifecycleRuleScope::Category => {
-                    rule.scope_target.as_deref() == Some(category)
-                }
-                LifecycleRuleScope::Adapter => {
-                    rule.scope_target.as_deref() == Some(adapter_id)
-                }
+                LifecycleRuleScope::Tenant => rule.scope_target.as_deref() == Some(tenant_id),
+                LifecycleRuleScope::Category => rule.scope_target.as_deref() == Some(category),
+                LifecycleRuleScope::Adapter => rule.scope_target.as_deref() == Some(adapter_id),
             })
             .collect();
 
@@ -941,14 +939,10 @@ impl Db {
         })?;
 
         let conditions: Vec<LifecycleRuleCondition> = serde_json::from_str(&conditions_json)
-            .map_err(|e| {
-                AosError::Database(format!("Failed to parse conditions_json: {}", e))
-            })?;
+            .map_err(|e| AosError::Database(format!("Failed to parse conditions_json: {}", e)))?;
 
-        let actions: Vec<LifecycleRuleAction> =
-            serde_json::from_str(&actions_json).map_err(|e| {
-                AosError::Database(format!("Failed to parse actions_json: {}", e))
-            })?;
+        let actions: Vec<LifecycleRuleAction> = serde_json::from_str(&actions_json)
+            .map_err(|e| AosError::Database(format!("Failed to parse actions_json: {}", e)))?;
 
         Ok(LifecycleRule {
             id,
@@ -979,15 +973,11 @@ impl Db {
         match operator {
             ConditionOperator::Equals => actual == expected,
             ConditionOperator::NotEquals => actual != expected,
-            ConditionOperator::GreaterThan => {
-                Self::compare_numeric(actual, expected, |a, b| a > b)
-            }
+            ConditionOperator::GreaterThan => Self::compare_numeric(actual, expected, |a, b| a > b),
             ConditionOperator::GreaterThanOrEqual => {
                 Self::compare_numeric(actual, expected, |a, b| a >= b)
             }
-            ConditionOperator::LessThan => {
-                Self::compare_numeric(actual, expected, |a, b| a < b)
-            }
+            ConditionOperator::LessThan => Self::compare_numeric(actual, expected, |a, b| a < b),
             ConditionOperator::LessThanOrEqual => {
                 Self::compare_numeric(actual, expected, |a, b| a <= b)
             }

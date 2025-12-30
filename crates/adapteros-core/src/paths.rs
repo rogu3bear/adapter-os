@@ -3,12 +3,24 @@
 //! This module provides a single source of truth for .aos adapter file locations
 //! and other critical path resolution throughout the system.
 //!
+//! # Choosing a Path Type
+//!
+//! | Need | Use |
+//! |------|-----|
+//! | Simple flat layout (`{root}/{adapter}.aos`) | [`AdapterPaths`] |
+//! | Versioned tenant layout with cache | [`crate::RepoAdapterPaths`] |
+//!
+//! Use [`AdapterPaths`] for CLI tools and simple lookups where you just need
+//! `{root}/{name}.aos`. Use [`crate::RepoAdapterPaths`] for production systems
+//! that require tenant isolation, semantic versioning, and cache management.
+//!
 //! # Path Resolution Priority
 //!
 //! When using `from_config()`, precedence is:
-//! 1. Environment variable `AOS_ADAPTERS_DIR` (highest priority)
-//! 2. Configuration file `paths.adapters_root`
-//! 3. Default: `./var/adapters/`
+//! 1. Environment variable `AOS_ADAPTERS_ROOT` (preferred)
+//! 2. Environment variable `AOS_ADAPTERS_DIR` (legacy)
+//! 3. Configuration file `paths.adapters_root`
+//! 4. Default: `./var/adapters/`
 //!
 //! Explicit paths provided via `new()` always take precedence over all other sources.
 //!
@@ -30,11 +42,10 @@
 
 use std::path::{Path, PathBuf};
 
-/// Environment variable for overriding the adapters directory (legacy)
-pub const AOS_ADAPTERS_DIR_ENV: &str = "AOS_ADAPTERS_DIR";
-
-/// Preferred environment variable for overriding the adapters directory
-pub const AOS_ADAPTERS_ROOT_ENV: &str = "AOS_ADAPTERS_ROOT";
+// Re-export canonical env var constants from adapter_repo_paths to avoid duplication
+pub use crate::adapter_repo_paths::{
+    ENV_ADAPTERS_DIR_COMPAT as AOS_ADAPTERS_DIR_ENV, ENV_ADAPTERS_ROOT as AOS_ADAPTERS_ROOT_ENV,
+};
 
 /// Default adapters directory (relative to project root)
 pub const DEFAULT_ADAPTERS_DIR: &str = crate::defaults::DEFAULT_ADAPTERS_ROOT;
@@ -42,7 +53,21 @@ pub const DEFAULT_ADAPTERS_DIR: &str = crate::defaults::DEFAULT_ADAPTERS_ROOT;
 /// Production adapters directory (absolute path)
 pub const PRODUCTION_ADAPTERS_DIR: &str = "/var/lib/adapteros/adapters";
 
-/// Centralized path resolution for adapter files
+/// Simple flat-layout path resolution for adapter files.
+///
+/// This type provides `{root}/{adapter}.aos` layout without versioning or
+/// tenant isolation. For production systems requiring versioned tenant layouts
+/// with caching, use [`crate::RepoAdapterPaths`] instead.
+///
+/// # When to Use
+///
+/// - CLI tools that load adapters by name
+/// - Development/testing with flat directory structure
+/// - Legacy compatibility with single-directory layouts
+///
+/// # See Also
+///
+/// - [`crate::RepoAdapterPaths`] for versioned `{repo}/{tenant}/{adapter}/{version}.aos` layout
 #[derive(Debug, Clone)]
 pub struct AdapterPaths {
     /// Root directory for all .aos files

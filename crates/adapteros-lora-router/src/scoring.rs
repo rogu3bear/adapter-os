@@ -193,12 +193,13 @@ pub struct AdapterAwareScorer {
 impl AdapterAwareScorer {
     pub fn new(adapter_frameworks: Vec<Option<String>>, features: &[f32]) -> Self {
         // Determine dominant language from first 8 dims
+        // Issue D-5 Fix: Use total_cmp for IEEE 754 total ordering (handles NaN deterministically)
         let dominant_lang = if features.len() >= 8 {
             let (idx, _) = features
                 .iter()
                 .take(8)
                 .enumerate()
-                .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+                .max_by(|a, b| a.1.total_cmp(b.1))
                 .unwrap_or((0, &0.0));
             Some(idx)
         } else {

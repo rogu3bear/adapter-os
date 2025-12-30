@@ -172,6 +172,17 @@ async fn insert_adapter_to_kv(
         drift_reference_backend: None,
         drift_baseline_backend: None,
         drift_test_backend: None,
+        repo_path: None,
+        codebase_scope: None,
+        dataset_version_id: None,
+        registration_timestamp: None,
+        manifest_hash: None,
+        // Codebase adapter fields
+        adapter_type: None,
+        base_adapter_id: None,
+        stream_session_id: None,
+        versioning_threshold: None,
+        coreml_package_hash: None,
     };
 
     let repo = AdapterRepository::new(kv.backend().clone(), kv.index_manager().clone());
@@ -716,7 +727,10 @@ async fn test_kv_primary_lineage() {
     db.set_storage_mode(StorageMode::KvPrimary).unwrap();
 
     // Query lineage
-    let lineage = db.get_adapter_lineage("lineage-parent").await.unwrap();
+    let lineage = db
+        .get_adapter_lineage("default-tenant", "lineage-parent")
+        .await
+        .unwrap();
 
     // Should find both parent and child
     assert_eq!(lineage.len(), 2, "Should find parent and child in lineage");

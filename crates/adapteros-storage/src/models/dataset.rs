@@ -38,6 +38,48 @@ pub struct TrainingDatasetKv {
     pub collection_method: Option<String>,
     pub ownership: Option<String>,
     pub workspace_id: Option<String>,
+    // Hash repair tracking fields
+    #[serde(default)]
+    pub hash_needs_recompute: i32,
+    #[serde(default)]
+    pub hash_algorithm_version: i32,
+    // Repository tracking for deterministic runs
+    #[serde(default)]
+    pub repo_slug: Option<String>,
+    #[serde(default)]
+    pub branch: Option<String>,
+    #[serde(default)]
+    pub commit_sha: Option<String>,
+
+    // Session lineage fields (migration 0256)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_tags: Option<String>,
+
+    // Scope metadata fields (migration 0257)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope_repo_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope_repo: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope_scan_root: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope_remote_url: Option<String>,
+
+    // Aggregate metrics (migration 0259)
+    #[serde(default)]
+    pub scan_root_count: Option<i64>,
+    #[serde(default)]
+    pub total_scan_root_files: Option<i64>,
+    #[serde(default)]
+    pub total_scan_root_bytes: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scan_roots_content_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scan_roots_updated_at: Option<String>,
 }
 
 impl TrainingDatasetKv {

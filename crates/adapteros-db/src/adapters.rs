@@ -39,12 +39,20 @@
 //! - `sql_rollback_triggered` (strict mode only)
 
 use crate::{Db, WriteCapableDb};
-use adapteros_core::{AosError, Result};
+use adapteros_aos::{compute_scope_hash, open_aos, BackendTag};
+use adapteros_core::{AdapterName, AosError, B3Hash, LifecycleState, Result};
+use adapteros_normalization::extract_repo_identifier_from_metadata;
+use adapteros_single_file_adapter::{LoadOptions, SingleFileAdapterLoader};
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sqlx::Row;
+use std::collections::HashMap;
 use std::env;
 use std::future::Future;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
@@ -73,10 +81,464 @@ const ADAPTER_COLUMNS_ALIAS_A: &str =
      a.adapter_name, a.tenant_namespace, a.domain, a.purpose, a.revision, a.parent_id, \
      a.fork_type, a.fork_reason, a.version, a.lifecycle_state, a.archived_at, a.archived_by, \
      a.archive_reason, a.purged_at, a.base_model_id, a.recommended_for_moe, a.manifest_schema_version, \
-     a.content_hash_b3, a.metadata_json, a.provenance_json, a.repo_path, a.created_at, a.updated_at, a.active";
+     a.content_hash_b3, a.metadata_json, a.provenance_json, a.repo_path, a.codebase_scope, \
+     a.dataset_version_id, a.registration_timestamp, a.manifest_hash, \
+     a.adapter_type, a.base_adapter_id, a.stream_session_id, a.versioning_threshold, a.coreml_package_hash, \
+     a.created_at, a.updated_at, a.active";
 
 tokio::task_local! {
     static TENANT_SCOPE_ACTIVE: bool;
+}
+
+const AOS_HASH_BUFFER_SIZE: usize = 64 * 1024;
+const AOS2_MAGIC: &[u8; 4] = b"AOS2";
+const AOS2_HAS_INDEX_FLAG: u32 = 0x1;
+const AOS2_INDEX_ENTRY_SIZE: u64 = 80;
+const AOS2_HEADER_SIZE: usize = 64;
+
+fn compute_aos_file_hash(path: &Path) -> Result<String> {
+    let mut file = std::fs::File::open(path).map_err(|e| {
+        AosError::Io(format!(
+            "Failed to open .aos file {}: {}",
+            path.display(),
+            e
+        ))
+    })?;
+    let mut buffer = vec![0u8; AOS_HASH_BUFFER_SIZE];
+    let mut hasher = blake3::Hasher::new();
+
+    loop {
+        let n = file.read(&mut buffer).map_err(|e| {
+            AosError::Io(format!(
+                "Failed to read .aos file {}: {}",
+                path.display(),
+                e
+            ))
+        })?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buffer[..n]);
+    }
+
+    Ok(hasher.finalize().to_hex().to_string())
+}
+
+// extract_repo_id_from_metadata moved to adapteros_normalization crate
+
+fn read_aos_segment_count(path: &Path) -> Result<Option<i64>> {
+    let mut file = std::fs::File::open(path).map_err(|e| {
+        AosError::Io(format!(
+            "Failed to open .aos file header {}: {}",
+            path.display(),
+            e
+        ))
+    })?;
+    let mut header = [0u8; 24];
+    file.read_exact(&mut header).map_err(|e| {
+        AosError::Io(format!(
+            "Failed to read .aos file header {}: {}",
+            path.display(),
+            e
+        ))
+    })?;
+
+    if !header.starts_with(AOS2_MAGIC) {
+        return Ok(None);
+    }
+    let flags = u32::from_le_bytes(header[4..8].try_into().unwrap());
+    if flags & AOS2_HAS_INDEX_FLAG == 0 {
+        return Ok(None);
+    }
+
+    let index_size = u64::from_le_bytes(header[16..24].try_into().unwrap());
+    if index_size == 0 || index_size % AOS2_INDEX_ENTRY_SIZE != 0 {
+        return Ok(None);
+    }
+
+    let count = index_size / AOS2_INDEX_ENTRY_SIZE;
+    let count = i64::try_from(count).ok();
+    Ok(count.filter(|value| *value > 0))
+}
+
+#[derive(Debug, Default)]
+struct ParsedAosManifestMetadata {
+    manifest_schema_version: Option<String>,
+    base_model: Option<String>,
+    category: Option<String>,
+    tier: Option<String>,
+    training_data_count: Option<i64>,
+}
+
+fn parse_manifest_count_value(value: &Value) -> Option<i64> {
+    match value {
+        Value::Number(num) => num.as_i64(),
+        Value::String(raw) => raw.trim().parse::<i64>().ok(),
+        _ => None,
+    }
+}
+
+fn parse_aos_manifest_metadata(path: &Path) -> Result<ParsedAosManifestMetadata> {
+    let bytes = std::fs::read(path).map_err(|e| {
+        AosError::Io(format!(
+            "Failed to read .aos file {}: {}",
+            path.display(),
+            e
+        ))
+    })?;
+    let view = open_aos(&bytes)?;
+    let manifest: Value = serde_json::from_slice(view.manifest_bytes).map_err(|e| {
+        AosError::InvalidManifest(format!(
+            "Failed to parse .aos manifest JSON from {}: {}",
+            path.display(),
+            e
+        ))
+    })?;
+
+    let manifest_schema_version = manifest
+        .get("version")
+        .or_else(|| manifest.get("schema_version"))
+        .and_then(|v| v.as_str())
+        .map(|v| v.to_string());
+    let base_model = manifest
+        .get("base_model")
+        .and_then(|v| v.as_str())
+        .map(|v| v.to_string());
+    let category = manifest
+        .get("category")
+        .and_then(|v| v.as_str())
+        .map(|v| v.to_string());
+    let tier = manifest
+        .get("tier")
+        .and_then(|v| v.as_str())
+        .map(|v| v.to_string());
+
+    let training_data_count = manifest
+        .get("metadata")
+        .and_then(|v| v.as_object())
+        .and_then(|meta| {
+            meta.get("training_data_count")
+                .or_else(|| meta.get("dataset_examples"))
+                .or_else(|| meta.get("dataset_count"))
+                .and_then(parse_manifest_count_value)
+        });
+
+    Ok(ParsedAosManifestMetadata {
+        manifest_schema_version,
+        base_model,
+        category,
+        tier,
+        training_data_count,
+    })
+}
+
+fn read_aos_manifest_bytes(path: &Path) -> Result<Option<Vec<u8>>> {
+    let mut file = std::fs::File::open(path).map_err(|e| {
+        AosError::Io(format!(
+            "Failed to open .aos file for manifest {}: {}",
+            path.display(),
+            e
+        ))
+    })?;
+    let mut header = [0u8; AOS2_HEADER_SIZE];
+    file.read_exact(&mut header).map_err(|e| {
+        AosError::Io(format!(
+            "Failed to read .aos manifest header {}: {}",
+            path.display(),
+            e
+        ))
+    })?;
+
+    if !header.starts_with(AOS2_MAGIC) {
+        return Ok(None);
+    }
+    let flags = u32::from_le_bytes(header[4..8].try_into().unwrap());
+    if flags & AOS2_HAS_INDEX_FLAG == 0 {
+        return Ok(None);
+    }
+
+    let manifest_offset = u64::from_le_bytes(header[24..32].try_into().unwrap());
+    let manifest_size = u64::from_le_bytes(header[32..40].try_into().unwrap());
+    if manifest_size == 0 {
+        return Ok(None);
+    }
+
+    let file_len = file.metadata().map_err(|e| {
+        AosError::Io(format!(
+            "Failed to stat .aos file for manifest {}: {}",
+            path.display(),
+            e
+        ))
+    })?;
+    let manifest_end = match manifest_offset.checked_add(manifest_size) {
+        Some(end) => end,
+        None => return Ok(None),
+    };
+    if manifest_end > file_len.len() {
+        return Ok(None);
+    }
+
+    file.seek(SeekFrom::Start(manifest_offset)).map_err(|e| {
+        AosError::Io(format!(
+            "Failed to seek to manifest in {}: {}",
+            path.display(),
+            e
+        ))
+    })?;
+    let mut manifest_bytes = vec![0u8; manifest_size as usize];
+    file.read_exact(&mut manifest_bytes).map_err(|e| {
+        AosError::Io(format!(
+            "Failed to read .aos manifest {}: {}",
+            path.display(),
+            e
+        ))
+    })?;
+
+    Ok(Some(manifest_bytes))
+}
+
+#[derive(Debug, Clone)]
+struct SingleFileAdapterMetadata {
+    training_data_count: Option<i64>,
+    lineage_version: Option<String>,
+    signature_valid: Option<bool>,
+}
+
+fn single_file_metadata_options() -> LoadOptions {
+    let production_mode = std::env::var("AOS_SERVER_PRODUCTION_MODE")
+        .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false);
+
+    if production_mode {
+        LoadOptions::default()
+    } else {
+        LoadOptions {
+            skip_verification: true,
+            skip_signature_check: true,
+            use_mmap: false,
+        }
+    }
+}
+
+async fn read_single_file_adapter_metadata(
+    path: &Path,
+) -> Result<Option<SingleFileAdapterMetadata>> {
+    let options = single_file_metadata_options();
+    let adapter = match SingleFileAdapterLoader::load_with_options(path, options).await {
+        Ok(adapter) => adapter,
+        Err(err) => {
+            let message = err.to_string();
+            if message.contains("Unknown file format") || message.contains("Unsupported legacy AOS")
+            {
+                debug!(
+                    path = %path.display(),
+                    "Skipping single-file adapter metadata for unsupported format"
+                );
+            } else {
+                warn!(
+                    path = %path.display(),
+                    error = %err,
+                    "Failed to load single-file adapter metadata"
+                );
+            }
+            return Ok(None);
+        }
+    };
+
+    let training_data_count = i64::try_from(adapter.training_data.len()).ok();
+    let lineage_version = adapter.lineage.version.trim().to_string();
+    let lineage_version = if lineage_version.is_empty() {
+        None
+    } else {
+        Some(lineage_version)
+    };
+    let signature_valid = if adapter.is_signed() {
+        match adapter.verify_signature() {
+            Ok(valid) => Some(valid),
+            Err(err) => {
+                warn!(
+                    path = %path.display(),
+                    error = %err,
+                    "Failed to verify adapter signature"
+                );
+                Some(false)
+            }
+        }
+    } else {
+        None
+    };
+
+    Ok(Some(SingleFileAdapterMetadata {
+        training_data_count,
+        lineage_version,
+        signature_valid,
+    }))
+}
+
+fn load_aos_registration_metadata(path: &Path) -> Option<AosRegistrationMetadata> {
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            warn!(
+                error = %err,
+                path = %path.display(),
+                "Failed to read .aos file for manifest metadata"
+            );
+            return None;
+        }
+    };
+
+    let view = match open_aos(&bytes) {
+        Ok(view) => view,
+        Err(err) => {
+            warn!(
+                error = %err,
+                path = %path.display(),
+                "Failed to parse .aos file for manifest metadata"
+            );
+            return None;
+        }
+    };
+
+    let manifest_value: Value = match serde_json::from_slice(view.manifest_bytes) {
+        Ok(value) => value,
+        Err(err) => {
+            warn!(
+                error = %err,
+                path = %path.display(),
+                "Failed to decode .aos manifest JSON"
+            );
+            return None;
+        }
+    };
+
+    let manifest_schema_version = manifest_value
+        .get("version")
+        .or_else(|| manifest_value.get("schema_version"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let base_model_id = manifest_value
+        .get("base_model")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let category = manifest_value
+        .get("category")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let tier = manifest_value
+        .get("tier")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let manifest_metadata = manifest_value
+        .get("metadata")
+        .and_then(|meta| meta.as_object())
+        .map(|meta| {
+            meta.iter()
+                .filter_map(|(key, value)| value.as_str().map(|val| (key.clone(), val.to_string())))
+                .collect::<HashMap<String, String>>()
+        })
+        .filter(|meta| !meta.is_empty());
+
+    let scope_path = manifest_metadata
+        .as_ref()
+        .and_then(|meta| meta.get("scope_path"))
+        .map(|value| value.as_str());
+
+    let canonical_segment = scope_path
+        .and_then(|path| {
+            let scope_hash = compute_scope_hash(path);
+            view.segments.iter().find(|seg| {
+                seg.backend_tag == BackendTag::Canonical && seg.scope_hash == scope_hash
+            })
+        })
+        .or_else(|| {
+            view.segments
+                .iter()
+                .find(|seg| seg.backend_tag == BackendTag::Canonical)
+        })
+        .or_else(|| view.segments.first());
+
+    let content_hash_b3 = canonical_segment.map(|seg| {
+        B3Hash::hash_multi(&[view.manifest_bytes, seg.payload])
+            .to_hex()
+            .to_string()
+    });
+
+    let mut metadata = AosRegistrationMetadata::new();
+    metadata.manifest_schema_version = manifest_schema_version;
+    metadata.base_model_id = base_model_id;
+    metadata.category = category;
+    metadata.tier = tier;
+    metadata.content_hash_b3 = content_hash_b3;
+    metadata.manifest_metadata = manifest_metadata;
+
+    Some(metadata)
+}
+
+#[derive(Debug, Clone)]
+struct AdapterSessionContext {
+    session_id: String,
+    session_name: Option<String>,
+    session_tags: Option<Vec<String>>,
+}
+
+fn normalize_session_tags(tags: &mut Vec<String>) {
+    tags.iter_mut().for_each(|tag| {
+        *tag = tag.trim().to_string();
+    });
+    tags.retain(|tag| !tag.is_empty());
+    tags.sort();
+    tags.dedup();
+}
+
+fn value_to_trimmed_string(value: &Value) -> Option<String> {
+    match value {
+        Value::String(raw) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        }
+        _ => None,
+    }
+}
+
+fn parse_session_tags_value(value: &Value) -> Option<Vec<String>> {
+    let mut tags = match value {
+        Value::String(raw) => raw
+            .split(',')
+            .map(|tag| tag.trim().to_string())
+            .collect::<Vec<String>>(),
+        Value::Array(values) => values
+            .iter()
+            .filter_map(value_to_trimmed_string)
+            .collect::<Vec<String>>(),
+        _ => return None,
+    };
+    normalize_session_tags(&mut tags);
+    if tags.is_empty() {
+        None
+    } else {
+        Some(tags)
+    }
+}
+
+fn parse_session_context(metadata_json: Option<&str>) -> Option<AdapterSessionContext> {
+    let metadata_json = metadata_json?;
+    let value: Value = serde_json::from_str(metadata_json).ok()?;
+    let obj = value.as_object()?;
+    let session_id = obj.get("session_id").and_then(value_to_trimmed_string)?;
+    let session_name = obj.get("session_name").and_then(value_to_trimmed_string);
+    let session_tags = obj.get("session_tags").and_then(parse_session_tags_value);
+
+    Some(AdapterSessionContext {
+        session_id,
+        session_name,
+        session_tags,
+    })
 }
 
 /// Run an async operation with tenant-scope gating enabled for unscoped adapter queries.
@@ -141,6 +603,68 @@ impl AtomicDualWriteConfig {
     }
 }
 
+/// Minimal .aos metadata for adapter registration.
+///
+/// This struct captures a subset of manifest/file metadata that should be
+/// persisted alongside adapter registration records.
+#[derive(Debug, Clone, Default)]
+pub struct AosRegistrationMetadata {
+    pub aos_file_path: Option<String>,
+    pub aos_file_hash: Option<String>,
+    pub manifest_schema_version: Option<String>,
+    pub content_hash_b3: Option<String>,
+    pub base_model_id: Option<String>,
+    pub category: Option<String>,
+    pub tier: Option<String>,
+    pub manifest_metadata: Option<HashMap<String, String>>,
+}
+
+impl AosRegistrationMetadata {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn aos_file_path(mut self, path: impl Into<String>) -> Self {
+        self.aos_file_path = Some(path.into());
+        self
+    }
+
+    pub fn aos_file_hash(mut self, hash: impl Into<String>) -> Self {
+        self.aos_file_hash = Some(hash.into());
+        self
+    }
+
+    pub fn manifest_schema_version(mut self, version: impl Into<String>) -> Self {
+        self.manifest_schema_version = Some(version.into());
+        self
+    }
+
+    pub fn content_hash_b3(mut self, hash: impl Into<String>) -> Self {
+        self.content_hash_b3 = Some(hash.into());
+        self
+    }
+
+    pub fn base_model_id(mut self, base_model_id: impl Into<String>) -> Self {
+        self.base_model_id = Some(base_model_id.into());
+        self
+    }
+
+    pub fn category(mut self, category: impl Into<String>) -> Self {
+        self.category = Some(category.into());
+        self
+    }
+
+    pub fn tier(mut self, tier: impl Into<String>) -> Self {
+        self.tier = Some(tier.into());
+        self
+    }
+
+    pub fn manifest_metadata(mut self, metadata: HashMap<String, String>) -> Self {
+        self.manifest_metadata = Some(metadata);
+        self
+    }
+}
+
 /// Builder for creating adapter registration parameters
 #[derive(Debug, Default)]
 pub struct AdapterRegistrationBuilder {
@@ -191,6 +715,12 @@ pub struct AdapterRegistrationBuilder {
     dataset_version_id: Option<String>,
     registration_timestamp: Option<String>,
     manifest_hash: Option<String>,
+    // Codebase adapter type and stream binding (from migration 0261)
+    adapter_type: Option<String>,
+    base_adapter_id: Option<String>,
+    stream_session_id: Option<String>,
+    versioning_threshold: Option<i32>,
+    coreml_package_hash: Option<String>,
 }
 
 /// Parameters for adapter registration
@@ -249,6 +779,17 @@ pub struct AdapterRegistrationParams {
     pub registration_timestamp: Option<String>,
     /// BLAKE3 hash of the adapter manifest for integrity verification
     pub manifest_hash: Option<String>,
+    // Codebase adapter type and stream binding (from migration 0261)
+    /// Adapter classification: "standard" (portable), "codebase" (stream-scoped), "core" (baseline)
+    pub adapter_type: Option<String>,
+    /// Base adapter ID for codebase adapters (the core adapter they extend as delta)
+    pub base_adapter_id: Option<String>,
+    /// Exclusive session binding for codebase adapters
+    pub stream_session_id: Option<String>,
+    /// Activation threshold for auto-versioning (default: 100)
+    pub versioning_threshold: Option<i32>,
+    /// BLAKE3 hash of fused CoreML package for deployment verification
+    pub coreml_package_hash: Option<String>,
 }
 
 impl AdapterRegistrationBuilder {
@@ -462,10 +1003,10 @@ impl AdapterRegistrationBuilder {
         self
     }
 
-    /// Set the content hash (required for deduplication)
+    /// Set the content hash (optional; defaults to hash_b3 if omitted)
     /// BLAKE3 hash of manifest + weights for identity/deduplication
-    pub fn content_hash_b3(mut self, content_hash_b3: impl Into<String>) -> Self {
-        self.content_hash_b3 = Some(content_hash_b3.into());
+    pub fn content_hash_b3<T: Into<String>>(mut self, content_hash_b3: Option<T>) -> Self {
+        self.content_hash_b3 = content_hash_b3.map(|s| s.into());
         self
     }
 
@@ -479,6 +1020,41 @@ impl AdapterRegistrationBuilder {
     /// Set arbitrary metadata JSON for adapter registration (optional)
     pub fn metadata_json(mut self, metadata_json: Option<impl Into<String>>) -> Self {
         self.metadata_json = metadata_json.map(|s| s.into());
+        self
+    }
+
+    /// Apply .aos manifest/file metadata to the registration builder.
+    ///
+    /// Explicit values already set on the builder take precedence.
+    pub fn with_aos_metadata(mut self, metadata: &AosRegistrationMetadata) -> Self {
+        if self.aos_file_path.is_none() {
+            self.aos_file_path = metadata.aos_file_path.clone();
+        }
+        if self.aos_file_hash.is_none() {
+            self.aos_file_hash = metadata.aos_file_hash.clone();
+        }
+        if self.manifest_schema_version.is_none() {
+            self.manifest_schema_version = metadata.manifest_schema_version.clone();
+        }
+        if self.content_hash_b3.is_none() {
+            self.content_hash_b3 = metadata.content_hash_b3.clone();
+        }
+        if self.base_model_id.is_none() {
+            self.base_model_id = metadata.base_model_id.clone();
+        }
+        if self.category.is_none() {
+            self.category = metadata.category.clone();
+        }
+        if self.tier.is_none() {
+            self.tier = metadata.tier.clone();
+        }
+        if self.metadata_json.is_none() {
+            if let Some(ref manifest_metadata) = metadata.manifest_metadata {
+                if let Ok(json) = serde_json::to_string(manifest_metadata) {
+                    self.metadata_json = Some(json);
+                }
+            }
+        }
         self
     }
 
@@ -520,25 +1096,49 @@ impl AdapterRegistrationBuilder {
         self
     }
 
+    /// Set the adapter type (optional, from migration 0261)
+    /// Valid values: "standard", "codebase", "core"
+    pub fn adapter_type(mut self, adapter_type: Option<impl Into<String>>) -> Self {
+        self.adapter_type = adapter_type.map(|s| s.into());
+        self
+    }
+
+    /// Set the base adapter ID for codebase adapters (optional, from migration 0261)
+    /// Required for codebase adapters - the core adapter they extend as delta
+    pub fn base_adapter_id(mut self, base_adapter_id: Option<impl Into<String>>) -> Self {
+        self.base_adapter_id = base_adapter_id.map(|s| s.into());
+        self
+    }
+
+    /// Set the stream session ID for exclusive binding (optional, from migration 0261)
+    pub fn stream_session_id(mut self, stream_session_id: Option<impl Into<String>>) -> Self {
+        self.stream_session_id = stream_session_id.map(|s| s.into());
+        self
+    }
+
+    /// Set the versioning threshold for auto-versioning (optional, from migration 0261)
+    /// Default: 100 activations
+    pub fn versioning_threshold(mut self, versioning_threshold: Option<i32>) -> Self {
+        self.versioning_threshold = versioning_threshold;
+        self
+    }
+
+    /// Set the CoreML package hash for deployment verification (optional, from migration 0261)
+    pub fn coreml_package_hash(mut self, coreml_package_hash: Option<impl Into<String>>) -> Self {
+        self.coreml_package_hash = coreml_package_hash.map(|s| s.into());
+        self
+    }
+
     /// Build the adapter registration parameters
-    pub fn build(self) -> Result<AdapterRegistrationParams> {
+    pub fn build(mut self) -> Result<AdapterRegistrationParams> {
         let rank = self
             .rank
             .ok_or_else(|| AosError::validation("rank is required"))?;
 
-        // Validate and default tier
-        let tier = self.tier.unwrap_or_else(|| "warm".to_string());
-        if !["persistent", "warm", "ephemeral"].contains(&tier.as_str()) {
-            return Err(AosError::validation(format!(
-                "tier must be 'persistent', 'warm', or 'ephemeral', got: {}",
-                tier
-            )));
-        }
-
         // Validate and canonicalize .aos file path if provided
-        let aos_file_path = match self.aos_file_path {
+        let aos_file_path = match self.aos_file_path.as_ref() {
             Some(path_str) => {
-                let path = Path::new(&path_str);
+                let path = Path::new(path_str);
 
                 // Validate the file exists
                 if !path.exists() {
@@ -580,6 +1180,88 @@ impl AdapterRegistrationBuilder {
             None => None,
         };
 
+        if let Some(ref path_str) = aos_file_path {
+            let needs_manifest_metadata = self.metadata_json.is_none()
+                || self.base_model_id.is_none()
+                || self.category.is_none()
+                || self.tier.is_none()
+                || self.manifest_schema_version.is_none()
+                || self.content_hash_b3.is_none();
+            if needs_manifest_metadata {
+                if let Some(metadata) = load_aos_registration_metadata(Path::new(path_str)) {
+                    self = self.with_aos_metadata(&metadata);
+                }
+            }
+        }
+
+        let mut aos_file_hash = self.aos_file_hash.clone();
+        if let Some(ref path_str) = aos_file_path {
+            let hash_missing = aos_file_hash
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .is_none();
+            if hash_missing {
+                let computed = compute_aos_file_hash(Path::new(path_str))?;
+                aos_file_hash = Some(computed);
+            }
+        }
+
+        // Validate and default tier
+        let tier = self.tier.unwrap_or_else(|| "warm".to_string());
+        if !["persistent", "warm", "ephemeral"].contains(&tier.as_str()) {
+            return Err(AosError::validation(format!(
+                "tier must be 'persistent', 'warm', or 'ephemeral', got: {}",
+                tier
+            )));
+        }
+
+        let hash_b3 = self
+            .hash_b3
+            .ok_or_else(|| AosError::validation("hash_b3 is required"))?;
+        if hash_b3.is_empty() {
+            return Err(AosError::validation("hash_b3 cannot be empty"));
+        }
+
+        let content_hash_b3 = match self.content_hash_b3 {
+            Some(hash) => {
+                if hash.is_empty() {
+                    return Err(AosError::validation("content_hash_b3 cannot be empty"));
+                }
+                hash
+            }
+            None => hash_b3.clone(),
+        };
+
+        let provenance_json = self.provenance_json;
+        let mut metadata_json = self.metadata_json;
+        if metadata_json.is_none() {
+            if let Some(ref provenance) = provenance_json {
+                let is_object = serde_json::from_str::<Value>(provenance)
+                    .ok()
+                    .map(|val| val.is_object())
+                    .unwrap_or(false);
+                if is_object {
+                    metadata_json = Some(provenance.clone());
+                }
+            }
+        }
+
+        let mut repo_id = self.repo_id.and_then(|value| {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        });
+        if repo_id.is_none() {
+            repo_id = extract_repo_identifier_from_metadata(metadata_json.as_deref());
+            if repo_id.is_none() {
+                repo_id = extract_repo_identifier_from_metadata(provenance_json.as_deref());
+            }
+        }
+
         Ok(AdapterRegistrationParams {
             tenant_id: self
                 .tenant_id
@@ -590,9 +1272,7 @@ impl AdapterRegistrationBuilder {
             name: self
                 .name
                 .ok_or_else(|| AosError::validation("name is required"))?,
-            hash_b3: self
-                .hash_b3
-                .ok_or_else(|| AosError::validation("hash_b3 is required"))?,
+            hash_b3,
             rank,
             tier,
             alpha: self.alpha.unwrap_or_else(|| (rank * 2) as f64),
@@ -605,12 +1285,12 @@ impl AdapterRegistrationBuilder {
             framework: self.framework,
             framework_id: self.framework_id,
             framework_version: self.framework_version,
-            repo_id: self.repo_id,
+            repo_id,
             commit_sha: self.commit_sha,
             intent: self.intent,
             expires_at: self.expires_at,
             aos_file_path,
-            aos_file_hash: self.aos_file_hash,
+            aos_file_hash,
             // Semantic naming taxonomy
             adapter_name: self.adapter_name,
             tenant_namespace: self.tenant_namespace,
@@ -623,23 +1303,21 @@ impl AdapterRegistrationBuilder {
             base_model_id: self.base_model_id,
             recommended_for_moe: self.recommended_for_moe,
             manifest_schema_version: self.manifest_schema_version,
-            content_hash_b3: {
-                let hash = self
-                    .content_hash_b3
-                    .ok_or_else(|| AosError::validation("content_hash_b3 is required"))?;
-                if hash.is_empty() {
-                    return Err(AosError::validation("content_hash_b3 cannot be empty"));
-                }
-                hash
-            },
-            provenance_json: self.provenance_json,
-            metadata_json: self.metadata_json,
+            content_hash_b3,
+            provenance_json,
+            metadata_json,
             repo_path: self.repo_path,
             // Codebase adapter registration metadata
             codebase_scope: self.codebase_scope,
             dataset_version_id: self.dataset_version_id,
             registration_timestamp: self.registration_timestamp,
             manifest_hash: self.manifest_hash,
+            // Codebase adapter type and stream binding
+            adapter_type: self.adapter_type,
+            base_adapter_id: self.base_adapter_id,
+            stream_session_id: self.stream_session_id,
+            versioning_threshold: self.versioning_threshold,
+            coreml_package_hash: self.coreml_package_hash,
         })
     }
 }
@@ -751,6 +1429,24 @@ pub struct Adapter {
     /// BLAKE3 hash of the adapter manifest for integrity verification
     #[sqlx(default)]
     pub manifest_hash: Option<String>,
+
+    // Codebase adapter type and stream binding (from migration 0261)
+    /// Adapter classification: "standard" (portable), "codebase" (stream-scoped), "core" (baseline)
+    #[sqlx(default)]
+    pub adapter_type: Option<String>,
+    /// Base adapter ID for codebase adapters (the core adapter they extend as delta)
+    /// Distinct from parent_id which tracks version lineage
+    #[sqlx(default)]
+    pub base_adapter_id: Option<String>,
+    /// Exclusive session binding for codebase adapters
+    #[sqlx(default)]
+    pub stream_session_id: Option<String>,
+    /// Activation threshold for auto-versioning (default: 100)
+    #[sqlx(default)]
+    pub versioning_threshold: Option<i32>,
+    /// BLAKE3 hash of fused CoreML package for deployment verification
+    #[sqlx(default)]
+    pub coreml_package_hash: Option<String>,
 
     pub created_at: String,
     pub updated_at: String,
@@ -874,7 +1570,11 @@ pub struct StoreAdapterFileMetadataParams {
 
 impl StoreAdapterFileMetadataParams {
     /// Create new parameters with required fields
-    pub fn new(adapter_id: impl Into<String>, aos_file_path: impl Into<String>, aos_file_hash: impl Into<String>) -> Self {
+    pub fn new(
+        adapter_id: impl Into<String>,
+        aos_file_path: impl Into<String>,
+        aos_file_hash: impl Into<String>,
+    ) -> Self {
         Self {
             adapter_id: adapter_id.into(),
             aos_file_path: aos_file_path.into(),
@@ -1000,6 +1700,123 @@ pub struct AosMetadataUpdate {
     pub provenance_json: Option<String>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct AdapterMetadataPatch {
+    pub aos_file_path: Option<String>,
+    pub aos_file_hash: Option<String>,
+    pub base_model_id: Option<String>,
+    pub manifest_schema_version: Option<String>,
+    pub content_hash_b3: Option<String>,
+    pub metadata_json: Option<String>,
+    pub provenance_json: Option<String>,
+    pub repo_path: Option<String>,
+    pub codebase_scope: Option<String>,
+    pub dataset_version_id: Option<String>,
+    pub registration_timestamp: Option<String>,
+    pub manifest_hash: Option<String>,
+    // Codebase adapter type and stream binding (from migration 0261)
+    pub adapter_type: Option<String>,
+    pub base_adapter_id: Option<String>,
+    pub stream_session_id: Option<String>,
+    pub versioning_threshold: Option<i32>,
+    pub coreml_package_hash: Option<String>,
+}
+
+/// Patch payload for updating semantic alias fields.
+#[derive(Debug, Clone, Default)]
+pub struct AdapterAliasUpdate {
+    pub adapter_name: Option<String>,
+    pub tenant_namespace: Option<String>,
+    pub domain: Option<String>,
+    pub purpose: Option<String>,
+    pub revision: Option<String>,
+}
+
+impl AdapterAliasUpdate {
+    fn from_alias(alias: Option<&str>) -> Result<Self> {
+        let trimmed = alias.map(str::trim).filter(|value| !value.is_empty());
+        if let Some(alias) = trimmed {
+            let parsed = AdapterName::parse(alias)?;
+            return Ok(Self {
+                adapter_name: Some(parsed.to_string()),
+                tenant_namespace: Some(parsed.tenant().to_string()),
+                domain: Some(parsed.domain().to_string()),
+                purpose: Some(parsed.purpose().to_string()),
+                revision: Some(parsed.revision().to_string()),
+            });
+        }
+
+        Ok(Self::default())
+    }
+
+    fn matches_adapter(&self, adapter: &Adapter) -> bool {
+        adapter.adapter_name == self.adapter_name
+            && adapter.tenant_namespace == self.tenant_namespace
+            && adapter.domain == self.domain
+            && adapter.purpose == self.purpose
+            && adapter.revision == self.revision
+    }
+}
+
+/// Configuration for alias update gating behavior.
+#[derive(Debug, Clone, Default)]
+pub struct AliasUpdateGateConfig {
+    /// Allow alias updates for Ready state when true.
+    pub allow_ready: bool,
+}
+
+impl AdapterMetadataPatch {
+    fn from_params(params: &AdapterRegistrationParams) -> Self {
+        fn sanitize(value: Option<&str>) -> Option<String> {
+            value
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(|v| v.to_string())
+        }
+
+        Self {
+            aos_file_path: sanitize(params.aos_file_path.as_deref()),
+            aos_file_hash: sanitize(params.aos_file_hash.as_deref()),
+            base_model_id: sanitize(params.base_model_id.as_deref()),
+            manifest_schema_version: sanitize(params.manifest_schema_version.as_deref()),
+            content_hash_b3: sanitize(Some(params.content_hash_b3.as_str())),
+            metadata_json: sanitize(params.metadata_json.as_deref()),
+            provenance_json: sanitize(params.provenance_json.as_deref()),
+            repo_path: sanitize(params.repo_path.as_deref()),
+            codebase_scope: sanitize(params.codebase_scope.as_deref()),
+            dataset_version_id: sanitize(params.dataset_version_id.as_deref()),
+            registration_timestamp: sanitize(params.registration_timestamp.as_deref()),
+            manifest_hash: sanitize(params.manifest_hash.as_deref()),
+            // Codebase adapter type and stream binding
+            adapter_type: sanitize(params.adapter_type.as_deref()),
+            base_adapter_id: sanitize(params.base_adapter_id.as_deref()),
+            stream_session_id: sanitize(params.stream_session_id.as_deref()),
+            versioning_threshold: params.versioning_threshold,
+            coreml_package_hash: sanitize(params.coreml_package_hash.as_deref()),
+        }
+    }
+
+    pub(crate) fn has_updates(&self) -> bool {
+        self.aos_file_path.is_some()
+            || self.aos_file_hash.is_some()
+            || self.base_model_id.is_some()
+            || self.manifest_schema_version.is_some()
+            || self.content_hash_b3.is_some()
+            || self.metadata_json.is_some()
+            || self.provenance_json.is_some()
+            || self.repo_path.is_some()
+            || self.codebase_scope.is_some()
+            || self.dataset_version_id.is_some()
+            || self.registration_timestamp.is_some()
+            || self.manifest_hash.is_some()
+            || self.adapter_type.is_some()
+            || self.base_adapter_id.is_some()
+            || self.stream_session_id.is_some()
+            || self.versioning_threshold.is_some()
+            || self.coreml_package_hash.is_some()
+    }
+}
+
 impl AosMetadataUpdate {
     /// Create a new AosMetadataUpdate with required fields
     pub fn new(adapter_id: impl Into<String>, tenant_id: impl Into<String>) -> Self {
@@ -1023,7 +1840,10 @@ impl AosMetadataUpdate {
     }
 
     /// Set the manifest metadata
-    pub fn manifest_metadata(mut self, metadata: std::collections::HashMap<String, String>) -> Self {
+    pub fn manifest_metadata(
+        mut self,
+        metadata: std::collections::HashMap<String, String>,
+    ) -> Self {
         self.manifest_metadata = Some(metadata);
         self
     }
@@ -1053,6 +1873,187 @@ impl AosMetadataUpdate {
     }
 }
 
+// ============================================================================
+// AOS Metadata Validation
+// ============================================================================
+
+/// Validation result for .aos metadata
+#[derive(Debug, Clone)]
+pub struct AosMetadataValidation {
+    /// Whether the validation passed
+    pub is_valid: bool,
+    /// List of validation errors (if any)
+    pub errors: Vec<String>,
+    /// List of validation warnings (non-fatal issues)
+    pub warnings: Vec<String>,
+}
+
+impl AosMetadataValidation {
+    /// Create a successful validation result
+    pub fn valid() -> Self {
+        Self {
+            is_valid: true,
+            errors: Vec::new(),
+            warnings: Vec::new(),
+        }
+    }
+
+    /// Create a validation result with errors
+    pub fn invalid(errors: Vec<String>) -> Self {
+        Self {
+            is_valid: false,
+            errors,
+            warnings: Vec::new(),
+        }
+    }
+
+    /// Add a warning to the validation result
+    pub fn with_warning(mut self, warning: impl Into<String>) -> Self {
+        self.warnings.push(warning.into());
+        self
+    }
+}
+
+/// Validate .aos file metadata format and content
+///
+/// This function validates the metadata associated with an .aos adapter file,
+/// checking for required fields, format correctness, and logical consistency.
+///
+/// # Validation Rules
+///
+/// 1. **Required Fields**: `adapter_id`, `aos_file_path`, and `aos_file_hash` must be present
+/// 2. **Path Format**: `aos_file_path` must be an absolute path with `.aos` extension
+/// 3. **Hash Format**: `aos_file_hash` must be a valid BLAKE3 hash (64 hex characters)
+/// 4. **File Size**: If provided, must be non-negative
+/// 5. **Segment Count**: If provided, must be positive
+/// 6. **Schema Version**: If provided, must be valid semver format
+pub fn validate_aos_metadata(params: &StoreAdapterFileMetadataParams) -> AosMetadataValidation {
+    let mut errors = Vec::new();
+    let mut warnings = Vec::new();
+
+    // Validate required fields
+    if params.adapter_id.is_empty() {
+        errors.push("adapter_id is required".to_string());
+    }
+
+    if params.aos_file_path.is_empty() {
+        errors.push("aos_file_path is required".to_string());
+    } else {
+        let path = Path::new(&params.aos_file_path);
+        if !path.is_absolute() {
+            errors.push(format!(
+                "aos_file_path must be an absolute path: {}",
+                params.aos_file_path
+            ));
+        }
+        match path.extension().and_then(|e| e.to_str()) {
+            Some("aos") => {}
+            Some(ext) => {
+                errors.push(format!(
+                    "aos_file_path must have .aos extension, got .{}: {}",
+                    ext, params.aos_file_path
+                ));
+            }
+            None => {
+                errors.push(format!(
+                    "aos_file_path must have .aos extension: {}",
+                    params.aos_file_path
+                ));
+            }
+        }
+    }
+
+    if params.aos_file_hash.is_empty() {
+        errors.push("aos_file_hash is required".to_string());
+    } else {
+        let hash = params
+            .aos_file_hash
+            .strip_prefix("b3:")
+            .unwrap_or(&params.aos_file_hash);
+        if hash.len() != 64 {
+            errors.push(format!(
+                "aos_file_hash must be 64 hex characters (BLAKE3), got {} characters",
+                hash.len()
+            ));
+        } else if !hash.chars().all(|c| c.is_ascii_hexdigit()) {
+            errors.push("aos_file_hash must contain only hexadecimal characters".to_string());
+        }
+    }
+
+    if let Some(file_size) = params.file_size_bytes {
+        if file_size < 0 {
+            errors.push(format!("file_size_bytes cannot be negative: {}", file_size));
+        } else if file_size == 0 {
+            warnings.push("file_size_bytes is 0, which may indicate an empty file".to_string());
+        }
+    }
+
+    if let Some(segment_count) = params.segment_count {
+        if segment_count <= 0 {
+            errors.push(format!(
+                "segment_count must be positive, got: {}",
+                segment_count
+            ));
+        }
+    }
+
+    if let Some(ref version) = params.manifest_schema_version {
+        if !is_valid_semver(version) {
+            errors.push(format!(
+                "manifest_schema_version must be valid semver (e.g., '1.0.0'), got: {}",
+                version
+            ));
+        }
+    }
+
+    if let Some(ref tier) = params.tier {
+        if !["persistent", "warm", "ephemeral"].contains(&tier.as_str()) {
+            errors.push(format!(
+                "tier must be 'persistent', 'warm', or 'ephemeral', got: {}",
+                tier
+            ));
+        }
+    }
+
+    if let Some(ref category) = params.category {
+        let valid_categories = [
+            "code",
+            "documentation",
+            "creative",
+            "conversation",
+            "analysis",
+        ];
+        if !valid_categories.contains(&category.as_str()) {
+            warnings.push(format!(
+                "category '{}' is non-standard (expected one of: {})",
+                category,
+                valid_categories.join(", ")
+            ));
+        }
+    }
+
+    if errors.is_empty() {
+        let mut result = AosMetadataValidation::valid();
+        result.warnings = warnings;
+        result
+    } else {
+        let mut result = AosMetadataValidation::invalid(errors);
+        result.warnings = warnings;
+        result
+    }
+}
+
+/// Check if a string is valid semver format
+fn is_valid_semver(version: &str) -> bool {
+    let parts: Vec<&str> = version.split('-').collect();
+    let version_core = parts.first().unwrap_or(&"");
+    let numbers: Vec<&str> = version_core.split('.').collect();
+    if numbers.len() < 2 || numbers.len() > 3 {
+        return false;
+    }
+    numbers.iter().all(|n| n.parse::<u32>().is_ok())
+}
+
 impl Db {
     /// Get an AdapterKvRepository if KV writes are enabled
     pub(crate) fn get_adapter_kv_repo(&self, tenant_id: &str) -> Option<AdapterKvRepository> {
@@ -1070,16 +2071,34 @@ impl Db {
         }
     }
 
-    /// Get tenant_id for an adapter by adapter_id (external ID)
+    /// Get tenant_id for an adapter by adapter_id (external ID) with tenant verification
     ///
-    /// Returns None if adapter doesn't exist
-    pub(crate) async fn get_adapter_tenant_id(&self, adapter_id: &str) -> Result<Option<String>> {
-        let tenant_id: Option<String> =
-            sqlx::query_scalar("SELECT tenant_id FROM adapters WHERE adapter_id = ?")
-                .bind(adapter_id)
-                .fetch_optional(self.pool())
-                .await
-                .map_err(|e| AosError::database(e.to_string()))?;
+    /// # Security
+    /// This method requires a `requesting_tenant_id` to prevent cross-tenant information
+    /// disclosure. The adapter's tenant_id is only returned if it matches the requesting
+    /// tenant, enforcing tenant isolation.
+    ///
+    /// # Arguments
+    /// * `adapter_id` - The adapter's external ID
+    /// * `requesting_tenant_id` - The tenant context making the request (for verification)
+    ///
+    /// # Returns
+    /// * `Ok(Some(tenant_id))` - If adapter exists AND belongs to the requesting tenant
+    /// * `Ok(None)` - If adapter doesn't exist OR belongs to a different tenant
+    pub(crate) async fn get_adapter_tenant_id(
+        &self,
+        adapter_id: &str,
+        requesting_tenant_id: &str,
+    ) -> Result<Option<String>> {
+        // SECURITY: Filter by requesting_tenant_id to prevent cross-tenant lookups
+        let tenant_id: Option<String> = sqlx::query_scalar(
+            "SELECT tenant_id FROM adapters WHERE adapter_id = ? AND tenant_id = ?",
+        )
+        .bind(adapter_id)
+        .bind(requesting_tenant_id)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(|e| AosError::database(e.to_string()))?;
         Ok(tenant_id)
     }
 
@@ -1126,6 +2145,622 @@ impl Db {
         Ok(Some(adapter_kv.into()))
     }
 
+    // =========================================================================
+    // AOS File Metadata Storage Operations
+    // =========================================================================
+
+    /// Store .aos file metadata for an adapter
+    ///
+    /// Stores extended metadata about an .aos adapter file in the `aos_adapter_metadata` table.
+    /// This metadata is used for cache management, staleness detection, and integrity verification.
+    ///
+    /// # Validation
+    ///
+    /// This method validates the metadata before storing. Invalid metadata will result in an error.
+    /// Use [`validate_aos_metadata`] to pre-validate metadata if needed.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use adapteros_db::{Db, StoreAdapterFileMetadataParams};
+    ///
+    /// let params = StoreAdapterFileMetadataParams::new(
+    ///     "adapter-123",
+    ///     "/var/adapters/my-adapter.aos",
+    ///     "b3:abc123..."
+    /// )
+    /// .file_size_bytes(1024 * 1024 * 50)
+    /// .segment_count(3)
+    /// .manifest_schema_version("1.0.0");
+    ///
+    /// db.store_adapter_file_metadata(params).await?;
+    /// ```
+    pub async fn store_adapter_file_metadata(
+        &self,
+        params: StoreAdapterFileMetadataParams,
+    ) -> Result<()> {
+        // Validate metadata before storing
+        let validation = validate_aos_metadata(&params);
+        if !validation.is_valid {
+            return Err(AosError::validation(format!(
+                "Invalid .aos metadata: {}",
+                validation.errors.join("; ")
+            )));
+        }
+
+        // Log warnings but continue
+        for warning in &validation.warnings {
+            warn!(adapter_id = %params.adapter_id, warning = %warning, "AOS metadata warning");
+        }
+
+        // Insert or update (upsert) the metadata
+        sqlx::query(
+            "INSERT INTO aos_adapter_metadata (
+                adapter_id, aos_file_path, aos_file_hash, extracted_weights_path,
+                training_data_count, lineage_version, signature_valid, file_size_bytes,
+                file_modified_at, segment_count, manifest_schema_version, base_model,
+                category, tier, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+            ON CONFLICT(adapter_id) DO UPDATE SET
+                aos_file_path = excluded.aos_file_path,
+                aos_file_hash = excluded.aos_file_hash,
+                extracted_weights_path = excluded.extracted_weights_path,
+                training_data_count = excluded.training_data_count,
+                lineage_version = excluded.lineage_version,
+                signature_valid = excluded.signature_valid,
+                file_size_bytes = excluded.file_size_bytes,
+                file_modified_at = excluded.file_modified_at,
+                segment_count = excluded.segment_count,
+                manifest_schema_version = excluded.manifest_schema_version,
+                base_model = excluded.base_model,
+                category = excluded.category,
+                tier = excluded.tier,
+                updated_at = datetime('now')",
+        )
+        .bind(&params.adapter_id)
+        .bind(&params.aos_file_path)
+        .bind(&params.aos_file_hash)
+        .bind(&params.extracted_weights_path)
+        .bind(params.training_data_count)
+        .bind(&params.lineage_version)
+        .bind(params.signature_valid)
+        .bind(params.file_size_bytes)
+        .bind(&params.file_modified_at)
+        .bind(params.segment_count)
+        .bind(&params.manifest_schema_version)
+        .bind(&params.base_model)
+        .bind(&params.category)
+        .bind(&params.tier)
+        .execute(self.pool())
+        .await
+        .map_err(|e| AosError::database(format!("Failed to store .aos metadata: {}", e)))?;
+
+        info!(
+            adapter_id = %params.adapter_id,
+            aos_file_path = %params.aos_file_path,
+            "Stored .aos file metadata"
+        );
+
+        Ok(())
+    }
+
+    /// Retrieve .aos file metadata for an adapter
+    ///
+    /// Returns the extended metadata for an .aos adapter file from the `aos_adapter_metadata` table.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(Some(metadata))` if metadata exists
+    /// - `Ok(None)` if no metadata exists for the adapter
+    /// - `Err(...)` on database error
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use adapteros_db::Db;
+    ///
+    /// if let Some(metadata) = db.get_adapter_file_metadata("adapter-123").await? {
+    ///     println!("File size: {:?}", metadata.file_size_bytes);
+    ///     println!("Segment count: {:?}", metadata.segment_count);
+    /// }
+    /// ```
+    pub async fn get_adapter_file_metadata(
+        &self,
+        adapter_id: &str,
+    ) -> Result<Option<AdapterFileMetadata>> {
+        let metadata = sqlx::query_as::<_, AdapterFileMetadata>(
+            "SELECT adapter_id, aos_file_path, aos_file_hash, extracted_weights_path,
+                    training_data_count, lineage_version, signature_valid, file_size_bytes,
+                    file_modified_at, segment_count, manifest_schema_version, base_model,
+                    category, tier, created_at, updated_at
+             FROM aos_adapter_metadata
+             WHERE adapter_id = ?",
+        )
+        .bind(adapter_id)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(|e| AosError::database(format!("Failed to get .aos metadata: {}", e)))?;
+
+        Ok(metadata)
+    }
+
+    /// Delete .aos file metadata for an adapter
+    ///
+    /// Removes the extended metadata entry from the `aos_adapter_metadata` table.
+    /// This is typically called during adapter purging or cleanup.
+    ///
+    /// # Returns
+    ///
+    /// `true` if metadata was deleted, `false` if no metadata existed
+    pub async fn delete_adapter_file_metadata(&self, adapter_id: &str) -> Result<bool> {
+        let result = sqlx::query("DELETE FROM aos_adapter_metadata WHERE adapter_id = ?")
+            .bind(adapter_id)
+            .execute(self.pool())
+            .await
+            .map_err(|e| AosError::database(format!("Failed to delete .aos metadata: {}", e)))?;
+
+        let deleted = result.rows_affected() > 0;
+        if deleted {
+            debug!(adapter_id = %adapter_id, "Deleted .aos file metadata");
+        }
+
+        Ok(deleted)
+    }
+
+    /// Update adapter metadata based on a parsed .aos manifest.
+    ///
+    /// Merges manifest metadata into the existing metadata_json and updates
+    /// artifact fields (aos path/hash, base model, schema version, content hash).
+    pub async fn update_adapter_aos_metadata(&self, update: AosMetadataUpdate) -> Result<()> {
+        let adapter_id = update.adapter_id.trim();
+        let tenant_id = update.tenant_id.trim();
+        if adapter_id.is_empty() {
+            return Err(AosError::Validation("adapter_id is required".to_string()));
+        }
+        if tenant_id.is_empty() {
+            return Err(AosError::Validation("tenant_id is required".to_string()));
+        }
+
+        let adapter = self
+            .get_adapter_for_tenant(tenant_id, adapter_id)
+            .await?
+            .ok_or_else(|| AosError::NotFound(format!("Adapter not found: {}", adapter_id)))?;
+
+        let manifest_metadata = update
+            .manifest_metadata
+            .as_ref()
+            .filter(|meta| !meta.is_empty());
+        let merged_metadata_json = if let Some(manifest_metadata) = manifest_metadata {
+            let mut metadata_map = match adapter.metadata_json.as_deref() {
+                Some(raw) => match serde_json::from_str::<Value>(raw) {
+                    Ok(Value::Object(map)) => map,
+                    Ok(_) => {
+                        warn!(
+                            adapter_id = %adapter_id,
+                            "Existing metadata_json is not an object; replacing with manifest metadata"
+                        );
+                        serde_json::Map::new()
+                    }
+                    Err(err) => {
+                        warn!(
+                            adapter_id = %adapter_id,
+                            error = %err,
+                            "Failed to parse metadata_json; replacing with manifest metadata"
+                        );
+                        serde_json::Map::new()
+                    }
+                },
+                None => serde_json::Map::new(),
+            };
+
+            for (key, value) in manifest_metadata {
+                metadata_map.insert(key.clone(), Value::String(value.clone()));
+            }
+
+            Some(
+                serde_json::to_string(&Value::Object(metadata_map))
+                    .map_err(AosError::Serialization)?,
+            )
+        } else {
+            None
+        };
+
+        let aos_file_path = update
+            .aos_file_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| {
+                Path::new(value)
+                    .canonicalize()
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| value.to_string())
+            });
+        let aos_file_hash = update
+            .aos_file_hash
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_string());
+        let provenance_json = update
+            .provenance_json
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_string());
+        let base_model_id = update
+            .base_model_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_string());
+        let manifest_schema_version = update
+            .manifest_schema_version
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_string());
+        let content_hash_b3 = update
+            .content_hash_b3
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_string());
+
+        if self.storage_mode().write_to_sql() {
+            let result = sqlx::query(
+                "UPDATE adapters SET
+                    aos_file_path = COALESCE(?, aos_file_path),
+                    aos_file_hash = COALESCE(?, aos_file_hash),
+                    metadata_json = COALESCE(?, metadata_json),
+                    provenance_json = COALESCE(?, provenance_json),
+                    base_model_id = COALESCE(?, base_model_id),
+                    manifest_schema_version = COALESCE(?, manifest_schema_version),
+                    content_hash_b3 = COALESCE(?, content_hash_b3),
+                    updated_at = datetime('now')
+                 WHERE tenant_id = ? AND adapter_id = ?",
+            )
+            .bind(&aos_file_path)
+            .bind(&aos_file_hash)
+            .bind(&merged_metadata_json)
+            .bind(&provenance_json)
+            .bind(&base_model_id)
+            .bind(&manifest_schema_version)
+            .bind(&content_hash_b3)
+            .bind(tenant_id)
+            .bind(adapter_id)
+            .execute(self.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to update .aos metadata: {}", e)))?;
+
+            if result.rows_affected() == 0 {
+                return Err(AosError::NotFound(format!(
+                    "Adapter not found: {}",
+                    adapter_id
+                )));
+            }
+        } else if !self.storage_mode().write_to_kv() {
+            return Err(AosError::Database(
+                "No backend available for update_adapter_aos_metadata".to_string(),
+            ));
+        }
+
+        if let Some(repo) = self.get_adapter_kv_repo(tenant_id) {
+            if let Err(e) = repo
+                .update_adapter_aos_metadata_kv(
+                    adapter_id,
+                    aos_file_path.as_deref(),
+                    aos_file_hash.as_deref(),
+                    merged_metadata_json.as_deref(),
+                    provenance_json.as_deref(),
+                    base_model_id.as_deref(),
+                    manifest_schema_version.as_deref(),
+                    content_hash_b3.as_deref(),
+                )
+                .await
+            {
+                if self.dual_write_requires_strict() {
+                    error!(
+                        error = %e,
+                        adapter_id = %adapter_id,
+                        tenant_id = %tenant_id,
+                        mode = "dual-write-strict",
+                        "CONSISTENCY WARNING: SQL metadata update committed but KV write failed in strict mode. Use ensure_consistency() to repair."
+                    );
+                    return Err(AosError::Database(format!(
+                        "Metadata update succeeded in SQL but failed in KV (strict mode): {e}"
+                    )));
+                } else {
+                    warn!(
+                        error = %e,
+                        adapter_id = %adapter_id,
+                        tenant_id = %tenant_id,
+                        mode = "dual-write",
+                        "Failed to update adapter metadata in KV backend"
+                    );
+                }
+            } else {
+                debug!(
+                    adapter_id = %adapter_id,
+                    tenant_id = %tenant_id,
+                    mode = "dual-write",
+                    "Adapter metadata updated in both SQL and KV backends"
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Update adapter hash fields (content_hash_b3 and manifest_hash)
+    ///
+    /// Used by hash repair commands to populate missing hashes on legacy adapters.
+    /// Only updates fields if the provided value is Some and non-empty.
+    ///
+    /// # Arguments
+    /// * `tenant_id` - The tenant context (required for security isolation)
+    /// * `adapter_id` - The adapter's internal ID (not adapter_id field)
+    /// * `content_hash_b3` - Optional new content hash
+    /// * `manifest_hash` - Optional new manifest hash
+    pub async fn update_adapter_hashes(
+        &self,
+        tenant_id: &str,
+        adapter_id: &str,
+        content_hash_b3: Option<&str>,
+        manifest_hash: Option<&str>,
+    ) -> Result<()> {
+        // Only update non-empty values
+        let content_hash = content_hash_b3.filter(|h| !h.trim().is_empty());
+        let manifest = manifest_hash.filter(|h| !h.trim().is_empty());
+
+        if content_hash.is_none() && manifest.is_none() {
+            return Ok(()); // Nothing to update
+        }
+
+        let affected = sqlx::query(
+            "UPDATE adapters
+             SET content_hash_b3 = COALESCE(?, content_hash_b3),
+                 manifest_hash = COALESCE(?, manifest_hash),
+                 updated_at = datetime('now')
+             WHERE id = ?",
+        )
+        .bind(content_hash)
+        .bind(manifest)
+        .bind(adapter_id)
+        .execute(self.pool())
+        .await
+        .map_err(|e| AosError::database(format!("Failed to update adapter hashes: {}", e)))?
+        .rows_affected();
+
+        if affected == 0 {
+            return Err(AosError::NotFound(format!(
+                "Adapter not found: {}",
+                adapter_id
+            )));
+        }
+
+        info!(
+            adapter_id = %adapter_id,
+            content_hash = ?content_hash,
+            manifest_hash = ?manifest,
+            code = "ADAPTER_HASHES_UPDATED",
+            "Updated adapter hashes"
+        );
+
+        // KV dual-write (tenant_id already verified via parameter)
+        if let Some(verified_tenant) = self.get_adapter_tenant_id(adapter_id, tenant_id).await? {
+            if let Some(repo) = self.get_adapter_kv_repo(&verified_tenant) {
+                let mut patch = AdapterMetadataPatch::default();
+                if let Some(hash) = content_hash {
+                    patch.content_hash_b3 = Some(hash.to_string());
+                }
+                if let Some(hash) = manifest {
+                    patch.manifest_hash = Some(hash.to_string());
+                }
+
+                if patch.has_updates() {
+                    if let Err(e) = repo.update_adapter_metadata_kv(adapter_id, &patch).await {
+                        warn!(
+                            error = %e,
+                            adapter_id = %adapter_id,
+                            tenant_id = %verified_tenant,
+                            mode = "dual-write",
+                            "Failed to update adapter hashes in KV backend"
+                        );
+                    } else {
+                        debug!(
+                            adapter_id = %adapter_id,
+                            tenant_id = %tenant_id,
+                            mode = "dual-write",
+                            "Adapter hashes updated in both SQL and KV backends"
+                        );
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Update semantic adapter alias fields with lifecycle gating.
+    pub async fn update_adapter_alias(&self, adapter_id: &str, alias: Option<&str>) -> Result<()> {
+        self.update_adapter_alias_with_gate(adapter_id, alias, &AliasUpdateGateConfig::default())
+            .await
+    }
+
+    /// Update semantic adapter alias fields with custom gating configuration.
+    pub async fn update_adapter_alias_with_gate(
+        &self,
+        adapter_id: &str,
+        alias: Option<&str>,
+        gate: &AliasUpdateGateConfig,
+    ) -> Result<()> {
+        #[allow(deprecated)]
+        let adapter = self
+            .get_adapter(adapter_id)
+            .await?
+            .ok_or_else(|| AosError::NotFound(format!("Adapter not found: {}", adapter_id)))?;
+
+        self.update_adapter_alias_inner(adapter, adapter_id, alias, gate)
+            .await
+    }
+
+    /// Tenant-scoped alias update with lifecycle gating.
+    pub async fn update_adapter_alias_for_tenant(
+        &self,
+        tenant_id: &str,
+        adapter_id: &str,
+        alias: Option<&str>,
+    ) -> Result<()> {
+        self.update_adapter_alias_for_tenant_with_gate(
+            tenant_id,
+            adapter_id,
+            alias,
+            &AliasUpdateGateConfig::default(),
+        )
+        .await
+    }
+
+    /// Tenant-scoped alias update with custom gating configuration.
+    pub async fn update_adapter_alias_for_tenant_with_gate(
+        &self,
+        tenant_id: &str,
+        adapter_id: &str,
+        alias: Option<&str>,
+        gate: &AliasUpdateGateConfig,
+    ) -> Result<()> {
+        let adapter = self
+            .get_adapter_for_tenant(tenant_id, adapter_id)
+            .await?
+            .ok_or_else(|| AosError::NotFound(format!("Adapter not found: {}", adapter_id)))?;
+
+        self.update_adapter_alias_inner(adapter, adapter_id, alias, gate)
+            .await
+    }
+
+    async fn update_adapter_alias_inner(
+        &self,
+        adapter: Adapter,
+        adapter_id: &str,
+        alias: Option<&str>,
+        gate: &AliasUpdateGateConfig,
+    ) -> Result<()> {
+        let update = AdapterAliasUpdate::from_alias(alias)?;
+        if update.matches_adapter(&adapter) {
+            return Ok(());
+        }
+
+        let lifecycle_state = LifecycleState::from_str(&adapter.lifecycle_state).map_err(|_| {
+            AosError::Validation(format!(
+                "Invalid lifecycle state '{}' for adapter {}",
+                adapter.lifecycle_state, adapter_id
+            ))
+        })?;
+
+        if !lifecycle_state.is_mutable() {
+            match lifecycle_state {
+                LifecycleState::Ready => {
+                    if !gate.allow_ready {
+                        return Err(AosError::PolicyViolation(format!(
+                            "Alias update requires confirmation for adapter '{}' in ready state",
+                            adapter_id
+                        )));
+                    }
+                }
+                LifecycleState::Active | LifecycleState::Deprecated => {
+                    return Err(AosError::PolicyViolation(format!(
+                        "Alias update blocked for adapter '{}' in {} state",
+                        adapter_id,
+                        lifecycle_state.as_str()
+                    )));
+                }
+                LifecycleState::Retired | LifecycleState::Failed => {
+                    return Err(AosError::PolicyViolation(format!(
+                        "Alias update blocked for adapter '{}' in terminal {} state",
+                        adapter_id,
+                        lifecycle_state.as_str()
+                    )));
+                }
+                _ => {
+                    return Err(AosError::PolicyViolation(format!(
+                        "Alias update not allowed for adapter '{}' in {} state",
+                        adapter_id,
+                        lifecycle_state.as_str()
+                    )));
+                }
+            }
+        }
+
+        if self.storage_mode().write_to_sql() {
+            let result = sqlx::query(
+                "UPDATE adapters SET
+                    adapter_name = ?,
+                    tenant_namespace = ?,
+                    domain = ?,
+                    purpose = ?,
+                    revision = ?,
+                    updated_at = datetime('now')
+                 WHERE tenant_id = ? AND adapter_id = ?",
+            )
+            .bind(&update.adapter_name)
+            .bind(&update.tenant_namespace)
+            .bind(&update.domain)
+            .bind(&update.purpose)
+            .bind(&update.revision)
+            .bind(&adapter.tenant_id)
+            .bind(adapter_id)
+            .execute(self.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to update adapter alias: {}", e)))?;
+
+            if result.rows_affected() == 0 {
+                return Err(AosError::NotFound(format!(
+                    "Adapter not found: {}",
+                    adapter_id
+                )));
+            }
+        } else if !self.storage_mode().write_to_kv() {
+            return Err(AosError::Database(
+                "No backend available for update_adapter_alias".to_string(),
+            ));
+        }
+
+        if let Some(repo) = self.get_adapter_kv_repo(&adapter.tenant_id) {
+            if let Err(e) = repo.update_adapter_alias_kv(adapter_id, &update).await {
+                self.record_kv_write_fallback("adapters.update_alias");
+                if self.dual_write_requires_strict() {
+                    error!(
+                        error = %e,
+                        adapter_id = %adapter_id,
+                        tenant_id = %adapter.tenant_id,
+                        mode = "dual-write-strict",
+                        "CONSISTENCY WARNING: SQL alias update committed but KV write failed in strict mode. Use ensure_consistency() to repair."
+                    );
+                    return Err(AosError::Database(format!(
+                        "Alias update succeeded in SQL but failed in KV (strict mode): {e}"
+                    )));
+                } else {
+                    warn!(
+                        error = %e,
+                        adapter_id = %adapter_id,
+                        tenant_id = %adapter.tenant_id,
+                        mode = "dual-write",
+                        "Failed to update adapter alias in KV backend"
+                    );
+                }
+            } else {
+                debug!(
+                    adapter_id = %adapter_id,
+                    tenant_id = %adapter.tenant_id,
+                    mode = "dual-write",
+                    "Adapter alias updated in both SQL and KV backends"
+                );
+            }
+        }
+
+        Ok(())
+    }
+
     /// Register a new adapter
     ///
     /// Construct parameters using [`AdapterRegistrationBuilder`] to ensure required
@@ -1144,6 +2779,324 @@ impl Db {
     /// # Ok(())
     /// # }
     /// ```
+    async fn store_aos_metadata_if_present(
+        &self,
+        adapter_internal_id: &str,
+        params: &AdapterRegistrationParams,
+    ) -> Result<()> {
+        if !self.storage_mode().write_to_sql() {
+            return Ok(());
+        }
+
+        let (aos_path, aos_hash) = match (&params.aos_file_path, &params.aos_file_hash) {
+            (Some(path), Some(hash)) if !path.is_empty() && !hash.is_empty() => (path, hash),
+            _ => return Ok(()),
+        };
+
+        let mut aos_path = aos_path.clone();
+        if let Ok(canonical) = Path::new(&aos_path).canonicalize() {
+            aos_path = canonical.to_string_lossy().into_owned();
+        }
+
+        let manifest_info = match parse_aos_manifest_metadata(Path::new(&aos_path)) {
+            Ok(info) => Some(info),
+            Err(err) => {
+                warn!(
+                    error = %err,
+                    path = %aos_path,
+                    "Failed to parse .aos manifest metadata"
+                );
+                None
+            }
+        };
+
+        let manifest_schema_version = params.manifest_schema_version.clone().or_else(|| {
+            manifest_info
+                .as_ref()
+                .and_then(|info| info.manifest_schema_version.clone())
+        });
+        let base_model_id = params.base_model_id.clone().or_else(|| {
+            manifest_info
+                .as_ref()
+                .and_then(|info| info.base_model.clone())
+        });
+        let category = if params.category.trim().is_empty() {
+            manifest_info
+                .as_ref()
+                .and_then(|info| info.category.clone())
+        } else {
+            Some(params.category.clone())
+        };
+        let tier = if params.tier.trim().is_empty() {
+            manifest_info.as_ref().and_then(|info| info.tier.clone())
+        } else {
+            Some(params.tier.clone())
+        };
+
+        sqlx::query(
+            "UPDATE adapters
+             SET aos_file_path = ?,
+                 aos_file_hash = ?,
+                 manifest_schema_version = COALESCE(?, manifest_schema_version),
+                 base_model_id = COALESCE(?, base_model_id),
+                 metadata_json = COALESCE(?, metadata_json),
+                 content_hash_b3 = ?,
+                 manifest_hash = COALESCE(?, manifest_hash),
+                 updated_at = datetime('now')
+             WHERE id = ?",
+        )
+        .bind(&aos_path)
+        .bind(&aos_hash)
+        .bind(manifest_schema_version.as_deref())
+        .bind(base_model_id.as_deref())
+        .bind(&params.metadata_json)
+        .bind(&params.content_hash_b3)
+        .bind(&params.manifest_hash)
+        .bind(adapter_internal_id)
+        .execute(self.pool())
+        .await
+        .map_err(|e| AosError::database(format!("Failed to update adapter AOS fields: {}", e)))?;
+
+        let mut meta = StoreAdapterFileMetadataParams::new(
+            adapter_internal_id.to_string(),
+            aos_path.clone(),
+            aos_hash.clone(),
+        );
+
+        if let Ok(fs_meta) = std::fs::metadata(&aos_path) {
+            meta = meta.file_size_bytes(fs_meta.len() as i64);
+            if let Ok(modified) = fs_meta.modified() {
+                let modified: DateTime<Utc> = modified.into();
+                meta = meta.file_modified_at(modified.to_rfc3339());
+            }
+        }
+        match read_aos_segment_count(Path::new(&aos_path)) {
+            Ok(Some(count)) => {
+                meta = meta.segment_count(count);
+            }
+            Ok(None) => {}
+            Err(err) => {
+                warn!(
+                    error = %err,
+                    path = %aos_path,
+                    "Failed to read .aos segment count"
+                );
+            }
+        }
+
+        match read_single_file_adapter_metadata(Path::new(&aos_path)).await {
+            Ok(Some(metadata)) => {
+                if let Some(count) = metadata.training_data_count {
+                    meta = meta.training_data_count(count);
+                }
+                if let Some(version) = metadata.lineage_version {
+                    meta = meta.lineage_version(version);
+                }
+                if let Some(valid) = metadata.signature_valid {
+                    meta = meta.signature_valid(valid);
+                }
+            }
+            Ok(None) => {}
+            Err(err) => {
+                warn!(
+                    error = %err,
+                    path = %aos_path,
+                    "Failed to read single-file adapter metadata"
+                );
+            }
+        }
+
+        if let Some(ref info) = manifest_info {
+            if meta.training_data_count.is_none() {
+                if let Some(count) = info.training_data_count {
+                    meta = meta.training_data_count(count);
+                }
+            }
+        }
+
+        if let Some(ref version) = manifest_schema_version {
+            meta = meta.manifest_schema_version(version.clone());
+        }
+
+        if let Some(ref base_model) = base_model_id {
+            meta = meta.base_model(base_model.clone());
+        }
+
+        if let Some(ref category) = category {
+            meta = meta.category(category.clone());
+        }
+
+        if let Some(ref tier) = tier {
+            meta = meta.tier(tier.clone());
+        }
+
+        self.store_adapter_file_metadata(meta).await
+    }
+
+    async fn persist_adapter_metadata_from_params(
+        &self,
+        adapter_internal_id: &str,
+        params: &AdapterRegistrationParams,
+    ) -> Result<()> {
+        let patch = AdapterMetadataPatch::from_params(params);
+        if !patch.has_updates() {
+            return Ok(());
+        }
+
+        if self.storage_mode().write_to_sql() {
+            sqlx::query(
+                "UPDATE adapters SET
+                    aos_file_path = COALESCE(?, aos_file_path),
+                    aos_file_hash = COALESCE(?, aos_file_hash),
+                    base_model_id = COALESCE(?, base_model_id),
+                    manifest_schema_version = COALESCE(?, manifest_schema_version),
+                    content_hash_b3 = COALESCE(?, content_hash_b3),
+                    metadata_json = COALESCE(?, metadata_json),
+                    provenance_json = COALESCE(?, provenance_json),
+                    repo_path = COALESCE(?, repo_path),
+                    codebase_scope = COALESCE(?, codebase_scope),
+                    dataset_version_id = COALESCE(?, dataset_version_id),
+                    registration_timestamp = COALESCE(?, registration_timestamp),
+                    manifest_hash = COALESCE(?, manifest_hash),
+                    updated_at = datetime('now')
+                 WHERE id = ?",
+            )
+            .bind(&patch.aos_file_path)
+            .bind(&patch.aos_file_hash)
+            .bind(&patch.base_model_id)
+            .bind(&patch.manifest_schema_version)
+            .bind(&patch.content_hash_b3)
+            .bind(&patch.metadata_json)
+            .bind(&patch.provenance_json)
+            .bind(&patch.repo_path)
+            .bind(&patch.codebase_scope)
+            .bind(&patch.dataset_version_id)
+            .bind(&patch.registration_timestamp)
+            .bind(&patch.manifest_hash)
+            .bind(adapter_internal_id)
+            .execute(self.pool())
+            .await
+            .map_err(|e| {
+                AosError::database(format!("Failed to persist adapter metadata: {}", e))
+            })?;
+        }
+
+        if let Some(repo) = self.get_adapter_kv_repo(&params.tenant_id) {
+            if let Err(e) = repo
+                .update_adapter_metadata_kv(&params.adapter_id, &patch)
+                .await
+            {
+                self.record_kv_write_fallback("adapters.persist_metadata");
+                warn!(
+                    error = %e,
+                    adapter_id = %params.adapter_id,
+                    "KV metadata update failed"
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn update_adapter_aos_fields_if_missing(
+        &self,
+        adapter_internal_id: &str,
+        existing: &Adapter,
+        params: &AdapterRegistrationParams,
+    ) -> Result<()> {
+        if !self.storage_mode().write_to_sql() {
+            return Ok(());
+        }
+
+        let mut new_path = params
+            .aos_file_path
+            .as_ref()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_string());
+        if let Some(ref mut path) = new_path {
+            if let Ok(canonical) = Path::new(path).canonicalize() {
+                *path = canonical.to_string_lossy().into_owned();
+            }
+        }
+
+        let new_hash = params
+            .aos_file_hash
+            .as_ref()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_string());
+
+        let missing_path = existing
+            .aos_file_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_none();
+        let missing_hash = existing
+            .aos_file_hash
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_none();
+
+        let should_update_path = missing_path && new_path.is_some();
+        let should_update_hash = missing_hash && new_hash.is_some();
+        if !should_update_path && !should_update_hash {
+            return Ok(());
+        }
+
+        sqlx::query(
+            "UPDATE adapters
+             SET aos_file_path = CASE WHEN aos_file_path IS NULL OR aos_file_path = '' THEN ? ELSE aos_file_path END,
+                 aos_file_hash = CASE WHEN aos_file_hash IS NULL OR aos_file_hash = '' THEN ? ELSE aos_file_hash END,
+                 updated_at = datetime('now')
+             WHERE id = ?",
+        )
+        .bind(new_path.as_deref())
+        .bind(new_hash.as_deref())
+        .bind(adapter_internal_id)
+        .execute(self.pool())
+        .await
+        .map_err(|e| {
+            AosError::database(format!(
+                "Failed to update adapter .aos fields: {}",
+                e
+            ))
+        })?;
+
+        Ok(())
+    }
+
+    async fn record_adapter_session_membership(
+        &self,
+        adapter_id: &str,
+        tenant_id: &str,
+        metadata_json: Option<&str>,
+    ) -> Result<()> {
+        let Some(context) = parse_session_context(metadata_json) else {
+            return Ok(());
+        };
+
+        self.ensure_dataset_collection_session(
+            &context.session_id,
+            context.session_name.as_deref(),
+            context.session_tags.as_deref(),
+            Some(tenant_id),
+        )
+        .await?;
+
+        self.link_adapter_to_collection_session(
+            &context.session_id,
+            adapter_id,
+            Some("registered"),
+            None,
+        )
+        .await?;
+
+        Ok(())
+    }
+
     pub async fn register_adapter(&self, params: AdapterRegistrationParams) -> Result<String> {
         self.register_adapter_extended(params).await
     }
@@ -1173,11 +3126,290 @@ impl Db {
     /// ```
     pub async fn register_adapter_extended(
         &self,
-        params: AdapterRegistrationParams,
+        mut params: AdapterRegistrationParams,
     ) -> Result<String> {
+        if self.get_tenant(&params.tenant_id).await?.is_none() {
+            return Err(AosError::validation(format!(
+                "Tenant '{}' does not exist",
+                params.tenant_id
+            )));
+        }
+
+        let is_codebase_adapter = params
+            .codebase_scope
+            .as_ref()
+            .map(|v| !v.trim().is_empty())
+            .unwrap_or(false)
+            || params
+                .repo_id
+                .as_ref()
+                .map(|v| !v.trim().is_empty())
+                .unwrap_or(false)
+            || params
+                .repo_path
+                .as_ref()
+                .map(|v| !v.trim().is_empty())
+                .unwrap_or(false);
+        if is_codebase_adapter && params.tenant_id != "system" {
+            return Err(AosError::validation(
+                "Codebase adapters must be registered under the system tenant".to_string(),
+            ));
+        }
+
+        let hash_missing = params
+            .aos_file_hash
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .is_none();
+        if hash_missing {
+            if let Some(ref path) = params.aos_file_path {
+                let computed = compute_aos_file_hash(Path::new(path))?;
+                params.aos_file_hash = Some(computed);
+            }
+        }
+
+        if let Some(aos_path) = params.aos_file_path.clone() {
+            match read_aos_manifest_bytes(Path::new(&aos_path)) {
+                Ok(Some(manifest_bytes)) => {
+                    let manifest_hash = blake3::hash(&manifest_bytes).to_hex().to_string();
+                    if params
+                        .manifest_hash
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .is_none()
+                    {
+                        params.manifest_hash = Some(manifest_hash);
+                    }
+
+                    match serde_json::from_slice::<Value>(&manifest_bytes) {
+                        Ok(manifest) => {
+                            let manifest_schema_version = manifest
+                                .get("schema_version")
+                                .and_then(value_to_trimmed_string)
+                                .or_else(|| {
+                                    manifest
+                                        .get("manifest_schema_version")
+                                        .and_then(value_to_trimmed_string)
+                                })
+                                .or_else(|| {
+                                    manifest.get("version").and_then(value_to_trimmed_string)
+                                });
+
+                            if params
+                                .manifest_schema_version
+                                .as_deref()
+                                .map(str::trim)
+                                .filter(|value| !value.is_empty())
+                                .is_none()
+                            {
+                                if let Some(version) = manifest_schema_version {
+                                    params.manifest_schema_version = Some(version);
+                                }
+                            }
+
+                            let manifest_category =
+                                manifest.get("category").and_then(value_to_trimmed_string);
+                            if let Some(category) = manifest_category {
+                                let current = params.category.trim();
+                                if current.is_empty() || current == "code" {
+                                    params.category = category;
+                                }
+                            }
+
+                            let manifest_tier =
+                                manifest.get("tier").and_then(value_to_trimmed_string);
+                            if let Some(tier) = manifest_tier {
+                                let current = params.tier.trim();
+                                if current.is_empty() || current == "warm" {
+                                    params.tier = tier;
+                                }
+                            }
+
+                            if params
+                                .metadata_json
+                                .as_deref()
+                                .map(str::trim)
+                                .filter(|value| !value.is_empty())
+                                .is_none()
+                            {
+                                if let Some(metadata_obj) =
+                                    manifest.get("metadata").and_then(|v| v.as_object())
+                                {
+                                    if let Ok(json) = serde_json::to_string(metadata_obj) {
+                                        params.metadata_json = Some(json);
+                                    }
+                                }
+                            }
+
+                            if params
+                                .base_model_id
+                                .as_deref()
+                                .map(str::trim)
+                                .filter(|value| !value.is_empty())
+                                .is_none()
+                            {
+                                if let Some(model_id) = manifest
+                                    .get("base_model_id")
+                                    .and_then(value_to_trimmed_string)
+                                {
+                                    params.base_model_id = Some(model_id);
+                                } else if let Some(model_name) =
+                                    manifest.get("base_model").and_then(value_to_trimmed_string)
+                                {
+                                    let tenant_id = params.tenant_id.clone();
+                                    match self
+                                        .get_model_by_name_for_tenant(&tenant_id, &model_name)
+                                        .await
+                                    {
+                                        Ok(Some(model)) => {
+                                            params.base_model_id = Some(model.id);
+                                        }
+                                        Ok(None) => {
+                                            warn!(
+                                                base_model = %model_name,
+                                                tenant_id = %tenant_id,
+                                                "Manifest base model not found for tenant"
+                                            );
+                                        }
+                                        Err(err) => {
+                                            warn!(
+                                                base_model = %model_name,
+                                                tenant_id = %tenant_id,
+                                                error = %err,
+                                                "Failed to resolve manifest base model"
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Err(err) => {
+                            warn!(
+                                path = %aos_path,
+                                error = %err,
+                                "Failed to parse .aos manifest JSON"
+                            );
+                        }
+                    }
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    warn!(
+                        path = %aos_path,
+                        error = %err,
+                        "Failed to read .aos manifest bytes"
+                    );
+                }
+            }
+        }
+
+        let normalized_hash_b3 = params
+            .hash_b3
+            .trim()
+            .trim_start_matches("b3:")
+            .to_ascii_lowercase();
+        let normalized_content_hash = params
+            .content_hash_b3
+            .trim()
+            .trim_start_matches("b3:")
+            .to_ascii_lowercase();
+        let content_hash_needs_compute =
+            normalized_content_hash.is_empty() || normalized_content_hash == normalized_hash_b3;
+        let manifest_hash_missing = params
+            .manifest_hash
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_none();
+
+        if (content_hash_needs_compute || manifest_hash_missing) && params.aos_file_path.is_some() {
+            if let Some(aos_path) = params.aos_file_path.clone() {
+                match std::fs::read(&aos_path) {
+                    Ok(bytes) => match open_aos(&bytes) {
+                        Ok(view) => {
+                            if manifest_hash_missing {
+                                params.manifest_hash =
+                                    Some(B3Hash::hash(view.manifest_bytes).to_hex());
+                            }
+
+                            let scope_path = serde_json::from_slice::<Value>(view.manifest_bytes)
+                                .ok()
+                                .and_then(|manifest| manifest.get("metadata").cloned())
+                                .and_then(|meta| meta.get("scope_path").cloned())
+                                .and_then(|val| val.as_str().map(|s| s.to_string()));
+
+                            let canonical_segment = scope_path
+                                .as_deref()
+                                .map(compute_scope_hash)
+                                .and_then(|scope_hash| {
+                                    view.segments.iter().find(|seg| {
+                                        seg.backend_tag == BackendTag::Canonical
+                                            && seg.scope_hash == scope_hash
+                                    })
+                                })
+                                .or_else(|| {
+                                    view.segments
+                                        .iter()
+                                        .find(|seg| seg.backend_tag == BackendTag::Canonical)
+                                })
+                                .or_else(|| view.segments.first());
+
+                            if let Some(segment) = canonical_segment {
+                                if content_hash_needs_compute {
+                                    params.content_hash_b3 =
+                                        B3Hash::hash_multi(&[view.manifest_bytes, segment.payload])
+                                            .to_hex();
+                                }
+
+                                let actual_weights_hash = B3Hash::hash(segment.payload).to_hex();
+                                if !normalized_hash_b3.is_empty()
+                                    && actual_weights_hash != normalized_hash_b3
+                                {
+                                    warn!(
+                                        path = %aos_path,
+                                        expected = %normalized_hash_b3,
+                                        actual = %actual_weights_hash,
+                                        "Weights hash does not match canonical segment"
+                                    );
+                                }
+                            } else if content_hash_needs_compute {
+                                warn!(
+                                    path = %aos_path,
+                                    "No segments found in .aos bundle; content hash not computed"
+                                );
+                            }
+                        }
+                        Err(err) => {
+                            warn!(
+                                path = %aos_path,
+                                error = %err,
+                                "Failed to parse .aos file for content hash"
+                            );
+                        }
+                    },
+                    Err(err) => {
+                        warn!(
+                            path = %aos_path,
+                            error = %err,
+                            "Failed to read .aos file for content hash"
+                        );
+                    }
+                }
+            }
+        }
+
+        if params.content_hash_b3.trim().is_empty() {
+            params.content_hash_b3 = params.hash_b3.clone();
+        }
+
         // Idempotency check: if adapter with same adapter_id exists, verify hash matches
         // This prevents duplicate registrations while allowing safe retries
-        if let Some(existing) = self.get_adapter(&params.adapter_id).await? {
+        if let Some(existing) = self
+            .get_adapter_for_tenant(&params.tenant_id, &params.adapter_id)
+            .await?
+        {
             if existing.hash_b3 == params.hash_b3 {
                 // Exact match - return existing ID (idempotent)
                 tracing::info!(
@@ -1186,6 +3418,58 @@ impl Db {
                     existing_id = %existing.id,
                     "Adapter already registered with identical hash - returning existing ID"
                 );
+                let membership_adapter_id = existing
+                    .adapter_id
+                    .as_deref()
+                    .unwrap_or(params.adapter_id.as_str());
+                if let Err(e) = self
+                    .record_adapter_session_membership(
+                        membership_adapter_id,
+                        &params.tenant_id,
+                        params.metadata_json.as_deref(),
+                    )
+                    .await
+                {
+                    warn!(
+                        error = %e,
+                        adapter_id = %membership_adapter_id,
+                        tenant_id = %params.tenant_id,
+                        "Failed to record adapter session membership"
+                    );
+                }
+                if let Err(e) = self
+                    .store_aos_metadata_if_present(&existing.id, &params)
+                    .await
+                {
+                    warn!(
+                        error = %e,
+                        adapter_id = %params.adapter_id,
+                        internal_id = %existing.id,
+                        "Failed to store .aos metadata for existing adapter"
+                    );
+                }
+                if let Err(e) = self
+                    .persist_adapter_metadata_from_params(&existing.id, &params)
+                    .await
+                {
+                    warn!(
+                        error = %e,
+                        adapter_id = %params.adapter_id,
+                        internal_id = %existing.id,
+                        "Failed to persist metadata for existing adapter"
+                    );
+                }
+                if let Err(e) = self
+                    .update_adapter_aos_fields_if_missing(&existing.id, &existing, &params)
+                    .await
+                {
+                    warn!(
+                        error = %e,
+                        adapter_id = %params.adapter_id,
+                        internal_id = %existing.id,
+                        "Failed to update .aos fields for existing adapter"
+                    );
+                }
                 return Ok(existing.id);
             } else {
                 // Hash mismatch - conflict error
@@ -1209,6 +3493,58 @@ impl Db {
                 existing_adapter_id = %existing.adapter_id.as_deref().unwrap_or("N/A"),
                 "Adapter with identical content_hash_b3 already exists - returning existing ID"
             );
+            let membership_adapter_id = existing
+                .adapter_id
+                .as_deref()
+                .unwrap_or(params.adapter_id.as_str());
+            if let Err(e) = self
+                .record_adapter_session_membership(
+                    membership_adapter_id,
+                    &params.tenant_id,
+                    params.metadata_json.as_deref(),
+                )
+                .await
+            {
+                warn!(
+                    error = %e,
+                    adapter_id = %membership_adapter_id,
+                    tenant_id = %params.tenant_id,
+                    "Failed to record adapter session membership for duplicate content hash"
+                );
+            }
+            if let Err(e) = self
+                .store_aos_metadata_if_present(&existing.id, &params)
+                .await
+            {
+                warn!(
+                    error = %e,
+                    adapter_id = %params.adapter_id,
+                    internal_id = %existing.id,
+                    "Failed to store .aos metadata for duplicate content hash"
+                );
+            }
+            if let Err(e) = self
+                .persist_adapter_metadata_from_params(&existing.id, &params)
+                .await
+            {
+                warn!(
+                    error = %e,
+                    adapter_id = %params.adapter_id,
+                    internal_id = %existing.id,
+                    "Failed to persist metadata for duplicate content hash"
+                );
+            }
+            if let Err(e) = self
+                .update_adapter_aos_fields_if_missing(&existing.id, &existing, &params)
+                .await
+            {
+                warn!(
+                    error = %e,
+                    adapter_id = %params.adapter_id,
+                    internal_id = %existing.id,
+                    "Failed to update .aos fields for duplicate content hash"
+                );
+            }
             return Ok(existing.id);
         }
 
@@ -1226,8 +3562,8 @@ impl Db {
         if self.storage_mode().write_to_sql() {
             if let Some(pool) = self.pool_opt() {
                 sqlx::query(
-                    "INSERT INTO adapters (id, tenant_id, adapter_id, name, hash_b3, rank, alpha, lora_strength, tier, targets_json, acl_json, languages_json, framework, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, expires_at, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, aos_file_path, aos_file_hash, base_model_id, recommended_for_moe, manifest_schema_version, content_hash_b3, metadata_json, provenance_json, repo_path, version, lifecycle_state, current_state, pinned, memory_bytes, activation_count, load_state, active)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, '1.0.0', 'draft', 'unloaded', 0, 0, 0, 'cold', 1)"
+                    "INSERT INTO adapters (id, tenant_id, adapter_id, name, hash_b3, rank, alpha, lora_strength, tier, targets_json, acl_json, languages_json, framework, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, expires_at, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, aos_file_path, aos_file_hash, base_model_id, recommended_for_moe, manifest_schema_version, content_hash_b3, metadata_json, provenance_json, repo_path, codebase_scope, dataset_version_id, registration_timestamp, manifest_hash, version, lifecycle_state, current_state, pinned, memory_bytes, activation_count, load_state, active)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, '1.0.0', 'draft', 'unloaded', 0, 0, 0, 'cold', 1)"
                 )
                 .bind(&id)
                 .bind(&params.tenant_id)
@@ -1267,6 +3603,10 @@ impl Db {
                 .bind(&params.metadata_json)
                 .bind(&params.provenance_json)
                 .bind(&params.repo_path)
+                .bind(&params.codebase_scope)
+                .bind(&params.dataset_version_id)
+                .bind(&params.registration_timestamp)
+                .bind(&params.manifest_hash)
                 .execute(pool)
                 .await
                 .map_err(|e| AosError::database(e.to_string()))?;
@@ -1294,12 +3634,20 @@ impl Db {
                     if sql_inserted {
                         match self.pool_opt() {
                             Some(pool) => {
-                                if let Err(rollback_err) =
+                                // Use a transaction for the rollback to ensure atomicity
+                                // and avoid partial state on concurrent access
+                                let rollback_result = async {
+                                    let mut tx = sqlx::Acquire::begin(pool).await?;
                                     sqlx::query("DELETE FROM adapters WHERE id = ?")
                                         .bind(&id)
-                                        .execute(pool)
-                                        .await
-                                {
+                                        .execute(&mut *tx)
+                                        .await?;
+                                    tx.commit().await?;
+                                    Ok::<_, sqlx::Error>(())
+                                }
+                                .await;
+
+                                if let Err(rollback_err) = rollback_result {
                                     error!(
                                         original_error = %e,
                                         rollback_error = %rollback_err,
@@ -1346,6 +3694,31 @@ impl Db {
             if let Some(start) = dual_write_timer {
                 global_kv_metrics().record_dual_write_lag(start.elapsed());
             }
+        }
+
+        if let Err(e) = self.store_aos_metadata_if_present(&id, &params).await {
+            warn!(
+                error = %e,
+                adapter_id = %params.adapter_id,
+                internal_id = %id,
+                "Failed to store .aos metadata for new adapter"
+            );
+        }
+
+        if let Err(e) = self
+            .record_adapter_session_membership(
+                &params.adapter_id,
+                &params.tenant_id,
+                params.metadata_json.as_deref(),
+            )
+            .await
+        {
+            warn!(
+                error = %e,
+                adapter_id = %params.adapter_id,
+                tenant_id = %params.tenant_id,
+                "Failed to record adapter session membership for new adapter"
+            );
         }
 
         Ok(id)
@@ -1668,14 +4041,17 @@ impl Db {
         }
 
         // Not pinned - safe to delete
+        let sql_start = std::time::Instant::now();
         sqlx::query("DELETE FROM adapters WHERE id = ?")
             .bind(id)
             .execute(self.pool())
             .await
             .map_err(|e| AosError::database(e.to_string()))?;
+        let sql_latency = sql_start.elapsed();
 
         // KV write (dual-write mode)
         if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
+            let kv_start = std::time::Instant::now();
             if let Err(e) = repo.delete_adapter_kv(&adapter_id).await {
                 if self.dual_write_requires_strict() {
                     error!(
@@ -1692,8 +4068,52 @@ impl Db {
                     warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to delete adapter from KV backend");
                 }
             } else {
-                debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Adapter deleted from both SQL and KV backends");
+                let kv_latency = kv_start.elapsed();
+                // Record dual-write latency lag (KV latency vs SQL latency)
+                let lag = if kv_latency > sql_latency {
+                    kv_latency.saturating_sub(sql_latency)
+                } else {
+                    std::time::Duration::ZERO
+                };
+                global_kv_metrics().record_dual_write_lag(lag);
+                debug!(
+                    adapter_id = %adapter_id,
+                    tenant_id = %tenant_id,
+                    mode = "dual-write",
+                    sql_latency_ms = sql_latency.as_millis() as u64,
+                    kv_latency_ms = kv_latency.as_millis() as u64,
+                    lag_ms = lag.as_millis() as u64,
+                    "Adapter deleted from both SQL and KV backends"
+                );
             }
+        }
+
+        // Audit log for adapter deletion
+        let metadata = serde_json::json!({
+            "adapter_id": adapter_id,
+            "deletion_mode": "simple",
+            "id": id
+        });
+        if let Err(e) = self
+            .log_audit(
+                "system",
+                "system",
+                &tenant_id,
+                "adapter.delete_db",
+                "adapter",
+                Some(&adapter_id),
+                "success",
+                None,
+                None,
+                Some(&metadata.to_string()),
+            )
+            .await
+        {
+            warn!(
+                adapter_id = %adapter_id,
+                error = %e,
+                "Failed to log adapter deletion audit (non-fatal)"
+            );
         }
 
         Ok(())
@@ -1762,6 +4182,7 @@ impl Db {
         info!(id = %id, adapter_id = %adapter_id, "Deleting adapter with cascade");
 
         // Delete the adapter itself
+        let sql_start = std::time::Instant::now();
         sqlx::query("DELETE FROM adapters WHERE id = ?")
             .bind(id)
             .execute(&mut *tx)
@@ -1771,9 +4192,11 @@ impl Db {
         tx.commit()
             .await
             .map_err(|e| AosError::database(e.to_string()))?;
+        let sql_latency = sql_start.elapsed();
 
         // KV write (dual-write mode) - after transaction commit
         if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
+            let kv_start = std::time::Instant::now();
             if let Err(e) = repo.delete_adapter_kv(&adapter_id).await {
                 if self.dual_write_requires_strict() {
                     error!(
@@ -1790,8 +4213,52 @@ impl Db {
                     warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to cascade delete adapter from KV backend");
                 }
             } else {
-                debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Adapter cascade deleted from both SQL and KV backends");
+                let kv_latency = kv_start.elapsed();
+                // Record dual-write latency lag (KV latency vs SQL latency)
+                let lag = if kv_latency > sql_latency {
+                    kv_latency.saturating_sub(sql_latency)
+                } else {
+                    std::time::Duration::ZERO
+                };
+                global_kv_metrics().record_dual_write_lag(lag);
+                debug!(
+                    adapter_id = %adapter_id,
+                    tenant_id = %tenant_id,
+                    mode = "dual-write",
+                    sql_latency_ms = sql_latency.as_millis() as u64,
+                    kv_latency_ms = kv_latency.as_millis() as u64,
+                    lag_ms = lag.as_millis() as u64,
+                    "Adapter cascade deleted from both SQL and KV backends"
+                );
             }
+        }
+
+        // Audit log for cascade adapter deletion
+        let metadata = serde_json::json!({
+            "adapter_id": adapter_id,
+            "deletion_mode": "cascade",
+            "id": id
+        });
+        if let Err(e) = self
+            .log_audit(
+                "system",
+                "system",
+                &tenant_id,
+                "adapter.delete_db",
+                "adapter",
+                Some(&adapter_id),
+                "success",
+                None,
+                None,
+                Some(&metadata.to_string()),
+            )
+            .await
+        {
+            warn!(
+                adapter_id = %adapter_id,
+                error = %e,
+                "Failed to log cascade adapter deletion audit (non-fatal)"
+            );
         }
 
         Ok(())
@@ -1817,8 +4284,17 @@ impl Db {
         deny_unscoped_adapter_query("get_adapter")?;
         // Try KV first if enabled
         if self.storage_mode().read_from_kv() {
-            // First try to get tenant_id from SQL for tenant-scoped KV lookup
-            if let Some(tenant_id) = self.get_adapter_tenant_id(adapter_id).await? {
+            // SECURITY NOTE: This deprecated function uses direct tenant lookup for KV routing.
+            // This is acceptable since the entire function is deprecated and for admin-only use.
+            // Use a direct query to get tenant_id for KV lookup (admin path only).
+            let tenant_result: Option<String> =
+                sqlx::query_scalar("SELECT tenant_id FROM adapters WHERE adapter_id = ?")
+                    .bind(adapter_id)
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| AosError::database(e.to_string()))?;
+
+            if let Some(tenant_id) = tenant_result {
                 if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
                     match repo.get_adapter_kv(adapter_id).await {
                         Ok(Some(adapter)) => {
@@ -1947,63 +4423,40 @@ impl Db {
 
     /// Find adapter by BLAKE3 hash for deduplication
     ///
-    /// Returns an existing active adapter with the same hash_b3.
+    /// Returns an existing active adapter with the same hash_b3 within the specified tenant.
     ///
-    /// # Security Warning
-    /// This method performs a cross-tenant lookup and should be used with caution.
-    /// For tenant-scoped operations, use `find_adapter_by_hash_for_tenant`.
+    /// # Security
+    /// This method REQUIRES a tenant context to prevent cross-tenant hash discovery attacks.
+    /// An attacker could otherwise probe for adapter existence across tenants by testing hashes.
     ///
-    /// # Two-Phase Lookup
-    /// If `tenant_hint` is provided, this method checks the tenant's scope first
-    /// before falling back to a global search (if permitted).
+    /// # Arguments
+    /// * `hash_b3` - The BLAKE3 hash to search for
+    /// * `tenant_hint` - REQUIRED tenant context for security isolation
+    ///
+    /// # Errors
+    /// Returns an error if `tenant_hint` is None (security isolation requirement).
     pub async fn find_adapter_by_hash(
         &self,
         hash_b3: &str,
         tenant_hint: Option<&str>,
     ) -> Result<Option<Adapter>> {
-        // Phase 1: Tenant-scoped lookup (if hint provided) - Primary Path
-        if let Some(tenant_id) = tenant_hint {
-            if let Ok(Some(adapter)) = self
-                .find_adapter_by_hash_for_tenant(tenant_id, hash_b3)
-                .await
-            {
-                debug!(hash = %hash_b3, tenant_id = %tenant_id, "Found adapter in tenant scope");
-                return Ok(Some(adapter));
+        // SECURITY: Require tenant context to prevent cross-tenant hash discovery
+        let tenant_id = match tenant_hint {
+            Some(tid) => tid,
+            None => {
+                error!(
+                    hash = %hash_b3,
+                    "Hash lookup attempted without tenant context - rejecting for security isolation"
+                );
+                return Err(AosError::validation(
+                    "Hash lookup requires tenant context (security isolation)".to_string(),
+                ));
             }
-        }
+        };
 
-        // Try KV first if enabled
-        if self.storage_mode().read_from_kv() {
-            // Note: We need to check across all tenants for hash lookup, so we'll try SQL
-            // or we'd need to iterate through tenants. For now, fall through to SQL.
-            // TODO: Add multi-tenant hash index to KV backend
-            if self.storage_mode().sql_fallback_enabled() {
-                debug!(hash_b3 = %hash_b3, mode = "sql-required", "Hash lookup requires cross-tenant search, using SQL");
-            }
-        }
-
-        // Phase 2: Global lookup (SQL fallback)
-        // Note: This reveals existence of the hash across tenants
-        // Optimization: Limit to active adapters
-        let query = format!(
-            "SELECT {} FROM adapters WHERE hash_b3 = ? AND active = 1 LIMIT 1",
-            ADAPTER_SELECT_FIELDS
-        );
-        let adapter = sqlx::query_as::<_, Adapter>(&query)
-            .bind(hash_b3)
-            .fetch_optional(self.pool())
+        // Delegate to tenant-scoped lookup which enforces proper isolation
+        self.find_adapter_by_hash_for_tenant(tenant_id, hash_b3)
             .await
-            .map_err(|e| AosError::database(format!("Failed to find adapter by hash: {}", e)))?;
-
-        if let Some(ref a) = adapter {
-            warn!(
-                hash = %hash_b3,
-                found_tenant = %a.tenant_id,
-                "Cross-tenant hash lookup succeeded (legacy/admin path)"
-            );
-        }
-
-        Ok(adapter)
     }
 
     /// Find adapter by hash within a specific tenant (secure version)
@@ -2086,12 +4539,44 @@ impl Db {
         &self,
         content_hash_b3: &str,
     ) -> Result<Option<Adapter>> {
-        // Try KV first if enabled
+        // Try KV first if enabled (global lookup - no tenant scoping)
         if self.storage_mode().read_from_kv() {
-            // TODO: Add content hash index to KV backend for efficient lookup
-            // For now, fall through to SQL since content hash is a global dedup key
-            if self.storage_mode().sql_fallback_enabled() {
-                debug!(content_hash_b3 = %content_hash_b3, mode = "sql-required", "Content hash lookup requires SQL");
+            if let Some(kv) = self.kv_backend() {
+                let repo = AdapterRepository::new(kv.backend().clone(), kv.index_manager().clone());
+                match repo.find_by_content_hash(content_hash_b3).await {
+                    Ok(Some(adapter_kv)) => {
+                        let adapter: Adapter = adapter_kv.into();
+                        // Filter for active adapters only (matching SQL behavior)
+                        if adapter.active == 1 {
+                            debug!(content_hash_b3 = %content_hash_b3, mode = "kv-primary", "Found adapter by content hash in KV");
+                            return Ok(Some(adapter));
+                        }
+                        // Adapter exists but not active, fall through to SQL if enabled
+                        if !self.storage_mode().sql_fallback_enabled() {
+                            return Ok(None);
+                        }
+                    }
+                    Ok(None) => {
+                        // Not found in KV, fall through to SQL if enabled
+                        if !self.storage_mode().sql_fallback_enabled() {
+                            return Ok(None);
+                        }
+                    }
+                    Err(e) => {
+                        if self.storage_mode().sql_fallback_enabled() {
+                            debug!(
+                                content_hash_b3 = %content_hash_b3,
+                                error = %e,
+                                "KV lookup failed, falling back to SQL"
+                            );
+                        } else {
+                            return Err(AosError::Database(format!(
+                                "Failed to find adapter by content hash: {}",
+                                e
+                            )));
+                        }
+                    }
+                }
             }
         }
 
@@ -2839,28 +5324,39 @@ impl Db {
     /// - Descendants (children, grandchildren, etc.)
     ///
     /// Uses recursive CTEs to traverse parent_id relationships.
-    pub async fn get_adapter_lineage(&self, adapter_id: &str) -> Result<Vec<Adapter>> {
+    ///
+    /// # Arguments
+    /// * `tenant_id` - The tenant context (required for security isolation)
+    /// * `adapter_id` - The adapter's external ID
+    pub async fn get_adapter_lineage(
+        &self,
+        tenant_id: &str,
+        adapter_id: &str,
+    ) -> Result<Vec<Adapter>> {
         // Try KV first if enabled
-        if self.storage_mode().read_from_kv() {
-            if let Some(tenant_id) = self.get_adapter_tenant_id(adapter_id).await? {
-                if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
-                    match repo.get_adapter_lineage_kv(adapter_id).await {
-                        Ok(adapters) if !adapters.is_empty() => {
-                            debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, count = adapters.len(), mode = "kv-primary", "Retrieved lineage from KV");
-                            return Ok(adapters);
-                        }
-                        Ok(_) if self.storage_mode().sql_fallback_enabled() => {
-                            debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "kv-fallback", "KV returned empty lineage, falling back to SQL");
-                        }
-                        Ok(adapters) => {
-                            return Ok(adapters);
-                        }
-                        Err(e) if self.storage_mode().sql_fallback_enabled() => {
-                            warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "kv-fallback", "KV lineage read failed, falling back to SQL");
-                        }
-                        Err(e) => {
-                            return Err(e);
-                        }
+        if self.storage_mode().read_from_kv()
+            && self
+                .get_adapter_tenant_id(adapter_id, tenant_id)
+                .await?
+                .is_some()
+        {
+            if let Some(repo) = self.get_adapter_kv_repo(tenant_id) {
+                match repo.get_adapter_lineage_kv(adapter_id).await {
+                    Ok(adapters) if !adapters.is_empty() => {
+                        debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, count = adapters.len(), mode = "kv-primary", "Retrieved lineage from KV");
+                        return Ok(adapters);
+                    }
+                    Ok(_) if self.storage_mode().sql_fallback_enabled() => {
+                        debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "kv-fallback", "KV returned empty lineage, falling back to SQL");
+                    }
+                    Ok(adapters) => {
+                        return Ok(adapters);
+                    }
+                    Err(e) if self.storage_mode().sql_fallback_enabled() => {
+                        warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "kv-fallback", "KV lineage read failed, falling back to SQL");
+                    }
+                    Err(e) => {
+                        return Err(e);
                     }
                 }
             }
@@ -2916,28 +5412,39 @@ impl Db {
     /// Get direct children of an adapter
     ///
     /// Returns all adapters that have this adapter as their parent_id.
-    pub async fn get_adapter_children(&self, adapter_id: &str) -> Result<Vec<Adapter>> {
+    ///
+    /// # Arguments
+    /// * `tenant_id` - The tenant context (required for security isolation)
+    /// * `adapter_id` - The adapter's external ID
+    pub async fn get_adapter_children(
+        &self,
+        tenant_id: &str,
+        adapter_id: &str,
+    ) -> Result<Vec<Adapter>> {
         // Try KV first if enabled
-        if self.storage_mode().read_from_kv() {
-            if let Some(tenant_id) = self.get_adapter_tenant_id(adapter_id).await? {
-                if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
-                    match repo.get_adapter_children_kv(adapter_id).await {
-                        Ok(adapters) if !adapters.is_empty() => {
-                            debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, count = adapters.len(), mode = "kv-primary", "Retrieved children from KV");
-                            return Ok(adapters);
-                        }
-                        Ok(_) if self.storage_mode().sql_fallback_enabled() => {
-                            debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "kv-fallback", "KV returned empty children list, falling back to SQL");
-                        }
-                        Ok(adapters) => {
-                            return Ok(adapters);
-                        }
-                        Err(e) if self.storage_mode().sql_fallback_enabled() => {
-                            warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "kv-fallback", "KV children read failed, falling back to SQL");
-                        }
-                        Err(e) => {
-                            return Err(e);
-                        }
+        if self.storage_mode().read_from_kv()
+            && self
+                .get_adapter_tenant_id(adapter_id, tenant_id)
+                .await?
+                .is_some()
+        {
+            if let Some(repo) = self.get_adapter_kv_repo(tenant_id) {
+                match repo.get_adapter_children_kv(adapter_id).await {
+                    Ok(adapters) if !adapters.is_empty() => {
+                        debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, count = adapters.len(), mode = "kv-primary", "Retrieved children from KV");
+                        return Ok(adapters);
+                    }
+                    Ok(_) if self.storage_mode().sql_fallback_enabled() => {
+                        debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "kv-fallback", "KV returned empty children list, falling back to SQL");
+                    }
+                    Ok(adapters) => {
+                        return Ok(adapters);
+                    }
+                    Err(e) if self.storage_mode().sql_fallback_enabled() => {
+                        warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "kv-fallback", "KV children read failed, falling back to SQL");
+                    }
+                    Err(e) => {
+                        return Err(e);
                     }
                 }
             }
@@ -3084,19 +5591,35 @@ impl Db {
     }
 
     /// Update adapter tier
-    pub async fn update_adapter_tier(&self, adapter_id: &str, tier: &str) -> Result<()> {
+    ///
+    /// # Arguments
+    /// * `tenant_id` - The tenant context (required for security isolation)
+    /// * `adapter_id` - The adapter's external ID
+    /// * `tier` - The new tier value
+    pub async fn update_adapter_tier(
+        &self,
+        tenant_id: &str,
+        adapter_id: &str,
+        tier: &str,
+    ) -> Result<()> {
+        // SECURITY: Update only within tenant scope
         sqlx::query(
-            "UPDATE adapters SET tier = ?, updated_at = datetime('now') WHERE adapter_id = ?",
+            "UPDATE adapters SET tier = ?, updated_at = datetime('now') WHERE adapter_id = ? AND tenant_id = ?",
         )
         .bind(tier)
         .bind(adapter_id)
+        .bind(tenant_id)
         .execute(self.pool())
         .await
         .map_err(|e| AosError::database(format!("Failed to update adapter tier: {}", e)))?;
 
-        // KV write (dual-write mode)
-        if let Some(tenant_id) = self.get_adapter_tenant_id(adapter_id).await? {
-            if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
+        // KV write (dual-write mode) - tenant verified via parameter
+        if self
+            .get_adapter_tenant_id(adapter_id, tenant_id)
+            .await?
+            .is_some()
+        {
+            if let Some(repo) = self.get_adapter_kv_repo(tenant_id) {
                 if let Err(e) = repo.update_adapter_tier_kv(adapter_id, tier).await {
                     if self.dual_write_requires_strict() {
                         error!(
@@ -3231,10 +5754,16 @@ impl Db {
                     metadata_json: adapter.metadata_json.clone(),
                     repo_path: adapter.repo_path.clone(),
                     // These fields may not exist on legacy adapters
-                    codebase_scope: None,
-                    dataset_version_id: None,
-                    registration_timestamp: None,
-                    manifest_hash: None,
+                    codebase_scope: adapter.codebase_scope.clone(),
+                    dataset_version_id: adapter.dataset_version_id.clone(),
+                    registration_timestamp: adapter.registration_timestamp.clone(),
+                    manifest_hash: adapter.manifest_hash.clone(),
+                    // Codebase adapter type and stream binding
+                    adapter_type: adapter.adapter_type.clone(),
+                    base_adapter_id: adapter.base_adapter_id.clone(),
+                    stream_session_id: adapter.stream_session_id.clone(),
+                    versioning_threshold: adapter.versioning_threshold,
+                    coreml_package_hash: adapter.coreml_package_hash.clone(),
                 };
 
                 // Delete old KV entry then re-register and sync state/memory
@@ -3311,10 +5840,16 @@ impl Db {
                     metadata_json: adapter.metadata_json.clone(),
                     repo_path: adapter.repo_path.clone(),
                     // These fields may not exist on legacy adapters
-                    codebase_scope: None,
-                    dataset_version_id: None,
-                    registration_timestamp: None,
-                    manifest_hash: None,
+                    codebase_scope: adapter.codebase_scope.clone(),
+                    dataset_version_id: adapter.dataset_version_id.clone(),
+                    registration_timestamp: adapter.registration_timestamp.clone(),
+                    manifest_hash: adapter.manifest_hash.clone(),
+                    // Codebase adapter type and stream binding
+                    adapter_type: adapter.adapter_type.clone(),
+                    base_adapter_id: adapter.base_adapter_id.clone(),
+                    stream_session_id: adapter.stream_session_id.clone(),
+                    versioning_threshold: adapter.versioning_threshold,
+                    coreml_package_hash: adapter.coreml_package_hash.clone(),
                 };
 
                 repo.register_adapter_kv(params).await.map_err(|e| {
@@ -3415,6 +5950,101 @@ impl Db {
         }
 
         Ok((consistent, inconsistent, errors))
+    }
+
+    /// Clean up orphaned adapters in KV that don't exist in SQL.
+    ///
+    /// During dual-write mode, inconsistencies can occur where an adapter
+    /// exists in KV but not in SQL (e.g., from failed rollbacks, interrupted
+    /// operations, or bugs). This method finds and removes such orphans.
+    ///
+    /// # Algorithm
+    /// 1. List all adapter IDs from SQL for the tenant
+    /// 2. List all adapter IDs from KV for the tenant
+    /// 3. Find KV entries that don't exist in SQL
+    /// 4. Delete each orphaned KV entry
+    ///
+    /// # Returns
+    /// Count of orphaned KV entries that were deleted
+    ///
+    /// # Safety
+    /// This operation is safe because SQL is the source of truth during
+    /// the migration period. Any adapter in KV that doesn't exist in SQL
+    /// is definitionally orphaned and should be cleaned up.
+    pub async fn cleanup_orphaned_adapters(&self, tenant_id: &str) -> Result<u64> {
+        // Get adapter IDs from SQL
+        let sql_adapters = self.list_adapters_for_tenant(tenant_id).await?;
+        let sql_ids: std::collections::HashSet<String> = sql_adapters
+            .iter()
+            .filter_map(|a| a.adapter_id.clone())
+            .collect();
+
+        // Get adapter IDs from KV
+        let kv_repo = match self.get_adapter_kv_repo(tenant_id) {
+            Some(repo) => repo,
+            None => {
+                // No KV repo configured, nothing to clean up
+                return Ok(0);
+            }
+        };
+
+        let kv_adapters = kv_repo
+            .list_adapters_for_tenant_kv(tenant_id, None, None)
+            .await?;
+        let kv_ids: std::collections::HashSet<String> = kv_adapters
+            .iter()
+            .filter_map(|a| a.adapter_id.clone())
+            .collect();
+
+        // Find orphans: KV entries that don't exist in SQL
+        let orphans: Vec<String> = kv_ids.difference(&sql_ids).cloned().collect();
+
+        if orphans.is_empty() {
+            debug!(
+                tenant_id = %tenant_id,
+                sql_count = sql_ids.len(),
+                kv_count = kv_ids.len(),
+                "No orphaned adapters found in KV"
+            );
+            return Ok(0);
+        }
+
+        info!(
+            tenant_id = %tenant_id,
+            orphan_count = orphans.len(),
+            "Found orphaned adapters in KV, cleaning up"
+        );
+
+        let mut deleted = 0u64;
+        for orphan_id in &orphans {
+            match kv_repo.delete_adapter_kv(orphan_id).await {
+                Ok(()) => {
+                    deleted += 1;
+                    debug!(
+                        adapter_id = %orphan_id,
+                        tenant_id = %tenant_id,
+                        "Deleted orphaned adapter from KV"
+                    );
+                }
+                Err(e) => {
+                    warn!(
+                        error = %e,
+                        adapter_id = %orphan_id,
+                        tenant_id = %tenant_id,
+                        "Failed to delete orphaned adapter from KV"
+                    );
+                }
+            }
+        }
+
+        info!(
+            tenant_id = %tenant_id,
+            deleted = deleted,
+            total_orphans = orphans.len(),
+            "Orphan cleanup complete"
+        );
+
+        Ok(deleted)
     }
 
     // =========================================================================
@@ -3525,12 +6155,20 @@ impl Db {
     /// Archive a single adapter
     ///
     /// Sets `archived_at` timestamp. Does NOT delete .aos file.
+    ///
+    /// # Arguments
+    /// * `tenant_id` - The tenant context (required for security isolation)
+    /// * `adapter_id` - The adapter's external ID
+    /// * `archived_by` - Who is archiving
+    /// * `reason` - Reason for archiving
     pub async fn archive_adapter(
         &self,
+        tenant_id: &str,
         adapter_id: &str,
         archived_by: &str,
         reason: &str,
     ) -> Result<()> {
+        // SECURITY: Update only within tenant scope
         let affected = sqlx::query(
             "UPDATE adapters
              SET archived_at = datetime('now'),
@@ -3538,11 +6176,13 @@ impl Db {
                  archive_reason = ?,
                  updated_at = datetime('now')
              WHERE adapter_id = ?
+               AND tenant_id = ?
                AND archived_at IS NULL",
         )
         .bind(archived_by)
         .bind(reason)
         .bind(adapter_id)
+        .bind(tenant_id)
         .execute(self.pool())
         .await
         .map_err(|e| AosError::database(format!("Failed to archive adapter: {}", e)))?
@@ -3557,17 +6197,15 @@ impl Db {
 
         info!(adapter_id = %adapter_id, archived_by = %archived_by, "Archived adapter");
 
-        // KV write (dual-write mode)
-        if let Some(tenant_id) = self.get_adapter_tenant_id(adapter_id).await? {
-            if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
-                if let Err(e) = repo
-                    .archive_adapter_kv(adapter_id, archived_by, reason)
-                    .await
-                {
-                    warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to archive adapter in KV backend");
-                } else {
-                    debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Adapter archived in both SQL and KV backends");
-                }
+        // KV write (dual-write mode) - tenant verified via parameter
+        if let Some(repo) = self.get_adapter_kv_repo(tenant_id) {
+            if let Err(e) = repo
+                .archive_adapter_kv(adapter_id, archived_by, reason)
+                .await
+            {
+                warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to archive adapter in KV backend");
+            } else {
+                debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Adapter archived in both SQL and KV backends");
             }
         }
 
@@ -3609,6 +6247,98 @@ impl Db {
         Ok(adapters)
     }
 
+    /// Find adapters with missing content_hash_b3 or manifest_hash
+    ///
+    /// Returns adapters that need hash repair for preflight validation.
+    /// Only includes adapters with a valid `.aos` file path that can be
+    /// used to recompute the missing hashes.
+    ///
+    /// # Hash Repair Context
+    ///
+    /// As of preflight hardening, adapters require both `content_hash_b3` and
+    /// `manifest_hash` to pass alias swap preflight checks. Older adapters
+    /// registered before these fields were mandatory may be missing one or both.
+    ///
+    /// This query identifies repair candidates:
+    /// - `content_hash_b3` is NULL or empty
+    /// - OR `manifest_hash` is NULL or empty
+    /// - AND `aos_file_path` is present (needed to recompute hashes)
+    /// - AND adapter is not archived/purged (active or ready adapters only)
+    ///
+    /// # Arguments
+    /// * `tenant_id` - Optional tenant filter; if None, queries all tenants
+    /// * `limit` - Maximum number of adapters to return
+    ///
+    /// # Returns
+    /// Adapters eligible for hash repair, ordered by created_at ascending.
+    pub async fn find_adapters_with_missing_hashes(
+        &self,
+        tenant_id: Option<&str>,
+        limit: i64,
+    ) -> Result<Vec<Adapter>> {
+        let query = match tenant_id {
+            Some(_) => format!(
+                "SELECT {} FROM adapters
+                 WHERE tenant_id = ?
+                   AND aos_file_path IS NOT NULL
+                   AND aos_file_path != ''
+                   AND archived_at IS NULL
+                   AND purged_at IS NULL
+                   AND (
+                       content_hash_b3 IS NULL
+                       OR content_hash_b3 = ''
+                       OR manifest_hash IS NULL
+                       OR manifest_hash = ''
+                   )
+                 ORDER BY created_at ASC
+                 LIMIT ?",
+                ADAPTER_SELECT_FIELDS
+            ),
+            None => format!(
+                "SELECT {} FROM adapters
+                 WHERE aos_file_path IS NOT NULL
+                   AND aos_file_path != ''
+                   AND archived_at IS NULL
+                   AND purged_at IS NULL
+                   AND (
+                       content_hash_b3 IS NULL
+                       OR content_hash_b3 = ''
+                       OR manifest_hash IS NULL
+                       OR manifest_hash = ''
+                   )
+                 ORDER BY created_at ASC
+                 LIMIT ?",
+                ADAPTER_SELECT_FIELDS
+            ),
+        };
+
+        let adapters = match tenant_id {
+            Some(tid) => sqlx::query_as::<_, Adapter>(&query)
+                .bind(tid)
+                .bind(limit)
+                .fetch_all(self.pool())
+                .await
+                .map_err(|e| {
+                    AosError::database(format!(
+                        "Failed to find adapters with missing hashes: {}",
+                        e
+                    ))
+                })?,
+            None => sqlx::query_as::<_, Adapter>(&query)
+                .bind(limit)
+                .fetch_all(self.pool())
+                .await
+                .map_err(|e| {
+                    AosError::database(format!(
+                        "Failed to find adapters with missing hashes: {}",
+                        e
+                    ))
+                })?,
+        };
+
+        Ok(adapters)
+    }
+
     /// Mark an adapter as purged after .aos file deletion
     ///
     /// Sets `purged_at` timestamp and clears `aos_file_path`.
@@ -3634,29 +6364,36 @@ impl Db {
     /// The `.aos` file MUST be deleted before calling this function to maintain
     /// consistency between filesystem and database state.
     ///
+    /// # Arguments
+    /// * `tenant_id` - The tenant context (required for security isolation)
+    /// * `adapter_id` - The adapter's external ID
+    ///
     /// # Errors
     ///
     /// Returns an error if:
     /// - Adapter is not archived (must be archived before purge)
     /// - Adapter is already purged
     /// - Database operation fails
-    pub async fn mark_adapter_purged(&self, adapter_id: &str) -> Result<()> {
+    pub async fn mark_adapter_purged(&self, tenant_id: &str, adapter_id: &str) -> Result<()> {
         // Pre-check: Log that we're about to cross the point of no return
         warn!(
             adapter_id = %adapter_id,
             "POINT OF NO RETURN: About to mark adapter as purged. This is irreversible."
         );
 
+        // SECURITY: Update only within tenant scope
         let affected = sqlx::query(
             "UPDATE adapters
              SET purged_at = datetime('now'),
                  aos_file_path = NULL,
                  updated_at = datetime('now')
              WHERE adapter_id = ?
+               AND tenant_id = ?
                AND archived_at IS NOT NULL
                AND purged_at IS NULL",
         )
         .bind(adapter_id)
+        .bind(tenant_id)
         .execute(self.pool())
         .await
         .map_err(|e| AosError::database(format!("Failed to mark adapter purged: {}", e)))?
@@ -3675,14 +6412,12 @@ impl Db {
             "IRREVERSIBLE: Adapter marked as purged. Recovery is no longer possible."
         );
 
-        // KV write (dual-write mode)
-        if let Some(tenant_id) = self.get_adapter_tenant_id(adapter_id).await? {
-            if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
-                if let Err(e) = repo.mark_adapter_purged_kv(adapter_id).await {
-                    warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to mark adapter purged in KV backend");
-                } else {
-                    debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Adapter marked purged in both SQL and KV backends");
-                }
+        // KV write (dual-write mode) - tenant verified via parameter
+        if let Some(repo) = self.get_adapter_kv_repo(tenant_id) {
+            if let Err(e) = repo.mark_adapter_purged_kv(adapter_id).await {
+                warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to mark adapter purged in KV backend");
+            } else {
+                debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Adapter marked purged in both SQL and KV backends");
             }
         }
 
@@ -3734,13 +6469,18 @@ impl Db {
     ///           Purged (IRREVERSIBLE - unarchive fails here)
     /// ```
     ///
+    /// # Arguments
+    /// * `tenant_id` - The tenant context (required for security isolation)
+    /// * `adapter_id` - The adapter's external ID
+    ///
     /// # Errors
     ///
     /// Returns an error if:
     /// - Adapter is not archived (nothing to restore)
     /// - Adapter has been purged (point of no return crossed)
     /// - Database operation fails
-    pub async fn unarchive_adapter(&self, adapter_id: &str) -> Result<()> {
+    pub async fn unarchive_adapter(&self, tenant_id: &str, adapter_id: &str) -> Result<()> {
+        // SECURITY: Update only within tenant scope
         let affected = sqlx::query(
             "UPDATE adapters
              SET archived_at = NULL,
@@ -3748,10 +6488,12 @@ impl Db {
                  archive_reason = NULL,
                  updated_at = datetime('now')
              WHERE adapter_id = ?
+               AND tenant_id = ?
                AND archived_at IS NOT NULL
                AND purged_at IS NULL",
         )
         .bind(adapter_id)
+        .bind(tenant_id)
         .execute(self.pool())
         .await
         .map_err(|e| AosError::database(format!("Failed to unarchive adapter: {}", e)))?
@@ -3767,14 +6509,12 @@ impl Db {
 
         info!(adapter_id = %adapter_id, "Unarchived adapter - successfully restored before purge");
 
-        // KV write (dual-write mode)
-        if let Some(tenant_id) = self.get_adapter_tenant_id(adapter_id).await? {
-            if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
-                if let Err(e) = repo.unarchive_adapter_kv(adapter_id).await {
-                    warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to unarchive adapter in KV backend");
-                } else {
-                    debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Adapter unarchived in both SQL and KV backends");
-                }
+        // KV write (dual-write mode) - tenant verified via parameter
+        if let Some(repo) = self.get_adapter_kv_repo(tenant_id) {
+            if let Err(e) = repo.unarchive_adapter_kv(adapter_id).await {
+                warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to unarchive adapter in KV backend");
+            } else {
+                debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Adapter unarchived in both SQL and KV backends");
             }
         }
 
@@ -4058,10 +6798,34 @@ impl Db {
             base_model_id: source.base_model_id.clone(),
             recommended_for_moe: source.recommended_for_moe,
             manifest_schema_version: source.manifest_schema_version.clone(),
-            content_hash_b3: source.content_hash_b3.clone(),
+            // Generate new content hash for duplicate (it's a distinct adapter even if weights are same)
+            content_hash_b3: {
+                let mut hasher = blake3::Hasher::new();
+                hasher.update(b"duplicate:");
+                hasher.update(new_adapter_id.as_bytes());
+                hasher.update(
+                    source
+                        .content_hash_b3
+                        .as_deref()
+                        .unwrap_or(&source.hash_b3)
+                        .as_bytes(),
+                );
+                hasher.finalize().to_hex().to_string()
+            },
             provenance_json: source.provenance_json.clone(),
             metadata_json: source.metadata_json.clone(),
             repo_path: source.repo_path.clone(),
+            // These fields may not exist on legacy adapters
+            codebase_scope: source.codebase_scope.clone(),
+            dataset_version_id: source.dataset_version_id.clone(),
+            registration_timestamp: source.registration_timestamp.clone(),
+            manifest_hash: source.manifest_hash.clone(),
+            // Codebase adapter type and stream binding (from migration 0261)
+            adapter_type: source.adapter_type.clone(),
+            base_adapter_id: source.base_adapter_id.clone(),
+            stream_session_id: source.stream_session_id.clone(),
+            versioning_threshold: source.versioning_threshold,
+            coreml_package_hash: source.coreml_package_hash.clone(),
         };
 
         // Register the new adapter

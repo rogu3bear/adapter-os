@@ -12,7 +12,8 @@ use adapteros_ingest_docs::{
     TrainingGenConfig, TrainingStrategy,
 };
 use adapteros_lora_worker::training::{
-    AdapterPackager, LoRAQuantizer, MicroLoRATrainer, TrainingConfig, TrainingExample,
+    AdapterPackager, DeterminismConfig, LoRAQuantizer, MicroLoRATrainer, TrainingConfig,
+    TrainingExample,
 };
 use clap::{ArgGroup, Args};
 use glob::glob;
@@ -102,6 +103,14 @@ pub struct TrainDocsArgs {
     /// Training strategy: identity, qa, or mlm
     #[arg(long, default_value = "identity")]
     training_strategy: String,
+
+    /// Enable deterministic training
+    #[arg(long)]
+    deterministic: bool,
+
+    /// Training seed (for deterministic training)
+    #[arg(long)]
+    seed: Option<u64>,
 
     /// Tokenizer configuration
     #[command(flatten)]
@@ -456,6 +465,14 @@ impl TrainDocsArgs {
             batch_size: self.common.batch_size,
             epochs: self.common.epochs,
             hidden_dim: self.common.hidden_dim,
+            determinism: if self.deterministic || self.seed.is_some() {
+                Some(DeterminismConfig {
+                    seed: self.seed,
+                    ..Default::default()
+                })
+            } else {
+                None
+            },
             ..TrainingConfig::default()
         };
 

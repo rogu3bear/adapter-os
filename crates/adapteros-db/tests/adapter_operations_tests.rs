@@ -114,13 +114,15 @@ async fn register_adapter_rejects_duplicate_hash() -> Result<()> {
     let db = ProtectedDb::new(Db::new_in_memory().await?);
     create_tenant(&db, "tenant-c").await?;
 
-    register_adapter(&db, "tenant-c", "adapter-1", "b3:unique-hash").await?;
+    let first_id = register_adapter(&db, "tenant-c", "adapter-1", "b3:unique-hash").await?;
+    let second_id = register_adapter(&db, "tenant-c", "adapter-2", "b3:unique-hash").await?;
 
-    let err = register_adapter(&db, "tenant-c", "adapter-2", "b3:unique-hash")
-        .await
-        .expect_err("duplicate hash should be rejected");
-
-    assert!(matches!(err, AosError::Database(_)));
+    assert_eq!(
+        first_id, second_id,
+        "duplicate content hash should dedupe to the original adapter"
+    );
+    let adapters = db.list_adapters_for_tenant("tenant-c").await?;
+    assert_eq!(adapters.len(), 1, "should not create a duplicate adapter");
 
     Ok(())
 }
@@ -525,7 +527,7 @@ async fn register_adapter_requires_tenant_exists() -> Result<()> {
         .await
         .expect_err("registration should fail for nonexistent tenant");
 
-    assert!(matches!(err, AosError::Database(_)));
+    assert!(matches!(err, AosError::Validation(_)));
 
     Ok(())
 }
@@ -604,7 +606,7 @@ async fn adapter_parent_child_relationship() -> Result<()> {
     assert_eq!(child.parent_id.as_deref(), Some(parent_id.as_str()));
     assert_eq!(child.fork_type.as_deref(), Some("extension"));
 
-    let children = db.get_adapter_children(&parent_id).await?;
+    let children = db.get_adapter_children("tenant-a", &parent_id).await?;
     assert!(children.iter().any(|a| a.id == child_id));
 
     Ok(())

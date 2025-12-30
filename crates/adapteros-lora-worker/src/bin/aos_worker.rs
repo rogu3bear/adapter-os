@@ -32,7 +32,6 @@ use adapteros_lora_worker::{
 use adapteros_manifest::ManifestV3;
 use adapteros_telemetry::TelemetryWriter;
 use clap::Parser;
-use std::io::Write;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, OnceLock,
@@ -54,28 +53,6 @@ use adapteros_lora_worker::backend_factory::CoreMLBackendSettings;
 // Schema and API versions for worker registration
 const SCHEMA_VERSION: &str = "1.0";
 const API_VERSION: &str = "1.0";
-const DEBUG_LOG_PATH: &str = "/Users/mln-dev/Dev/adapter-os/.cursor/debug.log";
-
-// #region agent log helper
-fn write_debug_log(hypothesis_id: &str, location: &str, message: &str, data: serde_json::Value) {
-    let payload = serde_json::json!({
-        "sessionId": "debug-session",
-        "runId": "pre-fix",
-        "hypothesisId": hypothesis_id,
-        "location": location,
-        "message": message,
-        "data": data,
-        "timestamp": chrono::Utc::now().timestamp_millis(),
-    });
-    if let Ok(mut file) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(DEBUG_LOG_PATH)
-    {
-        let _ = writeln!(file, "{}", payload);
-    }
-}
-// #endregion
 
 // Worker panic hook support for fatal error reporting
 // Global state for panic hook (must be static for panic handler access)
@@ -995,18 +972,6 @@ async fn run_worker() -> Result<()> {
                 error = %e,
                 "Worker socket resolution failed"
             );
-            // #region agent log
-            write_debug_log(
-                "H1",
-                "aos_worker.rs:resolve_uds",
-                "uds resolution failed",
-                serde_json::json!({
-                    "tenant_id": args.tenant_id,
-                    "uds_override": args.uds_path,
-                    "error": e.to_string()
-                }),
-            );
-            // #endregion
             e
         })?;
     let uds_path = resolved_uds.path.clone();
@@ -1017,18 +982,6 @@ async fn run_worker() -> Result<()> {
             error = %e,
             "Failed to prepare worker socket path"
         );
-        // #region agent log
-        write_debug_log(
-            "H1",
-            "aos_worker.rs:prepare_socket_path",
-            "prepare socket failed",
-            serde_json::json!({
-                "tenant_id": args.tenant_id,
-                "uds_path": uds_path,
-                "error": e.to_string()
-            }),
-        );
-        // #endregion
         e
     })?;
 
@@ -1047,16 +1000,6 @@ async fn run_worker() -> Result<()> {
     };
     reject_tmp_persistent_path(&model_path, "model-path")?;
     if !model_path.exists() {
-        // #region agent log
-        write_debug_log(
-            "H3",
-            "aos_worker.rs:model_path",
-            "model path missing",
-            serde_json::json!({
-                "model_path": model_path
-            }),
-        );
-        // #endregion
         return Err(AosError::Validation(format!(
             "Model path does not exist: {}",
             model_path.display()
@@ -1203,19 +1146,6 @@ async fn run_worker() -> Result<()> {
         reason = selection.reason.unwrap_or("none"),
         "Resolved backend selection at worker startup"
     );
-    // #region agent log
-    write_debug_log(
-        "H3",
-        "aos_worker.rs:backend_selection",
-        "backend selection resolved",
-        serde_json::json!({
-            "requested": requested_backend.as_str(),
-            "selected": selection.selected.as_str(),
-            "overridden": selection.overridden,
-            "reason": selection.reason
-        }),
-    );
-    // #endregion
     if selection.overridden {
         info!(
             requested = %requested_backend.as_str(),
@@ -1254,23 +1184,7 @@ async fn run_worker() -> Result<()> {
         &model_path,
         Some(&manifest_hash),
         Some(&manifest.base.model_hash),
-    )
-    .inspect_err(|e| {
-        // #region agent log
-        write_debug_log(
-            "H3",
-            "aos_worker.rs:create_backend",
-            "primary backend creation failed",
-            serde_json::json!({
-                "backend": backend_choice.as_str(),
-                "model_path": model_path,
-                "manifest_hash": manifest_hash.to_hex(),
-                "model_hash": manifest.base.model_hash.to_hex(),
-                "error": e.to_string()
-            }),
-        );
-        // #endregion
-    })?;
+    )?;
 
     // Optional fallback backend via coordinator
     let mut fallback_backend_kind: Option<BackendChoice> = None;
@@ -1316,18 +1230,6 @@ async fn run_worker() -> Result<()> {
     } else {
         KernelWrapper::Direct(DirectKernels::new(primary_kernels))
     };
-    // #region agent log
-    write_debug_log(
-        "H3",
-        "aos_worker.rs:kernels_ready",
-        "kernels initialized",
-        serde_json::json!({
-            "coordinator": args.coordinator_enabled,
-            "backend": backend_choice.as_str(),
-            "fallback": fallback_backend_kind.map(|b| b.as_str())
-        }),
-    );
-    // #endregion
 
     let available_backends = adapteros_lora_worker::AvailableBackends {
         primary: backend_choice,
@@ -1482,22 +1384,6 @@ async fn run_worker() -> Result<()> {
         strict_mode: args.strict,
     }) {
         Ok(result) => {
-            // #region agent log
-            write_debug_log(
-                "H4",
-                "aos_worker.rs:register_cp",
-                "registration accepted",
-                serde_json::json!({
-                    "worker_id": worker_id,
-                    "tenant_id": args.tenant_id,
-                    "manifest_hash": manifest_hash_hex,
-                    "backend": backend_label,
-                    "heartbeat": result.heartbeat_interval_secs,
-                    "kv_quota_bytes": result.kv_quota_bytes,
-                    "kv_residency_policy_id": result.kv_residency_policy_id,
-                }),
-            );
-            // #endregion
             lifecycle = lifecycle
                 .transition_to(WorkerStatus::Registered)
                 .map_err(|e| AosError::Lifecycle(e.to_string()))?;
@@ -1519,20 +1405,6 @@ async fn run_worker() -> Result<()> {
             result
         }
         Err(reason) => {
-            // #region agent log
-            write_debug_log(
-                "H4",
-                "aos_worker.rs:register_cp",
-                "registration failed",
-                serde_json::json!({
-                    "worker_id": worker_id,
-                    "tenant_id": args.tenant_id,
-                    "manifest_hash": manifest_hash_hex,
-                    "backend": backend_label,
-                    "reason": reason
-                }),
-            );
-            // #endregion
             let _lifecycle = lifecycle
                 .transition_to(WorkerStatus::Error)
                 .unwrap_or(lifecycle);
@@ -1699,19 +1571,7 @@ async fn run_worker() -> Result<()> {
         // In non-strict mode, this is allowed
         UdsServer::new(uds_path.clone(), worker.clone(), None, drain_flag.clone())
     };
-    let listener = server.bind().await.inspect_err(|e| {
-        // #region agent log
-        write_debug_log(
-            "H5",
-            "aos_worker.rs:uds_bind",
-            "uds bind failed",
-            serde_json::json!({
-                "uds_path": uds_path,
-                "error": e.to_string()
-            }),
-        );
-        // #endregion
-    })?;
+    let listener = server.bind().await?;
 
     lifecycle = lifecycle
         .transition_to(WorkerStatus::Healthy)

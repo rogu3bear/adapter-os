@@ -22,8 +22,247 @@
 //! - **API Schema Version**: REST API compatibility version
 //! - **Database Schema Version**: Migration sequence number
 //! - **Build Metadata**: Git commit, build timestamp, etc.
+//!
+//! # Algorithm Version Tracking
+//!
+//! For determinism and cross-version replay, we track algorithm versions:
+//! - [`HKDF_ALGORITHM_VERSION`]: Seed derivation algorithm (from seed.rs)
+//! - [`PARSER_ALGORITHM_VERSION`]: Directory parsing/sorting algorithm
+//! - [`PATH_NORMALIZATION_VERSION`]: Cross-platform path normalization
+//! - [`HASH_ALGORITHM_VERSION`]: Dataset content hashing algorithm
+//!
+//! See [`AlgorithmVersionBundle`] for bundled version tracking.
 
+use serde::{Deserialize, Serialize};
 use std::fmt;
+
+// =============================================================================
+// Algorithm Version Constants for Determinism Tracking
+// =============================================================================
+
+/// Parser algorithm version for determinism tracking.
+///
+/// Increment when parsing/sorting logic changes in a way that would
+/// produce different file ordering for the same directory tree.
+///
+/// # Version History
+/// - v1: Initial implementation with `path.cmp()` sorting (platform-dependent)
+/// - v2: Normalized path separators for cross-platform consistency
+pub const PARSER_ALGORITHM_VERSION: u32 = 2;
+
+/// Path normalization version for cross-platform determinism.
+///
+/// Increment when path normalization logic changes in a way that would
+/// produce different sort order for the same paths.
+///
+/// # Version History
+/// - v1: Platform-native separators (non-deterministic across platforms)
+/// - v2: Unix-style forward slashes everywhere, collapsed doubles, NFC Unicode
+pub const PATH_NORMALIZATION_VERSION: u32 = 2;
+
+/// Hash algorithm version for dataset content hashing.
+///
+/// Mirrors `hash_algorithm_version` in the training_datasets table.
+/// Increment when content hashing logic changes.
+///
+/// # Version History
+/// - v1: Original hash implementation
+/// - v2: Normalized filenames (lowercase + NFD + trim)
+pub const HASH_ALGORITHM_VERSION: u32 = 2;
+
+/// Re-export HKDF algorithm version from seed module.
+///
+/// This value comes from `seed::HKDF_ALGORITHM_VERSION`.
+/// We re-export it here for completeness in `AlgorithmVersionBundle`.
+pub use crate::seed::HKDF_ALGORITHM_VERSION;
+
+// =============================================================================
+// Algorithm Version Bundle
+// =============================================================================
+
+/// Bundle of algorithm versions affecting determinism.
+///
+/// This struct captures all algorithm versions that affect hash computation
+/// and seed derivation. Storing this bundle with datasets and training jobs
+/// enables cross-version replay by detecting when algorithm versions differ.
+///
+/// # Usage
+///
+/// ```ignore
+/// use adapteros_core::version::AlgorithmVersionBundle;
+///
+/// // Get current compile-time versions
+/// let bundle = AlgorithmVersionBundle::current();
+///
+/// // Store with dataset for later replay validation
+/// let params = CreateDatasetHashInputsParams {
+///     hkdf_version: Some(bundle.hkdf_version),
+///     parser_version: Some(bundle.parser_version),
+///     ..
+/// };
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AlgorithmVersionBundle {
+    /// HKDF seed derivation version (from seed.rs HKDF_ALGORITHM_VERSION)
+    pub hkdf_version: u32,
+    /// Directory parsing/sorting algorithm version
+    pub parser_version: u32,
+    /// Path normalization algorithm version (cross-platform consistency)
+    pub path_normalization_version: u32,
+    /// Codegraph symbol extraction version (crate version string)
+    pub codegraph_version: Option<String>,
+    /// Hash algorithm version (filename normalization)
+    pub hash_algorithm_version: u32,
+}
+
+impl AlgorithmVersionBundle {
+    /// Get the current runtime versions from compile-time constants.
+    ///
+    /// This returns the versions compiled into the current binary.
+    pub fn current() -> Self {
+        Self {
+            hkdf_version: HKDF_ALGORITHM_VERSION,
+            parser_version: PARSER_ALGORITHM_VERSION,
+            path_normalization_version: PATH_NORMALIZATION_VERSION,
+            codegraph_version: Some(VERSION.to_string()),
+            hash_algorithm_version: HASH_ALGORITHM_VERSION,
+        }
+    }
+
+    /// Create a bundle representing legacy/unknown versions.
+    ///
+    /// Used when loading data that doesn't have version info stored.
+    /// All versions default to 1 (initial version).
+    pub fn legacy() -> Self {
+        Self {
+            hkdf_version: 1,
+            parser_version: 1,
+            path_normalization_version: 1,
+            codegraph_version: None,
+            hash_algorithm_version: 1,
+        }
+    }
+
+    /// Check if this bundle is compatible with the current runtime.
+    ///
+    /// Returns `Ok(())` if compatible, or an error describing the incompatibility.
+    pub fn check_runtime_compatibility(&self) -> Result<(), VersionIncompatibility> {
+        let current = Self::current();
+
+        // HKDF version mismatch is always an error - affects seed derivation
+        if self.hkdf_version != current.hkdf_version {
+            return Err(VersionIncompatibility {
+                component: "hkdf".to_string(),
+                stored: self.hkdf_version,
+                current: current.hkdf_version,
+                severity: IncompatibilitySeverity::Breaking,
+                reason: "HKDF algorithm versions must match for deterministic replay".into(),
+            });
+        }
+
+        // Path normalization mismatch affects hash reproducibility
+        if self.path_normalization_version != current.path_normalization_version {
+            return Err(VersionIncompatibility {
+                component: "path_normalization".to_string(),
+                stored: self.path_normalization_version,
+                current: current.path_normalization_version,
+                severity: IncompatibilitySeverity::Breaking,
+                reason: "Path normalization affects sort order and thus hash".into(),
+            });
+        }
+
+        // Hash algorithm version mismatch affects content hash
+        if self.hash_algorithm_version != current.hash_algorithm_version {
+            return Err(VersionIncompatibility {
+                component: "hash_algorithm".to_string(),
+                stored: self.hash_algorithm_version,
+                current: current.hash_algorithm_version,
+                severity: IncompatibilitySeverity::Breaking,
+                reason: "Hash algorithm change affects content hash computation".into(),
+            });
+        }
+
+        Ok(())
+    }
+
+    /// Check compatibility and return warnings for non-breaking differences.
+    ///
+    /// Unlike `check_runtime_compatibility`, this returns warnings for
+    /// differences that don't break determinism.
+    pub fn check_with_warnings(&self) -> (bool, Vec<String>) {
+        let current = Self::current();
+        let mut warnings = Vec::new();
+
+        // Check breaking incompatibilities first
+        if let Err(e) = self.check_runtime_compatibility() {
+            return (false, vec![e.to_string()]);
+        }
+
+        // Parser version mismatch is a warning (may affect symbol extraction)
+        if self.parser_version != current.parser_version {
+            warnings.push(format!(
+                "Parser version mismatch: stored={}, current={}",
+                self.parser_version, current.parser_version
+            ));
+        }
+
+        // Codegraph version mismatch is informational
+        if self.codegraph_version != current.codegraph_version {
+            warnings.push(format!(
+                "Codegraph version differs: stored={:?}, current={:?}",
+                self.codegraph_version, current.codegraph_version
+            ));
+        }
+
+        (true, warnings)
+    }
+}
+
+impl Default for AlgorithmVersionBundle {
+    fn default() -> Self {
+        Self::current()
+    }
+}
+
+/// Describes an incompatibility between stored and current algorithm versions.
+#[derive(Debug, Clone)]
+pub struct VersionIncompatibility {
+    /// Which component has the version mismatch
+    pub component: String,
+    /// The version stored with the data
+    pub stored: u32,
+    /// The current runtime version
+    pub current: u32,
+    /// Severity of the incompatibility
+    pub severity: IncompatibilitySeverity,
+    /// Human-readable explanation
+    pub reason: String,
+}
+
+impl fmt::Display for VersionIncompatibility {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{} version incompatibility: stored v{}, current v{} - {}",
+            self.component, self.stored, self.current, self.reason
+        )
+    }
+}
+
+impl std::error::Error for VersionIncompatibility {}
+
+/// Severity level for version incompatibilities.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IncompatibilitySeverity {
+    /// Breaking: Cannot reproduce deterministic results
+    Breaking,
+    /// Warning: May affect results but not determinism-critical
+    Warning,
+}
+
+// =============================================================================
+// Product Version Constants
+// =============================================================================
 
 /// Current AdapterOS release version
 ///
@@ -322,5 +561,131 @@ mod tests {
         let ahead_err = ahead_result.unwrap_err();
         assert!(ahead_err.contains("AHEAD"));
         assert!(ahead_err.contains("cannot safely operate"));
+    }
+
+    // =========================================================================
+    // Algorithm Version Bundle Tests
+    // =========================================================================
+
+    #[test]
+    fn test_algorithm_version_constants() {
+        // Ensure algorithm version constants are at expected values
+        assert!(
+            PARSER_ALGORITHM_VERSION >= 2,
+            "PARSER_ALGORITHM_VERSION should be >= 2 (current version)"
+        );
+        assert!(
+            PATH_NORMALIZATION_VERSION >= 2,
+            "PATH_NORMALIZATION_VERSION should be >= 2 (current version)"
+        );
+        assert!(
+            HASH_ALGORITHM_VERSION >= 2,
+            "HASH_ALGORITHM_VERSION should be >= 2 (current version)"
+        );
+        assert!(
+            HKDF_ALGORITHM_VERSION >= 2,
+            "HKDF_ALGORITHM_VERSION should be >= 2 (current version)"
+        );
+    }
+
+    #[test]
+    fn test_algorithm_version_bundle_current() {
+        let bundle = AlgorithmVersionBundle::current();
+        assert_eq!(bundle.hkdf_version, HKDF_ALGORITHM_VERSION);
+        assert_eq!(bundle.parser_version, PARSER_ALGORITHM_VERSION);
+        assert_eq!(
+            bundle.path_normalization_version,
+            PATH_NORMALIZATION_VERSION
+        );
+        assert_eq!(bundle.hash_algorithm_version, HASH_ALGORITHM_VERSION);
+        assert!(bundle.codegraph_version.is_some());
+    }
+
+    #[test]
+    fn test_algorithm_version_bundle_legacy() {
+        let bundle = AlgorithmVersionBundle::legacy();
+        assert_eq!(bundle.hkdf_version, 1);
+        assert_eq!(bundle.parser_version, 1);
+        assert_eq!(bundle.path_normalization_version, 1);
+        assert_eq!(bundle.hash_algorithm_version, 1);
+        assert!(bundle.codegraph_version.is_none());
+    }
+
+    #[test]
+    fn test_algorithm_version_bundle_compatibility_current() {
+        // Current bundle should always be compatible with itself
+        let bundle = AlgorithmVersionBundle::current();
+        assert!(bundle.check_runtime_compatibility().is_ok());
+    }
+
+    #[test]
+    fn test_algorithm_version_bundle_hkdf_mismatch() {
+        let mut bundle = AlgorithmVersionBundle::current();
+        bundle.hkdf_version = 1; // Simulate old version
+        let result = bundle.check_runtime_compatibility();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.component, "hkdf");
+        assert_eq!(err.severity, IncompatibilitySeverity::Breaking);
+    }
+
+    #[test]
+    fn test_algorithm_version_bundle_path_normalization_mismatch() {
+        let mut bundle = AlgorithmVersionBundle::current();
+        bundle.path_normalization_version = 1; // Simulate old version
+        let result = bundle.check_runtime_compatibility();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.component, "path_normalization");
+    }
+
+    #[test]
+    fn test_algorithm_version_bundle_hash_mismatch() {
+        let mut bundle = AlgorithmVersionBundle::current();
+        bundle.hash_algorithm_version = 1; // Simulate old version
+        let result = bundle.check_runtime_compatibility();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.component, "hash_algorithm");
+    }
+
+    #[test]
+    fn test_algorithm_version_bundle_parser_mismatch_is_warning() {
+        let mut bundle = AlgorithmVersionBundle::current();
+        bundle.parser_version = 1; // Simulate old version
+
+        // Should still pass compatibility check (parser is not breaking)
+        assert!(bundle.check_runtime_compatibility().is_ok());
+
+        // But should produce a warning
+        let (compatible, warnings) = bundle.check_with_warnings();
+        assert!(compatible);
+        assert!(!warnings.is_empty());
+        assert!(warnings[0].contains("Parser version mismatch"));
+    }
+
+    #[test]
+    fn test_algorithm_version_bundle_serialization() {
+        let bundle = AlgorithmVersionBundle::current();
+        let json = serde_json::to_string(&bundle).expect("should serialize");
+        let deserialized: AlgorithmVersionBundle =
+            serde_json::from_str(&json).expect("should deserialize");
+        assert_eq!(bundle, deserialized);
+    }
+
+    #[test]
+    fn test_version_incompatibility_display() {
+        let err = VersionIncompatibility {
+            component: "hkdf".to_string(),
+            stored: 1,
+            current: 2,
+            severity: IncompatibilitySeverity::Breaking,
+            reason: "test reason".to_string(),
+        };
+        let display = format!("{}", err);
+        assert!(display.contains("hkdf"));
+        assert!(display.contains("v1"));
+        assert!(display.contains("v2"));
+        assert!(display.contains("test reason"));
     }
 }

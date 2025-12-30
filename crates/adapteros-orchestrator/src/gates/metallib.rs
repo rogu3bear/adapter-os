@@ -8,7 +8,7 @@ use std::fs;
 use std::path::Path;
 use tracing::{debug, warn};
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct MetallibGate;
 
 #[async_trait::async_trait]

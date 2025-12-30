@@ -13,6 +13,7 @@ fn schema_version() -> String {
 
 pub mod adapters;
 pub mod auth;
+pub mod codebase_adapters;
 pub mod dashboard;
 pub mod dataset_domain;
 pub mod domain_adapters;
@@ -47,6 +48,7 @@ pub use adapteros_types::coreml::{
 pub use adapteros_types::repository::RepoTier;
 pub use adapters::*;
 pub use auth::*;
+pub use codebase_adapters::*;
 pub use dashboard::*;
 pub use dataset_domain::*;
 pub use domain_adapters::*;

@@ -123,8 +123,21 @@ pub fn open_aos<'a>(bytes: &'a [u8]) -> Result<AosFileView<'a>> {
         let segment_id = u32::from_le_bytes(entry[0..4].try_into().unwrap());
         let backend_tag_raw = u16::from_le_bytes(entry[4..6].try_into().unwrap());
         let backend_tag = BackendTag::try_from(backend_tag_raw)?;
-        let offset = u64::from_le_bytes(entry[8..16].try_into().unwrap()) as usize;
-        let len = u64::from_le_bytes(entry[16..24].try_into().unwrap()) as usize;
+        // Edge case: use try_from to handle u64 -> usize conversion safely on 32-bit systems
+        let offset_u64 = u64::from_le_bytes(entry[8..16].try_into().unwrap());
+        let len_u64 = u64::from_le_bytes(entry[16..24].try_into().unwrap());
+        let offset = usize::try_from(offset_u64).map_err(|_| {
+            AosError::Validation(format!(
+                "Segment offset {} exceeds platform usize limit (32-bit platform overflow)",
+                offset_u64
+            ))
+        })?;
+        let len = usize::try_from(len_u64).map_err(|_| {
+            AosError::Validation(format!(
+                "Segment length {} exceeds platform usize limit (32-bit platform overflow)",
+                len_u64
+            ))
+        })?;
         let mut scope_hash = [0u8; 16];
         scope_hash.copy_from_slice(&entry[24..40]);
         let mut weights_hash = [0u8; 32];

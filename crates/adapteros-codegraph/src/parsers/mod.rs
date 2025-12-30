@@ -2,9 +2,18 @@
 //!
 //! Provides a unified interface for parsing multiple programming languages
 //! using tree-sitter, with language detection and symbol extraction.
+//!
+//! # Determinism
+//!
+//! This module ensures deterministic output by:
+//! - Sorting file entries using [`adapteros_core::compare_paths_deterministic`]
+//! - Using cross-platform path normalization for consistent ordering
+//!
+//! The algorithm version is tracked by [`PARSER_ALGORITHM_VERSION`] in
+//! `adapteros_core::version`.
 
 use crate::types::{Language, ParseResult};
-use adapteros_core::{AosError, Result};
+use adapteros_core::{compare_paths_deterministic, AosError, Result};
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -87,13 +96,24 @@ pub fn parse_file(path: &Path) -> Result<ParseResult> {
 }
 
 /// Parse all supported files in a directory
+///
+/// DETERMINISM: Results are sorted by file path to ensure consistent ordering
+/// across different runs and file systems. This is important for reproducible
+/// dataset generation and training.
 pub async fn parse_directory(dir: &Path) -> Result<Vec<ParseResult>> {
     let mut results = Vec::new();
     let parsers = ParserFactory::create_all_parsers()?;
 
-    for entry in walkdir::WalkDir::new(dir) {
-        let entry =
-            entry.map_err(|e| AosError::Io(format!("Failed to read directory entry: {}", e)))?;
+    // DETERMINISM: Collect all entries first, then sort by path to ensure
+    // consistent ordering regardless of filesystem traversal order.
+    // Uses cross-platform path normalization for consistent sorting on all OSes.
+    let mut entries: Vec<_> = walkdir::WalkDir::new(dir)
+        .into_iter()
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| AosError::Io(format!("Failed to read directory entry: {}", e)))?;
+    entries.sort_by(|a, b| compare_paths_deterministic(a.path(), b.path()));
+
+    for entry in entries {
         let path = entry.path();
 
         if let Some(language) = detect_language(path) {

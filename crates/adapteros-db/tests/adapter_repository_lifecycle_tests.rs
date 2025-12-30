@@ -93,6 +93,7 @@ async fn create_promotable_version(
             None,
             Some("ready"),
             Some(&format!("hash-{}", version)),
+            None,
         )
         .await
         .expect("dataset created");
@@ -600,6 +601,7 @@ async fn coreml_promotion_requires_dataset_and_device() -> Result<()> {
             None,
             Some("ready"),
             Some("hash-ds"),
+            None,
         )
         .await?;
     let ds_version_id = db
@@ -719,6 +721,7 @@ async fn create_version_persists_dataset_links() -> Result<()> {
             None,
             Some("ready"),
             Some("hash-ds"),
+            None,
         )
         .await?;
     let ds_version_id = db
@@ -786,6 +789,7 @@ async fn adapter_version_captures_trust_snapshot() -> Result<()> {
             None,
             Some("ready"),
             Some("hash-ds"),
+            None,
         )
         .await?;
     let ds_version_id = db

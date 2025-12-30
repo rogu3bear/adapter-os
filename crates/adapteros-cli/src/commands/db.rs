@@ -1128,6 +1128,7 @@ async fn run_seed_fixtures(
             ),
             tags_json: None,
             pinned_adapter_ids: Some(pinned.clone()),
+            codebase_adapter_id: None,
         };
         db.create_chat_session(session_params).await?;
 

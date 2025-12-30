@@ -24,7 +24,10 @@ pub mod types;
 mod tests;
 
 // Re-export commonly used types
-pub use byte_store::{ByteStorage, FsByteStorage, StorageKey, StorageKind, StorageLocation};
+pub use byte_store::{
+    layout_dirs, ByteStorage, DatasetCategory, DatasetStorageLayout, FsByteStorage, StorageKey,
+    StorageKind, StorageLocation,
+};
 pub use error::StorageError;
 pub use index::{IndexDef, IndexManager as IndexMgr, KeyExtractor};
 pub use kv::{IndexManager as KvIndexManager, KvBackend};

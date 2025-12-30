@@ -634,7 +634,8 @@ mod tests {
         let pubkey = [0u8; 32];
         let key_id = compute_key_id(&pubkey);
         assert!(key_id.starts_with("key-"));
-        assert_eq!(key_id.len(), 4 + 16); // "key-" + 16 hex chars
+        // "key-" (4 chars) + 32 hex chars (16 bytes / 128 bits)
+        assert_eq!(key_id.len(), 4 + 32);
     }
 
     #[test]

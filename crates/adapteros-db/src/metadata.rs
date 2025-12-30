@@ -321,22 +321,39 @@ impl From<crate::traits::StackRecord> for AdapterStackMeta {
 }
 
 /// Validate state transition
+///
+/// This function validates lifecycle state transitions using tier-specific rules.
+/// For example, ephemeral adapters can transition directly from Active to Retired
+/// (skipping Deprecated), while persistent adapters must go through Deprecated.
+///
+/// # Arguments
+/// * `current` - The current lifecycle state
+/// * `new` - The target lifecycle state
+/// * `tier` - The adapter tier (ephemeral, warm, persistent)
+///
+/// # Returns
+/// Ok(()) if the transition is valid, or an error describing why it's invalid
 pub fn validate_state_transition(
     current: LifecycleState,
     new: LifecycleState,
     tier: &str,
 ) -> Result<(), MetadataValidationError> {
-    if !current.can_transition_to(new) {
+    // Use tier-specific transition validation which handles:
+    // - Base transition graph rules
+    // - Ephemeral tier: Active -> Retired allowed (skipping Deprecated)
+    // - Ephemeral tier: Active -> Deprecated blocked
+    // - Non-ephemeral: Active -> Retired blocked (must go through Deprecated)
+    if !current.can_transition_to_for_tier(new, tier) {
+        // Determine the specific error type
+        if !new.is_valid_for_tier(tier) {
+            return Err(MetadataValidationError::InvalidStateForTier {
+                state: new.to_string(),
+                tier: tier.to_string(),
+            });
+        }
         return Err(MetadataValidationError::InvalidStateTransition {
             from: current.to_string(),
             to: new.to_string(),
-        });
-    }
-
-    if !new.is_valid_for_tier(tier) {
-        return Err(MetadataValidationError::InvalidStateForTier {
-            state: new.to_string(),
-            tier: tier.to_string(),
         });
     }
 
@@ -434,5 +451,87 @@ mod tests {
             "ephemeral",
         );
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_ephemeral_tier_direct_retirement() {
+        // Ephemeral adapters can go directly from Active to Retired (skipping Deprecated)
+        let result =
+            validate_state_transition(LifecycleState::Active, LifecycleState::Retired, "ephemeral");
+        assert!(
+            result.is_ok(),
+            "Ephemeral adapters should be able to transition Active -> Retired"
+        );
+
+        // Non-ephemeral adapters cannot skip Deprecated
+        let result = validate_state_transition(
+            LifecycleState::Active,
+            LifecycleState::Retired,
+            "persistent",
+        );
+        assert!(
+            result.is_err(),
+            "Persistent adapters should not skip Deprecated"
+        );
+
+        let result =
+            validate_state_transition(LifecycleState::Active, LifecycleState::Retired, "warm");
+        assert!(result.is_err(), "Warm adapters should not skip Deprecated");
+    }
+
+    #[test]
+    fn test_standard_lifecycle_progression() {
+        // Full lifecycle progression for persistent adapters
+        let tier = "persistent";
+
+        assert!(
+            validate_state_transition(LifecycleState::Draft, LifecycleState::Training, tier)
+                .is_ok()
+        );
+        assert!(
+            validate_state_transition(LifecycleState::Training, LifecycleState::Ready, tier)
+                .is_ok()
+        );
+        assert!(
+            validate_state_transition(LifecycleState::Ready, LifecycleState::Active, tier).is_ok()
+        );
+        assert!(validate_state_transition(
+            LifecycleState::Active,
+            LifecycleState::Deprecated,
+            tier
+        )
+        .is_ok());
+        assert!(validate_state_transition(
+            LifecycleState::Deprecated,
+            LifecycleState::Retired,
+            tier
+        )
+        .is_ok());
+
+        // Rollback: Active -> Ready should be valid
+        assert!(
+            validate_state_transition(LifecycleState::Active, LifecycleState::Ready, tier).is_ok()
+        );
+
+        // Any state can transition to Failed
+        assert!(
+            validate_state_transition(LifecycleState::Draft, LifecycleState::Failed, tier).is_ok()
+        );
+        assert!(
+            validate_state_transition(LifecycleState::Training, LifecycleState::Failed, tier)
+                .is_ok()
+        );
+        assert!(
+            validate_state_transition(LifecycleState::Ready, LifecycleState::Failed, tier).is_ok()
+        );
+        assert!(
+            validate_state_transition(LifecycleState::Active, LifecycleState::Failed, tier).is_ok()
+        );
+        assert!(validate_state_transition(
+            LifecycleState::Deprecated,
+            LifecycleState::Failed,
+            tier
+        )
+        .is_ok());
     }
 }

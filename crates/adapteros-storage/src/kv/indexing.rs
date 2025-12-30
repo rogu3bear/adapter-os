@@ -127,6 +127,9 @@ pub mod adapter_indexes {
     /// Index name for querying adapters by hash
     pub const BY_HASH: &str = "adapters_by_hash";
 
+    /// Index name for querying adapters by content hash (global deduplication key)
+    pub const BY_CONTENT_HASH: &str = "adapters_by_content_hash";
+
     /// Index name for querying adapters by lifecycle_state
     pub const BY_LIFECYCLE_STATE: &str = "adapters_by_lifecycle_state";
 

@@ -40,6 +40,10 @@ async fn create_dual_write_db() -> (ProtectedDb, TempDir, TempDir) {
         .execute(db.pool())
         .await
         .unwrap();
+    sqlx::query("INSERT INTO tenants (id, name) VALUES ('system', 'System')")
+        .execute(db.pool())
+        .await
+        .unwrap();
 
     let db = ProtectedDb::new(db);
 
@@ -454,11 +458,11 @@ async fn test_consistency_after_multiple_updates() {
         .await
         .unwrap();
 
-    db.increment_adapter_activation("consistency-test")
+    db.increment_adapter_activation("default-tenant", "consistency-test")
         .await
         .unwrap();
 
-    db.increment_adapter_activation("consistency-test")
+    db.increment_adapter_activation("default-tenant", "consistency-test")
         .await
         .unwrap();
 
@@ -570,6 +574,7 @@ async fn test_adapter_with_extended_fields() {
 
     // Register adapter with all extended fields
     let params = AdapterRegistrationBuilder::new()
+        .tenant_id("system")
         .adapter_id("extended-fields-test")
         .name("Extended Fields Test")
         .hash_b3("b3:extended_fields")
@@ -605,7 +610,7 @@ async fn test_adapter_with_extended_fields() {
     assert_eq!(adapter_sql.scope, "tenant");
 
     // Verify in KV with matching fields
-    let adapter_kv = get_adapter_from_kv(&db, "default-tenant", "extended-fields-test")
+    let adapter_kv = get_adapter_from_kv(&db, "system", "extended-fields-test")
         .await
         .unwrap();
     assert_eq!(adapter_kv.framework, adapter_sql.framework);
@@ -642,7 +647,7 @@ async fn test_concurrent_dual_writes_maintain_consistency() {
         let db_clone = db.clone();
         let handle = tokio::spawn(async move {
             db_clone
-                .increment_adapter_activation("concurrent-dual-write-test")
+                .increment_adapter_activation("default-tenant", "concurrent-dual-write-test")
                 .await
                 .unwrap();
         });

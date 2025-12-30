@@ -331,14 +331,27 @@ async fn status(args: TrainStatusArgs, output: &OutputWriter) -> Result<()> {
     }) {
         output.kv("dataset_versions", &ds.join(","));
     }
-    output.kv("progress_pct", &format!("{:.1}", job.progress_pct));
-    output.kv("current_epoch", &job.current_epoch.to_string());
+    let progress_pct = job
+        .progress_pct
+        .map(|pct| format!("{:.1}", pct))
+        .unwrap_or_else(|| "n/a".to_string());
+    output.kv("progress_pct", &progress_pct);
+    let current_epoch = job
+        .current_epoch
+        .map(|epoch| epoch.to_string())
+        .unwrap_or_else(|| "n/a".to_string());
+    output.kv("current_epoch", &current_epoch);
     output.kv("total_epochs", &job.total_epochs.to_string());
-    output.kv("current_loss", &format!("{:.4}", job.current_loss));
-    output.kv(
-        "tokens_per_second",
-        &format!("{:.2}", job.tokens_per_second),
-    );
+    let current_loss = job
+        .current_loss
+        .map(|loss| format!("{:.4}", loss))
+        .unwrap_or_else(|| "n/a".to_string());
+    output.kv("current_loss", &current_loss);
+    let tokens_per_second = job
+        .tokens_per_second
+        .map(|tps| format!("{:.2}", tps))
+        .unwrap_or_else(|| "n/a".to_string());
+    output.kv("tokens_per_second", &tokens_per_second);
     if let Some(coreml_used) = job.backend.as_ref().map(|b| b == "coreml") {
         output.kv("coreml_used", if coreml_used { "yes" } else { "no" });
     }
@@ -402,13 +415,17 @@ async fn list(args: TrainListArgs, output: &OutputWriter) -> Result<()> {
 
     output.info(format!("{} training jobs", list.total));
     for job in &list.jobs {
+        let progress_pct = job
+            .progress_pct
+            .map(|pct| format!("{:.1}", pct))
+            .unwrap_or_else(|| "n/a".to_string());
         output.result(format!(
-            "- {} | {} | repo={} | backend={:?} | pct={:.1}",
+            "- {} | {} | repo={} | backend={:?} | pct={}",
             job.id,
             job.status,
             job.repo_id.as_deref().unwrap_or("-"),
             job.backend.as_deref().unwrap_or("unknown"),
-            job.progress_pct
+            progress_pct
         ));
     }
     Ok(())

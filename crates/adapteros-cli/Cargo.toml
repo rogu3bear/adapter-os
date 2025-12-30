@@ -87,6 +87,7 @@ argon2 = "0.5"
 rand = "0.8"
 indicatif = "0.17"
 adapteros-orchestrator = { path = "../adapteros-orchestrator", optional = true }
+adapteros-normalization = { path = "../adapteros-normalization" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # adapteros-lora-kernel-mtl = { path = "../adapteros-lora-kernel-mtl" }  # Disabled for stable compilation

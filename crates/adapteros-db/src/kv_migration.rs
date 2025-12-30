@@ -432,7 +432,11 @@ impl Db {
                       dataset_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
                       synthetic_mode, data_lineage_mode,
                       retryable, retry_of_job_id, stack_id, adapter_id, weights_hash_b3, artifact_path,
-                      produced_version_id, hyperparameters_json, data_spec_json, metrics_snapshot_id
+                      produced_version_id, hyperparameters_json, data_spec_json, metrics_snapshot_id,
+                      is_deterministic_run, global_seed_hex, determinism_config_json, seed_mode,
+                      category, description, language, symbol_targets_json, framework_id, framework_version,
+                      lora_tier, lora_strength, scope, api_patterns_json, repo_scope, file_patterns_json,
+                      exclude_patterns_json, backend, backend_reason, backend_device, dataset_hash_b3
                FROM repository_training_jobs"#,
         )
         .fetch_all(self.pool())
@@ -481,6 +485,27 @@ impl Db {
                 hyperparameters_json: row.hyperparameters_json.clone(),
                 data_spec_json: row.data_spec_json.clone(),
                 metrics_snapshot_id: row.metrics_snapshot_id.clone(),
+                is_deterministic_run: row.is_deterministic_run.map(|v| v != 0),
+                global_seed_hex: row.global_seed_hex.clone(),
+                determinism_config_json: row.determinism_config_json.clone(),
+                seed_mode: row.seed_mode.clone(),
+                category: row.category.clone(),
+                description: row.description.clone(),
+                language: row.language.clone(),
+                symbol_targets_json: row.symbol_targets_json.clone(),
+                framework_id: row.framework_id.clone(),
+                framework_version: row.framework_version.clone(),
+                lora_tier: row.lora_tier.clone(),
+                lora_strength: row.lora_strength,
+                scope: row.scope.clone(),
+                api_patterns_json: row.api_patterns_json.clone(),
+                repo_scope: row.repo_scope.clone(),
+                file_patterns_json: row.file_patterns_json.clone(),
+                exclude_patterns_json: row.exclude_patterns_json.clone(),
+                backend: row.backend.clone(),
+                backend_reason: row.backend_reason.clone(),
+                backend_device: row.backend_device.clone(),
+                dataset_hash_b3: row.dataset_hash_b3.clone(),
             };
             match repo.put_job(&job).await {
                 Ok(_) => stats.migrated += 1,
@@ -645,6 +670,7 @@ impl Db {
                 metadata_json: row.metadata_json.clone(),
                 tags_json: row.tags_json.clone(),
                 pinned_adapter_ids: row.pinned_adapter_ids.clone(),
+                codebase_adapter_id: None, // Not in SQL schema, set to None for migration
                 status,
             };
 
@@ -858,13 +884,28 @@ impl Db {
             parent_id: adapter.parent_id.clone(),
             fork_type: adapter.fork_type.clone(),
             fork_reason: adapter.fork_reason.clone(),
-            base_model_id: None, // Not available during KV migration
+            base_model_id: adapter.base_model_id.clone(),
             recommended_for_moe: adapter.recommended_for_moe,
-            manifest_schema_version: None, // Not available during KV migration
-            content_hash_b3: None,         // Not available during KV migration
+            manifest_schema_version: adapter.manifest_schema_version.clone(),
+            // Use existing content_hash_b3 or fall back to hash_b3 for legacy adapters
+            content_hash_b3: adapter
+                .content_hash_b3
+                .clone()
+                .unwrap_or_else(|| adapter.hash_b3.clone()),
             metadata_json: adapter.metadata_json.clone(),
-            provenance_json: None, // Not available during KV migration
+            provenance_json: adapter.provenance_json.clone(),
             repo_path: adapter.repo_path.clone(),
+            // These fields may not exist on legacy adapters
+            codebase_scope: None,
+            dataset_version_id: None,
+            registration_timestamp: None,
+            manifest_hash: None,
+            // Codebase adapter type and stream binding (from migration 0261)
+            adapter_type: adapter.adapter_type.clone(),
+            base_adapter_id: adapter.base_adapter_id.clone(),
+            stream_session_id: adapter.stream_session_id.clone(),
+            versioning_threshold: adapter.versioning_threshold,
+            coreml_package_hash: adapter.coreml_package_hash.clone(),
         };
 
         // Register in KV

@@ -4,7 +4,7 @@ use crate::{Gate, OrchestratorConfig};
 use adapteros_db::Db;
 use anyhow::Result;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PerformanceGate {
     pub latency_p95_ms_max: u64,
     pub throughput_tokens_per_s_min: u64,

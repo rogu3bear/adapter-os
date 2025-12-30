@@ -54,8 +54,10 @@ impl<K: FusedKernels + crate::StrictnessControl + Send + Sync + 'static> Worker<
                 });
             }
 
-            // Set cancellation flag
-            cancel_token.store(true, std::sync::atomic::Ordering::SeqCst);
+            // Set cancellation flag with Release ordering to synchronize with
+            // the Acquire load in is_cancelled(). This ensures the training loop
+            // sees the cancel request without unnecessary SeqCst overhead.
+            cancel_token.store(true, std::sync::atomic::Ordering::Release);
             tracing::info!(job_id = %job_id, "Training job cancellation requested");
 
             Ok(CancelTrainingResponse {

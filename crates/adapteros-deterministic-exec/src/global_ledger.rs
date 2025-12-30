@@ -134,7 +134,31 @@ impl std::fmt::Debug for GlobalTickLedger {
 
 impl GlobalTickLedger {
     /// Create a new global tick ledger
+    ///
+    /// NOTE: Defaults to deterministic timestamps (tick * 1000) for reproducibility.
+    /// This ensures consistent behavior across runs and hosts. Use wall-clock time
+    /// only when explicitly needed for debugging/audit purposes via `with_wall_clock_timestamps()`.
     pub fn new(db: Arc<Db>, tenant_id: String, host_id: String) -> Self {
+        Self {
+            local_tick: Arc::new(AtomicU64::new(0)),
+            db,
+            tenant_id,
+            host_id,
+            entries: Arc::new(RwLock::new(VecDeque::new())),
+            max_cache_size: 1000,
+            telemetry: None,
+            last_entry_hash: Arc::new(RwLock::new(None)),
+            // Default to deterministic timestamps for reproducibility (Issue D-1 fix)
+            use_deterministic_timestamps: true,
+        }
+    }
+
+    /// Create with wall-clock timestamps (non-deterministic, for debugging/audit only)
+    ///
+    /// WARNING: Wall-clock timestamps are NOT deterministic and should only be used
+    /// when real-time correlation is required for debugging or audit purposes.
+    /// For normal operation, use `new()` which defaults to deterministic timestamps.
+    pub fn with_wall_clock_timestamps(db: Arc<Db>, tenant_id: String, host_id: String) -> Self {
         Self {
             local_tick: Arc::new(AtomicU64::new(0)),
             db,
@@ -167,6 +191,8 @@ impl GlobalTickLedger {
     }
 
     /// Create with telemetry writer
+    ///
+    /// NOTE: Defaults to deterministic timestamps for reproducibility.
     pub fn with_telemetry(
         db: Arc<Db>,
         tenant_id: String,
@@ -182,7 +208,8 @@ impl GlobalTickLedger {
             max_cache_size: 1000,
             telemetry: Some(telemetry),
             last_entry_hash: Arc::new(RwLock::new(None)),
-            use_deterministic_timestamps: false,
+            // Default to deterministic timestamps for reproducibility (Issue D-1 fix)
+            use_deterministic_timestamps: true,
         }
     }
 
@@ -732,7 +759,8 @@ impl GlobalTickLedger {
                 (Some(our_list), None) => {
                     // We have entries, peer doesn't - divergence
                     let zero_hash = B3Hash::new([0u8; 32]);
-                    let our_hash = our_list[0].event_hash;
+                    // Edge case: guard against empty list (should not happen but be defensive)
+                    let our_hash = our_list.first().map(|e| e.event_hash).unwrap_or(zero_hash);
                     let our_count = our_list.len();
 
                     divergences.push(DivergencePoint {
@@ -746,7 +774,8 @@ impl GlobalTickLedger {
                 (None, Some(peer_list)) => {
                     // Peer has entries, we don't - divergence
                     let zero_hash = B3Hash::new([0u8; 32]);
-                    let peer_hash = peer_list[0].event_hash;
+                    // Edge case: guard against empty list (should not happen but be defensive)
+                    let peer_hash = peer_list.first().map(|e| e.event_hash).unwrap_or(zero_hash);
                     let peer_count = peer_list.len();
 
                     divergences.push(DivergencePoint {
@@ -926,9 +955,11 @@ mod tests {
         let mut ticks: Vec<u64> = entries.iter().map(|e| e.tick).collect();
         ticks.sort_unstable();
 
-        // Verify no duplicates
-        for i in 0..ticks.len() - 1 {
-            assert_ne!(ticks[i], ticks[i + 1], "Duplicate tick found: {}", ticks[i]);
+        // Verify no duplicates (guard against empty ticks list)
+        if ticks.len() > 1 {
+            for i in 0..ticks.len() - 1 {
+                assert_ne!(ticks[i], ticks[i + 1], "Duplicate tick found: {}", ticks[i]);
+            }
         }
 
         // Verify sequential (0, 1, 2, ..., 499)
@@ -1070,5 +1101,60 @@ mod tests {
         }
 
         assert_eq!(tick_set.len(), total_events, "All ticks should be unique");
+    }
+
+    /// Test empty ledger comparison does not panic
+    /// Edge case: verify compute_divergences handles empty entry lists gracefully
+    #[tokio::test]
+    async fn test_empty_ledger_comparison() {
+        let (db, _temp) = setup_test_db().await;
+        let db = Arc::new(db);
+
+        let ledger_a =
+            GlobalTickLedger::new(db.clone(), "test-tenant".to_string(), "host-a".to_string());
+
+        let ledger_b =
+            GlobalTickLedger::new(db.clone(), "test-tenant".to_string(), "host-b".to_string());
+
+        // Don't record any entries - both ledgers are empty
+
+        // This should not panic even with empty ledgers
+        let report = ledger_a.verify_cross_host("host-b", (0, 10)).await.unwrap();
+
+        // Empty ledgers should be consistent with each other
+        assert!(report.consistent);
+        assert_eq!(report.divergence_count, 0);
+        assert!(report.divergences.is_empty());
+    }
+
+    /// Test single entry comparison (edge case for empty list guards)
+    #[tokio::test]
+    async fn test_single_entry_comparison() {
+        let (db, _temp) = setup_test_db().await;
+        let db = Arc::new(db);
+
+        let ledger_a =
+            GlobalTickLedger::new(db.clone(), "test-tenant".to_string(), "host-a".to_string());
+
+        let ledger_b =
+            GlobalTickLedger::new(db.clone(), "test-tenant".to_string(), "host-b".to_string());
+
+        // Record one entry on host-a, none on host-b
+        let task_id = TaskId::from_bytes([1u8; 32]);
+        let event = ExecutorEvent::TaskSpawned {
+            task_id,
+            description: "test task".to_string(),
+            tick: 0,
+            agent_id: None,
+            hash: [0u8; 32],
+        };
+
+        ledger_a.record_tick(task_id, &event).await.unwrap();
+
+        // This should detect divergence without panicking
+        let report = ledger_a.verify_cross_host("host-b", (0, 10)).await.unwrap();
+
+        assert!(!report.consistent);
+        assert_eq!(report.divergence_count, 1);
     }
 }

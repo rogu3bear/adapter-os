@@ -75,27 +75,37 @@ pub(crate) async fn run_coreml_export_flow(
             let metadata_path_str = record.metadata_path.to_string_lossy().to_string();
             let fused_path_str = record.fused_package.to_string_lossy().to_string();
 
-            // Post-export verification: check if fusion was semantically verified
-            // The fusion_verified field indicates whether the LoRA fusion path was
-            // successfully exercised during export. If false, the package is a copy
-            // without verified fusion semantics.
-            let export_status = if record.fusion_verified {
-                info!(
-                    job_id = %job_id,
-                    adapter_id = %adapter_id,
-                    "CoreML export completed with verified fusion"
-                );
-                "succeeded"
-            } else {
+            let metadata_only = record.base_manifest_hash == record.fused_manifest_hash;
+            let export_status = if metadata_only {
                 warn!(
                     job_id = %job_id,
                     adapter_id = %adapter_id,
                     base_hash = %base_hash,
                     fused_hash = %fused_hash,
-                    "CoreML export produced unverified package (stub mode or fusion skipped). \
-                     The fused package may be functionally identical to the base model."
+                    "CoreML export produced metadata-only package (fused manifest matches base)"
                 );
-                "succeeded_stub"
+                "metadata_only"
+            } else {
+                info!(
+                    job_id = %job_id,
+                    adapter_id = %adapter_id,
+                    "CoreML export completed with fused package"
+                );
+                "succeeded"
+            };
+            if !record.fusion_verified && !metadata_only {
+                warn!(
+                    job_id = %job_id,
+                    adapter_id = %adapter_id,
+                    "CoreML export completed without fusion verification"
+                );
+            }
+            let export_reason = if metadata_only {
+                Some("Metadata-only export: fused package matches base model".to_string())
+            } else if !record.fusion_verified {
+                Some("Fusion path not verified during export".to_string())
+            } else {
+                None
             };
             let is_stub_export = !record.fusion_verified;
 
@@ -103,11 +113,7 @@ pub(crate) async fn run_coreml_export_flow(
                 let mut jobs = jobs_ref.write().await;
                 if let Some(job) = jobs.get_mut(job_id) {
                     job.coreml_export_status = Some(export_status.to_string());
-                    job.coreml_export_reason = if is_stub_export {
-                        Some("Stub export: fused package is base-model copy".to_string())
-                    } else {
-                        None
-                    };
+                    job.coreml_export_reason = export_reason.clone();
                     job.coreml_fused_package_hash = Some(fused_hash.clone());
                     job.coreml_package_path = Some(fused_path_str.clone());
                     job.coreml_metadata_path = Some(metadata_path_str.clone());
@@ -143,6 +149,8 @@ pub(crate) async fn run_coreml_export_flow(
                         "status": export_status,
                         "fusion_verified": record.fusion_verified,
                         "stub": is_stub_export,
+                        "metadata_only": metadata_only,
+                        "reason": export_reason,
                         "fused_manifest_hash": fused_hash,
                         "base_manifest_hash": base_hash,
                         "adapter_hash_b3": adapter_hash,

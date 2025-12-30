@@ -1,4 +1,41 @@
-//! Training types
+//! Training API types for request/response schemas.
+//!
+//! # Schema Design Notes
+//!
+//! ## Deprecated Fields
+//!
+//! The following fields are deprecated and will be removed in version 2.0.0:
+//! - `artifact_path` → use `aos_path`
+//! - `artifact_hash_b3` → use `package_hash_b3`
+//!
+//! Both deprecated fields are populated as aliases for backward compatibility.
+//!
+//! ## Trust State Normalization
+//!
+//! Trust states are normalized server-side before being returned to clients:
+//! - `"warn"` → `"allowed_with_warning"` (legacy format)
+//! - `"blocked_regressed"` → `"blocked"` (legacy format)
+//! - Unknown values → `"unknown"` (with server warning log)
+//!
+//! Canonical trust states: `allowed`, `allowed_with_warning`, `blocked`,
+//! `needs_approval`, `unknown`.
+//!
+//! ## Optional Progress Fields
+//!
+//! The following fields use `Option` to distinguish "no data yet" from "0 value":
+//! - `progress_pct`: None for pending jobs, Some(0.0-100.0) for active jobs
+//! - `current_epoch`: None for pending jobs, Some(0+) for active jobs
+//! - `current_loss`: None for pending jobs, Some(value) when computed
+//! - `tokens_per_second`: None for pending jobs, Some(value) when measured
+//!
+//! ## Metrics Granularity
+//!
+//! The `TrainingMetricEntry` type represents per-step time-series metrics:
+//! - `loss`: Stored per-step in DB
+//! - `tokens_processed`: Merged from separate DB metric rows when available
+//! - `learning_rate`: Optional - not currently stored per-step in DB (job-level only)
+//!
+//! For real-time learning rate, query the job's `learning_rate` field instead.
 
 use adapteros_core::B3Hash;
 use adapteros_types::{
@@ -13,6 +50,14 @@ use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
 use crate::schema_version;
+
+// ===== Deprecation Constants =====
+
+/// Sunset version for deprecated fields.
+///
+/// Fields marked with this constant will be removed in the specified version.
+/// Used for consistent deprecation messaging across the crate.
+pub const DEPRECATED_FIELD_SUNSET_VERSION: &str = "2.0.0";
 
 // ===== Core Enums =====
 
@@ -40,14 +85,36 @@ impl TrainingStatus {
         }
     }
 
-    pub fn from_db_string(value: &str) -> Self {
+    /// Parses a database string into a `TrainingStatus`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the value is not a recognized status.
+    /// This ensures invalid database values are caught at parse time
+    /// rather than silently defaulting to `Pending`.
+    ///
+    /// # Valid Values
+    ///
+    /// - `"pending"` -> `Pending`
+    /// - `"running"` -> `Running`
+    /// - `"completed"` -> `Completed`
+    /// - `"failed"` -> `Failed`
+    /// - `"cancelled"` -> `Cancelled`
+    /// - `"paused"` -> `Paused`
+    ///
+    /// Case is normalized (lowercase comparison).
+    pub fn from_db_string(value: &str) -> Result<Self, String> {
         match value.to_ascii_lowercase().as_str() {
-            "running" => Self::Running,
-            "completed" => Self::Completed,
-            "failed" => Self::Failed,
-            "cancelled" => Self::Cancelled,
-            "paused" => Self::Paused,
-            _ => Self::Pending,
+            "pending" => Ok(Self::Pending),
+            "running" => Ok(Self::Running),
+            "completed" => Ok(Self::Completed),
+            "failed" => Ok(Self::Failed),
+            "cancelled" => Ok(Self::Cancelled),
+            "paused" => Ok(Self::Paused),
+            _ => Err(format!(
+                "Unknown TrainingStatus value: '{}'. Valid values: pending, running, completed, failed, cancelled, paused",
+                value
+            )),
         }
     }
 }
@@ -280,8 +347,10 @@ pub struct StartTrainingRequest {
     /// Document collection ID for provenance tracking
     pub collection_id: Option<String>,
     /// Marketing/operational tier for routing and UI badges (micro/standard/max)
+    ///
+    /// # OpenAPI
+    /// Uses proper enum schema with values: `micro`, `standard`, `max`.
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[schema(value_type = String)]
     pub lora_tier: Option<LoraTier>,
     /// Logical scope for adapter visibility (e.g., project, tenant)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -393,21 +462,54 @@ pub struct TrainingJobResponse {
     /// Framework version
     pub framework_version: Option<String>,
     /// Marketing/operational tier for routing and UI badges (micro/standard/max)
+    ///
+    /// # OpenAPI
+    /// Uses proper enum schema with values: `micro`, `standard`, `max`.
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[schema(value_type = String)]
     pub lora_tier: Option<LoraTier>,
     /// Logical scope for adapter visibility (e.g., project, tenant)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
 
     // Training progress
+    /// Current training status (pending, running, completed, failed, cancelled)
     pub status: String,
-    pub progress_pct: f32,
-    pub current_epoch: u32,
+    /// Training progress percentage (0.0-100.0).
+    /// None if progress data is not yet available (distinguishes from 0% progress).
+    ///
+    /// # Serialization Behavior
+    /// - On serialization: Omitted when `None` (via `skip_serializing_if`)
+    /// - On deserialization: Absent fields deserialize to `None` (via `#[serde(default)]`)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress_pct: Option<f32>,
+    /// Current training epoch (0-indexed).
+    /// None if progress data is not yet available.
+    ///
+    /// # Serialization Behavior
+    /// - On serialization: Omitted when `None` (via `skip_serializing_if`)
+    /// - On deserialization: Absent fields deserialize to `None` (via `#[serde(default)]`)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_epoch: Option<u32>,
+    /// Total number of training epochs
     pub total_epochs: u32,
-    pub current_loss: f32,
+    /// Current training loss value.
+    /// None if progress data is not yet available.
+    ///
+    /// # Serialization Behavior
+    /// - On serialization: Omitted when `None` (via `skip_serializing_if`)
+    /// - On deserialization: Absent fields deserialize to `None` (via `#[serde(default)]`)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_loss: Option<f32>,
+    /// Current learning rate
     pub learning_rate: f32,
-    pub tokens_per_second: f32,
+    /// Tokens processed per second.
+    /// None if progress data is not yet available.
+    ///
+    /// # Serialization Behavior
+    /// - On serialization: Omitted when `None` (via `skip_serializing_if`)
+    /// - On deserialization: Absent fields deserialize to `None` (via `#[serde(default)]`)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokens_per_second: Option<f32>,
     pub created_at: String,
     pub started_at: Option<String>,
     pub completed_at: Option<String>,
@@ -470,10 +572,36 @@ pub struct TrainingJobResponse {
 
     // Packaging summary
     /// Alias of `aos_path` for clients expecting an "artifact path" surface.
+    ///
+    /// **Deprecated since 1.0.0**: Use `aos_path` instead.
+    /// - **Removal timeline**: Will be removed in version 2.0.0 (see [`DEPRECATED_FIELD_SUNSET_VERSION`]).
+    /// - **Migration**: Replace `artifact_path` references with `aos_path`.
+    /// - Both fields currently return the same value for backward compatibility.
+    ///
+    /// # OpenAPI
+    /// This field is marked deprecated in the OpenAPI schema.
+    #[deprecated(
+        since = "1.0.0",
+        note = "Use aos_path instead. Will be removed in v2.0.0."
+    )]
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(deprecated)]
     pub artifact_path: Option<String>,
     /// Alias of `package_hash_b3` for clients expecting an "artifact hash" surface.
+    ///
+    /// **Deprecated since 1.0.0**: Use `package_hash_b3` instead.
+    /// - **Removal timeline**: Will be removed in version 2.0.0 (see [`DEPRECATED_FIELD_SUNSET_VERSION`]).
+    /// - **Migration**: Replace `artifact_hash_b3` references with `package_hash_b3`.
+    /// - Both fields currently return the same value for backward compatibility.
+    ///
+    /// # OpenAPI
+    /// This field is marked deprecated in the OpenAPI schema.
+    #[deprecated(
+        since = "1.0.0",
+        note = "Use package_hash_b3 instead. Will be removed in v2.0.0."
+    )]
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(deprecated)]
     pub artifact_hash_b3: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aos_path: Option<String>,
@@ -481,6 +609,9 @@ pub struct TrainingJobResponse {
     pub package_hash_b3: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub manifest_hash_b3: Option<String>,
+    /// Indicates the source of manifest_hash_b3: "manifest" or "package_fallback"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub manifest_hash_source: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub manifest_rank: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -497,6 +628,7 @@ pub struct TrainingJobResponse {
     pub hyperparameters: Option<String>,
 }
 
+#[allow(deprecated)] // artifact_path and artifact_hash_b3 are deprecated aliases
 impl From<TrainingJob> for TrainingJobResponse {
     fn from(job: TrainingJob) -> Self {
         #[derive(Serialize)]
@@ -601,13 +733,32 @@ impl From<TrainingJob> for TrainingJobResponse {
             lora_tier: job.lora_tier,
             scope: job.scope,
             // Training progress
+            // For pending jobs (not yet started), return None to distinguish "no data" from "0%"
             status: job.status.to_string(),
-            progress_pct: job.progress_pct,
-            current_epoch: job.current_epoch,
+            progress_pct: if job.status == adapteros_types::training::TrainingJobStatus::Pending {
+                None
+            } else {
+                Some(job.progress_pct)
+            },
+            current_epoch: if job.status == adapteros_types::training::TrainingJobStatus::Pending {
+                None
+            } else {
+                Some(job.current_epoch)
+            },
             total_epochs: job.total_epochs,
-            current_loss: job.current_loss,
+            current_loss: if job.status == adapteros_types::training::TrainingJobStatus::Pending {
+                None
+            } else {
+                Some(job.current_loss)
+            },
             learning_rate: job.learning_rate,
-            tokens_per_second: job.tokens_per_second,
+            tokens_per_second: if job.status
+                == adapteros_types::training::TrainingJobStatus::Pending
+            {
+                None
+            } else {
+                Some(job.tokens_per_second)
+            },
             created_at: job.created_at,
             started_at: job.started_at,
             completed_at: job.completed_at,
@@ -645,7 +796,14 @@ impl From<TrainingJob> for TrainingJobResponse {
             artifact_hash_b3,
             aos_path,
             package_hash_b3: package_hash_b3.clone(),
-            manifest_hash_b3: job.manifest_hash_b3.or(package_hash_b3),
+            manifest_hash_b3: job.manifest_hash_b3.clone().or(package_hash_b3.clone()),
+            manifest_hash_source: if job.manifest_hash_b3.is_some() {
+                Some("manifest".to_string())
+            } else if package_hash_b3.is_some() {
+                Some("package_fallback".to_string())
+            } else {
+                None
+            },
             manifest_rank: job.manifest_rank,
             manifest_base_model: job.manifest_base_model,
             manifest_per_layer_hashes: job.manifest_per_layer_hashes,
@@ -852,6 +1010,42 @@ pub struct TrainingMetricsResponse {
     pub using_gpu: Option<bool>,
 }
 
+/// Individual training metric entry for time-series data
+///
+/// Note: `learning_rate` is optional because per-step LR is not currently stored
+/// in the training_metrics table. It's available at job level via TrainingProgress.
+/// `tokens_processed` is populated when available from the "tokens_processed" metric.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct TrainingMetricEntry {
+    /// Metric step (training iteration)
+    pub step: i64,
+    /// Loss value at this step
+    pub loss: f64,
+    /// Learning rate at this step (optional - not stored per-step in current schema)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub learning_rate: Option<f64>,
+    /// Training epoch
+    pub epoch: i32,
+    /// Tokens processed up to this point
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tokens_processed: Option<i64>,
+    /// Timestamp of this metric
+    pub timestamp: String,
+}
+
+/// Training metrics list response for time-series metrics endpoint
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct TrainingMetricsListResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
+    /// Training job ID
+    pub job_id: String,
+    /// Time-series metrics
+    pub metrics: Vec<TrainingMetricEntry>,
+}
+
 // ===== Dataset Types =====
 
 /// Upload dataset request
@@ -870,6 +1064,9 @@ pub struct UploadDatasetResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
     pub dataset_id: String,
+    /// The dataset version ID created for this upload
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dataset_version_id: Option<String>,
     pub name: String,
     pub description: Option<String>,
     pub file_count: i32,
@@ -934,6 +1131,9 @@ pub struct DatasetVersionSummary {
     /// Effective trust_state for this version (includes overrides)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub trust_state: Option<String>,
+    /// Repository slug for identifying the source repository (e.g., "org/repo-name")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repo_slug: Option<String>,
     pub created_at: String,
 }
 
@@ -1000,14 +1200,25 @@ pub struct ValidateDatasetResponse {
 
 // ===== Training Job List Types =====
 
-/// Training job list query parameters
+/// Training job list query parameters.
+///
+/// # Pagination
+///
+/// This endpoint uses 1-indexed pagination:
+/// - `page` is 1-indexed (first page = 1, not 0)
+/// - `page_size` controls items per page (default: 20, min: 1, max: 100)
+/// - Offset calculation: `offset = (page - 1) * page_size`
+///
+/// Example: `page=2, page_size=20` returns items 21-40.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, IntoParams, Default)]
 pub struct TrainingListParams {
     /// Filter by status (pending, running, completed, failed, cancelled)
     pub status: Option<String>,
-    /// Page number (1-indexed)
+    /// Page number (1-indexed). Values less than 1 are normalized to 1.
+    /// Default: 1.
     pub page: Option<u32>,
-    /// Number of items per page (default: 20, max: 100)
+    /// Number of items per page. Clamped to range [1, 100].
+    /// Default: 20.
     pub page_size: Option<u32>,
     /// Filter by adapter name
     pub adapter_name: Option<String>,

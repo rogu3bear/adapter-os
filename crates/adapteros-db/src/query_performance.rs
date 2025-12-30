@@ -505,8 +505,12 @@ impl QueryPerformanceMonitor {
 
         let times: Vec<f64> = metrics.iter().map(|m| m.execution_time_us as f64).collect();
         let mean = times.iter().sum::<f64>() / times.len() as f64;
-        let variance =
-            times.iter().map(|t| (t - mean).powi(2)).sum::<f64>() / (times.len() - 1) as f64;
+        // Edge case: return 0.0 variance for single-element datasets to avoid division by zero
+        let variance = if times.len() > 1 {
+            times.iter().map(|t| (t - mean).powi(2)).sum::<f64>() / (times.len() - 1) as f64
+        } else {
+            0.0
+        };
         let std_dev = variance.sqrt();
         let coefficient_of_variation = if mean > 0.0 { std_dev / mean } else { 0.0 };
 

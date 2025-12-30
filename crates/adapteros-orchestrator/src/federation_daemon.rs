@@ -518,7 +518,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_verify_empty_hosts() {
-        let (daemon, _temp) = setup_test_daemon().await;
+        let (daemon, _temp) = setup_test_daemon_with_config(FederationDaemonConfig {
+            interval_secs: 1,
+            max_hosts_per_sweep: 10,
+            enable_quarantine: true,
+            quorum_min_peers: 0,
+        })
+        .await;
 
         let report = daemon.verify_all_hosts().await.unwrap();
         assert!(report.ok);

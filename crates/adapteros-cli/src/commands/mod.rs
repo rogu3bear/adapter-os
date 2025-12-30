@@ -3,6 +3,8 @@
 pub mod adapter;
 pub mod adapter_codebase;
 pub mod adapter_info;
+pub mod adapter_migrate_hashes;
+pub mod adapter_repair_hashes;
 pub mod adapter_swap;
 pub mod adapters;
 pub mod aos;

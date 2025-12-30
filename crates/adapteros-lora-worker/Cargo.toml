@@ -74,6 +74,7 @@ adapteros-platform = { path = "../adapteros-platform" }
 adapteros-types = { path = "../adapteros-types" }
 adapteros-api-types = { path = "../adapteros-api-types" }
 adapteros-boot = { path = "../adapteros-boot" }
+adapteros-normalization = { path = "../adapteros-normalization" }
 lru = "0.12"
 ed25519-dalek = { workspace = true }
 # adapteros-lint = { path = "../adapteros-lint" }  # Temporarily disabled due to dependency issues

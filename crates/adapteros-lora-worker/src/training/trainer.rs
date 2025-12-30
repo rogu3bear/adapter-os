@@ -79,28 +79,54 @@ impl BackendAvailability {
 }
 
 impl MicroLoRATrainer {
+    /// Derive a deterministic seed from training config context.
+    ///
+    /// This creates a reproducible seed from config parameters (rank, hidden_dim,
+    /// epochs, batch_size, dataset_version_id) for use when no explicit seed is provided.
+    fn derive_seed_from_context(config: &TrainingConfig) -> u64 {
+        // Build a deterministic label from config context
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"lora_trainer_v2");
+        hasher.update(&(config.rank as u64).to_le_bytes());
+        hasher.update(&(config.hidden_dim as u64).to_le_bytes());
+        hasher.update(&(config.epochs as u64).to_le_bytes());
+        hasher.update(&(config.batch_size as u64).to_le_bytes());
+        hasher.update(&config.alpha.to_le_bytes());
+        hasher.update(&config.learning_rate.to_le_bytes());
+
+        // Include dataset_version_id if available for job-specific determinism
+        if let Some(ref det) = config.determinism {
+            if let Some(ref version_id) = det.dataset_version_id {
+                hasher.update(version_id.as_bytes());
+            }
+        }
+
+        let hash = hasher.finalize();
+        let bytes = hash.as_bytes();
+        u64::from_le_bytes([
+            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+        ])
+    }
+
     /// Create a new trainer with configuration
     pub fn new(mut config: TrainingConfig) -> Result<Self> {
-        // Derive deterministic training seed with optional explicit override
-        let deterministic_seed_override = config
-            .determinism
-            .as_ref()
-            .and_then(|d| d.seed)
-            .filter(|seed| *seed != 0);
-        let training_seed = deterministic_seed_override.unwrap_or_else(|| {
-            let global_seed = adapteros_core::B3Hash::hash(b"training");
-            let training_seed_bytes = derive_seed(&global_seed, "lora_trainer");
-            u64::from_le_bytes([
-                training_seed_bytes[0],
-                training_seed_bytes[1],
-                training_seed_bytes[2],
-                training_seed_bytes[3],
-                training_seed_bytes[4],
-                training_seed_bytes[5],
-                training_seed_bytes[6],
-                training_seed_bytes[7],
-            ])
-        });
+        // Derive deterministic training seed
+        //
+        // Issue D-3 Fix: Don't filter out seed=0 (it's a valid seed value).
+        // When determinism.seed is explicitly set (including 0), use it directly.
+        // When not set, derive from config context for reproducibility.
+        let training_seed = if let Some(ref det) = config.determinism {
+            if let Some(explicit_seed) = det.seed {
+                // Use explicit seed directly (including 0 - it's a valid seed!)
+                explicit_seed
+            } else {
+                // Derive seed from determinism context when available
+                Self::derive_seed_from_context(&config)
+            }
+        } else {
+            // No determinism config - derive from training config context
+            Self::derive_seed_from_context(&config)
+        };
 
         // Align hidden_dim/rank with CoreML placement when provided
         if let Some(placement) = config.coreml_placement.as_ref() {
@@ -1642,6 +1668,18 @@ impl MicroLoRATrainer {
             }
 
             debug!("Epoch {}/{}", epoch + 1, self.config.epochs);
+
+            // Emit epoch_started telemetry event
+            tracing::event!(
+                tracing::Level::INFO,
+                name = "epoch_started",
+                job_id = %self.job_id.as_deref().unwrap_or("unknown"),
+                epoch = epoch + 1,
+                total_epochs = target_epochs,
+                tokens_in_epoch = tokens_per_epoch,
+                examples_in_epoch = dataset.summary.total_examples,
+                "Training epoch started"
+            );
 
             let epoch_start = Instant::now();
             let epoch_loss = self.train_epoch_deterministic(&mut weights, &dataset, epoch)?;

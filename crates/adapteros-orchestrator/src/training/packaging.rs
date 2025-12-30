@@ -234,6 +234,22 @@ pub(crate) async fn package_and_register_adapter(
         }
     }
 
+    // Add scope metadata from versioning snapshot for provenance tracking
+    if let Some(vs) = versioning_snapshot {
+        if let Some(ref repo) = vs.repo_name {
+            package_metadata.insert("scope_repo".to_string(), repo.clone());
+        }
+        if let Some(ref commit) = vs.code_commit_sha {
+            package_metadata.insert("scope_commit".to_string(), commit.clone());
+        }
+        if let Some(ref branch) = vs.target_branch {
+            package_metadata.insert("scope_branch".to_string(), branch.clone());
+        }
+        if let Some(ref repo_id) = vs.repo_id {
+            package_metadata.insert("scope_repo_id".to_string(), repo_id.clone());
+        }
+    }
+
     // Step 2: Package the adapter
     let packager = AdapterPackager::new(adapters_root);
 
@@ -698,6 +714,55 @@ pub(crate) async fn package_and_register_adapter(
                         error = %e,
                         "Failed to link adapter to training job (non-fatal)"
                     );
+                }
+
+                // Record adapter training lineage for reverse lookups (dataset version → adapter)
+                if let Some(ds_id) = dataset_id {
+                    // Record lineage for each dataset version used in training
+                    if let Some(versions) = dataset_version_ids_for_training {
+                        for sel in versions.iter() {
+                            if let Err(e) = database
+                                .record_adapter_training_lineage(
+                                    &packaged.adapter_id,
+                                    ds_id,
+                                    Some(&sel.dataset_version_id),
+                                    Some(job_id),
+                                    dataset_hash_for_metadata.as_deref(),
+                                    tenant_id,
+                                )
+                                .await
+                            {
+                                tracing::warn!(
+                                    job_id = %job_id,
+                                    adapter_id = %packaged.adapter_id,
+                                    dataset_version_id = %sel.dataset_version_id,
+                                    error = %e,
+                                    "Failed to record adapter training lineage (non-fatal)"
+                                );
+                            }
+                        }
+                    } else {
+                        // No specific versions, record general lineage to dataset
+                        if let Err(e) = database
+                            .record_adapter_training_lineage(
+                                &packaged.adapter_id,
+                                ds_id,
+                                None,
+                                Some(job_id),
+                                dataset_hash_for_metadata.as_deref(),
+                                tenant_id,
+                            )
+                            .await
+                        {
+                            tracing::warn!(
+                                job_id = %job_id,
+                                adapter_id = %packaged.adapter_id,
+                                dataset_id = %ds_id,
+                                error = %e,
+                                "Failed to record adapter training lineage (non-fatal)"
+                            );
+                        }
+                    }
                 }
 
                 // Step 4: Optionally create stack with adapter (NOT set as default)

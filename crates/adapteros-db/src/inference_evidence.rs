@@ -174,18 +174,21 @@ impl Db {
     /// sorted by rank (most relevant first).
     pub async fn get_evidence_by_inference(
         &self,
+        tenant_id: &str,
         inference_id: &str,
     ) -> Result<Vec<InferenceEvidence>> {
         let records = sqlx::query_as::<_, InferenceEvidenceRow>(
             r#"
             SELECT id, inference_id, session_id, message_id, document_id, chunk_id,
                    page_number, document_hash, chunk_hash, relevance_score, rank,
-                   context_hash, created_at, rag_doc_ids, rag_scores, rag_collection_id
+                   context_hash, created_at, rag_doc_ids, rag_scores, rag_collection_id,
+                   base_model_id, adapter_ids, manifest_hash
             FROM inference_evidence
-            WHERE inference_id = ?
+            WHERE tenant_id = ? AND inference_id = ?
             ORDER BY rank ASC
             "#,
         )
+        .bind(tenant_id)
         .bind(inference_id)
         .fetch_all(self.pool())
         .await
@@ -233,18 +236,21 @@ impl Db {
     /// chat session, grouped by message and sorted by rank.
     pub async fn get_evidence_by_session(
         &self,
+        tenant_id: &str,
         session_id: &str,
     ) -> Result<Vec<InferenceEvidence>> {
         let records = sqlx::query_as::<_, InferenceEvidenceRow>(
             r#"
             SELECT id, inference_id, session_id, message_id, document_id, chunk_id,
                    page_number, document_hash, chunk_hash, relevance_score, rank,
-                   context_hash, created_at, rag_doc_ids, rag_scores, rag_collection_id
+                   context_hash, created_at, rag_doc_ids, rag_scores, rag_collection_id,
+                   base_model_id, adapter_ids, manifest_hash
             FROM inference_evidence
-            WHERE session_id = ?
+            WHERE tenant_id = ? AND session_id = ?
             ORDER BY created_at DESC, rank ASC
             "#,
         )
+        .bind(tenant_id)
         .bind(session_id)
         .fetch_all(self.pool())
         .await
@@ -287,6 +293,10 @@ impl Db {
                 .rag_scores
                 .as_ref()
                 .map(|scores| serde_json::to_string(scores).unwrap_or_default());
+            let adapter_ids_json = params
+                .adapter_ids
+                .as_ref()
+                .map(|ids| serde_json::to_string(ids).unwrap_or_default());
 
             // Use tenant_id from params (required field)
             let tenant_id = &params.tenant_id;
@@ -296,9 +306,10 @@ impl Db {
                 INSERT INTO inference_evidence (
                     id, tenant_id, inference_id, session_id, message_id, document_id, chunk_id,
                     page_number, document_hash, chunk_hash, relevance_score, rank,
-                    context_hash, created_at, rag_doc_ids, rag_scores, rag_collection_id
+                    context_hash, created_at, rag_doc_ids, rag_scores, rag_collection_id,
+                    base_model_id, adapter_ids, manifest_hash
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, ?, ?, ?)
                 "#,
             )
             .bind(&id)
@@ -317,6 +328,9 @@ impl Db {
             .bind(&rag_doc_ids_json)
             .bind(&rag_scores_json)
             .bind(&params.rag_collection_id)
+            .bind(&params.base_model_id)
+            .bind(&adapter_ids_json)
+            .bind(&params.manifest_hash)
             .execute(&mut *tx)
             .await
             .map_err(|e| AosError::Database(format!("Failed to insert evidence record: {}", e)))?;
@@ -491,7 +505,10 @@ mod tests {
         assert!(!id.is_empty());
 
         // Retrieve by inference
-        let evidence = db.get_evidence_by_inference(inference_id).await.unwrap();
+        let evidence = db
+            .get_evidence_by_inference(&_tenant_id, inference_id)
+            .await
+            .unwrap();
         assert_eq!(evidence.len(), 1);
         assert_eq!(evidence[0].inference_id, inference_id);
         assert_eq!(evidence[0].relevance_score, 0.95);
@@ -544,7 +561,10 @@ mod tests {
         }
 
         // Retrieve and verify ordering
-        let evidence = db.get_evidence_by_inference(inference_id).await.unwrap();
+        let evidence = db
+            .get_evidence_by_inference(&tenant_id, inference_id)
+            .await
+            .unwrap();
         assert_eq!(evidence.len(), 3);
         assert_eq!(evidence[0].rank, 1);
         assert_eq!(evidence[1].rank, 2);
@@ -595,7 +615,10 @@ mod tests {
         db.create_inference_evidence(params).await.unwrap();
 
         // Retrieve and verify RAG fields
-        let evidence = db.get_evidence_by_inference(inference_id).await.unwrap();
+        let evidence = db
+            .get_evidence_by_inference(&tenant_id, inference_id)
+            .await
+            .unwrap();
         assert_eq!(evidence.len(), 1);
 
         // Verify RAG doc IDs are stored and retrievable as JSON

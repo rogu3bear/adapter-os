@@ -18,8 +18,6 @@ use adapteros_core::{AosError, Result};
 use blake3::Hasher;
 use ed25519_dalek::VerifyingKey;
 use serde_json;
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -638,22 +636,6 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                     stop_policy: None,
                     admin_override: false,
                 };
-
-                // #region agent log
-                if let Ok(mut f) = OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open("/Users/mln-dev/Dev/adapter-os/.cursor/debug.log")
-                {
-                    let _ = writeln!(
-                        f,
-                        r#"{{"sessionId":"debug-session","runId":"pre-fix","hypothesisId":"H1","location":"uds_server.rs:patch_proposal","message":"patch proposal inference req","data":{{"coreml_mode":{:?},"backend_profile":{:?}}},"timestamp":{}}}"#,
-                        inference_req.coreml_mode,
-                        inference_req.backend_profile,
-                        chrono::Utc::now().timestamp_millis()
-                    );
-                }
-                // #endregion
 
                 let mut worker_guard = worker.lock().await;
                 let response = worker_guard

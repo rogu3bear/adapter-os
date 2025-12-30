@@ -59,6 +59,7 @@ async fn create_session(
         metadata_json: None,
         tags_json: None,
         pinned_adapter_ids: None,
+        codebase_adapter_id: None,
     };
     db.create_chat_session(params).await
 }
@@ -89,6 +90,7 @@ async fn test_create_and_retrieve_session() -> Result<()> {
         metadata_json: Some(r#"{"key": "value"}"#.to_string()),
         tags_json: None,
         pinned_adapter_ids: None,
+        codebase_adapter_id: None,
     };
 
     let session_id = db.create_chat_session(params).await?;
@@ -340,6 +342,7 @@ async fn test_source_types_and_messages_persist() -> Result<()> {
         metadata_json: None,
         tags_json: None,
         pinned_adapter_ids: None,
+        codebase_adapter_id: None,
     })
     .await?;
 
@@ -358,6 +361,7 @@ async fn test_source_types_and_messages_persist() -> Result<()> {
         metadata_json: None,
         tags_json: None,
         pinned_adapter_ids: None,
+        codebase_adapter_id: None,
     })
     .await?;
 
@@ -376,6 +380,7 @@ async fn test_source_types_and_messages_persist() -> Result<()> {
         metadata_json: None,
         tags_json: None,
         pinned_adapter_ids: None,
+        codebase_adapter_id: None,
     })
     .await?;
 
@@ -713,6 +718,7 @@ async fn test_metadata_json_serialization() -> Result<()> {
         metadata_json: Some(complex_metadata.to_string()),
         tags_json: None,
         pinned_adapter_ids: None,
+        codebase_adapter_id: None,
     };
     db.create_chat_session(params).await?;
 
@@ -786,6 +792,7 @@ async fn test_pinned_adapters_inherit_from_tenant_default() -> Result<()> {
         metadata_json: None,
         tags_json: None,
         pinned_adapter_ids: None, // Not provided - should inherit
+        codebase_adapter_id: None,
     };
     db.create_chat_session(params).await?;
 
@@ -825,6 +832,7 @@ async fn test_pinned_adapters_explicit_overrides_tenant_default() -> Result<()> 
         metadata_json: None,
         tags_json: None,
         pinned_adapter_ids: Some(serde_json::to_string(&explicit_adapters).unwrap()),
+        codebase_adapter_id: None,
     };
     db.create_chat_session(params).await?;
 
@@ -860,6 +868,7 @@ async fn test_pinned_adapters_null_when_no_tenant_default() -> Result<()> {
         metadata_json: None,
         tags_json: None,
         pinned_adapter_ids: None,
+        codebase_adapter_id: None,
     };
     db.create_chat_session(params).await?;
 
@@ -898,6 +907,7 @@ async fn test_tenant_default_change_does_not_affect_existing_sessions() -> Resul
         metadata_json: None,
         tags_json: None,
         pinned_adapter_ids: None,
+        codebase_adapter_id: None,
     };
     db.create_chat_session(params).await?;
 
@@ -941,6 +951,7 @@ async fn test_update_session_pinned_adapters() -> Result<()> {
         metadata_json: None,
         tags_json: None,
         pinned_adapter_ids: Some(serde_json::to_string(&initial_adapters).unwrap()),
+        codebase_adapter_id: None,
     };
     db.create_chat_session(params).await?;
 

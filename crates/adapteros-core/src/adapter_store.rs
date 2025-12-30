@@ -3,6 +3,12 @@ use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use tracing::warn;
+
+/// Maximum number of retired snapshots to retain before force eviction.
+/// When exceeded, oldest snapshots are force-evicted regardless of refcount
+/// to prevent unbounded memory growth from slow/stuck clients.
+const MAX_RETIRED_SNAPSHOTS: usize = 50;
 
 /// Cache key for adapter residency aligned with context manifest identity.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -84,10 +90,17 @@ impl AdapterPins {
 impl Drop for AdapterPins {
     fn drop(&mut self) {
         for (_id, rc) in &self.pinned {
-            let prev = rc.fetch_sub(1, Ordering::AcqRel);
-            if prev == 0 {
-                rc.store(0, Ordering::Release);
-            }
+            // Use Release ordering: this drop operation publishes the refcount
+            // decrement so that drain_retired (using Acquire) sees the update.
+            // AcqRel is not needed here since we don't read dependent data.
+            let prev = rc.fetch_sub(1, Ordering::Release);
+
+            // Debug assertion: prev should always be >= 1 if refcounting is correct.
+            // A prev of 0 would indicate a double-free bug.
+            debug_assert!(
+                prev >= 1,
+                "AdapterPins refcount underflow detected (prev={prev})"
+            );
         }
     }
 }
@@ -150,10 +163,15 @@ impl AdapterStore {
 
     /// Drop retired snapshots whose refcounts have reached zero.
     ///
+    /// When the retired list exceeds `MAX_RETIRED_SNAPSHOTS`, force-evicts the
+    /// oldest snapshots regardless of refcount to prevent unbounded memory growth.
+    ///
     /// Returns the generations that were freed.
     pub fn drain_retired(&self) -> Vec<u64> {
         let mut retired = self.retired.lock();
         let mut drained = Vec::new();
+
+        // First pass: drain snapshots with zero refcount
         retired.retain(|snapshot| {
             let in_use = snapshot
                 .entries
@@ -164,7 +182,34 @@ impl AdapterStore {
             }
             in_use
         });
+
+        // Second pass: force evict oldest snapshots if over limit
+        // This prevents unbounded memory growth from slow/stuck clients
+        if retired.len() > MAX_RETIRED_SNAPSHOTS {
+            let excess = retired.len() - MAX_RETIRED_SNAPSHOTS;
+            warn!(
+                retired_count = retired.len(),
+                max_retired = MAX_RETIRED_SNAPSHOTS,
+                force_evicting = excess,
+                "Retired snapshot limit exceeded, force-evicting oldest snapshots"
+            );
+
+            // Drain the oldest (first N) snapshots regardless of refcount
+            let force_evicted: Vec<AdapterSnapshot> = retired.drain(0..excess).collect();
+            for snapshot in force_evicted {
+                drained.push(snapshot.generation);
+                // Note: Any holders of pins to these force-evicted snapshots will
+                // continue to work (they hold Arc refs), but the snapshot memory
+                // will be reclaimed when they drop their pins.
+            }
+        }
+
         drained
+    }
+
+    /// Get the current count of retired snapshots (for monitoring).
+    pub fn retired_count(&self) -> usize {
+        self.retired.lock().len()
     }
 }
 
@@ -187,22 +232,33 @@ mod tests {
             },
         );
 
-        // Install generation 1; generation 0 moves to retired.
+        // Install generation 1; generation 0 (empty) moves to retired.
         let snap = store.install(1, entries);
         assert_eq!(snap.generation, 1);
         assert_eq!(store.snapshot().generation, 1);
 
-        // Pin current snapshot; refcount increments.
+        // Pin current snapshot (gen 1); refcount increments.
         let pins = store.pin_current();
         assert_eq!(pins.generation(), 1);
         assert_eq!(rc.load(Ordering::Relaxed), 1);
 
-        // Retired gen0 should stay until pins are dropped.
-        assert!(store.drain_retired().is_empty());
+        // Install generation 2 (empty) to retire gen 1 (which has our pinned entries).
+        store.install(2, HashMap::new());
+        assert_eq!(store.snapshot().generation, 2);
+
+        // Gen 1 should stay in retired while pins are held.
+        // Gen 0 (empty) drains immediately, but gen 1 has refs.
+        let drained = store.drain_retired();
+        assert!(!drained.contains(&1), "gen 1 should not drain while pinned");
+
         drop(pins);
 
-        // After release, retired gen0 drains.
-        assert_eq!(store.drain_retired(), vec![0]);
+        // After release, gen 1 drains.
+        let drained = store.drain_retired();
+        assert!(
+            drained.contains(&1),
+            "gen 1 should drain after pins dropped"
+        );
         assert_eq!(rc.load(Ordering::Relaxed), 0);
     }
 }

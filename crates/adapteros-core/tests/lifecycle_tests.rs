@@ -16,6 +16,7 @@ fn test_valid_transitions() {
     assert!(
         LifecycleTransition::new(LifecycleState::Deprecated, LifecycleState::Retired).is_valid()
     );
+    assert!(LifecycleTransition::new(LifecycleState::Active, LifecycleState::Retired).is_valid());
     assert!(LifecycleTransition::new(LifecycleState::Active, LifecycleState::Ready).is_valid());
     assert!(LifecycleTransition::new(LifecycleState::Ready, LifecycleState::Failed).is_valid());
 

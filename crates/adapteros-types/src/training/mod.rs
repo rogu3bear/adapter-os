@@ -104,7 +104,13 @@ impl BranchClassification {
 }
 
 /// LoRA adapter tier for routing and UI badges.
+///
+/// # OpenAPI
+///
+/// This enum is exposed in the OpenAPI schema with proper enum constraints
+/// rather than as a plain string type. Valid values: `micro`, `standard`, `max`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum LoraTier {
     /// Minimal footprint adapters
@@ -525,7 +531,7 @@ pub struct TrainingJob {
         skip_serializing_if = "Option::is_none"
     )]
     pub coreml_export_requested: Option<bool>,
-    /// Current CoreML export status: pending/running/succeeded/failed/skipped
+    /// Current CoreML export status: pending/running/succeeded/metadata_only/failed/skipped
     #[serde(
         rename = "coreml_export_status",
         skip_serializing_if = "Option::is_none"
