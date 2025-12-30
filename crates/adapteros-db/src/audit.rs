@@ -245,8 +245,8 @@ impl Db {
     ///     Some("user-456"),
     ///     Some("adapter.load"),
     ///     Some("adapter"),
-    ///     Some("2025-01-01T00:00:00Z"),
-    ///     Some("2025-12-31T23:59:59Z"),
+    ///     Some("2024-01-01T00:00:00Z"),
+    ///     Some("2024-12-31T23:59:59Z"),
     ///     100,
     /// ).await?;
     /// # Ok(())
@@ -670,8 +670,8 @@ impl Db {
     ///
     /// # async fn example(db: &Db) -> anyhow::Result<()> {
     /// let stats = db.get_audit_stats_by_action(
-    ///     Some("2025-01-01T00:00:00Z"),
-    ///     Some("2025-12-31T23:59:59Z"),
+    ///     Some("2024-01-01T00:00:00Z"),
+    ///     Some("2024-12-31T23:59:59Z"),
     /// ).await?;
     /// # Ok(())
     /// # }

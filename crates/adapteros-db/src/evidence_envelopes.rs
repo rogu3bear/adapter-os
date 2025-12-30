@@ -174,7 +174,7 @@ impl Db {
             // This is the first entry in the chain
             if envelope.previous_root.is_some() {
                 return Err(evidence_chain_divergence(format!(
-                    "CHAIN_SEQUENCE_FIRST_ENTRY_INVALID: First envelope in chain must have \
+                    "CHAIN_SEQUENCE_FIRST_ENTRY_INVALID: unexpected previous_root. First envelope in chain must have \
                      previous_root = None, but got previous_root = {}. \
                      First entries cannot reference a prior envelope.",
                     envelope
@@ -218,7 +218,7 @@ impl Db {
             }
             (Some(prev), None) => {
                 return Err(evidence_chain_divergence(format!(
-                    "PREVIOUS_ROOT_UNEXPECTED: Envelope claims previous_root = {}, but \
+                    "PREVIOUS_ROOT_UNEXPECTED: unexpected previous_root. Envelope claims previous_root = {}, but \
                      chain is empty. First envelope must have previous_root = None.",
                     prev.to_short_hex()
                 )));
