@@ -6,15 +6,15 @@ This guide explains how to use the Server-Sent Events (SSE) streaming infrastruc
 
 The streaming infrastructure provides real-time event updates across 7 major endpoints:
 
-| Endpoint | Purpose | Event Type | Frequency |
-|----------|---------|-----------|-----------|
-| `/v1/streams/training` | Training job progress | `TrainingStreamEvent` | Variable |
-| `/v1/streams/discovery` | Adapter discovery | `DiscoveryStreamEvent` | Variable |
-| `/v1/streams/contacts` | Collaboration events | `ContactStreamEvent` | Variable |
-| `/v1/streams/file-changes` | File system changes | `FileChangeStreamEvent` | Variable |
-| `/v1/stream/metrics` | System metrics | `MetricsStreamEvent` | 5-sec interval |
-| `/v1/stream/telemetry` | Telemetry events | `TelemetryStreamEvent` | Variable |
-| `/v1/stream/adapters` | Adapter lifecycle | `AdapterStreamEvent` | Variable |
+| Endpoint | Purpose | Event Type | Frequency | Codebase Context |
+|----------|---------|-----------|-----------|------------------|
+| `/v1/streams/training` | Training job progress | `TrainingStreamEvent` | Variable | ✓ Includes codebase metadata |
+| `/v1/streams/discovery` | Adapter discovery | `DiscoveryStreamEvent` | Variable | – |
+| `/v1/streams/contacts` | Collaboration events | `ContactStreamEvent` | Variable | – |
+| `/v1/streams/file-changes` | File system changes | `FileChangeStreamEvent` | Variable | ✓ Contributes to context |
+| `/v1/stream/metrics` | System metrics | `MetricsStreamEvent` | 5-sec interval | – |
+| `/v1/stream/telemetry` | Telemetry events | `TelemetryStreamEvent` | Variable | – |
+| `/v1/stream/adapters` | Adapter lifecycle | `AdapterStreamEvent` | Variable | ✓ Codebase state transitions |
 
 ## Architecture
 
@@ -140,6 +140,134 @@ interface AdapterStateTransitionEvent {
 ```
 
 See `src/api/streaming-types.ts` for complete type definitions.
+
+### Codebase Adapter Context Capture
+
+When a session is bound to a codebase adapter, specific streams contribute to the adapter's evolving context. This context is used for training and deterministic replay.
+
+#### Streams That Contribute to Codebase Context
+
+| Stream | Context Contribution | When Captured |
+|--------|---------------------|---------------|
+| `/v1/streams/file-changes` | Repository file modifications, additions, deletions | Real-time as files change |
+| `/v1/streams/training` | Training progress with codebase metadata | During codebase adapter training |
+| `/v1/stream/adapters` | Codebase adapter state transitions (bind/unbind/freeze) | On lifecycle events |
+
+#### File Changes Stream for Codebase Adapters
+
+The file-changes stream emits events that are recorded as part of the codebase adapter's context digest:
+
+```typescript
+interface CodebaseFileChangeEvent extends FileChangeStreamEvent {
+  // Standard file change fields
+  path: string;
+  change_type: 'created' | 'modified' | 'deleted' | 'renamed';
+  timestamp: string;
+
+  // Codebase-specific fields (present when session is bound)
+  codebase_adapter_id?: string;
+  stream_id?: string;
+  context_contribution?: {
+    diff_hash: string;
+    lines_added: number;
+    lines_removed: number;
+  };
+}
+```
+
+#### Filtering Codebase Events
+
+To filter for events relevant to a specific codebase adapter:
+
+```typescript
+import { useFileChangesStream, useAdaptersStream } from '../hooks/useStreamingEndpoints';
+
+function CodebaseContextMonitor({ codebaseAdapterId }: { codebaseAdapterId: string }) {
+  const [contextEvents, setContextEvents] = useState<CodebaseFileChangeEvent[]>([]);
+
+  // Filter file changes for this codebase adapter
+  useFileChangesStream({
+    onMessage: (event) => {
+      if ('codebase_adapter_id' in event && event.codebase_adapter_id === codebaseAdapterId) {
+        setContextEvents((prev) => [...prev, event].slice(-50));
+      }
+    },
+  });
+
+  // Track codebase adapter state transitions
+  const [adapterState, setAdapterState] = useState<string>('unknown');
+  useAdaptersStream({
+    onMessage: (event) => {
+      if ('adapter_id' in event && event.adapter_id === codebaseAdapterId) {
+        setAdapterState(event.new_state);
+      }
+    },
+  });
+
+  return (
+    <div>
+      <p>Adapter State: {adapterState}</p>
+      <p>Context Events: {contextEvents.length}</p>
+      <EventList events={contextEvents} />
+    </div>
+  );
+}
+```
+
+#### Training Stream with Codebase Metadata
+
+When training a codebase adapter, the training stream includes additional metadata:
+
+```typescript
+interface CodebaseTrainingProgressEvent extends TrainingProgressEvent {
+  // Standard training fields
+  job_id: string;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+  progress_pct: number;
+
+  // Codebase-specific fields
+  codebase_metadata?: {
+    repo_id: string;
+    repo_commit: string;
+    base_adapter_id: string;
+    context_digest: string;
+    version: string;
+  };
+}
+```
+
+#### Context Accumulation Pattern
+
+For codebase adapters, context accumulates across the session until the adapter is frozen:
+
+```typescript
+function CodebaseContextAccumulator({ sessionId }: { sessionId: string }) {
+  const [contextDigest, setContextDigest] = useState<string | null>(null);
+  const [eventCount, setEventCount] = useState(0);
+
+  useFileChangesStream({
+    onMessage: (event) => {
+      if ('context_contribution' in event) {
+        setEventCount((c) => c + 1);
+        // Server maintains running digest; this is for display only
+        if (event.context_contribution?.diff_hash) {
+          setContextDigest(event.context_contribution.diff_hash);
+        }
+      }
+    },
+  });
+
+  return (
+    <div className="context-status">
+      <span>Session: {sessionId}</span>
+      <span>Context Events: {eventCount}</span>
+      {contextDigest && <span>Latest Digest: {contextDigest.slice(0, 8)}...</span>}
+    </div>
+  );
+}
+```
+
+> **Note**: The context digest is computed server-side and included in the codebase adapter's manifest. Client-side event counts are for display purposes; the authoritative context is maintained by the backend.
 
 ## Advanced Patterns
 

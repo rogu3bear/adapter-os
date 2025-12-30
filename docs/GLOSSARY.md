@@ -8,9 +8,9 @@
 ## A
 
 ### Adapter
-A small AI module specialized for a specific task (like Python coding or Django debugging). Adapters are LoRA (Low-Rank Adaptation) modules that modify base model behavior. They are loaded dynamically based on routing decisions, memory-efficient with shared base model, and tiered by importance and activation frequency.
+A small AI module specialized for a specific task (like Python coding or Django debugging). Adapters are LoRA (Low-Rank Adaptation) modules that modify base model behavior. They are classified into domains: **core** (baseline), **codebase** (stream-scoped), or **portable/standard** (general-purpose). Adapters are loaded dynamically based on routing decisions, memory-efficient with shared base model, and tiered by importance and activation frequency.
 
-**See also:** [LoRA](#lora), [Router](#router)
+**See also:** [LoRA](#lora), [Router](#router), [Core Adapter](#core-adapter), [Codebase Adapter](#codebase-adapter), [Portable Adapter](#portable-adapter)
 
 ---
 
@@ -18,6 +18,16 @@ A small AI module specialized for a specific task (like Python coding or Django 
 
 ### Circuit Breaker
 Safety mechanism that stops processing when too many errors occur. Prevents cascading failures and protects system stability.
+
+### Codebase Adapter
+A stream-scoped adapter representing repository state combined with session context. Codebase adapters require a base adapter ID (core adapter), support auto-versioning, and are exclusively bound to a single inference stream. **One codebase adapter per stream.** They evolve over time and must be versioned when context grows.
+
+**See also:** [Adapter](#adapter), [Core Adapter](#core-adapter), [Portable Adapter](#portable-adapter), [Stream-Bound Adapter](#stream-bound-adapter)
+
+### Core Adapter
+A baseline adapter (like `adapteros.aos`) that serves as the delta base for codebase adapters. Core adapters are stable reference points, rarely modified directly, and versioned independently of their dependents.
+
+**See also:** [Adapter](#adapter), [Codebase Adapter](#codebase-adapter)
 
 ### Control Plane
 The management system that coordinates everything in AdapterOS. Includes the API server, job orchestration, telemetry indexing, and policy enforcement.
@@ -58,10 +68,33 @@ Removing something from memory to free up space. AdapterOS uses intelligent evic
 
 ---
 
+## F
+
+### Frozen Adapter
+An adapter whose state has been locked for deterministic CoreML export. Freezing captures weights, manifest, and configuration at a point in time. Frozen is a **property**, not a lifecycle state—an Active adapter can be frozen without changing its business state. Codebase adapters must be frozen before CoreML export.
+
+**See also:** [Frozen CoreML Package](#frozen-coreml-package), [Codebase Adapter](#codebase-adapter)
+
+### Frozen CoreML Package
+The output of exporting a frozen adapter to CoreML format. Contains fused weights and `adapteros_coreml_fusion.json` metadata with BLAKE3 hashes for integrity verification of base manifest, fused manifest, and adapter payload.
+
+**See also:** [Frozen Adapter](#frozen-adapter), [Deterministic](#deterministic)
+
+---
+
 ## G
 
 ### Gateway
 Entry point that checks security before allowing access. Validates authentication, authorization, and policy compliance before forwarding requests.
+
+---
+
+## H
+
+### Hot-Swap Adapter
+An adapter that supports live replacement without service interruption. Uses atomic pointer updates (CAS) and memory pooling so that in-flight requests complete with the old version while new requests use the new version. CoreML uses fused packages and does not support per-token hot-swap; use MLX/Metal for live adapters.
+
+**See also:** [Adapter](#adapter), [Frozen Adapter](#frozen-adapter)
 
 ---
 
@@ -129,6 +162,11 @@ A set of rules the system must follow. AdapterOS enforces 25 canonical policy pa
 
 **See also:** [Policy Packs](POLICIES.md)
 
+### Portable Adapter
+The default adapter type (also called "standard"). Portable adapters are `.aos` files that can be freely shared, loaded across streams/sessions, and registered from external sources without stream binding constraints.
+
+**See also:** [Adapter](#adapter), [Codebase Adapter](#codebase-adapter), [Core Adapter](#core-adapter)
+
 ---
 
 ## Q
@@ -155,6 +193,15 @@ Decides which adapters to use for each question. The router:
 - Enforces entropy floor to prevent single-adapter collapse
 
 **See also:** [K-sparse](#k-sparse), [Router Policy](POLICIES.md#3-router)
+
+---
+
+## S
+
+### Stream-Bound Adapter
+An adapter tied to a specific inference stream, unable to serve requests in other streams simultaneously. Currently only codebase adapters support stream binding. Enforced via database unique constraint on `(stream_session_id, adapter_type='codebase', active=1)`.
+
+**See also:** [Codebase Adapter](#codebase-adapter), [Inference](#inference)
 
 ---
 

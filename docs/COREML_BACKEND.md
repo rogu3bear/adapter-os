@@ -27,7 +27,9 @@ The CoreML backend enables **Apple Neural Engine (ANE)** acceleration for LoRA i
 
 ### Status
 
-**Fully implemented and operational.** The Swift bridge, MLTensor API wrapper, and adapter loading are complete.
+**Operational for fused packages; runtime LoRA is limited; use MLX/Metal for live adapters.**
+
+The Swift bridge, MLTensor API wrapper, and adapter loading are complete. Pre-fusion path is production-ready. Runtime sidecar remains stub mode for hot-swap scenarios.
 
 ### When to Use CoreML
 
@@ -38,6 +40,36 @@ The CoreML backend enables **Apple Neural Engine (ANE)** acceleration for LoRA i
 | M1+ devices with ANE available | **CoreML** | Maximum TOPS/watt |
 | Production inference and training | **MLX** | Flexible, HKDF-seeded determinism |
 | Legacy/non-ANE systems | **Metal** | Fallback for pre-M1 hardware |
+| **Live codebase adapters** | **MLX/Metal** | Requires hot-swap capability |
+
+### Adapter Constraints
+
+CoreML backend uses **fused packages** where LoRA weights are pre-merged into base model weights at build time. This architecture has specific implications:
+
+| Constraint | Description | Workaround |
+|------------|-------------|------------|
+| **No Per-Token Hot-Swap** | CoreML packages are compiled; cannot swap adapters during inference | Use MLX/Metal for live adapter switching |
+| **Pre-Fusion Required** | LoRA must be fused before CoreML export | Run `fuse_lora_into_model()` before export |
+| **Codebase Adapters** | Must be frozen (versioned) before CoreML export | Unbind session, trigger version, then export |
+| **Single Package Per Combo** | Each adapter combination needs separate `.mlpackage` | Use `FusedModelCache` for cache management |
+
+**Codebase Adapter → CoreML Flow:**
+
+```
+1. Live codebase adapter (bound to session, MLX/Metal backend)
+      ↓
+2. Unbind session → Version triggered
+      ↓
+3. Frozen codebase adapter (no longer live)
+      ↓
+4. Pre-fuse: fuse_lora_into_model(frozen_adapter + base)
+      ↓
+5. Export: convert_mlx_to_coreml.py
+      ↓
+6. Deploy fused CoreML package
+```
+
+**Note**: Live codebase adapters (bound to active sessions) cannot be exported to CoreML. They must be frozen first. See [COREML_LORA_WORKFLOWS.md](./COREML_LORA_WORKFLOWS.md) for detailed workflow.
 
 ---
 

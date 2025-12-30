@@ -1185,6 +1185,185 @@ curl -X POST "$AOS_BASE_URL/v1/adapter-versions/draft" \
 
 ---
 
+## Codebase Adapters
+
+Codebase adapters are stream-scoped adapters trained on repository snapshots. They include additional metadata fields and enforce a single-stream constraint.
+
+### Example Adapter Manifest with Codebase Metadata
+
+**Response from `GET /v1/adapters/{adapter_id}`:**
+
+```json
+{
+  "schema_version": "1.0",
+  "id": "code.myproject.a1b2c3d4",
+  "adapter_id": "code.myproject.a1b2c3d4",
+  "name": "myproject-codebase-v1",
+  "hash_b3": "blake3:f1e2d3c4b5a6...",
+  "rank": 16,
+  "tier": "warm",
+  "framework": "pytorch",
+  "category": "codebase",
+  "scope": "repo",
+  "adapter_type": "codebase",
+  "base_adapter_id": "core-rust-expert-v2",
+  "lifecycle_state": "active",
+  "runtime_state": "warm",
+  "created_at": "2025-12-24T10:30:00Z",
+  "updated_at": "2025-12-24T15:45:00Z",
+  "version": "1.2.3",
+
+  "repo_id": "acme-corp/backend-service",
+  "commit_sha": "a1b2c3d4e5f6g7h8i9j0",
+  "stream_session_id": "session-xyz789",
+  "versioning_threshold": 100,
+  "coreml_package_hash": null,
+
+  "codebase_metadata": {
+    "repo_commit": "a1b2c3d4e5f6g7h8i9j0",
+    "parent_version": "code.myproject.prev123",
+    "context_digest": "blake3:1a2b3c4d5e6f...",
+    "frozen": false,
+    "training_backend": "mlx",
+    "base_model_hash": "blake3:base123..."
+  }
+}
+```
+
+### Codebase Metadata Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `repo_id` | string | Repository identifier (e.g., "owner/repo") |
+| `repo_commit` | string | Git commit SHA at training time |
+| `stream_session_id` | string | Exclusive session binding |
+| `parent_version` | string | Previous version ID for lineage tracking |
+| `context_digest` | string | BLAKE3 hash of accumulated stream context |
+| `frozen` | boolean | `true` = locked for CoreML export, `false` = live updates allowed |
+| `base_adapter_id` | string | Core adapter this codebase adapter extends |
+| `coreml_package_hash` | string | BLAKE3 hash of exported CoreML package (when frozen) |
+
+### Single-Stream Rule
+
+**Constraint:** Only one codebase adapter may be active per stream (session) at a time.
+
+**Conflict Error Response:**
+
+```bash
+curl -X POST "$AOS_BASE_URL/v1/adapters/code.myproject.new123/activate" \
+  -H "Authorization: Bearer $AOS_TOKEN"
+```
+
+**Error Response (409 Conflict):**
+
+```json
+{
+  "schema_version": "1.0",
+  "error": "Cannot activate adapter: conflicting codebase adapter already active for stream",
+  "code": "CONFLICTING_ACTIVE_ADAPTER",
+  "details": {
+    "conflicting_adapter_id": "code.myproject.old456",
+    "stream_session_id": "session-xyz789",
+    "resolution": "Deactivate the conflicting adapter first"
+  }
+}
+```
+
+### Create Codebase Adapter
+
+**Endpoint:** `POST /v1/adapters/codebase`
+
+```bash
+curl -X POST "$AOS_BASE_URL/v1/adapters/codebase" \
+  -H "Authorization: Bearer $AOS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "adapter_id": "code.myproject.a1b2c3d4",
+    "base_adapter_id": "core-rust-expert-v2",
+    "repo_id": "acme-corp/backend-service",
+    "commit_sha": "a1b2c3d4e5f6g7h8i9j0",
+    "manifest_hash": "blake3:f1e2d3c4...",
+    "session_id": "session-xyz789",
+    "versioning_threshold": 100
+  }'
+```
+
+**Response (201 Created):**
+
+```json
+{
+  "adapter_id": "code.myproject.a1b2c3d4",
+  "base_adapter_id": "core-rust-expert-v2",
+  "version": "0.0.1",
+  "stream_session_id": "session-xyz789",
+  "frozen": false,
+  "created_at": "2025-12-24T10:30:00Z"
+}
+```
+
+### Verify Deployment Readiness
+
+**Endpoint:** `POST /v1/adapters/codebase/{adapter_id}/verify`
+
+```bash
+curl -X POST "$AOS_BASE_URL/v1/adapters/codebase/code.myproject.a1b2c3d4/verify" \
+  -H "Authorization: Bearer $AOS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "repo_path": "/path/to/repo",
+    "expected_manifest_hash": "blake3:f1e2d3c4...",
+    "session_id": "session-xyz789"
+  }'
+```
+
+**Response (200 OK):**
+
+```json
+{
+  "adapter_id": "code.myproject.a1b2c3d4",
+  "ready": true,
+  "checks": [
+    { "name": "repo_clean", "passed": true, "details": "No uncommitted changes" },
+    { "name": "manifest_hash", "passed": true, "details": "Hash matches" },
+    { "name": "session_conflict", "passed": true, "details": "No conflicts" },
+    { "name": "coreml_hash", "passed": true, "details": "Skipped: not frozen" }
+  ],
+  "verified_at": "2025-12-24T16:00:00Z"
+}
+```
+
+### Bind/Unbind Session
+
+**Bind to Session:**
+
+```bash
+curl -X POST "$AOS_BASE_URL/v1/adapters/codebase/code.myproject.a1b2c3d4/bind" \
+  -H "Authorization: Bearer $AOS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"session_id": "session-xyz789"}'
+```
+
+**Unbind from Session (triggers versioning):**
+
+```bash
+curl -X POST "$AOS_BASE_URL/v1/adapters/codebase/code.myproject.a1b2c3d4/unbind" \
+  -H "Authorization: Bearer $AOS_TOKEN"
+```
+
+**Response:**
+
+```json
+{
+  "adapter_id": "code.myproject.a1b2c3d4",
+  "previous_session_id": "session-xyz789",
+  "new_version": "1.2.4",
+  "frozen": true,
+  "unbound_at": "2025-12-24T17:00:00Z"
+}
+```
+
+---
+
 ## Complete Workflows
 
 ### Workflow 1: Register, Load, and Activate Adapter

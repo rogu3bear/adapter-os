@@ -315,6 +315,158 @@ let config = TrainingConfig::default()
 
 ---
 
+## Codebase Training Pipeline
+
+Codebase adapters are stream-scoped adapters trained on repository snapshots and streaming context. They extend a base (core) adapter with project-specific knowledge and require additional gating checks before deployment.
+
+### Training Inputs
+
+Codebase adapter training combines two input sources:
+
+**1. Repository Snapshot:**
+- `repo_id`: Repository identifier (e.g., "owner/repo")
+- `repo_commit`: Git commit SHA at training time
+- `manifest_hash`: BLAKE3 hash of the adapter manifest
+
+**2. Stream Context:**
+- `stream_id`: The bound chat session ID
+- `context_digest`: BLAKE3 hash of accumulated stream context
+
+```
+┌─────────────────────┐     ┌─────────────────────┐
+│  Repository State   │     │   Stream Context    │
+│  ─────────────────  │     │  ─────────────────  │
+│  repo_id            │     │  session_id         │
+│  commit_sha         │     │  context_digest     │
+│  manifest_hash      │     │  message_history    │
+└─────────┬───────────┘     └──────────┬──────────┘
+          │                            │
+          └──────────────┬─────────────┘
+                         ▼
+              ┌─────────────────────┐
+              │  Training Pipeline  │
+              │  ─────────────────  │
+              │  Base: core adapter │
+              │  Backend: MLX/Metal │
+              └──────────┬──────────┘
+                         ▼
+              ┌─────────────────────┐
+              │  Codebase Adapter   │
+              │  ─────────────────  │
+              │  Stream-bound       │
+              │  Auto-versioned     │
+              └─────────────────────┘
+```
+
+### Deployment Gating Checks
+
+Before a codebase adapter can be deployed/activated, the following preflight checks must pass:
+
+| Check | Description | Error Code |
+|-------|-------------|------------|
+| **Repo Clean** | Repository has no uncommitted changes | `REPO_NOT_CLEAN` |
+| **Base Model Hash Match** | Adapter was trained against the current base model | `BASE_MODEL_MISMATCH` |
+| **No Conflicting Adapter** | No other codebase adapter active for the same stream | `CONFLICTING_ACTIVE_ADAPTER` |
+| **CoreML Metadata Present** | If frozen, CoreML export metadata must exist | `MISSING_COREML_METADATA` |
+| **Manifest Hash Valid** | Manifest hash matches expected value | `MANIFEST_HASH_MISMATCH` |
+
+**Verification API:**
+
+```bash
+curl -X POST "$AOS_BASE_URL/v1/adapters/codebase/$ADAPTER_ID/verify" \
+  -H "Authorization: Bearer $AOS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "repo_path": "/path/to/repo",
+    "expected_manifest_hash": "blake3:f1e2d3c4...",
+    "session_id": "session-xyz789"
+  }'
+```
+
+### Promotion Rule: Live to Frozen
+
+Codebase adapters follow a specific promotion path for deterministic release:
+
+```
+live (MLX/Metal) → freeze → CoreML export → deterministic release
+```
+
+**States:**
+
+1. **Live** (`frozen=false`): Adapter runs on MLX/Metal backend, may receive incremental updates from the session
+2. **Frozen** (`frozen=true`): Adapter locked for CoreML export, no further updates accepted
+3. **CoreML Exported**: Adapter has a verified CoreML package for ANE deployment
+
+**Freezing a Codebase Adapter:**
+
+```bash
+# Unbind triggers automatic versioning and freezing
+curl -X POST "$AOS_BASE_URL/v1/adapters/codebase/$ADAPTER_ID/unbind" \
+  -H "Authorization: Bearer $AOS_TOKEN"
+
+# Verify frozen state
+curl "$AOS_BASE_URL/v1/adapters/codebase/$ADAPTER_ID" \
+  -H "Authorization: Bearer $AOS_TOKEN"
+# Response includes: "frozen": true, "coreml_package_hash": null
+
+# Export to CoreML (after freezing)
+curl -X POST "$AOS_BASE_URL/v1/adapters/$ADAPTER_ID/export/coreml" \
+  -H "Authorization: Bearer $AOS_TOKEN"
+```
+
+### Single-Stream Rule
+
+A critical constraint for codebase adapters:
+
+> **Only one codebase adapter may be active per stream (session) at a time.**
+
+This ensures deterministic behavior and prevents conflicts from multiple adapters trying to serve the same development context.
+
+**Conflict Detection:**
+- When activating a codebase adapter, the system checks for existing active adapters on the same stream
+- If a conflict exists, activation fails with `CONFLICTING_ACTIVE_ADAPTER`
+- The conflicting adapter must be explicitly deactivated first
+
+### UI Session Binding
+
+From the user interface perspective, codebase adapter binding happens at session start:
+
+```
+┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
+│  User starts     │ ──► │  System checks   │ ──► │  Session bound   │
+│  chat session    │     │  for existing    │     │  to adapter      │
+│                  │     │  codebase adapter│     │                  │
+└──────────────────┘     └──────────────────┘     └──────────────────┘
+                                 │
+                                 ▼
+                         ┌──────────────────┐
+                         │  If none exists, │
+                         │  create new      │
+                         │  codebase adapter│
+                         └──────────────────┘
+```
+
+**Binding Behavior:**
+1. **Session Creation**: When a chat session is created with a codebase context, the UI can specify an initial adapter binding
+2. **Automatic Binding**: If `session_id` is provided in the `CreateCodebaseAdapterRequest`, the adapter binds immediately
+3. **Exclusive Binding**: Once bound, the adapter is exclusively tied to that session until unbound
+4. **Versioning on Unbind**: When a session ends, the adapter auto-versions based on `versioning_threshold`
+
+### Codebase Adapter Configuration Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `repo_id` | string | Repository identifier |
+| `repo_commit` | string | Git commit SHA |
+| `stream_id` | string | Bound session ID |
+| `context_digest` | string | BLAKE3 hash of stream context |
+| `parent_version` | string | Previous adapter version ID (for lineage) |
+| `frozen` | boolean | Whether adapter is locked for CoreML export |
+| `base_adapter_id` | string | Core adapter this codebase extends |
+| `versioning_threshold` | integer | Activation count before auto-version (default: 100) |
+
+---
+
 ## GPU Integration
 
 ### Available Backends

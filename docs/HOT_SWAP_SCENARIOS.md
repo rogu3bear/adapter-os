@@ -227,6 +227,84 @@ sequenceDiagram
 
 ---
 
+## Codebase Adapter Stream Exclusivity
+
+Codebase adapters have a **one-per-stream constraint**: only one codebase adapter can be active in a given inference stream at any time.
+
+### One Codebase Adapter Per Stream
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant API
+    participant Router
+    participant CodebaseAdapter as Codebase Adapter A
+
+    Client->>API: Start session (bind codebase-A)
+    API->>Router: Pin codebase-A to stream
+    Note over Router: Stream exclusively uses codebase-A
+
+    Client->>API: Request inference
+    API->>Router: Route with pinned adapter
+    Router->>CodebaseAdapter: Forward to codebase-A only
+    CodebaseAdapter-->>Router: Response
+
+    Client->>API: Attempt to add codebase-B
+    API-->>Client: 409 Conflict: Stream already has codebase adapter
+```
+
+### Why This Constraint Exists
+
+1. **Request Pinning**: Each inference request pins a specific adapter stack. Mixing codebase adapters within a single stream would create:
+   - Inconsistent context (different repo states)
+   - Non-deterministic routing
+   - Broken replay guarantees
+
+2. **Session Context Coherence**: A codebase adapter represents a specific repository state + session context. Mixing adapters would blend incompatible contexts.
+
+3. **Deterministic Replay**: Replay requires knowing exactly which adapter processed each request. Multiple codebase adapters per stream breaks this invariant.
+
+### Request Pinning Prevents Mixing
+
+The request pinning mechanism (`RequestPinner`) captures the adapter stack at request start:
+
+```rust
+// Pin captures current codebase adapter
+let pinned = pinner.pin()?;
+
+// If session has codebase adapter, it's included in pins
+assert!(pinned.has_codebase_adapter());
+
+// Inference uses ONLY the pinned adapter stack
+for token in generate_tokens(prompt) {
+    // All tokens use same codebase adapter (from pin)
+    let logits = kernels.forward(token, pinned.adapters())?;
+}
+
+// Drop releases pins; adapter can now be swapped
+drop(pinned);
+```
+
+### Swapping Codebase Adapters Between Requests
+
+While a stream can only have one codebase adapter per request, you can swap between requests:
+
+```bash
+# Request 1: Uses codebase-A
+curl -X POST "$AOS_BASE_URL/v1/infer" -d '{"session_id": "s1", "prompt": "..."}'
+
+# Unbind codebase-A, bind codebase-B
+curl -X POST "$AOS_BASE_URL/v1/adapters/codebase/codebase-A/unbind"
+curl -X POST "$AOS_BASE_URL/v1/adapters/codebase/codebase-B/bind" -d '{"session_id": "s1"}'
+
+# Request 2: Uses codebase-B (different adapter)
+curl -X POST "$AOS_BASE_URL/v1/infer" -d '{"session_id": "s1", "prompt": "..."}'
+```
+
+**Note**: Swapping triggers versioning on unbind, creating an audit trail.
+
+---
+
 ## Request Pinning and RCU
 
 ### Request Pinning

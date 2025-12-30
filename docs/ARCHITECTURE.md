@@ -35,6 +35,16 @@ AdapterOS is an ML inference platform with an offline-capable, UMA-optimized orc
 - **Hot-swap adapters** without service interruption
 - **Multi-backend support**: CoreML/ANE (primary), Metal, MLX
 
+### Backend Execution Modes
+
+AdapterOS supports two backend execution modes with different adapter handling:
+
+- **CoreML/ANE (Primary)**: Uses **frozen CoreML packages** exported from adapters. Packages are deterministic, pre-fused, and verified via BLAKE3 hash metadata. Adapters must be frozen before CoreML export to ensure weight immutability. Best for production deployments.
+
+- **MLX/Metal (Dynamic)**: Supports **hot-swap adapters** with live replacement during inference. Uses atomic pointer updates for zero-downtime updates and rollbacks. Required for live codebase adapters that receive incremental updates.
+
+The backend selection is deterministic based on capabilities and configuration. See [BACKEND_SELECTION.md](BACKEND_SELECTION.md) for details.
+
 ### System Architecture Diagram
 
 ```mermaid
@@ -200,6 +210,44 @@ Unloaded → Cold → Warm → Hot → Resident
 | 64+N   | M      | Manifest (JSON metadata)                 |
 +--------+--------+------------------------------------------+
 ```
+
+#### Adapter Domains
+
+Adapters are classified into three domains based on their purpose and lifecycle constraints:
+
+| Domain | Description | Stream Bound | Auto-Version | Requires Base |
+|--------|-------------|--------------|--------------|---------------|
+| **Core** | Baseline adapters (e.g., `adapteros.aos`). Stable reference points that serve as delta bases for codebase adapters. | No | No | No |
+| **Codebase** | Stream-scoped adapters combining repo state with session context. Tied exclusively to a single inference stream. | Yes | Yes | Yes |
+| **Standard** (Portable) | General-purpose `.aos` adapters. Can be freely shared and loaded across sessions. Default type. | No | No | No |
+
+**Codebase Adapter Rules:**
+
+1. **Exclusive Stream Binding**: One codebase adapter per inference stream (enforced via database unique index)
+2. **Base Adapter Requirement**: Must declare `base_adapter_id` pointing to a core adapter
+3. **Auto-Versioning**: When `activation_count >= versioning_threshold`, system triggers versioning
+4. **Deployment Verification**: Requires repo clean state and manifest hash match before activation
+5. **Frozen Before CoreML**: Codebase adapters must be frozen (versioned and unbound) before CoreML export
+
+**Session Start Flow:**
+
+```
+Session Start
+     │
+     ├─► Backend Selection (CoreML/ANE vs MLX/Metal)
+     │
+     ├─► Adapter Domain Selection
+     │       ├─► Core adapter as base (if codebase required)
+     │       ├─► Codebase adapter binding (exclusive to stream)
+     │       └─► Portable adapters (freely loaded)
+     │
+     └─► Stack Activation
+```
+
+**Code References:**
+- Adapter type enum: `crates/adapteros-core/src/adapter_type.rs`
+- Database schema: `migrations/0261_codebase_adapter_type.sql`
+- Session binding: `migrations/0262_session_codebase_binding.sql`
 
 ---
 

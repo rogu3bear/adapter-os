@@ -273,6 +273,79 @@ impl LifecycleState {
 
 ---
 
+### Codebase Adapter Constraints
+
+Codebase adapters have additional lifecycle constraints beyond standard adapters.
+
+#### Uniqueness Constraint
+
+**One codebase adapter per stream**: Only one codebase adapter can be active (`lifecycle_state = 'active'`) per inference stream at any time. This is enforced at the database level:
+
+```sql
+CREATE UNIQUE INDEX idx_adapters_codebase_session_unique
+    ON adapters(stream_session_id)
+    WHERE adapter_type = 'codebase'
+      AND stream_session_id IS NOT NULL
+      AND active = 1;
+```
+
+Attempts to bind a second codebase adapter to a stream will fail with a constraint violation.
+
+#### Versioning Requirements
+
+Codebase adapters evolve as context grows and must be versioned:
+
+1. **Auto-versioning Trigger**: When `activation_count >= versioning_threshold` (default: 100)
+2. **Manual Versioning**: Via API endpoint `POST /v1/adapters/codebase/:id/version`
+3. **Version Lineage**: New version records `parent_id` pointing to previous version
+
+Versioning creates a new adapter record with incremented version, preserving the lineage chain.
+
+#### Frozen State for CoreML Export
+
+**Design Decision**: "Frozen" is implemented as a **property**, not a lifecycle state, because:
+1. Freezing is orthogonal to business lifecycle (an Active adapter can be frozen)
+2. Multiple frozen exports can exist for different adapter versions
+3. Freezing does not prevent runtime state transitions (unloaded ↔ loaded)
+
+**Frozen Property Fields:**
+- `coreml_package_hash`: BLAKE3 hash of frozen CoreML package (set when frozen)
+- Presence of `coreml_package_hash` indicates adapter has been frozen for CoreML
+
+**Frozen Adapter Behavior:**
+
+| Aspect | Behavior |
+|--------|----------|
+| Weight Modification | Blocked after freezing (hash would change) |
+| Lifecycle Transitions | Allowed (frozen adapters can be promoted/deprecated) |
+| Runtime States | Allowed (can be loaded/unloaded normally) |
+| Re-export | Creates new frozen package with new hash |
+
+**Mapping to Business States:**
+
+| Business State | Can Be Frozen? | Notes |
+|----------------|----------------|-------|
+| Draft | No | No weights to freeze |
+| Training | No | Weights not finalized |
+| Ready | Yes | Weights available, not yet active |
+| Active | Yes | Production adapter, common freeze point |
+| Deprecated | Yes | Freeze for archival before retirement |
+| Retired | No | Adapter no longer available |
+| Failed | No | Invalid state |
+
+#### Deployment Verification
+
+Before a codebase adapter can transition from Ready → Active, deployment verification checks:
+
+1. **Repo Clean State**: Working directory matches expected commit SHA
+2. **Manifest Hash Match**: Adapter manifest hash matches recorded value
+3. **CoreML Hash Match** (if frozen): Fused package hash matches `coreml_package_hash`
+4. **Session Conflict Check**: No other codebase adapter active on target stream
+
+Verification is performed via `POST /v1/adapters/codebase/:id/verify` and must pass before activation.
+
+---
+
 ## Runtime Lifecycle States
 
 The runtime lifecycle enum (`adapteros_lora_worker::lifecycle_state::LifecycleState`) tracks memory state:
