@@ -1,0 +1,57 @@
+[package]
+name = "adapteros-web-browse"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Web browsing service for live data retrieval in AdapterOS"
+
+[dependencies]
+# Core
+adapteros-core = { path = "../adapteros-core" }
+adapteros-policy = { path = "../adapteros-policy" }
+adapteros-telemetry = { path = "../adapteros-telemetry" }
+
+# Async runtime
+tokio = { workspace = true, features = ["sync", "time"] }
+async-trait.workspace = true
+futures-util.workspace = true
+
+# HTTP client
+reqwest = { version = "0.12", features = ["json", "gzip", "brotli"] }
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+
+# Error handling
+thiserror.workspace = true
+anyhow.workspace = true
+
+# Caching
+moka = { version = "0.12", features = ["future"] }
+
+# Rate limiting
+governor = "0.6"
+
+# HTML parsing
+scraper = "0.18"
+
+# Crypto for cache keys
+sha2 = "0.10"
+hex = "0.4"
+
+# Time
+chrono = { workspace = true, features = ["serde"] }
+
+# URL handling
+url = "2.5"
+
+# Tracing
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+mockall = "0.12"
+wiremock = "0.6"
