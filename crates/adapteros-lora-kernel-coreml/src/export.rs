@@ -44,6 +44,8 @@ pub struct CoreMLExportOutcome {
     pub base_manifest_hash: B3Hash,
     pub fused_manifest_hash: B3Hash,
     pub adapter_hash: B3Hash,
+    #[serde(default)]
+    pub fusion_verified: bool,
 }
 
 /// Verification metadata for a fused CoreML package.
@@ -55,6 +57,8 @@ pub struct CoreMLFusionMetadata {
     pub base_package: PathBuf,
     pub fused_package: PathBuf,
     pub adapter_path: PathBuf,
+    #[serde(default)]
+    pub fusion_verified: bool,
 }
 
 impl CoreMLFusionMetadata {
@@ -138,6 +142,15 @@ pub fn export_coreml_adapter(req: &CoreMLExportRequest) -> Result<CoreMLExportOu
     }
 
     let fused_manifest_hash = hash_manifest(&fused_manifest_path)?;
+    let metadata_only = fused_manifest_hash == base_manifest_hash;
+    let fusion_verified = !metadata_only;
+    if metadata_only {
+        warn!(
+            base_hash = %base_manifest_hash,
+            fused_hash = %fused_manifest_hash,
+            "CoreML export produced metadata-only package (fused manifest matches base)"
+        );
+    }
 
     let metadata = CoreMLFusionMetadata {
         base_manifest_hash,
@@ -146,6 +159,7 @@ pub fn export_coreml_adapter(req: &CoreMLExportRequest) -> Result<CoreMLExportOu
         base_package: req.base_package.clone(),
         fused_package: req.output_package.clone(),
         adapter_path: req.adapter_aos.clone(),
+        fusion_verified,
     };
 
     let metadata_path = metadata_target_path(&req.output_package);
@@ -174,6 +188,7 @@ pub fn export_coreml_adapter(req: &CoreMLExportRequest) -> Result<CoreMLExportOu
         base = %req.base_package.display(),
         fused = %req.output_package.display(),
         metadata = %metadata_path.display(),
+        fusion_verified = fusion_verified,
         "CoreML export completed"
     );
 
@@ -183,6 +198,7 @@ pub fn export_coreml_adapter(req: &CoreMLExportRequest) -> Result<CoreMLExportOu
         base_manifest_hash,
         fused_manifest_hash,
         adapter_hash,
+        fusion_verified,
     })
 }
 

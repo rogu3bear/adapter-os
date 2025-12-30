@@ -1,5 +1,6 @@
 //! Adapter lifecycle management commands
 
+use crate::auth_store::load_auth;
 use crate::http_client::send_with_refresh_from_store;
 use crate::output::OutputWriter;
 use adapteros_aos::{parse_segments, AosWriter};
@@ -131,7 +132,7 @@ async fn directory_upsert(
 }
 
 /// Validate adapter ID format
-fn validate_adapter_id(adapter_id: &str) -> Result<()> {
+pub(crate) fn validate_adapter_id(adapter_id: &str) -> Result<()> {
     validation::validate_adapter_id(adapter_id)
 }
 
@@ -723,12 +724,32 @@ pub enum AdapterCommand {
         /// Adapter ID
         adapter_id: String,
 
-        /// New lifecycle state (draft, active, deprecated, retired)
+        /// New lifecycle state (draft, training, ready, active, deprecated, retired, failed)
         state: String,
 
         /// Tenant ID (defaults to 'default')
         #[arg(long, default_value = "default")]
         tenant: String,
+    },
+
+    /// Transition adapter lifecycle state (records history)
+    #[command(
+        after_help = "Examples:\n  aosctl adapter lifecycle-transition adapter-1 ready\n  aosctl adapter lifecycle-transition adapter-1 active --reason \"Promotion\"\n  aosctl adapter lifecycle-transition adapter-1 deprecated --initiated-by ci"
+    )]
+    LifecycleTransition {
+        /// Adapter ID
+        adapter_id: String,
+
+        /// New lifecycle state (draft, training, ready, active, deprecated, retired, failed)
+        state: String,
+
+        /// Reason for the transition (optional)
+        #[arg(long)]
+        reason: Option<String>,
+
+        /// Who initiated the transition (optional)
+        #[arg(long)]
+        initiated_by: Option<String>,
     },
 
     /// Register a packaged adapter by path (dir or weights file)
@@ -860,6 +881,119 @@ pub enum AdapterCommand {
         #[arg(long, default_value = "http://127.0.0.1:8080/api")]
         base_url: String,
     },
+
+    /// Load an adapter into memory for inference
+    #[command(
+        after_help = "Examples:\n  aosctl adapter load adapter-123\n  aosctl adapter load adapter-123 --timeout 120\n  aosctl adapter load adapter-123 --skip-preflight"
+    )]
+    Load {
+        /// Adapter ID to load
+        #[arg()]
+        adapter_id: String,
+
+        /// Timeout in seconds for load operation
+        #[arg(long, default_value = "60")]
+        timeout: u64,
+
+        /// Skip preflight checks before loading
+        #[arg(long)]
+        skip_preflight: bool,
+
+        /// Force load even if checks fail
+        #[arg(long)]
+        force: bool,
+
+        /// Server URL
+        #[arg(long, default_value = "http://127.0.0.1:8081")]
+        server_url: String,
+
+        /// Output JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Unload an adapter from memory
+    #[command(
+        after_help = "Examples:\n  aosctl adapter unload adapter-123\n  aosctl adapter unload adapter-123 --force"
+    )]
+    Unload {
+        /// Adapter ID to unload
+        #[arg()]
+        adapter_id: String,
+
+        /// Force unload even if adapter is in use
+        #[arg(long)]
+        force: bool,
+
+        /// Server URL
+        #[arg(long, default_value = "http://127.0.0.1:8081")]
+        server_url: String,
+
+        /// Output JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Repair missing hashes for legacy adapters
+    ///
+    /// Computes and updates missing content_hash_b3 and manifest_hash fields
+    /// that are required for preflight validation. Use this to unblock alias
+    /// swaps for adapters registered before hash fields became mandatory.
+    #[command(
+        name = "repair-hashes",
+        after_help = "Examples:\n  aosctl adapter repair-hashes --adapter-id my-adapter\n  aosctl adapter repair-hashes --tenant-id tenant-123 --dry-run\n  aosctl adapter repair-hashes --tenant-id tenant-123 --batch-size 50"
+    )]
+    RepairHashes {
+        /// Adapter ID to repair (mutually exclusive with --tenant-id)
+        #[arg(long)]
+        adapter_id: Option<String>,
+
+        /// Tenant ID for batch repair (mutually exclusive with --adapter-id)
+        #[arg(long)]
+        tenant_id: Option<String>,
+
+        /// Preview changes without updating database
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Maximum number of adapters to process in batch mode
+        #[arg(long, default_value = "100")]
+        batch_size: i64,
+
+        /// Output JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Batch migrate missing hashes for all legacy adapters
+    ///
+    /// Scans for adapters with missing content_hash_b3 or manifest_hash and
+    /// repairs them in batch. Use this to migrate all legacy adapters at once.
+    #[command(
+        name = "migrate-hashes",
+        after_help = "Examples:\n  aosctl adapter migrate-hashes --tenant-id tenant-123\n  aosctl adapter migrate-hashes --all-tenants --dry-run\n  aosctl adapter migrate-hashes --all-tenants --batch-size 50"
+    )]
+    MigrateHashes {
+        /// Tenant ID to migrate (mutually exclusive with --all-tenants)
+        #[arg(long)]
+        tenant_id: Option<String>,
+
+        /// Migrate all adapters across all tenants
+        #[arg(long, conflicts_with = "tenant_id")]
+        all_tenants: bool,
+
+        /// Preview changes without updating database
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Maximum number of adapters to process per tenant
+        #[arg(long, default_value = "100")]
+        batch_size: i64,
+
+        /// Output JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// Get adapter command name for telemetry
@@ -876,6 +1010,7 @@ fn get_adapter_command_name(cmd: &AdapterCommand) -> String {
         AdapterCommand::DirectoryUpsert { .. } => "adapter_directory_upsert".to_string(),
         AdapterCommand::VerifyGpu { .. } => "adapter_verify_gpu".to_string(),
         AdapterCommand::UpdateLifecycle { .. } => "adapter_update_lifecycle".to_string(),
+        AdapterCommand::LifecycleTransition { .. } => "adapter_lifecycle_transition".to_string(),
         AdapterCommand::Versions { .. } => "adapter_versions".to_string(),
         AdapterCommand::PromoteVersion { .. } => "adapter_promote_version".to_string(),
         AdapterCommand::RollbackVersion { .. } => "adapter_rollback_version".to_string(),
@@ -886,6 +1021,10 @@ fn get_adapter_command_name(cmd: &AdapterCommand) -> String {
         AdapterCommand::ListPinned { .. } => "adapter_list_pinned".to_string(),
         AdapterCommand::Export { .. } => "adapter_export".to_string(),
         AdapterCommand::Import { .. } => "adapter_import".to_string(),
+        AdapterCommand::Load { .. } => "adapter_load".to_string(),
+        AdapterCommand::Unload { .. } => "adapter_unload".to_string(),
+        AdapterCommand::RepairHashes { .. } => "adapter_repair_hashes".to_string(),
+        AdapterCommand::MigrateHashes { .. } => "adapter_migrate_hashes".to_string(),
     }
 }
 
@@ -903,6 +1042,7 @@ fn extract_tenant_from_adapter_command(cmd: &AdapterCommand) -> Option<String> {
         AdapterCommand::DirectoryUpsert { tenant, .. } => Some(tenant.clone()),
         AdapterCommand::VerifyGpu { tenant, .. } => tenant.clone(),
         AdapterCommand::UpdateLifecycle { tenant, .. } => Some(tenant.clone()),
+        AdapterCommand::LifecycleTransition { .. } => None,
         AdapterCommand::Versions { .. } => None,
         AdapterCommand::PromoteVersion { .. } => None,
         AdapterCommand::RollbackVersion { .. } => None,
@@ -913,6 +1053,10 @@ fn extract_tenant_from_adapter_command(cmd: &AdapterCommand) -> Option<String> {
         AdapterCommand::ListPinned { tenant } => Some(tenant.clone()),
         AdapterCommand::Export { .. } => None, // Export uses auth context
         AdapterCommand::Import { tenant, .. } => Some(tenant.clone()),
+        AdapterCommand::Load { .. } => None, // Load uses server auth
+        AdapterCommand::Unload { .. } => None, // Unload uses server auth
+        AdapterCommand::RepairHashes { tenant_id, .. } => tenant_id.clone(),
+        AdapterCommand::MigrateHashes { tenant_id, .. } => tenant_id.clone(),
     }
 }
 
@@ -1012,6 +1156,21 @@ pub async fn handle_adapter_command(cmd: AdapterCommand, output: &OutputWriter) 
             state,
             tenant,
         } => update_lifecycle(&adapter_id, &tenant, &state, output).await,
+        AdapterCommand::LifecycleTransition {
+            adapter_id,
+            state,
+            reason,
+            initiated_by,
+        } => {
+            transition_lifecycle(
+                &adapter_id,
+                &state,
+                reason.as_deref(),
+                initiated_by.as_deref(),
+                output,
+            )
+            .await
+        }
         AdapterCommand::Register {
             path,
             adapter_id,
@@ -1027,8 +1186,15 @@ pub async fn handle_adapter_command(cmd: AdapterCommand, output: &OutputWriter) 
             skip_preflight,
             force,
         } => {
-            load_adapter_and_wait(&adapter_id, &server_url, timeout, skip_preflight, force, output)
-                .await
+            load_adapter_and_wait(
+                &adapter_id,
+                &server_url,
+                timeout,
+                skip_preflight,
+                force,
+                output,
+            )
+            .await
         }
         AdapterCommand::Info { adapter_id } => crate::commands::adapter_info::run(&adapter_id)
             .await
@@ -1051,7 +1217,156 @@ pub async fn handle_adapter_command(cmd: AdapterCommand, output: &OutputWriter) 
             auto_load,
             base_url,
         } => import_adapter_cmd(&path, &tenant, auto_load, &base_url, output).await,
+        AdapterCommand::Load {
+            adapter_id,
+            timeout,
+            skip_preflight,
+            force,
+            server_url,
+            json,
+        } => {
+            load_adapter_cmd(
+                &adapter_id,
+                &server_url,
+                timeout,
+                skip_preflight,
+                force,
+                json,
+                output,
+            )
+            .await
+        }
+        AdapterCommand::Unload {
+            adapter_id,
+            force,
+            server_url,
+            json,
+        } => unload_adapter_cmd(&adapter_id, &server_url, force, json, output).await,
+        AdapterCommand::RepairHashes {
+            adapter_id,
+            tenant_id,
+            dry_run,
+            batch_size,
+            json: _,
+        } => {
+            crate::commands::adapter_repair_hashes::run(
+                adapter_id.as_deref(),
+                tenant_id.as_deref(),
+                dry_run,
+                batch_size,
+                output,
+            )
+            .await
+        }
+        AdapterCommand::MigrateHashes {
+            tenant_id,
+            all_tenants,
+            dry_run,
+            batch_size,
+            json: _,
+        } => {
+            crate::commands::adapter_migrate_hashes::run(
+                tenant_id.as_deref(),
+                all_tenants,
+                dry_run,
+                batch_size,
+                output,
+            )
+            .await
+        }
     }
+}
+
+/// Load an adapter into memory
+async fn load_adapter_cmd(
+    adapter_id: &str,
+    server_url: &str,
+    timeout: u64,
+    skip_preflight: bool,
+    force: bool,
+    json: bool,
+    output: &OutputWriter,
+) -> Result<()> {
+    if json {
+        output.info(format!(
+            "{{\"action\": \"load\", \"adapter_id\": \"{}\", \"status\": \"starting\"}}",
+            adapter_id
+        ));
+    } else {
+        output.info(format!("Loading adapter '{}'...", adapter_id));
+    }
+
+    load_adapter_and_wait(
+        adapter_id,
+        server_url,
+        timeout,
+        skip_preflight,
+        force,
+        output,
+    )
+    .await?;
+
+    if json {
+        output.info(format!(
+            "{{\"action\": \"load\", \"adapter_id\": \"{}\", \"status\": \"completed\"}}",
+            adapter_id
+        ));
+    } else {
+        output.success(format!("Adapter '{}' loaded successfully", adapter_id));
+    }
+
+    Ok(())
+}
+
+/// Unload an adapter from memory
+async fn unload_adapter_cmd(
+    adapter_id: &str,
+    server_url: &str,
+    force: bool,
+    json: bool,
+    output: &OutputWriter,
+) -> Result<()> {
+    if json {
+        output.info(format!(
+            "{{\"action\": \"unload\", \"adapter_id\": \"{}\", \"status\": \"starting\"}}",
+            adapter_id
+        ));
+    } else {
+        output.info(format!("Unloading adapter '{}'...", adapter_id));
+    }
+
+    let client = reqwest::Client::new();
+    let url = format!("{}/v1/adapters/{}/unload", server_url, adapter_id);
+
+    let resp = send_with_refresh_from_store(&client, |c, auth| {
+        let mut req = c.post(&url);
+        if force {
+            req = req.query(&[("force", "true")]);
+        }
+        req.bearer_auth(&auth.token)
+    })
+    .await?;
+
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+
+    if !status.is_success() {
+        return Err(adapteros_core::AosError::Http(format!(
+            "unload_adapter failed: {} {}",
+            status, body
+        )));
+    }
+
+    if json {
+        output.info(format!(
+            "{{\"action\": \"unload\", \"adapter_id\": \"{}\", \"status\": \"completed\"}}",
+            adapter_id
+        ));
+    } else {
+        output.success(format!("Adapter '{}' unloaded successfully", adapter_id));
+    }
+
+    Ok(())
 }
 
 fn adapter_runtime_ready(adapter: &adapteros_api_types::adapters::AdapterResponse) -> bool {
@@ -1072,6 +1387,11 @@ async fn load_adapter_and_wait(
 ) -> Result<()> {
     use crate::commands::preflight::{gate_alias_swap_with_config, AliasSwapGateConfig};
 
+    let tenant_id = std::env::var("AOS_TENANT_ID")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| load_auth().ok().flatten().map(|store| store.tenant_id));
+
     // ==========================================================================
     // Phase 0: Preflight checks before alias switch
     // ==========================================================================
@@ -1086,12 +1406,30 @@ async fn load_adapter_and_wait(
         // Attempt to connect to database for preflight checks
         match Db::connect_env().await {
             Ok(db) => {
+                if tenant_id.is_none() {
+                    if force {
+                        output.warning(
+                            "Tenant ID not resolved for preflight; tenant isolation checks skipped due to --force.",
+                        );
+                    } else {
+                        output.error(
+                            "Tenant ID not resolved for preflight; refusing to run swap without tenant isolation.",
+                        );
+                        output.info(
+                            "Set AOS_TENANT_ID or run `aosctl auth login`, or re-run with --force.",
+                        );
+                        return Err(AosError::PreflightFailed(
+                            "Tenant ID required for swap preflight".to_string(),
+                        ));
+                    }
+                }
+
                 let config = AliasSwapGateConfig {
                     force,
                     skip_maintenance_check: false,
                     skip_conflict_check: false,
-                    tenant_id: None,
-                    allow_training_state: true,
+                    tenant_id: tenant_id.clone(),
+                    allow_training_state: false,
                 };
 
                 match gate_alias_swap_with_config(adapter_id, &db, &config).await {
@@ -2170,7 +2508,7 @@ async fn update_lifecycle(
     // Parse the lifecycle state
     let new_state = LifecycleState::from_str(state_str).map_err(|e| {
         adapteros_core::AosError::Validation(format!(
-            "Invalid lifecycle state '{}': {}. Must be one of: draft, active, deprecated, retired",
+            "Invalid lifecycle state '{}': {}. Must be one of: draft, training, ready, active, deprecated, retired, failed",
             state_str, e
         ))
     })?;
@@ -2214,6 +2552,88 @@ async fn update_lifecycle(
                 output.result(&serde_json::to_string_pretty(&response)?);
             } else {
                 output.error(format!("Failed to update lifecycle state: {}", error_msg));
+            }
+            Err(e)
+        }
+    }
+}
+
+/// Transition adapter lifecycle state with history
+async fn transition_lifecycle(
+    adapter_id: &str,
+    state_str: &str,
+    reason: Option<&str>,
+    initiated_by: Option<&str>,
+    output: &OutputWriter,
+) -> Result<()> {
+    use adapteros_core::lifecycle::LifecycleState;
+    use std::str::FromStr;
+
+    validate_adapter_id(adapter_id)?;
+
+    let reason = reason.unwrap_or("manual");
+    let initiated_by = initiated_by.unwrap_or("aosctl");
+
+    info!(
+        adapter_id = %adapter_id,
+        state = %state_str,
+        reason = %reason,
+        initiated_by = %initiated_by,
+        "Transitioning adapter lifecycle state"
+    );
+
+    let new_state = LifecycleState::from_str(state_str).map_err(|e| {
+        adapteros_core::AosError::Validation(format!(
+            "Invalid lifecycle state '{}': {}. Must be one of: draft, training, ready, active, deprecated, retired, failed",
+            state_str, e
+        ))
+    })?;
+
+    let db = adapteros_db::Db::connect_env().await?;
+
+    match db
+        .transition_adapter_lifecycle(adapter_id, new_state.as_str(), reason, initiated_by)
+        .await
+    {
+        Ok(new_version) => {
+            if output.mode().is_json() {
+                let response = serde_json::json!({
+                    "success": true,
+                    "message": "Adapter lifecycle transition recorded",
+                    "adapter_id": adapter_id,
+                    "new_state": new_state.as_str(),
+                    "new_version": new_version,
+                    "reason": reason,
+                    "initiated_by": initiated_by
+                });
+                output.result(&serde_json::to_string_pretty(&response)?);
+            } else {
+                output.success(format!(
+                    "Transitioned adapter {} to {} (version {})",
+                    adapter_id,
+                    new_state.as_str(),
+                    new_version
+                ));
+            }
+            Ok(())
+        }
+        Err(e) => {
+            let error_msg = format!("{}", e);
+            if output.mode().is_json() {
+                let response = serde_json::json!({
+                    "success": false,
+                    "error": error_msg,
+                    "adapter_id": adapter_id,
+                    "requested_state": new_state.as_str(),
+                    "reason": reason,
+                    "initiated_by": initiated_by
+                });
+                output.result(&serde_json::to_string_pretty(&response)?);
+            } else {
+                output.error(format!(
+                    "Failed to transition lifecycle state: {}",
+                    error_msg
+                ));
             }
             Err(e)
         }
@@ -2708,6 +3128,7 @@ mod tests {
         assert!(validate_adapter_id("valid-adapter-1").is_ok());
         assert!(validate_adapter_id("adapter_2").is_ok());
         assert!(validate_adapter_id("adapter123").is_ok());
+        assert!(validate_adapter_id("code.my_repo.abcdef12").is_ok());
         assert!(validate_adapter_id("").is_err());
         assert!(validate_adapter_id("invalid@adapter").is_err());
         assert!(validate_adapter_id("adapter with spaces").is_err());
@@ -2986,6 +3407,19 @@ mod tests {
     }
 
     #[test]
+    fn test_lifecycle_transition_command_name() {
+        assert_eq!(
+            get_adapter_command_name(&AdapterCommand::LifecycleTransition {
+                adapter_id: "test".to_string(),
+                state: "ready".to_string(),
+                reason: None,
+                initiated_by: None,
+            }),
+            "adapter_lifecycle_transition"
+        );
+    }
+
+    #[test]
     fn test_update_lifecycle_tenant() {
         // UpdateLifecycle now has a tenant parameter
         assert_eq!(
@@ -2995,6 +3429,19 @@ mod tests {
                 tenant: "test-tenant".to_string(),
             }),
             Some("test-tenant".to_string())
+        );
+    }
+
+    #[test]
+    fn test_lifecycle_transition_tenant() {
+        assert_eq!(
+            extract_tenant_from_adapter_command(&AdapterCommand::LifecycleTransition {
+                adapter_id: "test".to_string(),
+                state: "ready".to_string(),
+                reason: Some("manual".to_string()),
+                initiated_by: Some("cli".to_string()),
+            }),
+            None
         );
     }
 }

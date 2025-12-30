@@ -41,6 +41,7 @@ adapteros-ingest-docs = { path = "../adapteros-ingest-docs" }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 adapteros-platform = { path = "../adapteros-platform" }
 adapteros-client = { path = "../adapteros-client" }
+adapteros-storage = { path = "../adapteros-storage" }
 blake3 = { workspace = true }
 tokenizers = { workspace = true }
 git2 = "0.18"
@@ -65,11 +66,12 @@ uuid = { workspace = true, features = ["v4"] }
 chrono = { workspace = true }
 parking_lot = { workspace = true }
 rand = { workspace = true }
+tempfile = { workspace = true }
 
 adapteros-lora-lifecycle = { path = "../adapteros-lora-lifecycle" }
+adapteros-normalization = { path = "../adapteros-normalization" }
 
 [dev-dependencies]
-tempfile = { workspace = true }
 
 [[bin]]
 name = "adapteros-orchestrator"

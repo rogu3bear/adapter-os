@@ -150,35 +150,83 @@ impl Db {
             .get_evidence_chain_tail(&envelope.tenant_id, envelope.scope)
             .await?;
 
-        // Compute expected sequence
+        // =========================================================================
+        // Evidence Chain Sequence Validation (1-indexed)
+        //
+        // SECURITY: Validates that envelope correctly links to the existing chain:
+        // 1. First entry: chain_sequence == 1, previous_root must be None
+        // 2. Subsequent entries: chain_sequence == last_sequence + 1, must have correct previous_root
+        //
+        // This prevents:
+        // - Sequence gaps that could hide tampered/missing entries
+        // - Forged first entries with non-zero sequences
+        // - Chain injection attacks via sequence number manipulation
+        // =========================================================================
+
+        // Compute expected sequence (1-indexed: first entry = 1, second = 2, etc.)
         let expected_sequence = match &tail {
-            Some((_, seq)) => seq + 1,
-            None => 1,
+            Some((_, last_seq)) => last_seq + 1,
+            None => 1, // First entry should have sequence 1
         };
 
-        // Verify chain linkage
-        match (&envelope.previous_root, &tail) {
-            (Some(prev), Some((expected_root, _))) if prev != expected_root => {
+        // For first entry: require previous_root.is_none()
+        if expected_sequence == 1 {
+            // This is the first entry in the chain
+            if envelope.previous_root.is_some() {
                 return Err(evidence_chain_divergence(format!(
-                    "previous_root mismatch: expected {}, got {}",
+                    "CHAIN_SEQUENCE_FIRST_ENTRY_INVALID: First envelope in chain must have \
+                     previous_root = None, but got previous_root = {}. \
+                     First entries cannot reference a prior envelope.",
+                    envelope
+                        .previous_root
+                        .as_ref()
+                        .map(|h| h.to_short_hex())
+                        .unwrap_or_default()
+                )));
+            }
+        }
+
+        // Log sequence for audit trail
+        tracing::debug!(
+            tenant_id = %envelope.tenant_id,
+            scope = ?envelope.scope,
+            expected_sequence = expected_sequence,
+            previous_root = ?envelope.previous_root.as_ref().map(|h| h.to_short_hex()),
+            "Storing evidence envelope with sequence continuity check"
+        );
+
+        // Verify chain linkage (previous_root must match current tail)
+        match (&envelope.previous_root, &tail) {
+            (Some(prev), Some((expected_root, seq))) if prev != expected_root => {
+                return Err(evidence_chain_divergence(format!(
+                    "PREVIOUS_ROOT_MISMATCH: Expected previous_root = {} (sequence {}), \
+                     but envelope has previous_root = {}. Chain linkage is broken.",
                     expected_root.to_short_hex(),
+                    seq,
                     prev.to_short_hex()
                 )));
             }
             (None, Some((expected_root, seq))) => {
                 return Err(evidence_chain_divergence(format!(
-                    "expected previous_root {} (seq {}) but got None",
-                    expected_root.to_short_hex(),
-                    seq
+                    "PREVIOUS_ROOT_MISSING: Chain has {} entries (last sequence = {}), \
+                     expected previous_root = {}, but envelope has previous_root = None. \
+                     Non-first entries must reference the prior envelope's root.",
+                    seq,
+                    seq,
+                    expected_root.to_short_hex()
                 )));
             }
             (Some(prev), None) => {
                 return Err(evidence_chain_divergence(format!(
-                    "unexpected previous_root {} for first envelope in chain",
+                    "PREVIOUS_ROOT_UNEXPECTED: Envelope claims previous_root = {}, but \
+                     chain is empty. First envelope must have previous_root = None.",
                     prev.to_short_hex()
                 )));
             }
-            _ => {} // Valid: (None, None) or (Some(prev), Some((expected, _))) where prev == expected
+            // Valid states:
+            // - (None, None): First envelope, correctly has no previous
+            // - (Some(prev), Some((expected, _))) where prev == expected: Correct linkage
+            _ => {}
         }
 
         let id = uuid::Uuid::now_v7().to_string();

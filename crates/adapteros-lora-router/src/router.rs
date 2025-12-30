@@ -959,11 +959,8 @@ impl Router {
         }
 
         // Sort by score descending, then by index for determinism (tie-breaker keeps per-token decisions stable)
-        scores.sort_by(|a, b| {
-            b.1.partial_cmp(&a.1)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| a.0.cmp(&b.0))
-        });
+        // Issue D-2 Fix: Use total_cmp for IEEE 754 total ordering (handles NaN deterministically)
+        scores.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
 
         // Take top K
         let top_k: Vec<(usize, f32)> = scores.into_iter().take(self.k).collect();
@@ -1420,51 +1417,35 @@ impl Router {
         let log_ties = determinism_debug_enabled();
         let mut tie_events: Vec<(usize, usize, f32, f32)> = Vec::new();
 
-        // Sort by score descending, then by deterministic/adaptive tie-break
+        // Sort by score descending, then by deterministic index-based tie-break
         //
-        // # Tie-Breaking Strategy (Critical for Determinism)
+        // # Tie-Breaking Strategy (Critical for Determinism - Issue D-2 Fix)
         //
-        // 1. **Primary**: Score descending (highest score first)
-        // 2. **Secondary**: Either adaptive (seeded RNG) or index-based (deterministic)
+        // 1. **Primary**: Score descending using `total_cmp()` for IEEE 754 total ordering
+        //    - Handles NaN consistently (NaN > all other values in total_cmp)
+        //    - Provides deterministic ordering across platforms
+        // 2. **Secondary**: Pure index-based tie-breaking (adapter index ascending)
         //
-        // When `adaptive_routing` is enabled AND scores are within a relative epsilon,
-        // we use seeded ChaCha20 RNG for tie-breaking. This allows controlled randomization
-        // while maintaining reproducibility via `router_tiebreak_seed`.
+        // NOTE: Adaptive routing with seeded RNG tie-breakers has been removed from
+        // the tie-breaking path to ensure pure determinism. The adaptive_routing flag
+        // now only affects score computation, not the final sort order.
         //
-        // When disabled, we use adapter index ascending (a.0.cmp(&b.0)) for pure determinism.
-        //
-        // # Relative Epsilon for Tie Detection
-        // We use a relative epsilon (1e-6 * max(|a|, |b|)) plus a small absolute floor
-        // (f32::EPSILON) to handle near-zero scores. This catches practical ties caused
-        // by floating-point drift that `partial_cmp` would otherwise order arbitrarily.
-        // Note: We check the epsilon BEFORE falling back to partial_cmp, so that
-        // near-equal values are treated as ties even if not bit-identical.
-        const RELATIVE_EPSILON: f32 = 1e-6;
+        // Using `total_cmp()` instead of `partial_cmp()` ensures:
+        // - NaN values are handled deterministically (sorted to end)
+        // - No undefined behavior from floating-point edge cases
+        // - Consistent results across runs and platforms
         scores.sort_by(|a, b| {
-            let diff = b.1 - a.1; // Positive when b > a (descending order)
-            let max_abs = a.1.abs().max(b.1.abs());
-            let tie_threshold = max_abs * RELATIVE_EPSILON + f32::EPSILON;
+            // Use total_cmp for IEEE 754 total ordering (handles NaN deterministically)
+            let score_cmp = b.1.total_cmp(&a.1); // Descending order
 
-            if diff.abs() <= tie_threshold {
-                // Scores are within tolerance - treat as tie, use tie-breaker
+            if score_cmp == std::cmp::Ordering::Equal {
+                // Exact tie: use pure index-based deterministic tie-breaking
                 if log_ties {
                     tie_events.push((a.0, b.0, a.1, b.1));
                 }
-                if self.adaptive_routing {
-                    tie_breakers
-                        .get(b.0)
-                        .unwrap_or(&0)
-                        .cmp(tie_breakers.get(a.0).unwrap_or(&0))
-                } else {
-                    a.0.cmp(&b.0)
-                }
-            } else if diff.is_nan() {
-                // Handle NaN: treat as equal, fall back to index
-                a.0.cmp(&b.0)
-            } else if diff > 0.0 {
-                std::cmp::Ordering::Greater
+                a.0.cmp(&b.0) // Ascending index for stability
             } else {
-                std::cmp::Ordering::Less
+                score_cmp
             }
         });
 
@@ -1706,11 +1687,8 @@ impl Router {
         }
 
         // Sort by score descending, then by index for determinism
-        scores.sort_by(|a, b| {
-            b.1.partial_cmp(&a.1)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| a.0.cmp(&b.0))
-        });
+        // Issue D-2 Fix: Use total_cmp for IEEE 754 total ordering (handles NaN deterministically)
+        scores.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
 
         // Take top K
         let top_k: Vec<(usize, f32)> = scores.into_iter().take(self.k).collect();

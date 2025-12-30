@@ -7,12 +7,21 @@
 use crate::training_jobs_kv::{TrainingJobKv, TrainingJobKvRepository, TrainingMetricKv};
 use crate::{Db, KvBackend};
 use adapteros_core::{AosError, Result};
+use adapteros_types::training::DatasetVersionSelection;
 use blake3::Hasher;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::warn;
 use uuid::Uuid;
+
+const DEFAULT_SEED_MODE: &str = "best_effort";
+const DATASET_LINK_CONFLICT_MARKER: &str = "already linked to job";
+
+fn is_dataset_link_conflict(err: &AosError) -> bool {
+    matches!(err, AosError::Validation(msg) if msg.contains(DATASET_LINK_CONFLICT_MARKER))
+}
 
 /// Training job record from database
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -80,6 +89,71 @@ pub struct TrainingJobRecord {
     pub data_spec_json: Option<String>,
     #[sqlx(default)]
     pub metrics_snapshot_id: Option<String>,
+    // Fields from migration 0247 - deterministic run tracking
+    /// Whether this job explicitly requested deterministic execution
+    #[sqlx(default)]
+    pub is_deterministic_run: Option<i64>,
+    /// BLAKE3 hash of the global seed used for all RNG sources
+    #[sqlx(default)]
+    pub global_seed_hex: Option<String>,
+    /// Full determinism configuration snapshot (seed sources, overrides, etc.)
+    #[sqlx(default)]
+    pub determinism_config_json: Option<String>,
+    /// Seed derivation strategy: best_effort, strict, disabled
+    #[sqlx(default)]
+    pub seed_mode: Option<String>,
+    // Fields from migration 0253 - API contract alignment
+    /// Adapter category (code, framework, codebase, docs, domain)
+    #[sqlx(default)]
+    pub category: Option<String>,
+    /// Human-readable description
+    #[sqlx(default)]
+    pub description: Option<String>,
+    /// Programming language for code adapters
+    #[sqlx(default)]
+    pub language: Option<String>,
+    /// Symbol targets JSON array for code adapters
+    #[sqlx(default)]
+    pub symbol_targets_json: Option<String>,
+    /// Framework ID for framework adapters
+    #[sqlx(default)]
+    pub framework_id: Option<String>,
+    /// Framework version
+    #[sqlx(default)]
+    pub framework_version: Option<String>,
+    /// Marketing/operational tier (micro/standard/max)
+    #[sqlx(default)]
+    pub lora_tier: Option<String>,
+    /// LoRA strength multiplier
+    #[sqlx(default)]
+    pub lora_strength: Option<f64>,
+    /// Adapter scope (project, tenant)
+    #[sqlx(default)]
+    pub scope: Option<String>,
+    /// API patterns JSON array for framework adapters
+    #[sqlx(default)]
+    pub api_patterns_json: Option<String>,
+    /// Repository scope for codebase adapters
+    #[sqlx(default)]
+    pub repo_scope: Option<String>,
+    /// File patterns to include JSON array
+    #[sqlx(default)]
+    pub file_patterns_json: Option<String>,
+    /// File patterns to exclude JSON array
+    #[sqlx(default)]
+    pub exclude_patterns_json: Option<String>,
+    /// Actual backend used (coreml, metal, mlx, cpu)
+    #[sqlx(default)]
+    pub backend: Option<String>,
+    /// Reason for backend selection
+    #[sqlx(default)]
+    pub backend_reason: Option<String>,
+    /// Backend device identifier
+    #[sqlx(default)]
+    pub backend_device: Option<String>,
+    /// BLAKE3 hash of combined dataset manifests
+    #[sqlx(default)]
+    pub dataset_hash_b3: Option<String>,
 }
 
 /// Training metric record from database
@@ -170,6 +244,91 @@ pub struct LinkDatasetParams {
     pub created_by: Option<String>,
     /// Additional metadata as JSON
     pub metadata_json: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct DataSpecDatasetVersion {
+    dataset_version_id: String,
+    #[serde(default)]
+    weight: Option<f64>,
+}
+
+fn parse_dataset_version_selections(data_spec_json: Option<&str>) -> Vec<DataSpecDatasetVersion> {
+    let raw = match data_spec_json {
+        Some(raw) if !raw.trim().is_empty() => raw,
+        _ => return Vec::new(),
+    };
+
+    let value: serde_json::Value = match serde_json::from_str(raw) {
+        Ok(value) => value,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut selections = Vec::new();
+    let mut seen = HashSet::new();
+
+    let mut push_selection = |id: &str, weight: Option<f64>| {
+        let trimmed = id.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+        if seen.insert(trimmed.to_string()) {
+            selections.push(DataSpecDatasetVersion {
+                dataset_version_id: trimmed.to_string(),
+                weight,
+            });
+        }
+    };
+
+    match &value {
+        serde_json::Value::Object(map) => {
+            if let Some(serde_json::Value::Array(items)) = map.get("dataset_version_ids") {
+                for item in items {
+                    if let Ok(selection) =
+                        serde_json::from_value::<DataSpecDatasetVersion>(item.clone())
+                    {
+                        push_selection(&selection.dataset_version_id, selection.weight);
+                        continue;
+                    }
+                    if let Some(id) = item.as_str() {
+                        push_selection(id, None);
+                        continue;
+                    }
+                    if let Some(obj) = item.as_object() {
+                        if let Some(id) = obj.get("dataset_version_id").and_then(|v| v.as_str()) {
+                            let weight = obj.get("weight").and_then(|v| v.as_f64());
+                            push_selection(id, weight);
+                        }
+                    }
+                }
+            } else if let Some(id) = map.get("dataset_version_id").and_then(|v| v.as_str()) {
+                push_selection(id, None);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                if let Ok(selection) =
+                    serde_json::from_value::<DataSpecDatasetVersion>(item.clone())
+                {
+                    push_selection(&selection.dataset_version_id, selection.weight);
+                    continue;
+                }
+                if let Some(id) = item.as_str() {
+                    push_selection(id, None);
+                    continue;
+                }
+                if let Some(obj) = item.as_object() {
+                    if let Some(id) = obj.get("dataset_version_id").and_then(|v| v.as_str()) {
+                        let weight = obj.get("weight").and_then(|v| v.as_f64());
+                        push_selection(id, weight);
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+
+    selections
 }
 
 /// Compute BLAKE3 hash of training configuration for reproducibility tracking
@@ -264,6 +423,28 @@ impl Db {
             hyperparameters_json: record.hyperparameters_json.clone(),
             data_spec_json: record.data_spec_json.clone(),
             metrics_snapshot_id: record.metrics_snapshot_id.clone(),
+            is_deterministic_run: record.is_deterministic_run.map(|v| v != 0),
+            global_seed_hex: record.global_seed_hex.clone(),
+            determinism_config_json: record.determinism_config_json.clone(),
+            seed_mode: record.seed_mode.clone(),
+            // Fields from migration 0253
+            category: record.category.clone(),
+            description: record.description.clone(),
+            language: record.language.clone(),
+            symbol_targets_json: record.symbol_targets_json.clone(),
+            framework_id: record.framework_id.clone(),
+            framework_version: record.framework_version.clone(),
+            lora_tier: record.lora_tier.clone(),
+            lora_strength: record.lora_strength,
+            scope: record.scope.clone(),
+            api_patterns_json: record.api_patterns_json.clone(),
+            repo_scope: record.repo_scope.clone(),
+            file_patterns_json: record.file_patterns_json.clone(),
+            exclude_patterns_json: record.exclude_patterns_json.clone(),
+            backend: record.backend.clone(),
+            backend_reason: record.backend_reason.clone(),
+            backend_device: record.backend_device.clone(),
+            dataset_hash_b3: record.dataset_hash_b3.clone(),
         }
     }
 
@@ -305,6 +486,28 @@ impl Db {
             hyperparameters_json: kv.hyperparameters_json.clone(),
             data_spec_json: kv.data_spec_json.clone(),
             metrics_snapshot_id: kv.metrics_snapshot_id.clone(),
+            is_deterministic_run: kv.is_deterministic_run.map(|v| if v { 1 } else { 0 }),
+            global_seed_hex: kv.global_seed_hex.clone(),
+            determinism_config_json: kv.determinism_config_json.clone(),
+            seed_mode: kv.seed_mode.clone(),
+            // Fields from migration 0253
+            category: kv.category.clone(),
+            description: kv.description.clone(),
+            language: kv.language.clone(),
+            symbol_targets_json: kv.symbol_targets_json.clone(),
+            framework_id: kv.framework_id.clone(),
+            framework_version: kv.framework_version.clone(),
+            lora_tier: kv.lora_tier.clone(),
+            lora_strength: kv.lora_strength,
+            scope: kv.scope.clone(),
+            api_patterns_json: kv.api_patterns_json.clone(),
+            repo_scope: kv.repo_scope.clone(),
+            file_patterns_json: kv.file_patterns_json.clone(),
+            exclude_patterns_json: kv.exclude_patterns_json.clone(),
+            backend: kv.backend.clone(),
+            backend_reason: kv.backend_reason.clone(),
+            backend_device: kv.backend_device.clone(),
+            dataset_hash_b3: kv.dataset_hash_b3.clone(),
         }
     }
 
@@ -333,8 +536,9 @@ impl Db {
         if self.storage_mode().write_to_sql() {
             sqlx::query(
                 "INSERT INTO repository_training_jobs 
-             (id, repo_id, training_config_json, status, progress_json, created_by) 
-             VALUES (?, ?, ?, ?, ?, ?)",
+             (id, repo_id, training_config_json, status, progress_json, created_by,
+              is_deterministic_run, global_seed_hex, determinism_config_json, seed_mode) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(&id)
             .bind(repo_id)
@@ -342,6 +546,10 @@ impl Db {
             .bind("pending")
             .bind(&progress_json)
             .bind(created_by)
+            .bind(0)
+            .bind(None::<String>)
+            .bind(None::<String>)
+            .bind(DEFAULT_SEED_MODE)
             .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
@@ -389,6 +597,27 @@ impl Db {
                 hyperparameters_json: None,
                 data_spec_json: None,
                 metrics_snapshot_id: None,
+                is_deterministic_run: Some(false),
+                global_seed_hex: None,
+                determinism_config_json: None,
+                seed_mode: Some(DEFAULT_SEED_MODE.to_string()),
+                category: None,
+                description: None,
+                language: None,
+                symbol_targets_json: None,
+                framework_id: None,
+                framework_version: None,
+                lora_tier: None,
+                lora_strength: None,
+                scope: None,
+                api_patterns_json: None,
+                repo_scope: None,
+                file_patterns_json: None,
+                exclude_patterns_json: None,
+                backend: None,
+                backend_reason: None,
+                backend_device: None,
+                dataset_hash_b3: None,
             };
             if let Err(e) = repo.put_job(&job).await {
                 self.record_kv_write_fallback("training_jobs.create");
@@ -428,7 +657,8 @@ impl Db {
                     dataset_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
                     synthetic_mode, data_lineage_mode,
                     retryable, retry_of_job_id, stack_id, adapter_id, weights_hash_b3, artifact_path, produced_version_id,
-                    hyperparameters_json, data_spec_json, metrics_snapshot_id
+                    hyperparameters_json, data_spec_json, metrics_snapshot_id,
+                    is_deterministic_run, global_seed_hex, determinism_config_json, seed_mode
              FROM repository_training_jobs WHERE id = ?",
         )
         .bind(job_id)
@@ -457,7 +687,8 @@ impl Db {
                     dataset_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
                     synthetic_mode, data_lineage_mode,
                     retryable, retry_of_job_id, stack_id, adapter_id, weights_hash_b3, artifact_path, produced_version_id,
-                    hyperparameters_json, data_spec_json, metrics_snapshot_id
+                    hyperparameters_json, data_spec_json, metrics_snapshot_id,
+                    is_deterministic_run, global_seed_hex, determinism_config_json, seed_mode
              FROM repository_training_jobs
              WHERE adapter_id = ? AND tenant_id = ?
              ORDER BY created_at DESC
@@ -639,7 +870,8 @@ impl Db {
                     dataset_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
                     synthetic_mode, data_lineage_mode,
                     retryable, retry_of_job_id, stack_id, adapter_id, weights_hash_b3, artifact_path, produced_version_id,
-                    hyperparameters_json, data_spec_json, metrics_snapshot_id
+                    hyperparameters_json, data_spec_json, metrics_snapshot_id,
+                    is_deterministic_run, global_seed_hex, determinism_config_json, seed_mode
              FROM repository_training_jobs
              WHERE repo_id = ?
              ORDER BY started_at DESC",
@@ -696,7 +928,8 @@ impl Db {
                     dataset_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
                     synthetic_mode, data_lineage_mode,
                     retryable, retry_of_job_id, stack_id, adapter_id, weights_hash_b3, artifact_path, produced_version_id,
-                    hyperparameters_json, data_spec_json, metrics_snapshot_id
+                    hyperparameters_json, data_spec_json, metrics_snapshot_id,
+                    is_deterministic_run, global_seed_hex, determinism_config_json, seed_mode
              FROM repository_training_jobs
              WHERE status = ?
              ORDER BY started_at DESC",
@@ -758,7 +991,8 @@ impl Db {
                     rtj.synthetic_mode, rtj.data_lineage_mode,
                     rtj.retryable, rtj.retry_of_job_id, rtj.stack_id, rtj.adapter_id,
                     rtj.weights_hash_b3, rtj.artifact_path, rtj.produced_version_id,
-                    rtj.hyperparameters_json, rtj.data_spec_json, rtj.metrics_snapshot_id
+                    rtj.hyperparameters_json, rtj.data_spec_json, rtj.metrics_snapshot_id,
+                    rtj.is_deterministic_run, rtj.global_seed_hex, rtj.determinism_config_json, rtj.seed_mode
              FROM repository_training_jobs rtj INDEXED BY idx_training_jobs_tenant_status_created_adapter
              WHERE rtj.tenant_id = ?
              ORDER BY rtj.created_at DESC",
@@ -959,7 +1193,8 @@ impl Db {
                     dataset_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
                     synthetic_mode, data_lineage_mode,
                     retryable, retry_of_job_id, stack_id, adapter_id, weights_hash_b3, artifact_path, produced_version_id,
-                    hyperparameters_json, data_spec_json, metrics_snapshot_id
+                    hyperparameters_json, data_spec_json, metrics_snapshot_id,
+                    is_deterministic_run, global_seed_hex, determinism_config_json, seed_mode
              FROM repository_training_jobs
              WHERE metadata_json LIKE ?",
         )
@@ -1012,6 +1247,69 @@ impl Db {
         Ok(())
     }
 
+    /// Update training job determinism tracking fields.
+    ///
+    /// Records whether determinism was explicitly requested along with
+    /// the global seed hash and determinism configuration snapshot.
+    pub async fn update_training_job_determinism(
+        &self,
+        job_id: &str,
+        is_deterministic_run: bool,
+        global_seed_hex: Option<&str>,
+        determinism_config_json: Option<&str>,
+        seed_mode: Option<&str>,
+    ) -> Result<()> {
+        if let Some(repo) = self.get_training_job_kv_repo() {
+            let global_seed_hex = global_seed_hex.map(str::to_string);
+            let determinism_config_json = determinism_config_json.map(str::to_string);
+            let seed_mode = seed_mode.map(str::to_string);
+
+            if let Err(e) = repo
+                .update_job(job_id, |job| {
+                    job.is_deterministic_run = Some(is_deterministic_run);
+                    if let Some(ref seed_hex) = global_seed_hex {
+                        job.global_seed_hex = Some(seed_hex.clone());
+                    }
+                    if let Some(ref config_json) = determinism_config_json {
+                        job.determinism_config_json = Some(config_json.clone());
+                    }
+                    if let Some(ref mode) = seed_mode {
+                        job.seed_mode = Some(mode.clone());
+                    }
+                })
+                .await
+            {
+                self.record_kv_write_fallback("training_jobs.update_determinism");
+                warn!(error = %e, job_id = %job_id, "KV update determinism failed");
+            }
+        }
+
+        if self.storage_mode().write_to_sql() {
+            sqlx::query(
+                "UPDATE repository_training_jobs
+                 SET is_deterministic_run = ?,
+                     global_seed_hex = COALESCE(?, global_seed_hex),
+                     determinism_config_json = COALESCE(?, determinism_config_json),
+                     seed_mode = COALESCE(?, seed_mode)
+                 WHERE id = ?",
+            )
+            .bind(if is_deterministic_run { 1 } else { 0 })
+            .bind(global_seed_hex)
+            .bind(determinism_config_json)
+            .bind(seed_mode)
+            .bind(job_id)
+            .execute(self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
+        } else if !self.storage_mode().write_to_kv() {
+            return Err(AosError::Database(
+                "No backend available for update_training_job_determinism".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+
     /// Find training jobs with the same configuration hash
     ///
     /// Evidence: migrations/0099_training_config_hash.sql
@@ -1058,7 +1356,8 @@ impl Db {
                     dataset_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
                     synthetic_mode, data_lineage_mode,
                     retryable, retry_of_job_id, stack_id, adapter_id, weights_hash_b3, artifact_path, produced_version_id,
-                    hyperparameters_json, data_spec_json, metrics_snapshot_id
+                    hyperparameters_json, data_spec_json, metrics_snapshot_id,
+                    is_deterministic_run, global_seed_hex, determinism_config_json, seed_mode
              FROM repository_training_jobs
              WHERE config_hash_b3 = ?
              ORDER BY started_at DESC",
@@ -1092,6 +1391,7 @@ impl Db {
     /// * `synthetic_mode` - Whether the job explicitly opted into synthetic data
     /// * `data_lineage_mode` - Lineage quality for this job
     /// * `dataset_version_id` - Optional dataset version ID for reproducibility tracking
+    /// * `dataset_version_ids` - Optional dataset version selections for provenance linking
     pub async fn create_training_job_with_provenance(
         &self,
         job_id: Option<&str>,
@@ -1100,6 +1400,7 @@ impl Db {
         created_by: &str,
         dataset_id: Option<&str>,
         dataset_version_id: Option<&str>,
+        dataset_version_ids: Option<&[DatasetVersionSelection]>,
         base_model_id: Option<&str>,
         collection_id: Option<&str>,
         tenant_id: Option<&str>,
@@ -1127,6 +1428,44 @@ impl Db {
             error_message: None,
         };
         let progress_json = serde_json::to_string(&progress).map_err(AosError::Serialization)?;
+        let primary_selection_id = dataset_version_ids.and_then(|versions| {
+            versions.iter().find_map(|selection| {
+                let trimmed = selection.dataset_version_id.trim();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed.to_string())
+                }
+            })
+        });
+        let resolved_dataset_id = if let Some(dataset_id) = dataset_id {
+            Some(dataset_id.to_string())
+        } else if let Some(version_id) = dataset_version_id {
+            self.resolve_dataset_id_from_version(version_id, tenant_id)
+                .await?
+        } else if let Some(ref selection_id) = primary_selection_id {
+            self.resolve_dataset_id_from_version(selection_id, tenant_id)
+                .await?
+        } else {
+            None
+        };
+        let mut resolved_dataset_version_id = dataset_version_id.map(|s| s.to_string());
+        if resolved_dataset_version_id.is_none() {
+            if let Some(ref selection_id) = primary_selection_id {
+                resolved_dataset_version_id = Some(selection_id.clone());
+            }
+        }
+        if resolved_dataset_version_id.is_none() {
+            if let Some(dataset_id) = resolved_dataset_id.as_deref() {
+                if let Some(version) = self
+                    .get_latest_dataset_version_for_dataset(dataset_id)
+                    .await?
+                {
+                    resolved_dataset_version_id = Some(version.id);
+                }
+            }
+        }
+        let resolved_dataset_version_id = resolved_dataset_version_id.as_deref();
 
         if self.storage_mode().write_to_sql() {
             sqlx::query(
@@ -1134,8 +1473,9 @@ impl Db {
              (id, repo_id, training_config_json, status, progress_json, created_by,
              dataset_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
              retry_of_job_id, target_branch, base_version_id, draft_version_id, code_commit_sha,
-             data_spec_json, synthetic_mode, data_lineage_mode, produced_version_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             data_spec_json, synthetic_mode, data_lineage_mode, produced_version_id,
+             is_deterministic_run, global_seed_hex, determinism_config_json, seed_mode)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(&id)
             .bind(repo_id)
@@ -1143,8 +1483,8 @@ impl Db {
             .bind("pending")
             .bind(&progress_json)
             .bind(created_by)
-            .bind(dataset_id)
-            .bind(dataset_version_id)
+            .bind(resolved_dataset_id.as_deref())
+            .bind(resolved_dataset_version_id)
             .bind(base_model_id)
             .bind(collection_id)
             .bind(tenant_id)
@@ -1159,6 +1499,10 @@ impl Db {
             .bind(if synthetic_mode { 1 } else { 0 })
             .bind(data_lineage_mode)
             .bind(None::<String>)
+            .bind(0)
+            .bind(None::<String>)
+            .bind(None::<String>)
+            .bind(DEFAULT_SEED_MODE)
             .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
@@ -1187,8 +1531,8 @@ impl Db {
                 created_at: Some(chrono::Utc::now().to_rfc3339()),
                 metadata_json: None,
                 config_hash_b3: None,
-                dataset_id: dataset_id.map(|s| s.to_string()),
-                dataset_version_id: dataset_version_id.map(|s| s.to_string()),
+                dataset_id: resolved_dataset_id.clone(),
+                dataset_version_id: resolved_dataset_version_id.map(|s| s.to_string()),
                 base_model_id: base_model_id.map(|s| s.to_string()),
                 collection_id: collection_id.map(|s| s.to_string()),
                 tenant_id: tenant_id.map(|s| s.to_string()),
@@ -1206,6 +1550,27 @@ impl Db {
                 hyperparameters_json: None,
                 data_spec_json: data_spec_json.map(|s| s.to_string()),
                 metrics_snapshot_id: None,
+                is_deterministic_run: Some(false),
+                global_seed_hex: None,
+                determinism_config_json: None,
+                seed_mode: Some(DEFAULT_SEED_MODE.to_string()),
+                category: None,
+                description: None,
+                language: None,
+                symbol_targets_json: None,
+                framework_id: None,
+                framework_version: None,
+                lora_tier: None,
+                lora_strength: None,
+                scope: None,
+                api_patterns_json: None,
+                repo_scope: None,
+                file_patterns_json: None,
+                exclude_patterns_json: None,
+                backend: None,
+                backend_reason: None,
+                backend_device: None,
+                dataset_hash_b3: None,
             };
             if let Err(e) = repo.put_job(&job).await {
                 self.record_kv_write_fallback("training_jobs.create_provenance");
@@ -1213,7 +1578,161 @@ impl Db {
             }
         }
 
+        if self.storage_mode().write_to_sql() {
+            if let Some(dataset_id) = resolved_dataset_id.as_deref() {
+                let link_params = LinkDatasetParams {
+                    dataset_id: dataset_id.to_string(),
+                    dataset_version_id: resolved_dataset_version_id.map(|s| s.to_string()),
+                    role: Some("primary".to_string()),
+                    ordinal: Some(0),
+                    weight: None,
+                    created_by: Some(created_by.to_string()),
+                    metadata_json: None,
+                };
+                if let Err(err) = self
+                    .link_dataset_to_training_job(&id, &link_params, tenant_id)
+                    .await
+                {
+                    if !is_dataset_link_conflict(&err) {
+                        return Err(err);
+                    }
+                }
+            }
+
+            let mut selections = Vec::new();
+            let mut seen_versions = HashSet::new();
+
+            if let Some(version_ids) = dataset_version_ids {
+                for selection in version_ids {
+                    let trimmed = selection.dataset_version_id.trim();
+                    if trimmed.is_empty() {
+                        continue;
+                    }
+                    if seen_versions.insert(trimmed.to_string()) {
+                        selections.push(DataSpecDatasetVersion {
+                            dataset_version_id: trimmed.to_string(),
+                            weight: Some(selection.weight as f64),
+                        });
+                    }
+                }
+            }
+
+            for selection in parse_dataset_version_selections(data_spec_json) {
+                if seen_versions.insert(selection.dataset_version_id.clone()) {
+                    selections.push(selection);
+                }
+            }
+
+            self.link_datasets_from_selections(
+                &id,
+                selections,
+                resolved_dataset_id.as_deref(),
+                created_by,
+                tenant_id,
+            )
+            .await?;
+        }
+
         Ok(id)
+    }
+
+    #[allow(dead_code)]
+    async fn link_datasets_from_data_spec(
+        &self,
+        job_id: &str,
+        data_spec_json: Option<&str>,
+        primary_dataset_id: Option<&str>,
+        created_by: &str,
+        tenant_id: Option<&str>,
+    ) -> Result<()> {
+        let selections = parse_dataset_version_selections(data_spec_json);
+        self.link_datasets_from_selections(
+            job_id,
+            selections,
+            primary_dataset_id,
+            created_by,
+            tenant_id,
+        )
+        .await
+    }
+
+    async fn link_datasets_from_selections(
+        &self,
+        job_id: &str,
+        selections: Vec<DataSpecDatasetVersion>,
+        primary_dataset_id: Option<&str>,
+        created_by: &str,
+        tenant_id: Option<&str>,
+    ) -> Result<()> {
+        if selections.is_empty() {
+            return Ok(());
+        }
+
+        let mut linked_dataset_ids = HashSet::new();
+        if let Some(primary_id) = primary_dataset_id {
+            linked_dataset_ids.insert(primary_id.to_string());
+        }
+
+        let mut ordinal = if linked_dataset_ids.is_empty() { 0 } else { 1 };
+        let mut has_primary = !linked_dataset_ids.is_empty();
+
+        for selection in selections {
+            let dataset_id = self
+                .resolve_dataset_id_from_version(&selection.dataset_version_id, tenant_id)
+                .await?;
+            let Some(dataset_id) = dataset_id else {
+                continue;
+            };
+
+            if linked_dataset_ids.contains(&dataset_id) {
+                self.update_training_job_dataset_link_version(
+                    job_id,
+                    &dataset_id,
+                    Some(selection.dataset_version_id.as_str()),
+                    tenant_id,
+                )
+                .await?;
+                continue;
+            }
+
+            let role = if has_primary {
+                "supplementary"
+            } else {
+                "primary"
+            };
+            let link_params = LinkDatasetParams {
+                dataset_id: dataset_id.clone(),
+                dataset_version_id: Some(selection.dataset_version_id.clone()),
+                role: Some(role.to_string()),
+                ordinal: Some(ordinal),
+                weight: selection.weight,
+                created_by: Some(created_by.to_string()),
+                metadata_json: None,
+            };
+
+            if let Err(err) = self
+                .link_dataset_to_training_job(job_id, &link_params, tenant_id)
+                .await
+            {
+                if is_dataset_link_conflict(&err) {
+                    self.update_training_job_dataset_link_version(
+                        job_id,
+                        &dataset_id,
+                        Some(selection.dataset_version_id.as_str()),
+                        tenant_id,
+                    )
+                    .await?;
+                } else {
+                    return Err(err);
+                }
+            }
+
+            linked_dataset_ids.insert(dataset_id);
+            has_primary = true;
+            ordinal += 1;
+        }
+
+        Ok(())
     }
 
     /// Get adapters trained on a specific dataset
@@ -1479,7 +1998,8 @@ impl Db {
                     dataset_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
                     synthetic_mode, data_lineage_mode,
                     retryable, retry_of_job_id, stack_id, adapter_id, weights_hash_b3, artifact_path, produced_version_id,
-                    hyperparameters_json, data_spec_json, metrics_snapshot_id
+                    hyperparameters_json, data_spec_json, metrics_snapshot_id,
+                    is_deterministic_run, global_seed_hex, determinism_config_json, seed_mode
              FROM repository_training_jobs
              WHERE retry_of_job_id = ?
              ORDER BY started_at DESC",
@@ -1642,5 +2162,1168 @@ impl Db {
             .unwrap_or(50); // Default priority
 
         Ok(priority)
+    }
+
+    // ============================================================================
+    // Dataset Linking Operations
+    // ============================================================================
+
+    async fn resolve_dataset_id_from_version(
+        &self,
+        dataset_version_id: &str,
+        tenant_id: Option<&str>,
+    ) -> Result<Option<String>> {
+        if let Some(tenant_id) = tenant_id {
+            if let Some(version) = self
+                .get_training_dataset_version_routed(tenant_id, dataset_version_id)
+                .await?
+            {
+                return Ok(Some(version.dataset_id));
+            }
+        }
+
+        if self.storage_mode().read_from_sql() {
+            if let Some(version) = self
+                .get_training_dataset_version(dataset_version_id)
+                .await?
+            {
+                return Ok(Some(version.dataset_id));
+            }
+        }
+
+        Ok(None)
+    }
+
+    async fn resolve_dataset_hash_snapshot(
+        &self,
+        dataset_id: &str,
+        dataset_version_id: Option<&str>,
+    ) -> Result<Option<String>> {
+        if let Some(version_id) = dataset_version_id {
+            if let Some(version) = self.get_training_dataset_version(version_id).await? {
+                return Ok(Some(version.hash_b3));
+            }
+        }
+
+        if let Some(dataset) = self.get_training_dataset(dataset_id).await? {
+            return Ok(Some(dataset.hash_b3));
+        }
+
+        Ok(None)
+    }
+
+    async fn link_primary_dataset_for_job(
+        &self,
+        job_id: &str,
+        dataset_id: &str,
+        dataset_version_id: Option<&str>,
+        tenant_id: Option<&str>,
+    ) -> Result<()> {
+        if !self.storage_mode().write_to_sql() {
+            return Ok(());
+        }
+
+        let tenant_id = if let Some(id) = tenant_id {
+            Some(id.to_string())
+        } else {
+            self.get_training_job(job_id)
+                .await?
+                .and_then(|job| job.tenant_id)
+        };
+        let link_params = LinkDatasetParams {
+            dataset_id: dataset_id.to_string(),
+            dataset_version_id: dataset_version_id.map(|s| s.to_string()),
+            role: Some("primary".to_string()),
+            ordinal: Some(0),
+            weight: None,
+            created_by: None,
+            metadata_json: None,
+        };
+        if let Err(err) = self
+            .link_dataset_to_training_job(job_id, &link_params, tenant_id.as_deref())
+            .await
+        {
+            if is_dataset_link_conflict(&err) {
+                self.update_training_job_dataset_link_version(
+                    job_id,
+                    dataset_id,
+                    dataset_version_id,
+                    tenant_id.as_deref(),
+                )
+                .await?;
+            } else {
+                return Err(err);
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn update_training_job_dataset_link_version(
+        &self,
+        job_id: &str,
+        dataset_id: &str,
+        dataset_version_id: Option<&str>,
+        tenant_id: Option<&str>,
+    ) -> Result<()> {
+        if !self.storage_mode().write_to_sql() {
+            return Ok(());
+        }
+
+        let hash_b3_at_link = self
+            .resolve_dataset_hash_snapshot(dataset_id, dataset_version_id)
+            .await?;
+
+        sqlx::query(
+            "UPDATE training_job_datasets
+             SET dataset_version_id = ?,
+                 hash_b3_at_link = ?,
+                 tenant_id = COALESCE(?, tenant_id)
+             WHERE training_job_id = ? AND dataset_id = ?",
+        )
+        .bind(dataset_version_id)
+        .bind(&hash_b3_at_link)
+        .bind(tenant_id)
+        .bind(job_id)
+        .bind(dataset_id)
+        .execute(self.pool())
+        .await
+        .map_err(|e| {
+            AosError::Database(format!("Failed to update training job dataset link: {}", e))
+        })?;
+
+        Ok(())
+    }
+
+    /// Link a training job to a dataset and optionally a dataset version
+    ///
+    /// Updates the dataset_id and dataset_version_id fields for provenance tracking.
+    /// This establishes the relationship between the training job and the dataset
+    /// it was trained on.
+    ///
+    /// Evidence: migrations/0100_training_provenance.sql
+    /// Evidence: migrations/0177_dataset_trust_gates.sql
+    /// Pattern: Dataset-to-job provenance chain
+    ///
+    /// # Arguments
+    /// * `job_id` - Training job identifier
+    /// * `dataset_id` - Dataset identifier to link
+    /// * `dataset_version_id` - Optional specific version of the dataset
+    pub async fn link_training_job_to_dataset(
+        &self,
+        job_id: &str,
+        dataset_id: &str,
+        dataset_version_id: Option<&str>,
+    ) -> Result<()> {
+        let mut resolved_version_id = dataset_version_id.map(|s| s.to_string());
+        if resolved_version_id.is_none() {
+            if let Some(version) = self
+                .get_latest_dataset_version_for_dataset(dataset_id)
+                .await?
+            {
+                resolved_version_id = Some(version.id);
+            }
+        }
+        let resolved_version_id = resolved_version_id.as_deref();
+
+        if let Some(repo) = self.get_training_job_kv_repo() {
+            if let Err(e) = repo
+                .update_job(job_id, |job| {
+                    job.dataset_id = Some(dataset_id.to_string());
+                    job.dataset_version_id = resolved_version_id.map(|s| s.to_string());
+                })
+                .await
+            {
+                self.record_kv_write_fallback("training_jobs.link_dataset");
+                warn!(error = %e, job_id = %job_id, "KV update dataset link failed");
+            }
+        }
+
+        if self.storage_mode().write_to_sql() {
+            sqlx::query(
+                "UPDATE repository_training_jobs
+                 SET dataset_id = ?, dataset_version_id = ?
+                 WHERE id = ?",
+            )
+            .bind(dataset_id)
+            .bind(resolved_version_id)
+            .bind(job_id)
+            .execute(self.pool())
+            .await
+            .map_err(|e| {
+                AosError::Database(format!("Failed to link training job to dataset: {}", e))
+            })?;
+        } else if !self.storage_mode().write_to_kv() {
+            return Err(AosError::Database(
+                "No backend available for link_training_job_to_dataset".to_string(),
+            ));
+        }
+
+        self.link_primary_dataset_for_job(job_id, dataset_id, resolved_version_id, None)
+            .await?;
+
+        Ok(())
+    }
+
+    /// List training jobs for a specific dataset
+    ///
+    /// Returns all training jobs that used the specified dataset for training.
+    /// Useful for understanding dataset usage and impact analysis.
+    ///
+    /// Evidence: migrations/0100_training_provenance.sql
+    /// Pattern: Reverse lookup for dataset provenance
+    ///
+    /// # Arguments
+    /// * `dataset_id` - Dataset identifier to query
+    ///
+    /// # Returns
+    /// Vector of training jobs that used this dataset, ordered by creation time (newest first)
+    pub async fn list_training_jobs_by_dataset(
+        &self,
+        dataset_id: &str,
+    ) -> Result<Vec<TrainingJobRecord>> {
+        if self.storage_mode().read_from_kv() {
+            if let Some(repo) = self.get_training_job_kv_repo() {
+                let mut jobs: Vec<TrainingJobRecord> = repo
+                    .list_all_jobs()
+                    .await?
+                    .into_iter()
+                    .filter(|j| j.dataset_id.as_deref() == Some(dataset_id))
+                    .map(|kv| Self::kv_to_record(&kv))
+                    .collect();
+                jobs.sort_by(|a, b| {
+                    b.started_at
+                        .cmp(&a.started_at)
+                        .then_with(|| a.id.cmp(&b.id))
+                });
+                if !self.storage_mode().sql_fallback_enabled() {
+                    return Ok(jobs);
+                }
+                if !jobs.is_empty() {
+                    return Ok(jobs);
+                }
+            }
+        }
+
+        if !self.storage_mode().read_from_sql() {
+            return Ok(Vec::new());
+        }
+
+        let jobs = sqlx::query_as::<_, TrainingJobRecord>(
+            "SELECT id, repo_id, target_branch, base_version_id, draft_version_id, code_commit_sha,
+                    training_config_json, status, progress_json,
+                    started_at, completed_at, created_by, adapter_name, template_id,
+                    created_at, metadata_json, config_hash_b3,
+                    dataset_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
+                    synthetic_mode, data_lineage_mode,
+                    retryable, retry_of_job_id, stack_id, adapter_id, weights_hash_b3, artifact_path, produced_version_id,
+                    hyperparameters_json, data_spec_json, metrics_snapshot_id,
+                    is_deterministic_run, global_seed_hex, determinism_config_json, seed_mode
+             FROM repository_training_jobs
+             WHERE dataset_id = ?
+             ORDER BY started_at DESC",
+        )
+        .bind(dataset_id)
+        .fetch_all(self.pool())
+        .await
+        .map_err(|e| {
+            AosError::Database(format!(
+                "Failed to list training jobs for dataset {}: {}",
+                dataset_id, e
+            ))
+        })?;
+
+        Ok(jobs)
+    }
+
+    /// List training jobs for a specific dataset version
+    ///
+    /// Returns all training jobs that used the specified dataset version for training.
+    /// Provides more precise provenance tracking than dataset-level queries.
+    ///
+    /// Evidence: migrations/0177_dataset_trust_gates.sql
+    /// Pattern: Version-specific provenance chain
+    ///
+    /// # Arguments
+    /// * `dataset_version_id` - Dataset version identifier to query
+    ///
+    /// # Returns
+    /// Vector of training jobs that used this dataset version, ordered by creation time (newest first)
+    pub async fn list_training_jobs_by_dataset_version(
+        &self,
+        dataset_version_id: &str,
+    ) -> Result<Vec<TrainingJobRecord>> {
+        if self.storage_mode().read_from_kv() {
+            if let Some(repo) = self.get_training_job_kv_repo() {
+                let mut jobs: Vec<TrainingJobRecord> = repo
+                    .list_all_jobs()
+                    .await?
+                    .into_iter()
+                    .filter(|j| j.dataset_version_id.as_deref() == Some(dataset_version_id))
+                    .map(|kv| Self::kv_to_record(&kv))
+                    .collect();
+                jobs.sort_by(|a, b| {
+                    b.started_at
+                        .cmp(&a.started_at)
+                        .then_with(|| a.id.cmp(&b.id))
+                });
+                if !self.storage_mode().sql_fallback_enabled() {
+                    return Ok(jobs);
+                }
+                if !jobs.is_empty() {
+                    return Ok(jobs);
+                }
+            }
+        }
+
+        if !self.storage_mode().read_from_sql() {
+            return Ok(Vec::new());
+        }
+
+        let jobs = sqlx::query_as::<_, TrainingJobRecord>(
+            "SELECT id, repo_id, target_branch, base_version_id, draft_version_id, code_commit_sha,
+                    training_config_json, status, progress_json,
+                    started_at, completed_at, created_by, adapter_name, template_id,
+                    created_at, metadata_json, config_hash_b3,
+                    dataset_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
+                    synthetic_mode, data_lineage_mode,
+                    retryable, retry_of_job_id, stack_id, adapter_id, weights_hash_b3, artifact_path, produced_version_id,
+                    hyperparameters_json, data_spec_json, metrics_snapshot_id,
+                    is_deterministic_run, global_seed_hex, determinism_config_json, seed_mode
+             FROM repository_training_jobs
+             WHERE dataset_version_id = ?
+             ORDER BY started_at DESC",
+        )
+        .bind(dataset_version_id)
+        .fetch_all(self.pool())
+        .await
+        .map_err(|e| {
+            AosError::Database(format!(
+                "Failed to list training jobs for dataset version {}: {}",
+                dataset_version_id, e
+            ))
+        })?;
+
+        Ok(jobs)
+    }
+
+    /// Count training jobs for a dataset (tenant-scoped)
+    ///
+    /// Returns the number of training jobs that used the specified dataset.
+    /// Useful for impact analysis before dataset deletion or modification.
+    ///
+    /// Evidence: migrations/0100_training_provenance.sql
+    /// Pattern: Dataset usage counting for lifecycle management
+    ///
+    /// # Arguments
+    /// * `dataset_id` - Dataset identifier to count jobs for
+    /// * `tenant_id` - Tenant identifier for isolation
+    ///
+    /// # Returns
+    /// Count of training jobs using this dataset
+    pub async fn count_training_jobs_by_dataset(
+        &self,
+        dataset_id: &str,
+        tenant_id: &str,
+    ) -> Result<i64> {
+        let count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM repository_training_jobs
+             WHERE dataset_id = ? AND tenant_id = ?",
+        )
+        .bind(dataset_id)
+        .bind(tenant_id)
+        .fetch_one(self.pool())
+        .await
+        .map_err(|e| {
+            AosError::Database(format!(
+                "Failed to count training jobs for dataset {}: {}",
+                dataset_id, e
+            ))
+        })?;
+
+        Ok(count.0)
+    }
+
+    /// Count active training jobs for a dataset
+    ///
+    /// Returns the number of active (pending, running, queued) training jobs
+    /// using the specified dataset. Used for dataset deletion validation.
+    ///
+    /// Evidence: migrations/0100_training_provenance.sql
+    /// Pattern: Pre-deletion validation check
+    ///
+    /// # Arguments
+    /// * `dataset_id` - Dataset identifier to check
+    ///
+    /// # Returns
+    /// Count of active training jobs using this dataset
+    pub async fn count_active_training_jobs_by_dataset(&self, dataset_id: &str) -> Result<i64> {
+        let count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM repository_training_jobs
+             WHERE dataset_id = ? AND status IN ('pending', 'running', 'queued')",
+        )
+        .bind(dataset_id)
+        .fetch_one(self.pool())
+        .await
+        .map_err(|e| {
+            AosError::Database(format!(
+                "Failed to count active training jobs for dataset {}: {}",
+                dataset_id, e
+            ))
+        })?;
+
+        Ok(count.0)
+    }
+
+    /// Update dataset version ID for a training job
+    ///
+    /// Updates the dataset_version_id field and fills dataset_id if missing.
+    /// Preserves any existing dataset_id.
+    /// Used when a specific version is resolved after initial job creation.
+    ///
+    /// Evidence: migrations/0177_dataset_trust_gates.sql
+    /// Pattern: Deferred version resolution
+    ///
+    /// # Arguments
+    /// * `job_id` - Training job identifier
+    /// * `dataset_version_id` - Dataset version to link
+    pub async fn update_training_job_dataset_version(
+        &self,
+        job_id: &str,
+        dataset_version_id: &str,
+    ) -> Result<()> {
+        let mut dataset_id_for_link = None;
+        let mut tenant_id_for_link = None;
+        if let Some(job) = self.get_training_job(job_id).await? {
+            dataset_id_for_link = job.dataset_id;
+            tenant_id_for_link = job.tenant_id;
+        }
+
+        if dataset_id_for_link.is_none() {
+            dataset_id_for_link = self
+                .resolve_dataset_id_from_version(dataset_version_id, tenant_id_for_link.as_deref())
+                .await?;
+        }
+
+        if let Some(repo) = self.get_training_job_kv_repo() {
+            let dataset_id_for_kv = dataset_id_for_link.clone();
+            if let Err(e) = repo
+                .update_job(job_id, |job| {
+                    job.dataset_version_id = Some(dataset_version_id.to_string());
+                    if job.dataset_id.is_none() {
+                        job.dataset_id = dataset_id_for_kv.clone();
+                    }
+                })
+                .await
+            {
+                self.record_kv_write_fallback("training_jobs.update_dataset_version");
+                warn!(error = %e, job_id = %job_id, "KV update dataset version failed");
+            }
+        }
+
+        if self.storage_mode().write_to_sql() {
+            sqlx::query(
+                "UPDATE repository_training_jobs
+                 SET dataset_version_id = ?,
+                     dataset_id = COALESCE(dataset_id, ?)
+                 WHERE id = ?",
+            )
+            .bind(dataset_version_id)
+            .bind(dataset_id_for_link.as_deref())
+            .bind(job_id)
+            .execute(self.pool())
+            .await
+            .map_err(|e| {
+                AosError::Database(format!(
+                    "Failed to update training job dataset version: {}",
+                    e
+                ))
+            })?;
+        } else if !self.storage_mode().write_to_kv() {
+            return Err(AosError::Database(
+                "No backend available for update_training_job_dataset_version".to_string(),
+            ));
+        }
+
+        if let Some(dataset_id) = dataset_id_for_link.as_deref() {
+            self.link_primary_dataset_for_job(
+                job_id,
+                dataset_id,
+                Some(dataset_version_id),
+                tenant_id_for_link.as_deref(),
+            )
+            .await?;
+        }
+
+        Ok(())
+    }
+
+    /// Update training job data specification (scope information)
+    ///
+    /// Sets the data_spec_json field which contains scope information about
+    /// what data was used in training (file paths, patterns, filters, etc.).
+    /// This is essential for reproducibility and understanding the training data scope.
+    ///
+    /// # Arguments
+    /// * `job_id` - Training job identifier
+    /// * `data_spec_json` - JSON string containing the data specification
+    ///
+    /// # Returns
+    /// Error if job not found or update fails
+    pub async fn update_training_job_data_spec(
+        &self,
+        job_id: &str,
+        data_spec_json: &str,
+    ) -> Result<()> {
+        if let Some(repo) = self.get_training_job_kv_repo() {
+            if let Err(e) = repo
+                .update_job(job_id, |job| {
+                    job.data_spec_json = Some(data_spec_json.to_string());
+                })
+                .await
+            {
+                self.record_kv_write_fallback("training_jobs.update_data_spec");
+                warn!(error = %e, job_id = %job_id, "KV update data spec failed");
+            }
+        }
+
+        if self.storage_mode().write_to_sql() {
+            let result = sqlx::query(
+                "UPDATE repository_training_jobs
+                 SET data_spec_json = ?
+                 WHERE id = ?",
+            )
+            .bind(data_spec_json)
+            .bind(job_id)
+            .execute(self.pool())
+            .await
+            .map_err(|e| {
+                AosError::Database(format!("Failed to update training job data spec: {}", e))
+            })?;
+
+            if result.rows_affected() == 0 {
+                return Err(AosError::NotFound(format!(
+                    "Training job not found: {}",
+                    job_id
+                )));
+            }
+        } else if !self.storage_mode().write_to_kv() {
+            return Err(AosError::Database(
+                "No backend available for update_training_job_data_spec".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+
+    /// Link dataset with full scope information to a training job
+    ///
+    /// Atomically updates the dataset_id, dataset_version_id, and data_spec_json
+    /// fields for complete provenance and scope tracking. This is the preferred
+    /// method when linking a dataset to a training job as it ensures all
+    /// provenance information is recorded atomically.
+    ///
+    /// Evidence: migrations/0100_training_provenance.sql
+    /// Evidence: migrations/0177_dataset_trust_gates.sql
+    /// Pattern: Complete dataset and scope provenance linking
+    ///
+    /// # Arguments
+    /// * `job_id` - Training job identifier
+    /// * `dataset_id` - Dataset ID to link
+    /// * `dataset_version_id` - Optional specific version of the dataset
+    /// * `data_spec_json` - Optional JSON data specification (scope information)
+    ///
+    /// # Returns
+    /// Error if job not found or update fails
+    pub async fn link_dataset_with_scope_to_training_job(
+        &self,
+        job_id: &str,
+        dataset_id: &str,
+        dataset_version_id: Option<&str>,
+        data_spec_json: Option<&str>,
+    ) -> Result<()> {
+        let mut resolved_version_id = dataset_version_id.map(|s| s.to_string());
+        if resolved_version_id.is_none() {
+            if let Some(version) = self
+                .get_latest_dataset_version_for_dataset(dataset_id)
+                .await?
+            {
+                resolved_version_id = Some(version.id);
+            }
+        }
+        let resolved_version_id = resolved_version_id.as_deref();
+
+        if let Some(repo) = self.get_training_job_kv_repo() {
+            if let Err(e) = repo
+                .update_job(job_id, |job| {
+                    job.dataset_id = Some(dataset_id.to_string());
+                    job.dataset_version_id = resolved_version_id.map(|s| s.to_string());
+                    if let Some(spec) = data_spec_json {
+                        job.data_spec_json = Some(spec.to_string());
+                    }
+                })
+                .await
+            {
+                self.record_kv_write_fallback("training_jobs.link_dataset_with_scope");
+                warn!(error = %e, job_id = %job_id, "KV link dataset with scope failed");
+            }
+        }
+
+        if self.storage_mode().write_to_sql() {
+            let result = sqlx::query(
+                "UPDATE repository_training_jobs
+                 SET dataset_id = ?,
+                     dataset_version_id = COALESCE(?, dataset_version_id),
+                     data_spec_json = COALESCE(?, data_spec_json)
+                 WHERE id = ?",
+            )
+            .bind(dataset_id)
+            .bind(resolved_version_id)
+            .bind(data_spec_json)
+            .bind(job_id)
+            .execute(self.pool())
+            .await
+            .map_err(|e| {
+                AosError::Database(format!(
+                    "Failed to link dataset with scope to training job: {}",
+                    e
+                ))
+            })?;
+
+            if result.rows_affected() == 0 {
+                return Err(AosError::NotFound(format!(
+                    "Training job not found: {}",
+                    job_id
+                )));
+            }
+
+            let job = self.get_training_job(job_id).await?;
+            let (tenant_id, created_by) = if let Some(record) = job {
+                (record.tenant_id, Some(record.created_by))
+            } else {
+                (None, None)
+            };
+            let tenant_id = tenant_id.as_deref();
+            let link_params = LinkDatasetParams {
+                dataset_id: dataset_id.to_string(),
+                dataset_version_id: resolved_version_id.map(|s| s.to_string()),
+                role: Some("primary".to_string()),
+                ordinal: Some(0),
+                weight: None,
+                created_by,
+                metadata_json: None,
+            };
+            if let Err(err) = self
+                .link_dataset_to_training_job(job_id, &link_params, tenant_id)
+                .await
+            {
+                if is_dataset_link_conflict(&err) {
+                    self.update_training_job_dataset_link_version(
+                        job_id,
+                        dataset_id,
+                        resolved_version_id,
+                        tenant_id,
+                    )
+                    .await?;
+                } else {
+                    return Err(err);
+                }
+            }
+        } else if !self.storage_mode().write_to_kv() {
+            return Err(AosError::Database(
+                "No backend available for link_dataset_with_scope_to_training_job".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+
+    /// Get complete dataset and scope information for a training job
+    ///
+    /// Returns the dataset_id, dataset_version_id, and data_spec_json for a
+    /// training job. This is useful for complete provenance queries.
+    ///
+    /// # Arguments
+    /// * `job_id` - Training job identifier
+    ///
+    /// # Returns
+    /// Tuple of (Option<dataset_id>, Option<dataset_version_id>, Option<data_spec_json>)
+    pub async fn get_training_job_dataset_scope(
+        &self,
+        job_id: &str,
+    ) -> Result<(Option<String>, Option<String>, Option<String>)> {
+        let job = self.get_training_job(job_id).await?;
+
+        match job {
+            Some(j) => Ok((j.dataset_id, j.dataset_version_id, j.data_spec_json)),
+            None => Err(AosError::NotFound(format!(
+                "Training job not found: {}",
+                job_id
+            ))),
+        }
+    }
+
+    // =========================================================================
+    // Training Job Dataset Links (Many-to-Many)
+    // =========================================================================
+
+    /// Link a dataset to a training job
+    ///
+    /// Creates a many-to-many relationship between a training job and a dataset,
+    /// allowing jobs to use multiple datasets with different roles and configurations.
+    ///
+    /// Evidence: migrations/0241_training_job_datasets.sql
+    /// Pattern: Junction table for training job to dataset linking
+    ///
+    /// # Arguments
+    /// * `job_id` - Training job identifier
+    /// * `params` - Link parameters including dataset_id, role, weight, etc.
+    /// * `tenant_id` - Optional tenant ID for isolation
+    ///
+    /// # Returns
+    /// ID of the created link record
+    ///
+    /// # Errors
+    /// Returns error if job or dataset doesn't exist, or if link already exists
+    pub async fn link_dataset_to_training_job(
+        &self,
+        job_id: &str,
+        params: &LinkDatasetParams,
+        tenant_id: Option<&str>,
+    ) -> Result<String> {
+        let id = Uuid::now_v7().to_string();
+        let role = params.role.as_deref().unwrap_or("primary");
+        let ordinal = params.ordinal.unwrap_or(0);
+        let weight = params.weight.unwrap_or(1.0);
+
+        let mut resolved_version_id = params.dataset_version_id.clone();
+        if resolved_version_id.is_none() {
+            if let Some(version) = self
+                .get_latest_dataset_version_for_dataset(&params.dataset_id)
+                .await?
+            {
+                resolved_version_id = Some(version.id);
+            }
+        }
+
+        let hash_b3_at_link = self
+            .resolve_dataset_hash_snapshot(&params.dataset_id, resolved_version_id.as_deref())
+            .await?;
+
+        sqlx::query(
+            "INSERT INTO training_job_datasets (
+                id, training_job_id, dataset_id, dataset_version_id,
+                role, ordinal, weight, hash_b3_at_link, tenant_id,
+                created_by, metadata_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&id)
+        .bind(job_id)
+        .bind(&params.dataset_id)
+        .bind(&resolved_version_id)
+        .bind(role)
+        .bind(ordinal)
+        .bind(weight)
+        .bind(&hash_b3_at_link)
+        .bind(tenant_id)
+        .bind(&params.created_by)
+        .bind(&params.metadata_json)
+        .execute(self.pool())
+        .await
+        .map_err(|e| {
+            if e.to_string().contains("UNIQUE constraint failed") {
+                AosError::Validation(format!(
+                    "Dataset {} is already linked to job {}",
+                    params.dataset_id, job_id
+                ))
+            } else {
+                AosError::Database(format!("Failed to link dataset to training job: {}", e))
+            }
+        })?;
+
+        Ok(id)
+    }
+
+    /// Link multiple datasets to a training job in a single transaction
+    ///
+    /// Evidence: migrations/0241_training_job_datasets.sql
+    /// Pattern: Batch insertion for efficiency
+    ///
+    /// # Arguments
+    /// * `job_id` - Training job identifier
+    /// * `params_list` - List of link parameters for each dataset
+    /// * `tenant_id` - Optional tenant ID for isolation
+    ///
+    /// # Returns
+    /// Vector of created link IDs
+    pub async fn link_datasets_to_training_job(
+        &self,
+        job_id: &str,
+        params_list: &[LinkDatasetParams],
+        tenant_id: Option<&str>,
+    ) -> Result<Vec<String>> {
+        if params_list.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut tx = self.begin_write_tx().await?;
+        let mut link_ids = Vec::with_capacity(params_list.len());
+
+        for (idx, params) in params_list.iter().enumerate() {
+            let id = Uuid::now_v7().to_string();
+            let role = params.role.as_deref().unwrap_or("primary");
+            // Use provided ordinal or fall back to index position
+            let ordinal = params.ordinal.unwrap_or(idx as i32);
+            let weight = params.weight.unwrap_or(1.0);
+            let mut resolved_version_id = params.dataset_version_id.clone();
+            if resolved_version_id.is_none() {
+                if let Some(version) = self
+                    .get_latest_dataset_version_for_dataset(&params.dataset_id)
+                    .await?
+                {
+                    resolved_version_id = Some(version.id);
+                }
+            }
+            let hash_b3_at_link = self
+                .resolve_dataset_hash_snapshot(&params.dataset_id, resolved_version_id.as_deref())
+                .await?;
+
+            sqlx::query(
+                "INSERT INTO training_job_datasets (
+                    id, training_job_id, dataset_id, dataset_version_id,
+                    role, ordinal, weight, hash_b3_at_link, tenant_id, created_by, metadata_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            )
+            .bind(&id)
+            .bind(job_id)
+            .bind(&params.dataset_id)
+            .bind(&resolved_version_id)
+            .bind(role)
+            .bind(ordinal)
+            .bind(weight)
+            .bind(&hash_b3_at_link)
+            .bind(tenant_id)
+            .bind(&params.created_by)
+            .bind(&params.metadata_json)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| {
+                AosError::Database(format!("Failed to link dataset to training job: {}", e))
+            })?;
+
+            link_ids.push(id);
+        }
+
+        tx.commit()
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to commit dataset links: {}", e)))?;
+
+        Ok(link_ids)
+    }
+
+    /// Unlink a dataset from a training job
+    ///
+    /// Evidence: migrations/0241_training_job_datasets.sql
+    ///
+    /// # Arguments
+    /// * `job_id` - Training job identifier
+    /// * `dataset_id` - Dataset to unlink
+    ///
+    /// # Returns
+    /// True if a link was removed, false if no link existed
+    pub async fn unlink_dataset_from_training_job(
+        &self,
+        job_id: &str,
+        dataset_id: &str,
+    ) -> Result<bool> {
+        let result = sqlx::query(
+            "DELETE FROM training_job_datasets WHERE training_job_id = ? AND dataset_id = ?",
+        )
+        .bind(job_id)
+        .bind(dataset_id)
+        .execute(self.pool())
+        .await
+        .map_err(|e| {
+            AosError::Database(format!("Failed to unlink dataset from training job: {}", e))
+        })?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Get all datasets linked to a training job
+    ///
+    /// Returns datasets in order by role (primary first) then by ordinal.
+    ///
+    /// Evidence: migrations/0241_training_job_datasets.sql
+    /// Pattern: Query junction table for related datasets
+    ///
+    /// # Arguments
+    /// * `job_id` - Training job identifier
+    ///
+    /// # Returns
+    /// Vector of dataset links ordered by role and ordinal
+    pub async fn get_datasets_for_training_job(
+        &self,
+        job_id: &str,
+    ) -> Result<Vec<TrainingJobDatasetLink>> {
+        let links = sqlx::query_as::<_, TrainingJobDatasetLink>(
+            "SELECT id, training_job_id, dataset_id, dataset_version_id,
+                    role, ordinal, weight, hash_b3_at_link, tenant_id,
+                    created_at, created_by, metadata_json
+             FROM training_job_datasets
+             WHERE training_job_id = ?
+             ORDER BY
+                CASE role WHEN 'primary' THEN 0 WHEN 'validation' THEN 1 ELSE 2 END,
+                ordinal ASC",
+        )
+        .bind(job_id)
+        .fetch_all(self.pool())
+        .await
+        .map_err(|e| {
+            AosError::Database(format!("Failed to get datasets for training job: {}", e))
+        })?;
+
+        Ok(links)
+    }
+
+    /// Get all training jobs that used a specific dataset (via junction table)
+    ///
+    /// Evidence: migrations/0241_training_job_datasets.sql
+    /// Pattern: Reverse lookup for provenance queries
+    ///
+    /// # Arguments
+    /// * `dataset_id` - Dataset identifier
+    ///
+    /// # Returns
+    /// Vector of training job IDs that used this dataset
+    pub async fn get_training_jobs_using_dataset(&self, dataset_id: &str) -> Result<Vec<String>> {
+        let job_ids: Vec<(String,)> = sqlx::query_as(
+            "SELECT DISTINCT training_job_id
+             FROM training_job_datasets
+             WHERE dataset_id = ?
+             ORDER BY created_at DESC",
+        )
+        .bind(dataset_id)
+        .fetch_all(self.pool())
+        .await
+        .map_err(|e| {
+            AosError::Database(format!("Failed to get training jobs for dataset: {}", e))
+        })?;
+
+        Ok(job_ids.into_iter().map(|(id,)| id).collect())
+    }
+
+    /// Get all training jobs that used a specific dataset version (via junction table)
+    ///
+    /// Evidence: migrations/0241_training_job_datasets.sql
+    /// Pattern: Version-specific provenance queries
+    ///
+    /// # Arguments
+    /// * `dataset_version_id` - Dataset version identifier
+    ///
+    /// # Returns
+    /// Vector of training job IDs that used this specific version
+    pub async fn get_training_jobs_using_dataset_version(
+        &self,
+        dataset_version_id: &str,
+    ) -> Result<Vec<String>> {
+        let job_ids: Vec<(String,)> = sqlx::query_as(
+            "SELECT DISTINCT training_job_id
+             FROM training_job_datasets
+             WHERE dataset_version_id = ?
+             ORDER BY created_at DESC",
+        )
+        .bind(dataset_version_id)
+        .fetch_all(self.pool())
+        .await
+        .map_err(|e| {
+            AosError::Database(format!(
+                "Failed to get training jobs for dataset version: {}",
+                e
+            ))
+        })?;
+
+        Ok(job_ids.into_iter().map(|(id,)| id).collect())
+    }
+
+    /// Get a specific dataset link by job and dataset IDs
+    ///
+    /// Evidence: migrations/0241_training_job_datasets.sql
+    ///
+    /// # Arguments
+    /// * `job_id` - Training job identifier
+    /// * `dataset_id` - Dataset identifier
+    ///
+    /// # Returns
+    /// The link record if it exists
+    pub async fn get_training_job_dataset_link(
+        &self,
+        job_id: &str,
+        dataset_id: &str,
+    ) -> Result<Option<TrainingJobDatasetLink>> {
+        let link = sqlx::query_as::<_, TrainingJobDatasetLink>(
+            "SELECT id, training_job_id, dataset_id, dataset_version_id,
+                    role, ordinal, weight, hash_b3_at_link, tenant_id,
+                    created_at, created_by, metadata_json
+             FROM training_job_datasets
+             WHERE training_job_id = ? AND dataset_id = ?",
+        )
+        .bind(job_id)
+        .bind(dataset_id)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(|e| {
+            AosError::Database(format!("Failed to get training job dataset link: {}", e))
+        })?;
+
+        Ok(link)
+    }
+
+    /// Update the role and weight of a dataset link
+    ///
+    /// Evidence: migrations/0241_training_job_datasets.sql
+    ///
+    /// # Arguments
+    /// * `job_id` - Training job identifier
+    /// * `dataset_id` - Dataset identifier
+    /// * `role` - New role for the dataset
+    /// * `ordinal` - New ordinal position
+    /// * `weight` - New weight value
+    pub async fn update_training_job_dataset_link(
+        &self,
+        job_id: &str,
+        dataset_id: &str,
+        role: Option<&str>,
+        ordinal: Option<i32>,
+        weight: Option<f64>,
+    ) -> Result<()> {
+        // Build dynamic update query based on provided fields
+        let mut updates = Vec::new();
+        if role.is_some() {
+            updates.push("role = ?");
+        }
+        if ordinal.is_some() {
+            updates.push("ordinal = ?");
+        }
+        if weight.is_some() {
+            updates.push("weight = ?");
+        }
+
+        if updates.is_empty() {
+            return Ok(());
+        }
+
+        let query = format!(
+            "UPDATE training_job_datasets SET {} WHERE training_job_id = ? AND dataset_id = ?",
+            updates.join(", ")
+        );
+
+        let mut q = sqlx::query(&query);
+
+        if let Some(r) = role {
+            q = q.bind(r);
+        }
+        if let Some(o) = ordinal {
+            q = q.bind(o);
+        }
+        if let Some(w) = weight {
+            q = q.bind(w);
+        }
+
+        q.bind(job_id)
+            .bind(dataset_id)
+            .execute(self.pool())
+            .await
+            .map_err(|e| {
+                AosError::Database(format!("Failed to update training job dataset link: {}", e))
+            })?;
+
+        Ok(())
+    }
+
+    /// Get datasets for a training job filtered by role
+    ///
+    /// Evidence: migrations/0241_training_job_datasets.sql
+    ///
+    /// # Arguments
+    /// * `job_id` - Training job identifier
+    /// * `role` - Role to filter by (e.g., "primary", "validation", "supplementary")
+    ///
+    /// # Returns
+    /// Vector of dataset links with the specified role
+    pub async fn get_datasets_for_training_job_by_role(
+        &self,
+        job_id: &str,
+        role: &str,
+    ) -> Result<Vec<TrainingJobDatasetLink>> {
+        let links = sqlx::query_as::<_, TrainingJobDatasetLink>(
+            "SELECT id, training_job_id, dataset_id, dataset_version_id,
+                    role, ordinal, weight, hash_b3_at_link, tenant_id,
+                    created_at, created_by, metadata_json
+             FROM training_job_datasets
+             WHERE training_job_id = ? AND role = ?
+             ORDER BY ordinal ASC",
+        )
+        .bind(job_id)
+        .bind(role)
+        .fetch_all(self.pool())
+        .await
+        .map_err(|e| {
+            AosError::Database(format!(
+                "Failed to get datasets for training job by role: {}",
+                e
+            ))
+        })?;
+
+        Ok(links)
+    }
+
+    /// Count datasets linked to a training job
+    ///
+    /// Evidence: migrations/0241_training_job_datasets.sql
+    ///
+    /// # Arguments
+    /// * `job_id` - Training job identifier
+    ///
+    /// # Returns
+    /// Number of datasets linked to the job
+    pub async fn count_datasets_for_training_job(&self, job_id: &str) -> Result<i64> {
+        let count: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM training_job_datasets WHERE training_job_id = ?")
+                .bind(job_id)
+                .fetch_one(self.pool())
+                .await
+                .map_err(|e| {
+                    AosError::Database(format!("Failed to count datasets for training job: {}", e))
+                })?;
+
+        Ok(count.0)
+    }
+
+    /// Delete all dataset links for a training job
+    ///
+    /// Typically called when deleting a training job to clean up the junction table.
+    /// Note: This is also handled by ON DELETE CASCADE in the FK constraint.
+    ///
+    /// Evidence: migrations/0241_training_job_datasets.sql
+    ///
+    /// # Arguments
+    /// * `job_id` - Training job identifier
+    ///
+    /// # Returns
+    /// Number of links deleted
+    pub async fn delete_all_dataset_links_for_training_job(&self, job_id: &str) -> Result<u64> {
+        let result = sqlx::query("DELETE FROM training_job_datasets WHERE training_job_id = ?")
+            .bind(job_id)
+            .execute(self.pool())
+            .await
+            .map_err(|e| {
+                AosError::Database(format!(
+                    "Failed to delete dataset links for training job: {}",
+                    e
+                ))
+            })?;
+
+        Ok(result.rows_affected())
     }
 }

@@ -6,6 +6,7 @@ use adapteros_lora_worker::{ComputeUnits, CoreMLExportJob};
 use adapteros_platform::common::PlatformUtils;
 use tempfile::TempDir;
 
+use crate::test_support::TestEnvGuard;
 use crate::training::coreml::perform_coreml_export;
 use crate::training::job::{
     DataLineageMode, TrainingBackendKind, TrainingConfig, TrainingJob, TrainingJobStatus,
@@ -21,6 +22,7 @@ fn new_test_tempdir() -> TempDir {
 #[cfg(not(all(target_os = "macos", feature = "coreml-backend")))]
 #[test]
 fn stub_coreml_export_path_is_invokable_when_allowed() {
+    let _env = TestEnvGuard::new();
     let tmp = new_test_tempdir();
     let base = tmp.path().join("base.json");
     let adapter = tmp.path().join("adapter.aos");
@@ -90,6 +92,7 @@ async fn start_training_records_coreml_intent_and_fallback() {
 
 #[tokio::test]
 async fn coreml_export_flow_updates_job_and_registry() {
+    let _env = TestEnvGuard::new();
     std::env::set_var("AOS_ALLOW_COREML_EXPORT_STUB", "1");
     let temp = new_test_tempdir();
     let base_dir = temp.path().join("base");
@@ -116,17 +119,17 @@ async fn coreml_export_flow_updates_job_and_registry() {
     job.manifest_base_model = Some("base-model-x".into());
     job.package_hash_b3 = Some("hash123".into());
     job.tenant_id = Some("tenant-test".into());
-    {
-        let mut jobs = service.jobs.write().await;
-        jobs.insert(job.id.clone(), job);
-    }
+    service.insert_job_for_test(job).await;
 
     let updated = service
         .export_coreml_for_job("job-export")
         .await
         .expect("export");
 
-    assert_eq!(updated.coreml_export_status.as_deref(), Some("succeeded"));
+    assert_eq!(
+        updated.coreml_export_status.as_deref(),
+        Some("metadata_only")
+    );
     assert!(updated.coreml_fused_package_hash.is_some());
 
     let pair = db

@@ -31,6 +31,7 @@ pub async fn run(
         base_model_id,
         adapter_id,
     })?;
+    let metadata_only = record.base_manifest_hash == record.fused_manifest_hash;
 
     output.success("CoreML export completed");
     output.kv("Fused package", record.fused_package.display().to_string());
@@ -41,6 +42,14 @@ pub async fn run(
         record.fused_manifest_hash.to_string(),
     );
     output.kv("Adapter hash", record.adapter_hash.to_string());
+    output.kv("Fusion verified", record.fusion_verified.to_string());
+    if metadata_only {
+        output.warning(
+            "CoreML export produced metadata-only output; fused manifest matches base package",
+        );
+    } else if !record.fusion_verified {
+        output.warning("CoreML export completed without fusion verification");
+    }
 
     Ok(())
 }
@@ -82,17 +91,27 @@ pub async fn trigger_export_for_job(
         .map_err(|e| AosError::Http(format!("Failed to parse response: {}", e)))?;
 
     output.success("CoreML export requested");
-    output.kv(
-        "coreml_export_status",
-        job.coreml_export_status
-            .as_deref()
-            .unwrap_or("running/pending"),
-    );
+    let export_status = job
+        .coreml_export_status
+        .as_deref()
+        .unwrap_or("running/pending");
+    output.kv("coreml_export_status", export_status);
+    if let Some(reason) = job.coreml_export_reason.as_deref() {
+        output.kv("coreml_export_reason", reason);
+    }
     if let Some(hash) = job.coreml_fused_package_hash.as_deref() {
         output.kv("fused_hash", hash);
     }
     if let Some(path) = job.coreml_package_path.as_deref() {
         output.kv("fused_package", path);
+    }
+    let metadata_only = is_metadata_only_export(
+        export_status,
+        job.coreml_base_manifest_hash.as_deref(),
+        job.coreml_fused_package_hash.as_deref(),
+    );
+    if metadata_only {
+        output.warning("CoreML export is metadata-only; fused manifest matches base");
     }
     Ok(())
 }
@@ -138,12 +157,11 @@ pub async fn show_export_status(job_id: &str, base_url: &str, output: &OutputWri
             .map(|b| b.to_string())
             .unwrap_or_else(|| "false".to_string()),
     );
-    output.kv(
-        "coreml_export_status",
-        job.coreml_export_status
-            .as_deref()
-            .unwrap_or("not_requested"),
-    );
+    let export_status = job
+        .coreml_export_status
+        .as_deref()
+        .unwrap_or("not_requested");
+    output.kv("coreml_export_status", export_status);
     if let Some(reason) = job.coreml_export_reason.as_deref() {
         output.kv("coreml_export_reason", reason);
     }
@@ -161,6 +179,14 @@ pub async fn show_export_status(job_id: &str, base_url: &str, output: &OutputWri
     }
     if let Some(path) = job.coreml_metadata_path.as_deref() {
         output.kv("metadata_path", path);
+    }
+    let metadata_only = is_metadata_only_export(
+        export_status,
+        job.coreml_base_manifest_hash.as_deref(),
+        job.coreml_fused_package_hash.as_deref(),
+    );
+    if metadata_only {
+        output.warning("CoreML export is metadata-only; fused manifest matches base");
     }
 
     Ok(())
@@ -183,5 +209,19 @@ fn parse_compute_units(value: Option<String>) -> Result<ComputeUnits> {
         }
     } else {
         Ok(ComputeUnits::CpuAndNeuralEngine)
+    }
+}
+
+fn is_metadata_only_export(
+    status: &str,
+    base_hash: Option<&str>,
+    fused_hash: Option<&str>,
+) -> bool {
+    if matches!(status, "metadata_only" | "succeeded_stub") {
+        return true;
+    }
+    match (base_hash, fused_hash) {
+        (Some(base), Some(fused)) => base == fused,
+        _ => false,
     }
 }

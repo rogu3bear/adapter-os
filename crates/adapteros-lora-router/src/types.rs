@@ -567,12 +567,41 @@ pub struct AdapterInfo {
     pub recommended_for_moe: bool,
     /// Optional reasoning specialties (e.g., math, logic) for dynamic routing
     pub reasoning_specialties: Vec<String>,
+    /// Adapter type: "standard", "codebase", or "core"
+    pub adapter_type: Option<String>,
+    /// Session binding for codebase adapters (exclusive)
+    pub stream_session_id: Option<String>,
+    /// Base adapter ID for codebase adapters (the core adapter they extend)
+    pub base_adapter_id: Option<String>,
 }
 
 impl AdapterInfo {
     /// Check if adapter supports a language
     pub fn supports_language(&self, lang_idx: usize) -> bool {
         self.languages.contains(&lang_idx)
+    }
+
+    /// Check if this is a codebase adapter
+    pub fn is_codebase_adapter(&self) -> bool {
+        self.adapter_type.as_deref() == Some("codebase")
+    }
+
+    /// Check if this is a core adapter
+    pub fn is_core_adapter(&self) -> bool {
+        self.adapter_type.as_deref() == Some("core")
+    }
+
+    /// Check if this is a standard adapter (default)
+    pub fn is_standard_adapter(&self) -> bool {
+        !matches!(
+            self.adapter_type.as_deref(),
+            Some("codebase") | Some("core")
+        )
+    }
+
+    /// Check if this adapter is bound to a specific session
+    pub fn is_bound_to_session(&self, session_id: &str) -> bool {
+        self.stream_session_id.as_deref() == Some(session_id)
     }
 }
 
@@ -588,6 +617,9 @@ impl Default for AdapterInfo {
             base_model: None,
             recommended_for_moe: true,
             reasoning_specialties: Vec::new(),
+            adapter_type: None,
+            stream_session_id: None,
+            base_adapter_id: None,
         }
     }
 }
@@ -757,4 +789,216 @@ mod tests {
         assert_eq!(LoraTier::Max.boost(), LORA_TIER_MAX_BOOST);
         assert_eq!(LoraTier::Standard.boost(), LORA_TIER_STANDARD_BOOST);
     }
+
+    #[test]
+    fn test_codebase_adapter_detection() {
+        let mut adapter = AdapterInfo::default();
+        assert!(adapter.is_standard_adapter());
+        assert!(!adapter.is_codebase_adapter());
+        assert!(!adapter.is_core_adapter());
+
+        adapter.adapter_type = Some("codebase".to_string());
+        assert!(adapter.is_codebase_adapter());
+        assert!(!adapter.is_standard_adapter());
+
+        adapter.adapter_type = Some("core".to_string());
+        assert!(adapter.is_core_adapter());
+        assert!(!adapter.is_codebase_adapter());
+    }
+
+    #[test]
+    fn test_codebase_exclusivity_validation() {
+        let adapters = vec![
+            AdapterInfo {
+                id: "codebase-1".to_string(),
+                adapter_type: Some("codebase".to_string()),
+                ..Default::default()
+            },
+            AdapterInfo {
+                id: "standard-1".to_string(),
+                adapter_type: Some("standard".to_string()),
+                ..Default::default()
+            },
+        ];
+
+        // Single codebase should pass
+        let result = validate_codebase_exclusivity(&[0], &adapters);
+        assert!(result.is_ok());
+
+        // Standard only should pass
+        let result = validate_codebase_exclusivity(&[1], &adapters);
+        assert!(result.is_ok());
+
+        // Mix is fine
+        let result = validate_codebase_exclusivity(&[0, 1], &adapters);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_codebase_exclusivity_multiple_fails() {
+        let adapters = vec![
+            AdapterInfo {
+                id: "codebase-1".to_string(),
+                adapter_type: Some("codebase".to_string()),
+                ..Default::default()
+            },
+            AdapterInfo {
+                id: "codebase-2".to_string(),
+                adapter_type: Some("codebase".to_string()),
+                ..Default::default()
+            },
+        ];
+
+        // Multiple codebase adapters should fail
+        let result = validate_codebase_exclusivity(&[0, 1], &adapters);
+        assert!(result.is_err());
+        if let Err(CodebaseExclusivityError::MultipleCodebaseAdapters { count, ids }) = result {
+            assert_eq!(count, 2);
+            assert!(ids.contains(&"codebase-1".to_string()));
+            assert!(ids.contains(&"codebase-2".to_string()));
+        } else {
+            panic!("Expected MultipleCodebaseAdapters error");
+        }
+    }
+}
+
+// =============================================================================
+// Codebase Adapter Exclusivity Validation
+// =============================================================================
+
+/// Error type for codebase adapter exclusivity validation
+#[derive(Debug, Clone)]
+pub enum CodebaseExclusivityError {
+    /// Multiple codebase adapters selected in a single routing decision
+    MultipleCodebaseAdapters {
+        /// Number of codebase adapters found
+        count: usize,
+        /// IDs of the conflicting adapters
+        ids: Vec<String>,
+    },
+    /// Codebase adapter bound to a different session
+    SessionMismatch {
+        /// The adapter ID
+        adapter_id: String,
+        /// Expected session ID
+        expected_session: String,
+        /// Actual bound session ID
+        actual_session: Option<String>,
+    },
+}
+
+impl std::fmt::Display for CodebaseExclusivityError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CodebaseExclusivityError::MultipleCodebaseAdapters { count, ids } => {
+                write!(
+                    f,
+                    "Multiple codebase adapters ({}) selected in single decision: {:?}. \
+                     Only one codebase adapter is allowed per routing decision.",
+                    count, ids
+                )
+            }
+            CodebaseExclusivityError::SessionMismatch {
+                adapter_id,
+                expected_session,
+                actual_session,
+            } => {
+                write!(
+                    f,
+                    "Codebase adapter '{}' session mismatch: expected '{}', \
+                     got {:?}",
+                    adapter_id, expected_session, actual_session
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for CodebaseExclusivityError {}
+
+/// Validate that at most one codebase adapter is selected in a routing decision.
+///
+/// This enforces the codebase adapter exclusivity rule: only one codebase adapter
+/// can be active per stream/session.
+///
+/// # Arguments
+///
+/// * `selected_indices` - Indices of selected adapters from routing decision
+/// * `adapters` - Full list of available adapters
+///
+/// # Returns
+///
+/// Returns `Ok(())` if validation passes (0 or 1 codebase adapter selected),
+/// or `Err(CodebaseExclusivityError)` if multiple codebase adapters are selected.
+pub fn validate_codebase_exclusivity(
+    selected_indices: &[usize],
+    adapters: &[AdapterInfo],
+) -> std::result::Result<(), CodebaseExclusivityError> {
+    let codebase_adapters: Vec<_> = selected_indices
+        .iter()
+        .filter_map(|&i| adapters.get(i))
+        .filter(|a| a.is_codebase_adapter())
+        .collect();
+
+    if codebase_adapters.len() > 1 {
+        return Err(CodebaseExclusivityError::MultipleCodebaseAdapters {
+            count: codebase_adapters.len(),
+            ids: codebase_adapters.iter().map(|a| a.id.clone()).collect(),
+        });
+    }
+
+    Ok(())
+}
+
+/// Validate that selected codebase adapters match the expected session.
+///
+/// # Arguments
+///
+/// * `selected_indices` - Indices of selected adapters from routing decision
+/// * `adapters` - Full list of available adapters
+/// * `session_id` - The expected session ID for codebase adapters
+///
+/// # Returns
+///
+/// Returns `Ok(())` if all codebase adapters are bound to the expected session,
+/// or `Err(CodebaseExclusivityError::SessionMismatch)` if a mismatch is found.
+pub fn validate_codebase_session_binding(
+    selected_indices: &[usize],
+    adapters: &[AdapterInfo],
+    session_id: &str,
+) -> std::result::Result<(), CodebaseExclusivityError> {
+    for &idx in selected_indices {
+        if let Some(adapter) = adapters.get(idx) {
+            if adapter.is_codebase_adapter() {
+                // Codebase adapters should be bound to the expected session
+                if !adapter.is_bound_to_session(session_id) {
+                    return Err(CodebaseExclusivityError::SessionMismatch {
+                        adapter_id: adapter.id.clone(),
+                        expected_session: session_id.to_string(),
+                        actual_session: adapter.stream_session_id.clone(),
+                    });
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Count codebase adapters in a selection
+pub fn count_codebase_adapters(selected_indices: &[usize], adapters: &[AdapterInfo]) -> usize {
+    selected_indices
+        .iter()
+        .filter_map(|&i| adapters.get(i))
+        .filter(|a| a.is_codebase_adapter())
+        .count()
+}
+
+/// Count core adapters in a selection
+pub fn count_core_adapters(selected_indices: &[usize], adapters: &[AdapterInfo]) -> usize {
+    selected_indices
+        .iter()
+        .filter_map(|&i| adapters.get(i))
+        .filter(|a| a.is_core_adapter())
+        .count()
 }

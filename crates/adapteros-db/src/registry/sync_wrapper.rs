@@ -4,13 +4,35 @@
 //! allowing gradual migration from adapteros-registry without
 //! breaking CLI and other sync consumers.
 //!
-//! ## Usage
+//! # CLI-Only Usage Warning
+//!
+//! **IMPORTANT**: This wrapper is designed exclusively for CLI commands and
+//! synchronous contexts. It creates a separate tokio runtime and uses
+//! `block_on()` internally, which can cause **deadlocks** if called from
+//! within an existing async context (e.g., HTTP handlers, async services).
+//!
+//! If you need to access the database from async code, use the `Db` type
+//! directly instead of this wrapper.
+//!
+//! ## Safe Usage (CLI)
 //!
 //! ```rust,ignore
+//! // In CLI main() or sync context - SAFE
 //! use adapteros_db::registry::SyncRegistry;
 //!
 //! let registry = SyncRegistry::open("var/aos-cp.sqlite3")?;
 //! let adapter = registry.get_adapter("my-adapter")?;
+//! ```
+//!
+//! ## Unsafe Usage (Async Context)
+//!
+//! ```rust,ignore
+//! // In async handler - WILL DEADLOCK
+//! async fn handle_request() {
+//!     // DON'T DO THIS - will deadlock!
+//!     let registry = SyncRegistry::open("var/aos-cp.sqlite3").unwrap();
+//!     registry.get_adapter("my-adapter"); // Calls block_on() from async context
+//! }
 //! ```
 
 use crate::Db;
@@ -24,6 +46,18 @@ use tracing::{debug, info, warn};
 ///
 /// Wraps the async `Db` with a tokio runtime to provide blocking APIs
 /// for CLI commands and other sync contexts.
+///
+/// # Warning: CLI-Only
+///
+/// This type is **not safe to use from async contexts**. Calling any method
+/// on this type from within a tokio runtime will cause a deadlock because
+/// it uses `block_on()` internally. For async usage, use [`Db`] directly.
+///
+/// # Runtime Behavior
+///
+/// Each `SyncRegistry` instance creates its own tokio runtime. This has
+/// performance implications if many instances are created. For high-volume
+/// usage, consider using a shared runtime via [`SyncRegistry::from_db`].
 pub struct SyncRegistry {
     db: Arc<Db>,
     runtime: Arc<Runtime>,
@@ -33,7 +67,21 @@ impl SyncRegistry {
     /// Open or create registry at database path (compatibility with Registry::open)
     ///
     /// Creates a new tokio runtime for blocking operations and runs migrations.
+    ///
+    /// # Panics
+    ///
+    /// In debug builds, panics if called from within an existing tokio runtime.
+    /// This is a safety check to prevent deadlocks.
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
+        // Safety check: detect if we're already in an async context
+        #[cfg(debug_assertions)]
+        if tokio::runtime::Handle::try_current().is_ok() {
+            panic!(
+                "SyncRegistry::open() called from within an async context. \
+                 This will cause a deadlock. Use Db directly for async access."
+            );
+        }
+
         let rt = Runtime::new()
             .map_err(|e| AosError::Registry(format!("Failed to create runtime: {}", e)))?;
 

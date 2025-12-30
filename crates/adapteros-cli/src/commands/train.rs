@@ -2,7 +2,9 @@
 
 use crate::commands::training_common::CommonTrainingArgs;
 use adapteros_core::{AosError, Result};
-use adapteros_lora_worker::training::{MicroLoRATrainer, TrainingConfig, TrainingExample};
+use adapteros_lora_worker::training::{
+    DeterminismConfig, MicroLoRATrainer, TrainingConfig, TrainingExample,
+};
 use clap::Args;
 use serde_json;
 use std::collections::HashMap;
@@ -131,7 +133,14 @@ impl TrainArgs {
                 warmup_steps: None,
                 max_seq_length: None,
                 gradient_accumulation_steps: None,
-                determinism: None,
+                determinism: if self.deterministic || self.seed.is_some() {
+                    Some(DeterminismConfig {
+                        seed: self.seed,
+                        ..Default::default()
+                    })
+                } else {
+                    None
+                },
                 coreml_placement: None,
                 backend_policy: None,
                 coreml_fallback_backend: None,

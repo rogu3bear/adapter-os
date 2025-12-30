@@ -18,6 +18,9 @@ pub mod supervisor;
 pub mod training;
 pub mod training_dataset_integration;
 
+#[cfg(test)]
+pub(crate) mod test_support;
+
 pub use behavior_training::{
     BehaviorCategory, BehaviorDataset, BehaviorExample, BehaviorInput, BehaviorMetadata,
     BehaviorTarget, BehaviorTrainingGenerator, DatasetConfig, ExportFilter, SyntheticConfig,

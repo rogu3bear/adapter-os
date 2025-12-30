@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use adapteros_core::{GuardLogLevel, SeedScopeGuard};
+use adapteros_core::{B3Hash, GuardLogLevel, SeedMode, SeedScopeGuard};
 use adapteros_deterministic_exec::spawn_deterministic;
 use adapteros_lora_worker::training::trainer::EpochMetrics as WorkerEpochMetrics;
 use adapteros_lora_worker::training::{
@@ -323,6 +323,48 @@ pub(crate) async fn run_training_job(
             }
         }
 
+        let determinism_seed_override = worker_cfg
+            .determinism
+            .as_ref()
+            .and_then(|d| d.seed)
+            .filter(|seed| *seed != 0);
+        let global_seed = determinism_seed_override
+            .map(|seed| B3Hash::hash(&seed.to_le_bytes()))
+            .unwrap_or_else(|| B3Hash::hash(b"training"));
+        let global_seed_hex = global_seed.to_hex();
+        let seed_mode = SeedMode::default().as_str();
+        let determinism_config_json = serde_json::to_string(&serde_json::json!({
+            "seed_mode": seed_mode,
+            "training_seed": trainer.training_seed(),
+            "seed_override": determinism_seed_override,
+            "determinism": worker_cfg.determinism.clone(),
+            "dataset_version_ids": dataset_version_ids_for_training.as_ref(),
+            "data_spec_hash": data_spec_hash_for_training.as_deref(),
+            "base_model_id": base_model_id.as_deref(),
+            "job_id": job_id.as_str(),
+        }))
+        .ok();
+        let is_deterministic_run =
+            worker_cfg.determinism.is_some() || cfg!(feature = "deterministic-only");
+        if let Some(database) = &db {
+            if let Err(e) = database
+                .update_training_job_determinism(
+                    &job_id,
+                    is_deterministic_run,
+                    Some(global_seed_hex.as_str()),
+                    determinism_config_json.as_deref(),
+                    Some(seed_mode),
+                )
+                .await
+            {
+                warn!(
+                    job_id = %job_id,
+                    error = %e,
+                    "Failed to persist training determinism metadata (non-fatal)"
+                );
+            }
+        }
+
         // Wire job_id and DB for metrics persistence (before GPU init so telemetry carries job_id)
         trainer.set_job_id(job_id.clone());
         trainer.set_cancel_token(cancel_token);
@@ -371,6 +413,24 @@ pub(crate) async fn run_training_job(
 
             trainer
                 .train_with_resume(&examples, move |metrics: WorkerEpochMetrics| {
+                    // Emit per-epoch timing telemetry
+                    let duration_ms = metrics.duration_us / 1000;
+                    tracing::event!(
+                        tracing::Level::INFO,
+                        name = "epoch_completed",
+                        job_id = %job_id_clone,
+                        epoch = metrics.epoch,
+                        duration_ms = duration_ms,
+                        loss = metrics.loss,
+                        tokens_per_sec = metrics.tokens_per_sec,
+                        examples_per_sec = metrics.examples_per_sec,
+                        tokens_in_epoch = metrics.tokens_in_epoch,
+                        examples_in_epoch = metrics.examples_in_epoch,
+                        total_tokens_processed = metrics.total_tokens_processed,
+                        total_examples_processed = metrics.total_examples_processed,
+                        "Training epoch completed"
+                    );
+
                     let jobs_ref_inner = jobs_ref_clone.clone();
                     let job_id_inner = job_id_clone.clone();
                     let jobs_ref_for_det = jobs_ref_inner.clone();

@@ -11,9 +11,14 @@
 //! - Invariant enforcement (cannot purge non-archived, cannot unarchive purged)
 
 use adapteros_db::Db;
+use uuid::Uuid;
 
 /// Helper to create a test adapter with given ID
 async fn create_test_adapter(db: &Db, tenant_id: &str, adapter_id: &str) -> String {
+    let file_path =
+        std::env::temp_dir().join(format!("adapteros-{}-{}.aos", adapter_id, Uuid::new_v4()));
+    std::fs::write(&file_path, b"test").expect("Failed to create dummy .aos file");
+
     let params = adapteros_db::adapters::AdapterRegistrationBuilder::new()
         .adapter_id(adapter_id)
         .tenant_id(tenant_id)
@@ -21,7 +26,7 @@ async fn create_test_adapter(db: &Db, tenant_id: &str, adapter_id: &str) -> Stri
         .hash_b3(&format!("hash_{}", adapter_id))
         .rank(8)
         .tier("persistent")
-        .aos_file_path(Some(format!("var/adapters/{}.aos", adapter_id)))
+        .aos_file_path(Some(file_path.to_string_lossy().into_owned()))
         .build()
         .unwrap();
 
@@ -51,7 +56,7 @@ async fn test_archive_single_adapter() {
     assert!(loadable, "Adapter should be loadable before archiving");
 
     // Archive the adapter
-    db.archive_adapter("adapter-001", "test-user", "manual retirement")
+    db.archive_adapter(&tenant_id, "adapter-001", "test-user", "manual retirement")
         .await
         .expect("Failed to archive adapter");
 
@@ -167,7 +172,7 @@ async fn test_find_archived_adapters_for_gc() {
 
     // Create and archive an adapter
     create_test_adapter(&db, &tenant_id, "gc-candidate").await;
-    db.archive_adapter("gc-candidate", "system", "test")
+    db.archive_adapter(&tenant_id, "gc-candidate", "system", "test")
         .await
         .expect("Failed to archive adapter");
 
@@ -206,12 +211,12 @@ async fn test_mark_adapter_purged() {
     create_test_adapter(&db, &tenant_id, "purge-test").await;
 
     // Archive the adapter first
-    db.archive_adapter("purge-test", "system", "test")
+    db.archive_adapter(&tenant_id, "purge-test", "system", "test")
         .await
         .expect("Failed to archive adapter");
 
     // Mark as purged
-    db.mark_adapter_purged("purge-test")
+    db.mark_adapter_purged(&tenant_id, "purge-test")
         .await
         .expect("Failed to mark adapter purged");
 
@@ -256,7 +261,7 @@ async fn test_cannot_purge_non_archived_adapter() {
     create_test_adapter(&db, &tenant_id, "no-purge").await;
 
     // Attempt to purge without archiving first
-    let result = db.mark_adapter_purged("no-purge").await;
+    let result = db.mark_adapter_purged(&tenant_id, "no-purge").await;
 
     assert!(
         result.is_err(),
@@ -278,14 +283,14 @@ async fn test_unarchive_adapter() {
     create_test_adapter(&db, &tenant_id, "unarchive-test").await;
 
     // Archive the adapter
-    db.archive_adapter("unarchive-test", "system", "test")
+    db.archive_adapter(&tenant_id, "unarchive-test", "system", "test")
         .await
         .expect("Failed to archive adapter");
 
     assert!(!db.is_adapter_loadable("unarchive-test").await.unwrap());
 
     // Unarchive the adapter
-    db.unarchive_adapter("unarchive-test")
+    db.unarchive_adapter(&tenant_id, "unarchive-test")
         .await
         .expect("Failed to unarchive adapter");
 
@@ -330,15 +335,15 @@ async fn test_cannot_unarchive_purged_adapter() {
     create_test_adapter(&db, &tenant_id, "purged-no-restore").await;
 
     // Archive then purge
-    db.archive_adapter("purged-no-restore", "system", "test")
+    db.archive_adapter(&tenant_id, "purged-no-restore", "system", "test")
         .await
         .expect("Failed to archive adapter");
-    db.mark_adapter_purged("purged-no-restore")
+    db.mark_adapter_purged(&tenant_id, "purged-no-restore")
         .await
         .expect("Failed to purge adapter");
 
     // Attempt to unarchive purged adapter
-    let result = db.unarchive_adapter("purged-no-restore").await;
+    let result = db.unarchive_adapter(&tenant_id, "purged-no-restore").await;
 
     assert!(
         result.is_err(),
@@ -367,10 +372,10 @@ async fn test_count_archived_and_purged_adapters() {
     assert_eq!(db.count_purged_adapters(&tenant_id).await.unwrap(), 0);
 
     // Archive 2 adapters
-    db.archive_adapter("count-001", "system", "test")
+    db.archive_adapter(&tenant_id, "count-001", "system", "test")
         .await
         .unwrap();
-    db.archive_adapter("count-002", "system", "test")
+    db.archive_adapter(&tenant_id, "count-002", "system", "test")
         .await
         .unwrap();
 
@@ -378,7 +383,9 @@ async fn test_count_archived_and_purged_adapters() {
     assert_eq!(db.count_purged_adapters(&tenant_id).await.unwrap(), 0);
 
     // Purge 1 of the archived adapters
-    db.mark_adapter_purged("count-001").await.unwrap();
+    db.mark_adapter_purged(&tenant_id, "count-001")
+        .await
+        .unwrap();
 
     // count_archived_adapters only counts archived but not purged
     assert_eq!(db.count_archived_adapters(&tenant_id).await.unwrap(), 1);
@@ -399,7 +406,7 @@ async fn test_archive_idempotent() {
     create_test_adapter(&db, &tenant_id, "idempotent-test").await;
 
     // Archive the adapter
-    db.archive_adapter("idempotent-test", "user1", "first archive")
+    db.archive_adapter(&tenant_id, "idempotent-test", "user1", "first archive")
         .await
         .expect("Failed to archive adapter");
 
@@ -408,7 +415,7 @@ async fn test_archive_idempotent() {
 
     // Attempt to archive again should fail (already archived)
     let result = db
-        .archive_adapter("idempotent-test", "user2", "second archive")
+        .archive_adapter(&tenant_id, "idempotent-test", "user2", "second archive")
         .await;
 
     assert!(

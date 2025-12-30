@@ -749,6 +749,7 @@ async fn spawn_worker_process(tenant_id: &str, db_path: &std::path::Path) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::TestEnvGuard;
     use adapteros_platform::common::PlatformUtils;
     use tempfile::TempDir;
 
@@ -813,6 +814,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_worker_crash_and_restart() {
+        let _env = TestEnvGuard::new();
         // Enable placeholder worker for testing
         std::env::set_var("AOS_WORKER_PLACEHOLDER_OK", "1");
 
@@ -849,6 +851,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_worker_crash_loop_quarantines_worker() {
+        let _env = TestEnvGuard::new();
         // Skip respawn and sleeps for faster test execution
         std::env::set_var("AOS_SUPERVISOR_SKIP_RESPAWN", "1");
 

@@ -231,29 +231,56 @@ impl BackendCoordinator {
         // Check if health check is needed
         self.periodic_health_check().await?;
 
-        let active_backend = *self.active_backend.read().await;
+        // Read and release lock before acquiring write locks to avoid deadlock.
+        // The active_backend value is a simple enum that we copy out.
+        let active_backend = {
+            let guard = self.active_backend.read().await;
+            *guard
+            // guard dropped here
+        };
 
         match active_backend {
             ActiveBackend::Primary => {
-                let mut primary = self.primary.write().await;
-                match primary.run_step(ring, io) {
+                // Execute the step while holding the primary lock
+                let step_result = {
+                    let mut primary = self.primary.write().await;
+                    primary.run_step(ring, io)
+                    // primary lock dropped here before updating other state
+                };
+
+                match step_result {
                     Ok(_) => {
-                        *self.primary_degraded.write().await = false;
-                        let mut metrics = self.metrics.write().await;
-                        metrics.total_operations += 1;
-                        metrics.primary_operations += 1;
-                        metrics.avg_latency_us = (metrics.avg_latency_us
-                            * (metrics.total_operations - 1) as f32
-                            + start.elapsed().as_micros() as f32)
-                            / metrics.total_operations as f32;
+                        // Update state after releasing the primary lock.
+                        // Each lock is acquired and released independently.
+                        {
+                            let mut degraded = self.primary_degraded.write().await;
+                            *degraded = false;
+                        }
+                        {
+                            let mut metrics = self.metrics.write().await;
+                            metrics.total_operations += 1;
+                            metrics.primary_operations += 1;
+                            metrics.avg_latency_us = (metrics.avg_latency_us
+                                * (metrics.total_operations - 1) as f32
+                                + start.elapsed().as_micros() as f32)
+                                / metrics.total_operations as f32;
+                        }
                         Ok(())
                     }
                     Err(e) => {
                         warn!(error = %e, "Primary backend failed");
-                        *self.primary_health.write().await = BackendHealth::Degraded {
-                            reason: format!("Execution failed: {}", e),
-                        };
-                        *self.primary_degraded.write().await = true;
+                        // Update state after releasing the primary lock.
+                        // Each lock is acquired and released independently.
+                        {
+                            let mut health = self.primary_health.write().await;
+                            *health = BackendHealth::Degraded {
+                                reason: format!("Execution failed: {}", e),
+                            };
+                        }
+                        {
+                            let mut degraded = self.primary_degraded.write().await;
+                            *degraded = true;
+                        }
                         Err(e)
                     }
                 }
@@ -265,8 +292,14 @@ impl BackendCoordinator {
                     ));
                 };
 
-                let mut fallback_backend = fallback.write().await;
-                match fallback_backend.run_step(ring, io) {
+                // Execute the step while holding the fallback lock
+                let step_result = {
+                    let mut fallback_backend = fallback.write().await;
+                    fallback_backend.run_step(ring, io)
+                    // fallback lock dropped here before updating metrics
+                };
+
+                match step_result {
                     Ok(_) => {
                         let mut metrics = self.metrics.write().await;
                         metrics.total_operations += 1;
@@ -285,23 +318,48 @@ impl BackendCoordinator {
 
     /// Perform periodic health checks on backends
     async fn periodic_health_check(&self) -> Result<()> {
-        let mut last_check = self.last_health_check.write().await;
-        if last_check.elapsed() < self.health_check_interval {
+        // Check if health check is needed; use block scope for lock
+        let should_check = {
+            let mut last_check = self.last_health_check.write().await;
+            if last_check.elapsed() < self.health_check_interval {
+                false
+            } else {
+                *last_check = Instant::now();
+                true
+            }
+            // last_check lock dropped here
+        };
+
+        if !should_check {
             return Ok(());
         }
 
-        *last_check = Instant::now();
-        drop(last_check);
+        // Check primary backend health.
+        // Get the health result first, releasing the read lock before acquiring write locks.
+        let primary_health_result = {
+            let primary = self.primary.read().await;
+            primary.health_check()
+            // primary lock dropped here
+        };
 
-        // Check primary backend health
-        let primary = self.primary.read().await;
-        match primary.health_check() {
+        match primary_health_result {
             Ok(health) => {
-                let mut guard: tokio::sync::RwLockWriteGuard<'_, BackendHealth> =
-                    self.primary_health.write().await;
-                *guard = health.clone();
-                *self.primary_degraded.write().await = !matches!(health, BackendHealth::Healthy);
-                if !matches!(health, BackendHealth::Healthy) {
+                let is_healthy = matches!(health, BackendHealth::Healthy);
+
+                // Update primary_health (single lock acquisition)
+                {
+                    let mut guard = self.primary_health.write().await;
+                    *guard = health.clone();
+                }
+
+                // Update primary_degraded (separate lock acquisition)
+                {
+                    let mut degraded = self.primary_degraded.write().await;
+                    *degraded = !is_healthy;
+                }
+
+                // Update metrics if unhealthy (separate lock acquisition)
+                if !is_healthy {
                     warn!(health = ?health, "Primary backend health check failed");
                     let mut metrics = self.metrics.write().await;
                     metrics.health_check_failures += 1;
@@ -309,33 +367,52 @@ impl BackendCoordinator {
             }
             Err(e) => {
                 error!(error = %e, "Primary backend health check error");
-                *self.primary_health.write().await = BackendHealth::Failed {
-                    reason: format!("Health check error: {}", e),
-                    recoverable: true,
-                };
-                *self.primary_degraded.write().await = true;
-                let mut metrics = self.metrics.write().await;
-                metrics.health_check_failures += 1;
+
+                // Update primary_health (single lock acquisition)
+                {
+                    let mut guard = self.primary_health.write().await;
+                    *guard = BackendHealth::Failed {
+                        reason: format!("Health check error: {}", e),
+                        recoverable: true,
+                    };
+                }
+
+                // Update primary_degraded (separate lock acquisition)
+                {
+                    let mut degraded = self.primary_degraded.write().await;
+                    *degraded = true;
+                }
+
+                // Update metrics (separate lock acquisition)
+                {
+                    let mut metrics = self.metrics.write().await;
+                    metrics.health_check_failures += 1;
+                }
             }
         }
-        drop(primary);
 
-        // Check fallback backend health if present
+        // Check fallback backend health if present.
+        // Same pattern: get health result first, then release lock before writing.
         if let Some(ref fallback) = self.fallback {
-            let fallback_backend = fallback.read().await;
             if let Some(ref fallback_health_arc) = self.fallback_health {
-                match fallback_backend.health_check() {
+                let fallback_health_result = {
+                    let fallback_backend = fallback.read().await;
+                    fallback_backend.health_check()
+                    // fallback_backend lock dropped here
+                };
+
+                match fallback_health_result {
                     Ok(health) => {
-                        let mut guard: tokio::sync::RwLockWriteGuard<'_, BackendHealth> =
-                            fallback_health_arc.write().await;
-                        *guard = health.clone();
                         if !matches!(health, BackendHealth::Healthy) {
                             warn!(health = ?health, "Fallback backend health check failed");
                         }
+                        let mut guard = fallback_health_arc.write().await;
+                        *guard = health;
                     }
                     Err(e) => {
                         error!(error = %e, "Fallback backend health check error");
-                        *fallback_health_arc.write().await = BackendHealth::Failed {
+                        let mut guard = fallback_health_arc.write().await;
+                        *guard = BackendHealth::Failed {
                             reason: format!("Health check error: {}", e),
                             recoverable: true,
                         };
@@ -373,42 +450,75 @@ impl BackendCoordinator {
 
     /// Force switch to fallback backend
     pub async fn force_switch_to_fallback(&self) -> Result<()> {
-        if self.fallback.is_some() {
-            *self.primary_health.write().await = BackendHealth::Degraded {
+        if self.fallback.is_none() {
+            return Err(AosError::Config(
+                "No fallback backend available".to_string(),
+            ));
+        }
+
+        // Update state with separate lock acquisitions to avoid holding multiple locks.
+        {
+            let mut health = self.primary_health.write().await;
+            *health = BackendHealth::Degraded {
                 reason: "Manual switch to fallback".to_string(),
             };
-            *self.primary_degraded.write().await = true;
-            let mut active = self.active_backend.write().await;
-            if *active != ActiveBackend::Fallback {
-                let mut metrics = self.metrics.write().await;
-                metrics.backend_switches += 1;
-            }
-            *active = ActiveBackend::Fallback;
-            info!("Manually switched to fallback backend");
-            Ok(())
-        } else {
-            Err(AosError::Config(
-                "No fallback backend available".to_string(),
-            ))
         }
+        {
+            let mut degraded = self.primary_degraded.write().await;
+            *degraded = true;
+        }
+
+        // Check current state and update active backend
+        let was_fallback = {
+            let active = self.active_backend.read().await;
+            *active == ActiveBackend::Fallback
+        };
+
+        if !was_fallback {
+            let mut metrics = self.metrics.write().await;
+            metrics.backend_switches += 1;
+        }
+
+        {
+            let mut active = self.active_backend.write().await;
+            *active = ActiveBackend::Fallback;
+        }
+
+        info!("Manually switched to fallback backend");
+        Ok(())
     }
 
     /// Reset primary backend health (attempt recovery)
     pub async fn reset_primary_health(&self) {
-        *self.primary_health.write().await = BackendHealth::Healthy;
-        *self.primary_degraded.write().await = false;
-        *self.active_backend.write().await = ActiveBackend::Primary;
+        // Update state with separate lock acquisitions to avoid holding multiple locks.
+        {
+            let mut health = self.primary_health.write().await;
+            *health = BackendHealth::Healthy;
+        }
+        {
+            let mut degraded = self.primary_degraded.write().await;
+            *degraded = false;
+        }
+        {
+            let mut active = self.active_backend.write().await;
+            *active = ActiveBackend::Primary;
+        }
         info!("Reset primary backend health to Healthy");
     }
 
     /// Pin backend choice before starting a request
     pub async fn prepare_for_request(&self, strict_mode: bool) {
-        let mut active = self.active_backend.write().await;
+        // Read current state before acquiring write lock on active_backend.
+        // This avoids holding multiple locks simultaneously.
+        let (is_degraded, is_healthy) = {
+            let degraded = *self.primary_degraded.read().await;
+            let health = self.primary_health.read().await;
+            let healthy = matches!(*health, BackendHealth::Healthy);
+            (degraded, healthy)
+            // Both read locks dropped here
+        };
 
-        let use_fallback = !strict_mode
-            && self.fallback.is_some()
-            && (*self.primary_degraded.read().await
-                || !matches!(*self.primary_health.read().await, BackendHealth::Healthy));
+        let use_fallback = !strict_mode && self.fallback.is_some() && (is_degraded || !is_healthy);
 
         let next = if use_fallback {
             ActiveBackend::Fallback
@@ -416,12 +526,22 @@ impl BackendCoordinator {
             ActiveBackend::Primary
         };
 
-        if *active != next {
+        // Read current active state to check if we need to increment metrics
+        let current_active = {
+            let active = self.active_backend.read().await;
+            *active
+        };
+
+        if current_active != next {
             let mut metrics = self.metrics.write().await;
             metrics.backend_switches += 1;
         }
 
-        *active = next;
+        // Now update active_backend
+        {
+            let mut active = self.active_backend.write().await;
+            *active = next;
+        }
     }
 }
 

@@ -19,6 +19,9 @@ adapteros-storage = { path = "../adapteros-storage" }
 adapteros-api-types = { path = "../adapteros-api-types" }
 adapteros-types = { path = "../adapteros-types" }
 adapteros-artifacts = { path = "../adapteros-artifacts" }
+adapteros-single-file-adapter = { path = "../adapteros-single-file-adapter" }
+adapteros-aos = { path = "../adapteros-aos" }
+adapteros-normalization = { path = "../adapteros-normalization" }
 
 # Workspace dependencies
 anyhow.workspace = true

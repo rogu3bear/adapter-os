@@ -26,7 +26,9 @@ pub const ADAPTER_COLUMNS: &str =
      version, lifecycle_state, \
      archived_at, archived_by, archive_reason, purged_at, \
      base_model_id, recommended_for_moe, manifest_schema_version, content_hash_b3, metadata_json, provenance_json, \
-     repo_path, created_at, updated_at, active";
+     repo_path, codebase_scope, dataset_version_id, registration_timestamp, manifest_hash, \
+     adapter_type, base_adapter_id, stream_session_id, versioning_threshold, coreml_package_hash, \
+     created_at, updated_at, active";
 
 /// Training dataset table columns for SELECT queries
 ///
@@ -36,7 +38,11 @@ pub const TRAINING_DATASET_COLUMNS: &str =
      storage_path, status, validation_status, validation_errors, metadata_json, \
      created_by, created_at, updated_at, dataset_type, purpose, \
      source_location, collection_method, ownership, tenant_id, workspace_id, \
-     repo_slug, hash_needs_recompute, hash_algorithm_version";
+     hash_needs_recompute, hash_algorithm_version, repo_slug, branch, commit_sha, \
+     session_id, session_name, session_tags, \
+     scope_repo_id, scope_repo, scope_scan_root, scope_remote_url, \
+     scan_root_count, total_scan_root_files, total_scan_root_bytes, \
+     scan_roots_content_hash, scan_roots_updated_at";
 
 /// Dataset file table columns for SELECT queries
 pub const DATASET_FILE_COLUMNS: &str =
@@ -57,6 +63,7 @@ pub const DATASET_ADAPTER_LINK_COLUMNS: &str = "id, dataset_id, adapter_id, link
 pub const DATASET_SCAN_ROOT_COLUMNS: &str = "id, dataset_id, dataset_version_id, session_id, \
      path, label, file_count, byte_count, content_hash_b3, scanned_at, ordinal, \
      repo_name, repo_slug, commit_sha, branch, remote_url, \
+     hkdf_algorithm_version, parser_algorithm_version, path_normalization_version, codegraph_version, \
      tenant_id, created_at, created_by, metadata_json";
 
 /// Codebase dataset row table columns for SELECT queries
@@ -86,6 +93,24 @@ pub const CHAT_TAG_COLUMNS: &str =
 pub const COLLECTION_COLUMNS: &str =
     "id, tenant_id, name, description, created_at, updated_at, metadata_json";
 
+/// Training job dataset link table columns for SELECT queries
+///
+/// Used for querying the many-to-many relationship between training jobs and datasets.
+/// Evidence: migrations/0241_training_job_datasets.sql
+pub const TRAINING_JOB_DATASET_LINK_COLUMNS: &str =
+    "id, training_job_id, dataset_id, dataset_version_id, role, ordinal, weight, \
+     hash_b3_at_link, tenant_id, created_at, created_by, metadata_json";
+
+/// Adapter training lineage table columns for SELECT queries
+///
+/// Used for reverse lookups from dataset versions to trained adapters.
+/// Enables "which adapters were trained on this dataset?" queries.
+/// Evidence: migrations/0258_adapter_training_lineage.sql
+pub const ADAPTER_TRAINING_LINEAGE_COLUMNS: &str =
+    "id, adapter_id, dataset_id, dataset_version_id, training_job_id, \
+     dataset_hash_b3_at_training, role, weight, ordinal, \
+     tenant_id, created_at, created_by, metadata_json";
+
 /// KV backend degradation event types
 ///
 /// Used for logging and monitoring degradation events in the KV backend.
@@ -110,6 +135,8 @@ mod tests {
         assert!(!TRAINING_DATASET_ROW_COLUMNS.is_empty());
         assert!(!CHAT_TAG_COLUMNS.is_empty());
         assert!(!COLLECTION_COLUMNS.is_empty());
+        assert!(!TRAINING_JOB_DATASET_LINK_COLUMNS.is_empty());
+        assert!(!ADAPTER_TRAINING_LINEAGE_COLUMNS.is_empty());
         assert!(!DEGRADATION_EVENT_INIT_FAILED.is_empty());
         assert!(!DEGRADATION_EVENT_RUNTIME_FAILED.is_empty());
         assert!(!DEGRADATION_EVENT_RECOVERED.is_empty());
@@ -124,5 +151,7 @@ mod tests {
         assert!(!DATASET_SCAN_ROOT_COLUMNS.trim().ends_with(','));
         assert!(!CODEBASE_DATASET_ROW_COLUMNS.trim().ends_with(','));
         assert!(!TRAINING_DATASET_ROW_COLUMNS.trim().ends_with(','));
+        assert!(!TRAINING_JOB_DATASET_LINK_COLUMNS.trim().ends_with(','));
+        assert!(!ADAPTER_TRAINING_LINEAGE_COLUMNS.trim().ends_with(','));
     }
 }

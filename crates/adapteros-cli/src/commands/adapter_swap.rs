@@ -1,14 +1,31 @@
 //! Adapter hot-swap command
+//!
+//! This module provides the low-level adapter hot-swap mechanism that communicates
+//! directly with the worker via Unix Domain Socket. Before any swap operation,
+//! preflight checks are run to ensure adapters are ready.
 
+use crate::commands::preflight::{gate_alias_swap_with_config, AliasSwapGateConfig};
 use crate::output::OutputWriter;
 use adapteros_core::B3Hash;
+use adapteros_db::Db;
 use adapteros_lora_worker::adapter_hotswap::MemoryState;
 use adapteros_lora_worker::{AdapterCommand, AdapterCommandResult};
 use anyhow::{Context, Result};
 use std::path::Path;
 use std::time::Duration;
 
+/// Configuration for hot-swap preflight behavior
+#[derive(Default)]
+pub struct HotSwapConfig {
+    /// Skip preflight checks entirely (emergency use only)
+    pub skip_preflight: bool,
+    /// Force swap even with preflight warnings
+    pub force: bool,
+}
+
 /// Execute adapter hot-swap operation
+///
+/// Runs preflight checks before performing the swap unless `skip_preflight` is true.
 pub async fn run(
     tenant: &str,
     add: &[String],
@@ -18,19 +35,106 @@ pub async fn run(
     socket: &Path,
     output: &OutputWriter,
 ) -> Result<()> {
-    output.result("🔄 Adapter Hot-Swap");
+    run_with_config(
+        tenant,
+        add,
+        remove,
+        timeout_ms,
+        commit,
+        socket,
+        output,
+        &HotSwapConfig::default(),
+    )
+    .await
+}
+
+/// Execute adapter hot-swap operation with custom configuration
+#[allow(clippy::too_many_arguments)]
+pub async fn run_with_config(
+    tenant: &str,
+    add: &[String],
+    remove: &[String],
+    timeout_ms: u64,
+    commit: bool,
+    socket: &Path,
+    output: &OutputWriter,
+    config: &HotSwapConfig,
+) -> Result<()> {
+    output.result("Adapter Hot-Swap");
     output.kv("Tenant", tenant);
     output.kv("Add", &format!("{:?}", add));
     output.kv("Remove", &format!("{:?}", remove));
     output.kv("Timeout", &format!("{}ms", timeout_ms));
     output.blank();
 
+    // =========================================================================
+    // Phase 0: Preflight checks before hot-swap
+    // =========================================================================
+    if config.skip_preflight {
+        output.warning("Preflight checks skipped - use with caution!");
+    } else if !add.is_empty() {
+        output.progress("Phase 0: Preflight checks");
+
+        // Try to connect to database for preflight validation
+        match Db::connect_env().await {
+            Ok(db) => {
+                let gate_config = AliasSwapGateConfig {
+                    force: config.force,
+                    skip_maintenance_check: false,
+                    skip_conflict_check: false,
+                    tenant_id: Some(tenant.to_string()),
+                    allow_training_state: false,
+                };
+
+                let mut all_passed = true;
+                for adapter_id in add {
+                    output.progress(format!("  Checking {}...", adapter_id));
+
+                    match gate_alias_swap_with_config(adapter_id, &db, &gate_config).await {
+                        Ok(()) => {
+                            output.success(format!("    {} passed preflight", adapter_id));
+                        }
+                        Err(e) => {
+                            output.error(format!("    {} failed preflight: {}", adapter_id, e));
+                            all_passed = false;
+                        }
+                    }
+                }
+
+                if !all_passed {
+                    return Err(anyhow::anyhow!(
+                        "Hot-swap blocked: one or more adapters failed preflight checks"
+                    ));
+                }
+
+                output.success("All adapters passed preflight checks");
+            }
+            Err(e) => {
+                if config.force {
+                    output.warning(format!(
+                        "Database unavailable for preflight: {}. Proceeding due to --force.",
+                        e
+                    ));
+                } else {
+                    return Err(anyhow::anyhow!(
+                        "Cannot run preflight checks - database unavailable: {}. Use --force to bypass.",
+                        e
+                    ));
+                }
+            }
+        }
+
+        output.blank();
+    }
+
     let mut swap_result: Option<AdapterCommandResult> = None;
 
     // Create HTTP client for UDS connection
     let client = create_uds_client(socket, timeout_ms)?;
 
+    // =========================================================================
     // Phase 1: Preload adapters
+    // =========================================================================
     output.progress("Phase 1: Preload");
     let mut preload_results = Vec::new();
 
@@ -64,7 +168,9 @@ pub async fn run(
 
     output.blank();
 
+    // =========================================================================
     // Phase 2: Atomic swap
+    // =========================================================================
     if commit {
         output.progress("Phase 2: Swap (atomic)");
         output.progress("  Swapping adapters...");
@@ -103,7 +209,9 @@ pub async fn run(
 
     output.blank();
 
+    // =========================================================================
     // Phase 3: Verification
+    // =========================================================================
     output.progress("Phase 3: Verification");
     output.progress("  Verifying stack...");
 

@@ -72,6 +72,10 @@ pub struct TrainFromCodeArgs {
     #[arg(long, default_value_t = 1)]
     pub tier: i32,
 
+    /// Enable deterministic training
+    #[arg(long)]
+    pub deterministic: bool,
+
     /// Deterministic seed override
     #[arg(long)]
     pub seed: Option<u64>,

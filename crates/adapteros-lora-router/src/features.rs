@@ -66,6 +66,34 @@ impl CodeFeatures {
         features
     }
 
+    /// Validate that feature scores are finite (not NaN or infinity).
+    ///
+    /// Issue D-5 Fix: Add validation to reject NaN scores for determinism.
+    /// Non-finite scores can cause non-deterministic behavior in sorting/comparisons.
+    ///
+    /// Returns true if all feature values are finite, false otherwise.
+    pub fn validate_finite(&self) -> bool {
+        // Check lang_one_hot
+        if self.lang_one_hot.iter().any(|v| !v.is_finite()) {
+            return false;
+        }
+        // Check framework_prior
+        if self.framework_prior.values().any(|v| !v.is_finite()) {
+            return false;
+        }
+        // Check symbol_hits
+        if !self.symbol_hits.is_finite() {
+            return false;
+        }
+        // Check attn_entropy if present
+        if let Some(entropy) = self.attn_entropy {
+            if !entropy.is_finite() {
+                return false;
+            }
+        }
+        true
+    }
+
     /// Convert to flat vector for router
     pub fn to_vector(&self) -> Vec<f32> {
         let mut vec = Vec::new();
@@ -74,8 +102,9 @@ impl CodeFeatures {
         vec.extend_from_slice(&self.lang_one_hot);
 
         // Add framework prior (top 3 frameworks)
+        // Issue D-5 Fix: Use total_cmp for IEEE 754 total ordering (handles NaN deterministically)
         let mut framework_scores: Vec<f32> = self.framework_prior.values().copied().collect();
-        framework_scores.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+        framework_scores.sort_by(|a, b| b.total_cmp(a));
         framework_scores.truncate(3);
         while framework_scores.len() < 3 {
             framework_scores.push(0.0);

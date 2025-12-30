@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use std::process::Command;
 use tracing::{info, warn};
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct SecurityGate;
 
 #[async_trait::async_trait]

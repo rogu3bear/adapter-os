@@ -9,6 +9,68 @@ use utoipa::ToSchema;
 
 use crate::schema_version;
 
+/// Policy for serving codebase adapters
+///
+/// Controls how codebase adapters are served during inference, particularly
+/// regarding CoreML fusion requirements.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct CodebaseServingPolicy {
+    /// CoreML fusion policy: "strict" or "mlx_fallback"
+    /// - "strict": Block inference until CoreML package is fused (requires coreml_package_hash)
+    /// - "mlx_fallback": Serve via MLX while CoreML fusion runs in background (default)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coreml_fusion_policy: Option<String>,
+
+    /// Whether to require deployment verification before codebase adapter activation
+    /// Default: true
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub require_deployment_verification: Option<bool>,
+
+    /// Whether to auto-version codebase adapters when threshold is exceeded
+    /// Default: true
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_versioning_enabled: Option<bool>,
+
+    /// Default versioning threshold for codebase adapters (activations before auto-version)
+    /// Default: 100
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_versioning_threshold: Option<i32>,
+}
+
+impl Default for CodebaseServingPolicy {
+    fn default() -> Self {
+        Self {
+            coreml_fusion_policy: Some("mlx_fallback".to_string()),
+            require_deployment_verification: Some(true),
+            auto_versioning_enabled: Some(true),
+            default_versioning_threshold: Some(100),
+        }
+    }
+}
+
+impl CodebaseServingPolicy {
+    /// Check if strict CoreML mode is required
+    pub fn requires_coreml_fusion(&self) -> bool {
+        self.coreml_fusion_policy.as_deref() == Some("strict")
+    }
+
+    /// Check if deployment verification is required
+    pub fn requires_verification(&self) -> bool {
+        self.require_deployment_verification.unwrap_or(true)
+    }
+
+    /// Check if auto-versioning is enabled
+    pub fn auto_version_enabled(&self) -> bool {
+        self.auto_versioning_enabled.unwrap_or(true)
+    }
+
+    /// Get the versioning threshold
+    pub fn versioning_threshold(&self) -> i32 {
+        self.default_versioning_threshold.unwrap_or(100)
+    }
+}
+
 /// Policy knobs for determinism and routing control
 ///
 /// These settings control how the inference engine handles determinism modes,
@@ -66,6 +128,9 @@ pub struct TenantSettingsResponse {
     /// Policy knobs for determinism and routing control
     #[serde(skip_serializing_if = "Option::is_none")]
     pub determinism_policy: Option<DeterminismPolicyKnobs>,
+    /// Policy for serving codebase adapters
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub codebase_serving_policy: Option<CodebaseServingPolicy>,
     /// When the settings were created (null if using defaults)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_at: Option<String>,
@@ -95,4 +160,7 @@ pub struct UpdateTenantSettingsRequest {
     /// Policy knobs for determinism and routing control
     #[serde(skip_serializing_if = "Option::is_none")]
     pub determinism_policy: Option<DeterminismPolicyKnobs>,
+    /// Policy for serving codebase adapters
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub codebase_serving_policy: Option<CodebaseServingPolicy>,
 }

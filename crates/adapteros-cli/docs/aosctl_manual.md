@@ -108,7 +108,7 @@ aosctl init-tenant --id tenant_prod --uid 5000 --gid 5000
 
 ## 3. Adapter Management
 
-**What is an Adapter?** An adapter is a LoRA (Low-Rank Adaptation) module that specializes a base model for a specific task. Adapters have lifecycle states (Unloaded → Cold → Warm → Hot → Resident) and can be pinned to prevent eviction.
+**What is an Adapter?** An adapter is a LoRA (Low-Rank Adaptation) module that specializes a base model for a specific task. Adapters have business lifecycle states (draft -> training -> ready -> active -> deprecated -> retired/failed) and runtime memory states (Unloaded -> Loading -> Loaded -> Active -> Unloading, with Error on failure); they can be pinned to prevent eviction.
 
 **Naming Convention**: `{tenant}/{domain}/{purpose}/{revision}` (e.g., `tenant-a/engineering/code-review/r001`)
 
@@ -255,6 +255,71 @@ aosctl infer --prompt "Hello world" \
 aosctl infer --adapter my_adapter \
   --prompt "Use adapter" \
   --socket /var/run/adapteros.sock
+```
+
+---
+
+## 6a. Chat Sessions
+
+**What is a Chat Session?** A chat session is a persistent conversation context that maintains message history across multiple prompts. Sessions enable multi-turn conversations with adapters and stacks.
+
+Chat commands provide interactive and programmatic access to chat sessions.
+
+- `aosctl chat interactive`
+  - Start an interactive chat session with an adapter or stack.
+  - Key flags:
+    - `--stack`: Specify stack ID for multi-adapter routing.
+    - `--owner-system`: Mark session as system-owned (for automated workflows).
+    - `--base-url`: Control plane URL (default: http://127.0.0.1:8080).
+    - `-v, --verbose`: Show detailed request/response info.
+  - Type `/quit` or `/exit` to end the session.
+  - Use `Ctrl+C` to cancel the current request.
+
+- `aosctl chat prompt`
+  - Send a single prompt and get a response (non-interactive).
+  - Key flags:
+    - `--text`: The prompt text to send.
+    - `--stack`: Stack ID for routing.
+    - `--owner-system`: Mark as system-owned.
+    - `--json`: Output response as JSON.
+  - Useful for scripting and automation.
+
+- `aosctl chat list`
+  - List all saved chat sessions for the current tenant.
+  - Key flags:
+    - `--json`: Output as JSON array.
+    - `--base-url`: Control plane URL.
+
+- `aosctl chat history`
+  - View the full message history for a specific session.
+  - Key flags:
+    - `<session-id>`: The session ID to view.
+    - `--json`: Output messages as JSON.
+    - `--base-url`: Control plane URL.
+
+**Session Lifecycle**:
+1. Sessions are created automatically when starting interactive mode or sending a prompt.
+2. Each session has a unique ID that can be used to resume or view history.
+3. Sessions track all user and assistant messages with timestamps.
+4. System-owned sessions (`--owner-system`) are tagged for automated workflow tracking.
+
+**Examples**
+
+```bash
+# Start interactive chat with a stack
+aosctl chat interactive --stack my-stack
+
+# Start system-owned session (for CI/automation)
+aosctl chat interactive --owner-system
+
+# Send a single prompt and get JSON response
+aosctl chat prompt --text "What is AdapterOS?" --json
+
+# List all chat sessions
+aosctl chat list --json
+
+# View history for a specific session
+aosctl chat history sess_abc123 --json
 ```
 
 ---

@@ -71,8 +71,10 @@ pub struct AdapterResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
     /// Marketing/operational tier for routing (micro/standard/max)
+    ///
+    /// # OpenAPI
+    /// Uses proper enum schema with values: `micro`, `standard`, `max`.
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[schema(value_type = String)]
     pub lora_tier: Option<LoraTier>,
     /// Runtime strength multiplier (scales LoRA application without changing alpha)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -134,6 +136,23 @@ pub struct AdapterResponse {
     pub drift_slice_size: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub drift_slice_offset: Option<u64>,
+
+    // Codebase adapter fields (from migration 0261)
+    /// Adapter classification: "standard" (portable), "codebase" (stream-scoped), "core" (baseline)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adapter_type: Option<String>,
+    /// Base adapter ID for codebase adapters (the core adapter they extend as delta)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_adapter_id: Option<String>,
+    /// Exclusive session binding for codebase adapters
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream_session_id: Option<String>,
+    /// Activation threshold for auto-versioning (default: 100)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub versioning_threshold: Option<i32>,
+    /// BLAKE3 hash of fused CoreML package for deployment verification
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coreml_package_hash: Option<String>,
 }
 
 /// Adapter statistics

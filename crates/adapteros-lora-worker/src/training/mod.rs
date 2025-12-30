@@ -39,7 +39,9 @@ pub use json_loader::{load_json_dataset_with_tokenizer, JsonLoaderConfig};
 pub use learning_rate_schedule::{LRScheduleType, LRScheduler, LRSchedulerConfig};
 pub use loader::{load_examples_from_manifest, load_examples_with_encoder, DatasetManifest};
 pub use metrics::{MetricsConfig, MetricsSnapshot, TrainingMetrics, TrainingReport};
-pub use packager::{AdapterManifest, AdapterPackager, PackagedAdapter};
+pub use packager::{
+    AdapterManifest, AdapterPackager, BranchMetadata, PackagedAdapter, ScanRootMetadata,
+};
 pub use quantizer::{LoRAQuantizer, QuantizedLoRAWeights};
 pub use trainer::{
     DatasetSubsample, DeterminismConfig, LoRAWeights, MicroLoRATrainer, TrainingBackend,
@@ -47,3 +49,12 @@ pub use trainer::{
 };
 pub use trainer_metrics_ext::{TrainerMetricsExt, TrainingMetricsSession};
 pub use visualization::{TrainingCharts, TrainingProgress};
+
+// Quantization and strength defaults must be versioned if changed.
+pub const LORA_Q15_QUANTIZATION: &str = "q15";
+pub const LORA_Q15_VERSION: &str = "q15-v1";
+pub const LORA_Q15_DENOM: f32 = quantizer::LORA_Q15_DENOM;
+pub const LORA_STRENGTH_DEFAULTS_VERSION: &str = "strengths-v1";
+pub const LORA_STRENGTH_DEFAULT_MICRO: f32 = 0.25;
+pub const LORA_STRENGTH_DEFAULT_STANDARD: f32 = 0.5;
+pub const LORA_STRENGTH_DEFAULT_MAX: f32 = 1.0;

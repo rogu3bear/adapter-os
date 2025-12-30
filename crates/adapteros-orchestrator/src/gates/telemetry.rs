@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use tracing::{debug, warn};
 
 /// Telemetry verification gate
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct TelemetryGate;
 
 #[async_trait::async_trait]

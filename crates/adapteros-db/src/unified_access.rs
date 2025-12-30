@@ -23,8 +23,12 @@ use tracing::{debug, error, info};
 pub type DbHealthStatus = HealthCheckResult;
 
 /// Unified database access interface
+///
+/// # Thread Safety
+/// This trait requires `Send + Sync` bounds because implementations are used
+/// across async task boundaries and may be shared between threads via `Arc`.
 #[async_trait]
-pub trait DatabaseAccess {
+pub trait DatabaseAccess: Send + Sync {
     /// Execute a query and return results
     async fn execute_query<T>(&self, query: &str, params: &[&(dyn ToSql + Sync)]) -> Result<Vec<T>>
     where

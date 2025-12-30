@@ -20,6 +20,7 @@ async fn manifest_helpers_round_trip_and_enforce_tenant() -> Result<()> {
             None,
             Some("ready"),
             Some("hash"),
+            None,
         )
         .await?;
 

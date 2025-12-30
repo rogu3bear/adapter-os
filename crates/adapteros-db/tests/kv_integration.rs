@@ -131,7 +131,7 @@ async fn test_dual_write_adapter() {
     // assert_eq!(adapter_kv.unwrap().name, "Dual Write Test Adapter");
 
     // Update adapter
-    db.increment_adapter_activation("dual-write-test-1")
+    db.increment_adapter_activation("default-tenant", "dual-write-test-1")
         .await
         .unwrap();
 
@@ -290,7 +290,10 @@ async fn test_lineage_kv_vs_sql() {
     db.register_adapter(grandchild_params).await.unwrap();
 
     // Query lineage using SQL CTE (existing implementation)
-    let lineage_sql = db.get_adapter_lineage("lineage-parent").await.unwrap();
+    let lineage_sql = db
+        .get_adapter_lineage("default-tenant", "lineage-parent")
+        .await
+        .unwrap();
 
     // Should find parent + 3 children + 1 grandchild = 5 adapters
     assert_eq!(lineage_sql.len(), 5, "Should find complete lineage tree");
@@ -515,7 +518,7 @@ async fn test_concurrent_dual_writes() {
         let db_clone = db.clone();
         let handle = tokio::spawn(async move {
             db_clone
-                .increment_adapter_activation("concurrent-test-base")
+                .increment_adapter_activation("default-tenant", "concurrent-test-base")
                 .await
                 .unwrap();
         });

@@ -1,8 +1,18 @@
 //! TrainingService - manages training jobs, templates, and job lifecycle.
+//!
+//! # Algorithm Version Compatibility
+//!
+//! When training with existing datasets, algorithm versions should be checked
+//! to ensure deterministic replay is possible. Use
+//! [`adapteros_core::AlgorithmVersionBundle::check_runtime_compatibility`]
+//! to validate dataset hash inputs before training.
+//!
+//! TODO: Integrate version compatibility checking when dataset_version_ids
+//! are provided. Query `dataset_hash_inputs` table for each version,
+//! construct `AlgorithmVersionBundle`, and call `check_runtime_compatibility()`.
+//! Log warnings for minor mismatches, fail for breaking mismatches.
 
 use std::collections::HashMap;
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -10,7 +20,6 @@ use std::sync::Arc;
 use adapteros_core::AosError;
 use adapteros_deterministic_exec::spawn_deterministic;
 use anyhow::Result;
-use chrono::Utc;
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
@@ -134,6 +143,12 @@ impl TrainingService {
             storage_root: None,
             cancel_tokens: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    #[cfg(test)]
+    pub async fn insert_job_for_test(&self, job: TrainingJob) {
+        let mut jobs = self.jobs.write().await;
+        jobs.insert(job.id.clone(), job);
     }
 
     /// Create a new training service with database and storage configuration
@@ -409,23 +424,6 @@ impl TrainingService {
                     trust_at_training_time: trust_state,
                 });
             }
-            // Debug log
-            if let Ok(mut f) = OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open("/Users/mln-dev/Dev/adapter-os/.cursor/debug.log")
-            {
-                let _ = writeln!(
-                    f,
-                    r#"{{"sessionId":"debug-session","runId":"pre-fix","hypothesisId":"H3","location":"training.rs:trust_snapshots","message":"collected trust snapshots","data":{{"count":{},"dataset_version_ids":{:?}}},"timestamp":{}}}"#,
-                    trust_snapshots.len(),
-                    versions
-                        .iter()
-                        .map(|v| &v.dataset_version_id)
-                        .collect::<Vec<_>>(),
-                    Utc::now().timestamp_millis()
-                );
-            }
             if !trust_snapshots.is_empty() {
                 job.dataset_version_trust = Some(trust_snapshots);
             }
@@ -462,6 +460,13 @@ impl TrainingService {
             let db_repo_id = repo_id.as_deref().unwrap_or("direct-training");
             let created_by = initiated_by.as_deref().unwrap_or("system");
 
+            // Extract first dataset_version_id for provenance tracking
+            let dataset_version_id = job
+                .dataset_version_ids
+                .as_ref()
+                .and_then(|ids| ids.first())
+                .map(|sel| sel.dataset_version_id.clone());
+
             match db
                 .create_training_job_with_provenance(
                     Some(&job_id),
@@ -469,6 +474,8 @@ impl TrainingService {
                     &config_json,
                     created_by,
                     dataset_id.as_deref(),
+                    dataset_version_id.as_deref(),
+                    job.dataset_version_ids.as_deref(),
                     base_model_id.as_deref(),
                     collection_id.as_deref(),
                     tenant_id.as_deref(),

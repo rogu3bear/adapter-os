@@ -99,6 +99,41 @@ impl fmt::Display for BackendKind {
     }
 }
 
+/// Convert from the training-specific backend kind.
+///
+/// This enables seamless interop between the training subsystem (which uses
+/// `TrainingBackendKind` from `adapteros-types`) and the runtime backend
+/// selection (which uses `BackendKind`).
+impl From<adapteros_types::training::TrainingBackendKind> for BackendKind {
+    fn from(training: adapteros_types::training::TrainingBackendKind) -> Self {
+        use adapteros_types::training::TrainingBackendKind;
+        match training {
+            TrainingBackendKind::Auto => BackendKind::Auto,
+            TrainingBackendKind::CoreML => BackendKind::CoreML,
+            TrainingBackendKind::Mlx => BackendKind::Mlx,
+            TrainingBackendKind::Metal => BackendKind::Metal,
+            TrainingBackendKind::Cpu => BackendKind::CPU,
+        }
+    }
+}
+
+/// Convert to the training-specific backend kind.
+///
+/// Note: `BackendKind::MlxBridge` maps to `TrainingBackendKind::Mlx` since
+/// the training subsystem doesn't distinguish between MLX variants.
+impl From<BackendKind> for adapteros_types::training::TrainingBackendKind {
+    fn from(backend: BackendKind) -> Self {
+        use adapteros_types::training::TrainingBackendKind;
+        match backend {
+            BackendKind::Auto => TrainingBackendKind::Auto,
+            BackendKind::CoreML => TrainingBackendKind::CoreML,
+            BackendKind::Mlx | BackendKind::MlxBridge => TrainingBackendKind::Mlx,
+            BackendKind::Metal => TrainingBackendKind::Metal,
+            BackendKind::CPU => TrainingBackendKind::Cpu,
+        }
+    }
+}
+
 impl FromStr for BackendKind {
     type Err = AosError;
 
@@ -192,5 +227,62 @@ mod tests {
         let mlx_pos = priority.iter().position(|&b| b == BackendKind::Mlx);
         let bridge_pos = priority.iter().position(|&b| b == BackendKind::MlxBridge);
         assert!(mlx_pos.unwrap() < bridge_pos.unwrap());
+    }
+
+    #[test]
+    fn converts_from_training_backend_kind() {
+        use adapteros_types::training::TrainingBackendKind;
+
+        assert_eq!(
+            BackendKind::from(TrainingBackendKind::Auto),
+            BackendKind::Auto
+        );
+        assert_eq!(
+            BackendKind::from(TrainingBackendKind::CoreML),
+            BackendKind::CoreML
+        );
+        assert_eq!(
+            BackendKind::from(TrainingBackendKind::Mlx),
+            BackendKind::Mlx
+        );
+        assert_eq!(
+            BackendKind::from(TrainingBackendKind::Metal),
+            BackendKind::Metal
+        );
+        assert_eq!(
+            BackendKind::from(TrainingBackendKind::Cpu),
+            BackendKind::CPU
+        );
+    }
+
+    #[test]
+    fn converts_to_training_backend_kind() {
+        use adapteros_types::training::TrainingBackendKind;
+
+        assert_eq!(
+            TrainingBackendKind::from(BackendKind::Auto),
+            TrainingBackendKind::Auto
+        );
+        assert_eq!(
+            TrainingBackendKind::from(BackendKind::CoreML),
+            TrainingBackendKind::CoreML
+        );
+        assert_eq!(
+            TrainingBackendKind::from(BackendKind::Mlx),
+            TrainingBackendKind::Mlx
+        );
+        // MlxBridge maps to Mlx in training context
+        assert_eq!(
+            TrainingBackendKind::from(BackendKind::MlxBridge),
+            TrainingBackendKind::Mlx
+        );
+        assert_eq!(
+            TrainingBackendKind::from(BackendKind::Metal),
+            TrainingBackendKind::Metal
+        );
+        assert_eq!(
+            TrainingBackendKind::from(BackendKind::CPU),
+            TrainingBackendKind::Cpu
+        );
     }
 }

@@ -27,13 +27,16 @@
 
 pub mod adapter_repo_paths;
 pub mod adapter_store;
+pub mod adapter_type;
 pub mod backend;
 pub mod circuit_breaker;
 pub mod circuit_breaker_registry;
+pub mod codebase_versioning;
 pub mod constants;
 pub mod context_hash;
 pub mod context_manifest;
 pub mod defaults;
+pub mod deployment_verification;
 pub mod determinism;
 pub mod determinism_mode;
 pub mod error;
@@ -50,12 +53,14 @@ pub mod index_snapshot;
 pub mod json;
 pub mod lifecycle;
 pub mod naming;
+pub mod path_normalization;
 pub mod path_security;
 pub mod paths;
 pub mod plugin_events;
 pub mod plugins;
 pub mod policy;
 pub mod prefix_kv_key;
+pub mod preflight;
 pub mod redaction;
 pub mod retry_policy;
 pub mod seed;
@@ -76,18 +81,23 @@ pub mod worker_status;
 
 pub use adapter_repo_paths::{
     adapter_fs_path, adapter_fs_path_with_root, resolve_adapter_roots_from_strings,
-    AdapterPaths as RepoAdapterPaths, ResolveError, VersionStrategy, DEFAULT_CACHE_DIR,
-    DEFAULT_REPO_DIR,
+    RepoAdapterPaths, ResolveError, VersionStrategy, DEFAULT_CACHE_DIR, DEFAULT_REPO_DIR,
 };
 pub use adapter_store::{
     AdapterCacheKey, AdapterPins, AdapterRecord, AdapterSnapshot, AdapterStore,
 };
+pub use adapter_type::{AdapterType, AdapterTypeParseError};
 pub use backend::BackendKind;
 pub use circuit_breaker::{
     CircuitBreaker, CircuitBreakerConfig, CircuitBreakerMetrics, CircuitState,
     SharedCircuitBreaker, StandardCircuitBreaker,
 };
 pub use circuit_breaker_registry::CircuitBreakerRegistry;
+pub use codebase_versioning::{
+    evaluate_versioning, should_auto_version, VersionBump, VersioningContext, VersioningDecision,
+    VersioningPolicy, VersioningReason, DEFAULT_VERSIONING_THRESHOLD, MAX_VERSIONING_THRESHOLD,
+    MIN_VERSIONING_THRESHOLD,
+};
 pub use constants::{
     bytes_to_gb, bytes_to_mb, gb_to_bytes, kb_to_bytes, mb_to_bytes, BYTES_PER_GB, BYTES_PER_KB,
     BYTES_PER_MB, DEFAULT_TIMEOUT_SECS, SLOW_TIMEOUT_SECS,
@@ -95,6 +105,10 @@ pub use constants::{
 pub use context_hash::{compute_context_hash, ChunkRef};
 pub use context_manifest::{
     ContextAdapterEntry, ContextAdapterEntryV1, ContextManifest, ContextManifestV1,
+};
+pub use deployment_verification::{
+    check_coreml_hash, check_manifest_hash, check_no_session_conflict, check_repo_clean,
+    verify_codebase_deployment, AdapterVerificationState, DeploymentCheck, DeploymentCheckResult,
 };
 pub use determinism::{
     derive_router_seed, derive_router_tiebreak_seed, derive_sampler_seed, expand_u64_seed,
@@ -120,8 +134,14 @@ pub use fusion_interval::FusionInterval;
 pub use guard_common::{GuardConfig, GuardLogLevel};
 pub use hash::B3Hash;
 pub use id::CPID;
-pub use lifecycle::{LifecycleState, LifecycleTransition, SemanticVersion, TransitionReason};
+pub use lifecycle::{
+    validate_deterministic_transition, LifecycleError, LifecycleState, LifecycleTransition,
+    SemanticVersion, TransitionReason,
+};
 pub use naming::{AdapterName, ForkType, StackName};
+pub use path_normalization::{
+    compare_paths_deterministic, normalize_path_for_sorting, normalize_path_str,
+};
 pub use path_security::{
     is_forbidden_tmp_path, is_forbidden_tmp_path_str, reject_forbidden_tmp_path,
     reject_forbidden_tmp_path_like, FORBIDDEN_TMP_PREFIXES,
@@ -136,6 +156,11 @@ pub use policy::DriftPolicy;
 pub use prefix_kv_key::{
     compute_prefix_kv_key, compute_tokenizer_manifest_hash, encode_prefix_tokens,
     PrefixKvKeyBuilder,
+};
+pub use preflight::{
+    is_maintenance_mode, run_preflight, ActiveUniquenessResult, CheckStatus, PreflightAdapterData,
+    PreflightAuditEvent, PreflightCheck, PreflightCheckFailure, PreflightConfig, PreflightDbOps,
+    PreflightErrorCode, PreflightResult, SimpleAdapterData,
 };
 pub use seed::{
     clear_seed_registry, derive_adapter_seed, derive_request_seed, derive_seed, derive_seed_full,
@@ -162,7 +187,11 @@ pub use tenant_isolation::{
 };
 pub use timeout::TimeoutExt;
 pub use training::{TrainingConfig, TrainingJob, TrainingJobStatus, TrainingTemplate};
-pub use version::VersionInfo;
+pub use version::{
+    AlgorithmVersionBundle, IncompatibilitySeverity, VersionIncompatibility, VersionInfo,
+    HASH_ALGORITHM_VERSION, HKDF_ALGORITHM_VERSION, PARSER_ALGORITHM_VERSION,
+    PATH_NORMALIZATION_VERSION,
+};
 pub use worker_status::{WorkerStatus, WorkerStatusTransition};
 
 /// RNG module version for determinism tracking
@@ -173,7 +202,7 @@ pub const RNG_MODULE_VERSION: &str = "1.0.0-chacha20";
 pub mod prelude {
     pub use crate::{
         bytes_to_gb, bytes_to_mb, gb_to_bytes, kb_to_bytes, mb_to_bytes, AdapterEvent, AdapterName,
-        AdapterOSStatus, AosError, AuditEvent, B3Hash, BackendKind, CircuitBreaker,
+        AdapterOSStatus, AdapterType, AosError, AuditEvent, B3Hash, BackendKind, CircuitBreaker,
         CircuitBreakerConfig, CircuitBreakerMetrics, CircuitState, DriftPolicy, EventHookType,
         ExecutionProfile, ForkType, HealthCheckResult, HealthStatus, InferenceEvent,
         LifecycleState, LifecycleTransition, MetricsTickEvent, ObservabilityEvent,

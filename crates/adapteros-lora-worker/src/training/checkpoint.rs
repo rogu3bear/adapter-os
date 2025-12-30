@@ -164,7 +164,9 @@ impl TrainingCheckpoint {
     }
 }
 
-/// Checkpoint manager for handling multiple checkpoints
+/// Checkpoint manager for handling multiple checkpoints.
+/// Implements Clone to allow spawning background checkpoint saves.
+#[derive(Clone)]
 pub struct CheckpointManager {
     /// Directory to store checkpoints
     checkpoint_dir: PathBuf,

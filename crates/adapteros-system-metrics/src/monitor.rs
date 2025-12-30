@@ -54,7 +54,7 @@
 
 use crate::policy::SystemMetricsPolicy;
 use crate::{MetricsConfig, SystemMetricsCollector};
-use adapteros_core::{B3Hash, Result};
+use adapteros_core::{derive_seed, B3Hash, Result};
 use adapteros_telemetry::{SecurityEvent, TelemetryWriter};
 use parking_lot::Mutex;
 use rand::SeedableRng;
@@ -136,18 +136,11 @@ impl SystemMonitor {
         config: MetricsConfig,
         global_seed: &B3Hash,
     ) -> Self {
-        use hkdf::Hkdf;
-        use sha2::Sha256;
-
         let thresholds = config.thresholds.clone();
         let policy = SystemMetricsPolicy::new(thresholds);
 
         // Derive domain-specific seed for system metrics sampling
-        let hk = Hkdf::<Sha256>::from_prk(global_seed.as_bytes())
-            .expect("BLAKE3 hash is valid PRK for HKDF");
-        let mut sampling_seed = [0u8; 32];
-        hk.expand(b"system_metrics_sampling", &mut sampling_seed)
-            .expect("32 bytes is valid HKDF output length");
+        let sampling_seed = derive_seed(global_seed, "system_metrics_sampling");
 
         // Initialize deterministic RNG
         let rng = ChaCha20Rng::from_seed(sampling_seed);

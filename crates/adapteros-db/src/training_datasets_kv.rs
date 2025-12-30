@@ -46,6 +46,28 @@ pub fn kv_dataset_from_record(record: &TrainingDataset, tenant_id: &str) -> Trai
         collection_method: record.collection_method.clone(),
         ownership: record.ownership.clone(),
         workspace_id: record.workspace_id.clone(),
+        // Hash repair tracking fields
+        hash_needs_recompute: record.hash_needs_recompute,
+        hash_algorithm_version: record.hash_algorithm_version,
+        // Repository tracking for deterministic runs
+        repo_slug: record.repo_slug.clone(),
+        branch: record.branch.clone(),
+        commit_sha: record.commit_sha.clone(),
+        // Session lineage fields (migration 0256)
+        session_id: record.session_id.clone(),
+        session_name: record.session_name.clone(),
+        session_tags: record.session_tags.clone(),
+        // Scope metadata fields (migration 0257)
+        scope_repo_id: record.scope_repo_id.clone(),
+        scope_repo: record.scope_repo.clone(),
+        scope_scan_root: record.scope_scan_root.clone(),
+        scope_remote_url: record.scope_remote_url.clone(),
+        // Aggregate metrics (migration 0259)
+        scan_root_count: record.scan_root_count.map(|c| c as i64),
+        total_scan_root_files: record.total_scan_root_files.map(|c| c as i64),
+        total_scan_root_bytes: record.total_scan_root_bytes,
+        scan_roots_content_hash: record.scan_roots_content_hash.clone(),
+        scan_roots_updated_at: record.scan_roots_updated_at.clone(),
     }
 }
 
@@ -78,9 +100,28 @@ pub fn dataset_record_from_kv(kv: &TrainingDatasetKv) -> TrainingDataset {
         ownership: kv.ownership.clone(),
         tenant_id: Some(kv.tenant_id.clone()),
         workspace_id: kv.workspace_id.clone(),
-        // Hash repair tracking (default: no recompute needed, current algorithm version)
-        hash_needs_recompute: 0,
-        hash_algorithm_version: 2,
+        // Hash repair tracking
+        hash_needs_recompute: kv.hash_needs_recompute,
+        hash_algorithm_version: kv.hash_algorithm_version,
+        // Repository tracking for deterministic runs
+        repo_slug: kv.repo_slug.clone(),
+        branch: kv.branch.clone(),
+        commit_sha: kv.commit_sha.clone(),
+        // Session lineage fields (migration 0256)
+        session_id: kv.session_id.clone(),
+        session_name: kv.session_name.clone(),
+        session_tags: kv.session_tags.clone(),
+        // Scope metadata fields (migration 0257)
+        scope_repo_id: kv.scope_repo_id.clone(),
+        scope_repo: kv.scope_repo.clone(),
+        scope_scan_root: kv.scope_scan_root.clone(),
+        scope_remote_url: kv.scope_remote_url.clone(),
+        // Aggregate metrics (migration 0259)
+        scan_root_count: kv.scan_root_count.map(|c| c as i32),
+        total_scan_root_files: kv.total_scan_root_files.map(|c| c as i32),
+        total_scan_root_bytes: kv.total_scan_root_bytes,
+        scan_roots_content_hash: kv.scan_roots_content_hash.clone(),
+        scan_roots_updated_at: kv.scan_roots_updated_at.clone(),
     }
 }
 
@@ -612,6 +653,28 @@ mod tests {
             ownership: Some("team-a".to_string()),
             tenant_id: Some("tenant-1".to_string()),
             workspace_id: Some("workspace-1".to_string()),
+            // Hash repair tracking fields
+            hash_needs_recompute: 0,
+            hash_algorithm_version: 2,
+            // Repository tracking for deterministic runs
+            repo_slug: Some("owner-repo".to_string()),
+            branch: Some("main".to_string()),
+            commit_sha: Some("abc123def456".to_string()),
+            // Session lineage fields
+            session_id: Some("session-123".to_string()),
+            session_name: Some("Training Session 1".to_string()),
+            session_tags: Some("tag1,tag2".to_string()),
+            // Scope metadata fields
+            scope_repo_id: Some("owner/repo".to_string()),
+            scope_repo: Some("owner-repo".to_string()),
+            scope_scan_root: Some("/src".to_string()),
+            scope_remote_url: Some("https://github.com/owner/repo".to_string()),
+            // Aggregate metrics
+            scan_root_count: Some(1i32),
+            total_scan_root_files: Some(100i32),
+            total_scan_root_bytes: Some(1024000i64),
+            scan_roots_content_hash: Some("hashxyz".to_string()),
+            scan_roots_updated_at: Some("2024-01-01T00:00:00Z".to_string()),
         };
 
         let kv_dataset = kv_dataset_from_record(&sql_dataset, "tenant-1");
@@ -640,6 +703,42 @@ mod tests {
         assert_eq!(sql_dataset.ownership, roundtrip.ownership);
         assert_eq!(sql_dataset.tenant_id, roundtrip.tenant_id);
         assert_eq!(sql_dataset.workspace_id, roundtrip.workspace_id);
+        // New fields
+        assert_eq!(
+            sql_dataset.hash_needs_recompute,
+            roundtrip.hash_needs_recompute
+        );
+        assert_eq!(
+            sql_dataset.hash_algorithm_version,
+            roundtrip.hash_algorithm_version
+        );
+        assert_eq!(sql_dataset.repo_slug, roundtrip.repo_slug);
+        assert_eq!(sql_dataset.branch, roundtrip.branch);
+        assert_eq!(sql_dataset.commit_sha, roundtrip.commit_sha);
+        assert_eq!(sql_dataset.session_id, roundtrip.session_id);
+        assert_eq!(sql_dataset.session_name, roundtrip.session_name);
+        assert_eq!(sql_dataset.session_tags, roundtrip.session_tags);
+        assert_eq!(sql_dataset.scope_repo_id, roundtrip.scope_repo_id);
+        assert_eq!(sql_dataset.scope_repo, roundtrip.scope_repo);
+        assert_eq!(sql_dataset.scope_scan_root, roundtrip.scope_scan_root);
+        assert_eq!(sql_dataset.scope_remote_url, roundtrip.scope_remote_url);
+        assert_eq!(sql_dataset.scan_root_count, roundtrip.scan_root_count);
+        assert_eq!(
+            sql_dataset.total_scan_root_files,
+            roundtrip.total_scan_root_files
+        );
+        assert_eq!(
+            sql_dataset.total_scan_root_bytes,
+            roundtrip.total_scan_root_bytes
+        );
+        assert_eq!(
+            sql_dataset.scan_roots_content_hash,
+            roundtrip.scan_roots_content_hash
+        );
+        assert_eq!(
+            sql_dataset.scan_roots_updated_at,
+            roundtrip.scan_roots_updated_at
+        );
     }
 
     #[test]

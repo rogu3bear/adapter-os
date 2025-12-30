@@ -1,4 +1,4 @@
-//! Shared adapter repository path helpers (repo + cache roots).
+//! Versioned adapter repository path helpers (repo + cache roots).
 //!
 //! Centralizes adapter bundle layout for both control plane (import) and
 //! worker-side loading. Paths are always absolutized and follow the same
@@ -10,6 +10,21 @@
 //! 4. Default `var/adapters/repo`
 //!
 //! Cache root uses `AOS_ADAPTER_CACHE_DIR` or defaults to `var/adapters/cache`.
+//!
+//! # Choosing a Path Type
+//!
+//! | Need | Use |
+//! |------|-----|
+//! | Simple flat layout (`{root}/{adapter}.aos`) | [`crate::paths::AdapterPaths`] |
+//! | Versioned tenant layout with cache | [`RepoAdapterPaths`] |
+//!
+//! Use [`RepoAdapterPaths`] for production systems that require:
+//! - Tenant isolation: `{repo}/{tenant}/{adapter}/...`
+//! - Semantic versioning: `{version}.aos` files
+//! - Cache management: separate `cache_root` directory
+//!
+//! For simple CLI tools that just need `{root}/{name}.aos`, use
+//! [`crate::paths::AdapterPaths`] instead.
 
 use std::env;
 use std::fs;
@@ -25,8 +40,28 @@ pub const ENV_ADAPTER_CACHE_DIR: &str = "AOS_ADAPTER_CACHE_DIR";
 pub const DEFAULT_REPO_DIR: &str = "var/adapters/repo";
 pub const DEFAULT_CACHE_DIR: &str = "var/adapters/cache";
 
+/// Versioned adapter repository paths with tenant isolation and caching.
+///
+/// This type handles the production repository layout with separate repo and cache
+/// directories, tenant isolation, and semantic versioning support.
+///
+/// # Layout
+///
+/// - Repository: `{repo_root}/{tenant}/{adapter}/{version}.aos`
+/// - Cache: `{cache_root}/{hash_prefix}/{manifest_hash}.aos`
+///
+/// # When to Use
+///
+/// - Control plane and API servers
+/// - Production deployments with multi-tenant isolation
+/// - Systems requiring version resolution (latest semver, exact match)
+/// - Workflows that need cache management
+///
+/// # See Also
+///
+/// - [`crate::paths::AdapterPaths`] for simple `{root}/{adapter}.aos` layout
 #[derive(Debug, Clone)]
-pub struct AdapterPaths {
+pub struct RepoAdapterPaths {
     pub repo_root: PathBuf,
     pub cache_root: PathBuf,
 }
@@ -50,7 +85,7 @@ pub enum ResolveError {
     Semver(String),
 }
 
-impl AdapterPaths {
+impl RepoAdapterPaths {
     /// Versioned bundle path: {repo_root}/{tenant}/{adapter}/{version}.aos
     pub fn bundle_path(
         &self,
@@ -163,7 +198,7 @@ pub fn resolve_adapter_roots_from_strings(
     repo_env: Option<String>,
     cache_env: Option<String>,
     config_root: Option<String>,
-) -> AdapterPaths {
+) -> RepoAdapterPaths {
     let repo_root = repo_env
         .or(config_root)
         .unwrap_or_else(|| DEFAULT_REPO_DIR.to_string());
@@ -191,7 +226,7 @@ pub fn resolve_adapter_roots_from_strings(
     debug_assert!(repo_abs.is_absolute());
     debug_assert!(cache_abs.is_absolute());
 
-    AdapterPaths {
+    RepoAdapterPaths {
         repo_root: repo_abs,
         cache_root: cache_abs,
     }
@@ -199,7 +234,7 @@ pub fn resolve_adapter_roots_from_strings(
 
 /// Canonical on-disk directory for an adapter (per-tenant)
 pub fn adapter_fs_path(tenant_id: &str, adapter_id: &str) -> Result<PathBuf, ResolveError> {
-    let roots = AdapterPaths::from_env_and_config(None);
+    let roots = RepoAdapterPaths::from_env_and_config(None);
     adapter_fs_path_with_root(roots.repo_root, tenant_id, adapter_id)
 }
 
@@ -234,7 +269,7 @@ fn validate_exists_or_not(path: &Path) -> Result<PathBuf, ResolveError> {
     }
 }
 
-impl AdapterPaths {
+impl RepoAdapterPaths {
     fn pick_latest_lex(
         &self,
         tenant_id: &str,
@@ -352,7 +387,7 @@ mod tests {
     #[test]
     fn bundle_path_layout_is_deterministic() {
         let base = PathBuf::from("/var/a");
-        let paths = AdapterPaths {
+        let paths = RepoAdapterPaths {
             repo_root: base.clone(),
             cache_root: base.join("cache"),
         };
@@ -365,9 +400,11 @@ mod tests {
     #[test]
     fn compat_env_alias_is_honored() {
         unsafe {
+            // Clear primary var first so compat can take effect
+            std::env::remove_var(ENV_ADAPTERS_ROOT);
             std::env::set_var(ENV_ADAPTERS_DIR_COMPAT, "/env/compat");
         }
-        let paths = AdapterPaths::from_env_and_config(None);
+        let paths = RepoAdapterPaths::from_env_and_config(None);
         assert_eq!(paths.repo_root, PathBuf::from("/env/compat"));
         unsafe {
             std::env::remove_var(ENV_ADAPTERS_DIR_COMPAT);
@@ -387,7 +424,7 @@ mod tests {
         )
         .unwrap();
 
-        let paths = AdapterPaths {
+        let paths = RepoAdapterPaths {
             repo_root: repo,
             cache_root: cache,
         };
@@ -410,7 +447,7 @@ mod tests {
         let flat_inner = tenant_flat.join("adapter.aos");
         fs::write(&flat_inner, b"flat").unwrap();
 
-        let paths = AdapterPaths {
+        let paths = RepoAdapterPaths {
             repo_root: repo,
             cache_root: cache,
         };
@@ -438,7 +475,7 @@ mod tests {
         )
         .unwrap();
 
-        let paths = AdapterPaths {
+        let paths = RepoAdapterPaths {
             repo_root: repo,
             cache_root: cache,
         };
@@ -454,7 +491,7 @@ mod tests {
     #[test]
     fn bundle_path_rejects_slashes() {
         let base = PathBuf::from("/var/a");
-        let paths = AdapterPaths {
+        let paths = RepoAdapterPaths {
             repo_root: base.clone(),
             cache_root: base.join("cache"),
         };
@@ -465,7 +502,7 @@ mod tests {
     #[test]
     fn resolve_existing_rejects_traversal() {
         let base = PathBuf::from("/var/a");
-        let paths = AdapterPaths {
+        let paths = RepoAdapterPaths {
             repo_root: base.clone(),
             cache_root: base.join("cache"),
         };
@@ -478,7 +515,7 @@ mod tests {
     #[test]
     fn missing_version_with_exact_errors() {
         let base = PathBuf::from("/var/a");
-        let paths = AdapterPaths {
+        let paths = RepoAdapterPaths {
             repo_root: base.clone(),
             cache_root: base.join("cache"),
         };
@@ -491,7 +528,7 @@ mod tests {
     #[test]
     fn resolve_bundle_for_runtime_requires_version() {
         let base = PathBuf::from("/var/a");
-        let paths = AdapterPaths {
+        let paths = RepoAdapterPaths {
             repo_root: base.clone(),
             cache_root: base.join("cache"),
         };
@@ -509,7 +546,7 @@ mod tests {
         fs::write(repo.join("tenant").join("adapter").join("1.0.0.aos"), b"v1").unwrap();
         fs::write(repo.join("tenant").join("adapter").join("1.2.0.aos"), b"v2").unwrap();
 
-        let paths = AdapterPaths {
+        let paths = RepoAdapterPaths {
             repo_root: repo.clone(),
             cache_root: cache,
         };
@@ -526,9 +563,11 @@ mod tests {
     #[test]
     fn env_compat_alias_used_when_set() {
         unsafe {
+            // Clear primary var first so compat can take effect
+            std::env::remove_var(ENV_ADAPTERS_ROOT);
             std::env::set_var(ENV_ADAPTERS_DIR_COMPAT, "/env/compat");
         }
-        let paths = AdapterPaths::from_env_and_config(None);
+        let paths = RepoAdapterPaths::from_env_and_config(None);
         assert_eq!(paths.repo_root, PathBuf::from("/env/compat"));
         unsafe {
             std::env::remove_var(ENV_ADAPTERS_DIR_COMPAT);
@@ -538,9 +577,11 @@ mod tests {
     #[test]
     fn env_primary_adapters_dir_is_used() {
         unsafe {
+            // Clear compat var to avoid interference
+            std::env::remove_var(ENV_ADAPTERS_DIR_COMPAT);
             std::env::set_var(ENV_ADAPTERS_ROOT, "/env/primary");
         }
-        let paths = AdapterPaths::from_env_and_config(None);
+        let paths = RepoAdapterPaths::from_env_and_config(None);
         assert_eq!(paths.repo_root, PathBuf::from("/env/primary"));
         unsafe {
             std::env::remove_var(ENV_ADAPTERS_ROOT);

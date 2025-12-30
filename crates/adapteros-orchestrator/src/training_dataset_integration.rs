@@ -271,6 +271,7 @@ impl TrainingDatasetManager {
                 None,
                 Some("ready"),
                 Some(&hash_b3),
+                None,
             )
             .await?;
 
@@ -462,7 +463,24 @@ mod tests {
                 collection_method TEXT,
                 ownership TEXT,
                 tenant_id TEXT,
-                workspace_id TEXT
+                workspace_id TEXT,
+                hash_needs_recompute INTEGER NOT NULL DEFAULT 0,
+                hash_algorithm_version INTEGER NOT NULL DEFAULT 1,
+                repo_slug TEXT,
+                branch TEXT,
+                commit_sha TEXT,
+                session_id TEXT,
+                session_name TEXT,
+                session_tags TEXT,
+                scope_repo_id TEXT,
+                scope_repo TEXT,
+                scope_scan_root TEXT,
+                scope_remote_url TEXT,
+                scan_root_count INTEGER,
+                total_scan_root_files INTEGER,
+                total_scan_root_bytes INTEGER,
+                scan_roots_content_hash TEXT,
+                scan_roots_updated_at TEXT
             )",
         )
         .execute(db.pool())

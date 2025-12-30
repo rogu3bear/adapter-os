@@ -98,6 +98,36 @@ pub struct AdapterKv {
     #[serde(default)]
     pub repo_path: Option<String>,
 
+    // Codebase adapter registration metadata (from migration 0248)
+    #[serde(default)]
+    pub codebase_scope: Option<String>,
+    #[serde(default)]
+    pub dataset_version_id: Option<String>,
+    #[serde(default)]
+    pub registration_timestamp: Option<String>,
+    #[serde(default)]
+    pub manifest_hash: Option<String>,
+
+    // Codebase adapter type and stream binding (from migration 0261)
+    /// Adapter classification: "standard" (portable), "codebase" (stream-scoped), "core" (baseline)
+    #[serde(default)]
+    pub adapter_type: Option<String>,
+    /// Base adapter ID for codebase adapters (the core adapter they extend as delta)
+    /// Distinct from parent_id which tracks version lineage (v1 -> v2 -> v3)
+    #[serde(default)]
+    pub base_adapter_id: Option<String>,
+    /// Exclusive session binding for codebase adapters
+    /// Only one codebase adapter can be active per session
+    #[serde(default)]
+    pub stream_session_id: Option<String>,
+    /// Activation threshold for auto-versioning (default: 100)
+    /// When activation_count >= versioning_threshold, system creates new version
+    #[serde(default)]
+    pub versioning_threshold: Option<i32>,
+    /// BLAKE3 hash of fused CoreML package for deployment verification
+    #[serde(default)]
+    pub coreml_package_hash: Option<String>,
+
     // Timestamps
     pub created_at: String,
     pub updated_at: String,
@@ -148,5 +178,52 @@ impl AdapterKv {
             ids.push(self.id.clone());
         }
         ids
+    }
+
+    // =========================================================================
+    // Codebase Adapter Helpers
+    // =========================================================================
+
+    /// Check if this is a codebase adapter
+    pub fn is_codebase_adapter(&self) -> bool {
+        self.adapter_type.as_deref() == Some("codebase")
+    }
+
+    /// Check if this is a core (baseline) adapter
+    pub fn is_core_adapter(&self) -> bool {
+        self.adapter_type.as_deref() == Some("core")
+    }
+
+    /// Check if this is a standard (portable) adapter
+    pub fn is_standard_adapter(&self) -> bool {
+        self.adapter_type.as_deref().unwrap_or("standard") == "standard"
+    }
+
+    /// Check if this codebase adapter should auto-version based on activation count
+    pub fn should_auto_version(&self) -> bool {
+        if !self.is_codebase_adapter() {
+            return false;
+        }
+        let threshold = self.versioning_threshold.unwrap_or(100) as i64;
+        self.activation_count >= threshold
+    }
+
+    /// Check if this adapter is bound to a session
+    pub fn is_session_bound(&self) -> bool {
+        self.stream_session_id.is_some()
+    }
+
+    /// Get base adapter relationship key (for delta lineage traversal)
+    pub fn base_adapter_key(&self) -> Option<String> {
+        self.base_adapter_id
+            .as_ref()
+            .map(|bid| format!("adapter:{}:derived", bid))
+    }
+
+    /// Get session binding key
+    pub fn session_binding_key(&self) -> Option<String> {
+        self.stream_session_id
+            .as_ref()
+            .map(|sid| format!("session:{}:codebase_adapter", sid))
     }
 }

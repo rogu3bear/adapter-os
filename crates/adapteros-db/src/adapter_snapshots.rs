@@ -74,9 +74,10 @@ impl Db {
             r#"
             INSERT INTO adapter_training_snapshots (
                 id, tenant_id, adapter_id, training_job_id, collection_id, documents_json,
-                chunk_manifest_hash, chunking_config_json, created_at
+                chunk_manifest_hash, chunking_config_json, dataset_id, dataset_version_id,
+                dataset_hash_b3, created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
             "#,
         )
         .bind(&id)
@@ -87,6 +88,9 @@ impl Db {
         .bind(&params.documents_json)
         .bind(&params.chunk_manifest_hash)
         .bind(&params.chunking_config_json)
+        .bind(&params.dataset_id)
+        .bind(&params.dataset_version_id)
+        .bind(&params.dataset_hash_b3)
         .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to create training snapshot: {}", e)))?;
@@ -111,7 +115,8 @@ impl Db {
         let record = sqlx::query_as::<_, AdapterTrainingSnapshotRow>(
             r#"
             SELECT id, tenant_id, adapter_id, training_job_id, collection_id, documents_json,
-                   chunk_manifest_hash, chunking_config_json, created_at
+                   chunk_manifest_hash, chunking_config_json, dataset_id, dataset_version_id,
+                   dataset_hash_b3, created_at
             FROM adapter_training_snapshots
             WHERE adapter_id = ?
             ORDER BY created_at DESC
@@ -137,7 +142,8 @@ impl Db {
         let records = sqlx::query_as::<_, AdapterTrainingSnapshotRow>(
             r#"
             SELECT id, tenant_id, adapter_id, training_job_id, collection_id, documents_json,
-                   chunk_manifest_hash, chunking_config_json, created_at
+                   chunk_manifest_hash, chunking_config_json, dataset_id, dataset_version_id,
+                   dataset_hash_b3, created_at
             FROM adapter_training_snapshots
             WHERE training_job_id = ?
             ORDER BY created_at DESC
@@ -164,7 +170,8 @@ impl Db {
         let records = sqlx::query_as::<_, AdapterTrainingSnapshotRow>(
             r#"
             SELECT id, tenant_id, adapter_id, training_job_id, collection_id, documents_json,
-                   chunk_manifest_hash, chunking_config_json, created_at
+                   chunk_manifest_hash, chunking_config_json, dataset_id, dataset_version_id,
+                   dataset_hash_b3, created_at
             FROM adapter_training_snapshots
             WHERE collection_id = ?
             ORDER BY created_at DESC
@@ -240,6 +247,9 @@ struct AdapterTrainingSnapshotRow {
     documents_json: String,
     chunk_manifest_hash: String,
     chunking_config_json: String,
+    dataset_id: Option<String>,
+    dataset_version_id: Option<String>,
+    dataset_hash_b3: Option<String>,
     created_at: String,
 }
 
@@ -254,6 +264,9 @@ impl From<AdapterTrainingSnapshotRow> for AdapterTrainingSnapshot {
             documents_json: row.documents_json,
             chunk_manifest_hash: row.chunk_manifest_hash,
             chunking_config_json: row.chunking_config_json,
+            dataset_id: row.dataset_id,
+            dataset_version_id: row.dataset_version_id,
+            dataset_hash_b3: row.dataset_hash_b3,
             created_at: row.created_at,
         }
     }
@@ -313,6 +326,9 @@ mod tests {
             documents_json,
             chunk_manifest_hash: "manifest_hash_123".to_string(),
             chunking_config_json,
+            dataset_id: None,
+            dataset_version_id: None,
+            dataset_hash_b3: None,
         };
 
         let id = db.create_training_snapshot(params).await.unwrap();
@@ -352,6 +368,9 @@ mod tests {
                 documents_json: "[]".to_string(),
                 chunk_manifest_hash: format!("hash-{}", i),
                 chunking_config_json: "{}".to_string(),
+                dataset_id: None,
+                dataset_version_id: None,
+                dataset_hash_b3: None,
             };
 
             db.create_training_snapshot(params).await.unwrap();
@@ -388,6 +407,9 @@ mod tests {
                 documents_json: "[]".to_string(),
                 chunk_manifest_hash: format!("hash-{}", i),
                 chunking_config_json: "{}".to_string(),
+                dataset_id: None,
+                dataset_version_id: None,
+                dataset_hash_b3: None,
             };
 
             db.create_training_snapshot(params).await.unwrap();

@@ -46,6 +46,9 @@ pub struct ChatSessionKv {
     pub tags_json: Option<String>,
     #[serde(default)]
     pub pinned_adapter_ids: Option<String>,
+    /// Exclusive codebase adapter bound to this session
+    #[serde(default)]
+    pub codebase_adapter_id: Option<String>,
     pub status: String,
 }
 
@@ -221,6 +224,7 @@ impl ChatSessionKvRepository {
             metadata_json: params.metadata_json.clone(),
             tags_json: params.tags_json.clone(),
             pinned_adapter_ids: params.pinned_adapter_ids.clone(),
+            codebase_adapter_id: params.codebase_adapter_id.clone(),
             status: "active".to_string(),
         };
         let payload = serde_json::to_vec(&session).map_err(AosError::Serialization)?;

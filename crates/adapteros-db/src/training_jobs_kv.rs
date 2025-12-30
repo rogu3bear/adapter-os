@@ -50,6 +50,29 @@ pub struct TrainingJobKv {
     pub hyperparameters_json: Option<String>,
     pub data_spec_json: Option<String>,
     pub metrics_snapshot_id: Option<String>,
+    // Fields from migration 0247 - deterministic run tracking
+    pub is_deterministic_run: Option<bool>,
+    pub global_seed_hex: Option<String>,
+    pub determinism_config_json: Option<String>,
+    pub seed_mode: Option<String>,
+    // Fields from migration 0253 - API contract alignment
+    pub category: Option<String>,
+    pub description: Option<String>,
+    pub language: Option<String>,
+    pub symbol_targets_json: Option<String>,
+    pub framework_id: Option<String>,
+    pub framework_version: Option<String>,
+    pub lora_tier: Option<String>,
+    pub lora_strength: Option<f64>,
+    pub scope: Option<String>,
+    pub api_patterns_json: Option<String>,
+    pub repo_scope: Option<String>,
+    pub file_patterns_json: Option<String>,
+    pub exclude_patterns_json: Option<String>,
+    pub backend: Option<String>,
+    pub backend_reason: Option<String>,
+    pub backend_device: Option<String>,
+    pub dataset_hash_b3: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

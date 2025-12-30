@@ -11,12 +11,15 @@
 //! - Sorting all extracted data consistently
 //! - Using BLAKE3 hashing for reproducibility
 //!
-//! NOTE: This module is currently a stub implementation pending MicroLoRATrainer API updates.
 
 use adapteros_codegraph::{CodeGraph, SymbolKind, SymbolNode, Visibility};
-use adapteros_core::{AosError, Result};
+use adapteros_core::seed::derive_seed_u64;
+use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_lora_worker::tokenizer::QwenTokenizer;
-use adapteros_lora_worker::training::{MicroLoRATrainer, TrainingConfig, TrainingExample};
+use adapteros_lora_worker::training::{
+    AdapterPackager, LoRAQuantizer, MicroLoRATrainer, ScanRootMetadata, TrainingConfig,
+    TrainingExample,
+};
 use adapteros_platform::common::PlatformUtils;
 use blake3::Hasher;
 use serde::{Deserialize, Serialize};
@@ -24,7 +27,9 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 use tokio::fs;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
+
+use crate::code_ingestion::{normalize_repo_slug, CodebaseScopeMetadata};
 
 /// Configuration for codebase ingestion
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,6 +101,13 @@ pub struct IngestionResult {
     pub content_hash: String,
 }
 
+#[derive(Debug, Default)]
+struct RepoGitMetadata {
+    commit_sha: Option<String>,
+    branch: Option<String>,
+    remote_url: Option<String>,
+}
+
 /// Codebase ingestion pipeline
 pub struct CodebaseIngestion {
     config: IngestionConfig,
@@ -108,10 +120,7 @@ impl CodebaseIngestion {
         Ok(Self { config })
     }
 
-    /// Run the full ingestion pipeline
-    ///
-    /// NOTE: This is a stub implementation. The full training pipeline requires
-    /// MicroLoRATrainer API updates for seed override and .aos packaging.
+    /// Run the full ingestion pipeline.
     pub async fn ingest_and_train(
         &self,
         repo_path: &Path,
@@ -132,8 +141,21 @@ impl CodebaseIngestion {
         let symbols_count = graph.symbols.len();
         info!(symbols = symbols_count, "Extracted symbols from repository");
 
-        // Get git commit SHA if available
-        let commit_sha = get_commit_sha(repo_path);
+        let repo_root = repo_path
+            .canonicalize()
+            .unwrap_or_else(|_| repo_path.to_path_buf());
+        let repo_root_str = PlatformUtils::normalize_path_separators(&repo_root.to_string_lossy());
+        let repo_name = repo_root
+            .file_name()
+            .and_then(|name| name.to_str())
+            .filter(|name| !name.is_empty())
+            .unwrap_or("repo")
+            .to_string();
+        let repo_slug = normalize_repo_slug(&repo_name);
+        let git_meta = get_repo_git_metadata(&repo_root);
+        let commit_sha = git_meta.commit_sha;
+        let branch = git_meta.branch;
+        let remote_url = git_meta.remote_url;
 
         // Generate Q&A training pairs from symbols
         let samples = self.generate_qa_pairs(&graph, repo_path)?;
@@ -164,54 +186,152 @@ impl CodebaseIngestion {
 
         let training_examples = encode_qa_samples(&tokenizer, &samples)?;
         let examples_count = training_examples.len();
+        let (positive_count, negative_count) = count_samples_by_weight(&samples);
+
+        let training_config_hash = compute_training_config_hash(&self.config.training_config);
+        let commit_seed = commit_sha.as_deref().unwrap_or("unknown");
+        let seed_inputs = SeedInputs {
+            commit_sha: commit_seed,
+            dataset_hash_b3: &content_hash,
+            training_config_hash: &training_config_hash,
+            base_model_id: &self.config.base_model,
+            repo_slug: &repo_slug,
+        };
+        let seed_inputs_json = serialize_seed_inputs(&seed_inputs)?;
+        let derived_seed = derive_training_seed(&seed_inputs_json);
+        let seed_override = self
+            .config
+            .training_config
+            .determinism
+            .as_ref()
+            .and_then(|d| d.seed);
+        let seed_source = if seed_override.is_some() {
+            "config"
+        } else {
+            "derived"
+        };
+        let seed = seed_override.unwrap_or(derived_seed);
+
+        let mut training_config = self.config.training_config.clone();
+        let mut determinism = training_config.determinism.unwrap_or_default();
+        determinism.seed = Some(seed);
+        training_config.determinism = Some(determinism);
 
         // Train the LoRA adapter
-        let mut trainer = MicroLoRATrainer::new(self.config.training_config.clone())?;
-
-        // Derive deterministic seed from content (logged for reproducibility)
-        let seed = derive_training_seed(&content_hash, commit_sha.as_deref());
-        info!(seed = seed, "Deterministic seed derived from content");
+        let mut trainer = MicroLoRATrainer::new(training_config.clone())?;
+        info!(seed, seed_source, "Using deterministic training seed");
 
         // Run training
-        let training_result = trainer.train(&training_examples).await?;
+        let mut training_result = trainer.train(&training_examples).await?;
+        training_result.adapter_id = adapter_id.to_string();
         let final_loss = training_result.final_loss;
 
-        // Package the adapter as .aos file
-        fs::create_dir_all(adapters_root).await.map_err(|e| {
-            AosError::Io(format!(
-                "Failed to create adapters directory {}: {}",
-                adapters_root.display(),
-                e
-            ))
-        })?;
+        let repo_identifier = format!("repo:{}", repo_slug);
+        let mut metadata = BTreeMap::new();
+        metadata.insert("repo_name".to_string(), repo_name.clone());
+        metadata.insert("repo_slug".to_string(), repo_slug.clone());
+        metadata.insert("scope".to_string(), repo_slug.clone());
+        metadata.insert("repo_identifier".to_string(), repo_identifier.clone());
+        metadata.insert("scope_repo_id".to_string(), repo_identifier.clone());
+        if let Some(ref commit) = commit_sha {
+            metadata.insert("repo_commit".to_string(), commit.clone());
+            metadata.insert(
+                "repo_short_commit".to_string(),
+                commit.chars().take(8).collect(),
+            );
+        }
+        metadata.insert("repo_root_path".to_string(), repo_root_str.clone());
+        metadata.insert("repo_path".to_string(), repo_root_str.clone());
+        metadata.insert("scan_root_path".to_string(), repo_root_str.clone());
+        if let Some(ref branch) = branch {
+            metadata.insert("repo_branch".to_string(), branch.clone());
+        }
+        if let Some(ref remote) = remote_url {
+            metadata.insert("repo_remote".to_string(), remote.clone());
+        }
+        let scan_roots = vec![ScanRootMetadata {
+            path: repo_root_str.clone(),
+            label: Some("primary".to_string()),
+            file_count: None,
+            byte_count: None,
+            content_hash: None,
+            scanned_at: None,
+        }];
+        if let Ok(scan_roots_json) = serde_json::to_string(&scan_roots) {
+            metadata.insert("scan_roots".to_string(), scan_roots_json);
+        }
 
-        let aos_path = adapters_root.join(format!("{}.aos", adapter_id));
+        let scope_meta = CodebaseScopeMetadata {
+            repo: Some(repo_name.clone()),
+            repo_slug: Some(repo_slug.clone()),
+            repo_id: Some(repo_identifier.clone()),
+            branch: branch.clone(),
+            commit: commit_sha.clone(),
+            scan_root: Some(repo_root_str.clone()),
+            remote_url: remote_url.clone(),
+        };
+        for (key, value) in scope_meta.to_metadata_map() {
+            metadata.insert(key, value);
+        }
 
-        // TODO: Implement proper .aos packaging when MicroLoRATrainer API is extended
-        // For now, we save a placeholder manifest
-        warn!("Full .aos packaging not yet implemented - saving placeholder");
-        let placeholder_manifest = serde_json::json!({
-            "adapter_id": adapter_id,
-            "repo_path": repo_path.display().to_string(),
-            "symbols_count": symbols_count,
-            "examples_count": examples_count,
-            "content_hash": content_hash,
-            "commit_sha": commit_sha,
-            "generator": "codebase_ingestion",
-            "final_loss": final_loss,
-        });
-        fs::write(
-            &aos_path,
-            serde_json::to_string_pretty(&placeholder_manifest).unwrap_or_default(),
-        )
-        .await
-        .map_err(|e| AosError::Io(format!("Failed to write {}: {}", aos_path.display(), e)))?;
+        metadata.insert("dataset_hash".to_string(), content_hash.clone());
+        metadata.insert("dataset_hash_b3".to_string(), content_hash.clone());
+        metadata.insert(
+            "training_config_hash".to_string(),
+            training_config_hash.clone(),
+        );
+        metadata.insert("seed_inputs_json".to_string(), seed_inputs_json);
+        metadata.insert("determinism_seed".to_string(), seed.to_string());
+        metadata.insert("seed_source".to_string(), seed_source.to_string());
+        metadata.insert("dataset_examples".to_string(), examples_count.to_string());
+        metadata.insert(
+            "dataset_positive_examples".to_string(),
+            positive_count.to_string(),
+        );
+        metadata.insert(
+            "dataset_negative_examples".to_string(),
+            negative_count.to_string(),
+        );
+        metadata.insert("base_model_id".to_string(), self.config.base_model.clone());
+        metadata.insert("category".to_string(), "codebase".to_string());
+        metadata.insert("generator".to_string(), "codebase_ingestion".to_string());
+        metadata.insert("stream_mode".to_string(), "false".to_string());
+
+        let mut package_metadata: HashMap<String, String> = metadata
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        if let Some(ref backend) = training_result.backend {
+            package_metadata.insert("training_backend".to_string(), backend.clone());
+        }
+        if let Some(ref device) = training_result.backend_device {
+            package_metadata.insert("training_backend_device".to_string(), device.clone());
+        }
+
+        let quantized = LoRAQuantizer::quantize_to_q15(&training_result.weights);
+        let packager = AdapterPackager::new(adapters_root);
+        let packaged = packager
+            .package_aos_with_metadata(
+                "default",
+                adapter_id,
+                &quantized,
+                &training_config,
+                &self.config.base_model,
+                package_metadata,
+            )
+            .await?;
+        let aos_path = packaged.weights_path;
 
         // Compute adapter hash
         let aos_bytes = fs::read(&aos_path)
             .await
             .map_err(|e| AosError::Io(format!("Failed to read {}: {}", aos_path.display(), e)))?;
         let adapter_hash = blake3::hash(&aos_bytes).to_hex().to_string();
+        info!(
+            path = %aos_path.display(),
+            hash = %adapter_hash,
+            "Packaged codebase adapter"
+        );
 
         let training_time_ms = start_time.elapsed().as_millis() as u64;
 
@@ -227,7 +347,7 @@ impl CodebaseIngestion {
         Ok(IngestionResult {
             adapter_id: adapter_id.to_string(),
             adapter_hash,
-            repo_path: repo_path.display().to_string(),
+            repo_path: repo_root_str,
             commit_sha,
             symbols_count,
             examples_count,
@@ -422,21 +542,40 @@ struct QAPair {
     weight: f32,
 }
 
-/// Get git commit SHA from repository
-fn get_commit_sha(repo_path: &Path) -> Option<String> {
+fn get_repo_git_metadata(repo_path: &Path) -> RepoGitMetadata {
     let repo = match git2::Repository::discover(repo_path) {
         Ok(r) => r,
-        Err(_) => return None,
+        Err(_) => return RepoGitMetadata::default(),
     };
-    let head = match repo.head() {
-        Ok(h) => h,
-        Err(_) => return None,
-    };
-    let commit = match head.peel_to_commit() {
-        Ok(c) => c,
-        Err(_) => return None,
-    };
-    Some(commit.id().to_string())
+
+    let mut meta = RepoGitMetadata::default();
+    if let Ok(head) = repo.head() {
+        if head.is_branch() {
+            if let Some(name) = head.shorthand().filter(|name| !name.is_empty()) {
+                meta.branch = Some(name.to_string());
+            }
+        }
+        if let Ok(commit) = head.peel_to_commit() {
+            meta.commit_sha = Some(commit.id().to_string());
+        }
+    }
+
+    if let Ok(remote) = repo.find_remote("origin") {
+        if let Some(url) = remote.url().filter(|url| !url.trim().is_empty()) {
+            meta.remote_url = Some(url.to_string());
+        }
+    } else if let Ok(remotes) = repo.remotes() {
+        for name in remotes.iter().flatten() {
+            if let Ok(remote) = repo.find_remote(name) {
+                if let Some(url) = remote.url().filter(|url| !url.trim().is_empty()) {
+                    meta.remote_url = Some(url.to_string());
+                    break;
+                }
+            }
+        }
+    }
+
+    meta
 }
 
 /// Compute hash of training samples for reproducibility
@@ -454,17 +593,128 @@ fn compute_samples_hash(samples: &[QAPair]) -> String {
     hasher.finalize().to_hex().to_string()
 }
 
-/// Derive deterministic training seed
-fn derive_training_seed(content_hash: &str, commit_sha: Option<&str>) -> u64 {
-    let mut hasher = Hasher::new();
-    hasher.update(content_hash.as_bytes());
-    if let Some(sha) = commit_sha {
-        hasher.update(sha.as_bytes());
+fn count_samples_by_weight(samples: &[QAPair]) -> (usize, usize) {
+    let mut positive = 0;
+    let mut negative = 0;
+    for sample in samples {
+        if sample.weight < 0.0 {
+            negative += 1;
+        } else {
+            positive += 1;
+        }
     }
-    let digest = hasher.finalize();
-    let mut bytes = [0u8; 8];
-    bytes.copy_from_slice(&digest.as_bytes()[..8]);
-    u64::from_le_bytes(bytes)
+    (positive, negative)
+}
+
+/// Compute a BLAKE3 hash of the training configuration for reproducibility tracking.
+fn compute_training_config_hash(config: &TrainingConfig) -> String {
+    let mut hasher = Hasher::new();
+    hasher.update(&config.rank.to_le_bytes());
+    hasher.update(&config.alpha.to_le_bytes());
+    hasher.update(&config.learning_rate.to_le_bytes());
+    hasher.update(&config.batch_size.to_le_bytes());
+    hasher.update(&config.epochs.to_le_bytes());
+    hasher.update(&config.hidden_dim.to_le_bytes());
+    hasher.update(&config.vocab_size.to_le_bytes());
+
+    hasher.update(&[config.require_gpu as u8]);
+    hasher.update(&config.max_gpu_memory_mb.to_le_bytes());
+
+    if let Some(backend) = config.preferred_backend {
+        hasher.update(&[1]);
+        hasher.update(backend.tag().as_bytes());
+    } else {
+        hasher.update(&[0]);
+    }
+    if let Some(policy) = config.backend_policy {
+        hasher.update(&[1]);
+        hasher.update(policy.as_str().as_bytes());
+    } else {
+        hasher.update(&[0]);
+    }
+    if let Some(backend) = config.coreml_fallback_backend {
+        hasher.update(&[1]);
+        hasher.update(backend.tag().as_bytes());
+    } else {
+        hasher.update(&[0]);
+    }
+
+    if let Some(max_tokens) = config.max_tokens_per_batch {
+        hasher.update(&[1]);
+        hasher.update(&max_tokens.to_le_bytes());
+    } else {
+        hasher.update(&[0]);
+    }
+    if let Some(interval) = config.checkpoint_interval {
+        hasher.update(&[1]);
+        hasher.update(&interval.to_le_bytes());
+    } else {
+        hasher.update(&[0]);
+    }
+    if let Some(warmup) = config.warmup_steps {
+        hasher.update(&[1]);
+        hasher.update(&warmup.to_le_bytes());
+    } else {
+        hasher.update(&[0]);
+    }
+    if let Some(max_seq) = config.max_seq_length {
+        hasher.update(&[1]);
+        hasher.update(&max_seq.to_le_bytes());
+    } else {
+        hasher.update(&[0]);
+    }
+    if let Some(grad_accum) = config.gradient_accumulation_steps {
+        hasher.update(&[1]);
+        hasher.update(&grad_accum.to_le_bytes());
+    } else {
+        hasher.update(&[0]);
+    }
+
+    if let Some(ref device_policy) = config.device_policy {
+        hasher.update(&[1]);
+        if let Ok(json) = serde_json::to_string(device_policy) {
+            hasher.update(json.as_bytes());
+        }
+    } else {
+        hasher.update(&[0]);
+    }
+    if let Some(ref placement) = config.coreml_placement {
+        hasher.update(&[1]);
+        if let Ok(json) = serde_json::to_string(placement) {
+            hasher.update(json.as_bytes());
+        }
+    } else {
+        hasher.update(&[0]);
+    }
+    if let Some(ref moe_config) = config.moe_config {
+        hasher.update(&[1]);
+        if let Ok(json) = serde_json::to_string(moe_config) {
+            hasher.update(json.as_bytes());
+        }
+    } else {
+        hasher.update(&[0]);
+    }
+
+    hasher.finalize().to_hex().to_string()
+}
+
+#[derive(Debug, Serialize)]
+struct SeedInputs<'a> {
+    commit_sha: &'a str,
+    dataset_hash_b3: &'a str,
+    training_config_hash: &'a str,
+    base_model_id: &'a str,
+    repo_slug: &'a str,
+}
+
+fn serialize_seed_inputs(inputs: &SeedInputs<'_>) -> Result<String> {
+    serde_json::to_string(inputs).map_err(AosError::Serialization)
+}
+
+/// Derive deterministic training seed using HKDF-SHA256 with BLAKE3 global seed.
+fn derive_training_seed(seed_inputs_json: &str) -> u64 {
+    let global = B3Hash::hash(seed_inputs_json.as_bytes());
+    derive_seed_u64(&global, "codebase-training")
 }
 
 /// Encode Q&A samples to training examples

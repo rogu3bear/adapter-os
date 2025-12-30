@@ -431,6 +431,17 @@ mod tests {
             drift_reference_backend: None,
             drift_baseline_backend: None,
             drift_test_backend: None,
+            repo_path: None,
+            codebase_scope: None,
+            dataset_version_id: None,
+            registration_timestamp: None,
+            manifest_hash: None,
+            // Codebase adapter fields
+            adapter_type: None,
+            base_adapter_id: None,
+            stream_session_id: None,
+            versioning_threshold: None,
+            coreml_package_hash: None,
             created_at: "2024-01-01T00:00:00Z".to_string(),
             updated_at: "2024-01-01T00:00:00Z".to_string(),
         }

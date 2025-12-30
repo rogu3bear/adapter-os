@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use std::path::Path;
 use tracing::{debug, warn};
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct DeterminismGate;
 
 #[async_trait::async_trait]

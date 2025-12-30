@@ -4,7 +4,7 @@ use crate::{Gate, OrchestratorConfig};
 use adapteros_db::Db;
 use anyhow::Result;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MetricsGate {
     pub arr_min: f64,
     pub ecs5_min: f64,

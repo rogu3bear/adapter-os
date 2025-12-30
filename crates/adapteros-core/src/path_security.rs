@@ -1,13 +1,15 @@
 use crate::{AosError, Result};
 use std::path::Path;
 
-pub const FORBIDDEN_TMP_PREFIXES: [&str; 2] = ["/tmp", "/private/tmp"];
+pub const FORBIDDEN_TMP_PREFIXES: [&str; 3] = ["/tmp", "/private/tmp", "/var/tmp"];
 
 pub fn is_forbidden_tmp_path_str(candidate: &str) -> bool {
     candidate == "/tmp"
         || candidate.starts_with("/tmp/")
         || candidate == "/private/tmp"
         || candidate.starts_with("/private/tmp/")
+        || candidate == "/var/tmp"
+        || candidate.starts_with("/var/tmp/")
 }
 
 pub fn is_forbidden_tmp_path(path: &Path) -> bool {
@@ -58,6 +60,7 @@ mod tests {
         assert!(is_forbidden_tmp_path(&PathBuf::from(
             "/private/tmp/file.txt"
         )));
+        assert!(is_forbidden_tmp_path(&PathBuf::from("/var/tmp/file.txt")));
         assert!(!is_forbidden_tmp_path(&PathBuf::from(
             "/var/run/adapteros.sock"
         )));

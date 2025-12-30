@@ -228,7 +228,7 @@ impl DatabaseBackend for SqliteBackend {
             .await
             .map_err(|e| AosError::Database(format!("Failed to load migrations: {}", e)))?;
 
-        tokio::time::timeout(Duration::from_secs(30), migrator.run(&self.pool))
+        tokio::time::timeout(crate::Db::migration_timeout(), migrator.run(&self.pool))
             .await
             .map_err(|_| {
                 AosError::Database(

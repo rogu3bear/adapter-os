@@ -17,6 +17,7 @@ async fn latest_trusted_version_skips_blocked_head() -> Result<()> {
             None,
             Some("ready"),
             Some("hash-ds"),
+            None,
         )
         .await?;
 

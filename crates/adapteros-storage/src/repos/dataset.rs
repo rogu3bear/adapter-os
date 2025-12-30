@@ -747,6 +747,26 @@ mod tests {
             collection_method: None,
             ownership: Some("tenant-a".to_string()),
             workspace_id: Some("workspace-1".to_string()),
+            hash_needs_recompute: 0,
+            hash_algorithm_version: 2,
+            repo_slug: Some("org/repo".to_string()),
+            branch: Some("main".to_string()),
+            commit_sha: Some("deadbeef".to_string()),
+            // Session lineage fields
+            session_id: None,
+            session_name: None,
+            session_tags: None,
+            // Scope metadata fields
+            scope_repo_id: None,
+            scope_repo: None,
+            scope_scan_root: None,
+            scope_remote_url: None,
+            // Aggregate metrics
+            scan_root_count: None,
+            total_scan_root_files: None,
+            total_scan_root_bytes: None,
+            scan_roots_content_hash: None,
+            scan_roots_updated_at: None,
         }
     }
 

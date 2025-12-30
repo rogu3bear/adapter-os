@@ -245,7 +245,7 @@ impl AdapterRepository {
             .collect())
     }
 
-    /// Find adapter by content hash
+    /// Find adapter by hash (hash_b3 field)
     pub async fn find_by_hash(&self, hash: &str) -> Result<Option<AdapterKv>, StorageError> {
         let adapter_ids = self
             .index_manager
@@ -257,6 +257,27 @@ impl AdapterRepository {
         }
 
         // Should only be one adapter per hash due to UNIQUE constraint
+        let adapters = self.load_adapters(&adapter_ids).await?;
+        Ok(adapters.into_iter().next())
+    }
+
+    /// Find adapter by content hash (content_hash_b3 field)
+    ///
+    /// Used for global deduplication - content hash is unique across all tenants.
+    pub async fn find_by_content_hash(
+        &self,
+        content_hash: &str,
+    ) -> Result<Option<AdapterKv>, StorageError> {
+        let adapter_ids = self
+            .index_manager
+            .query_index(adapter_indexes::BY_CONTENT_HASH, content_hash)
+            .await?;
+
+        if adapter_ids.is_empty() {
+            return Ok(None);
+        }
+
+        // Should only be one adapter per content hash due to deduplication
         let adapters = self.load_adapters(&adapter_ids).await?;
         Ok(adapters.into_iter().next())
     }
@@ -547,6 +568,33 @@ impl AdapterRepository {
                 .await?;
         }
 
+        // Content hash index (for global deduplication)
+        if let Some(content_hash) = &adapter.content_hash_b3 {
+            if should_add_new {
+                self.index_manager
+                    .add_to_index(adapter_indexes::BY_CONTENT_HASH, content_hash, &entity_id)
+                    .await?;
+            } else if let Some(old) = old_adapter {
+                let old_content_hash = old.content_hash_b3.as_deref();
+                if old_content_hash != Some(content_hash.as_str()) {
+                    // Content hash changed - update index
+                    if let Some(old_hash) = old_content_hash {
+                        let old_entity = old_entity_id.as_deref().unwrap_or_else(|| old.key_id());
+                        self.index_manager
+                            .remove_from_index(
+                                adapter_indexes::BY_CONTENT_HASH,
+                                old_hash,
+                                old_entity,
+                            )
+                            .await?;
+                    }
+                    self.index_manager
+                        .add_to_index(adapter_indexes::BY_CONTENT_HASH, content_hash, &entity_id)
+                        .await?;
+                }
+            }
+        }
+
         // Adapter ID index (external adapter_id -> storage key mapping)
         if let Some(adapter_id) = &adapter.adapter_id {
             if should_add_new {
@@ -650,6 +698,13 @@ impl AdapterRepository {
             self.index_manager
                 .remove_from_index(adapter_indexes::BY_HASH, &adapter.hash_b3, &entity_id)
                 .await?;
+
+            // Remove content hash index
+            if let Some(content_hash) = &adapter.content_hash_b3 {
+                self.index_manager
+                    .remove_from_index(adapter_indexes::BY_CONTENT_HASH, content_hash, &entity_id)
+                    .await?;
+            }
 
             // Remove adapter_id index
             if let Some(adapter_id) = &adapter.adapter_id {
@@ -762,6 +817,17 @@ mod tests {
             drift_reference_backend: None,
             drift_baseline_backend: None,
             drift_test_backend: None,
+            repo_path: None,
+            codebase_scope: None,
+            dataset_version_id: None,
+            registration_timestamp: None,
+            manifest_hash: None,
+            // Codebase adapter fields
+            adapter_type: None,
+            base_adapter_id: None,
+            stream_session_id: None,
+            versioning_threshold: None,
+            coreml_package_hash: None,
             created_at: now.clone(),
             updated_at: now,
         }

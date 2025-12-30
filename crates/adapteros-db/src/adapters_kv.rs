@@ -3,7 +3,9 @@
 //! This module provides the KV-based implementation of adapter operations,
 //! replacing SQL queries with key-value operations and Rust-based lineage traversal.
 
-use crate::adapters::{Adapter, AdapterRegistrationParams};
+use crate::adapters::{
+    Adapter, AdapterAliasUpdate, AdapterMetadataPatch, AdapterRegistrationParams,
+};
 use adapteros_core::{AosError, Result};
 // Use models::AdapterKv which matches what AdapterRepository uses
 use adapteros_storage::repos::adapter::AdapterRepository;
@@ -136,12 +138,57 @@ pub trait AdapterKvOps {
     /// Find adapter by .aos file path
     ///
     /// Returns the adapter that has the given .aos file path, if any.
-    async fn get_adapter_by_aos_file_path_kv(&self, aos_file_path: &str) -> Result<Option<Adapter>>;
+    async fn get_adapter_by_aos_file_path_kv(&self, aos_file_path: &str)
+        -> Result<Option<Adapter>>;
 
     /// Find adapter by .aos file hash
     ///
     /// Returns the adapter that has the given .aos file hash, if any.
-    async fn get_adapter_by_aos_file_hash_kv(&self, aos_file_hash: &str) -> Result<Option<Adapter>>;
+    async fn get_adapter_by_aos_file_hash_kv(&self, aos_file_hash: &str)
+        -> Result<Option<Adapter>>;
+
+    /// Update adapter .aos metadata (path, hash, metadata_json, provenance_json, etc.)
+    ///
+    /// Used after .aos packaging to persist artifact metadata.
+    async fn update_adapter_aos_metadata_kv(
+        &self,
+        adapter_id: &str,
+        aos_file_path: Option<&str>,
+        aos_file_hash: Option<&str>,
+        metadata_json: Option<&str>,
+        provenance_json: Option<&str>,
+        base_model_id: Option<&str>,
+        manifest_schema_version: Option<&str>,
+        content_hash_b3: Option<&str>,
+    ) -> Result<()>;
+
+    /// Update adapter metadata via patch
+    ///
+    /// Applies a partial update to the adapter using the provided patch.
+    async fn update_adapter_metadata_kv(
+        &self,
+        adapter_id: &str,
+        patch: &AdapterMetadataPatch,
+    ) -> Result<()>;
+
+    /// Update adapter semantic alias fields
+    ///
+    /// Updates adapter_name, tenant_namespace, domain, purpose, revision.
+    async fn update_adapter_alias_kv(
+        &self,
+        adapter_id: &str,
+        update: &AdapterAliasUpdate,
+    ) -> Result<()>;
+
+    /// Update adapter lifecycle state and version
+    ///
+    /// Used for lifecycle transitions (draft -> published -> archived, etc.)
+    async fn update_adapter_lifecycle_kv(
+        &self,
+        adapter_id: &str,
+        lifecycle_state: &str,
+        version: &str,
+    ) -> Result<()>;
 }
 
 /// KV adapter service that wraps the repository
@@ -269,6 +316,16 @@ impl From<Adapter> for AdapterKv {
             drift_baseline_backend: adapter.drift_baseline_backend,
             drift_test_backend: adapter.drift_test_backend,
             repo_path: adapter.repo_path,
+            // Codebase adapter fields (migration 0251, 0261)
+            codebase_scope: adapter.codebase_scope,
+            dataset_version_id: adapter.dataset_version_id,
+            registration_timestamp: adapter.registration_timestamp,
+            manifest_hash: adapter.manifest_hash,
+            adapter_type: adapter.adapter_type,
+            base_adapter_id: adapter.base_adapter_id,
+            stream_session_id: adapter.stream_session_id,
+            versioning_threshold: adapter.versioning_threshold,
+            coreml_package_hash: adapter.coreml_package_hash,
             created_at: adapter.created_at,
             updated_at: adapter.updated_at,
         }
@@ -343,6 +400,16 @@ impl From<AdapterKv> for Adapter {
             drift_test_backend: kv.drift_test_backend,
             // Scan root path
             repo_path: kv.repo_path,
+            // Codebase adapter fields (migration 0251, 0261)
+            codebase_scope: kv.codebase_scope,
+            dataset_version_id: kv.dataset_version_id,
+            registration_timestamp: kv.registration_timestamp,
+            manifest_hash: kv.manifest_hash,
+            adapter_type: kv.adapter_type,
+            base_adapter_id: kv.base_adapter_id,
+            stream_session_id: kv.stream_session_id,
+            versioning_threshold: kv.versioning_threshold,
+            coreml_package_hash: kv.coreml_package_hash,
         }
     }
 }
@@ -431,6 +498,16 @@ impl AdapterKvOps for AdapterKvRepository {
             drift_test_backend: None,
             // Scan root path (from migration 0243)
             repo_path: params.repo_path.clone(),
+            // Codebase adapter fields (migration 0251, 0261)
+            codebase_scope: params.codebase_scope.clone(),
+            dataset_version_id: params.dataset_version_id.clone(),
+            registration_timestamp: params.registration_timestamp.clone(),
+            manifest_hash: params.manifest_hash.clone(),
+            adapter_type: params.adapter_type.clone(),
+            base_adapter_id: params.base_adapter_id.clone(),
+            stream_session_id: params.stream_session_id.clone(),
+            versioning_threshold: params.versioning_threshold,
+            coreml_package_hash: params.coreml_package_hash.clone(),
         };
 
         self.repo
@@ -768,7 +845,9 @@ impl AdapterKvOps for AdapterKvRepository {
     async fn increment_adapter_activation_kv(&self, adapter_id: &str) -> Result<()> {
         debug!(adapter_id = %adapter_id, "Incrementing adapter activation (KV)");
 
-        // Get or create a per-adapter lock to serialize concurrent increments
+        // Get or create a per-adapter lock to serialize concurrent increments.
+        // This prevents TOCTOU race conditions where concurrent increments could
+        // read the same value and both write value+1 instead of value+2.
         let lock = {
             let mut locks = self.increment_locks.lock().await;
             locks
@@ -777,10 +856,14 @@ impl AdapterKvOps for AdapterKvRepository {
                 .clone()
         };
 
-        // Hold the lock while doing read-modify-write
-        let _guard = lock.lock().await;
+        // CRITICAL: Hold the lock for the entire read-modify-write cycle.
+        // The guard MUST remain in scope until after repo.update() completes.
+        // Using explicit naming (not just `_`) to ensure the guard is not
+        // accidentally dropped early.
+        #[allow(clippy::let_underscore_lock)]
+        let increment_guard = lock.lock().await;
 
-        // Get current adapter
+        // Get current adapter (read phase)
         let mut adapter_kv = self
             .repo
             .get(&self.default_tenant, adapter_id)
@@ -788,15 +871,18 @@ impl AdapterKvOps for AdapterKvRepository {
             .map_err(|e| AosError::Database(format!("Failed to get adapter: {}", e)))?
             .ok_or_else(|| AosError::NotFound(format!("Adapter not found: {}", adapter_id)))?;
 
-        // Increment activation count
+        // Increment activation count (modify phase)
         adapter_kv.activation_count += 1;
         adapter_kv.last_activated = Some(Utc::now().to_rfc3339());
         adapter_kv.updated_at = Utc::now().to_rfc3339();
 
-        // Save
+        // Save (write phase) - lock is still held here
         self.repo.update(adapter_kv).await.map_err(|e| {
             AosError::Database(format!("Failed to increment adapter activation: {}", e))
         })?;
+
+        // Explicit drop to document the lock scope boundary
+        drop(increment_guard);
 
         Ok(())
     }
@@ -952,22 +1038,24 @@ impl AdapterKvOps for AdapterKvRepository {
         adapter_kv.updated_at = Utc::now().to_rfc3339();
 
         // Save
-        self.repo
-            .update(adapter_kv)
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to update adapter .aos file: {}", e)))?;
+        self.repo.update(adapter_kv).await.map_err(|e| {
+            AosError::Database(format!("Failed to update adapter .aos file: {}", e))
+        })?;
 
         Ok(())
     }
 
-    async fn get_adapter_by_aos_file_path_kv(&self, aos_file_path: &str) -> Result<Option<Adapter>> {
+    async fn get_adapter_by_aos_file_path_kv(
+        &self,
+        aos_file_path: &str,
+    ) -> Result<Option<Adapter>> {
         debug!(aos_file_path = %aos_file_path, "Looking up adapter by .aos file path (KV)");
 
         // List all adapters for this tenant and filter by aos_file_path
         // Note: This is a linear scan. For better performance, consider adding an index.
         let adapters = self
             .repo
-            .list(&self.default_tenant, None, None)
+            .list_by_tenant(&self.default_tenant)
             .await
             .map_err(|e| AosError::Database(format!("Failed to list adapters: {}", e)))?;
 
@@ -980,14 +1068,17 @@ impl AdapterKvOps for AdapterKvRepository {
         Ok(None)
     }
 
-    async fn get_adapter_by_aos_file_hash_kv(&self, aos_file_hash: &str) -> Result<Option<Adapter>> {
+    async fn get_adapter_by_aos_file_hash_kv(
+        &self,
+        aos_file_hash: &str,
+    ) -> Result<Option<Adapter>> {
         debug!(aos_file_hash = %aos_file_hash, "Looking up adapter by .aos file hash (KV)");
 
         // List all adapters for this tenant and filter by aos_file_hash
         // Note: This is a linear scan. For better performance, consider adding an index.
         let adapters = self
             .repo
-            .list(&self.default_tenant, None, None)
+            .list_by_tenant(&self.default_tenant)
             .await
             .map_err(|e| AosError::Database(format!("Failed to list adapters: {}", e)))?;
 
@@ -998,6 +1089,246 @@ impl AdapterKvOps for AdapterKvRepository {
         }
 
         Ok(None)
+    }
+
+    async fn update_adapter_aos_metadata_kv(
+        &self,
+        adapter_id: &str,
+        aos_file_path: Option<&str>,
+        aos_file_hash: Option<&str>,
+        metadata_json: Option<&str>,
+        provenance_json: Option<&str>,
+        base_model_id: Option<&str>,
+        manifest_schema_version: Option<&str>,
+        content_hash_b3: Option<&str>,
+    ) -> Result<()> {
+        debug!(
+            adapter_id = %adapter_id,
+            aos_file_path = ?aos_file_path,
+            aos_file_hash = ?aos_file_hash,
+            "Updating adapter .aos metadata (KV)"
+        );
+
+        // Get current adapter
+        let mut adapter_kv = self
+            .repo
+            .get(&self.default_tenant, adapter_id)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to get adapter: {}", e)))?
+            .ok_or_else(|| AosError::NotFound(format!("Adapter not found: {}", adapter_id)))?;
+
+        // Update fields if provided
+        if let Some(path) = aos_file_path {
+            adapter_kv.aos_file_path = if path.is_empty() {
+                None
+            } else {
+                Some(path.to_string())
+            };
+        }
+        if let Some(hash) = aos_file_hash {
+            adapter_kv.aos_file_hash = if hash.is_empty() {
+                None
+            } else {
+                Some(hash.to_string())
+            };
+        }
+        if let Some(meta) = metadata_json {
+            adapter_kv.metadata_json = if meta.is_empty() {
+                None
+            } else {
+                Some(meta.to_string())
+            };
+        }
+        if let Some(prov) = provenance_json {
+            adapter_kv.provenance_json = if prov.is_empty() {
+                None
+            } else {
+                Some(prov.to_string())
+            };
+        }
+        if let Some(model) = base_model_id {
+            adapter_kv.base_model_id = if model.is_empty() {
+                None
+            } else {
+                Some(model.to_string())
+            };
+        }
+        if let Some(ver) = manifest_schema_version {
+            adapter_kv.manifest_schema_version = if ver.is_empty() {
+                None
+            } else {
+                Some(ver.to_string())
+            };
+        }
+        if let Some(hash) = content_hash_b3 {
+            adapter_kv.content_hash_b3 = if hash.is_empty() {
+                None
+            } else {
+                Some(hash.to_string())
+            };
+        }
+        adapter_kv.updated_at = Utc::now().to_rfc3339();
+
+        // Save
+        self.repo.update(adapter_kv).await.map_err(|e| {
+            AosError::Database(format!("Failed to update adapter .aos metadata: {}", e))
+        })?;
+
+        Ok(())
+    }
+
+    async fn update_adapter_metadata_kv(
+        &self,
+        adapter_id: &str,
+        patch: &AdapterMetadataPatch,
+    ) -> Result<()> {
+        debug!(adapter_id = %adapter_id, "Updating adapter metadata via patch (KV)");
+
+        // Get current adapter
+        let mut adapter_kv = self
+            .repo
+            .get(&self.default_tenant, adapter_id)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to get adapter: {}", e)))?
+            .ok_or_else(|| AosError::NotFound(format!("Adapter not found: {}", adapter_id)))?;
+
+        // Apply patch fields if present
+        if let Some(ref v) = patch.aos_file_path {
+            adapter_kv.aos_file_path = Some(v.clone());
+        }
+        if let Some(ref v) = patch.aos_file_hash {
+            adapter_kv.aos_file_hash = Some(v.clone());
+        }
+        if let Some(ref v) = patch.base_model_id {
+            adapter_kv.base_model_id = Some(v.clone());
+        }
+        if let Some(ref v) = patch.manifest_schema_version {
+            adapter_kv.manifest_schema_version = Some(v.clone());
+        }
+        if let Some(ref v) = patch.content_hash_b3 {
+            adapter_kv.content_hash_b3 = Some(v.clone());
+        }
+        if let Some(ref v) = patch.metadata_json {
+            adapter_kv.metadata_json = Some(v.clone());
+        }
+        if let Some(ref v) = patch.provenance_json {
+            adapter_kv.provenance_json = Some(v.clone());
+        }
+        if let Some(ref v) = patch.repo_path {
+            adapter_kv.repo_path = Some(v.clone());
+        }
+        if let Some(ref v) = patch.codebase_scope {
+            adapter_kv.codebase_scope = Some(v.clone());
+        }
+        if let Some(ref v) = patch.dataset_version_id {
+            adapter_kv.dataset_version_id = Some(v.clone());
+        }
+        if let Some(ref v) = patch.registration_timestamp {
+            adapter_kv.registration_timestamp = Some(v.clone());
+        }
+        if let Some(ref v) = patch.manifest_hash {
+            adapter_kv.manifest_hash = Some(v.clone());
+        }
+        if let Some(ref v) = patch.adapter_type {
+            adapter_kv.adapter_type = Some(v.clone());
+        }
+        if let Some(ref v) = patch.base_adapter_id {
+            adapter_kv.base_adapter_id = Some(v.clone());
+        }
+        if let Some(ref v) = patch.stream_session_id {
+            adapter_kv.stream_session_id = Some(v.clone());
+        }
+        if patch.versioning_threshold.is_some() {
+            adapter_kv.versioning_threshold = patch.versioning_threshold;
+        }
+        if let Some(ref v) = patch.coreml_package_hash {
+            adapter_kv.coreml_package_hash = Some(v.clone());
+        }
+        adapter_kv.updated_at = Utc::now().to_rfc3339();
+
+        // Save
+        self.repo
+            .update(adapter_kv)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to update adapter metadata: {}", e)))?;
+
+        Ok(())
+    }
+
+    async fn update_adapter_alias_kv(
+        &self,
+        adapter_id: &str,
+        update: &AdapterAliasUpdate,
+    ) -> Result<()> {
+        debug!(adapter_id = %adapter_id, "Updating adapter alias (KV)");
+
+        // Get current adapter
+        let mut adapter_kv = self
+            .repo
+            .get(&self.default_tenant, adapter_id)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to get adapter: {}", e)))?
+            .ok_or_else(|| AosError::NotFound(format!("Adapter not found: {}", adapter_id)))?;
+
+        // Apply alias updates
+        if let Some(ref v) = update.adapter_name {
+            adapter_kv.adapter_name = Some(v.clone());
+        }
+        if let Some(ref v) = update.tenant_namespace {
+            adapter_kv.tenant_namespace = Some(v.clone());
+        }
+        if let Some(ref v) = update.domain {
+            adapter_kv.domain = Some(v.clone());
+        }
+        if let Some(ref v) = update.purpose {
+            adapter_kv.purpose = Some(v.clone());
+        }
+        if let Some(ref v) = update.revision {
+            adapter_kv.revision = Some(v.clone());
+        }
+        adapter_kv.updated_at = Utc::now().to_rfc3339();
+
+        // Save
+        self.repo
+            .update(adapter_kv)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to update adapter alias: {}", e)))?;
+
+        Ok(())
+    }
+
+    async fn update_adapter_lifecycle_kv(
+        &self,
+        adapter_id: &str,
+        lifecycle_state: &str,
+        version: &str,
+    ) -> Result<()> {
+        debug!(
+            adapter_id = %adapter_id,
+            lifecycle_state = %lifecycle_state,
+            version = %version,
+            "Updating adapter lifecycle state (KV)"
+        );
+
+        // Get current adapter
+        let mut adapter_kv = self
+            .repo
+            .get(&self.default_tenant, adapter_id)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to get adapter: {}", e)))?
+            .ok_or_else(|| AosError::NotFound(format!("Adapter not found: {}", adapter_id)))?;
+
+        // Update lifecycle state and version
+        adapter_kv.lifecycle_state = lifecycle_state.to_string();
+        adapter_kv.version = version.to_string();
+        adapter_kv.updated_at = Utc::now().to_rfc3339();
+
+        // Save
+        self.repo.update(adapter_kv).await.map_err(|e| {
+            AosError::Database(format!("Failed to update adapter lifecycle: {}", e))
+        })?;
+
+        Ok(())
     }
 }
 
@@ -1067,6 +1398,17 @@ mod tests {
             drift_reference_backend: None,
             drift_baseline_backend: None,
             drift_test_backend: None,
+            repo_path: None,
+            codebase_scope: None,
+            dataset_version_id: None,
+            registration_timestamp: None,
+            manifest_hash: None,
+            // Codebase adapter fields
+            adapter_type: None,
+            base_adapter_id: None,
+            stream_session_id: None,
+            versioning_threshold: None,
+            coreml_package_hash: None,
         };
 
         // Convert to KV (models::AdapterKv uses same types as SQL Adapter)
@@ -1153,6 +1495,16 @@ mod tests {
                 drift_reference_backend: None,
                 drift_baseline_backend: None,
                 drift_test_backend: None,
+                repo_path: None,
+                codebase_scope: None,
+                dataset_version_id: None,
+                registration_timestamp: None,
+                manifest_hash: None,
+                adapter_type: None,
+                base_adapter_id: None,
+                stream_session_id: None,
+                versioning_threshold: None,
+                coreml_package_hash: None,
             },
             Adapter {
                 id: "a".into(),
@@ -1214,6 +1566,16 @@ mod tests {
                 drift_reference_backend: None,
                 drift_baseline_backend: None,
                 drift_test_backend: None,
+                repo_path: None,
+                codebase_scope: None,
+                dataset_version_id: None,
+                registration_timestamp: None,
+                manifest_hash: None,
+                adapter_type: None,
+                base_adapter_id: None,
+                stream_session_id: None,
+                versioning_threshold: None,
+                coreml_package_hash: None,
             },
         ];
 

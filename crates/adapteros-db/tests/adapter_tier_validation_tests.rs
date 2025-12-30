@@ -300,11 +300,9 @@ async fn ephemeral_adapters_can_transition_to_retired() -> Result<()> {
     let result =
         validate_state_transition(LifecycleState::Active, LifecycleState::Retired, "ephemeral");
 
-    // Note: This should fail because Active → Retired is not a valid transition
-    // Ephemeral adapters should still follow: Active → Retired (but cannot go through Deprecated)
     assert!(
-        result.is_err(),
-        "active → retired is not a valid transition (must go through deprecation for non-ephemeral)"
+        result.is_ok(),
+        "ephemeral adapters should be allowed to transition from active to retired"
     );
 
     Ok(())

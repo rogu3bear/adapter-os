@@ -1,3 +1,38 @@
+//! AdapterOS Database Layer
+//!
+//! This crate provides the persistence layer for AdapterOS, including both SQL
+//! (SQLite) and KV (ReDB) backends with dual-write support for migration.
+//!
+//! # Naming Conventions
+//!
+//! ## Function Naming
+//!
+//! The following verb prefixes are used consistently across the codebase:
+//!
+//! | Prefix | Usage | Example |
+//! |--------|-------|---------|
+//! | `get_*` | Retrieve a single entity by ID | `get_adapter()`, `get_training_job()` |
+//! | `list_*` | Retrieve multiple entities | `list_adapters_for_tenant()` |
+//! | `create_*` | Create a new entity (async) | `create_training_dataset()` |
+//! | `register_*` | Create with domain validation | `register_adapter()` |
+//! | `insert_*` | Low-level storage write | `insert_training_metric()` |
+//! | `update_*` | Modify entity fields | `update_adapter_state()` |
+//! | `set_*` | Set a single property | `set_adapter_version_state()` |
+//! | `delete_*` | Remove an entity entirely | `delete_adapter()` |
+//! | `remove_*` | Remove a relationship/association | `remove_tag_from_session()` |
+//!
+//! **Key distinction**: Use `delete_*` when removing an entity from storage.
+//! Use `remove_*` only when removing a relationship between entities (e.g.,
+//! removing a tag from a session, removing a document from a collection).
+//!
+//! ## Suffix Conventions
+//!
+//! | Suffix | Meaning |
+//! |--------|---------|
+//! | `*_kv` | KV backend variant of a SQL operation |
+//! | `*_for_tenant` | Tenant-scoped query |
+//! | `*_by_*` | Query filtered by a specific field |
+
 #![allow(unexpected_cfgs)]
 #![allow(unused_imports)]
 #![allow(clippy::needless_borrows_for_generic_args)]
@@ -107,7 +142,8 @@ pub use tenant_policy_bindings::{TenantPolicyBinding, ALL_POLICIES, CORE_POLICIE
 pub use lifecycle_rules::{
     ActionType, ConditionEvaluationResult, ConditionOperator, CreateLifecycleRuleParams,
     LifecycleRule, LifecycleRuleAction, LifecycleRuleCondition, LifecycleRuleEvaluation,
-    LifecycleRuleFilter, LifecycleRuleScope, LifecycleRuleType, UpdateLifecycleRuleParams,
+    LifecycleRuleFilter, LifecycleRuleScope, LifecycleRuleType, TransitionValidationResult,
+    UpdateLifecycleRuleParams,
 };
 
 mod protected_db;
@@ -924,6 +960,24 @@ impl Db {
         Ok(db)
     }
 
+    pub(crate) fn migration_timeout() -> Duration {
+        let default_secs = if cfg!(debug_assertions) { 120 } else { 30 };
+        match std::env::var("AOS_MIGRATION_TIMEOUT_SECS") {
+            Ok(raw) => match raw.trim().parse::<u64>() {
+                Ok(secs) if secs > 0 => Duration::from_secs(secs),
+                _ => {
+                    warn!(
+                        value = %raw,
+                        default_secs,
+                        "Invalid AOS_MIGRATION_TIMEOUT_SECS; using default"
+                    );
+                    Duration::from_secs(default_secs)
+                }
+            },
+            Err(_) => Duration::from_secs(default_secs),
+        }
+    }
+
     /// Run database migrations with signature verification
     ///
     /// Per Artifacts Ruleset #13: All migrations must be Ed25519 signed.
@@ -979,10 +1033,7 @@ impl Db {
         // Run migrations with a timeout to avoid hanging on locked databases.
         self.ensure_disk_space("database migrations")?;
         info!("Applying database migrations...");
-        tokio::time::timeout(
-            Duration::from_secs(30),
-            migrator.run(self.pool()),
-        )
+        tokio::time::timeout(Self::migration_timeout(), migrator.run(self.pool()))
         .await
         .map_err(|_| {
             AosError::Database(
@@ -2171,19 +2222,29 @@ impl Db {
     }
 
     /// Increment adapter activation count
-    pub async fn increment_adapter_activation(&self, adapter_id: &str) -> Result<()> {
+    ///
+    /// # Arguments
+    /// * `tenant_id` - The tenant context (required for security isolation)
+    /// * `adapter_id` - The adapter's external ID
+    pub async fn increment_adapter_activation(
+        &self,
+        tenant_id: &str,
+        adapter_id: &str,
+    ) -> Result<()> {
         if self.storage_mode().write_to_sql() {
             if let Some(pool) = self.pool_opt() {
+                // SECURITY: Update only within tenant scope
                 sqlx::query(
                     r#"
                     UPDATE adapters
                     SET activation_count = activation_count + 1,
                         last_activated = datetime('now'),
                         updated_at = datetime('now')
-                    WHERE adapter_id = ?
+                    WHERE adapter_id = ? AND tenant_id = ?
                     "#,
                 )
                 .bind(adapter_id)
+                .bind(tenant_id)
                 .execute(pool)
                 .await
                 .map_err(|e| {
@@ -2192,18 +2253,16 @@ impl Db {
             }
         }
 
-        // KV write (dual-write mode)
-        if let Some(tenant_id) = self.get_adapter_tenant_id(adapter_id).await? {
-            if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
-                if let Err(e) = repo.increment_adapter_activation_kv(adapter_id).await {
-                    warn!(
-                        error = %e,
-                        adapter_id = %adapter_id,
-                        tenant_id = %tenant_id,
-                        mode = "dual-write",
-                        "Failed to increment adapter activation in KV backend"
-                    );
-                }
+        // KV write (dual-write mode) - tenant verified via parameter
+        if let Some(repo) = self.get_adapter_kv_repo(tenant_id) {
+            if let Err(e) = repo.increment_adapter_activation_kv(adapter_id).await {
+                warn!(
+                    error = %e,
+                    adapter_id = %adapter_id,
+                    tenant_id = %tenant_id,
+                    mode = "dual-write",
+                    "Failed to increment adapter activation in KV backend"
+                );
             }
         }
 
@@ -2498,7 +2557,8 @@ pub mod adapters_kv;
 pub mod kv_migration;
 pub use adapter_consistency::AdapterConsistency;
 pub use adapters::{
-    Adapter, AdapterRegistrationBuilder, AdapterRegistrationParams, AtomicDualWriteConfig,
+    Adapter, AdapterRegistrationBuilder, AdapterRegistrationParams, AosRegistrationMetadata,
+    AtomicDualWriteConfig,
 };
 pub use adapters_kv::{AdapterKvOps, AdapterKvRepository};
 pub use kv_migration::{MigrationDiscrepancy, MigrationProgress, MigrationStats};
@@ -2526,6 +2586,10 @@ pub mod migration_verify;
 pub mod unified_access;
 pub mod validation;
 pub use audits::Audit;
+pub use validation::{
+    LifecycleEnforcementOptions, LifecycleEnforcementResult, PrerequisiteCheckResult,
+    SingleActiveValidationResult,
+};
 pub mod code_policies;
 pub mod commits;
 pub mod contacts;
@@ -2542,7 +2606,10 @@ pub mod jobs;
 pub use jobs::Job;
 pub mod training_jobs;
 pub mod training_jobs_kv;
-pub use training_jobs::{TrainingJobRecord, TrainingMetricRow, TrainingProgress};
+pub use training_jobs::{
+    LinkDatasetParams, TrainingJobDatasetLink, TrainingJobRecord, TrainingMetricRow,
+    TrainingProgress,
+};
 pub mod training_datasets;
 pub mod training_datasets_kv;
 pub use training_datasets::{

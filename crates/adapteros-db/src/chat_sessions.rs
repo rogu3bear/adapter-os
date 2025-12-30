@@ -58,6 +58,10 @@ pub struct ChatSession {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
     pub pinned_adapter_ids: Option<String>,
+    /// Exclusive codebase adapter bound to this session (from migration 0262)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub codebase_adapter_id: Option<String>,
 }
 
 /// Chat message record
@@ -107,6 +111,8 @@ pub struct CreateChatSessionParams {
     pub tags_json: Option<String>,
     /// Pinned adapter IDs for this session (JSON array). If None, inherits from tenant default.
     pub pinned_adapter_ids: Option<String>,
+    /// Exclusive codebase adapter to bind to this session
+    pub codebase_adapter_id: Option<String>,
 }
 
 /// Parameters for updating mutable chat session fields.
@@ -129,6 +135,8 @@ pub struct UpdateChatSessionParams {
     pub metadata_json: Option<Option<String>>,
     /// Update tags JSON blob
     pub tags_json: Option<Option<String>>,
+    /// Update codebase adapter binding (Some(Some(id)) sets, Some(None) clears, None leaves unchanged)
+    pub codebase_adapter_id: Option<Option<String>>,
 }
 
 /// Parameters for adding a message to a session
@@ -334,6 +342,7 @@ impl From<ChatSessionKv> for ChatSession {
             metadata_json: kv.metadata_json,
             tags_json: kv.tags_json,
             pinned_adapter_ids: kv.pinned_adapter_ids,
+            codebase_adapter_id: kv.codebase_adapter_id,
         }
     }
 }
@@ -413,9 +422,10 @@ impl Db {
                 r#"
             INSERT INTO chat_sessions (
                 id, tenant_id, user_id, created_by, stack_id, collection_id, document_id,
-                name, title, source_type, source_ref_id, metadata_json, tags_json, pinned_adapter_ids
+                name, title, source_type, source_ref_id, metadata_json, tags_json, pinned_adapter_ids,
+                codebase_adapter_id
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
             )
             .bind(&params.id)
@@ -432,6 +442,7 @@ impl Db {
             .bind(&params.metadata_json)
             .bind(&params.tags_json)
             .bind(&pinned_adapter_ids)
+            .bind(&params.codebase_adapter_id)
             .execute(self.pool())
             .await
             .map_err(db_err("create chat session"))?;
@@ -2376,6 +2387,7 @@ impl Db {
             metadata_json,
             tags_json: source.tags_json.clone(),
             pinned_adapter_ids: source.pinned_adapter_ids.clone(),
+            codebase_adapter_id: source.codebase_adapter_id.clone(),
         };
 
         self.create_chat_session(params).await?;
@@ -2404,6 +2416,285 @@ impl Db {
         self.get_chat_session(&new_session_id)
             .await?
             .ok_or_else(|| AosError::Database("Failed to retrieve forked session".to_string()))
+    }
+
+    // =========================================================================
+    // Codebase Adapter Session Binding
+    // =========================================================================
+
+    /// Bind a codebase adapter exclusively to a session.
+    ///
+    /// This creates a bidirectional binding:
+    /// - Sets `chat_sessions.codebase_adapter_id` to the adapter
+    /// - Sets `adapters.stream_session_id` to the session
+    ///
+    /// Only one codebase adapter can be bound to a session at a time.
+    /// If another adapter is already bound, this returns an error.
+    ///
+    /// # Arguments
+    ///
+    /// * `session_id` - The session ID to bind
+    /// * `tenant_id` - The tenant ID for isolation
+    /// * `adapter_id` - The codebase adapter ID to bind
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if binding succeeds, or an error if:
+    /// - Session not found
+    /// - Session already has a codebase adapter bound
+    /// - Adapter is already bound to another session
+    pub async fn bind_codebase_adapter(
+        &self,
+        session_id: &str,
+        tenant_id: &str,
+        adapter_id: &str,
+    ) -> Result<()> {
+        info!(
+            session_id = %session_id,
+            tenant_id = %tenant_id,
+            adapter_id = %adapter_id,
+            "Binding codebase adapter to session"
+        );
+
+        // Check if session exists and has no binding
+        let existing = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT codebase_adapter_id FROM chat_sessions WHERE id = ? AND tenant_id = ?",
+        )
+        .bind(session_id)
+        .bind(tenant_id)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(db_err("check session codebase binding"))?;
+
+        match existing {
+            None => {
+                return Err(AosError::NotFound(format!(
+                    "Session '{}' not found for tenant '{}'",
+                    session_id, tenant_id
+                )));
+            }
+            Some(Some(existing_adapter)) => {
+                if existing_adapter != adapter_id {
+                    return Err(AosError::Validation(format!(
+                        "Session '{}' already has codebase adapter '{}' bound. \
+                         Unbind first before binding a new adapter.",
+                        session_id, existing_adapter
+                    )));
+                }
+                // Already bound to this adapter, no-op
+                return Ok(());
+            }
+            Some(None) => {
+                // Good - no existing binding
+            }
+        }
+
+        // Check if adapter is already bound to another session
+        let adapter_session = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT stream_session_id FROM adapters WHERE adapter_id = ? AND tenant_id = ?",
+        )
+        .bind(adapter_id)
+        .bind(tenant_id)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(db_err("check adapter session binding"))?;
+
+        if let Some(Some(other_session)) = adapter_session {
+            if other_session != session_id {
+                return Err(AosError::Validation(format!(
+                    "Adapter '{}' is already bound to session '{}'. \
+                     Unbind first before binding to a new session.",
+                    adapter_id, other_session
+                )));
+            }
+        }
+
+        // Update both sides of the binding atomically
+        if self.storage_mode().write_to_sql() {
+            sqlx::query(
+                "UPDATE chat_sessions SET codebase_adapter_id = ?, updated_at = datetime('now') \
+                 WHERE id = ? AND tenant_id = ?",
+            )
+            .bind(adapter_id)
+            .bind(session_id)
+            .bind(tenant_id)
+            .execute(self.pool())
+            .await
+            .map_err(db_err("bind codebase adapter to session"))?;
+
+            sqlx::query(
+                "UPDATE adapters SET stream_session_id = ?, updated_at = datetime('now') \
+                 WHERE adapter_id = ? AND tenant_id = ?",
+            )
+            .bind(session_id)
+            .bind(adapter_id)
+            .bind(tenant_id)
+            .execute(self.pool())
+            .await
+            .map_err(db_err("bind session to codebase adapter"))?;
+        }
+
+        // Update KV
+        if let Some(repo) = self.get_chat_session_kv_repo() {
+            if let Ok(Some(mut session)) = repo.get_chat_session(session_id).await {
+                session.codebase_adapter_id = Some(adapter_id.to_string());
+                // Note: Full KV update would be done here
+            }
+        }
+
+        info!(
+            session_id = %session_id,
+            adapter_id = %adapter_id,
+            "Codebase adapter bound to session"
+        );
+
+        Ok(())
+    }
+
+    /// Unbind the codebase adapter from a session.
+    ///
+    /// Clears both sides of the bidirectional binding.
+    ///
+    /// # Arguments
+    ///
+    /// * `session_id` - The session ID to unbind from
+    /// * `tenant_id` - The tenant ID for isolation
+    ///
+    /// # Returns
+    ///
+    /// Returns `Some(adapter_id)` if an adapter was unbound, `None` if no binding existed.
+    pub async fn unbind_codebase_adapter(
+        &self,
+        session_id: &str,
+        tenant_id: &str,
+    ) -> Result<Option<String>> {
+        debug!(
+            session_id = %session_id,
+            tenant_id = %tenant_id,
+            "Unbinding codebase adapter from session"
+        );
+
+        // Get current binding
+        let existing = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT codebase_adapter_id FROM chat_sessions WHERE id = ? AND tenant_id = ?",
+        )
+        .bind(session_id)
+        .bind(tenant_id)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(db_err("check session codebase binding"))?
+        .flatten();
+
+        let Some(adapter_id) = existing else {
+            return Ok(None); // No binding to clear
+        };
+
+        // Clear both sides of the binding
+        if self.storage_mode().write_to_sql() {
+            sqlx::query(
+                "UPDATE chat_sessions SET codebase_adapter_id = NULL, updated_at = datetime('now') \
+                 WHERE id = ? AND tenant_id = ?",
+            )
+            .bind(session_id)
+            .bind(tenant_id)
+            .execute(self.pool())
+            .await
+            .map_err(db_err("unbind codebase adapter from session"))?;
+
+            sqlx::query(
+                "UPDATE adapters SET stream_session_id = NULL, updated_at = datetime('now') \
+                 WHERE adapter_id = ? AND tenant_id = ?",
+            )
+            .bind(&adapter_id)
+            .bind(tenant_id)
+            .execute(self.pool())
+            .await
+            .map_err(db_err("unbind session from codebase adapter"))?;
+        }
+
+        // Update KV
+        if let Some(repo) = self.get_chat_session_kv_repo() {
+            if let Ok(Some(mut session)) = repo.get_chat_session(session_id).await {
+                session.codebase_adapter_id = None;
+                // Note: Full KV update would be done here
+            }
+        }
+
+        info!(
+            session_id = %session_id,
+            adapter_id = %adapter_id,
+            "Codebase adapter unbound from session"
+        );
+
+        Ok(Some(adapter_id))
+    }
+
+    /// Get the codebase adapter bound to a session.
+    ///
+    /// # Arguments
+    ///
+    /// * `session_id` - The session ID
+    /// * `tenant_id` - The tenant ID for isolation
+    ///
+    /// # Returns
+    ///
+    /// Returns `Some(adapter_id)` if bound, `None` otherwise.
+    pub async fn get_codebase_adapter_for_session(
+        &self,
+        session_id: &str,
+        tenant_id: &str,
+    ) -> Result<Option<String>> {
+        // Try KV first
+        if self.storage_mode().read_from_kv() {
+            if let Some(repo) = self.get_chat_session_kv_repo() {
+                if let Ok(Some(session)) = repo.get_chat_session(session_id).await {
+                    if session.tenant_id == tenant_id {
+                        return Ok(session.codebase_adapter_id);
+                    }
+                }
+            }
+        }
+
+        // Fall back to SQL
+        let result = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT codebase_adapter_id FROM chat_sessions WHERE id = ? AND tenant_id = ?",
+        )
+        .bind(session_id)
+        .bind(tenant_id)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(db_err("get codebase adapter for session"))?
+        .flatten();
+
+        Ok(result)
+    }
+
+    /// Get the session bound to a codebase adapter.
+    ///
+    /// # Arguments
+    ///
+    /// * `adapter_id` - The adapter ID
+    /// * `tenant_id` - The tenant ID for isolation
+    ///
+    /// # Returns
+    ///
+    /// Returns `Some(session_id)` if bound, `None` otherwise.
+    pub async fn get_session_for_codebase_adapter(
+        &self,
+        adapter_id: &str,
+        tenant_id: &str,
+    ) -> Result<Option<String>> {
+        let result = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT stream_session_id FROM adapters WHERE adapter_id = ? AND tenant_id = ?",
+        )
+        .bind(adapter_id)
+        .bind(tenant_id)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(db_err("get session for codebase adapter"))?
+        .flatten();
+
+        Ok(result)
     }
 }
 
@@ -2437,6 +2728,7 @@ mod tests {
             metadata_json: None,
             tags_json: None,
             pinned_adapter_ids: None,
+            codebase_adapter_id: None,
         };
 
         db.create_chat_session(params).await?;
@@ -2477,6 +2769,7 @@ mod tests {
             metadata_json: None,
             tags_json: None,
             pinned_adapter_ids: None,
+            codebase_adapter_id: None,
         };
         db.create_chat_session(session_params).await?;
 
@@ -2539,6 +2832,7 @@ mod tests {
             metadata_json: None,
             tags_json: None,
             pinned_adapter_ids: None,
+            codebase_adapter_id: None,
         };
         db.create_chat_session(session_params).await?;
 

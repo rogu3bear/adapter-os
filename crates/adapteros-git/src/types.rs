@@ -177,6 +177,15 @@ pub struct ChangeSummary {
 }
 
 /// Simple glob pattern matching (basic implementation)
+///
+/// NOTE: This is a simplified glob implementation that supports:
+/// - Exact matches: "file.txt"
+/// - Single wildcard: "*.txt" or "prefix*suffix"
+/// - Double wildcard: "**" for directory traversal (e.g., "target/**")
+///
+/// LIMITATION: Multiple wildcards (e.g., "*foo*bar*") are NOT supported
+/// and will return false. For complex patterns, consider using a full
+/// glob library like `globset`.
 fn glob_match(path: &str, pattern: &str) -> bool {
     // Simple pattern matching - handles * and **
     if pattern.contains("**") {
@@ -187,6 +196,9 @@ fn glob_match(path: &str, pattern: &str) -> bool {
             let suffix = parts[1].trim_start_matches('/');
             return path.starts_with(prefix) && (suffix.is_empty() || path.ends_with(suffix));
         }
+        // Edge case: multiple ** patterns are not supported - return false for safety
+        // to avoid false positive matches with complex patterns
+        return false;
     }
 
     if pattern.contains('*') {
@@ -195,6 +207,9 @@ fn glob_match(path: &str, pattern: &str) -> bool {
         if parts.len() == 2 {
             return path.starts_with(parts[0]) && path.ends_with(parts[1]);
         }
+        // Edge case: multiple * wildcards (e.g., "*foo*bar*") are not supported
+        // Return false to avoid incorrect matches with unsupported patterns
+        return false;
     }
 
     // Exact match
@@ -237,6 +252,23 @@ mod tests {
         assert!(glob_match("target/debug/build", "target/**"));
         assert!(glob_match("node_modules/pkg/index.js", "node_modules/**"));
         assert!(!glob_match("src/main.rs", "*.tmp"));
+    }
+
+    #[test]
+    fn test_glob_match_multi_wildcard_edge_case() {
+        // Edge case: multiple wildcards should return false (unsupported)
+        // This prevents false positive matches with complex patterns
+        assert!(!glob_match("foo_bar_baz.txt", "*_*_*.txt"));
+        assert!(!glob_match("a/b/c/d/e", "a/**/c/**/e"));
+        assert!(!glob_match("test123test", "*test*"));
+
+        // Single wildcard should still work
+        assert!(glob_match("prefix_suffix", "prefix*suffix"));
+        assert!(glob_match("test.txt", "*.txt"));
+
+        // Single double-wildcard should still work
+        assert!(glob_match("src/foo/bar/baz.rs", "src/**"));
+        assert!(glob_match("src/file.rs", "src/**"));
     }
 
     #[test]

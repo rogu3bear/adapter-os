@@ -7,7 +7,7 @@ use std::fs;
 use std::path::Path;
 use tracing::{info, warn};
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct SbomGate;
 
 #[async_trait::async_trait]

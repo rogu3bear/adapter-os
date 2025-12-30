@@ -25,7 +25,7 @@ pub mod multi_agent;
 pub mod select;
 
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::{BTreeSet, VecDeque},
     future::Future,
     pin::Pin,
     sync::{
@@ -67,7 +67,7 @@ use tracing::{debug, error, info, warn};
 static GLOBAL_TASK_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 /// Deterministic task ID type using BLAKE3 hash
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct TaskId([u8; 32]);
 
 impl TaskId {
@@ -464,7 +464,9 @@ pub struct DeterministicExecutor {
     /// Global tick ledger (optional, for cross-host tracking)
     global_ledger: Option<Arc<global_ledger::GlobalTickLedger>>,
     /// Set of completed task IDs for is_finished() checks
-    completed_tasks: Mutex<HashSet<TaskId>>,
+    /// Issue D-4 Fix: Use BTreeSet for deterministic iteration order.
+    /// HashSet iteration order is non-deterministic due to SipHash randomization.
+    completed_tasks: Mutex<BTreeSet<TaskId>>,
 }
 
 impl DeterministicExecutor {
@@ -496,7 +498,7 @@ impl DeterministicExecutor {
             running: Arc::new(AtomicU64::new(0)),
             pinned_threads: Mutex::new(Vec::new()),
             global_ledger: None,
-            completed_tasks: Mutex::new(HashSet::new()),
+            completed_tasks: Mutex::new(BTreeSet::new()),
         }
     }
 

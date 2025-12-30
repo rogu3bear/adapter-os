@@ -91,6 +91,27 @@ use std::fmt;
 use std::str::FromStr;
 use std::sync::{Mutex, OnceLock};
 
+// =============================================================================
+// HKDF Constants and Invariants
+// =============================================================================
+
+/// HKDF algorithm version for schema compatibility tracking.
+///
+/// Increment this version if the derivation algorithm changes in a way that
+/// would produce different outputs for the same inputs. This allows downstream
+/// systems to detect version mismatches and handle migrations.
+///
+/// # Version History
+/// - v1: Initial HKDF-SHA256 implementation with 32-byte output
+/// - v2: Canonical HKDF extract+expand using the BLAKE3 global seed as IKM
+pub const HKDF_ALGORITHM_VERSION: u32 = 2;
+
+/// Required output length for all seed derivations.
+///
+/// All HKDF-derived seeds MUST be exactly 32 bytes to ensure compatibility
+/// with ChaCha20Rng and other consumers that expect this size.
+pub const HKDF_OUTPUT_LENGTH: usize = 32;
+
 lazy_static::lazy_static! {
     /// Seed registry to prevent reuse
     static ref SEED_REGISTRY: Mutex<HashMap<(String, u64), bool>> = Mutex::new(HashMap::new());
@@ -182,7 +203,10 @@ impl DeterminismConfig {
 
     /// Check if this config enforces determinism.
     pub fn is_deterministic(&self) -> bool {
-        self.fixed_seed.is_some() || self.fixed_timestamp.is_some() || self.stable_ordering
+        self.fixed_seed.is_some()
+            || self.fixed_timestamp.is_some()
+            || self.stable_ordering
+            || self.strict_mode
     }
 
     /// Check if strict mode is enabled.
@@ -400,21 +424,27 @@ pub fn get_deterministic_rng() -> fastrand::Rng {
 ///
 /// If a fixed seed is configured, derives a 32-byte seed from it using HKDF.
 /// Otherwise returns random bytes.
+///
+/// # Entropy Note
+///
+/// When expanding from a u64 fixed_seed, the input entropy is limited to 64 bits.
+/// HKDF's extract-then-expand paradigm ensures the output is cryptographically
+/// uniform, but the effective entropy cannot exceed the input entropy. This is
+/// acceptable for deterministic replay (where reproducibility is the goal), but
+/// callers requiring high-entropy seeds for security purposes should use the
+/// random path (no fixed_seed configured).
 pub fn get_deterministic_seed_bytes() -> [u8; 32] {
     let config = get_determinism_config();
     match config.fixed_seed {
         Some(seed) => {
-            // Expand the u64 seed into 32 bytes using HKDF
-            let mut seed_bytes = [0u8; 8];
-            seed_bytes.copy_from_slice(&seed.to_le_bytes());
-            let hk = Hkdf::<Sha256>::new(None, &seed_bytes);
-            let mut okm = [0u8; 32];
-            hk.expand(b"determinism-config-seed", &mut okm)
-                .expect("HKDF expand failed");
-            okm
+            // Canonical derivation: hash the fixed seed into a BLAKE3 global seed,
+            // then derive a domain-separated HKDF seed via derive_seed().
+            let seed_bytes = seed.to_le_bytes();
+            let global = B3Hash::hash(&seed_bytes);
+            derive_seed(&global, "determinism-config-seed")
         }
         None => {
-            let mut bytes = [0u8; 32];
+            let mut bytes = [0u8; HKDF_OUTPUT_LENGTH];
             fastrand::Rng::new().fill(&mut bytes);
             bytes
         }
@@ -425,7 +455,8 @@ pub fn get_deterministic_seed_bytes() -> [u8; 32] {
 ///
 /// Returns true if the current configuration requires stable ordering.
 pub fn should_use_stable_ordering() -> bool {
-    get_determinism_config().stable_ordering
+    let config = get_determinism_config();
+    config.stable_ordering || config.strict_mode
 }
 
 /// Check if strict determinism mode is enabled.
@@ -461,13 +492,14 @@ pub fn maybe_stable_sort_by_key<T, K: Ord, F: FnMut(&T) -> K>(items: &mut [T], f
 
 fn determinism_debug_enabled() -> bool {
     static FLAG: OnceLock<bool> = OnceLock::new();
-    *FLAG.get_or_init(|| match std::env::var("AOS_DEBUG_DETERMINISM") {
+    let env_enabled = *FLAG.get_or_init(|| match std::env::var("AOS_DEBUG_DETERMINISM") {
         Ok(val) => {
             let normalized = val.to_ascii_lowercase();
             normalized == "1" || normalized == "true" || normalized == "yes"
         }
         Err(_) => false,
-    })
+    });
+    env_enabled || get_determinism_config().trace_seeds
 }
 
 /// Seed label enum for type-safe seed derivation
@@ -562,18 +594,48 @@ impl SeedLabel {
     }
 }
 
-/// Derive a deterministic seed from a global seed and label
+/// Derive a deterministic seed from a global seed and label.
 ///
 /// Uses HKDF-SHA256 for key derivation. All RNG in the system
 /// must derive from these seeds to ensure determinism.
-pub fn derive_seed(global: &B3Hash, label: &str) -> [u8; 32] {
-    let hk = Hkdf::<Sha256>::from_prk(global.as_bytes()).expect("valid PRK");
-    let mut okm = [0u8; 32];
-    hk.expand(label.as_bytes(), &mut okm)
-        .expect("32 bytes is valid length");
+///
+/// # HKDF Invariants
+///
+/// - **Algorithm**: HKDF-SHA256 is the ONLY supported KDF. Do not substitute
+///   other algorithms as this would break replay compatibility.
+/// - **Output size**: Always produces exactly [`HKDF_OUTPUT_LENGTH`] (32) bytes,
+///   matching ChaCha20Rng's seed requirement.
+/// - **Determinism**: Given identical `(global, label)` inputs, always produces
+///   identical output bytes across all platforms and versions.
+///
+pub fn derive_seed(global: &B3Hash, label: &str) -> [u8; HKDF_OUTPUT_LENGTH] {
+    let mut effective_global = *global;
+    if let Some(seed) = get_determinism_config().fixed_seed {
+        let seed_bytes = seed.to_le_bytes();
+        effective_global = B3Hash::hash(&seed_bytes);
+        if determinism_debug_enabled() {
+            tracing::info!(
+                target: "determinism",
+                label = label,
+                fixed_seed = seed,
+                "Overriding global seed with determinism config"
+            );
+        }
+    }
 
-    // Validate HKDF output is exactly 32 bytes
-    assert_eq!(okm.len(), 32, "HKDF output must be exactly 32 bytes");
+    // Canonical HKDF: treat the global seed as IKM and run extract+expand.
+    let hk = Hkdf::<Sha256>::new(None, effective_global.as_bytes());
+    let mut okm = [0u8; HKDF_OUTPUT_LENGTH];
+    hk.expand(label.as_bytes(), &mut okm)
+        .expect("HKDF_OUTPUT_LENGTH is valid for HKDF-SHA256");
+
+    // Validate HKDF output matches expected length
+    debug_assert_eq!(
+        okm.len(),
+        HKDF_OUTPUT_LENGTH,
+        "HKDF output must be exactly {} bytes",
+        HKDF_OUTPUT_LENGTH
+    );
 
     // Compute checksum for audit
     let checksum = B3Hash::hash(&okm);
@@ -599,6 +661,23 @@ pub fn derive_seed(global: &B3Hash, label: &str) -> [u8; 32] {
     okm
 }
 
+/// Derive a deterministic u64 seed from a global seed and label.
+pub fn derive_seed_u64(global: &B3Hash, label: &str) -> u64 {
+    let seed_bytes = derive_seed(global, label);
+    let mut bytes = [0u8; 8];
+    bytes.copy_from_slice(&seed_bytes[..8]);
+    u64::from_le_bytes(bytes)
+}
+
+/// Derive a deterministic u64 seed from raw input bytes and a label.
+///
+/// This hashes the inputs into a BLAKE3 global seed, then runs HKDF-SHA256
+/// expansion using `label` to ensure domain separation.
+pub fn derive_seed_u64_from_inputs(label: &str, inputs: &[u8]) -> u64 {
+    let global = B3Hash::hash(inputs);
+    derive_seed_u64(&global, label)
+}
+
 /// Derive seed with typed label
 ///
 /// Seeds are scoped by `manifest_hash`, `adapter_dir_hash`, `worker_id`,
@@ -611,8 +690,8 @@ pub fn derive_seed_typed(
     worker_id: u32,
     nonce: u64,
 ) -> [u8; 32] {
+    let manifest_hex = manifest_hash.to_hex();
     if determinism_debug_enabled() {
-        let manifest_hex = manifest_hash.to_hex();
         tracing::info!(
             target: "determinism",
             label = %label.as_str(),
@@ -626,7 +705,7 @@ pub fn derive_seed_typed(
     let composite_label = format!(
         "{}:{}:{}:{}",
         label.as_str(),
-        &manifest_hash.to_hex()[..16],
+        manifest_hex,
         worker_id,
         nonce
     );
@@ -661,6 +740,12 @@ pub fn derive_request_seed(
     nonce: u64,
     mode: SeedMode,
 ) -> Result<[u8; 32]> {
+    if matches!(mode, SeedMode::NonDeterministic) && is_strict_determinism_mode() {
+        return Err(AosError::DeterminismViolation(
+            "NonDeterministic seed_mode is not permitted when strict determinism is enabled"
+                .to_string(),
+        ));
+    }
     match mode {
         SeedMode::Strict => {
             let manifest_hash = manifest.ok_or_else(|| {
@@ -773,15 +858,29 @@ pub fn derive_seed_full(
 
 /// Hash an adapter directory path deterministically
 ///
-/// Converts path to canonical form and hashes it for use in seed derivation
+/// Converts path to canonical form and normalizes path separators for
+/// cross-platform consistency, then hashes it for use in seed derivation.
+///
+/// # Platform Consistency
+///
+/// This function normalizes path separators to forward slashes (`/`) before
+/// hashing, ensuring that the same logical path produces identical hashes
+/// regardless of whether it's processed on Windows, macOS, or Linux.
+///
+/// See [`crate::path_normalization`] for details on the normalization rules.
 pub fn hash_adapter_dir(adapter_dir: &std::path::Path) -> B3Hash {
+    use crate::path_normalization::normalize_path_for_sorting;
+
     // Canonicalize path to handle symlinks and relative paths
     let canonical_path = adapter_dir
         .canonicalize()
         .unwrap_or_else(|_| adapter_dir.to_path_buf());
 
-    // Hash the canonical path string
-    B3Hash::hash(canonical_path.to_string_lossy().as_bytes())
+    // Normalize path separators for cross-platform determinism
+    let normalized = normalize_path_for_sorting(&canonical_path);
+
+    // Hash the normalized path string
+    B3Hash::hash(normalized.as_bytes())
 }
 
 /// Derive per-adapter seed with layer isolation and reuse prevention
@@ -884,6 +983,18 @@ mod tests {
         let seed1 = derive_seed(&global1, "component");
         let seed2 = derive_seed(&global2, "component");
         assert_ne!(seed1, seed2);
+    }
+
+    #[test]
+    fn test_fixed_seed_overrides_global() {
+        let global1 = B3Hash::hash(b"test1");
+        let global2 = B3Hash::hash(b"test2");
+        let config = DeterminismConfig::builder().fixed_seed(42).build();
+
+        let seed1 = with_determinism_config(config.clone(), || derive_seed(&global1, "component"));
+        let seed2 = with_determinism_config(config, || derive_seed(&global2, "component"));
+
+        assert_eq!(seed1, seed2);
     }
 
     #[test]
@@ -1081,6 +1192,63 @@ mod tests {
         assert_ne!(
             seed_a, seed_b,
             "NonDeterministic should produce different seeds"
+        );
+    }
+
+    // =========================================================================
+    // Golden Vector Tests for Version Stability
+    // =========================================================================
+
+    /// Golden vector test for HKDF derivation.
+    ///
+    /// This test ensures the HKDF derivation produces consistent output across
+    /// versions. If this test fails, it means the derivation algorithm has changed
+    /// and HKDF_ALGORITHM_VERSION must be incremented.
+    #[test]
+    fn test_hkdf_golden_vector_stability() {
+        // Known test vector: hash of "determinism-golden-test-vector"
+        let global = B3Hash::hash(b"determinism-golden-test-vector");
+        let seed = derive_seed(&global, "golden-test-label");
+
+        // Compute checksum of derived seed for version verification
+        let checksum = B3Hash::hash(&seed);
+        let checksum_hex = checksum.to_hex();
+
+        // This is the expected checksum for HKDF_ALGORITHM_VERSION = 2
+        // If this changes, the HKDF algorithm has drifted!
+        //
+        // To update: Run the test, get the new checksum, increment
+        // HKDF_ALGORITHM_VERSION, and update this expected value.
+        let expected_prefix = "a1425ff4"; // First 8 hex chars of checksum
+
+        assert_eq!(
+            &checksum_hex[..8],
+            expected_prefix,
+            "HKDF derivation has changed! If intentional, increment \
+             HKDF_ALGORITHM_VERSION (currently {}) and update this test.",
+            HKDF_ALGORITHM_VERSION
+        );
+    }
+
+    /// Test that HKDF algorithm version is at least 2 (current canonical version).
+    #[test]
+    fn test_hkdf_algorithm_version_minimum() {
+        assert!(
+            HKDF_ALGORITHM_VERSION >= 2,
+            "HKDF_ALGORITHM_VERSION must be at least 2 (current canonical version)"
+        );
+    }
+
+    /// Test that derive_seed produces exactly HKDF_OUTPUT_LENGTH bytes.
+    #[test]
+    fn test_hkdf_output_length_invariant() {
+        let global = B3Hash::hash(b"test-output-length");
+        let seed = derive_seed(&global, "length-test");
+        assert_eq!(
+            seed.len(),
+            HKDF_OUTPUT_LENGTH,
+            "HKDF output must be exactly {} bytes",
+            HKDF_OUTPUT_LENGTH
         );
     }
 }

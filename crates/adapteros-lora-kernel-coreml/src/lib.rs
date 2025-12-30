@@ -3011,6 +3011,7 @@ mod tests {
             base_package: base.clone(),
             fused_package: fused.clone(),
             adapter_path: adapter.clone(),
+            fusion_verified: false,
         };
         let metadata_path = tmp.path().join("adapteros_coreml_fusion.json");
         std::fs::write(&metadata_path, serde_json::to_vec(&metadata)?)?;

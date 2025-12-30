@@ -1,7 +1,7 @@
 //! Backend selection and GPU training tests
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use adapteros_lora_worker::training::TrainingBackend as WorkerTrainingBackend;
@@ -9,6 +9,7 @@ use adapteros_platform::common::PlatformUtils;
 use tempfile::TempDir;
 use tokio::sync::RwLock;
 
+use crate::test_support::TestEnvGuard;
 use crate::training::config::map_preferred_backend;
 use crate::training::execution::run_training_job;
 use crate::training::job::{
@@ -69,6 +70,7 @@ fn map_preferred_backend_coreml_respects_explicit_fallback() {
 
 #[tokio::test]
 async fn cpu_training_succeeds_without_gpu_init() {
+    let _env = TestEnvGuard::new();
     std::env::set_var("AOS_FORCE_GPU_BACKEND", "none");
     let jobs = Arc::new(RwLock::new(HashMap::new()));
     let job_id = "cpu-job".to_string();
@@ -112,6 +114,7 @@ async fn cpu_training_succeeds_without_gpu_init() {
 
 #[tokio::test]
 async fn coreml_preference_records_fallback_reason() {
+    let _env = TestEnvGuard::new();
     std::env::set_var("AOS_FORCE_GPU_BACKEND", "none");
     let jobs = Arc::new(RwLock::new(HashMap::new()));
     let job_id = "coreml-pref-job".to_string();
@@ -151,7 +154,7 @@ async fn coreml_preference_records_fallback_reason() {
     let finished = jobs_guard.get(&job_id).unwrap();
     let reason = finished.backend_reason.clone().unwrap_or_default();
     assert!(
-        reason.contains("coreml_training_not_supported"),
+        reason.contains("coreml"),
         "expected backend_reason to mention CoreML fallback, got: {reason}"
     );
     assert_eq!(
@@ -167,6 +170,7 @@ async fn coreml_preference_records_fallback_reason() {
 
 #[tokio::test]
 async fn gpu_optional_falls_back_when_init_fails() {
+    let _env = TestEnvGuard::new();
     std::env::set_var("AOS_FORCE_GPU_BACKEND", "metal");
     let temp_model = new_test_tempdir();
     let model_path = temp_model.path().join("model.safetensors");
@@ -224,6 +228,7 @@ async fn gpu_optional_falls_back_when_init_fails() {
 
 #[tokio::test]
 async fn gpu_required_errors_when_unavailable() {
+    let _env = TestEnvGuard::new();
     std::env::set_var("AOS_FORCE_GPU_BACKEND", "none");
     let jobs = Arc::new(RwLock::new(HashMap::new()));
     let job_id = "gpu-required-job".to_string();

@@ -13,8 +13,8 @@
 //!
 //! # Usage
 //!
-//! ```rust,no_run
-//! use adapteros_core::{CircuitBreaker, CircuitBreakerConfig, CircuitState};
+//! ```rust,ignore
+//! use adapteros_core::{CircuitBreaker, CircuitBreakerConfig, CircuitState, StandardCircuitBreaker};
 //!
 //! // Create a circuit breaker with custom config
 //! let config = CircuitBreakerConfig {
@@ -27,10 +27,12 @@
 //! let breaker = StandardCircuitBreaker::new("database".to_string(), config);
 //!
 //! // Use in async operations
-//! let result = breaker.call(async {
-//!     // Your operation here
-//!     Ok("success")
-//! }).await;
+//! async {
+//!     let result = breaker.call(async {
+//!         // Your operation here
+//!         Ok::<_, adapteros_core::AosError>("success")
+//!     }).await;
+//! };
 //! ```
 
 use crate::{AosError, Result};
@@ -303,6 +305,9 @@ impl StandardCircuitBreaker {
         self.update_state_change_time();
         self.update_state_cache(new_state);
 
+        let failures_total = self.failures_total.load(Ordering::Relaxed);
+        let timeout_secs = Duration::from_millis(self.config.timeout_ms).as_secs();
+
         // Emit telemetry events for state transitions
         match new_state {
             CircuitState::Open { .. } => {
@@ -312,6 +317,15 @@ impl StandardCircuitBreaker {
 
                 // Only emit if transitioning from closed/half-open to open
                 if !matches!(old_state, CircuitState::Open { .. }) {
+                    tracing::warn!(
+                        breaker_name = %self.name,
+                        from_state = %old_state,
+                        to_state = "open",
+                        timeout_secs = timeout_secs,
+                        failures_total = failures_total,
+                        failure_threshold = self.config.failure_threshold,
+                        "Circuit breaker opened - service protection engaged"
+                    );
                     self.emit_telemetry_event(new_state).await;
                 }
             }
@@ -326,6 +340,15 @@ impl StandardCircuitBreaker {
                     old_state,
                     CircuitState::Open { .. } | CircuitState::HalfOpen
                 ) {
+                    tracing::info!(
+                        breaker_name = %self.name,
+                        from_state = %old_state,
+                        to_state = "closed",
+                        timeout_secs = timeout_secs,
+                        failures_total = failures_total,
+                        success_threshold = self.config.success_threshold,
+                        "Circuit breaker closed - service recovered"
+                    );
                     self.emit_telemetry_event(new_state).await;
                 }
             }
@@ -333,6 +356,15 @@ impl StandardCircuitBreaker {
                 self.half_opens_total.fetch_add(1, Ordering::Relaxed);
                 self.half_open_requests.store(0, Ordering::Relaxed);
 
+                tracing::info!(
+                    breaker_name = %self.name,
+                    from_state = %old_state,
+                    to_state = "half_open",
+                    timeout_secs = timeout_secs,
+                    failures_total = failures_total,
+                    half_open_max_requests = self.config.half_open_max_requests,
+                    "Circuit breaker half-open - testing service recovery"
+                );
                 // Always emit half-open transitions
                 self.emit_telemetry_event(new_state).await;
             }

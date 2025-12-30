@@ -123,11 +123,11 @@ pub struct ReadinessConfig {
 impl Default for ReadinessConfig {
     fn default() -> Self {
         Self {
-            timeout_ms: 30_000,        // 30 seconds default
+            timeout_ms: 30_000, // 30 seconds default
             skip_weight_validation: false,
             skip_warmup: false,
-            min_file_size: 1024,       // At least 1KB
-            max_file_size: 0,          // No limit by default
+            min_file_size: 1024, // At least 1KB
+            max_file_size: 0,    // No limit by default
         }
     }
 }
@@ -223,7 +223,10 @@ pub async fn check_adapter_readiness(
         ReadinessCheck::fail(
             "File Exists",
             &format!("Adapter file not found: {}", path.display()),
-            Some(format!("Ensure the adapter file exists at {}", path.display())),
+            Some(format!(
+                "Ensure the adapter file exists at {}",
+                path.display()
+            )),
             check_start.elapsed().as_millis() as u64,
         )
     });
@@ -250,12 +253,15 @@ pub async fn check_adapter_readiness(
             ));
         }
         Err(e) => {
-            checks.push(ReadinessCheck::fail(
-                "File Accessible",
-                &format!("Cannot read adapter file: {}", e),
-                Some("Check file permissions".to_string()),
-                check_start.elapsed().as_millis() as u64,
-            ).with_details(format!("Error: {:?}", e.kind())));
+            checks.push(
+                ReadinessCheck::fail(
+                    "File Accessible",
+                    &format!("Cannot read adapter file: {}", e),
+                    Some("Check file permissions".to_string()),
+                    check_start.elapsed().as_millis() as u64,
+                )
+                .with_details(format!("Error: {:?}", e.kind())),
+            );
             return build_result(
                 adapter_id,
                 path.to_path_buf(),
@@ -410,27 +416,43 @@ fn build_result(
     content_hash: Option<String>,
     estimated_vram_mb: Option<u64>,
 ) -> AdapterReadinessResult {
-    let failures: Vec<_> = checks.iter().filter(|c| c.status == ReadinessCheckStatus::Fail).collect();
-    let warnings: Vec<_> = checks.iter().filter(|c| c.status == ReadinessCheckStatus::Warning).collect();
-    let passed_count = checks.iter().filter(|c| c.status == ReadinessCheckStatus::Pass).count();
+    let failures: Vec<_> = checks
+        .iter()
+        .filter(|c| c.status == ReadinessCheckStatus::Fail)
+        .collect();
+    let warnings: Vec<_> = checks
+        .iter()
+        .filter(|c| c.status == ReadinessCheckStatus::Warning)
+        .collect();
+    let passed_count = checks
+        .iter()
+        .filter(|c| c.status == ReadinessCheckStatus::Pass)
+        .count();
 
     let ready = failures.is_empty();
 
     let summary = if ready && warnings.is_empty() {
         format!(
             "Adapter '{}' is ready for hot-swap ({}/{} checks passed)",
-            adapter_id, passed_count, checks.len()
+            adapter_id,
+            passed_count,
+            checks.len()
         )
     } else if ready {
         format!(
             "Adapter '{}' is ready with {} warning(s) ({}/{} checks passed)",
-            adapter_id, warnings.len(), passed_count, checks.len()
+            adapter_id,
+            warnings.len(),
+            passed_count,
+            checks.len()
         )
     } else {
         let failure_names: Vec<_> = failures.iter().map(|c| c.name.as_str()).collect();
         format!(
             "Adapter '{}' is NOT ready for hot-swap: {} critical failure(s) [{}]",
-            adapter_id, failures.len(), failure_names.join(", ")
+            adapter_id,
+            failures.len(),
+            failure_names.join(", ")
         )
     };
 
@@ -527,7 +549,10 @@ fn check_safetensors_format(path: &Path) -> ReadinessCheck {
                 if tensor_count > 0 {
                     ReadinessCheck::pass(
                         "SafeTensors Format",
-                        &format!("Valid SafeTensors format with {} tensor definition(s)", tensor_count),
+                        &format!(
+                            "Valid SafeTensors format with {} tensor definition(s)",
+                            tensor_count
+                        ),
                         start.elapsed().as_millis() as u64,
                     )
                 } else {
@@ -580,7 +605,9 @@ fn check_weight_integrity(path: &Path) -> (ReadinessCheck, Option<String>) {
     loop {
         match file.read(&mut buffer) {
             Ok(0) => break,
-            Ok(n) => hasher.update(&buffer[..n]),
+            Ok(n) => {
+                hasher.update(&buffer[..n]);
+            }
             Err(e) => {
                 return (
                     ReadinessCheck::fail(
@@ -604,7 +631,8 @@ fn check_weight_integrity(path: &Path) -> (ReadinessCheck, Option<String>) {
             "Weight Integrity",
             &format!("BLAKE3 hash verified: {}...", hash_short),
             start.elapsed().as_millis() as u64,
-        ).with_details(format!("Full hash: {}", hash_hex)),
+        )
+        .with_details(format!("Full hash: {}", hash_hex)),
         Some(hash_hex),
     )
 }
@@ -689,7 +717,8 @@ fn check_adapter_config(path: &Path) -> ReadinessCheck {
                     "Configuration",
                     &format!("{} tensor(s) defined", tensor_count),
                     start.elapsed().as_millis() as u64,
-                ).with_details("No custom __metadata__ section (optional)".to_string())
+                )
+                .with_details("No custom __metadata__ section (optional)".to_string())
             }
         }
         Err(e) => ReadinessCheck::fail(
@@ -719,12 +748,14 @@ fn check_io_warmup(path: &Path) -> ReadinessCheck {
 
     let file_size = match file.metadata() {
         Ok(m) => m.len(),
-        Err(_) => return ReadinessCheck::warning(
-            "I/O Warmup",
-            "Cannot get file size",
-            None,
-            start.elapsed().as_millis() as u64,
-        ),
+        Err(_) => {
+            return ReadinessCheck::warning(
+                "I/O Warmup",
+                "Cannot get file size",
+                None,
+                start.elapsed().as_millis() as u64,
+            )
+        }
     };
 
     let mut buffer = [0u8; 4096];
@@ -819,7 +850,10 @@ pub fn display_readiness_result(result: &AdapterReadinessResult, output: &Output
     }
 
     if let Some(ref hash) = result.content_hash {
-        output.kv("Content Hash", &format!("{}...", &hash[..32.min(hash.len())]));
+        output.kv(
+            "Content Hash",
+            &format!("{}...", &hash[..32.min(hash.len())]),
+        );
     }
     if let Some(vram) = result.estimated_vram_mb {
         output.kv("Estimated VRAM", &format!("{} MB", vram));
@@ -861,10 +895,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_check_nonexistent_file() {
-        let result = check_adapter_readiness(
-            Path::new("/nonexistent/path/adapter.aos"),
-            None,
-        ).await;
+        let result =
+            check_adapter_readiness(Path::new("/nonexistent/path/adapter.aos"), None).await;
 
         assert!(!result.ready);
         assert!(!result.critical_failures().is_empty());
@@ -885,10 +917,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_require_readiness_error() {
-        let result = require_readiness_before_swap(
-            Path::new("/nonexistent/path/adapter.aos"),
-            None,
-        ).await;
+        let result =
+            require_readiness_before_swap(Path::new("/nonexistent/path/adapter.aos"), None).await;
 
         assert!(result.is_err());
         let err = result.unwrap_err();

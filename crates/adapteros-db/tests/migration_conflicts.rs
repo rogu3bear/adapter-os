@@ -240,8 +240,8 @@ fn test_migration_numbering_range() -> Result<()> {
 
     assert!(min_number >= 1, "Minimum migration number should be >= 1");
     assert!(
-        max_number <= 250,
-        "Maximum migration number should be <= 250 (found {})",
+        max_number <= 300,
+        "Maximum migration number should be <= 300 (found {})",
         max_number
     );
 

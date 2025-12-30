@@ -356,6 +356,7 @@ async fn gc_adapters(args: GcAdaptersArgs, output: &OutputWriter) -> Result<()> 
                 continue;
             }
         };
+        let tenant_id = adapter.tenant_id.as_str();
 
         // Get file path from adapter record or construct from adapters_path
         let file_path = match &adapter.aos_file_path {
@@ -390,7 +391,8 @@ async fn gc_adapters(args: GcAdaptersArgs, output: &OutputWriter) -> Result<()> 
                         match fs::remove_file(&file_path) {
                             Ok(_) => {
                                 // Mark as purged in database
-                                if let Err(e) = db.mark_adapter_purged(&adapter_id).await {
+                                if let Err(e) = db.mark_adapter_purged(tenant_id, &adapter_id).await
+                                {
                                     errors.push(format!(
                                         "Failed to mark {} as purged: {}",
                                         adapter_id, e
@@ -424,7 +426,7 @@ async fn gc_adapters(args: GcAdaptersArgs, output: &OutputWriter) -> Result<()> 
             } else {
                 // File doesn't exist on disk, but DB record exists
                 // Mark as purged anyway to clean up the stale reference
-                if let Err(e) = db.mark_adapter_purged(&adapter_id).await {
+                if let Err(e) = db.mark_adapter_purged(tenant_id, &adapter_id).await {
                     errors.push(format!(
                         "Failed to mark {} as purged (file missing): {}",
                         adapter_id, e
