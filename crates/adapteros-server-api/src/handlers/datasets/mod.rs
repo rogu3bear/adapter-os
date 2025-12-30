@@ -35,8 +35,9 @@ mod versions;
 pub use self::fs_utils::{clean_dataset_dir, ensure_dirs};
 pub use self::hashing::{hash_dataset_manifest, hash_file, normalize_filename, DatasetHashInput};
 pub use self::paths::{
-    resolve_dataset_root, resolve_dataset_root_from_strings, safe_join_path, DatasetPaths,
-    DEFAULT_DATASETS_ROOT, ENV_DATASETS_DIR, VERSIONS_DIR_NAME,
+    resolve_dataset_root, resolve_dataset_root_from_strings,
+    resolve_dataset_root_lenient_from_strings, safe_join_path, DatasetPaths, DEFAULT_DATASETS_ROOT,
+    ENV_DATASETS_DIR, VERSIONS_DIR_NAME,
 };
 pub use self::tenant::bind_dataset_to_tenant;
 
@@ -48,15 +49,26 @@ pub use helpers::{map_validation_errors, map_validation_status, STREAM_BUFFER_SI
 
 // Re-export all handler functions
 pub use chunked_handlers::{
-    cancel_chunked_upload, complete_chunked_upload, get_upload_session_status, upload_chunk,
+    cancel_chunked_upload, cleanup_expired_sessions, complete_chunked_upload,
+    get_upload_session_status, list_upload_sessions, retry_chunk, upload_chunk,
 };
 pub use crud::{delete_dataset, get_dataset, list_datasets};
-pub use files::{get_dataset_files, get_dataset_statistics};
+pub use files::{
+    get_dataset_file_content, get_dataset_file_content_for_workspace, get_dataset_files,
+    get_dataset_files_for_workspace, get_dataset_statistics, list_workspace_files,
+    validate_all_dataset_files, validate_dataset_file, FileValidationError,
+    ValidateAllFilesResponse, ValidateFileRequest, ValidateFileResponse, WorkspaceFilesResponse,
+};
 pub use from_documents::create_dataset_from_documents;
 pub use progress_sse::dataset_upload_progress;
 pub use safety::{
-    apply_dataset_trust_override, apply_dataset_version_trust_override, override_dataset_trust,
-    preview_dataset, update_dataset_safety, update_dataset_version_safety,
+    apply_dataset_trust_override, apply_dataset_version_trust_override, check_dataset_safety,
+    check_dataset_version_safety, derive_overall_safety, evaluate_dataset_safety,
+    is_trust_state_blocked, is_trust_state_safe, override_dataset_trust, preview_dataset,
+    update_dataset_safety, update_dataset_version_safety, validate_safety_request,
+    validate_safety_status, validate_trust_state, DatasetSafetyCheckResult, SafetySignals,
+    SafetyStatusValidationResult, BLOCKED_TRUST_STATES, SAFE_TRUST_STATES, VALID_SAFETY_STATUSES,
+    VALID_TRUST_STATES,
 };
 pub use upload::{initiate_chunked_upload, upload_dataset};
 pub use validation::{
@@ -76,9 +88,15 @@ pub use versions::{
 #[doc(hidden)]
 pub use chunked_handlers::__path_cancel_chunked_upload;
 #[doc(hidden)]
+pub use chunked_handlers::__path_cleanup_expired_sessions;
+#[doc(hidden)]
 pub use chunked_handlers::__path_complete_chunked_upload;
 #[doc(hidden)]
 pub use chunked_handlers::__path_get_upload_session_status;
+#[doc(hidden)]
+pub use chunked_handlers::__path_list_upload_sessions;
+#[doc(hidden)]
+pub use chunked_handlers::__path_retry_chunk;
 #[doc(hidden)]
 pub use chunked_handlers::__path_upload_chunk;
 #[doc(hidden)]
@@ -88,9 +106,21 @@ pub use crud::__path_get_dataset;
 #[doc(hidden)]
 pub use crud::__path_list_datasets;
 #[doc(hidden)]
+pub use files::__path_get_dataset_file_content;
+#[doc(hidden)]
+pub use files::__path_get_dataset_file_content_for_workspace;
+#[doc(hidden)]
 pub use files::__path_get_dataset_files;
 #[doc(hidden)]
+pub use files::__path_get_dataset_files_for_workspace;
+#[doc(hidden)]
 pub use files::__path_get_dataset_statistics;
+#[doc(hidden)]
+pub use files::__path_list_workspace_files;
+#[doc(hidden)]
+pub use files::__path_validate_all_dataset_files;
+#[doc(hidden)]
+pub use files::__path_validate_dataset_file;
 #[doc(hidden)]
 pub use from_documents::__path_create_dataset_from_documents;
 #[doc(hidden)]
@@ -99,6 +129,10 @@ pub use progress_sse::__path_dataset_upload_progress;
 pub use safety::__path_apply_dataset_trust_override;
 #[doc(hidden)]
 pub use safety::__path_apply_dataset_version_trust_override;
+#[doc(hidden)]
+pub use safety::__path_check_dataset_safety;
+#[doc(hidden)]
+pub use safety::__path_check_dataset_version_safety;
 #[doc(hidden)]
 pub use safety::__path_override_dataset_trust;
 #[doc(hidden)]

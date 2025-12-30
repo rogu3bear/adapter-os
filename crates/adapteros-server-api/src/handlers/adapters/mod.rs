@@ -39,6 +39,7 @@ mod import;
 mod lifecycle;
 mod lineage;
 mod pinning;
+pub(crate) mod preflight_adapter;
 mod stats;
 mod strength;
 mod swap;
@@ -58,11 +59,11 @@ pub use lifecycle::{
 // Lineage handlers
 pub use lineage::{
     get_adapter_detail, get_adapter_lineage, AdapterDetailResponse, AdapterLineageResponse,
-    LineageNode, UpdateAdapterStrengthRequest,
+    LineageNode,
 };
 
 // Strength handlers
-pub use strength::update_adapter_strength;
+pub use strength::{update_adapter_strength, UpdateAdapterStrengthRequest};
 
 // Pinning handlers
 pub use pinning::{

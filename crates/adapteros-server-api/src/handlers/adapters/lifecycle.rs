@@ -4,15 +4,18 @@
 // - Adapter activation (workspace-scoped)
 // - Manual adapter lifecycle promotion/demotion
 //
-// Lifecycle states: Unloaded -> Cold -> Warm -> Hot -> Resident
+// Lifecycle states: Draft -> Training -> Ready -> Active -> Deprecated -> Retired (or Failed)
 // Transitions are logged with telemetry events including actor, reason, old/new states.
 
+use crate::audit_helper::log_preflight_result;
 use crate::auth::Claims;
+use crate::handlers::adapters::preflight_adapter::run_api_preflight;
 use crate::handlers::workspaces::build_active_state_response;
 use crate::permissions::{require_permission, Permission};
 use crate::services::{AdapterService, DefaultAdapterService};
 use crate::state::AppState;
 use crate::types::*;
+use adapteros_core::preflight::PreflightConfig;
 use adapteros_db::adapter_snapshots::CreateSnapshotParams;
 use axum::{
     extract::{Path, State},
@@ -22,7 +25,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tracing::{error, warn};
+use tracing::{error, info};
 use utoipa::ToSchema;
 
 // ============================================================================
@@ -137,6 +140,48 @@ pub async fn activate_adapter(
             )
         })?;
 
+    // =========================================================================
+    // PREFLIGHT GATING: Run preflight checks before activation
+    // =========================================================================
+    // This ensures content_hash_b3, manifest_hash, and other requirements
+    // are validated consistently with swap operations.
+    let preflight_config = PreflightConfig::with_actor(&workspace_id, &claims.sub);
+    let preflight_result = run_api_preflight(&adapter, &state.db, &preflight_config).await;
+
+    // Audit log the preflight result including any bypasses used (Gap 4 fix)
+    log_preflight_result(&state.db, &claims, &adapter_id, &preflight_result).await;
+
+    if !preflight_result.passed {
+        // Get primary error code for the response
+        let primary_code = preflight_result
+            .primary_error_code()
+            .map(|c| c.as_str())
+            .unwrap_or("PREFLIGHT_FAILED");
+
+        // Build detailed error message
+        let details = preflight_result
+            .failures
+            .iter()
+            .map(|f| format!("[{}] {}", f.code.as_str(), f.message))
+            .collect::<Vec<_>>()
+            .join("; ");
+
+        info!(
+            adapter_id = %adapter_id,
+            error_code = %primary_code,
+            "Adapter activation blocked by preflight checks"
+        );
+
+        return Err((
+            StatusCode::PRECONDITION_FAILED,
+            Json(
+                ErrorResponse::new("Adapter activation blocked by preflight checks")
+                    .with_code(primary_code)
+                    .with_string_details(details),
+            ),
+        ));
+    }
+
     // Ensure a training snapshot exists to satisfy lifecycle policy
     let snapshot_exists = state
         .db
@@ -200,23 +245,34 @@ pub async fn activate_adapter(
                     documents_json,
                     chunk_manifest_hash: chunk_hash,
                     chunking_config_json: chunk_cfg,
+                    dataset_id: job.dataset_id.clone(),
+                    dataset_version_id: job.dataset_version_id.clone(),
+                    dataset_hash_b3: None,
                 })
                 .await;
         }
     }
 
-    // Best-effort lifecycle promotion to active
-    if let Err(e) = state
+    // Enforce lifecycle promotion to active (strict - not best-effort)
+    state
         .db
         .transition_adapter_lifecycle(&adapter_id, "active", "workspace_activate", &claims.sub)
         .await
-    {
-        warn!(
-            adapter_id = %adapter_id,
-            error = %e,
-            "Failed to promote adapter to active; continuing to update active state"
-        );
-    }
+        .map_err(|e| {
+            error!(
+                adapter_id = %adapter_id,
+                error = %e,
+                "Failed to promote adapter to active lifecycle state"
+            );
+            (
+                StatusCode::CONFLICT,
+                Json(
+                    ErrorResponse::new("Cannot activate adapter: lifecycle transition denied")
+                        .with_code("LIFECYCLE_TRANSITION_DENIED")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
 
     // Derive manifest hash from training metadata or adapter content hash
     let manifest_hash = if let Ok(Some(job)) = state

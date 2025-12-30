@@ -773,7 +773,7 @@ pub async fn test_domain_adapter(
     // Update activation count
     let _ = state
         .db
-        .increment_adapter_activation(&adapter_id)
+        .increment_adapter_activation(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             warn!(error = %e, adapter_id = %adapter_id, "Failed to increment activation count");
@@ -1005,7 +1005,7 @@ pub async fn execute_domain_adapter(
     // Update activation count
     let _ = state
         .db
-        .increment_adapter_activation(&adapter_id)
+        .increment_adapter_activation(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             warn!(error = %e, adapter_id = %adapter_id, "Failed to increment activation count");

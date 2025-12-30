@@ -127,8 +127,21 @@ pub struct AdapterDetailResponse {
     pub created_at: String,
     pub updated_at: String,
     pub expires_at: Option<String>,
+
+    // Codebase adapter fields (from migration 0261)
+    /// Adapter classification: "standard" (portable), "codebase" (stream-scoped), "core" (baseline)
+    pub adapter_type: Option<String>,
+    /// Base adapter ID for codebase adapters (the core adapter they extend as delta)
+    pub base_adapter_id: Option<String>,
+    /// Exclusive session binding for codebase adapters
+    pub stream_session_id: Option<String>,
+    /// Activation threshold for auto-versioning (default: 100)
+    pub versioning_threshold: Option<i32>,
+    /// BLAKE3 hash of fused CoreML package for deployment verification
+    pub coreml_package_hash: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
 pub struct UpdateAdapterStrengthRequest {
     /// Runtime LoRA strength multiplier (scales adapter effect)
@@ -176,6 +189,12 @@ impl From<Adapter> for AdapterDetailResponse {
             created_at: adapter.created_at,
             updated_at: adapter.updated_at,
             expires_at: adapter.expires_at,
+            // Codebase adapter fields
+            adapter_type: adapter.adapter_type,
+            base_adapter_id: adapter.base_adapter_id,
+            stream_session_id: adapter.stream_session_id,
+            versioning_threshold: adapter.versioning_threshold,
+            coreml_package_hash: adapter.coreml_package_hash,
         }
     }
 }
@@ -262,7 +281,7 @@ pub async fn get_adapter_lineage(
     // Get full lineage tree
     let lineage_adapters = state
         .db
-        .get_adapter_lineage(&adapter_id)
+        .get_adapter_lineage(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!(

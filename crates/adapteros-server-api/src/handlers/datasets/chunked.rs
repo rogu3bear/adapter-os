@@ -1,20 +1,37 @@
 use super::fs_utils::ensure_dirs;
 use super::paths::DatasetPaths;
-use crate::error_helpers::{internal_error, not_found, payload_too_large};
+use crate::error_helpers::{internal_error, not_found};
 use crate::handlers::chunked_upload::{
     ChunkAssembler, ChunkWriter, CompressionFormat, ResumeToken, UploadSession,
+    UploadSessionManager,
 };
 use crate::state::AppState;
 use crate::types::ErrorResponse;
 use axum::body::Bytes;
 use axum::http::StatusCode;
 use axum::Json;
-use tracing::{error, warn};
+use tracing::error;
 
 pub fn expected_chunks(total_size: u64, chunk_size: usize) -> usize {
     total_size.div_ceil(chunk_size as u64) as usize
 }
 
+pub fn expected_chunk_size(total_size: u64, chunk_size: usize, chunk_index: usize) -> usize {
+    let total_chunks = expected_chunks(total_size, chunk_size);
+    let is_last_chunk = chunk_index + 1 == total_chunks;
+    if is_last_chunk {
+        let remainder = total_size % (chunk_size as u64);
+        if remainder == 0 {
+            chunk_size
+        } else {
+            remainder as usize
+        }
+    } else {
+        chunk_size
+    }
+}
+
+#[allow(dead_code)]
 pub async fn prepare_session(
     state: &AppState,
     paths: &DatasetPaths,
@@ -24,16 +41,42 @@ pub async fn prepare_session(
     chunk_size: usize,
     compression: CompressionFormat,
 ) -> Result<(UploadSession, usize), (StatusCode, Json<ErrorResponse>)> {
+    prepare_session_with_workspace(
+        state,
+        paths,
+        file_name,
+        total_size,
+        content_type,
+        chunk_size,
+        compression,
+        None,
+    )
+    .await
+}
+
+/// Prepare a session with optional workspace ID for tenant isolation
+#[allow(clippy::too_many_arguments)]
+pub async fn prepare_session_with_workspace(
+    state: &AppState,
+    paths: &DatasetPaths,
+    file_name: &str,
+    total_size: u64,
+    content_type: &str,
+    chunk_size: usize,
+    _compression: CompressionFormat,
+    workspace_id: Option<String>,
+) -> Result<(UploadSession, usize), (StatusCode, Json<ErrorResponse>)> {
     ensure_dirs([paths.chunked.as_path()]).await?;
 
     let session = state
         .upload_session_manager
-        .create_session(
+        .create_session_with_workspace(
             file_name.to_string(),
             total_size,
             content_type.to_string(),
             chunk_size,
             &paths.chunked,
+            workspace_id,
         )
         .await
         .map_err(internal_error)?;
@@ -55,6 +98,9 @@ pub async fn persist_chunk(
         .get_session(session_id)
         .await
         .map_err(|_| not_found("Upload session"))?;
+    if UploadSessionManager::is_session_expired(&session) {
+        return Err(not_found("Upload session"));
+    }
 
     let expected_chunks = expected_chunks(session.total_size, session.chunk_size);
     if chunk_index >= expected_chunks {
@@ -88,34 +134,24 @@ pub async fn persist_chunk(
         ));
     }
 
-    let is_last_chunk = chunk_index == expected_chunks - 1;
-    let expected_chunk_size = if is_last_chunk {
-        let remainder = session.total_size % (session.chunk_size as u64);
-        if remainder == 0 {
-            session.chunk_size
-        } else {
-            remainder as usize
-        }
-    } else {
-        session.chunk_size
-    };
-
-    if body.len() > session.chunk_size {
-        return Err(payload_too_large(&format!(
-            "Chunk size {} exceeds maximum chunk size {}",
-            body.len(),
-            session.chunk_size
-        )));
-    }
-
-    if body.len() < expected_chunk_size && !is_last_chunk {
-        warn!(
-            "Chunk {} for session {} smaller than expected ({} < {})",
-            chunk_index,
-            session_id,
-            body.len(),
-            expected_chunk_size
-        );
+    let expected_chunk_size =
+        expected_chunk_size(session.total_size, session.chunk_size, chunk_index);
+    if body.len() != expected_chunk_size {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+                error: format!(
+                    "Invalid chunk size {}. Expected {} bytes for chunk {}",
+                    body.len(),
+                    expected_chunk_size,
+                    chunk_index
+                ),
+                code: "INVALID_CHUNK_SIZE".to_string(),
+                failure_code: None,
+                details: None,
+            }),
+        ));
     }
 
     let chunk_path = session.temp_dir.join(format!("chunk_{:08}", chunk_index));

@@ -334,6 +334,7 @@ async fn test_provenance_chain_data_exists() {
         metadata_json: None,
         tags_json: None,
         pinned_adapter_ids: None,
+        codebase_adapter_id: None,
     };
 
     let session_id = match db.create_chat_session(session_params).await {
@@ -452,6 +453,7 @@ async fn test_provenance_external_adapter() {
         metadata_json: None,
         tags_json: None,
         pinned_adapter_ids: None,
+        codebase_adapter_id: None,
     };
 
     match db.create_chat_session(session_params).await {
@@ -582,6 +584,7 @@ async fn test_provenance_handler_happy_path() {
         metadata_json: None,
         tags_json: None,
         pinned_adapter_ids: None,
+        codebase_adapter_id: None,
     };
     if let Err(e) = state.db.create_chat_session(session_params).await {
         eprintln!("Skipping test - session creation failed: {}", e);
@@ -685,6 +688,7 @@ async fn test_provenance_handler_tenant_isolation() {
         metadata_json: None,
         tags_json: None,
         pinned_adapter_ids: None,
+        codebase_adapter_id: None,
     };
     if let Err(e) = state.db.create_chat_session(session_params).await {
         eprintln!("Skipping test - session creation failed: {}", e);
@@ -738,6 +742,7 @@ async fn test_provenance_handler_no_stack() {
         metadata_json: None,
         tags_json: None,
         pinned_adapter_ids: None,
+        codebase_adapter_id: None,
     };
     if let Err(e) = state.db.create_chat_session(session_params).await {
         eprintln!("Skipping test - session creation failed: {}", e);

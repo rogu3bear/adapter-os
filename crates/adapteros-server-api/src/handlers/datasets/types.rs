@@ -16,6 +16,7 @@ pub struct ListDatasetsQuery {
 
 /// Request to initiate a chunked upload
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct InitiateChunkedUploadRequest {
     /// File name being uploaded
     pub file_name: String,
@@ -25,6 +26,9 @@ pub struct InitiateChunkedUploadRequest {
     pub content_type: Option<String>,
     /// Chunk size preference (will be clamped to valid range)
     pub chunk_size: Option<usize>,
+    /// Optional workspace ID for tenant isolation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
 }
 
 /// Response from initiating a chunked upload
@@ -79,6 +83,7 @@ pub struct DatasetTrustOverrideRequest {
 
 /// Request to complete a chunked upload and create the dataset
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CompleteChunkedUploadRequest {
     /// Dataset name (optional, defaults to file name)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -89,6 +94,9 @@ pub struct CompleteChunkedUploadRequest {
     /// Dataset format (e.g., "jsonl", "json", "csv")
     #[serde(default = "default_format")]
     pub format: String,
+    /// Optional workspace ID for tenant isolation (should match initiate request)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
 }
 
 fn default_format() -> String {
@@ -100,9 +108,12 @@ fn default_format() -> String {
 pub struct CompleteChunkedUploadResponse {
     /// Created dataset ID
     pub dataset_id: String,
+    /// The dataset version ID created for this upload
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dataset_version_id: Option<String>,
     /// Dataset name
     pub name: String,
-    /// Final BLAKE3 hash of assembled file
+    /// Dataset hash (manifest-derived BLAKE3)
     pub hash: String,
     /// Total file size in bytes
     pub total_size_bytes: i64,
@@ -110,6 +121,9 @@ pub struct CompleteChunkedUploadResponse {
     pub storage_path: String,
     /// Timestamp when dataset was created
     pub created_at: String,
+    /// Workspace ID if dataset was scoped to a workspace
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
 }
 
 /// Response for getting upload session status
@@ -145,6 +159,7 @@ pub struct ProgressStreamQuery {
 
 /// Request to create a dataset version
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateDatasetVersionRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version_label: Option<String>,
@@ -220,4 +235,70 @@ pub struct CreateDatasetFromDocumentsRequest {
     /// Optional description
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+}
+
+/// Query parameters for retrying a chunk upload
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, IntoParams)]
+pub struct RetryChunkQuery {
+    /// Index of the chunk to retry (0-based)
+    pub chunk_index: usize,
+    /// Expected hash for validation (optional)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expected_hash: Option<String>,
+}
+
+/// Response from retrying a chunk upload
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct RetryChunkResponse {
+    /// Session ID
+    pub session_id: String,
+    /// Chunk index that was retried
+    pub chunk_index: usize,
+    /// BLAKE3 hash of the new chunk
+    pub chunk_hash: String,
+    /// Previous hash if this was replacing an existing chunk
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub previous_hash: Option<String>,
+    /// Total chunks received so far
+    pub chunks_received: usize,
+    /// Total expected chunks
+    pub expected_chunks: usize,
+    /// Is upload complete (all chunks received)?
+    pub is_complete: bool,
+    /// Whether this was actually a retry (chunk existed before)
+    pub was_retry: bool,
+}
+
+/// Summary of an upload session for listing
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct UploadSessionSummary {
+    /// Session ID
+    pub session_id: String,
+    /// Original file name
+    pub file_name: String,
+    /// Total file size in bytes
+    pub total_size: u64,
+    /// Number of chunks received
+    pub chunks_received: usize,
+    /// Total expected chunks
+    pub expected_chunks: usize,
+    /// Upload progress percentage
+    pub progress_percent: f32,
+    /// Session creation timestamp (RFC3339)
+    pub created_at: String,
+    /// Age of the session in seconds
+    pub age_seconds: u64,
+    /// Whether the session has expired
+    pub is_expired: bool,
+}
+
+/// Response for listing upload sessions
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ListUploadSessionsResponse {
+    /// List of active upload sessions
+    pub sessions: Vec<UploadSessionSummary>,
+    /// Total number of active sessions
+    pub total_count: usize,
+    /// Maximum allowed concurrent sessions
+    pub max_sessions: usize,
 }

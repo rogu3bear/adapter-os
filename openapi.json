@@ -4046,6 +4046,112 @@
         }
       }
     },
+    "/v1/datasets/by-codebase/{codebase_id}/versions": {
+      "get": {
+        "tags": [
+          "datasets"
+        ],
+        "summary": "List dataset versions by codebase source location.",
+        "description": "This endpoint finds the dataset associated with a codebase (by source_location)\nand returns all its versions. Useful for codebase adapter workflows.",
+        "operationId": "list_versions_by_codebase",
+        "parameters": [
+          {
+            "name": "codebase_id",
+            "in": "path",
+            "description": "Codebase identifier (URL-encoded repo identifier or source location, e.g., repo path)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of versions to return (default: 50, max: 100)",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Number of versions to skip for pagination",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "trust_state",
+            "in": "query",
+            "description": "Filter by trust state (e.g., \"allowed\", \"blocked\", \"needs_approval\")",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Codebase dataset versions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodebaseVersionsResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant isolation violation"
+          },
+          "404": {
+            "description": "No dataset found for codebase"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/v1/datasets/chunked-upload/cleanup": {
+      "post": {
+        "tags": [
+          "datasets"
+        ],
+        "summary": "Trigger cleanup of expired upload sessions",
+        "description": "Manually triggers the cleanup of expired upload sessions and their\ntemporary files. This is normally done automatically by a background\ntask every hour, but can be triggered manually for immediate cleanup.\n\nRequires admin permission.",
+        "operationId": "cleanup_expired_sessions",
+        "responses": {
+          "200": {
+            "description": "Cleanup completed",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
     "/v1/datasets/chunked-upload/initiate": {
       "post": {
         "tags": [
@@ -4076,6 +4182,34 @@
           },
           "400": {
             "description": "Invalid request"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/v1/datasets/chunked-upload/sessions": {
+      "get": {
+        "tags": [
+          "datasets"
+        ],
+        "summary": "List all active chunked upload sessions",
+        "description": "Returns a summary of all active upload sessions. This is useful for\nmonitoring upload progress and identifying stale/abandoned sessions.\nRequires DatasetView permission.\n\n## Response\n- List of session summaries with progress information\n- Total count and maximum allowed sessions\n- Expired session indicators",
+        "operationId": "list_upload_sessions",
+        "responses": {
+          "200": {
+            "description": "List of active upload sessions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListUploadSessionsResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient permissions"
           },
           "500": {
             "description": "Internal server error"
@@ -4116,6 +4250,86 @@
       }
     },
     "/v1/datasets/chunked-upload/{session_id}/chunk": {
+      "put": {
+        "tags": [
+          "datasets"
+        ],
+        "summary": "Retry uploading a specific chunk (for failed or corrupted chunks)",
+        "description": "This endpoint allows re-uploading a chunk that may have failed or been corrupted.\nUnlike the regular upload_chunk endpoint, this allows overwriting an existing chunk.\nOptionally, the client can provide an expected hash for validation.\n\n## Use Cases\n- Network failure during chunk upload\n- Chunk corruption detected during validation\n- Resume after partial failure\n\n## Error Cases\n- 404: Session not found or expired\n- 400: Invalid chunk index or hash mismatch\n- 413: Chunk size exceeds the session's configured chunk size\n- 500: Failed to write chunk to disk",
+        "operationId": "retry_chunk",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "description": "Upload session ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "chunk_index",
+            "in": "query",
+            "description": "Index of the chunk to retry (0-based)",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "expected_hash",
+            "in": "query",
+            "description": "Expected hash for validation (optional)",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Chunk retried successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetryChunkResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid chunk index, data, or hash mismatch"
+          },
+          "404": {
+            "description": "Session not found or expired"
+          },
+          "413": {
+            "description": "Chunk too large"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
       "post": {
         "tags": [
           "datasets"
@@ -4516,6 +4730,7 @@
         "tags": [
           "datasets"
         ],
+        "summary": "Update semantic/safety statuses for a dataset version (Tier 2).",
         "operationId": "update_dataset_safety",
         "parameters": [
           {
@@ -4604,6 +4819,7 @@
         "tags": [
           "datasets"
         ],
+        "summary": "Admin override for dataset trust_state.",
         "operationId": "override_dataset_trust",
         "parameters": [
           {
@@ -4780,6 +4996,57 @@
           },
           "404": {
             "description": "Dataset not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/v1/datasets/{dataset_id}/versions/{revision}": {
+      "get": {
+        "tags": [
+          "datasets"
+        ],
+        "summary": "Get a specific dataset version by ID or revision number.",
+        "description": "The `revision` parameter can be:\n- A version ID (UUID string)\n- A version number (integer, e.g., \"1\", \"2\", \"latest\")\n- \"latest\" to get the most recent version",
+        "operationId": "get_dataset_version",
+        "parameters": [
+          {
+            "name": "dataset_id",
+            "in": "path",
+            "description": "Dataset ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "revision",
+            "in": "path",
+            "description": "Version ID, version number, or 'latest'",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Dataset version details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetVersionDetailResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant isolation violation"
+          },
+          "404": {
+            "description": "Dataset or version not found"
           },
           "500": {
             "description": "Internal server error"
@@ -8303,10 +8570,12 @@
         },
         "responses": {
           "200": {
-            "description": "Routing debug info",
+            "description": "Routing debug info (not implemented)",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/NotImplementedResponse"
+                }
               }
             }
           },
@@ -8507,8 +8776,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {}
+                  "$ref": "#/components/schemas/RoutingHistoryResponse"
                 }
               }
             }
@@ -8581,6 +8849,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "force_incomplete",
+            "in": "query",
+            "description": "Allow export even with degraded RAG context",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -8599,6 +8876,16 @@
           },
           "404": {
             "description": "Run not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Precondition Failed - RAG context degraded",
             "content": {
               "application/json": {
                 "schema": {
@@ -9349,6 +9636,7 @@
         "tags": [
           "system"
         ],
+        "summary": "Get UMA memory stats",
         "operationId": "get_uma_memory",
         "responses": {
           "200": {
@@ -9637,11 +9925,25 @@
           "required": true
         },
         "responses": {
-          "201": {
-            "description": "Decision ingested successfully"
+          "200": {
+            "description": "Decision ingested successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdResponse"
+                }
+              }
+            }
           },
           "500": {
-            "description": "Failed to ingest decision"
+            "description": "Failed to ingest decision",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -9656,6 +9958,7 @@
         "tags": [
           "tenants"
         ],
+        "summary": "Hydrate tenant from bundle",
         "operationId": "hydrate_tenant_from_bundle",
         "requestBody": {
           "content": {
@@ -10687,9 +10990,10 @@
     "/v1/training/jobs/{job_id}/logs": {
       "get": {
         "tags": [
-          "system"
+          "training"
         ],
-        "summary": "Get training logs",
+        "summary": "Get training logs for a job",
+        "description": "Note: Training stdout/stderr logs are not currently persisted in the database.\nThis endpoint returns job status information. For training metrics (loss, accuracy, etc.),\nuse the `/v1/training/jobs/{job_id}/metrics` endpoint instead.",
         "operationId": "get_training_logs",
         "parameters": [
           {
@@ -10704,7 +11008,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Logs retrieved successfully",
+            "description": "Training job status (logs not persisted)",
             "content": {
               "application/json": {
                 "schema": {
@@ -10715,6 +11019,16 @@
                 }
               }
             }
+          },
+          "404": {
+            "description": "Training job not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -10722,9 +11036,9 @@
     "/v1/training/jobs/{job_id}/metrics": {
       "get": {
         "tags": [
-          "system"
+          "training"
         ],
-        "summary": "Get training metrics",
+        "summary": "Get training metrics for a job",
         "operationId": "get_training_metrics",
         "parameters": [
           {
@@ -10735,15 +11049,58 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "metric_name",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "Metrics retrieved successfully",
+            "description": "Training metrics (loss, accuracy, etc.)",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TrainingMetricsResponse"
+                  "$ref": "#/components/schemas/TrainingMetricsListResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Training job not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }
@@ -10885,21 +11242,21 @@
         "tags": [
           "training"
         ],
-        "summary": "Start adapter training session",
+        "summary": "Create a training session",
         "operationId": "create_training_session",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/StartTrainingRequest"
+                "$ref": "#/components/schemas/CreateTrainingJobRequest"
               }
             }
           },
           "required": true
         },
         "responses": {
-          "201": {
-            "description": "Training session started successfully",
+          "200": {
+            "description": "Training session created",
             "content": {
               "application/json": {
                 "schema": {
@@ -10965,13 +11322,13 @@
     "/v1/training/templates": {
       "get": {
         "tags": [
-          "system"
+          "training"
         ],
         "summary": "List training templates",
         "operationId": "list_training_templates",
         "responses": {
           "200": {
-            "description": "Training templates retrieved successfully",
+            "description": "List of training templates",
             "content": {
               "application/json": {
                 "schema": {
@@ -10989,7 +11346,7 @@
     "/v1/training/templates/{template_id}": {
       "get": {
         "tags": [
-          "system"
+          "training"
         ],
         "summary": "Get a specific training template",
         "operationId": "get_training_template",
@@ -10997,7 +11354,7 @@
           {
             "name": "template_id",
             "in": "path",
-            "description": "Training template ID",
+            "description": "Template ID",
             "required": true,
             "schema": {
               "type": "string"
@@ -11006,7 +11363,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Training template retrieved successfully",
+            "description": "Training template details",
             "content": {
               "application/json": {
                 "schema": {
@@ -11014,6 +11371,9 @@
                 }
               }
             }
+          },
+          "404": {
+            "description": "Template not found"
           }
         }
       }
@@ -13299,31 +13659,45 @@
       },
       "AneMemorySummary": {
         "type": "object",
-        "description": "Apple Neural Engine memory stats.",
-        "required": [
-          "allocated_mb",
-          "used_mb",
-          "available_mb",
-          "usage_pct"
-        ],
+        "description": "Apple Neural Engine memory stats.\n\nWhen `availability` is `Unavailable`, all numeric fields will be `None`.\nThe UI must display \"Unavailable\" rather than zeros in this case.",
         "properties": {
           "allocated_mb": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int64",
+            "description": "Allocated ANE memory in MB (None if unavailable)",
             "minimum": 0
           },
+          "availability": {
+            "$ref": "#/components/schemas/DataAvailability",
+            "description": "Whether ANE metrics are actually available"
+          },
           "available_mb": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int64",
+            "description": "Available ANE memory in MB (None if unavailable)",
             "minimum": 0
           },
           "usage_pct": {
-            "type": "number",
-            "format": "float"
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float",
+            "description": "ANE usage percentage (None if unavailable)"
           },
           "used_mb": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int64",
+            "description": "Used ANE memory in MB (None if unavailable)",
             "minimum": 0
           }
         }
@@ -14316,6 +14690,7 @@
       },
       "BootstrapRequest": {
         "type": "object",
+        "description": "Request for bootstrapping initial admin user",
         "required": [
           "email",
           "password",
@@ -14335,6 +14710,7 @@
       },
       "BootstrapResponse": {
         "type": "object",
+        "description": "Response from bootstrap endpoint",
         "required": [
           "user_id",
           "message"
@@ -15091,6 +15467,13 @@
           "last_activity_at"
         ],
         "properties": {
+          "codebase_adapter_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Exclusive codebase adapter bound to this session (from migration 0262)"
+          },
           "collection_id": {
             "type": [
               "string",
@@ -15396,6 +15779,50 @@
           }
         }
       },
+      "CodebaseVersionsResponse": {
+        "type": "object",
+        "description": "Response for listing versions by codebase",
+        "required": [
+          "codebase_id",
+          "versions",
+          "total_count"
+        ],
+        "properties": {
+          "codebase_id": {
+            "type": "string",
+            "description": "The canonical codebase identifier (normalized repo identifier or source location)"
+          },
+          "dataset_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Dataset ID if a codebase dataset exists"
+          },
+          "repo_slug": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Repository slug for identifying the source repository (e.g., \"org/repo-name\")"
+          },
+          "schema_version": {
+            "type": "string"
+          },
+          "total_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total count of versions (for pagination)"
+          },
+          "versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatasetVersionSummary"
+            },
+            "description": "List of versions for this codebase"
+          }
+        }
+      },
       "CollectionDetailResponse": {
         "type": "object",
         "description": "Collection detail response (includes documents)",
@@ -15665,8 +16092,16 @@
               "null"
             ],
             "description": "Dataset name (optional, defaults to file name)"
+          },
+          "workspace_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional workspace ID for tenant isolation (should match initiate request)"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "CompleteChunkedUploadResponse": {
         "type": "object",
@@ -15688,9 +16123,16 @@
             "type": "string",
             "description": "Created dataset ID"
           },
+          "dataset_version_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The dataset version ID created for this upload"
+          },
           "hash": {
             "type": "string",
-            "description": "Final BLAKE3 hash of assembled file"
+            "description": "Dataset hash (manifest-derived BLAKE3)"
           },
           "name": {
             "type": "string",
@@ -15704,6 +16146,13 @@
             "type": "integer",
             "format": "int64",
             "description": "Total file size in bytes"
+          },
+          "workspace_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Workspace ID if dataset was scoped to a workspace"
           }
         }
       },
@@ -16437,6 +16886,7 @@
       },
       "CreateDatasetVersionRequest": {
         "type": "object",
+        "description": "Request to create a dataset version",
         "properties": {
           "manifest_json": {},
           "manifest_path": {
@@ -16451,10 +16901,12 @@
               "null"
             ]
           }
-        }
+        },
+        "additionalProperties": false
       },
       "CreateDatasetVersionResponse": {
         "type": "object",
+        "description": "Response from creating a dataset version",
         "required": [
           "dataset_id",
           "dataset_version_id",
@@ -16750,6 +17202,52 @@
           }
         }
       },
+      "CreateTrainingJobRequest": {
+        "type": "object",
+        "description": "Minimal training job creation request (workspace-scoped)",
+        "required": [
+          "workspace_id",
+          "base_model_id",
+          "dataset_id",
+          "params"
+        ],
+        "properties": {
+          "adapter_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional explicit adapter name; autogenerated when omitted"
+          },
+          "base_model_id": {
+            "type": "string",
+            "description": "Base model to tune against"
+          },
+          "dataset_id": {
+            "type": "string",
+            "description": "Dataset to train on (version will be resolved automatically)"
+          },
+          "dataset_version_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional dataset version override (defaults to latest)"
+          },
+          "lora_tier": {
+            "type": "string",
+            "description": "Optional LoRA tier hint"
+          },
+          "params": {
+            "$ref": "#/components/schemas/TrainingConfigRequest",
+            "description": "Training hyperparameters"
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "Workspace identifier used for scoping and provenance"
+          }
+        }
+      },
       "CreateWorkspaceRequest": {
         "type": "object",
         "required": [
@@ -16803,6 +17301,15 @@
             "type": "string"
           }
         }
+      },
+      "DataAvailability": {
+        "type": "string",
+        "description": "Data availability indicator for telemetry metrics.\n\nUsed to distinguish between real measured data, unavailable data, and stale data.\nThis prevents the UI from displaying zeros or fabricated estimates as if they were real.",
+        "enum": [
+          "available",
+          "unavailable",
+          "stale"
+        ]
       },
       "DataLineageMode": {
         "type": "string",
@@ -17093,6 +17600,113 @@
           "skipped"
         ]
       },
+      "DatasetVersionDetailResponse": {
+        "type": "object",
+        "description": "Response for a single dataset version with full details",
+        "required": [
+          "dataset_id",
+          "dataset_version_id",
+          "version_number",
+          "hash_b3",
+          "storage_path",
+          "validation_status",
+          "pii_status",
+          "toxicity_status",
+          "leak_status",
+          "anomaly_status",
+          "overall_safety_status",
+          "trust_state",
+          "overall_trust_status",
+          "created_at"
+        ],
+        "properties": {
+          "anomaly_status": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "created_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dataset_id": {
+            "type": "string"
+          },
+          "dataset_version_id": {
+            "type": "string"
+          },
+          "hash_b3": {
+            "type": "string"
+          },
+          "leak_status": {
+            "type": "string"
+          },
+          "locked_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "manifest_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "overall_safety_status": {
+            "type": "string"
+          },
+          "overall_trust_status": {
+            "type": "string"
+          },
+          "pii_status": {
+            "type": "string"
+          },
+          "schema_version": {
+            "type": "string"
+          },
+          "sensitivity": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "storage_path": {
+            "type": "string"
+          },
+          "toxicity_status": {
+            "type": "string"
+          },
+          "trust_state": {
+            "type": "string"
+          },
+          "validation_errors": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "validation_status": {
+            "type": "string"
+          },
+          "version_label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version_number": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "DatasetVersionSelection": {
         "type": "object",
         "description": "Dataset version selector with optional sampling weight (API surface).",
@@ -17129,6 +17743,13 @@
               "string",
               "null"
             ]
+          },
+          "repo_slug": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Repository slug for identifying the source repository (e.g., \"org/repo-name\")"
           },
           "storage_path": {
             "type": [
@@ -17295,7 +17916,7 @@
           },
           "require_seed": {
             "type": "boolean",
-            "description": "Whether seed is required in strict mode.\nWhen true and mode is \"strict\", inference requests without seed will be rejected."
+            "description": "Whether seed is required in strict mode.\nWhen true and mode is \"strict\", inference requests without a valid seed\nwill be rejected as determinism violations (no partial result)."
           }
         }
       },
@@ -18074,7 +18695,8 @@
           "BOOT_NO_MODELS",
           "BOOT_DEPENDENCY_TIMEOUT",
           "BOOT_BACKGROUND_TASK_FAILED",
-          "BOOT_CONFIG_INVALID"
+          "BOOT_CONFIG_INVALID",
+          "BOOT_BOOTSTRAP_FAILED"
         ]
       },
       "FeatureVector": {
@@ -18724,6 +19346,19 @@
           }
         }
       },
+      "IdResponse": {
+        "type": "object",
+        "description": "Simple ID response for ingestion endpoints",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Created resource ID"
+          }
+        }
+      },
       "ImportModelRequest": {
         "type": "object",
         "required": [
@@ -18917,7 +19552,7 @@
               "null"
             ],
             "format": "int64",
-            "description": "Random seed for deterministic sampling.",
+            "description": "Random seed for deterministic sampling.\n\nRequired when the effective determinism mode is strict and tenant policy\nsets `determinism.require_seed=true`. Missing or invalid seeds are rejected\nas determinism violations (no partial result).",
             "minimum": 0
           },
           "session_id": {
@@ -19214,7 +19849,10 @@
           "database_unavailable",
           "worker_missing",
           "no_model_loaded",
-          "active_model_mismatch"
+          "active_model_mismatch",
+          "telemetry_degraded",
+          "system_booting",
+          "boot_failed"
         ]
       },
       "InferenceEvidence": {
@@ -19233,6 +19871,20 @@
           "created_at"
         ],
         "properties": {
+          "adapter_ids": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "JSON array of adapter IDs used for inference"
+          },
+          "base_model_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Base model ID used for inference (model context tracking)"
+          },
           "chunk_hash": {
             "type": "string"
           },
@@ -19256,6 +19908,13 @@
           },
           "inference_id": {
             "type": "string"
+          },
+          "manifest_hash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Manifest hash for deterministic provenance"
           },
           "message_id": {
             "type": [
@@ -19530,8 +20189,16 @@
             "format": "int64",
             "description": "Total file size in bytes",
             "minimum": 0
+          },
+          "workspace_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional workspace ID for tenant isolation"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "InitiateChunkedUploadResponse": {
         "type": "object",
@@ -20268,6 +20935,34 @@
           }
         }
       },
+      "ListUploadSessionsResponse": {
+        "type": "object",
+        "description": "Response for listing upload sessions",
+        "required": [
+          "sessions",
+          "total_count",
+          "max_sessions"
+        ],
+        "properties": {
+          "max_sessions": {
+            "type": "integer",
+            "description": "Maximum allowed concurrent sessions",
+            "minimum": 0
+          },
+          "sessions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UploadSessionSummary"
+            },
+            "description": "List of active upload sessions"
+          },
+          "total_count": {
+            "type": "integer",
+            "description": "Total number of active sessions",
+            "minimum": 0
+          }
+        }
+      },
       "LoadAverageInfo": {
         "type": "object",
         "description": "Load average information",
@@ -20423,6 +21118,7 @@
       },
       "LogoutResponse": {
         "type": "object",
+        "description": "Response from logout endpoint",
         "required": [
           "message"
         ],
@@ -20496,31 +21192,45 @@
       },
       "MemoryRegion": {
         "type": "object",
-        "description": "Memory region information",
-        "required": [
-          "allocated_mb",
-          "used_mb",
-          "available_mb",
-          "usage_percent"
-        ],
+        "description": "Memory region information\n\nWhen `availability` is `Unavailable`, all numeric fields will be `None`.\nThe UI must display \"Unavailable\" rather than zeros in this case.",
         "properties": {
           "allocated_mb": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int64",
+            "description": "Allocated memory in MB (None if unavailable)",
             "minimum": 0
           },
+          "availability": {
+            "$ref": "#/components/schemas/DataAvailability",
+            "description": "Whether this memory region's metrics are actually available"
+          },
           "available_mb": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int64",
+            "description": "Available memory in MB (None if unavailable)",
             "minimum": 0
           },
           "usage_percent": {
-            "type": "number",
-            "format": "float"
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float",
+            "description": "Usage percentage (None if unavailable)"
           },
           "used_mb": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int64",
+            "description": "Used memory in MB (None if unavailable)",
             "minimum": 0
           }
         }
@@ -21490,6 +22200,24 @@
             "format": "int64",
             "description": "System uptime in seconds",
             "minimum": 0
+          }
+        }
+      },
+      "NotImplementedResponse": {
+        "type": "object",
+        "description": "Response for not-implemented endpoints",
+        "required": [
+          "status",
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "Description message"
+          },
+          "status": {
+            "type": "string",
+            "description": "Status indicating not implemented"
           }
         }
       },
@@ -23140,6 +23868,7 @@
       },
       "RefreshResponse": {
         "type": "object",
+        "description": "Response from token refresh endpoint",
         "required": [
           "token",
           "expires_at"
@@ -23757,6 +24486,80 @@
           }
         }
       },
+      "RetryChunkQuery": {
+        "type": "object",
+        "description": "Query parameters for retrying a chunk upload",
+        "required": [
+          "chunk_index"
+        ],
+        "properties": {
+          "chunk_index": {
+            "type": "integer",
+            "description": "Index of the chunk to retry (0-based)",
+            "minimum": 0
+          },
+          "expected_hash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Expected hash for validation (optional)"
+          }
+        }
+      },
+      "RetryChunkResponse": {
+        "type": "object",
+        "description": "Response from retrying a chunk upload",
+        "required": [
+          "session_id",
+          "chunk_index",
+          "chunk_hash",
+          "chunks_received",
+          "expected_chunks",
+          "is_complete",
+          "was_retry"
+        ],
+        "properties": {
+          "chunk_hash": {
+            "type": "string",
+            "description": "BLAKE3 hash of the new chunk"
+          },
+          "chunk_index": {
+            "type": "integer",
+            "description": "Chunk index that was retried",
+            "minimum": 0
+          },
+          "chunks_received": {
+            "type": "integer",
+            "description": "Total chunks received so far",
+            "minimum": 0
+          },
+          "expected_chunks": {
+            "type": "integer",
+            "description": "Total expected chunks",
+            "minimum": 0
+          },
+          "is_complete": {
+            "type": "boolean",
+            "description": "Is upload complete (all chunks received)?"
+          },
+          "previous_hash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Previous hash if this was replacing an existing chunk"
+          },
+          "session_id": {
+            "type": "string",
+            "description": "Session ID"
+          },
+          "was_retry": {
+            "type": "boolean",
+            "description": "Whether this was actually a retry (chunk existed before)"
+          }
+        }
+      },
       "RollbackRequest": {
         "type": "object",
         "required": [
@@ -23975,7 +24778,7 @@
             "$ref": "#/components/schemas/RouterModelType",
             "description": "Model type for this decision (dense vs MoE)"
           },
-          "policy_mask_digest": {
+          "policy_mask_digest_b3": {
             "type": "string"
           },
           "policy_overrides_applied": {
@@ -24062,7 +24865,7 @@
             "format": "int32",
             "minimum": 0
           },
-          "policy_mask_digest": {
+          "policy_mask_digest_b3": {
             "type": "string"
           },
           "policy_overrides_applied": {
@@ -24591,6 +25394,20 @@
             "items": {
               "$ref": "#/components/schemas/RoutingDecisionResponse"
             }
+          }
+        }
+      },
+      "RoutingHistoryResponse": {
+        "type": "object",
+        "description": "Empty routing history response (placeholder)",
+        "required": [
+          "entries"
+        ],
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {},
+            "description": "History entries (currently empty)"
           }
         }
       },
@@ -25405,6 +26222,7 @@
       },
       "SessionInfo": {
         "type": "object",
+        "description": "Information about an active session",
         "required": [
           "jti",
           "created_at",
@@ -25552,6 +26370,7 @@
       },
       "SessionsResponse": {
         "type": "object",
+        "description": "Response listing user's active sessions",
         "required": [
           "sessions"
         ],
@@ -26438,7 +27257,7 @@
               "null"
             ],
             "format": "int64",
-            "description": "Random seed for reproducibility",
+            "description": "Random seed for reproducibility.\n\nRequired when the effective determinism mode is strict and tenant policy\nsets `determinism.require_seed=true`. Missing or invalid seeds are rejected\nas determinism violations (no partial result).",
             "minimum": 0
           },
           "session_id": {
@@ -27666,12 +28485,8 @@
           "id",
           "adapter_name",
           "status",
-          "progress_pct",
-          "current_epoch",
           "total_epochs",
-          "current_loss",
           "learning_rate",
-          "tokens_per_second",
           "created_at"
         ],
         "properties": {
@@ -27709,14 +28524,16 @@
               "string",
               "null"
             ],
-            "description": "Alias of `package_hash_b3` for clients expecting an \"artifact hash\" surface."
+            "description": "Alias of `package_hash_b3` for clients expecting an \"artifact hash\" surface.\n\n**Deprecated since 1.0.0**: Use `package_hash_b3` instead.\n- **Removal timeline**: Will be removed in version 2.0.0.\n- **Migration**: Replace `artifact_hash_b3` references with `package_hash_b3`.\n- Both fields currently return the same value for backward compatibility.",
+            "deprecated": true
           },
           "artifact_path": {
             "type": [
               "string",
               "null"
             ],
-            "description": "Alias of `aos_path` for clients expecting an \"artifact path\" surface."
+            "description": "Alias of `aos_path` for clients expecting an \"artifact path\" surface.\n\n**Deprecated since 1.0.0**: Use `aos_path` instead.\n- **Removal timeline**: Will be removed in version 2.0.0.\n- **Migration**: Replace `artifact_path` references with `aos_path`.\n- Both fields currently return the same value for backward compatibility.",
+            "deprecated": true
           },
           "backend": {
             "type": [
@@ -27853,13 +28670,21 @@
             "type": "string"
           },
           "current_epoch": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
+            "description": "Current training epoch (0-indexed).\nNone if progress data is not yet available.",
             "minimum": 0
           },
           "current_loss": {
-            "type": "number",
-            "format": "float"
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float",
+            "description": "Current training loss value.\nNone if progress data is not yet available."
           },
           "data_lineage_mode": {
             "oneOf": [
@@ -27994,7 +28819,8 @@
           },
           "learning_rate": {
             "type": "number",
-            "format": "float"
+            "format": "float",
+            "description": "Current learning rate"
           },
           "lora_tier": {
             "type": "string",
@@ -28011,6 +28837,13 @@
               "string",
               "null"
             ]
+          },
+          "manifest_hash_source": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Indicates the source of manifest_hash_b3: \"manifest\" or \"package_fallback\""
           },
           "manifest_per_layer_hashes": {
             "type": [
@@ -28060,8 +28893,12 @@
             ]
           },
           "progress_pct": {
-            "type": "number",
-            "format": "float"
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float",
+            "description": "Training progress percentage (0.0-100.0).\nNone if progress data is not yet available (distinguishes from 0% progress)."
           },
           "repo_id": {
             "type": [
@@ -28116,7 +28953,8 @@
             ]
           },
           "status": {
-            "type": "string"
+            "type": "string",
+            "description": "Current training status (pending, running, completed, failed, cancelled)"
           },
           "synthetic_mode": {
             "type": "boolean"
@@ -28141,8 +28979,12 @@
             "format": "float"
           },
           "tokens_per_second": {
-            "type": "number",
-            "format": "float"
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float",
+            "description": "Tokens processed per second.\nNone if progress data is not yet available."
           },
           "tokens_processed": {
             "type": [
@@ -28155,6 +28997,7 @@
           "total_epochs": {
             "type": "integer",
             "format": "int32",
+            "description": "Total number of training epochs",
             "minimum": 0
           },
           "training_seed": {
@@ -28179,6 +29022,77 @@
               "null"
             ],
             "description": "BLAKE3 hash of adapter weights (for verification)"
+          }
+        }
+      },
+      "TrainingMetricEntry": {
+        "type": "object",
+        "description": "Individual training metric entry for time-series data\n\nNote: `learning_rate` is optional because per-step LR is not currently stored\nin the training_metrics table. It's available at job level via TrainingProgress.\n`tokens_processed` is populated when available from the \"tokens_processed\" metric.",
+        "required": [
+          "step",
+          "loss",
+          "epoch",
+          "timestamp"
+        ],
+        "properties": {
+          "epoch": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Training epoch"
+          },
+          "learning_rate": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Learning rate at this step (optional - not stored per-step in current schema)"
+          },
+          "loss": {
+            "type": "number",
+            "format": "double",
+            "description": "Loss value at this step"
+          },
+          "step": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Metric step (training iteration)"
+          },
+          "timestamp": {
+            "type": "string",
+            "description": "Timestamp of this metric"
+          },
+          "tokens_processed": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Tokens processed up to this point"
+          }
+        }
+      },
+      "TrainingMetricsListResponse": {
+        "type": "object",
+        "description": "Training metrics list response for time-series metrics endpoint",
+        "required": [
+          "job_id",
+          "metrics"
+        ],
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "description": "Training job ID"
+          },
+          "metrics": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TrainingMetricEntry"
+            },
+            "description": "Time-series metrics"
+          },
+          "schema_version": {
+            "type": "string"
           }
         }
       },
@@ -28395,6 +29309,7 @@
       },
       "TrustOverrideResponse": {
         "type": "object",
+        "description": "Response from trust override",
         "required": [
           "dataset_id",
           "dataset_version_id",
@@ -28664,31 +29579,45 @@
       },
       "UmaMemorySummary": {
         "type": "object",
-        "description": "UMA headroom summary.",
-        "required": [
-          "total_mb",
-          "used_mb",
-          "available_mb",
-          "headroom_pct"
-        ],
+        "description": "UMA headroom summary.\n\nWhen `availability` is `Unavailable`, all numeric fields will be `None`.\nThe UI must display \"Unavailable\" rather than zeros in this case.",
         "properties": {
+          "availability": {
+            "$ref": "#/components/schemas/DataAvailability",
+            "description": "Whether UMA metrics are actually available"
+          },
           "available_mb": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int64",
+            "description": "Available UMA memory in MB (None if unavailable)",
             "minimum": 0
           },
           "headroom_pct": {
-            "type": "number",
-            "format": "float"
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float",
+            "description": "UMA headroom percentage (None if unavailable)"
           },
           "total_mb": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int64",
+            "description": "Total UMA memory in MB (None if unavailable)",
             "minimum": 0
           },
           "used_mb": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int64",
+            "description": "Used UMA memory in MB (None if unavailable)",
             "minimum": 0
           }
         }
@@ -28772,6 +29701,7 @@
       },
       "UpdateDatasetSafetyResponse": {
         "type": "object",
+        "description": "Response from updating dataset safety status",
         "required": [
           "dataset_id",
           "dataset_version_id",
@@ -28972,6 +29902,13 @@
           "dataset_id": {
             "type": "string"
           },
+          "dataset_version_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The dataset version ID created for this upload"
+          },
           "description": {
             "type": [
               "string",
@@ -29069,6 +30006,66 @@
               "minimum": 0
             },
             "description": "List of chunk indices that have been received"
+          },
+          "session_id": {
+            "type": "string",
+            "description": "Session ID"
+          },
+          "total_size": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total file size in bytes",
+            "minimum": 0
+          }
+        }
+      },
+      "UploadSessionSummary": {
+        "type": "object",
+        "description": "Summary of an upload session for listing",
+        "required": [
+          "session_id",
+          "file_name",
+          "total_size",
+          "chunks_received",
+          "expected_chunks",
+          "progress_percent",
+          "created_at",
+          "age_seconds",
+          "is_expired"
+        ],
+        "properties": {
+          "age_seconds": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Age of the session in seconds",
+            "minimum": 0
+          },
+          "chunks_received": {
+            "type": "integer",
+            "description": "Number of chunks received",
+            "minimum": 0
+          },
+          "created_at": {
+            "type": "string",
+            "description": "Session creation timestamp (RFC3339)"
+          },
+          "expected_chunks": {
+            "type": "integer",
+            "description": "Total expected chunks",
+            "minimum": 0
+          },
+          "file_name": {
+            "type": "string",
+            "description": "Original file name"
+          },
+          "is_expired": {
+            "type": "boolean",
+            "description": "Whether the session has expired"
+          },
+          "progress_percent": {
+            "type": "number",
+            "format": "float",
+            "description": "Upload progress percentage"
           },
           "session_id": {
             "type": "string",

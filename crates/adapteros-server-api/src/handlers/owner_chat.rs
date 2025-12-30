@@ -170,6 +170,7 @@ pub async fn handle_owner_chat(
                 metadata_json: Some(r#"{"source_type":"owner_system"}"#.to_string()),
                 tags_json: None,
                 pinned_adapter_ids: None,
+                codebase_adapter_id: None,
             };
             state.db.create_chat_session(params).await.map_err(|e| {
                 (

@@ -97,6 +97,7 @@ async fn delete_endpoints_succeed_and_404() {
             None,
             Some("ready"),
             Some("hash"),
+            None,
         )
         .await
         .expect("create dataset");

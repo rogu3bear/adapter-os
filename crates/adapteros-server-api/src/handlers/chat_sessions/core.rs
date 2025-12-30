@@ -246,6 +246,7 @@ pub async fn create_chat_session(
         metadata_json: req.metadata_json,
         tags_json,
         pinned_adapter_ids: None, // Inherits from tenant default
+        codebase_adapter_id: None,
     };
 
     // Create session in database
@@ -534,6 +535,7 @@ pub async fn update_chat_session(
                 source_type: req.source_type,
                 metadata_json: req.metadata_json,
                 tags_json: req.tags_json,
+                codebase_adapter_id: None, // Preserve existing binding
             },
         )
         .await

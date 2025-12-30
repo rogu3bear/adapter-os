@@ -603,6 +603,58 @@ impl Default for CryptoState {
     }
 }
 
+/// Phases for dataset ingestion progress tracking.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum IngestionPhase {
+    Scanning,
+    Parsing,
+    Analyzing,
+    Generating,
+    Uploading,
+    Validating,
+    ComputingStatistics,
+    Completed,
+    Failed,
+}
+
+impl std::fmt::Display for IngestionPhase {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let label = match self {
+            IngestionPhase::Scanning => "scanning",
+            IngestionPhase::Parsing => "parsing",
+            IngestionPhase::Analyzing => "analyzing",
+            IngestionPhase::Generating => "generating",
+            IngestionPhase::Uploading => "uploading",
+            IngestionPhase::Validating => "validating",
+            IngestionPhase::ComputingStatistics => "computing_statistics",
+            IngestionPhase::Completed => "completed",
+            IngestionPhase::Failed => "failed",
+        };
+        write!(f, "{}", label)
+    }
+}
+
+/// Session-based dataset ingestion progress event for SSE streaming.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SessionProgressEvent {
+    pub session_id: String,
+    pub dataset_id: Option<String>,
+    pub phase: IngestionPhase,
+    pub sub_phase: Option<String>,
+    pub current_file: Option<String>,
+    pub percentage_complete: f32, // 0.0 to 100.0
+    pub phase_percentage: Option<f32>,
+    pub total_files: Option<i32>,
+    pub files_processed: Option<i32>,
+    pub total_bytes: Option<u64>,
+    pub bytes_processed: Option<u64>,
+    pub message: String,
+    pub error: Option<String>,
+    pub timestamp: String, // ISO8601 format
+    pub metadata: Option<serde_json::Value>,
+}
+
 /// Dataset progress event for SSE streaming
 #[derive(Clone, Debug, Serialize)]
 pub struct DatasetProgressEvent {
@@ -664,6 +716,8 @@ pub struct AppState {
     pub registry: Option<Arc<Registry>>,
     // Dataset progress SSE channel
     pub dataset_progress_tx: Option<Arc<broadcast::Sender<DatasetProgressEvent>>>,
+    // Session progress SSE channel
+    pub session_progress_tx: Option<Arc<broadcast::Sender<SessionProgressEvent>>>,
     // Signal broadcast channels for SSE streaming
     pub training_signal_tx: Arc<broadcast::Sender<Signal>>,
     pub discovery_signal_tx: Arc<broadcast::Sender<Signal>>,

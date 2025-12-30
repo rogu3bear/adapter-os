@@ -203,6 +203,7 @@ impl DefaultTrainingDatasetService {
                 None,
                 Some("ready"),
                 Some(&content_hash),
+                None,
             )
             .await
             .map_err(|e| db_error(format!("Failed to create dataset record: {}", e)))?;
@@ -280,6 +281,32 @@ impl DefaultTrainingDatasetService {
             .await
             .map_err(|e| db_error(format!("Failed to update validation status: {}", e)))?;
 
+        // Create initial dataset version
+        let dataset_version_id = self
+            .state
+            .db
+            .create_training_dataset_version(
+                &dataset_id,
+                Some(&claims.tenant_id),
+                None, // version_label
+                &dataset_path.to_string_lossy(),
+                &content_hash,
+                None, // manifest_path
+                None, // manifest_json
+                Some(&claims.sub),
+            )
+            .await
+            .map_err(|e| db_error(format!("Failed to create dataset version: {}", e)))?;
+
+        // Derive trust_state from the newly created version for consistency with list/get endpoints
+        let trust_state = self
+            .state
+            .db
+            .get_latest_trusted_dataset_version_for_dataset(&dataset_id)
+            .await
+            .map_err(|e| db_error(format!("Failed to get trust state: {}", e)))?
+            .map(|(_, trust)| trust);
+
         let response_validation_status = map_validation_status(&validation_status);
         let response_validation_errors = map_validation_errors(validation_errors);
         let now = chrono::Utc::now().to_rfc3339();
@@ -315,7 +342,7 @@ impl DefaultTrainingDatasetService {
         Ok(DatasetResponse {
             schema_version: "1.0".to_string(),
             dataset_id,
-            dataset_version_id: None,
+            dataset_version_id: Some(dataset_version_id),
             name: dataset_name,
             description,
             file_count: 1,
@@ -328,7 +355,7 @@ impl DefaultTrainingDatasetService {
             workspace_id: None,
             validation_status: response_validation_status,
             validation_errors: response_validation_errors,
-            trust_state: None,
+            trust_state,
             created_by: claims.sub.clone(),
             created_at: now.clone(),
             updated_at: now,

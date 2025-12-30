@@ -190,6 +190,12 @@ pub async fn list_adapters(
             drift_loss_metric: None,
             drift_slice_size: None,
             drift_slice_offset: None,
+            // Codebase adapter fields
+            adapter_type: None,
+            base_adapter_id: None,
+            stream_session_id: None,
+            versioning_threshold: None,
+            coreml_package_hash: None,
         });
     }
 
@@ -1303,5 +1309,11 @@ pub async fn promote_adapter_version_handler(
         drift_loss_metric: None,
         drift_slice_size: None,
         drift_slice_offset: None,
+        // Codebase adapter fields
+        adapter_type: None,
+        base_adapter_id: None,
+        stream_session_id: None,
+        versioning_threshold: None,
+        coreml_package_hash: None,
     }))
 }

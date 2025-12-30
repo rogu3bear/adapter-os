@@ -244,6 +244,7 @@ impl StorageReconciler {
     }
 
     /// Check a single file's existence and integrity
+    #[allow(clippy::too_many_arguments)]
     async fn check_file_integrity(
         &self,
         path: &Path,
@@ -413,7 +414,7 @@ impl StorageReconciler {
         for ds in datasets {
             let files: Vec<DatasetFile> = self.db.get_dataset_files(&ds.id).await?;
 
-            for f in files {
+            for f in &files {
                 report.dataset_files_checked += 1;
                 let path = PathBuf::from(&f.file_path);
                 db_paths.insert(path.clone());
@@ -471,65 +472,27 @@ impl StorageReconciler {
             let is_deleted = v.soft_deleted_at.is_some();
 
             let path = PathBuf::from(&v.storage_path);
-            if !path.exists() {
-                if is_deleted {
-                    // Soft-deleted version missing file is expected
+            if is_deleted {
+                if !path.exists() {
                     debug!(
                         version_id = %v.id,
                         "Soft-deleted dataset version file missing (expected)"
                     );
-                    continue;
                 }
-
-                report.missing += 1;
-                self.db
-                    .record_storage_reconciliation_issue(StorageIssueParams {
-                        tenant_id: v.tenant_id.as_deref(),
-                        owner_type: "dataset_version",
-                        owner_id: Some(&v.dataset_id),
-                        version_id: Some(&v.id),
-                        issue_type: "missing_file",
-                        severity: "error",
-                        path: &path.to_string_lossy(),
-                        expected_hash: Some(&v.hash_b3),
-                        actual_hash: None,
-                        message: Some("Dataset version file missing from storage"),
-                    })
-                    .await?;
                 continue;
             }
 
-            // Verify hash if configured
-            if self.config.verify_hashes && !is_deleted {
-                match self.hash_path(&path).await {
-                    Ok(actual_hash) => {
-                        if actual_hash != v.hash_b3 {
-                            report.hash_mismatch += 1;
-                            self.db
-                                .record_storage_reconciliation_issue(StorageIssueParams {
-                                    tenant_id: v.tenant_id.as_deref(),
-                                    owner_type: "dataset_version",
-                                    owner_id: Some(&v.dataset_id),
-                                    version_id: Some(&v.id),
-                                    issue_type: "hash_mismatch",
-                                    severity: "error",
-                                    path: &path.to_string_lossy(),
-                                    expected_hash: Some(&v.hash_b3),
-                                    actual_hash: Some(&actual_hash),
-                                    message: Some("Dataset version hash mismatch"),
-                                })
-                                .await?;
-                        }
-                    }
-                    Err(e) => {
-                        warn!(
-                            version_id = %v.id,
-                            error = %e,
-                            "Failed to hash dataset version file"
-                        );
-                    }
-                }
-            }
+            self.check_file_integrity(
+                &path,
+                &v.hash_b3,
+                None,
+                v.tenant_id.as_deref(),
+                "dataset_version",
+                &v.dataset_id,
+                Some(&v.id),
+                report,
+            )
+            .await?;
         }
 
         Ok(())
@@ -826,6 +789,7 @@ mod tests {
                 None,
                 Some("ready"),
                 Some("hash"),
+                None,
             )
             .await
             .unwrap();
@@ -867,6 +831,7 @@ mod tests {
                 None,
                 Some("ready"),
                 Some("hash"),
+                None,
             )
             .await
             .unwrap();
@@ -929,6 +894,7 @@ mod tests {
                 None,
                 Some("ready"),
                 Some("hash"),
+                None,
             )
             .await
             .unwrap();
@@ -991,6 +957,7 @@ mod tests {
                 None,
                 Some("ready"),
                 Some("hash"),
+                None,
             )
             .await
             .unwrap();
@@ -1051,6 +1018,7 @@ mod tests {
                 None,
                 Some("ready"),
                 Some("hash"),
+                None,
             )
             .await
             .unwrap();

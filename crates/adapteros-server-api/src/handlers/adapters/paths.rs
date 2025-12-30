@@ -1,9 +1,9 @@
 use adapteros_core::adapter_repo_paths::{
-    resolve_adapter_roots_from_strings, AdapterPaths, ENV_ADAPTERS_DIR_COMPAT,
+    resolve_adapter_roots_from_strings, RepoAdapterPaths, ENV_ADAPTERS_DIR_COMPAT,
 };
 use std::env;
 
-pub fn resolve_adapter_roots(state: &crate::state::AppState) -> AdapterPaths {
+pub fn resolve_adapter_roots(state: &crate::state::AppState) -> RepoAdapterPaths {
     let repo_root = env::var("AOS_ADAPTERS_ROOT")
         .ok()
         .or_else(|| env::var(ENV_ADAPTERS_DIR_COMPAT).ok());

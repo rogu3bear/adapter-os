@@ -67,8 +67,13 @@ async fn test_archived_adapter_not_loadable() -> Result<()> {
     assert!(loadable, "Adapter should be loadable before archiving");
 
     // Archive the adapter
-    db.archive_adapter("adapter-to-archive", "test_user", "Test archival")
-        .await?;
+    db.archive_adapter(
+        "tenant-archive-test",
+        "adapter-to-archive",
+        "test_user",
+        "Test archival",
+    )
+    .await?;
 
     // Verify adapter is no longer loadable
     let loadable_after = db.is_adapter_loadable("adapter-to-archive").await?;
@@ -120,15 +125,21 @@ async fn test_unarchived_adapter_becomes_loadable() -> Result<()> {
     .await?;
 
     // Archive the adapter
-    db.archive_adapter("adapter-to-unarchive", "test_user", "Temporary archival")
-        .await?;
+    db.archive_adapter(
+        "tenant-unarchive-test",
+        "adapter-to-unarchive",
+        "test_user",
+        "Temporary archival",
+    )
+    .await?;
 
     // Verify adapter is not loadable
     let loadable = db.is_adapter_loadable("adapter-to-unarchive").await?;
     assert!(!loadable, "Adapter should NOT be loadable after archiving");
 
     // Unarchive the adapter
-    db.unarchive_adapter("adapter-to-unarchive").await?;
+    db.unarchive_adapter("tenant-unarchive-test", "adapter-to-unarchive")
+        .await?;
 
     // Verify adapter is loadable again
     let loadable_after = db.is_adapter_loadable("adapter-to-unarchive").await?;
@@ -172,11 +183,17 @@ async fn test_purged_adapter_not_loadable() -> Result<()> {
     create_test_adapter(&db, "adapter-to-purge", "tenant-purge-test", "Test Adapter").await?;
 
     // Archive the adapter first (required before purging)
-    db.archive_adapter("adapter-to-purge", "test_user", "Pre-purge archival")
-        .await?;
+    db.archive_adapter(
+        "tenant-purge-test",
+        "adapter-to-purge",
+        "test_user",
+        "Pre-purge archival",
+    )
+    .await?;
 
     // Mark adapter as purged (simulates GC)
-    db.mark_adapter_purged("adapter-to-purge").await?;
+    db.mark_adapter_purged("tenant-purge-test", "adapter-to-purge")
+        .await?;
 
     // Verify adapter is not loadable
     let loadable = db.is_adapter_loadable("adapter-to-purge").await?;
@@ -197,7 +214,9 @@ async fn test_purged_adapter_not_loadable() -> Result<()> {
     );
 
     // Attempting to unarchive a purged adapter should fail
-    let unarchive_result = db.unarchive_adapter("adapter-to-purge").await;
+    let unarchive_result = db
+        .unarchive_adapter("tenant-purge-test", "adapter-to-purge")
+        .await;
     assert!(
         unarchive_result.is_err(),
         "Cannot unarchive a purged adapter"
@@ -269,14 +288,15 @@ async fn test_archived_adapter_count() -> Result<()> {
     assert_eq!(archived, 0, "No adapters archived initially");
 
     // Archive one adapter
-    db.archive_adapter("count-adapter-1", "test_user", "Test")
+    db.archive_adapter("tenant-count-test", "count-adapter-1", "test_user", "Test")
         .await?;
 
     let archived = db.count_archived_adapters("tenant-count-test").await?;
     assert_eq!(archived, 1, "One adapter archived");
 
     // Purge the archived adapter (purged adapters are not counted by count_archived_adapters)
-    db.mark_adapter_purged("count-adapter-1").await?;
+    db.mark_adapter_purged("tenant-count-test", "count-adapter-1")
+        .await?;
 
     let archived = db.count_archived_adapters("tenant-count-test").await?;
     assert_eq!(archived, 0, "Purged adapters are not counted as archived");

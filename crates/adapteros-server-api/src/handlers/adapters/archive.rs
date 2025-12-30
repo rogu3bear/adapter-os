@@ -152,7 +152,7 @@ pub async fn archive_adapter(
     // Archive the adapter
     state
         .db
-        .archive_adapter(&adapter_id, &archived_by, &req.reason)
+        .archive_adapter(&claims.tenant_id, &adapter_id, &archived_by, &req.reason)
         .await
         .map_err(|e| {
             error!(
@@ -301,22 +301,26 @@ pub async fn unarchive_adapter(
     }
 
     // Unarchive the adapter
-    state.db.unarchive_adapter(&adapter_id).await.map_err(|e| {
-        error!(
-            tenant_id = %claims.tenant_id,
-            adapter_id = %adapter_id,
-            error = %e,
-            "Failed to unarchive adapter"
-        );
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("failed to unarchive adapter")
-                    .with_code("INTERNAL_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    state
+        .db
+        .unarchive_adapter(&claims.tenant_id, &adapter_id)
+        .await
+        .map_err(|e| {
+            error!(
+                tenant_id = %claims.tenant_id,
+                adapter_id = %adapter_id,
+                error = %e,
+                "Failed to unarchive adapter"
+            );
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to unarchive adapter")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
 
     let unarchived_by = claims.sub.clone();
 

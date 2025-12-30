@@ -2,13 +2,23 @@
 //
 // This module provides REST API endpoints for:
 // - Hot-swapping adapters (replacing one adapter with another)
+//
+// All swap operations are gated by preflight checks to ensure:
+// - Adapter exists in registry with valid metadata
+// - .aos file exists and has valid hashes + manifest hash
+// - Lifecycle state allows activation
+// - Training evidence snapshot exists
+// - No conflicting active adapters for same repo/branch
+// - System is not in maintenance mode
 
-use crate::audit_helper::{log_success_or_warn, resources};
+use crate::audit_helper::{log_preflight_result, log_success_or_warn, resources};
 use crate::auth::Claims;
+use crate::handlers::adapters::preflight_adapter::run_api_preflight;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::{AdapterSwapRequest, AdapterSwapResponse, ErrorResponse};
+use adapteros_core::preflight::PreflightConfig;
 use axum::{extract::State, http::StatusCode, response::Json, Extension};
 use tracing::{error, info, warn};
 
@@ -129,6 +139,39 @@ pub async fn swap_adapters(
 
     // Validate tenant isolation for new adapter
     validate_tenant_isolation(&claims, &new_adapter.tenant_id)?;
+
+    // =========================================================================
+    // PREFLIGHT GATING: Validate new adapter is ready for swap
+    // =========================================================================
+    // Run shared preflight checks on the new adapter before allowing the swap
+    let preflight_config = PreflightConfig::with_actor(&claims.tenant_id, &claims.sub);
+    let preflight_result = run_api_preflight(&new_adapter, &state.db, &preflight_config).await;
+
+    // Audit log the preflight result including any bypasses used (Gap 4 fix)
+    log_preflight_result(&state.db, &claims, &req.new_adapter_id, &preflight_result).await;
+
+    if !preflight_result.passed {
+        let primary_code = preflight_result
+            .primary_error_code()
+            .map(|c| c.as_str())
+            .unwrap_or("PREFLIGHT_FAILED");
+        let error_details = preflight_result.failure_summary();
+
+        warn!(
+            new_adapter_id = %req.new_adapter_id,
+            error_code = %primary_code,
+            checks_failed = preflight_result.failures.len(),
+            "Adapter swap blocked by preflight checks"
+        );
+        return Err((
+            StatusCode::PRECONDITION_FAILED,
+            Json(
+                ErrorResponse::new("Adapter swap blocked by preflight checks")
+                    .with_code(primary_code)
+                    .with_string_details(error_details),
+            ),
+        ));
+    }
 
     // Calculate VRAM delta
     let vram_delta_mb = (new_adapter.memory_bytes - old_adapter.memory_bytes) / (1024 * 1024);

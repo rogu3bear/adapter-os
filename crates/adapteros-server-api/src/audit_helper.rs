@@ -173,6 +173,112 @@ pub async fn log_success_or_warn(
     }
 }
 
+/// Log preflight result with bypass tracking
+///
+/// Records preflight checks and any bypasses used. Bypasses are security-sensitive
+/// events that must be audited for compliance.
+///
+/// # Arguments
+/// * `db` - Database connection
+/// * `claims` - JWT claims from authenticated user
+/// * `adapter_id` - The adapter being checked
+/// * `preflight_result` - The result of preflight checks
+pub async fn log_preflight_result(
+    db: &Db,
+    claims: &Claims,
+    adapter_id: &str,
+    preflight_result: &adapteros_core::preflight::PreflightResult,
+) {
+    use actions::*;
+
+    // Log the main preflight result
+    let main_action = if preflight_result.passed {
+        PREFLIGHT_PASSED
+    } else {
+        PREFLIGHT_FAILED
+    };
+
+    // Store failure summary to extend its lifetime
+    let failure_summary = preflight_result.failure_summary();
+
+    if let Err(e) = log_action(
+        db,
+        claims,
+        main_action,
+        resources::ADAPTER,
+        Some(adapter_id),
+        if preflight_result.passed {
+            "success"
+        } else {
+            "failure"
+        },
+        if preflight_result.passed {
+            None
+        } else {
+            Some(&failure_summary)
+        },
+    )
+    .await
+    {
+        warn!(
+            adapter_id = %adapter_id,
+            passed = preflight_result.passed,
+            error = %e,
+            "Failed to log preflight result to audit chain"
+        );
+    }
+
+    // Log each bypass used - these are security-sensitive events
+    for bypass in &preflight_result.bypasses_used {
+        let bypass_action = match bypass.as_str() {
+            "skip_maintenance_check" => PREFLIGHT_BYPASS_MAINTENANCE,
+            "skip_conflict_check" => PREFLIGHT_BYPASS_CONFLICT,
+            "force" => PREFLIGHT_BYPASS_FORCE,
+            "allow_training_state" => PREFLIGHT_BYPASS_TRAINING_STATE,
+            _ => "preflight.bypass.unknown",
+        };
+
+        if let Err(e) = log_action(
+            db,
+            claims,
+            bypass_action,
+            resources::ADAPTER,
+            Some(adapter_id),
+            "success",
+            Some(&format!(
+                "Bypass '{}' used - reason: {}",
+                bypass,
+                preflight_result
+                    .audit_events
+                    .iter()
+                    .find(|e| e.bypass_used.as_deref() == Some(bypass.as_str()))
+                    .and_then(|e| e.reason.as_deref())
+                    .unwrap_or("unspecified")
+            )),
+        )
+        .await
+        {
+            // CRITICAL: Bypass events MUST be logged
+            error!(
+                event_type = "audit.bypass_chain_failure",
+                adapter_id = %adapter_id,
+                bypass = %bypass,
+                error = %e,
+                "CRITICAL: Failed to log preflight bypass to audit chain. \
+                 Security bypass event may not be in audit trail."
+            );
+        } else {
+            info!(
+                event_type = "preflight.bypass",
+                adapter_id = %adapter_id,
+                bypass = %bypass,
+                actor = %claims.sub,
+                "Preflight bypass used and logged"
+            );
+        }
+    }
+}
+
 /// Log a failed action, with explicit error handling on audit failure
 ///
 /// Unlike `log_failure`, this function NEVER silently discards errors.
@@ -239,6 +345,14 @@ pub mod actions {
 
     // Inference actions
     pub const INFERENCE_EXECUTE: &str = "inference.execute";
+
+    // Preflight actions (Gap 4 fix - bypass audit logging)
+    pub const PREFLIGHT_PASSED: &str = "preflight.passed";
+    pub const PREFLIGHT_FAILED: &str = "preflight.failed";
+    pub const PREFLIGHT_BYPASS_MAINTENANCE: &str = "preflight.bypass.maintenance";
+    pub const PREFLIGHT_BYPASS_CONFLICT: &str = "preflight.bypass.conflict";
+    pub const PREFLIGHT_BYPASS_FORCE: &str = "preflight.bypass.force";
+    pub const PREFLIGHT_BYPASS_TRAINING_STATE: &str = "preflight.bypass.training_state";
 
     // Tenant actions
     pub const TENANT_CREATE: &str = "tenant.create";
@@ -337,6 +451,12 @@ pub mod actions {
     pub const DATASET_CHUNKED_UPLOAD_CHUNK: &str = "dataset.chunked_upload.chunk";
     pub const DATASET_CHUNKED_UPLOAD_COMPLETE: &str = "dataset.chunked_upload.complete";
     pub const DATASET_CHUNKED_UPLOAD_CANCEL: &str = "dataset.chunked_upload.cancel";
+    pub const DATASET_CHUNKED_UPLOAD_CLEANUP: &str = "dataset.chunked_upload.cleanup";
+
+    // Dataset safety actions
+    pub const DATASET_SAFETY_UPDATE: &str = "dataset.safety.update";
+    pub const DATASET_TRUST_OVERRIDE: &str = "dataset.trust.override";
+    pub const DATASET_SAFETY_CHECK: &str = "dataset.safety.check";
 
     // Workspace actions
     pub const WORKSPACE_CREATE: &str = "workspace.create";
@@ -400,6 +520,7 @@ pub mod resources {
     pub const TELEMETRY_BUNDLE: &str = "telemetry_bundle";
     pub const STREAM_ENDPOINT: &str = "stream_endpoint";
     pub const DATASET: &str = "dataset";
+    pub const DATASET_VERSION: &str = "dataset_version";
     pub const WORKSPACE: &str = "workspace";
     pub const WORKSPACE_MEMBER: &str = "workspace_member";
     pub const WORKSPACE_RESOURCE: &str = "workspace_resource";

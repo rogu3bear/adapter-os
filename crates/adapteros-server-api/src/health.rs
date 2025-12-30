@@ -960,25 +960,69 @@ fn map_component_to_failure_code(component: &str, message: &str) -> Option<Failu
     }
 }
 
-/// Extract ComponentHealth from a response
+/// Health check error types for detailed error reporting
+#[derive(Debug, Clone)]
+pub enum HealthCheckError {
+    /// Failed to serialize/deserialize health response
+    SerializationError(String),
+    /// Health check operation timed out
+    TimeoutError(String),
+    /// Network or I/O error during health check
+    NetworkError(String),
+    /// Response body too large
+    PayloadTooLarge(usize),
+}
+
+impl std::fmt::Display for HealthCheckError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            HealthCheckError::SerializationError(msg) => {
+                write!(f, "Serialization error: {}", msg)
+            }
+            HealthCheckError::TimeoutError(msg) => write!(f, "Timeout: {}", msg),
+            HealthCheckError::NetworkError(msg) => write!(f, "Network error: {}", msg),
+            HealthCheckError::PayloadTooLarge(size) => {
+                write!(f, "Payload too large: {} bytes", size)
+            }
+        }
+    }
+}
+
+/// Maximum size for health check response bodies (100MB)
+const MAX_HEALTH_RESPONSE_SIZE: usize = 100 * 1024 * 1024;
+
+/// Extract ComponentHealth from a response with detailed error reporting
 async fn extract_health(response: Response) -> ComponentHealth {
     let (_parts, body) = response.into_parts();
 
-    // Try to read the body
-    match axum::body::to_bytes(body, usize::MAX).await {
+    // Try to read the body with size limit
+    match axum::body::to_bytes(body, MAX_HEALTH_RESPONSE_SIZE).await {
         Ok(bytes) => match serde_json::from_slice::<ComponentHealth>(&bytes) {
             Ok(health) => health,
-            Err(_) => ComponentHealth::new(
+            Err(e) => {
+                let error = HealthCheckError::SerializationError(e.to_string());
+                warn!(error = %error, "Health check serialization failed");
+                ComponentHealth::new(
+                    "unknown",
+                    ComponentStatus::Unhealthy,
+                    format!("Failed to parse health response: {}", error),
+                )
+            }
+        },
+        Err(e) => {
+            // Determine specific error type
+            let error = if e.to_string().contains("length limit") {
+                HealthCheckError::PayloadTooLarge(MAX_HEALTH_RESPONSE_SIZE)
+            } else {
+                HealthCheckError::NetworkError(e.to_string())
+            };
+            warn!(error = %error, "Health check read failed");
+            ComponentHealth::new(
                 "unknown",
                 ComponentStatus::Unhealthy,
-                "Failed to parse health response",
-            ),
-        },
-        Err(_) => ComponentHealth::new(
-            "unknown",
-            ComponentStatus::Unhealthy,
-            "Failed to read response body",
-        ),
+                format!("Failed to read response body: {}", error),
+            )
+        }
     }
 }
 

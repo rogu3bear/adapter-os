@@ -30,8 +30,13 @@ pub const DEFAULT_CHUNK_SIZE: usize = 10 * 1024 * 1024;
 /// Maximum chunk size (100MB)
 pub const MAX_CHUNK_SIZE: usize = 100 * 1024 * 1024;
 
-/// Timeout for incomplete uploads (24 hours)
-pub const UPLOAD_TIMEOUT_SECS: u64 = 86400;
+/// Timeout for incomplete uploads (1 hour)
+/// Reduced from 24 hours to limit memory and disk usage from stale sessions.
+pub const UPLOAD_TIMEOUT_SECS: u64 = 3600;
+
+/// Interval for background cleanup task (5 minutes)
+/// Reduced from 1 hour for more aggressive cleanup of expired sessions.
+const CLEANUP_INTERVAL_SECS: u64 = 300;
 
 /// Metadata for a chunked upload session
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,6 +61,8 @@ pub struct UploadSession {
     pub compression: CompressionFormat,
     /// Is this upload resumed from a previous session?
     pub is_resumed: bool,
+    /// Optional workspace ID for tenant isolation
+    pub workspace_id: Option<String>,
 }
 
 /// Compression format for uploads
@@ -135,6 +142,27 @@ impl UploadSessionManager {
         chunk_size: usize,
         temp_base_dir: &Path,
     ) -> Result<UploadSession> {
+        self.create_session_with_workspace(
+            file_name,
+            total_size,
+            content_type,
+            chunk_size,
+            temp_base_dir,
+            None,
+        )
+        .await
+    }
+
+    /// Create a new upload session with optional workspace ID for tenant isolation
+    pub async fn create_session_with_workspace(
+        &self,
+        file_name: String,
+        total_size: u64,
+        content_type: String,
+        chunk_size: usize,
+        temp_base_dir: &Path,
+        workspace_id: Option<String>,
+    ) -> Result<UploadSession> {
         let session_id = Uuid::now_v7().to_string();
         let temp_dir = temp_base_dir.join(&session_id);
 
@@ -155,6 +183,7 @@ impl UploadSessionManager {
             created_at: std::time::SystemTime::now(),
             compression,
             is_resumed: false,
+            workspace_id,
         };
 
         let mut sessions = self.sessions.write().await;
@@ -194,11 +223,12 @@ impl UploadSessionManager {
         Ok(())
     }
 
-    /// Start background cleanup task that runs every hour to remove expired sessions
+    /// Start background cleanup task that runs every 5 minutes to remove expired sessions
     /// Returns a JoinHandle that can be used to cancel the task
     pub fn start_cleanup_task(self: Arc<Self>) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(3600)); // 1 hour
+            let mut interval =
+                tokio::time::interval(tokio::time::Duration::from_secs(CLEANUP_INTERVAL_SECS));
             loop {
                 interval.tick().await;
                 match self.cleanup_expired().await {
@@ -221,38 +251,129 @@ impl UploadSessionManager {
         Ok(session.received_chunks.len() == expected_chunks as usize)
     }
 
-    /// Remove completed session
+    /// Remove completed session and clean up its temporary directory
     pub async fn remove_session(&self, session_id: &str) -> Result<()> {
         let mut sessions = self.sessions.write().await;
-        sessions.remove(session_id);
+        if let Some(session) = sessions.remove(session_id) {
+            // Explicitly clean up temporary directory on session removal
+            if session.temp_dir.exists() {
+                if let Err(e) = fs::remove_dir_all(&session.temp_dir).await {
+                    warn!(
+                        session_id = %session_id,
+                        temp_dir = ?session.temp_dir,
+                        error = %e,
+                        "Failed to clean up session temp directory"
+                    );
+                } else {
+                    debug!(
+                        session_id = %session_id,
+                        temp_dir = ?session.temp_dir,
+                        "Cleaned up session temp directory"
+                    );
+                }
+            }
+        }
         Ok(())
     }
 
-    /// Clean up expired sessions
+    /// Clean up expired sessions and their temporary directories
     pub async fn cleanup_expired(&self) -> Result<usize> {
-        let mut sessions = self.sessions.write().await;
-        let now = std::time::SystemTime::now();
+        // Collect expired sessions under lock, then release lock before I/O
+        let expired_sessions: Vec<(String, UploadSession)> = {
+            let mut sessions = self.sessions.write().await;
+            let now = std::time::SystemTime::now();
 
-        let expired: Vec<String> = sessions
-            .iter()
-            .filter_map(
-                |(id, session)| match now.duration_since(session.created_at) {
-                    Ok(duration) if duration.as_secs() > UPLOAD_TIMEOUT_SECS => Some(id.clone()),
-                    _ => None,
-                },
-            )
-            .collect();
+            let expired_ids: Vec<String> = sessions
+                .iter()
+                .filter_map(
+                    |(id, session)| match now.duration_since(session.created_at) {
+                        Ok(duration) if duration.as_secs() > UPLOAD_TIMEOUT_SECS => {
+                            Some(id.clone())
+                        }
+                        _ => None,
+                    },
+                )
+                .collect();
 
-        let count = expired.len();
-        for session_id in expired {
-            if let Some(session) = sessions.remove(&session_id) {
-                // Clean up temporary files
-                let _ = std::fs::remove_dir_all(&session.temp_dir);
-                warn!("Cleaned up expired upload session {}", session_id);
+            expired_ids
+                .into_iter()
+                .filter_map(|id| sessions.remove(&id).map(|s| (id, s)))
+                .collect()
+        };
+
+        let count = expired_sessions.len();
+
+        // Clean up temp directories outside the lock to avoid blocking
+        for (session_id, session) in expired_sessions {
+            if session.temp_dir.exists() {
+                match fs::remove_dir_all(&session.temp_dir).await {
+                    Ok(()) => {
+                        info!(
+                            session_id = %session_id,
+                            temp_dir = ?session.temp_dir,
+                            age_secs = Self::get_session_age(&session),
+                            "Cleaned up expired upload session and temp directory"
+                        );
+                    }
+                    Err(e) => {
+                        warn!(
+                            session_id = %session_id,
+                            temp_dir = ?session.temp_dir,
+                            error = %e,
+                            "Failed to clean up expired session temp directory"
+                        );
+                    }
+                }
+            } else {
+                info!(
+                    session_id = %session_id,
+                    age_secs = Self::get_session_age(&session),
+                    "Cleaned up expired upload session (no temp directory)"
+                );
             }
         }
 
         Ok(count)
+    }
+
+    /// List all active sessions (for monitoring)
+    pub async fn list_sessions(&self) -> Vec<UploadSession> {
+        let sessions = self.sessions.read().await;
+        sessions.values().cloned().collect()
+    }
+
+    /// Get the maximum number of allowed concurrent sessions
+    pub fn max_sessions(&self) -> usize {
+        self.max_sessions
+    }
+
+    /// Get the age of a session in seconds
+    pub fn get_session_age(session: &UploadSession) -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(session.created_at)
+            .map(|d| d.as_secs())
+            .unwrap_or(0)
+    }
+
+    /// Check if a session has expired
+    pub fn is_session_expired(session: &UploadSession) -> bool {
+        Self::get_session_age(session) > UPLOAD_TIMEOUT_SECS
+    }
+
+    /// Retry a chunk by replacing its hash (for failed/corrupted chunks)
+    pub async fn retry_chunk(
+        &self,
+        session_id: &str,
+        chunk_index: usize,
+        chunk_hash: String,
+    ) -> Result<Option<String>> {
+        let mut sessions = self.sessions.write().await;
+        let session = sessions
+            .get_mut(session_id)
+            .ok_or_else(|| anyhow!("Upload session {} not found", session_id))?;
+
+        let previous_hash = session.received_chunks.insert(chunk_index, chunk_hash);
+        Ok(previous_hash)
     }
 }
 
@@ -705,10 +826,12 @@ mod tests {
             created_at: std::time::SystemTime::now(),
             compression: CompressionFormat::None,
             is_resumed: false,
+            workspace_id: Some("test-workspace".to_string()),
         };
 
         assert_eq!(session.session_id, "test-123");
         assert_eq!(session.file_name, "data.jsonl");
         assert_eq!(session.total_size, 100_000_000);
+        assert_eq!(session.workspace_id, Some("test-workspace".to_string()));
     }
 }

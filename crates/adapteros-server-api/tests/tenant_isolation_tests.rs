@@ -425,6 +425,7 @@ async fn test_dataset_validate_enforces_tenant_isolation() -> Result<()> {
             None,
             Some("ready"),
             Some("hash-iso"),
+            None,
         )
         .await?;
     sqlx::query("UPDATE training_datasets SET tenant_id = ? WHERE id = ?")

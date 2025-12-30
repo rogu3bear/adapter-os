@@ -171,6 +171,9 @@ fn adapter_to_router_info(adapter: &adapteros_db::adapters::Adapter) -> AdapterI
         base_model: adapter.base_model_id.clone(),
         recommended_for_moe: adapter.recommended_for_moe.unwrap_or(true),
         reasoning_specialties: parse_reasoning_specialties(adapter.metadata_json.as_deref()),
+        adapter_type: adapter.adapter_type.clone(),
+        stream_session_id: adapter.stream_session_id.clone(),
+        base_adapter_id: adapter.base_adapter_id.clone(),
     }
 }
 

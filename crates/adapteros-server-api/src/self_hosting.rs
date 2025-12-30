@@ -1302,6 +1302,7 @@ mod tests {
                 None,
                 Some("ready"),
                 Some("hash"),
+                None,
             )
             .await
             .unwrap();

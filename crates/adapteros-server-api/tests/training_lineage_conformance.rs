@@ -113,6 +113,7 @@ async fn seed_dataset_version(
             None,
             Some("ready"),
             Some(hash_b3),
+            None,
         )
         .await
         .unwrap();
