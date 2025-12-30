@@ -176,6 +176,12 @@ export interface ChatMessageProps {
   developerMode?: boolean;
   /** Render kernel streaming overlays */
   kernelMode?: boolean;
+  /**
+   * Compact mode reduces widget count by consolidating evidence-related
+   * widgets into a single EvidenceIndicator badge. Useful for list views
+   * or when screen space is limited.
+   */
+  compactMode?: boolean;
 }
 
 /**

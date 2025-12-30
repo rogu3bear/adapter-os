@@ -10,6 +10,19 @@ export function isDevBypassEnabled(): boolean {
   return Boolean(devMode || explicitFlag);
 }
 
+function readSelectedTenantId(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = sessionStorage.getItem(AUTH_STORAGE_KEYS.SELECTED_TENANT);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { tenantId?: unknown };
+    const tenantId = typeof parsed.tenantId === 'string' ? parsed.tenantId.trim() : '';
+    return tenantId ? tenantId : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Record the timestamp when dev bypass was activated.
  * Used for enforcing the 1-hour session timeout.
@@ -81,7 +94,11 @@ export async function tryDevBypassLogin(): Promise<UserInfoResponse | null> {
   }
 
   try {
-    const res = await fetch('/api/v1/auth/me', { credentials: 'include' });
+    const tenantId = readSelectedTenantId();
+    const res = await fetch('/api/v1/auth/me', {
+      credentials: 'include',
+      ...(tenantId ? { headers: { 'X-Tenant-Id': tenantId } } : {}),
+    });
     if (!res.ok) {
       return null;
     }
@@ -110,4 +127,3 @@ export async function tryDevBypassLogin(): Promise<UserInfoResponse | null> {
     return null;
   }
 }
-
