@@ -1,5 +1,6 @@
 -- Dataset Collection Sessions Table
--- Migration: 0244
+-- Migration: 0245
+-- Renumbered: Was 0244, renumbered to 0245 when 0242_dataset_repo_slug.sql was inserted
 -- Purpose: Track sessions that group multiple dataset operations for atomic workflows
 --
 -- This migration creates a table to track collection sessions that can span

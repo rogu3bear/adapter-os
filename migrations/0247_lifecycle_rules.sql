@@ -1,4 +1,6 @@
 -- Lifecycle Rules Table
+-- Migration: 0247
+-- Renumbered: Was 0245, renumbered to 0247 when 0242_dataset_repo_slug.sql was inserted
 -- Stores rule definitions for managing adapter and dataset lifecycle transitions,
 -- TTL policies, retention rules, and automated state management.
 --
