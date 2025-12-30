@@ -412,4 +412,91 @@ mod tests {
 
         assert!(claims.is_empty());
     }
+
+    // === EDGE CASES ===
+
+    #[test]
+    fn test_edge_case_quoted_speech() {
+        // EDGE CASE: Should NOT flag when user quotes what they want AI to say
+        let policy = CapabilityPolicy::new(CapabilityConfig::default());
+
+        // This is describing capability, not claiming it
+        let content = "The user said 'I opened your account' in their message.";
+        let claims = policy.detect_claims(content);
+
+        // KNOWN LIMITATION: Currently triggers false positive
+        // TODO: Add quote detection to reduce false positives
+        assert!(!claims.is_empty()); // Documents current behavior
+    }
+
+    #[test]
+    fn test_edge_case_hypothetical() {
+        // EDGE CASE: Hypothetical/conditional statements
+        let policy = CapabilityPolicy::new(CapabilityConfig::default());
+
+        // "If I could" or "I would" patterns - not actual claims
+        let content = "If I could access your account, I would help you.";
+        let _claims = policy.detect_claims(content);
+
+        // KNOWN LIMITATION: May trigger on hypotheticals
+        // Current patterns don't distinguish hypothetical from actual
+    }
+
+    #[test]
+    fn test_edge_case_negation() {
+        // EDGE CASE: Negated claims should NOT trigger
+        let policy = CapabilityPolicy::new(CapabilityConfig::default());
+
+        let content = "I cannot purchase items for you.";
+        let claims = policy.detect_claims(content);
+
+        // Should not trigger because it's a negation
+        assert!(claims.is_empty());
+    }
+
+    #[test]
+    fn test_edge_case_empty_content() {
+        // EDGE CASE: Empty string
+        let policy = CapabilityPolicy::new(CapabilityConfig::default());
+
+        let claims = policy.detect_claims("");
+        assert!(claims.is_empty());
+    }
+
+    #[test]
+    fn test_edge_case_unicode() {
+        // EDGE CASE: Unicode characters in content
+        let policy = CapabilityPolicy::new(CapabilityConfig::default());
+
+        let content = "I have purchased 日本語 items for you.";
+        let claims = policy.detect_claims(content);
+
+        assert!(!claims.is_empty());
+    }
+
+    #[test]
+    fn test_edge_case_multiline() {
+        // EDGE CASE: Claims split across lines
+        let policy = CapabilityPolicy::new(CapabilityConfig::default());
+
+        // This content has "I have" and "purchased" on same line, just newline in text
+        let content = "I have\npurchased the item.";
+        let claims = policy.detect_claims(content);
+
+        // Current behavior: \s+ in regex matches newlines, so claim IS detected
+        // This is actually desirable - prevents evasion via line breaks
+        assert!(!claims.is_empty());
+    }
+
+    #[test]
+    fn test_edge_case_legitimate_instruction() {
+        // EDGE CASE: Instructing user how to do something
+        let policy = CapabilityPolicy::new(CapabilityConfig::default());
+
+        let content = "To open your account, click the login button.";
+        let claims = policy.detect_claims(content);
+
+        // Should not flag instructions TO the user
+        assert!(claims.is_empty());
+    }
 }

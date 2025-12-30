@@ -996,4 +996,94 @@ mod tests {
             .get_domain_disclaimer(&HighStakesDomain::None)
             .is_none());
     }
+
+    // === EDGE CASES FOR BEST-EFFORT MODE ===
+
+    #[test]
+    fn test_edge_case_threshold_boundary_exact() {
+        // EDGE CASE: Confidence exactly at threshold boundary
+        let config = RefusalConfig::default();
+        let policy = RefusalPolicy::new(config);
+
+        // Exactly at abstain threshold (0.40)
+        let mode = policy.determine_response_mode(0.40, None);
+        assert!(matches!(mode, ResponseMode::BestEffort { .. }));
+
+        // Exactly at best_effort threshold (0.70)
+        let mode = policy.determine_response_mode(0.70, None);
+        assert_eq!(mode, ResponseMode::Complete);
+    }
+
+    #[test]
+    fn test_edge_case_confidence_zero() {
+        // EDGE CASE: Zero confidence
+        let config = RefusalConfig::default();
+        let policy = RefusalPolicy::new(config);
+
+        let mode = policy.determine_response_mode(0.0, None);
+        assert_eq!(mode, ResponseMode::Abstain);
+    }
+
+    #[test]
+    fn test_edge_case_confidence_one() {
+        // EDGE CASE: Perfect confidence
+        let config = RefusalConfig::default();
+        let policy = RefusalPolicy::new(config);
+
+        let mode = policy.determine_response_mode(1.0, None);
+        assert_eq!(mode, ResponseMode::Complete);
+    }
+
+    #[test]
+    fn test_edge_case_negative_confidence() {
+        // EDGE CASE: Negative confidence (invalid but should handle gracefully)
+        let config = RefusalConfig::default();
+        let policy = RefusalPolicy::new(config);
+
+        let mode = policy.determine_response_mode(-0.5, None);
+        assert_eq!(mode, ResponseMode::Abstain);
+    }
+
+    #[test]
+    fn test_edge_case_confidence_above_one() {
+        // EDGE CASE: Confidence > 1.0 (invalid but should handle gracefully)
+        let config = RefusalConfig::default();
+        let policy = RefusalPolicy::new(config);
+
+        let mode = policy.determine_response_mode(1.5, None);
+        assert_eq!(mode, ResponseMode::Complete);
+    }
+
+    #[test]
+    fn test_edge_case_empty_context_hints() {
+        // EDGE CASE: Empty context hints array
+        let config = RefusalConfig::default();
+        let policy = RefusalPolicy::new(config);
+
+        let empty_hints: Vec<String> = vec![];
+        let mode = policy.determine_response_mode(0.55, Some(&empty_hints));
+
+        match mode {
+            ResponseMode::BestEffort { assumptions } => {
+                // Should still have at least one default assumption
+                assert!(!assumptions.is_empty());
+            }
+            _ => panic!("Expected BestEffort mode"),
+        }
+    }
+
+    #[test]
+    fn test_edge_case_inverted_thresholds() {
+        // EDGE CASE: Config with abstain > best_effort (misconfigured)
+        let mut config = RefusalConfig::default();
+        config.abstain_threshold = 0.80;
+        config.best_effort_threshold = 0.50;
+        let policy = RefusalPolicy::new(config);
+
+        // At 0.60: above best_effort (0.50) so Complete, but below abstain (0.80)
+        // Current logic: checks best_effort first, so this returns Complete
+        let mode = policy.determine_response_mode(0.60, None);
+        // Documents behavior with misconfigured thresholds
+        assert_eq!(mode, ResponseMode::Complete);
+    }
 }
