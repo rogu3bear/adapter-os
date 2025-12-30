@@ -32,11 +32,11 @@ fn test_router_produces_q15_gates() {
         policy_overrides_applied: None,
     };
 
-    // Verify Q15 gates are in valid range
+    // Verify Q15 gates are in valid range (Q1.15 format uses -32767 to 32767, excluding i16::MIN)
     for &gate in decision.gates_q15.iter() {
         assert!(
-            gate >= -32767 && gate <= 32767,
-            "Q15 gate must be in range [-32767, 32767], got {gate}"
+            gate >= -32767,
+            "Q15 gate must be >= -32767 (not i16::MIN), got {gate}"
         );
     }
 

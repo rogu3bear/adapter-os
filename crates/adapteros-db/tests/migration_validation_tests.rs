@@ -1448,7 +1448,7 @@ async fn setup_tenant_scoped_test_data(db: &Db, tenant_id: &str) -> Result<()> {
             _ => "ephemeral",
         };
         let expires_at = if i < 3 {
-            Some("2025-12-31 23:59:59")
+            Some("2099-12-31 23:59:59")
         } else {
             None
         };

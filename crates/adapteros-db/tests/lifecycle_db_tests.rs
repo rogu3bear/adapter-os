@@ -1,12 +1,45 @@
 //! Integration tests for lifecycle database operations
 
 use adapteros_db::Db;
+use std::path::PathBuf;
+use tempfile::TempDir;
+
+async fn promote_adapter_to_active(db: &Db, adapter_id: &str) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE adapters SET lifecycle_state = 'training' WHERE adapter_id = ?")
+        .bind(adapter_id)
+        .execute(db.pool())
+        .await?;
+
+    sqlx::query("UPDATE adapters SET lifecycle_state = 'ready' WHERE adapter_id = ?")
+        .bind(adapter_id)
+        .execute(db.pool())
+        .await?;
+
+    sqlx::query(
+        "UPDATE adapters SET lifecycle_state = 'active', aos_file_path = 'path/to.aos', aos_file_hash = 'hash123', content_hash_b3 = 'content123' WHERE adapter_id = ?",
+    )
+    .bind(adapter_id)
+    .execute(db.pool())
+    .await?;
+
+    Ok(())
+}
+
+async fn create_test_db_persistent() -> (Db, TempDir) {
+    let root = PathBuf::from("var").join("tmp");
+    std::fs::create_dir_all(&root).expect("Failed to create var/tmp");
+    let temp_dir = TempDir::new_in(&root).expect("Failed to create temp directory");
+    let db_path = temp_dir.path().join("test.db");
+    let db = Db::connect(db_path.to_str().expect("Invalid db path"))
+        .await
+        .expect("Failed to connect to test database");
+    db.migrate().await.expect("Failed to apply migrations");
+    (db, temp_dir)
+}
 
 #[tokio::test]
 async fn test_adapter_lifecycle_transition() {
-    let db = Db::new_in_memory()
-        .await
-        .expect("Failed to create test database");
+    let (db, _temp_dir) = create_test_db_persistent().await;
 
     // Create tenant first (required for FK constraint)
     let tenant_id = db
@@ -30,15 +63,10 @@ async fn test_adapter_lifecycle_transition() {
         .await
         .expect("Failed to register adapter");
 
-    // Set adapter to 'active' state so we can test valid transitions
-    // Also seed required artifacts for ready/active states
-    sqlx::query(
-        "UPDATE adapters SET lifecycle_state = 'active', aos_file_path = 'path/to.aos', aos_file_hash = 'hash123', content_hash_b3 = 'content123' WHERE adapter_id = ?",
-    )
-    .bind("test-adapter-001")
-    .execute(db.pool())
-    .await
-    .expect("Failed to update adapter state");
+    // Move through allowed transitions to reach active (triggers enforce lifecycle rules).
+    promote_adapter_to_active(&db, "test-adapter-001")
+        .await
+        .expect("Failed to update adapter state");
 
     // Test Active → Deprecated transition
     let result = db
@@ -82,9 +110,7 @@ async fn test_adapter_lifecycle_transition() {
 
 #[tokio::test]
 async fn test_lifecycle_history_query() {
-    let db = Db::new_in_memory()
-        .await
-        .expect("Failed to create test database");
+    let (db, _temp_dir) = create_test_db_persistent().await;
 
     // Create tenant first (required for FK constraint)
     let tenant_id = db
@@ -108,15 +134,10 @@ async fn test_lifecycle_history_query() {
         .await
         .expect("Failed to register adapter");
 
-    // Set adapter to 'active' state so we can test valid transitions
-    // Also seed required artifacts for ready/active states
-    sqlx::query(
-        "UPDATE adapters SET lifecycle_state = 'active', aos_file_path = 'path/to.aos', aos_file_hash = 'hash123', content_hash_b3 = 'content123' WHERE adapter_id = ?",
-    )
-    .bind("test-adapter-002")
-    .execute(db.pool())
-    .await
-    .expect("Failed to update adapter state");
+    // Move through allowed transitions to reach active (triggers enforce lifecycle rules).
+    promote_adapter_to_active(&db, "test-adapter-002")
+        .await
+        .expect("Failed to update adapter state");
 
     // Perform multiple transitions (starting from 'active')
     let transitions = vec![

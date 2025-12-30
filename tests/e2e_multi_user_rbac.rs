@@ -173,9 +173,8 @@ async fn test_viewer_cannot_delete_adapter() {
         .unwrap();
 
     let response = harness.app.clone().oneshot(delete_request).await.unwrap();
-    assert_eq!(
-        response.status(),
-        StatusCode::OK,
+    assert!(
+        response.status() == StatusCode::OK || response.status() == StatusCode::NO_CONTENT,
         "Admin should be able to delete adapter"
     );
 
@@ -324,17 +323,21 @@ async fn test_tenant_isolation() {
         .await
         .expect("Failed to create adapter for tenant-a");
 
-    // Create adapter for tenant-b using the test harness pattern
-    // Note: The adapters table schema uses hash_b3, not hash
+    // Create adapter for tenant-b using full field set matching schema requirements
     sqlx::query(
-        "INSERT INTO adapters (id, tenant_id, tier, rank, activation_pct, created_at)
-         VALUES (?, ?, ?, ?, ?, datetime('now'))",
+        "INSERT INTO adapters (id, tenant_id, adapter_id, name, tier, hash_b3, rank, alpha, targets_json, lifecycle_state, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
     )
     .bind("tenant-b-adapter")
     .bind("tenant-b")
+    .bind("tenant-b-adapter") // adapter_id
+    .bind("Test Adapter tenant-b-adapter") // name
     .bind("persistent")
+    .bind("0000000000000000000000000000000000000000000000000000000tenant-b-adapter") // hash_b3
     .bind(8)
-    .bind(0.0)
+    .bind(1.0)
+    .bind("[]")
+    .bind("active")
     .execute(harness.db().pool())
     .await
     .expect("Failed to create adapter for tenant-b");

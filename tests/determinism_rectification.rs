@@ -143,6 +143,9 @@ fn test_router_determinism_with_decision_hash() {
             base_model: None,
             recommended_for_moe: true,
             reasoning_specialties: Vec::new(),
+            adapter_type: None,
+            stream_session_id: None,
+            base_adapter_id: None,
         })
         .collect();
 
