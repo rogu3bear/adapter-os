@@ -1,5 +1,6 @@
 -- Dataset Scan Roots Table
--- Migration: 0242
+-- Migration: 0243
+-- Renumbered: Was 0242, renumbered to 0243 when 0242_dataset_repo_slug.sql was inserted
 -- Purpose: Track scan roots (directories) associated with training datasets
 --
 -- This migration creates a junction table to link training datasets to their

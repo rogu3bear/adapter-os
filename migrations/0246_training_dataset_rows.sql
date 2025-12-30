@@ -1,5 +1,7 @@
 -- Training Dataset Rows Tables
--- Migration: 0244
+-- Migration: 0246
+-- Renumbered: Was 0244, renumbered to 0246 when 0242_dataset_repo_slug.sql was inserted
+--             (also fixed duplicate migration number collision with dataset_collection_sessions)
 -- Purpose: Create tables for storing training dataset rows
 --
 -- This migration creates two tables:

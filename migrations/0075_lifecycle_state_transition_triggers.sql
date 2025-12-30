@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS lifecycle_transition_rules (
 
 -- Seed valid transitions
 -- State machine: draft -> training -> ready -> active -> deprecated -> retired
--- Special paths: any -> failed, active -> ready (rollback), active -> retired (ephemeral only)
+-- Special paths: any non-terminal -> failed, active -> ready (rollback), active -> retired (ephemeral only)
 
 INSERT OR IGNORE INTO lifecycle_transition_rules (from_state, to_state, description, is_rollback) VALUES
     ('draft', 'training', 'Start training job', 0),
@@ -53,26 +53,31 @@ INSERT OR IGNORE INTO lifecycle_transition_rules (from_state, to_state, descript
 
 -- Drop old triggers that only validated 4 states (we now have 7)
 DROP TRIGGER IF EXISTS validate_adapter_lifecycle_state;
+DROP TRIGGER IF EXISTS validate_adapter_lifecycle_state_insert;
 DROP TRIGGER IF EXISTS validate_adapter_lifecycle_state_update;
 
 -- Create new triggers that validate all 7 lifecycle states
-CREATE TRIGGER IF NOT EXISTS validate_adapter_lifecycle_state_insert
+CREATE TRIGGER validate_adapter_lifecycle_state_insert
 BEFORE INSERT ON adapters
 FOR EACH ROW
 BEGIN
     SELECT CASE
         WHEN NEW.lifecycle_state NOT IN ('draft', 'training', 'ready', 'active', 'deprecated', 'retired', 'failed')
-        THEN RAISE(ABORT, 'Invalid lifecycle_state: must be one of draft, training, ready, active, deprecated, retired, failed')
+        THEN RAISE(ABORT, 'LIFECYCLE_VIOLATION: Invalid lifecycle_state: must be one of draft, training, ready, active, deprecated, retired, failed')
+    END;
+    SELECT CASE
+        WHEN NEW.tier = 'ephemeral' AND NEW.lifecycle_state = 'deprecated'
+        THEN RAISE(ABORT, 'LIFECYCLE_VIOLATION: Ephemeral tier adapters cannot be deprecated')
     END;
 END;
 
-CREATE TRIGGER IF NOT EXISTS validate_adapter_lifecycle_state_update
+CREATE TRIGGER validate_adapter_lifecycle_state_update
 BEFORE UPDATE OF lifecycle_state ON adapters
 FOR EACH ROW
 BEGIN
     SELECT CASE
         WHEN NEW.lifecycle_state NOT IN ('draft', 'training', 'ready', 'active', 'deprecated', 'retired', 'failed')
-        THEN RAISE(ABORT, 'Invalid lifecycle_state: must be one of draft, training, ready, active, deprecated, retired, failed')
+        THEN RAISE(ABORT, 'LIFECYCLE_VIOLATION: Invalid lifecycle_state: must be one of draft, training, ready, active, deprecated, retired, failed')
     END;
 END;
 
@@ -85,22 +90,22 @@ DROP TRIGGER IF EXISTS enforce_adapter_lifecycle_transitions;
 
 -- Enforce state machine rules:
 --   draft -> training -> ready -> active -> deprecated -> retired
---   Special: active -> ready (rollback), any -> failed
+--   Special: active -> ready (rollback), any non-terminal -> failed
 --
--- Terminal states: retired, failed (no transitions out)
--- Ephemeral tier: cannot enter deprecated state
+-- Terminal states: failed and retired (fully terminal)
+-- Ephemeral tier: cannot enter deprecated state, must go active -> retired
 
-CREATE TRIGGER IF NOT EXISTS enforce_adapter_lifecycle_transitions
+CREATE TRIGGER enforce_adapter_lifecycle_transitions
 BEFORE UPDATE OF lifecycle_state ON adapters
 FOR EACH ROW
 WHEN OLD.lifecycle_state != NEW.lifecycle_state
 BEGIN
-    -- Rule 1: Terminal states cannot transition out (retired, failed)
+    -- Rule 1: Failed and retired states are fully terminal (no transitions out)
     SELECT CASE
-        WHEN OLD.lifecycle_state = 'retired'
-        THEN RAISE(ABORT, 'LIFECYCLE_VIOLATION: Cannot transition from retired state (terminal state)')
         WHEN OLD.lifecycle_state = 'failed'
         THEN RAISE(ABORT, 'LIFECYCLE_VIOLATION: Cannot transition from failed state (terminal state)')
+        WHEN OLD.lifecycle_state = 'retired'
+        THEN RAISE(ABORT, 'LIFECYCLE_VIOLATION: Cannot transition from retired state (terminal state)')
     END;
 
     -- Rule 2: Ephemeral tier adapters cannot be deprecated (must go directly to retired or failed)
@@ -117,16 +122,12 @@ BEGIN
         THEN RAISE(ABORT, 'LIFECYCLE_VIOLATION: Non-ephemeral adapters must go through deprecated before retired')
     END;
 
-    -- Rule 4: Validate transition is in the allowed transition rules
-    -- Valid forward transitions: draft->training, training->ready, ready->active, active->deprecated, deprecated->retired
-    -- Valid rollback: active->ready
-    -- Valid ephemeral path: active->retired (ephemeral tier only, enforced by Rule 3)
-    -- Valid failure path: any (non-terminal) -> failed
+-- Rule 4: Validate transition is in the allowed transition rules
+-- Valid forward transitions: draft->training, training->ready, ready->active, active->deprecated, deprecated->retired
+-- Valid rollback: active->ready
+-- Valid ephemeral path: active->retired (ephemeral tier only, enforced by Rule 3)
+-- Valid failure paths are enumerated in lifecycle_transition_rules
     SELECT CASE
-        -- Allow any non-terminal state to transition to failed
-        WHEN NEW.lifecycle_state = 'failed'
-        THEN NULL  -- Valid: any -> failed
-
         -- Check if transition is explicitly allowed
         WHEN NOT EXISTS (
             SELECT 1 FROM lifecycle_transition_rules
@@ -142,26 +143,27 @@ END;
 
 -- Drop old triggers that only validated 4 states
 DROP TRIGGER IF EXISTS validate_stack_lifecycle_state;
+DROP TRIGGER IF EXISTS validate_stack_lifecycle_state_insert;
 DROP TRIGGER IF EXISTS validate_stack_lifecycle_state_update;
 
 -- Create new triggers that validate all 7 lifecycle states
-CREATE TRIGGER IF NOT EXISTS validate_stack_lifecycle_state_insert
+CREATE TRIGGER validate_stack_lifecycle_state_insert
 BEFORE INSERT ON adapter_stacks
 FOR EACH ROW
 BEGIN
     SELECT CASE
         WHEN NEW.lifecycle_state NOT IN ('draft', 'training', 'ready', 'active', 'deprecated', 'retired', 'failed')
-        THEN RAISE(ABORT, 'Invalid lifecycle_state: must be one of draft, training, ready, active, deprecated, retired, failed')
+        THEN RAISE(ABORT, 'LIFECYCLE_VIOLATION: Invalid lifecycle_state: must be one of draft, training, ready, active, deprecated, retired, failed')
     END;
 END;
 
-CREATE TRIGGER IF NOT EXISTS validate_stack_lifecycle_state_update
+CREATE TRIGGER validate_stack_lifecycle_state_update
 BEFORE UPDATE OF lifecycle_state ON adapter_stacks
 FOR EACH ROW
 BEGIN
     SELECT CASE
         WHEN NEW.lifecycle_state NOT IN ('draft', 'training', 'ready', 'active', 'deprecated', 'retired', 'failed')
-        THEN RAISE(ABORT, 'Invalid lifecycle_state: must be one of draft, training, ready, active, deprecated, retired, failed')
+        THEN RAISE(ABORT, 'LIFECYCLE_VIOLATION: Invalid lifecycle_state: must be one of draft, training, ready, active, deprecated, retired, failed')
     END;
 END;
 
@@ -172,27 +174,32 @@ END;
 -- Drop the old trigger with incomplete logic
 DROP TRIGGER IF EXISTS enforce_stack_lifecycle_transitions;
 
--- Stacks follow the same state machine rules as individual adapters
--- (without the ephemeral tier restriction)
+-- Stacks follow the standard state machine rules:
+-- draft -> training -> ready -> active -> deprecated -> retired
+-- Stacks do NOT have tier-based exceptions (no active -> retired shortcut)
 
-CREATE TRIGGER IF NOT EXISTS enforce_stack_lifecycle_transitions
+CREATE TRIGGER enforce_stack_lifecycle_transitions
 BEFORE UPDATE OF lifecycle_state ON adapter_stacks
 FOR EACH ROW
 WHEN OLD.lifecycle_state != NEW.lifecycle_state
 BEGIN
-    -- Rule 1: Terminal states cannot transition out
+    -- Rule 1: Failed and retired states are fully terminal (no transitions out)
     SELECT CASE
-        WHEN OLD.lifecycle_state = 'retired'
-        THEN RAISE(ABORT, 'LIFECYCLE_VIOLATION: Cannot transition stack from retired state (terminal state)')
         WHEN OLD.lifecycle_state = 'failed'
         THEN RAISE(ABORT, 'LIFECYCLE_VIOLATION: Cannot transition stack from failed state (terminal state)')
+        WHEN OLD.lifecycle_state = 'retired'
+        THEN RAISE(ABORT, 'LIFECYCLE_VIOLATION: Cannot transition stack from retired state (terminal state)')
     END;
 
-    -- Rule 2: Validate transition is in the allowed transition rules
+    -- Rule 2: Stacks must go through deprecated (no tier-based exceptions)
+    -- active -> retired is NOT allowed for stacks (that's ephemeral adapter-only)
     SELECT CASE
-        WHEN NEW.lifecycle_state = 'failed'
-        THEN NULL  -- Valid: any -> failed
+        WHEN OLD.lifecycle_state = 'active' AND NEW.lifecycle_state = 'retired'
+        THEN RAISE(ABORT, 'LIFECYCLE_VIOLATION: Stacks must go through deprecated before retired')
+    END;
 
+-- Rule 3: Validate transition is in the allowed transition rules
+    SELECT CASE
         WHEN NOT EXISTS (
             SELECT 1 FROM lifecycle_transition_rules
             WHERE from_state = OLD.lifecycle_state AND to_state = NEW.lifecycle_state
@@ -205,39 +212,79 @@ END;
 -- HISTORY TABLE VALIDATION TRIGGERS
 -- ============================================================================
 
+-- Ensure lifecycle history table exists for legacy adapters
+CREATE TABLE IF NOT EXISTS adapter_lifecycle_history (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    adapter_pk TEXT NOT NULL,
+    tenant_id TEXT NOT NULL,
+    version TEXT NOT NULL,
+    lifecycle_state TEXT NOT NULL,
+    previous_lifecycle_state TEXT,
+    reason TEXT,
+    initiated_by TEXT NOT NULL,
+    metadata_json TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+
+    FOREIGN KEY (adapter_pk) REFERENCES adapters(id) ON DELETE CASCADE,
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+    CHECK (lifecycle_state IN ('draft', 'training', 'ready', 'active', 'deprecated', 'retired', 'failed')),
+    CHECK (
+        previous_lifecycle_state IS NULL OR
+        previous_lifecycle_state IN ('draft', 'training', 'ready', 'active', 'deprecated', 'retired', 'failed')
+    )
+);
+
+CREATE INDEX IF NOT EXISTS idx_adapter_lifecycle_history_adapter_pk
+    ON adapter_lifecycle_history(adapter_pk);
+CREATE INDEX IF NOT EXISTS idx_adapter_lifecycle_history_tenant
+    ON adapter_lifecycle_history(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_adapter_lifecycle_history_created_at
+    ON adapter_lifecycle_history(created_at DESC);
+
+CREATE TRIGGER IF NOT EXISTS trg_adapter_lifecycle_history_tenant_match
+BEFORE INSERT ON adapter_lifecycle_history
+FOR EACH ROW
+WHEN (
+    SELECT tenant_id FROM adapters WHERE id = NEW.adapter_pk
+) != NEW.tenant_id
+BEGIN
+    SELECT RAISE(ABORT, 'adapter_lifecycle_history.tenant_id must match adapters.tenant_id');
+END;
+
 -- Update the history table triggers to recognize all 7 states
 -- Note: These may have been created in migration 0071, so we drop and recreate
 
 DROP TRIGGER IF EXISTS validate_adapter_version_history_lifecycle_state;
+DROP TRIGGER IF EXISTS validate_adapter_lifecycle_history_lifecycle_state;
 DROP TRIGGER IF EXISTS validate_stack_version_history_lifecycle_state;
 
-CREATE TRIGGER IF NOT EXISTS validate_adapter_version_history_lifecycle_state
-BEFORE INSERT ON adapter_version_history
+CREATE TRIGGER validate_adapter_lifecycle_history_lifecycle_state
+BEFORE INSERT ON adapter_lifecycle_history
 FOR EACH ROW
 BEGIN
     SELECT CASE
         WHEN NEW.lifecycle_state NOT IN ('draft', 'training', 'ready', 'active', 'deprecated', 'retired', 'failed')
-        THEN RAISE(ABORT, 'Invalid lifecycle_state in history: must be one of draft, training, ready, active, deprecated, retired, failed')
+        THEN RAISE(ABORT, 'LIFECYCLE_VIOLATION: Invalid lifecycle_state in history: must be one of draft, training, ready, active, deprecated, retired, failed')
     END;
     SELECT CASE
         WHEN NEW.previous_lifecycle_state IS NOT NULL
          AND NEW.previous_lifecycle_state NOT IN ('draft', 'training', 'ready', 'active', 'deprecated', 'retired', 'failed')
-        THEN RAISE(ABORT, 'Invalid previous_lifecycle_state in history: must be one of draft, training, ready, active, deprecated, retired, failed')
+        THEN RAISE(ABORT, 'LIFECYCLE_VIOLATION: Invalid previous_lifecycle_state in history: must be one of draft, training, ready, active, deprecated, retired, failed')
     END;
 END;
 
-CREATE TRIGGER IF NOT EXISTS validate_stack_version_history_lifecycle_state
+CREATE TRIGGER validate_stack_version_history_lifecycle_state
 BEFORE INSERT ON stack_version_history
 FOR EACH ROW
 BEGIN
     SELECT CASE
         WHEN NEW.lifecycle_state NOT IN ('draft', 'training', 'ready', 'active', 'deprecated', 'retired', 'failed')
-        THEN RAISE(ABORT, 'Invalid lifecycle_state in history: must be one of draft, training, ready, active, deprecated, retired, failed')
+        THEN RAISE(ABORT, 'LIFECYCLE_VIOLATION: Invalid lifecycle_state in history: must be one of draft, training, ready, active, deprecated, retired, failed')
     END;
     SELECT CASE
         WHEN NEW.previous_lifecycle_state IS NOT NULL
          AND NEW.previous_lifecycle_state NOT IN ('draft', 'training', 'ready', 'active', 'deprecated', 'retired', 'failed')
-        THEN RAISE(ABORT, 'Invalid previous_lifecycle_state in history: must be one of draft, training, ready, active, deprecated, retired, failed')
+        THEN RAISE(ABORT, 'LIFECYCLE_VIOLATION: Invalid previous_lifecycle_state in history: must be one of draft, training, ready, active, deprecated, retired, failed')
     END;
 END;
 
@@ -268,15 +315,15 @@ CREATE INDEX IF NOT EXISTS idx_lifecycle_transition_rules_from_to
 --   draft -> training -> ready -> active -> deprecated -> retired (standard path)
 --   active -> ready (rollback for production issues)
 --   active -> retired (ephemeral tier only - skip deprecated)
---   any (non-terminal) -> failed (failure path from any state)
+--   any non-terminal state -> failed (failure path from draft/training/ready/active/deprecated)
 --
 -- Terminal states:
---   retired - Adapter is end-of-life, no further transitions
---   failed - Adapter encountered unrecoverable error, no further transitions
+--   retired - End-of-life, no further transitions of any kind
+--   failed - Fully terminal, no further transitions of any kind
 --
 -- Invalid transitions (blocked by triggers):
---   retired -> * (any transition from retired)
---   failed -> * (any transition from failed)
+--   failed -> * (any transition from failed - fully terminal)
+--   retired -> * (any transition from retired - fully terminal)
 --   Skipping states: draft -> ready, draft -> active, training -> active, etc.
 --   Backward transitions: ready -> training, deprecated -> active, etc.
 --   (except active -> ready which is allowed as rollback)
@@ -301,9 +348,10 @@ CREATE INDEX IF NOT EXISTS idx_lifecycle_transition_rules_from_to
 -- Key additions:
 --   1. lifecycle_transition_rules table for reference and validation
 --   2. Support for all 7 states: draft, training, ready, active, deprecated, retired, failed
---   3. Terminal state enforcement for both retired and failed
---   4. Ephemeral tier restriction (cannot be deprecated)
---   5. Rollback support (active -> ready)
---   6. Consistent error codes (LIFECYCLE_VIOLATION prefix)
+--   3. Terminal state enforcement (failed and retired are fully terminal)
+--   4. Ephemeral tier restriction (cannot be deprecated, must skip to retired)
+--   5. Non-ephemeral tier restriction (must go through deprecated before retired)
+--   6. Rollback support (active -> ready)
+--   7. Consistent error codes (LIFECYCLE_VIOLATION prefix)
 --
 -- Database layer is now production-ready with integrity guarantees.

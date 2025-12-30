@@ -1,7 +1,8 @@
 -- ============================================================================
 -- ADAPTER FILE METADATA EXTENSION
 -- ============================================================================
--- File: migrations/0243_adapter_file_metadata.sql
+-- File: migrations/0244_adapter_file_metadata.sql
+-- Renumbered: Was 0243, renumbered to 0244 when 0242_dataset_repo_slug.sql was inserted
 -- Purpose: Add file size and modification timestamp columns to aos_adapter_metadata
 -- for comprehensive adapter file tracking (Set 22 Point 3)
 -- ============================================================================
