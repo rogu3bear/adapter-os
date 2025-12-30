@@ -1,4 +1,4 @@
-//! Policy Packs - Complete implementation of all 25 policy packs
+//! Policy Packs - Complete implementation of all 29 policy packs
 //!
 //! This module contains the complete implementation of all policy packs
 //! for AdapterOS, including configuration, validation, and enforcement logic.
@@ -6,6 +6,7 @@
 pub mod adapters;
 pub mod artifacts;
 pub mod build_release;
+pub mod capability;
 pub mod circuit_breaker;
 pub mod compliance;
 pub mod dependency_security;
@@ -16,12 +17,15 @@ pub mod egress;
 pub mod evidence;
 pub mod incident;
 pub mod isolation;
+pub mod language;
+pub mod live_data;
 pub mod memory;
 pub mod naming_policy;
 pub mod numeric;
 pub mod nvd_client;
 pub mod output;
 pub mod performance;
+pub mod query_intent;
 pub mod rag;
 pub mod refusal;
 pub mod retention;
@@ -36,6 +40,10 @@ pub use adapters::{
 };
 pub use artifacts::{ArtifactMetadata, ArtifactValidation, ArtifactsConfig, ArtifactsPolicy};
 pub use build_release::{BuildMetrics, BuildReleaseConfig, BuildReleasePolicy, ReplayTestResults};
+pub use capability::{
+    CapabilityConfig, CapabilityContext, CapabilityPolicy, CapabilityValidationResult,
+    SystemCapabilities,
+};
 pub use circuit_breaker::CircuitBreakerPolicy;
 pub use compliance::{ComplianceConfig, CompliancePolicy, ControlMatrixEntry, EvidenceEntry};
 pub use dependency_security::{
@@ -67,6 +75,10 @@ pub use isolation::{
     FileOperation, FilesystemIsolation, IsolationConfig, IsolationPolicy, KeyBackend, KeyConfig,
     NetworkIsolation, ProcessModel, RotationPolicy, RotationTrigger, TenantContext,
 };
+pub use language::{
+    Language, LanguageConfig, LanguageConsistencyResult, LanguageContext, LanguageDetectionResult,
+    LanguagePolicy,
+};
 pub use memory::{AdapterMemoryInfo, EvictionDecision, MemoryConfig, MemoryPolicy, MemoryStats};
 pub use naming_policy::{
     AdapterNameValidation, NamingConfig, NamingPolicy, NamingViolation, NamingViolationType,
@@ -80,15 +92,18 @@ pub use nvd_client::{
     NvdApiResponse, NvdClient, NvdClientConfig, NvdCve, NvdCveWrapper, NvdCvssData, NvdCvssV30,
     NvdCvssV31, NvdDescription, NvdError, NvdMetrics, NvdReference, NvdWeakness,
 };
-pub use output::{LlmOutput, OutputConfig, OutputPolicy, SafetyCheckResult};
+pub use output::{
+    LengthEnforcementResult, LlmOutput, OutputConfig, OutputPolicy, ResponseLength,
+    SafetyCheckResult,
+};
 pub use performance::{InferenceMetrics, PerformanceConfig, PerformancePolicy, PerformanceStats};
 pub use rag::{
     DocumentMetadata, IndexScope, IsolationRule, OrderingRule, RagConfig, RagPolicy,
     RetrievalResult, SupersessionAction, SupersessionConfig, SupersessionStatus, TenantIsolation,
 };
 pub use refusal::{
-    RedactionRules, RefusalConfig, RefusalPolicy, RefusalReason, RefusalResponse, SafetyChecks,
-    SafetyScores,
+    BestEffortResponse, RedactionRules, RefusalConfig, RefusalPolicy, RefusalReason,
+    RefusalResponse, ResponseMode, SafetyChecks, SafetyScores,
 };
 pub use retention::{
     BundleMetadata, BundleType, RetentionConfig, RetentionDecision, RetentionPolicy,
@@ -104,6 +119,16 @@ pub use telemetry::{
     TelemetryPolicy,
 };
 pub use version_matcher::{CpeVersionMatcher, OsvVersionRange, Version, VersionRange};
+
+// Query Intent and Live Data policies
+pub use live_data::{
+    FallbackBehavior, GroundingEvidence, GroundingRequirements, LiveDataConfig, LiveDataPolicy,
+    QueryCategory, TenantCapabilities, ValidationResult,
+};
+pub use query_intent::{
+    IntentClassification, LiveDataIntent, QueryIntentConfig, QueryIntentPolicy, QueryIntentResult,
+    RecencySensitivity,
+};
 
 /// Policy pack factory for creating policy instances
 pub struct PolicyPackFactory;
@@ -227,6 +252,26 @@ impl PolicyPackFactory {
     /// Create a circuit breaker policy with default configuration
     pub fn create_circuit_breaker_policy() -> CircuitBreakerPolicy {
         CircuitBreakerPolicy::default()
+    }
+
+    /// Create a capability policy with default configuration
+    pub fn create_capability_policy() -> CapabilityPolicy {
+        CapabilityPolicy::new(CapabilityConfig::default())
+    }
+
+    /// Create a language policy with default configuration
+    pub fn create_language_policy() -> LanguagePolicy {
+        LanguagePolicy::new(LanguageConfig::default())
+    }
+
+    /// Create a query intent policy with default configuration
+    pub fn create_query_intent_policy() -> QueryIntentPolicy {
+        QueryIntentPolicy::new(QueryIntentConfig::default())
+    }
+
+    /// Create a live data policy with default configuration
+    pub fn create_live_data_policy() -> LiveDataPolicy {
+        LiveDataPolicy::new(LiveDataConfig::default())
     }
 }
 

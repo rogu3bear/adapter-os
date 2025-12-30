@@ -35,11 +35,15 @@ pub enum PolicyId {
     Naming = 23,
     DependencySecurity = 24,
     CircuitBreaker = 25,
+    Capability = 26,
+    Language = 27,
+    QueryIntent = 28,
+    LiveData = 29,
 }
 
 impl PolicyId {
     /// Get all policy IDs in order
-    pub fn all() -> &'static [PolicyId; 25] {
+    pub fn all() -> &'static [PolicyId; 29] {
         &[
             PolicyId::Egress,
             PolicyId::Determinism,
@@ -66,6 +70,10 @@ impl PolicyId {
             PolicyId::Naming,
             PolicyId::DependencySecurity,
             PolicyId::CircuitBreaker,
+            PolicyId::Capability,
+            PolicyId::Language,
+            PolicyId::QueryIntent,
+            PolicyId::LiveData,
         ]
     }
 
@@ -97,6 +105,10 @@ impl PolicyId {
             PolicyId::Naming => "Naming",
             PolicyId::DependencySecurity => "Dependency Security",
             PolicyId::CircuitBreaker => "Circuit Breaker",
+            PolicyId::Capability => "Capability",
+            PolicyId::Language => "Language",
+            PolicyId::QueryIntent => "Query Intent",
+            PolicyId::LiveData => "Live Data",
         }
     }
 
@@ -128,6 +140,10 @@ impl PolicyId {
             PolicyId::Naming => "Adapter and stack naming conventions with reserved namespace and hierarchy enforcement",
             PolicyId::DependencySecurity => "CVE database integration, vulnerability scoring, caching, and supply chain validation",
             PolicyId::CircuitBreaker => "Service-specific circuit breaker configurations and thresholds for fault tolerance",
+            PolicyId::Capability => "Detect and prevent hallucinated capability claims in responses",
+            PolicyId::Language => "Enforce response language consistency with user input language",
+            PolicyId::QueryIntent => "Classify queries requiring live data (recency, travel, politics, products, news)",
+            PolicyId::LiveData => "Enforce browsing and citation requirements for queries needing fresh data",
         }
     }
 
@@ -161,6 +177,10 @@ impl PolicyId {
                 "adapter registration, build pipeline, dependency validation"
             }
             PolicyId::CircuitBreaker => "service calls, fault tolerance, recovery management",
+            PolicyId::Capability => "post-inference validation, response builder",
+            PolicyId::Language => "post-inference validation, response builder",
+            PolicyId::QueryIntent => "pre-routing classification, inference routing",
+            PolicyId::LiveData => "post-inference validation, grounding verification",
         }
     }
 
@@ -192,6 +212,10 @@ impl PolicyId {
             PolicyId::Naming => true,
             PolicyId::DependencySecurity => true,
             PolicyId::CircuitBreaker => true,
+            PolicyId::Capability => true,
+            PolicyId::Language => true,
+            PolicyId::QueryIntent => true,
+            PolicyId::LiveData => true,
         }
     }
 }
@@ -225,8 +249,8 @@ impl PolicySpec {
     }
 }
 
-/// The canonical registry of all 25 policy packs
-pub static POLICY_INDEX: once_cell::sync::Lazy<[PolicySpec; 25]> =
+/// The canonical registry of all 29 policy packs
+pub static POLICY_INDEX: once_cell::sync::Lazy<[PolicySpec; 29]> =
     once_cell::sync::Lazy::new(|| {
         [
             PolicySpec::from_id(PolicyId::Egress),
@@ -254,6 +278,10 @@ pub static POLICY_INDEX: once_cell::sync::Lazy<[PolicySpec; 25]> =
             PolicySpec::from_id(PolicyId::Naming),
             PolicySpec::from_id(PolicyId::DependencySecurity),
             PolicySpec::from_id(PolicyId::CircuitBreaker),
+            PolicySpec::from_id(PolicyId::Capability),
+            PolicySpec::from_id(PolicyId::Language),
+            PolicySpec::from_id(PolicyId::QueryIntent),
+            PolicySpec::from_id(PolicyId::LiveData),
         ]
     });
 
@@ -341,7 +369,7 @@ pub enum Severity {
 }
 
 /// List all policies
-pub fn list_policies() -> &'static [PolicySpec; 25] {
+pub fn list_policies() -> &'static [PolicySpec; 29] {
     &POLICY_INDEX
 }
 
@@ -376,7 +404,7 @@ mod tests {
 
     #[test]
     fn test_policy_count() {
-        assert_eq!(POLICY_INDEX.len(), 25, "Must have exactly 25 policy packs");
+        assert_eq!(POLICY_INDEX.len(), 29, "Must have exactly 29 policy packs");
     }
 
     #[test]
