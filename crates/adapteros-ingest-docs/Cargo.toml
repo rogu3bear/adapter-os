@@ -27,6 +27,9 @@ adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true }
 tokenizers = { workspace = true }
 pulldown-cmark = "0.9"
 lopdf = "0.32"
+image = "0.25"
+base64 = "0.22"
+flate2 = "1.0"
 serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
@@ -37,5 +40,6 @@ tokio = { workspace = true, features = ["rt", "macros"] }
 
 [dev-dependencies]
 tempfile = "3.8"
+base64 = "0.22"
 adapteros-lora-rag = { path = "../adapteros-lora-rag" }
 adapteros-config = { path = "../adapteros-config" }

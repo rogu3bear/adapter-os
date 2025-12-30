@@ -80,6 +80,32 @@ pub struct PageExtractionResult {
     pub page_number: u32,
     pub text: Option<String>,
     pub error: Option<String>,
+    /// True if this page contains image XObjects (charts, figures, scanned content)
+    /// that were not extracted as text. Callers should be aware that visual content
+    /// may be missing from the extracted text.
+    pub has_unextracted_images: bool,
+    /// True if visual content was successfully extracted and described via vision model.
+    /// When true, `visual_description` contains the AI-generated description of the
+    /// visual content (charts, figures, tables).
+    pub visual_content_extracted: bool,
+    /// AI-generated description of visual content on this page.
+    /// Only populated when `visual_content_extracted` is true.
+    pub visual_description: Option<String>,
+}
+
+/// Extracted image from a PDF page
+#[derive(Debug, Clone)]
+pub struct ExtractedImage {
+    /// Page number where the image was found
+    pub page_number: u32,
+    /// Image name/ID within the PDF
+    pub image_name: String,
+    /// Raw image bytes (decoded to PNG format)
+    pub image_bytes: Vec<u8>,
+    /// Image width in pixels
+    pub width: u32,
+    /// Image height in pixels
+    pub height: u32,
 }
 
 /// Ingestion result with partial success tracking
@@ -89,4 +115,10 @@ pub struct IngestedDocumentWithErrors {
     pub page_errors: Vec<PageExtractionResult>,
     pub total_pages: usize,
     pub successful_pages: usize,
+    /// Number of pages that contain image XObjects (visual content) that could not
+    /// be extracted as text. When non-zero, callers should be aware that charts,
+    /// figures, or scanned content may be missing from the extracted text.
+    pub pages_with_images: usize,
+    /// Number of pages where visual content was successfully extracted and described.
+    pub pages_with_visual_extraction: usize,
 }
