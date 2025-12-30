@@ -144,9 +144,18 @@ async fn collect_readiness(state: &AppState) -> ReadinessStatus {
     };
 
     let db_start = Instant::now();
+    // Wrap database connection acquisition with a 500ms timeout to prevent
+    // blocking on pool exhaustion. This is separate from the overall db_timeout
+    // which covers the entire query operation.
+    const ACQUIRE_TIMEOUT_MS: u64 = 500;
+    let acquire_timeout = Duration::from_millis(ACQUIRE_TIMEOUT_MS);
     let db_probe = timeout(db_timeout, async {
-        let mut conn = state.db.pool().acquire().await?;
-        query("SELECT 1").execute(&mut *conn).await
+        let conn_result = timeout(acquire_timeout, state.db.pool().acquire()).await;
+        match conn_result {
+            Ok(Ok(mut conn)) => query("SELECT 1").execute(&mut *conn).await,
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err(sqlx::Error::PoolTimedOut),
+        }
     })
     .await;
     let db_latency = db_start.elapsed().as_millis() as u64;

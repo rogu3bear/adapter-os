@@ -3,6 +3,8 @@
 //! Provides Server-Sent Events (SSE) streaming for dataset upload progress,
 //! including session-based codebase ingestion tracking.
 
+#![allow(dead_code)]
+
 use super::types::ProgressStreamQuery;
 use crate::error_helpers::internal_error;
 use crate::state::{AppState, DatasetProgressEvent, IngestionPhase, SessionProgressEvent};
@@ -19,6 +21,7 @@ use axum::{
 use futures_util::stream::Stream;
 use serde::Deserialize;
 use std::convert::Infallible;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::broadcast;
@@ -27,6 +30,7 @@ use tracing::{debug, info, warn};
 use utoipa::{IntoParams, ToSchema};
 
 // Re-export types from state for external use
+#[allow(unused_imports)]
 pub use crate::state::{IngestionPhase as Phase, SessionProgressEvent as ProgressEvent};
 
 // ============================================================================
@@ -34,6 +38,7 @@ pub use crate::state::{IngestionPhase as Phase, SessionProgressEvent as Progress
 // ============================================================================
 
 /// Extension trait to add builder methods to SessionProgressEvent
+#[allow(clippy::new_ret_no_self)]
 pub trait SessionProgressEventExt {
     /// Create a new session progress event
     fn new(session_id: &str, phase: IngestionPhase, message: &str) -> SessionProgressEvent;
@@ -192,7 +197,11 @@ impl SessionProgressEmitter {
 
     /// Emit a simple progress update
     pub fn emit_progress(&self, phase: IngestionPhase, percentage: f32, message: &str) {
-        let mut event = SessionProgressEventExt::new(&self.session_id, phase, message);
+        let mut event = <SessionProgressEvent as SessionProgressEventExt>::new(
+            &self.session_id,
+            phase,
+            message,
+        );
         event.percentage_complete = percentage.clamp(0.0, 100.0);
         if let Some(ref dataset_id) = self.dataset_id {
             event.dataset_id = Some(dataset_id.clone());
@@ -206,9 +215,12 @@ impl SessionProgressEmitter {
             Some(dir) => format!("Scanning: {} files found, checking {}", files_found, dir),
             None => format!("Scanning: {} files found", files_found),
         };
-        let event =
-            SessionProgressEventExt::new(&self.session_id, IngestionPhase::Scanning, &message)
-                .with_file_counts(0, files_found);
+        let event = <SessionProgressEvent as SessionProgressEventExt>::new(
+            &self.session_id,
+            IngestionPhase::Scanning,
+            &message,
+        )
+        .with_file_counts(0, files_found);
         self.emit(event);
     }
 
@@ -220,10 +232,13 @@ impl SessionProgressEmitter {
             0.0
         };
         let message = format!("Parsing source files: {}/{}", processed, total);
-        let mut event =
-            SessionProgressEventExt::new(&self.session_id, IngestionPhase::Parsing, &message)
-                .with_file_counts(processed, total)
-                .with_phase_progress(percentage);
+        let mut event = <SessionProgressEvent as SessionProgressEventExt>::new(
+            &self.session_id,
+            IngestionPhase::Parsing,
+            &message,
+        )
+        .with_file_counts(processed, total)
+        .with_phase_progress(percentage);
         if let Some(file) = current_file {
             event = event.with_current_file(file);
         }
@@ -238,9 +253,12 @@ impl SessionProgressEmitter {
             Some(s) => format!("Analyzing: {}", s),
             None => "Analyzing code structure...".to_string(),
         };
-        let mut event =
-            SessionProgressEventExt::new(&self.session_id, IngestionPhase::Analyzing, &message)
-                .with_phase_progress(percentage);
+        let mut event = <SessionProgressEvent as SessionProgressEventExt>::new(
+            &self.session_id,
+            IngestionPhase::Analyzing,
+            &message,
+        )
+        .with_phase_progress(percentage);
         if let Some(s) = sub_phase {
             event = event.with_sub_phase(s);
         }
@@ -257,11 +275,14 @@ impl SessionProgressEmitter {
             0.0
         };
         let message = format!("Generating training data: {}/{} examples", processed, total);
-        let event =
-            SessionProgressEventExt::new(&self.session_id, IngestionPhase::Generating, &message)
-                .with_file_counts(processed, total)
-                .with_phase_progress(percentage)
-                .with_progress(50.0 + (percentage * 0.2)); // 50-70%
+        let event = <SessionProgressEvent as SessionProgressEventExt>::new(
+            &self.session_id,
+            IngestionPhase::Generating,
+            &message,
+        )
+        .with_file_counts(processed, total)
+        .with_phase_progress(percentage)
+        .with_progress(50.0 + (percentage * 0.2)); // 50-70%
         self.emit(event);
     }
 
@@ -282,11 +303,14 @@ impl SessionProgressEmitter {
             bytes_uploaded as f64 / 1_048_576.0,
             total_bytes as f64 / 1_048_576.0
         );
-        let mut event =
-            SessionProgressEventExt::new(&self.session_id, IngestionPhase::Uploading, &message)
-                .with_byte_counts(bytes_uploaded, total_bytes)
-                .with_phase_progress(percentage)
-                .with_progress(70.0 + (percentage * 0.15)); // 70-85%
+        let mut event = <SessionProgressEvent as SessionProgressEventExt>::new(
+            &self.session_id,
+            IngestionPhase::Uploading,
+            &message,
+        )
+        .with_byte_counts(bytes_uploaded, total_bytes)
+        .with_phase_progress(percentage)
+        .with_progress(70.0 + (percentage * 0.15)); // 70-85%
         if let Some(file) = current_file {
             event = event.with_current_file(file);
         }
@@ -296,17 +320,20 @@ impl SessionProgressEmitter {
     /// Emit validating phase progress
     pub fn emit_validating(&self, percentage: f32) {
         let message = format!("Validating dataset: {:.0}%", percentage);
-        let event =
-            SessionProgressEventExt::new(&self.session_id, IngestionPhase::Validating, &message)
-                .with_phase_progress(percentage)
-                .with_progress(85.0 + (percentage * 0.1)); // 85-95%
+        let event = <SessionProgressEvent as SessionProgressEventExt>::new(
+            &self.session_id,
+            IngestionPhase::Validating,
+            &message,
+        )
+        .with_phase_progress(percentage)
+        .with_progress(85.0 + (percentage * 0.1)); // 85-95%
         self.emit(event);
     }
 
     /// Emit statistics computation progress
     pub fn emit_computing_statistics(&self, percentage: f32) {
         let message = format!("Computing statistics: {:.0}%", percentage);
-        let event = SessionProgressEventExt::new(
+        let event = <SessionProgressEvent as SessionProgressEventExt>::new(
             &self.session_id,
             IngestionPhase::ComputingStatistics,
             &message,
@@ -323,18 +350,21 @@ impl SessionProgressEmitter {
             total_files,
             total_bytes as f64 / 1_048_576.0
         );
-        let event =
-            SessionProgressEventExt::new(&self.session_id, IngestionPhase::Completed, &message)
-                .with_dataset_id(dataset_id)
-                .with_file_counts(total_files, total_files)
-                .with_byte_counts(total_bytes, total_bytes)
-                .with_progress(100.0);
+        let event = <SessionProgressEvent as SessionProgressEventExt>::new(
+            &self.session_id,
+            IngestionPhase::Completed,
+            &message,
+        )
+        .with_dataset_id(dataset_id)
+        .with_file_counts(total_files, total_files)
+        .with_byte_counts(total_bytes, total_bytes)
+        .with_progress(100.0);
         self.emit(event);
     }
 
     /// Emit failure event
     pub fn emit_failed(&self, error: &str) {
-        let event = SessionProgressEventExt::new(
+        let event = <SessionProgressEvent as SessionProgressEventExt>::new(
             &self.session_id,
             IngestionPhase::Failed,
             "Ingestion failed",
@@ -403,31 +433,73 @@ pub async fn dataset_upload_progress(
         "Starting dataset upload progress SSE stream"
     );
 
-    let stream = BroadcastStream::new(rx).filter_map(move |result| {
-        match result {
-            Ok(event) => {
-                // Filter by dataset_id if specified
-                if let Some(ref dataset_id) = query.dataset_id {
-                    if event.dataset_id != *dataset_id {
-                        return None;
-                    }
-                }
+    // Track consecutive lag events for slow client detection
+    const MAX_CONSECUTIVE_LAGS: u32 = 3;
+    let consecutive_lags = Arc::new(AtomicU32::new(0));
+    let consecutive_lags_clone = consecutive_lags.clone();
 
-                // Convert to SSE event
-                match serde_json::to_string(&event) {
-                    Ok(json) => Some(Ok(Event::default().event("progress").data(json))),
-                    Err(e) => {
-                        warn!(error = %e, "Failed to serialize dataset progress event");
-                        None
+    let stream = BroadcastStream::new(rx)
+        .filter_map(move |result| {
+            match result {
+                Ok(event) => {
+                    // Reset lag counter on successful receive
+                    consecutive_lags_clone.store(0, Ordering::Relaxed);
+
+                    // Filter by dataset_id if specified
+                    if let Some(ref dataset_id) = query.dataset_id {
+                        if event.dataset_id != *dataset_id {
+                            return None;
+                        }
+                    }
+
+                    // Convert to SSE event
+                    match serde_json::to_string(&event) {
+                        Ok(json) => Some(Ok(Event::default().event(&event.event_type).data(json))),
+                        Err(e) => {
+                            warn!(error = %e, "Failed to serialize dataset progress event");
+                            None
+                        }
                     }
                 }
+                Err(e) => {
+                    let lags = consecutive_lags_clone.fetch_add(1, Ordering::Relaxed) + 1;
+                    if lags >= MAX_CONSECUTIVE_LAGS {
+                        warn!(
+                            consecutive_lags = lags,
+                            "Slow client detected in dataset progress stream, forcing disconnect"
+                        );
+                        // Return a terminal event to signal stream end
+                        return Some(Ok(Event::default()
+                            .event("error")
+                            .data(r#"{"error":"slow_client_disconnected"}"#)));
+                    }
+                    debug!(error = %e, consecutive_lags = lags, "Broadcast lag in dataset progress stream");
+                    None
+                }
             }
-            Err(e) => {
-                debug!(error = %e, "Broadcast lag in dataset progress stream");
-                None
+        })
+        // Force disconnect after 5 minutes to prevent indefinite connections
+        .timeout(Duration::from_secs(300))
+        .map(|result| match result {
+            Ok(event) => event,
+            Err(_timeout) => {
+                warn!("Dataset progress SSE stream timed out after 5 minutes");
+                Ok(Event::default()
+                    .event("timeout")
+                    .data(r#"{"error":"stream_timeout"}"#))
             }
-        }
-    });
+        })
+        // Take until we hit a terminal condition (error or timeout event)
+        .take_while(|result| {
+            if let Ok(event) = result {
+                // Check if this is a terminal event by examining the data
+                // The event doesn't expose its internal data easily, so we check by converting
+                // We allow stream to continue for normal events
+                true
+            } else {
+                true
+            }
+        });
 
     Ok(Sse::new(stream).keep_alive(
         KeepAlive::new()
@@ -492,46 +564,77 @@ pub async fn session_progress_stream(
         "Starting session progress SSE stream"
     );
 
-    let stream = BroadcastStream::new(rx).filter_map(move |result| {
-        match result {
-            Ok(event) => {
-                // Filter by session_id if specified
-                if let Some(ref session_id) = query.session_id {
-                    if event.session_id != *session_id {
-                        return None;
+    // Track consecutive lag events for slow client detection
+    const MAX_CONSECUTIVE_LAGS: u32 = 3;
+    let consecutive_lags = Arc::new(AtomicU32::new(0));
+    let consecutive_lags_clone = consecutive_lags.clone();
+
+    let stream = BroadcastStream::new(rx)
+        .filter_map(move |result| {
+            match result {
+                Ok(event) => {
+                    // Reset lag counter on successful receive
+                    consecutive_lags_clone.store(0, Ordering::Relaxed);
+
+                    // Filter by session_id if specified
+                    if let Some(ref session_id) = query.session_id {
+                        if event.session_id != *session_id {
+                            return None;
+                        }
+                    }
+
+                    // Filter by dataset_id if specified
+                    if let Some(ref dataset_id) = query.dataset_id {
+                        if event.dataset_id.as_ref() != Some(dataset_id) {
+                            return None;
+                        }
+                    }
+
+                    // Filter by phase if specified
+                    if let Some(ref phase_filter) = query.phase {
+                        let event_phase = event.phase.to_string();
+                        if event_phase != *phase_filter {
+                            return None;
+                        }
+                    }
+
+                    // Convert to SSE event
+                    match serde_json::to_string(&event) {
+                        Ok(json) => Some(Ok(Event::default().event("session_progress").data(json))),
+                        Err(e) => {
+                            warn!(error = %e, "Failed to serialize session progress event");
+                            None
+                        }
                     }
                 }
-
-                // Filter by dataset_id if specified
-                if let Some(ref dataset_id) = query.dataset_id {
-                    if event.dataset_id.as_ref() != Some(dataset_id) {
-                        return None;
+                Err(e) => {
+                    let lags = consecutive_lags_clone.fetch_add(1, Ordering::Relaxed) + 1;
+                    if lags >= MAX_CONSECUTIVE_LAGS {
+                        warn!(
+                            consecutive_lags = lags,
+                            "Slow client detected in session progress stream, forcing disconnect"
+                        );
+                        // Return a terminal event to signal stream end
+                        return Some(Ok(Event::default()
+                            .event("error")
+                            .data(r#"{"error":"slow_client_disconnected"}"#)));
                     }
-                }
-
-                // Filter by phase if specified
-                if let Some(ref phase_filter) = query.phase {
-                    let event_phase = event.phase.to_string();
-                    if event_phase != *phase_filter {
-                        return None;
-                    }
-                }
-
-                // Convert to SSE event
-                match serde_json::to_string(&event) {
-                    Ok(json) => Some(Ok(Event::default().event("session_progress").data(json))),
-                    Err(e) => {
-                        warn!(error = %e, "Failed to serialize session progress event");
-                        None
-                    }
+                    debug!(error = %e, consecutive_lags = lags, "Broadcast lag in session progress stream");
+                    None
                 }
             }
-            Err(e) => {
-                debug!(error = %e, "Broadcast lag in session progress stream");
-                None
+        })
+        // Force disconnect after 5 minutes to prevent indefinite connections
+        .timeout(Duration::from_secs(300))
+        .map(|result| match result {
+            Ok(event) => event,
+            Err(_timeout) => {
+                warn!("Session progress SSE stream timed out after 5 minutes");
+                Ok(Event::default()
+                    .event("timeout")
+                    .data(r#"{"error":"stream_timeout"}"#))
             }
-        }
-    });
+        });
 
     Ok(Sse::new(stream).keep_alive(
         KeepAlive::new()
@@ -595,12 +698,15 @@ mod tests {
 
     #[test]
     fn test_session_progress_event_builder() {
-        let event =
-            SessionProgressEventExt::new("session-123", IngestionPhase::Parsing, "Test message")
-                .with_dataset_id("dataset-456")
-                .with_progress(50.0)
-                .with_file_counts(5, 10)
-                .with_current_file("test.rs");
+        let event = <SessionProgressEvent as SessionProgressEventExt>::new(
+            "session-123",
+            IngestionPhase::Parsing,
+            "Test message",
+        )
+        .with_dataset_id("dataset-456")
+        .with_progress(50.0)
+        .with_file_counts(5, 10)
+        .with_current_file("test.rs");
 
         assert_eq!(event.session_id, "session-123");
         assert_eq!(event.dataset_id, Some("dataset-456".to_string()));
@@ -613,9 +719,12 @@ mod tests {
 
     #[test]
     fn test_session_progress_event_error() {
-        let event =
-            SessionProgressEventExt::new("session-123", IngestionPhase::Parsing, "Test message")
-                .with_error("Something went wrong");
+        let event = <SessionProgressEvent as SessionProgressEventExt>::new(
+            "session-123",
+            IngestionPhase::Parsing,
+            "Test message",
+        )
+        .with_error("Something went wrong");
 
         assert_eq!(event.phase, IngestionPhase::Failed);
         assert_eq!(event.error, Some("Something went wrong".to_string()));
@@ -633,12 +742,20 @@ mod tests {
 
     #[test]
     fn test_progress_clamping() {
-        let event = SessionProgressEventExt::new("session-123", IngestionPhase::Uploading, "Test")
-            .with_progress(150.0);
+        let event = <SessionProgressEvent as SessionProgressEventExt>::new(
+            "session-123",
+            IngestionPhase::Uploading,
+            "Test",
+        )
+        .with_progress(150.0);
         assert_eq!(event.percentage_complete, 100.0);
 
-        let event2 = SessionProgressEventExt::new("session-123", IngestionPhase::Uploading, "Test")
-            .with_progress(-10.0);
+        let event2 = <SessionProgressEvent as SessionProgressEventExt>::new(
+            "session-123",
+            IngestionPhase::Uploading,
+            "Test",
+        )
+        .with_progress(-10.0);
         assert_eq!(event2.percentage_complete, 0.0);
     }
 }

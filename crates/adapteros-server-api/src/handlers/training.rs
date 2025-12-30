@@ -20,7 +20,7 @@ use adapteros_orchestrator::{
 };
 use adapteros_types::training::{
     BranchClassification, DataLineageMode, DatasetVersionSelection as CoreDatasetVersionSelection,
-    TrainingBackendKind, TrainingBackendPolicy,
+    LoraTier, TrainingBackendKind, TrainingBackendPolicy,
 };
 use axum::{
     extract::State,
@@ -68,6 +68,15 @@ fn canonical_trust_state(raw: &str) -> String {
         "unknown".to_string()
     } else {
         normalized.to_string()
+    }
+}
+
+fn parse_lora_tier(value: Option<&str>) -> Option<LoraTier> {
+    match value {
+        Some("micro") => Some(LoraTier::Micro),
+        Some("standard") => Some(LoraTier::Standard),
+        Some("max") => Some(LoraTier::Max),
+        _ => None,
     }
 }
 
@@ -195,6 +204,8 @@ pub async fn list_training_jobs(
                     .and_then(|v| v.as_f64())
                     .unwrap_or(0.0) as f32;
 
+                let lora_tier = parse_lora_tier(record.lora_tier.as_deref());
+
                 TrainingJob {
                     id: record.id.clone(),
                     adapter_name: record.adapter_name.unwrap_or_default(),
@@ -206,7 +217,7 @@ pub async fn list_training_jobs(
                     base_version_id: record.base_version_id,
                     draft_version_id: record.draft_version_id,
                     adapter_version_id: None,
-                    produced_version_id: None,
+                    produced_version_id: record.produced_version_id,
                     version_label: None,
                     code_commit_sha: record.code_commit_sha.clone(),
                     data_spec_json: record.data_spec_json.clone(),
@@ -214,7 +225,7 @@ pub async fn list_training_jobs(
                     dataset_id: record.dataset_id,
                     dataset_version_ids,
                     dataset_version_trust: None,
-                    dataset_hash_b3: None,
+                    dataset_hash_b3: record.dataset_hash_b3,
                     synthetic_mode: record.synthetic_mode.map(|v| v != 0).unwrap_or(false),
                     data_lineage_mode,
                     base_model_id: record.base_model_id,
@@ -240,28 +251,28 @@ pub async fn list_training_jobs(
                     stack_id: record.stack_id,
                     initiated_by: Some(record.created_by),
                     initiated_by_role: None,
-                    category: None,
-                    description: None,
-                    language: None,
-                    symbol_targets_json: None,
-                    framework_id: None,
-                    framework_version: None,
-                    lora_tier: None,
-                    lora_strength: None,
-                    scope: None,
-                    api_patterns_json: None,
-                    repo_scope: None,
-                    file_patterns_json: None,
-                    exclude_patterns_json: None,
+                    category: record.category,
+                    description: record.description,
+                    language: record.language,
+                    symbol_targets_json: record.symbol_targets_json,
+                    framework_id: record.framework_id,
+                    framework_version: record.framework_version,
+                    lora_tier,
+                    lora_strength: record.lora_strength.map(|v| v as f32),
+                    scope: record.scope,
+                    api_patterns_json: record.api_patterns_json,
+                    repo_scope: record.repo_scope,
+                    file_patterns_json: record.file_patterns_json,
+                    exclude_patterns_json: record.exclude_patterns_json,
                     post_actions_json: None,
                     retryable: record.retryable.map(|v| v != 0),
                     retry_of_job_id: record.retry_of_job_id,
                     requested_backend: None,
                     backend_policy: None,
                     coreml_training_fallback: None,
-                    backend: None,
-                    backend_reason: None,
-                    backend_device: None,
+                    backend: record.backend,
+                    backend_reason: record.backend_reason,
+                    backend_device: record.backend_device,
                     coreml_export_requested: None,
                     coreml_export_status: None,
                     coreml_export_reason: None,
@@ -2421,6 +2432,7 @@ pub async fn create_chat_from_training_job(
         metadata_json: req.metadata_json,
         tags_json: None,
         pinned_adapter_ids: None, // Inherits from tenant default
+        codebase_adapter_id: None,
     };
 
     state.db.create_chat_session(params).await.map_err(|e| {
@@ -2854,7 +2866,7 @@ pub async fn get_training_logs(
         TrainingMetricsQuery
     ),
     responses(
-        (status = 200, description = "Training metrics (loss, accuracy, etc.)", body = serde_json::Value),
+        (status = 200, description = "Training metrics (loss, accuracy, etc.)", body = adapteros_api_types::TrainingMetricsListResponse),
         (status = 403, description = "Access denied", body = ErrorResponse),
         (status = 404, description = "Training job not found", body = ErrorResponse)
     )
@@ -2864,10 +2876,8 @@ pub async fn get_training_metrics(
     Extension(claims): Extension<Claims>,
     Path(job_id): Path<String>,
     Query(params): Query<TrainingMetricsQuery>,
-) -> Result<
-    Json<Vec<adapteros_db::training_jobs::TrainingMetricRow>>,
-    (StatusCode, Json<ErrorResponse>),
-> {
+) -> Result<Json<adapteros_api_types::TrainingMetricsListResponse>, (StatusCode, Json<ErrorResponse>)>
+{
     // First verify the job exists and belongs to the caller's tenant
     let job = state
         .db
@@ -2898,7 +2908,7 @@ pub async fn get_training_metrics(
         ));
     }
 
-    let metrics = state
+    let db_metrics = state
         .db
         .get_training_metrics(&job_id, params.metric_name.as_deref(), params.limit)
         .await
@@ -2913,7 +2923,58 @@ pub async fn get_training_metrics(
             )
         })?;
 
-    Ok(Json(metrics))
+    // Separate loss metrics from tokens_processed metrics, then merge by step.
+    // The DB stores each metric type as a separate row with metric_name discriminator.
+    use std::collections::HashMap;
+
+    let mut loss_by_step: HashMap<i64, (f64, Option<i64>, i32, String)> = HashMap::new();
+    let mut tokens_by_step: HashMap<i64, i64> = HashMap::new();
+
+    for row in db_metrics {
+        match row.metric_name.as_str() {
+            "loss" => {
+                loss_by_step.insert(
+                    row.step,
+                    (
+                        row.metric_value,
+                        row.epoch,
+                        row.epoch.unwrap_or(0) as i32,
+                        row.metric_timestamp.unwrap_or_default(),
+                    ),
+                );
+            }
+            "tokens_processed" => {
+                tokens_by_step.insert(row.step, row.metric_value as i64);
+            }
+            _ => {
+                // Other metrics (tokens_per_sec, etc.) - skip for now
+            }
+        }
+    }
+
+    // Build response entries from loss metrics, merging tokens_processed where available
+    let mut metrics: Vec<adapteros_api_types::TrainingMetricEntry> = loss_by_step
+        .into_iter()
+        .map(|(step, (loss, _epoch_opt, epoch, timestamp))| {
+            adapteros_api_types::TrainingMetricEntry {
+                step,
+                loss,
+                learning_rate: None, // Not stored per-step in current schema
+                epoch,
+                tokens_processed: tokens_by_step.get(&step).copied(),
+                timestamp,
+            }
+        })
+        .collect();
+
+    // Sort by step ascending for consistent ordering
+    metrics.sort_by_key(|m| m.step);
+
+    Ok(Json(adapteros_api_types::TrainingMetricsListResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+        job_id,
+        metrics,
+    }))
 }
 
 /// List training templates

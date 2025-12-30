@@ -169,6 +169,10 @@ impl SupervisorClient {
     /// Returns `AosError::NotFound` if the service doesn't exist
     /// Returns `AosError::Config` if the service is already running
     /// Returns `AosError::Network` if the request fails
+    ///
+    /// Note: This is a non-idempotent operation. Retries are only performed on
+    /// connection-level errors, not on server errors (5xx) to prevent duplicate
+    /// start attempts.
     pub async fn start_service(&self, service_id: &str) -> Result<String> {
         let url = format!("{}/api/services/start", self.base_url);
         let request_body = StartServiceRequest {
@@ -176,14 +180,17 @@ impl SupervisorClient {
         };
 
         let response = self
-            .retry_request(|| async {
-                self.client
-                    .post(&url)
-                    .json(&request_body)
-                    .timeout(self.timeout)
-                    .send()
-                    .await
-            })
+            .retry_request_with_idempotency(
+                || async {
+                    self.client
+                        .post(&url)
+                        .json(&request_body)
+                        .timeout(self.timeout)
+                        .send()
+                        .await
+                },
+                false, // Non-idempotent: starting a service twice could cause issues
+            )
             .await?;
 
         self.handle_operation_response(response, "start", service_id)
@@ -198,6 +205,10 @@ impl SupervisorClient {
     /// # Errors
     /// Returns `AosError::NotFound` if the service doesn't exist
     /// Returns `AosError::Network` if the request fails
+    ///
+    /// Note: This is a non-idempotent operation. Retries are only performed on
+    /// connection-level errors, not on server errors (5xx) to prevent duplicate
+    /// stop attempts.
     pub async fn stop_service(&self, service_id: &str) -> Result<String> {
         let url = format!("{}/api/services/stop", self.base_url);
         let request_body = StartServiceRequest {
@@ -205,14 +216,17 @@ impl SupervisorClient {
         };
 
         let response = self
-            .retry_request(|| async {
-                self.client
-                    .post(&url)
-                    .json(&request_body)
-                    .timeout(self.timeout)
-                    .send()
-                    .await
-            })
+            .retry_request_with_idempotency(
+                || async {
+                    self.client
+                        .post(&url)
+                        .json(&request_body)
+                        .timeout(self.timeout)
+                        .send()
+                        .await
+                },
+                false, // Non-idempotent: stopping a service twice could cause issues
+            )
             .await?;
 
         self.handle_operation_response(response, "stop", service_id)
@@ -227,6 +241,10 @@ impl SupervisorClient {
     /// # Errors
     /// Returns `AosError::NotFound` if the service doesn't exist
     /// Returns `AosError::Network` if the request fails
+    ///
+    /// Note: This is a non-idempotent operation. Retries are only performed on
+    /// connection-level errors, not on server errors (5xx) to prevent duplicate
+    /// restart attempts.
     pub async fn restart_service(&self, service_id: &str) -> Result<String> {
         let url = format!("{}/api/services/restart", self.base_url);
         let request_body = StartServiceRequest {
@@ -234,14 +252,17 @@ impl SupervisorClient {
         };
 
         let response = self
-            .retry_request(|| async {
-                self.client
-                    .post(&url)
-                    .json(&request_body)
-                    .timeout(self.timeout)
-                    .send()
-                    .await
-            })
+            .retry_request_with_idempotency(
+                || async {
+                    self.client
+                        .post(&url)
+                        .json(&request_body)
+                        .timeout(self.timeout)
+                        .send()
+                        .await
+                },
+                false, // Non-idempotent: restarting a service twice could cause issues
+            )
             .await?;
 
         self.handle_operation_response(response, "restart", service_id)
@@ -252,11 +273,17 @@ impl SupervisorClient {
     ///
     /// # Errors
     /// Returns `AosError::Network` if the request fails
+    ///
+    /// Note: This is a non-idempotent operation. Retries are only performed on
+    /// connection-level errors, not on server errors (5xx).
     pub async fn start_essential_services(&self) -> Result<String> {
         let url = format!("{}/api/services/essential/start", self.base_url);
 
         let response = self
-            .retry_request(|| async { self.client.post(&url).timeout(self.timeout).send().await })
+            .retry_request_with_idempotency(
+                || async { self.client.post(&url).timeout(self.timeout).send().await },
+                false, // Non-idempotent: starting services twice could cause issues
+            )
             .await?;
 
         self.handle_operation_response(response, "start essential", "all")
@@ -267,11 +294,17 @@ impl SupervisorClient {
     ///
     /// # Errors
     /// Returns `AosError::Network` if the request fails
+    ///
+    /// Note: This is a non-idempotent operation. Retries are only performed on
+    /// connection-level errors, not on server errors (5xx).
     pub async fn stop_essential_services(&self) -> Result<String> {
         let url = format!("{}/api/services/essential/stop", self.base_url);
 
         let response = self
-            .retry_request(|| async { self.client.post(&url).timeout(self.timeout).send().await })
+            .retry_request_with_idempotency(
+                || async { self.client.post(&url).timeout(self.timeout).send().await },
+                false, // Non-idempotent: stopping services twice could cause issues
+            )
             .await?;
 
         self.handle_operation_response(response, "stop essential", "all")
@@ -367,7 +400,19 @@ impl SupervisorClient {
     }
 
     /// Retry a request with exponential backoff
-    async fn retry_request<F, Fut>(&self, request_fn: F) -> Result<reqwest::Response>
+    ///
+    /// # Arguments
+    /// * `request_fn` - The request function to retry
+    /// * `is_idempotent` - Whether the request is idempotent (safe to retry on any error)
+    ///
+    /// For non-idempotent requests (POST/PUT that modify state), we only retry on
+    /// connection-level errors (connect timeout, no connection). We do NOT retry on
+    /// server errors (5xx) because the request may have been partially processed.
+    async fn retry_request_with_idempotency<F, Fut>(
+        &self,
+        request_fn: F,
+        is_idempotent: bool,
+    ) -> Result<reqwest::Response>
     where
         F: Fn() -> Fut,
         Fut: std::future::Future<Output = reqwest::Result<reqwest::Response>>,
@@ -380,7 +425,17 @@ impl SupervisorClient {
                     return Ok(response);
                 }
                 Err(e) => {
-                    if attempt < self.max_retries {
+                    // Determine if we should retry based on error type and idempotency
+                    let should_retry = if is_idempotent {
+                        // For idempotent requests, retry on any error
+                        true
+                    } else {
+                        // For non-idempotent requests, only retry on connection-level errors
+                        // Do NOT retry if the request might have been received by the server
+                        e.is_connect() || e.is_timeout()
+                    };
+
+                    if should_retry && attempt < self.max_retries {
                         let backoff = Duration::from_millis(100 * 2u64.pow(attempt));
                         warn!(
                             "Request failed (attempt {}/{}), retrying in {:?}: {}",
@@ -390,6 +445,13 @@ impl SupervisorClient {
                             &e
                         );
                         tokio::time::sleep(backoff).await;
+                    } else if !should_retry {
+                        // Non-idempotent request failed after potentially reaching server
+                        // Return immediately without retry
+                        return Err(AosError::Network(format!(
+                            "Non-idempotent request failed (not retrying): {}",
+                            e
+                        )));
                     }
                     last_error = Some(e);
                 }
@@ -403,6 +465,16 @@ impl SupervisorClient {
                 .map(|e| e.to_string())
                 .unwrap_or_else(|| "unknown error".to_string())
         )))
+    }
+
+    /// Retry a request with exponential backoff (legacy wrapper, treats as idempotent)
+    async fn retry_request<F, Fut>(&self, request_fn: F) -> Result<reqwest::Response>
+    where
+        F: Fn() -> Fut,
+        Fut: std::future::Future<Output = reqwest::Result<reqwest::Response>>,
+    {
+        // Default to idempotent for backwards compatibility with GET requests
+        self.retry_request_with_idempotency(request_fn, true).await
     }
 
     /// Handle operation response (start/stop/restart)

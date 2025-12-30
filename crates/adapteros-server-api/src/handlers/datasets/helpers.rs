@@ -1,5 +1,6 @@
 //! Internal helper functions for dataset handlers.
 
+use crate::error_helpers::{forbidden, internal_error};
 use crate::types::{DatasetValidationStatus, ErrorResponse};
 use adapteros_core::B3Hash;
 use adapteros_db::training_datasets::DatasetFile;
@@ -11,6 +12,8 @@ use tokio::io::AsyncReadExt;
 
 use crate::services::CanonicalRow;
 use crate::state::AppState;
+
+use super::paths::{resolve_dataset_root, DatasetPaths};
 
 /// Maximum file size (100MB)
 pub const MAX_FILE_SIZE: usize = 100 * 1024 * 1024;
@@ -106,6 +109,31 @@ pub async fn validate_file_hash_streaming(
 
     let computed = B3Hash::from_bytes(*hasher.finalize().as_bytes());
     Ok(computed == expected)
+}
+
+/// Ensure a dataset file path stays within the configured dataset root.
+pub async fn ensure_dataset_file_within_root(
+    state: &AppState,
+    file_path: &std::path::Path,
+) -> Result<std::path::PathBuf, (StatusCode, Json<ErrorResponse>)> {
+    let dataset_root = resolve_dataset_root(state).map_err(internal_error)?;
+    let paths = DatasetPaths::new(dataset_root);
+    let candidate = if file_path.is_absolute() {
+        file_path.to_path_buf()
+    } else {
+        paths.root().join(file_path)
+    };
+    let canonical = fs::canonicalize(&candidate).await.map_err(|e| {
+        internal_error(format!(
+            "Failed to canonicalize dataset file path {}: {}",
+            candidate.display(),
+            e
+        ))
+    })?;
+    paths
+        .validate_within_root(&canonical)
+        .map_err(|e| forbidden(&format!("Dataset file path escapes dataset root: {}", e)))?;
+    Ok(canonical)
 }
 
 /// Batch insert file records to reduce database transaction overhead
@@ -403,6 +431,9 @@ pub async fn record_safety_validation_runs(
                 reasons_json.as_deref(),
                 samples_json.as_deref(),
                 Some(actor),
+                None,
+                None,
+                None,
             )
             .await;
     }
@@ -422,6 +453,9 @@ pub fn spawn_tier2_safety_validation(state: AppState, dataset_version_id: String
                 None,
                 None,
                 Some(actor.as_str()),
+                None,
+                None,
+                None,
             )
             .await;
 
@@ -442,6 +476,9 @@ pub fn spawn_tier2_safety_validation(state: AppState, dataset_version_id: String
                         Some("Dataset version not found"),
                         None,
                         Some(actor.as_str()),
+                        None,
+                        None,
+                        None,
                     )
                     .await;
                 let _ = state
@@ -468,6 +505,9 @@ pub fn spawn_tier2_safety_validation(state: AppState, dataset_version_id: String
                         Some(msg.as_str()),
                         None,
                         Some(actor.as_str()),
+                        None,
+                        None,
+                        None,
                     )
                     .await;
                 let _ = state
@@ -522,6 +562,9 @@ pub fn spawn_tier2_safety_validation(state: AppState, dataset_version_id: String
                         Some(msg.as_str()),
                         None,
                         Some(actor.as_str()),
+                        None,
+                        None,
+                        None,
                     )
                     .await;
                 let _ = state

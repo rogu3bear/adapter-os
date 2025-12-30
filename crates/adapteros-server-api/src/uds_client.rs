@@ -8,9 +8,11 @@
 //!
 //! Citation: docs/llm-interface-specification.md §5.1
 
+use adapteros_core::{CircuitBreaker, CircuitBreakerConfig, StandardCircuitBreaker};
 use serde::Deserialize;
 use serde_json;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
@@ -109,9 +111,24 @@ impl UdsClientError {
     }
 }
 
+/// Circuit breaker configuration for UDS client
+/// - failure_threshold: 3 consecutive failures to open circuit
+/// - success_threshold: 2 consecutive successes to close circuit
+/// - timeout_ms: 5000ms before transitioning to half-open
+fn default_uds_circuit_breaker_config() -> CircuitBreakerConfig {
+    CircuitBreakerConfig {
+        failure_threshold: 3,
+        success_threshold: 2,
+        timeout_ms: 5000,
+        half_open_max_requests: 5,
+    }
+}
+
 /// UDS client for communicating with workers
 pub struct UdsClient {
     timeout: Duration,
+    /// Circuit breaker to protect against cascading failures
+    circuit_breaker: Arc<StandardCircuitBreaker>,
 }
 
 /// CoreML verification snapshot returned by worker debug endpoint.
@@ -132,12 +149,39 @@ fn default_status() -> String {
 }
 
 impl UdsClient {
-    /// Create a new UDS client
+    /// Create a new UDS client with default circuit breaker configuration
     pub fn new(timeout: Duration) -> Self {
-        Self { timeout }
+        Self::with_circuit_breaker(
+            timeout,
+            Arc::new(StandardCircuitBreaker::new(
+                "uds_client".to_string(),
+                default_uds_circuit_breaker_config(),
+            )),
+        )
+    }
+
+    /// Create a new UDS client with a custom circuit breaker
+    pub fn with_circuit_breaker(
+        timeout: Duration,
+        circuit_breaker: Arc<StandardCircuitBreaker>,
+    ) -> Self {
+        Self {
+            timeout,
+            circuit_breaker,
+        }
+    }
+
+    /// Get a reference to the circuit breaker for monitoring
+    pub fn circuit_breaker(&self) -> &Arc<StandardCircuitBreaker> {
+        &self.circuit_breaker
     }
 
     /// Send an inference request to a worker via UDS
+    ///
+    /// This method is protected by a circuit breaker that will fail fast when
+    /// the worker is experiencing repeated failures. The circuit breaker opens
+    /// after 3 consecutive failures and re-closes after 2 consecutive successes
+    /// following a 5 second timeout period.
     pub async fn infer(
         &self,
         uds_path: &Path,
@@ -157,6 +201,59 @@ impl UdsClient {
             ));
         }
 
+        // Check circuit breaker state before attempting the operation
+        let cb_state = self.circuit_breaker.state();
+        if matches!(cb_state, adapteros_core::CircuitState::Open { .. }) {
+            return Err(UdsClientError::WorkerNotAvailable(
+                "Circuit breaker is open - worker is experiencing failures".to_string(),
+            ));
+        }
+
+        // Execute the inference operation through the circuit breaker
+        let result = self
+            .infer_inner(uds_path, request, authorization, cancellation_token)
+            .await;
+
+        // Record the result with the circuit breaker
+        match &result {
+            Ok(_) => {
+                // Record success with circuit breaker
+                let _ = self.circuit_breaker.call(async { Ok::<(), _>(()) }).await;
+            }
+            Err(e) => {
+                // Only count certain errors as failures for circuit breaker purposes
+                // Connection failures and timeouts indicate worker issues
+                // Routing bypass, cancellation, and serialization errors are not worker issues
+                let is_worker_failure = matches!(
+                    e,
+                    UdsClientError::ConnectionFailed(_)
+                        | UdsClientError::Timeout(_)
+                        | UdsClientError::RequestFailed(_)
+                        | UdsClientError::WorkerNotAvailable(_)
+                );
+                if is_worker_failure {
+                    // Record failure with circuit breaker by calling with a failing future
+                    let _ = self
+                        .circuit_breaker
+                        .call(async {
+                            Err::<(), _>(adapteros_core::AosError::Worker(e.to_string()))
+                        })
+                        .await;
+                }
+            }
+        }
+
+        result
+    }
+
+    /// Internal implementation of infer without circuit breaker wrapping
+    async fn infer_inner(
+        &self,
+        uds_path: &Path,
+        request: crate::types::WorkerInferRequest,
+        authorization: Option<&str>,
+        cancellation_token: Option<CancellationToken>,
+    ) -> Result<crate::types::WorkerInferResponse, UdsClientError> {
         let cancel = cancellation_token.as_ref();
 
         // Connect to UDS

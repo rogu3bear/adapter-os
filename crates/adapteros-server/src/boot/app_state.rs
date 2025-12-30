@@ -11,6 +11,9 @@ use adapteros_metrics_exporter::MetricsExporter;
 use adapteros_orchestrator::{FederationDaemon, TrainingService};
 use adapteros_server_api::boot_state::BootStateManager;
 use adapteros_server_api::config::Config;
+use adapteros_server_api::handlers::datasets::{
+    resolve_dataset_root_lenient_from_strings, ENV_DATASETS_DIR,
+};
 use adapteros_server_api::handlers::workspaces::reconcile_active_models;
 use adapteros_server_api::runtime_mode::RuntimeMode;
 use adapteros_server_api::state::BackgroundTaskTracker;
@@ -103,7 +106,18 @@ pub async fn build_app_state(
         let cfg = server_config
             .read()
             .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?;
-        PathBuf::from(&cfg.paths.datasets_root)
+        let config_root = if cfg.paths.datasets_root.is_empty() {
+            None
+        } else {
+            Some(cfg.paths.datasets_root.clone())
+        };
+        let env_root = std::env::var(ENV_DATASETS_DIR).ok();
+        resolve_dataset_root_lenient_from_strings(env_root, config_root)
+            .map_err(|e| anyhow::anyhow!(
+                "Failed to resolve datasets root: {}. \
+                 Please ensure AOS_DATASETS_DIR or paths.datasets_root points to a valid, persistent directory.",
+                e
+            ))?
     };
     if let Err(e) = std::fs::create_dir_all(&training_storage_root) {
         warn!(

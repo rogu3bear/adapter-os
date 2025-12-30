@@ -499,6 +499,9 @@ impl From<AosError> for ApiError {
             AosError::FeatureDisabled { .. } => {
                 ApiError::new(StatusCode::BAD_REQUEST, "FEATURE_DISABLED", err.to_string())
             }
+            AosError::PreflightFailed(_) => {
+                ApiError::new(StatusCode::BAD_REQUEST, "PREFLIGHT_FAILED", err.to_string())
+            }
 
             // ========== 401 Unauthorized (1 variant) ==========
             AosError::Auth(_) => ApiError::unauthorized(err.to_string()),

@@ -19,11 +19,37 @@ use axum::extract::{Extension, Path, Query, State};
 use axum::http::StatusCode;
 use axum::{response::IntoResponse, Json};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use serde_json::json;
 use serde_json::Value;
 use tracing::{debug, warn};
 use utoipa::ToSchema;
 use uuid::Uuid;
+
+// ===== Stub Response Types =====
+
+/// Simple ID response for ingestion endpoints
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct IdResponse {
+    /// Created resource ID
+    pub id: String,
+}
+
+/// Response for not-implemented endpoints
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct NotImplementedResponse {
+    /// Status indicating not implemented
+    pub status: String,
+    /// Description message
+    pub message: String,
+}
+
+/// Empty routing history response (placeholder)
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Default)]
+pub struct RoutingHistoryResponse {
+    /// History entries (currently empty)
+    pub entries: Vec<serde_json::Value>,
+}
+
+// ===== Request Types =====
 
 /// Router candidate for API schema
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -170,8 +196,8 @@ pub struct RouterCandidateResponse {
     path = "/v1/telemetry/routing",
     request_body = IngestRouterDecisionRequest,
     responses(
-        (status = 201, description = "Decision ingested successfully"),
-        (status = 500, description = "Failed to ingest decision")
+        (status = 200, description = "Decision ingested successfully", body = IdResponse),
+        (status = 500, description = "Failed to ingest decision", body = ErrorResponse)
     ),
     tag = "telemetry",
     security(("bearer_token" = []))
@@ -180,7 +206,7 @@ pub async fn ingest_router_decision(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Json(request): Json<IngestRouterDecisionRequest>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Json<IdResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Admin, Role::Operator])?;
     validate_tenant_isolation(&claims, &request.tenant_id)?;
 
@@ -273,7 +299,7 @@ pub async fn ingest_router_decision(
 
     // Return 200 OK (consistent with other ingestion endpoints)
     // Status code can be set via response builder if 201 is required
-    Ok(Json(serde_json::json!({ "id": id })))
+    Ok(Json(IdResponse { id }))
 }
 
 /// GET /v1/routing/chain - Fetch cryptographically chained per-token routing entries
@@ -828,17 +854,21 @@ fn convert_decision_to_response(decision: DbRoutingDecision) -> RoutingDecisionR
     path = "/v1/routing/debug",
     request_body = serde_json::Value,
     responses(
-        (status = 200, description = "Routing debug info", body = serde_json::Value),
+        (status = 200, description = "Routing debug info (not implemented)", body = NotImplementedResponse),
         (status = 500, description = "Internal server error", body = ErrorResponse)
     )
 )]
 pub async fn debug_routing(
     State(_state): State<AppState>,
     Extension(_claims): Extension<Claims>,
-    Json(payload): Json<serde_json::Value>,
+    Json(_payload): Json<serde_json::Value>,
 ) -> impl IntoResponse {
     // Stub implementation
-    Json(json!({"status": "not_implemented", "payload": payload})).into_response()
+    Json(NotImplementedResponse {
+        status: "not_implemented".to_string(),
+        message: "Debug routing endpoint is not yet implemented".to_string(),
+    })
+    .into_response()
 }
 
 /// Get routing history
@@ -846,7 +876,7 @@ pub async fn debug_routing(
     get,
     path = "/v1/routing/history",
     responses(
-        (status = 200, description = "Routing history", body = Vec<serde_json::Value>),
+        (status = 200, description = "Routing history", body = RoutingHistoryResponse),
         (status = 500, description = "Internal server error", body = ErrorResponse)
     )
 )]
@@ -855,5 +885,5 @@ pub async fn get_routing_history(
     Extension(_claims): Extension<Claims>,
 ) -> impl IntoResponse {
     // Stub implementation
-    Json(json!([])).into_response()
+    Json(RoutingHistoryResponse::default()).into_response()
 }

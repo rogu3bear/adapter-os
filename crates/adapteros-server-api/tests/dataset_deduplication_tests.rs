@@ -31,6 +31,7 @@ async fn create_dataset_with_hash(
             Some(workspace_id),
             Some("ready"),
             Some(dataset_hash),
+            None,
         )
         .await
         .expect("dataset created");

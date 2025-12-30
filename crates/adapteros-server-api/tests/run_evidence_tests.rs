@@ -1,11 +1,11 @@
 use adapteros_core::B3Hash;
 use adapteros_db::replay_metadata::CreateReplayMetadataParams;
 use adapteros_db::{SqlTraceSink, TraceFinalization, TraceSink, TraceStart, TraceTokenInput};
-use adapteros_server_api::handlers::run_evidence::download_run_evidence;
+use adapteros_server_api::handlers::run_evidence::{download_run_evidence, EvidenceExportParams};
 use adapteros_server_api::types::SamplingParams;
 use axum::body::to_bytes;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     Extension,
 };
@@ -121,6 +121,7 @@ async fn evidence_bundle_contains_required_files() -> anyhow::Result<()> {
         State(state.clone()),
         Extension(claims),
         Path(run_id.clone()),
+        Query(EvidenceExportParams::default()),
     )
     .await
     .expect("bundle should be returned");
@@ -168,6 +169,7 @@ async fn evidence_bundle_not_found_for_unknown_run() -> anyhow::Result<()> {
         State(state.clone()),
         Extension(claims),
         Path("missing-run-id".to_string()),
+        Query(EvidenceExportParams::default()),
     )
     .await;
 
@@ -225,7 +227,13 @@ async fn evidence_bundle_enforces_tenant_isolation() -> anyhow::Result<()> {
     };
     state.db.create_replay_metadata(replay_params).await?;
 
-    let result = download_run_evidence(State(state.clone()), Extension(claims), Path(run_id)).await;
+    let result = download_run_evidence(
+        State(state.clone()),
+        Extension(claims),
+        Path(run_id),
+        Query(EvidenceExportParams::default()),
+    )
+    .await;
 
     assert!(matches!(result, Err((StatusCode::FORBIDDEN, _))));
     Ok(())

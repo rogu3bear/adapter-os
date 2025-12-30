@@ -31,6 +31,8 @@ use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::{ErrorResponse, ValidateDatasetRequest, ValidateDatasetResponse};
+use adapteros_core::seed::derive_seed;
+use adapteros_core::B3Hash;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -1156,7 +1158,7 @@ pub async fn validate_dataset_structure(
                     format!("Required file missing: {}", file_name),
                     "REQUIRED_FILE_MISSING",
                 )
-                .with_file(&file_path.display().to_string()),
+                .with_file(file_path.display().to_string()),
             );
         }
     }
@@ -1414,6 +1416,22 @@ pub async fn validate_dataset(
             .await;
         // Kick off tier2 safety validation asynchronously (stub pipeline)
         spawn_tier2_safety_validation(state.clone(), version_id.clone(), claims.sub.clone());
+
+        // Derive validation seed from determinism context if available
+        let (validation_seed_hex, determinism_mode_str) = {
+            let config = state.config.read().unwrap();
+            let determinism_mode = config.general.as_ref().and_then(|g| g.determinism_mode);
+
+            if let Some(ref mode) = determinism_mode {
+                // Derive validation seed using HKDF from dataset_id + version_id
+                let global_seed = B3Hash::hash(format!("{}:{}", dataset_id, version_id).as_bytes());
+                let validation_seed = derive_seed(&global_seed, "dataset_validation");
+                (Some(hex::encode(validation_seed)), Some(mode.as_str()))
+            } else {
+                (None, None)
+            }
+        };
+
         let _ = state
             .db
             .record_dataset_version_validation_run(
@@ -1424,6 +1442,9 @@ pub async fn validate_dataset(
                 validation_errors_str.as_deref(),
                 None,
                 Some(claims.sub.as_str()),
+                validation_seed_hex.as_deref(),
+                determinism_mode_str,
+                None, // validation_hash_b3 - can be computed later if needed
             )
             .await;
     }

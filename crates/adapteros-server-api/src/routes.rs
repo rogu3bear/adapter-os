@@ -210,13 +210,18 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::datasets::upload_dataset,
         handlers::datasets::initiate_chunked_upload,
         handlers::datasets::upload_chunk,
+        handlers::datasets::retry_chunk,
         handlers::datasets::complete_chunked_upload,
         handlers::datasets::get_upload_session_status,
         handlers::datasets::cancel_chunked_upload,
+        handlers::datasets::list_upload_sessions,
+        handlers::datasets::cleanup_expired_sessions,
         handlers::datasets::list_datasets,
         handlers::datasets::get_dataset,
         handlers::datasets::list_dataset_versions,
         handlers::datasets::create_dataset_version,
+        handlers::datasets::get_dataset_version,
+        handlers::datasets::list_versions_by_codebase,
         handlers::datasets::get_dataset_files,
         handlers::datasets::get_dataset_statistics,
         handlers::datasets::validate_dataset,
@@ -514,6 +519,8 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::datasets::InitiateChunkedUploadResponse,
         handlers::datasets::UploadChunkQuery,
         handlers::datasets::UploadChunkResponse,
+        handlers::datasets::RetryChunkQuery,
+        handlers::datasets::RetryChunkResponse,
         handlers::datasets::CompleteChunkedUploadRequest,
         handlers::datasets::CompleteChunkedUploadResponse,
         handlers::datasets::UpdateDatasetSafetyRequest,
@@ -521,6 +528,8 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::datasets::TrustOverrideRequest,
         handlers::datasets::TrustOverrideResponse,
         handlers::datasets::UploadSessionStatusResponse,
+        handlers::datasets::UploadSessionSummary,
+        handlers::datasets::ListUploadSessionsResponse,
         // Evidence types (PRD-DATA-01 Phase 2)
         handlers::evidence::CreateEvidenceRequest,
         handlers::evidence::EvidenceResponse,
@@ -1617,10 +1626,10 @@ pub fn build(state: AppState) -> Router {
             "/v1/datasets/chunked-upload/initiate",
             post(handlers::datasets::initiate_chunked_upload),
         )
-        // Chunked upload routes - upload individual chunks
+        // Chunked upload routes - upload individual chunks (POST) or retry chunks (PUT)
         .route(
             "/v1/datasets/chunked-upload/{session_id}/chunk",
-            post(handlers::datasets::upload_chunk),
+            post(handlers::datasets::upload_chunk).put(handlers::datasets::retry_chunk),
         )
         // Chunked upload routes - complete upload and create dataset
         .route(
@@ -1637,6 +1646,16 @@ pub fn build(state: AppState) -> Router {
             "/v1/datasets/chunked-upload/{session_id}",
             delete(handlers::datasets::cancel_chunked_upload),
         )
+        // Chunked upload routes - list all active upload sessions
+        .route(
+            "/v1/datasets/chunked-upload/sessions",
+            get(handlers::datasets::list_upload_sessions),
+        )
+        // Chunked upload routes - cleanup expired sessions (admin only)
+        .route(
+            "/v1/datasets/chunked-upload/cleanup",
+            post(handlers::datasets::cleanup_expired_sessions),
+        )
         .route(
             "/v1/datasets/{dataset_id}",
             get(handlers::datasets::get_dataset),
@@ -1645,6 +1664,14 @@ pub fn build(state: AppState) -> Router {
             "/v1/datasets/{dataset_id}/versions",
             get(handlers::datasets::list_dataset_versions)
                 .post(handlers::datasets::create_dataset_version),
+        )
+        .route(
+            "/v1/datasets/{dataset_id}/versions/{revision}",
+            get(handlers::datasets::get_dataset_version),
+        )
+        .route(
+            "/v1/datasets/by-codebase/{codebase_id}/versions",
+            get(handlers::datasets::list_versions_by_codebase),
         )
         .route(
             "/v1/datasets/{dataset_id}/versions/{version_id}/trust-override",

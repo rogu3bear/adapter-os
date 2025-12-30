@@ -174,6 +174,7 @@ async fn test_session_stack_fallback_disabled() {
         metadata_json: None,
         tags_json: None,
         pinned_adapter_ids: None,
+        codebase_adapter_id: None,
     };
     let core = InferenceCore::new(&state);
     let mut req = InferenceRequestInternal::new("tenant-1".to_string(), "hi".to_string());
@@ -211,6 +212,7 @@ async fn test_session_stack_fallback_enabled() {
         metadata_json: None,
         tags_json: None,
         pinned_adapter_ids: None,
+        codebase_adapter_id: None,
     };
     let core = InferenceCore::new(&state);
     let mut req = InferenceRequestInternal::new("tenant-1".to_string(), "hi".to_string());
@@ -388,6 +390,7 @@ async fn test_effective_adapters_from_session_stack_when_enabled() {
         metadata_json: None,
         tags_json: None,
         pinned_adapter_ids: None,
+        codebase_adapter_id: None,
     };
     state.db.create_chat_session(session_params).await.unwrap();
     let session = state
@@ -442,6 +445,7 @@ async fn test_session_stack_ignored_when_disabled() {
         metadata_json: None,
         tags_json: None,
         pinned_adapter_ids: None,
+        codebase_adapter_id: None,
     };
     state.db.create_chat_session(session_params).await.unwrap();
     let session = state

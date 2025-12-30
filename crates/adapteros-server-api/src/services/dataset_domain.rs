@@ -13,7 +13,7 @@ use crate::handlers::datasets::{ensure_dirs, resolve_dataset_root, DatasetPaths}
 use crate::state::AppState;
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_db::training_datasets::{TrainingDataset, TrainingDatasetVersion};
-use adapteros_storage::{ByteStorage, FsByteStorage, StorageKey, StorageKind};
+use adapteros_storage::{ByteStorage, FsByteStorage, StorageKey};
 use async_trait::async_trait;
 use serde_json::{Map, Value};
 use std::collections::HashMap;
@@ -102,12 +102,15 @@ impl DatasetDomainService {
         Ok(DatasetPaths::new(resolve_dataset_root(&self.state)?))
     }
 
-    fn resolve_version_dir(&self, dataset_id: &str, version_id: &str) -> Result<PathBuf> {
+    fn resolve_version_dir(
+        &self,
+        workspace_id: &str,
+        dataset_id: &str,
+        version_id: &str,
+    ) -> Result<PathBuf> {
         Ok(self
             .dataset_paths()?
-            .dataset_dir_unscoped(dataset_id)
-            .join("versions")
-            .join(version_id))
+            .dataset_version_dir(workspace_id, dataset_id, version_id))
     }
 
     fn compute_row_id(row: &CanonicalRow) -> String {
@@ -515,7 +518,8 @@ impl DatasetDomain for DatasetDomainService {
         }
 
         let version_id = Uuid::now_v7().to_string();
-        let version_dir = self.resolve_version_dir(&request.dataset_id, &version_id)?;
+        let version_dir =
+            self.resolve_version_dir(&request.tenant_id, &request.dataset_id, &version_id)?;
         ensure_dirs([version_dir.as_path()])
             .await
             .map_err(|(_, json)| AosError::Io(json.0.error.clone()))?;
@@ -535,13 +539,14 @@ impl DatasetDomain for DatasetDomainService {
             .into(),
         );
 
-        let canonical_key = StorageKey {
-            tenant_id: Some(request.tenant_id.clone()),
-            object_id: request.dataset_id.clone(),
-            version_id: Some(version_id.clone()),
-            file_name: CANONICAL_FILENAME.to_string(),
-            kind: StorageKind::DatasetFile,
-        };
+        // Use factory method for proper StorageKey construction
+        // Path: {datasets_root}/files/{tenant_id}/{dataset_id}/versions/{version_id}/{file}
+        let canonical_key = StorageKey::dataset_file(
+            Some(request.tenant_id.clone()), // workspace_id for path scoping
+            &request.dataset_id,
+            Some(version_id.clone()),
+            CANONICAL_FILENAME,
+        );
         let canonical_path = storage.path_for(&canonical_key)?;
         let canonical_file = fs::File::create(&canonical_path).await?;
         let mut writer = BufWriter::new(canonical_file);
@@ -579,13 +584,12 @@ impl DatasetDomain for DatasetDomainService {
             split_stats,
         );
 
-        let manifest_key = StorageKey {
-            tenant_id: Some(request.tenant_id.clone()),
-            object_id: request.dataset_id.clone(),
-            version_id: Some(version_id.clone()),
-            file_name: MANIFEST_FILENAME.to_string(),
-            kind: StorageKind::DatasetFile,
-        };
+        let manifest_key = StorageKey::dataset_file(
+            Some(request.tenant_id.clone()),
+            &request.dataset_id,
+            Some(version_id.clone()),
+            MANIFEST_FILENAME,
+        );
         let manifest_path = storage.path_for(&manifest_key)?;
         Self::write_manifest(&manifest_path, &manifest).await?;
 

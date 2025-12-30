@@ -74,6 +74,7 @@ fn test_validate_adapter_id_valid() {
         "ADAPTER_ID",
         "a",
         "adapter-with-many-dashes-and-underscores_123",
+        "code.my_repo.abcdef12",
     ];
 
     for valid_id in valid_ids {

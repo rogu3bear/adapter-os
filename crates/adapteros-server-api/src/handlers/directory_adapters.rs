@@ -110,14 +110,14 @@ pub async fn upsert_directory_adapter(
             )
         })?;
         // Use centralized adapter path resolution (ENV > Config > Default)
-        use adapteros_core::adapter_repo_paths::AdapterPaths;
+        use adapteros_core::adapter_repo_paths::RepoAdapterPaths;
         // adapters_root is String, convert to Option<String> for from_env_and_config
         let config_value = if config.paths.adapters_root.is_empty() {
             None
         } else {
             Some(config.paths.adapters_root.clone())
         };
-        let adapters_paths = AdapterPaths::from_env_and_config(config_value);
+        let adapters_paths = RepoAdapterPaths::from_env_and_config(config_value);
         (
             config.directory_analysis_timeout_secs,
             adapters_paths.repo_root.clone(),

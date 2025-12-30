@@ -33,10 +33,7 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Consolidated request context containing all request-scoped data
 #[derive(Debug, Clone)]
@@ -136,30 +133,6 @@ pub async fn context_middleware(req: Request<Body>, next: Next) -> Response {
         client_ip,
     });
 
-    // #region agent log
-    if let Ok(mut file) = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open("/Users/mln-dev/Dev/adapter-os/.cursor/debug.log")
-    {
-        let timestamp_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis();
-        let auth_mode_str = format!("{:?}", ctx.auth_mode);
-        let log_line = format!(
-            r#"{{"sessionId":"debug-session","runId":"pre-fix","hypothesisId":"H1","location":"middleware/context.rs:context_middleware:entry","message":"ctx built","data":{{"claims":{},"principal":{},"auth_mode":"{}","request_id":"{}","client_ip":"{}"}},"timestamp":{}}}"#,
-            ctx.claims.is_some(),
-            ctx.principal.is_some(),
-            auth_mode_str,
-            ctx.request_id,
-            ctx.client_ip,
-            timestamp_ms
-        );
-        let _ = writeln!(file, "{log_line}");
-    }
-    // #endregion
-
     // Insert context into extensions
     parts.extensions.insert(ctx.clone());
 
@@ -167,24 +140,6 @@ pub async fn context_middleware(req: Request<Body>, next: Next) -> Response {
     let req = Request::from_parts(parts, body);
     let mut response =
         adapteros_db::adapters::with_tenant_scope(|| async move { next.run(req).await }).await;
-    // #region agent log
-    if let Ok(mut file) = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open("/Users/mln-dev/Dev/adapter-os/.cursor/debug.log")
-    {
-        let timestamp_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis();
-        let status = response.status().as_u16();
-        let log_line = format!(
-            r#"{{"sessionId":"debug-session","runId":"pre-fix","hypothesisId":"H1","location":"middleware/context.rs:context_middleware:exit","message":"ctx exit","data":{{"status":{},"request_id":"{}"}},"timestamp":{}}}"#,
-            status, ctx.request_id, timestamp_ms
-        );
-        let _ = writeln!(file, "{log_line}");
-    }
-    // #endregion
     // Attach context to the response so outer middleware can log tenant/user IDs.
     response.extensions_mut().insert(ctx);
     response

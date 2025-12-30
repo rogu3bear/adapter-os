@@ -216,6 +216,7 @@ fn test_dataset_versions_response_contract() {
             hash_b3: Some("hash-v1".to_string()),
             storage_path: Some("var/test-datasets/ver1".to_string()),
             trust_state: Some("allowed".to_string()),
+            repo_slug: Some("org/repo-name".to_string()),
             created_at: "2025-02-01T00:00:00Z".to_string(),
         }],
     };
@@ -225,4 +226,5 @@ fn test_dataset_versions_response_contract() {
     assert!(json["versions"].is_array());
     assert_eq!(json["versions"][0]["trust_state"], "allowed");
     assert_eq!(json["versions"][0]["version_number"], 1);
+    assert_eq!(json["versions"][0]["repo_slug"], "org/repo-name");
 }

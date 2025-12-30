@@ -7,10 +7,10 @@ use std::sync::OnceLock;
 use tokio::fs;
 use uuid::Uuid;
 
-use adapteros_core::adapter_repo_paths::AdapterPaths;
+use adapteros_core::adapter_repo_paths::RepoAdapterPaths;
 
 pub async fn ensure_repo_dirs(
-    paths: &AdapterPaths,
+    paths: &RepoAdapterPaths,
     tenant_id: &str,
     adapter_name: &str,
 ) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
@@ -38,7 +38,7 @@ pub async fn ensure_repo_dirs(
 }
 
 pub async fn write_temp_bundle(
-    paths: &AdapterPaths,
+    paths: &RepoAdapterPaths,
 ) -> Result<(PathBuf, fs::File), (StatusCode, Json<ErrorResponse>)> {
     let temp_dir = paths.repo_root.join("temp");
     if let Err(e) = fs::create_dir_all(&temp_dir).await {

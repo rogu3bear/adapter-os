@@ -2035,7 +2035,11 @@ mod tests {
             Ok::<_, Infallible>(follow_on),
         ]));
         let response = sse.into_response();
-        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        // 100MB limit to prevent unbounded memory allocation
+        const MAX_RESPONSE_SIZE: usize = 100 * 1024 * 1024;
+        let body = to_bytes(response.into_body(), MAX_RESPONSE_SIZE)
+            .await
+            .unwrap();
         let body_str = String::from_utf8(body.to_vec()).unwrap();
 
         assert!(

@@ -57,6 +57,9 @@ async fn test_evidence_by_inference_tenant_isolation() -> Result<()> {
         rag_doc_ids: None,
         rag_scores: None,
         rag_collection_id: None,
+        base_model_id: None,
+        adapter_ids: None,
+        manifest_hash: None,
     };
 
     db.create_inference_evidence(params).await?;
@@ -145,6 +148,9 @@ async fn test_evidence_by_message_tenant_isolation() -> Result<()> {
         rag_doc_ids: None,
         rag_scores: None,
         rag_collection_id: None,
+        base_model_id: None,
+        adapter_ids: None,
+        manifest_hash: None,
     };
 
     db.create_inference_evidence(params).await?;
@@ -228,6 +234,9 @@ async fn test_evidence_by_session_tenant_isolation() -> Result<()> {
         rag_doc_ids: None,
         rag_scores: None,
         rag_collection_id: None,
+        base_model_id: None,
+        adapter_ids: None,
+        manifest_hash: None,
     };
 
     db.create_inference_evidence(params).await?;
@@ -304,6 +313,9 @@ async fn test_evidence_multi_tenant_no_leakage() -> Result<()> {
                 rag_doc_ids: None,
                 rag_scores: None,
                 rag_collection_id: None,
+                base_model_id: None,
+                adapter_ids: None,
+                manifest_hash: None,
             };
             db.create_inference_evidence(params).await?;
         }

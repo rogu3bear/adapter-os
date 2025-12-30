@@ -45,6 +45,9 @@ fn test_evidence_params_construction() {
         rag_doc_ids: None,
         rag_scores: None,
         rag_collection_id: None,
+        base_model_id: None,
+        adapter_ids: None,
+        manifest_hash: None,
     };
 
     assert_eq!(params.inference_id, "chatcmpl-test-123");
@@ -181,6 +184,9 @@ fn test_evidence_ranking() {
             rag_doc_ids: None,
             rag_scores: None,
             rag_collection_id: None,
+            base_model_id: None,
+            adapter_ids: None,
+            manifest_hash: None,
         };
 
         assert_eq!(params.rank, i as i32);
@@ -254,6 +260,9 @@ async fn test_batch_evidence_storage() -> Result<()> {
             rag_doc_ids: None,
             rag_scores: None,
             rag_collection_id: None,
+            base_model_id: None,
+            adapter_ids: None,
+            manifest_hash: None,
         })
         .collect();
 
@@ -263,7 +272,9 @@ async fn test_batch_evidence_storage() -> Result<()> {
     assert_eq!(ids.len(), 3, "Should have created 3 evidence entries");
 
     // Verify evidence was stored correctly
-    let stored_evidence = db.get_evidence_by_inference(inference_id).await?;
+    let stored_evidence = db
+        .get_evidence_by_inference(&tenant_id, inference_id)
+        .await?;
 
     assert_eq!(stored_evidence.len(), 3);
 
@@ -500,6 +511,9 @@ async fn test_unified_document_id_flow() -> Result<()> {
                 rag_doc_ids: None,
                 rag_scores: None,
                 rag_collection_id: Some(collection_id.to_string()),
+                base_model_id: None,
+                adapter_ids: None,
+                manifest_hash: None,
             }
         })
         .collect();
@@ -509,7 +523,9 @@ async fn test_unified_document_id_flow() -> Result<()> {
     assert_eq!(ids.len(), 3, "Should have created 3 evidence entries");
 
     // Step 10: Verify evidence was stored correctly with valid FK references
-    let stored_evidence = db.get_evidence_by_inference(inference_id).await?;
+    let stored_evidence = db
+        .get_evidence_by_inference(&tenant_id, inference_id)
+        .await?;
     assert_eq!(stored_evidence.len(), 3);
 
     for (i, evidence) in stored_evidence.iter().enumerate() {
@@ -668,13 +684,18 @@ async fn test_rag_evidence_with_trace_fields() -> Result<()> {
         rag_doc_ids: Some(rag_doc_ids.clone()),
         rag_scores: Some(rag_scores.clone()),
         rag_collection_id: Some(collection_id.to_string()),
+        base_model_id: None,
+        adapter_ids: None,
+        manifest_hash: None,
     };
 
     let ids = db.create_inference_evidence_batch(vec![params]).await?;
     assert_eq!(ids.len(), 1);
 
     // Retrieve and verify trace fields
-    let evidence = db.get_evidence_by_inference("chatcmpl-trace-test").await?;
+    let evidence = db
+        .get_evidence_by_inference(&tenant_id, "chatcmpl-trace-test")
+        .await?;
     assert_eq!(evidence.len(), 1);
 
     let ev = &evidence[0];

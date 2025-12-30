@@ -1,3 +1,4 @@
+use adapteros_api_types::adapters::AdapterHealthFlag;
 use adapteros_db::adapters::AdapterRegistrationBuilder;
 use adapteros_db::sqlx;
 use adapteros_db::{CreateRepositoryParams, CreateVersionParams};
@@ -22,6 +23,7 @@ fn base_adapter_params(
         .hash_b3("adapter-hash")
         .rank(4)
         .targets_json(r#"["q_proj"]"#)
+        .content_hash_b3(Some(format!("content-hash-{}", adapter_id)))
         .build()
         .expect("adapter params")
 }
@@ -61,13 +63,16 @@ async fn corrupt_storage_emits_corrupt_metric() {
     .await
     .expect("insert issue");
 
-    let _ = get_adapter_health(
+    let response = get_adapter_health(
         State(state.clone()),
         Extension(claims),
         Path(adapter_id.to_string()),
     )
     .await
-    .expect("health response");
+    .expect("health response")
+    .0;
+
+    assert_eq!(response.health, AdapterHealthFlag::Corrupt);
 
     tokio::time::sleep(Duration::from_millis(10)).await;
     let count = state
@@ -99,6 +104,7 @@ async fn blocked_trust_emits_unsafe_metric() {
             None,
             Some("ready"),
             Some("hash-unsafe"),
+            None,
         )
         .await
         .expect("dataset");
@@ -181,13 +187,16 @@ async fn blocked_trust_emits_unsafe_metric() {
         .await
         .expect("register adapter");
 
-    let _ = get_adapter_health(
+    let response = get_adapter_health(
         State(state.clone()),
         Extension(claims),
         Path(adapter_id.to_string()),
     )
     .await
-    .expect("health response");
+    .expect("health response")
+    .0;
+
+    assert_eq!(response.health, AdapterHealthFlag::Unsafe);
 
     tokio::time::sleep(Duration::from_millis(10)).await;
     let count = state

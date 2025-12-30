@@ -13,7 +13,9 @@ use tokio::fs;
 use tokio::time::sleep;
 use walkdir::WalkDir;
 
-use crate::handlers::datasets::resolve_dataset_root;
+use crate::handlers::datasets::{
+    resolve_dataset_root, resolve_dataset_root_lenient_from_strings, ENV_DATASETS_DIR,
+};
 use crate::state::AppState;
 
 #[derive(Clone)]
@@ -26,26 +28,33 @@ impl StorageReconciler {
         Self { state }
     }
 
-    fn store(&self) -> FsByteStorage {
-        let cfg = match self.state.config.read() {
-            Ok(cfg) => cfg,
-            Err(_) => {
-                tracing::error!("Config lock poisoned in storage reconciler");
-                // Return a default storage with fallback paths
-                return FsByteStorage::new(
-                    PathBuf::from("var/datasets"),
-                    PathBuf::from("var/adapters"),
-                );
-            }
+    fn store(&self) -> anyhow::Result<FsByteStorage> {
+        let cfg = self
+            .state
+            .config
+            .read()
+            .map_err(|_| anyhow::anyhow!("Config lock poisoned in storage reconciler"))?;
+        let config_root = if cfg.paths.datasets_root.is_empty() {
+            None
+        } else {
+            Some(cfg.paths.datasets_root.clone())
         };
-        FsByteStorage::new(
-            cfg.paths.datasets_root.clone().into(),
+        let env_root = std::env::var(ENV_DATASETS_DIR).ok();
+        let datasets_root = resolve_dataset_root_lenient_from_strings(env_root, config_root)?;
+        Ok(FsByteStorage::new(
+            datasets_root,
             cfg.paths.adapters_root.clone().into(),
-        )
+        ))
     }
 
     pub async fn run_once(&self) {
-        let store = self.store();
+        let store = match self.store() {
+            Ok(s) => s,
+            Err(e) => {
+                error!(error = %e, "Storage reconciler: failed to initialize storage");
+                return;
+            }
+        };
 
         if let Err(e) = self.check_dataset_versions(&store).await {
             error!(error = %e, "Storage reconciler: dataset version check failed");

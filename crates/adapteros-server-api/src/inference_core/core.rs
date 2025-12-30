@@ -1353,7 +1353,7 @@ impl<'a> InferenceCore<'a> {
     ///
     /// This is a defense-in-depth check to prevent inference on archived adapters.
     /// Returns Ok(()) if all adapters are loadable, or an error if any are archived/purged.
-    async fn validate_adapters_loadable(
+    pub(crate) async fn validate_adapters_loadable(
         &self,
         request: &InferenceRequestInternal,
     ) -> Result<(), InferenceError> {
@@ -1377,7 +1377,7 @@ impl<'a> InferenceCore<'a> {
     ///
     /// PRD-RECT-001: Uses tenant-scoped query to prevent cross-tenant enumeration.
     /// Returns `AdapterNotFound` for both missing and cross-tenant adapters.
-    async fn validate_pinned_adapters_for_tenant(
+    pub(crate) async fn validate_pinned_adapters_for_tenant(
         &self,
         tenant_id: &str,
         pins: &[String],
