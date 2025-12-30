@@ -70,7 +70,7 @@ pub mod adapters {
             "tier": "persistent",
             "rank": 8,
             "pinned": true,
-            "pinned_until": "2025-12-31T23:59:59Z"
+            "pinned_until": "2099-12-31T23:59:59Z"
         })
     }
 

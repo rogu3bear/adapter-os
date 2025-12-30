@@ -41,7 +41,7 @@ impl ApiTestHarness {
         db.migrate().await?;
 
         // Create default tenant
-        sqlx::query("INSERT INTO tenants (id, name, itar_flag) VALUES (?, ?, ?)")
+        sqlx::query("INSERT INTO tenants (id, name, itar_flag, created_at) VALUES (?, ?, ?, datetime('now'))")
             .bind("default")
             .bind("Default Test Tenant")
             .bind(0)

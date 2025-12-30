@@ -256,8 +256,8 @@ impl TestAdapterFactory {
         let hash = format!("{:0>64}", adapter_id);
 
         sqlx::query(
-            "INSERT INTO adapters (id, tenant_id, adapter_id, name, tier, hash_b3, rank, alpha, targets_json, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
+            "INSERT INTO adapters (id, tenant_id, adapter_id, name, tier, hash_b3, rank, alpha, targets_json, lifecycle_state, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
         )
         .bind(adapter_id)
         .bind(tenant_id)
@@ -268,6 +268,7 @@ impl TestAdapterFactory {
         .bind(8)
         .bind(1.0)
         .bind("[]")
+        .bind("active") // lifecycle_state
         .execute(db.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to create test adapter: {}", e)))?;
@@ -286,8 +287,8 @@ impl TestAdapterFactory {
         let hash = format!("{:0>64}", adapter_id);
 
         sqlx::query(
-            "INSERT INTO adapters (id, tenant_id, adapter_id, name, tier, hash_b3, rank, alpha, targets_json, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
+            "INSERT INTO adapters (id, tenant_id, adapter_id, name, tier, hash_b3, rank, alpha, targets_json, lifecycle_state, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
         )
         .bind(adapter_id)
         .bind(tenant_id)
@@ -298,6 +299,7 @@ impl TestAdapterFactory {
         .bind(rank)
         .bind(1.0)
         .bind("[]")
+        .bind("active") // lifecycle_state
         .execute(db.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to create test adapter: {}", e)))?;

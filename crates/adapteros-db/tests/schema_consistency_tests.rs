@@ -12,6 +12,8 @@ use adapteros_db::{adapters::AdapterRegistrationBuilder, Db};
 use anyhow::Result;
 use sqlx::Row;
 use std::collections::HashSet;
+use std::path::PathBuf;
+use tempfile::NamedTempFile;
 
 /// Helper to create an in-memory test database with all migrations applied
 async fn create_test_db() -> Result<Db> {
@@ -19,6 +21,15 @@ async fn create_test_db() -> Result<Db> {
     // Seeding is required to satisfy foreign key constraints (e.g., tenants)
     db.seed_dev_data().await?;
     Ok(db)
+}
+
+fn new_test_aos_file() -> NamedTempFile {
+    let root = PathBuf::from("var").join("tmp");
+    std::fs::create_dir_all(&root).expect("Failed to create var/tmp");
+    tempfile::Builder::new()
+        .suffix(".aos")
+        .tempfile_in(&root)
+        .expect("Failed to create temp .aos file")
 }
 
 /// Test 1: Verify that all migrations apply successfully
@@ -137,6 +148,12 @@ async fn test_adapter_struct_columns_exist() -> Result<()> {
 #[tokio::test]
 async fn test_adapter_insert_statement_valid() -> Result<()> {
     let db = create_test_db().await?;
+    let temp_aos = new_test_aos_file();
+    let aos_path_str = temp_aos
+        .path()
+        .to_str()
+        .expect("Invalid temp .aos path")
+        .to_string();
 
     // Create a test adapter with all fields populated
     let params = AdapterRegistrationBuilder::new()
@@ -149,7 +166,7 @@ async fn test_adapter_insert_statement_valid() -> Result<()> {
         .alpha(16.0)
         .category("code")
         .scope("global")
-        .aos_file_path(Some("var/test-adapters/test.aos")) // Set explicit path for validation
+        .aos_file_path(Some(aos_path_str.clone())) // Set explicit path for validation
         .adapter_name(Some("test/code/review/r001")) // Set explicit semantic name
         .build()?;
 
@@ -167,10 +184,10 @@ async fn test_adapter_insert_statement_valid() -> Result<()> {
     .fetch_one(db.pool())
     .await?;
 
-    let aos_path: Option<String> = row.get("aos_file_path");
+    let stored_aos_path: Option<String> = row.get("aos_file_path");
     let adapter_name: Option<String> = row.get("adapter_name");
 
-    assert_eq!(aos_path, Some("var/test-adapters/test.aos".to_string()));
+    assert_eq!(stored_aos_path, Some(aos_path_str.clone()));
     assert_eq!(adapter_name, Some("test/code/review/r001".to_string()));
 
     println!("✓ INSERT statement successfully populates all schema columns");
@@ -265,6 +282,12 @@ async fn test_taxonomy_validation() -> Result<()> {
 #[tokio::test]
 async fn test_aos_file_metadata_storage() -> Result<()> {
     let db = create_test_db().await?;
+    let temp_aos = new_test_aos_file();
+    let aos_path_str = temp_aos
+        .path()
+        .to_str()
+        .expect("Invalid temp .aos path")
+        .to_string();
 
     let params = AdapterRegistrationBuilder::new()
         .tenant_id("default") // Must match seeded tenant
@@ -272,7 +295,7 @@ async fn test_aos_file_metadata_storage() -> Result<()> {
         .name("Test Adapter 4")
         .hash_b3("b3:test012")
         .rank(16)
-        .aos_file_path(Some("/adapters/test.aos"))
+        .aos_file_path(Some(aos_path_str.clone()))
         .aos_file_hash(Some("b3:aosfilehash123"))
         .build()?;
 
@@ -284,10 +307,10 @@ async fn test_aos_file_metadata_storage() -> Result<()> {
         .fetch_one(db.pool())
         .await?;
 
-    let aos_path: Option<String> = row.get("aos_file_path");
+    let stored_aos_path: Option<String> = row.get("aos_file_path");
     let aos_hash: Option<String> = row.get("aos_file_hash");
 
-    assert_eq!(aos_path, Some("/adapters/test.aos".to_string()));
+    assert_eq!(stored_aos_path, Some(aos_path_str.clone()));
     assert_eq!(aos_hash, Some("b3:aosfilehash123".to_string()));
 
     println!("✓ .aos file metadata stored correctly");

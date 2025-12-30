@@ -548,7 +548,7 @@ async fn adapter_expires_at_sets_expiration() -> Result<()> {
     let db = ProtectedDb::new(Db::new_in_memory().await?);
     create_tenant(&db, "tenant-a").await?;
 
-    let expiration = "2025-12-31T23:59:59Z";
+    let expiration = "2099-12-31T23:59:59Z";
 
     let params = AdapterRegistrationBuilder::new()
         .tenant_id("tenant-a")
