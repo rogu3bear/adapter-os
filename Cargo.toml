@@ -78,6 +78,7 @@ members = [
     "crates/adapteros-storage",  # Storage management and versioned records
     "crates/adapteros-telemetry-verifier",
     "crates/adapteros-normalization",  # Shared normalization utilities
+    "crates/adapteros-web-browse",  # Web browsing for live data retrieval
 ]
 
 [workspace.package]

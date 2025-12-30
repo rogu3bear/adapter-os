@@ -738,7 +738,7 @@ pub async fn update_adapter_strength(
 pub struct PinAdapterRequest {
     /// Reason for pinning (required for audit trail)
     pub reason: String,
-    /// Optional TTL timestamp (ISO 8601 format, e.g., "2025-12-31T23:59:59Z")
+    /// Optional TTL timestamp (ISO 8601 format, e.g., "2099-12-31T23:59:59Z")
     pub pinned_until: Option<String>,
 }
 
@@ -827,7 +827,7 @@ pub struct ArchiveStatusResponse {
 /// POST /v1/adapters/{adapter_id}/pin
 /// {
 ///   "reason": "Production-critical adapter",
-///   "pinned_until": "2025-12-31T23:59:59Z"
+///   "pinned_until": "2099-12-31T23:59:59Z"
 /// }
 /// ```
 #[utoipa::path(
