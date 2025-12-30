@@ -23,6 +23,7 @@ import { ReplayResultDialog } from './ReplayResultDialog';
 import { MissingPinnedAdaptersWarning } from './MissingPinnedAdaptersWarning';
 import { InlineEvidencePreview } from './InlineEvidencePreview';
 import { EvidenceDrawerTrigger } from './EvidenceDrawerTrigger';
+import { EvidenceIndicator } from './EvidenceIndicator';
 import { useEvidenceDrawerOptional } from '@/contexts/EvidenceDrawerContext';
 import {
   renderSingleAnswerMarkdown,
@@ -89,6 +90,7 @@ function areMessagesEqual(prevProps: ChatMessageProps, nextProps: ChatMessagePro
       ))) &&
     prevProps.developerMode === nextProps.developerMode &&
     prevProps.kernelMode === nextProps.kernelMode &&
+    prevProps.compactMode === nextProps.compactMode &&
     prevProps.className === nextProps.className &&
     prevProps.isSelected === nextProps.isSelected &&
     prevProps.onSelect === nextProps.onSelect
@@ -103,6 +105,7 @@ export const ChatMessageComponent = memo(function ChatMessageComponent({
   isSelected,
   developerMode = false,
   kernelMode = false,
+  compactMode = false,
 }: ChatMessageProps) {
   const isUser = message.role === 'user';
   const [replayDialogOpen, setReplayDialogOpen] = useState(false);
@@ -408,8 +411,8 @@ export const ChatMessageComponent = memo(function ChatMessageComponent({
         )}
       </div>
 
-      {/* Evidence display for assistant messages with sources */}
-      {!isUser && message.evidence && message.evidence.length > 0 && (
+      {/* Evidence display for assistant messages with sources (skip in compact mode) */}
+      {!isUser && !compactMode && message.evidence && message.evidence.length > 0 && (
         <div className="max-w-[80%] w-full">
           {hasDrawer ? (
             // Use inline preview when drawer is available
@@ -450,8 +453,22 @@ export const ChatMessageComponent = memo(function ChatMessageComponent({
             {(message.throughputStats.latencyMs / 1000).toFixed(1)}s
           </span>
         )}
-        {/* Evidence drawer triggers (only when drawer context is available) */}
-        {!isUser && hasDrawer && (
+        {/* Evidence indicator (compact mode) - single consolidated badge */}
+        {!isUser && hasDrawer && compactMode && (
+          <EvidenceIndicator
+            messageId={message.id}
+            evidence={message.evidence}
+            routerDecision={message.routerDecision}
+            requestId={message.requestId}
+            traceId={message.traceId}
+            proofDigest={message.proofDigest}
+            isVerified={message.isVerified ?? undefined}
+            verifiedAt={message.verifiedAt}
+            throughputStats={message.throughputStats}
+          />
+        )}
+        {/* Evidence drawer triggers (normal mode - only when drawer context is available) */}
+        {!isUser && hasDrawer && !compactMode && (
           <EvidenceDrawerTrigger
             messageId={message.id}
             evidence={message.evidence}
@@ -464,8 +481,8 @@ export const ChatMessageComponent = memo(function ChatMessageComponent({
             throughputStats={message.throughputStats}
           />
         )}
-        {/* Legacy proof badge (only when drawer not available) */}
-        {!isUser && !hasDrawer && message.isVerified && (
+        {/* Legacy proof badge (only when drawer not available and not compact mode) */}
+        {!isUser && !hasDrawer && !compactMode && message.isVerified && (
           <ProofBadge isVerified={message.isVerified} timestamp={message.verifiedAt} />
         )}
         {/* Replay button for assistant messages with request ID */}

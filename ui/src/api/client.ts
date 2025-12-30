@@ -17,6 +17,7 @@ import { retryWithBackoff, RetryConfig } from '@/utils/retry';
 import { captureException } from '@/stores/errorStore';
 import { markBackendReachable, markBackendUnreachable } from '@/stores/backendReachability';
 import { markSessionExpired } from '@/auth/session';
+import { AUTH_STORAGE_KEYS } from '@/auth/constants';
 import { createTokenCoordinator, TokenCoordinator } from '@/auth/tokenCoordination';
 import { toCamelCase, toSnakeCase } from './transformers';
 
@@ -30,6 +31,19 @@ export interface ApiError extends Error {
 }
 
 const API_BASE_URL = (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL || '/api';
+
+function readSelectedTenantId(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = sessionStorage.getItem(AUTH_STORAGE_KEYS.SELECTED_TENANT);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { tenantId?: unknown };
+    const tenantId = typeof parsed.tenantId === 'string' ? parsed.tenantId.trim() : '';
+    return tenantId ? tenantId : null;
+  } catch {
+    return null;
+  }
+}
 
 class ApiClient {
   private baseUrl: string;
@@ -381,6 +395,15 @@ class ApiClient {
       const csrfToken = readCookie('csrf_token');
       if (csrfToken && !(headers as Record<string, string>)['X-CSRF-Token']) {
         (headers as Record<string, string>)['X-CSRF-Token'] = csrfToken;
+      }
+    }
+
+    const selectedTenantId = readSelectedTenantId();
+    if (selectedTenantId) {
+      const headersRecord = headers as Record<string, string>;
+      const hasTenantHeader = Object.keys(headersRecord).some((key) => key.toLowerCase() === 'x-tenant-id');
+      if (!hasTenantHeader) {
+        headersRecord['X-Tenant-Id'] = selectedTenantId;
       }
     }
 

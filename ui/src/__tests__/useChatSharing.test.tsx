@@ -57,7 +57,7 @@ const mockSessionShares: SessionShare[] = [
     permission: 'collaborate',
     shared_by: 'user-owner',
     shared_at: '2025-01-02T00:00:00Z',
-    expires_at: '2025-12-31T23:59:59Z',
+    expires_at: '2099-12-31T23:59:59Z',
     revoked_at: undefined,
   },
   {
@@ -543,7 +543,7 @@ describe('useChatSharing - Mutations', () => {
         wrapper: createWrapper(),
       });
 
-      const expiryDate = '2025-12-31T23:59:59Z';
+      const expiryDate = '2099-12-31T23:59:59Z';
       const shareRequest: ShareSessionRequest = {
         user_ids: ['user-1'],
         permission: 'view',

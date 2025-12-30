@@ -89,13 +89,13 @@ export function formatGB(mb: number | undefined | null, decimals = 1): string {
 }
 
 /**
- * Format timestamp to human-readable string
+ * Format timestamp to human-readable string with explicit timezone
  * @param timestamp - Unix timestamp in milliseconds or ISO string
- * @param format - 'short' for time only, 'long' for full date+time
+ * @param format - 'short' for time only, 'long' for full date+time, 'iso' for ISO 8601 UTC
  */
 export function formatTimestamp(
   timestamp: number | string,
-  format: 'short' | 'long' = 'short'
+  format: 'short' | 'long' | 'iso' = 'short'
 ): string {
   const date = typeof timestamp === 'string' ? new Date(timestamp) : new Date(timestamp);
 
@@ -103,17 +103,30 @@ export function formatTimestamp(
     return '-';
   }
 
-  if (format === 'short') {
-    return date.toLocaleTimeString();
+  if (format === 'iso') {
+    return date.toISOString();
   }
 
-  return date.toLocaleString();
+  // Use explicit locale and timezone options for consistency
+  const options: Intl.DateTimeFormatOptions = {
+    timeZone: 'UTC',
+    timeZoneName: 'short',
+  };
+
+  if (format === 'short') {
+    return date.toLocaleTimeString('en-US', { ...options, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  }
+
+  return date.toLocaleString('en-US', { ...options, dateStyle: 'medium', timeStyle: 'medium' });
 }
 
 /**
- * Format relative time (e.g., "5 minutes ago", "2 hours ago")
+ * Format relative time with explicit calendar date anchor
+ * Returns both relative time AND the explicit date to avoid ambiguity
+ * @param date - The date to format
+ * @param includeAnchor - If true, always append the calendar date (default: true for >1 hour)
  */
-export function formatRelativeTime(date: Date | string | number): string {
+export function formatRelativeTime(date: Date | string | number, includeAnchor = true): string {
   const now = new Date();
   const target = date instanceof Date ? date : new Date(date);
   const diffMs = now.getTime() - target.getTime();
@@ -122,20 +135,34 @@ export function formatRelativeTime(date: Date | string | number): string {
   const diffHours = Math.floor(diffMinutes / 60);
   const diffDays = Math.floor(diffHours / 24);
 
+  // Format calendar date in UTC for anchoring
+  const calendarDate = target.toLocaleDateString('en-US', {
+    timeZone: 'UTC',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
+
   if (diffSeconds < 60) {
-    return 'just now';
+    return includeAnchor ? `just now (${calendarDate})` : 'just now';
   }
   if (diffMinutes < 60) {
-    return `${diffMinutes} minute${diffMinutes === 1 ? '' : 's'} ago`;
+    const relative = `${diffMinutes} minute${diffMinutes === 1 ? '' : 's'} ago`;
+    return includeAnchor ? `${relative} (${calendarDate})` : relative;
   }
   if (diffHours < 24) {
-    return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
+    const relative = `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
+    // Always include anchor for durations > 1 hour to avoid confusion
+    return `${relative} (${calendarDate})`;
   }
   if (diffDays < 7) {
-    return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
+    const relative = `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
+    // Always include anchor for multi-day durations
+    return `${relative} (${calendarDate})`;
   }
 
-  return target.toLocaleDateString();
+  // For older dates, just show the calendar date
+  return calendarDate;
 }
 
 /**
@@ -165,28 +192,42 @@ export function formatCount(count: number | undefined | null): string {
 }
 
 /**
- * Format a date string for display.
+ * Format a date string for display with explicit UTC timezone.
  * Returns '—' for null/undefined values.
  */
 export function formatDate(date: string | Date | undefined | null): string {
   if (date == null) return '—';
   try {
     const d = typeof date === 'string' ? new Date(date) : date;
-    return d.toLocaleDateString();
+    return d.toLocaleDateString('en-US', {
+      timeZone: 'UTC',
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
   } catch {
     return '—';
   }
 }
 
 /**
- * Format a datetime string for display.
+ * Format a datetime string for display with explicit UTC timezone.
  * Returns '—' for null/undefined values.
  */
 export function formatDateTime(date: string | Date | undefined | null): string {
   if (date == null) return '—';
   try {
     const d = typeof date === 'string' ? new Date(date) : date;
-    return d.toLocaleString();
+    return d.toLocaleString('en-US', {
+      timeZone: 'UTC',
+      timeZoneName: 'short',
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
   } catch {
     return '—';
   }

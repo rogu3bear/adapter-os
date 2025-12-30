@@ -243,7 +243,7 @@ export class AdminService {
   }
 
   async listUserWorkspaces(): Promise<types.Workspace[]> {
-    return this.client.requestList<types.Workspace>('/v1/workspaces/my');
+    return this.client.requestList<types.Workspace>('/v1/workspaces/me');
   }
 
   async createWorkspace(data: types.CreateWorkspaceRequest): Promise<types.Workspace> {

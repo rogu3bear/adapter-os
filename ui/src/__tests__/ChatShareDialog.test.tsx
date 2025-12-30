@@ -76,7 +76,7 @@ const mockShares: SessionShare[] = [
     permission: 'comment',
     shared_by: 'owner@example.com',
     shared_at: '2025-01-03T00:00:00Z',
-    expires_at: '2025-12-31T23:59:59Z',
+    expires_at: '2099-12-31T23:59:59Z',
   },
   {
     id: 'share-4',
