@@ -67,4 +67,8 @@ pub enum AosAdapterError {
     /// Adapter not found
     #[error("Adapter not found: {0}")]
     NotFound(String),
+
+    /// Archive file checksum verification failed during export
+    #[error("Adapter archive checksum does not match: stored {stored}, computed {computed}")]
+    ArchiveChecksumMismatch { stored: String, computed: String },
 }

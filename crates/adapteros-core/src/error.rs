@@ -109,6 +109,42 @@ pub enum AosError {
     #[error("CoreML error: {0}")]
     CoreML(String),
 
+    /// CoreML export encountered unsupported operations in the model
+    #[error("CoreML export unsupported ops in {model_path}: {ops:?}")]
+    CoreMLUnsupportedOps {
+        model_path: String,
+        ops: Vec<String>,
+    },
+
+    /// CoreML package is missing required weight files
+    #[error("CoreML package missing weights at {package_path}: {missing:?}")]
+    CoreMLMissingWeights {
+        package_path: String,
+        missing: Vec<String>,
+    },
+
+    /// CoreML export destination already exists and is non-empty
+    #[error("CoreML export path exists: {path} (contains {file_count} items)")]
+    CoreMLExportPathExists { path: String, file_count: usize },
+
+    /// CoreML export operation timed out
+    #[error("CoreML export timeout after {duration:?}: {operation}")]
+    CoreMLExportTimeout {
+        operation: String,
+        duration: std::time::Duration,
+    },
+
+    /// LoRA shape mismatch during fusion
+    #[error("LoRA shape mismatch at layer {layer} {target}: A expected {expected_a} got {got_a}, B expected {expected_b} got {got_b}")]
+    LoraShapeMismatch {
+        layer: usize,
+        target: String,
+        expected_a: usize,
+        got_a: usize,
+        expected_b: usize,
+        got_b: usize,
+    },
+
     #[error("MLX error: {0}")]
     Mlx(String),
 
@@ -199,6 +235,69 @@ pub enum AosError {
 
     #[error("Resource unavailable: {0}")]
     Unavailable(String),
+
+    /// CPU usage exceeds limits and throttles the process
+    #[error("CPU throttled: {reason} (usage: {usage_percent:.1}%, limit: {limit_percent:.1}%)")]
+    CpuThrottled {
+        /// Human-readable reason for throttling
+        reason: String,
+        /// Current CPU usage percentage
+        usage_percent: f32,
+        /// Configured CPU limit percentage
+        limit_percent: f32,
+        /// Recommended backoff duration in milliseconds
+        backoff_ms: u64,
+    },
+
+    /// Memory usage hits OOM and the service may restart
+    #[error("Out of memory: {reason} (used: {used_mb} MB, limit: {limit_mb} MB)")]
+    OutOfMemory {
+        /// Human-readable reason for OOM
+        reason: String,
+        /// Current memory usage in MB
+        used_mb: u64,
+        /// Memory limit in MB
+        limit_mb: u64,
+        /// Whether service restart is imminent
+        restart_imminent: bool,
+    },
+
+    /// File descriptor limit is reached
+    #[error("File descriptor limit reached: {current}/{limit} descriptors in use")]
+    FileDescriptorExhausted {
+        /// Current number of open file descriptors
+        current: u64,
+        /// Maximum allowed file descriptors
+        limit: u64,
+        /// Suggested action to resolve
+        suggestion: String,
+    },
+
+    /// Thread pool is saturated
+    #[error("Thread pool saturated: {active}/{max} threads busy, {queued} tasks queued")]
+    ThreadPoolSaturated {
+        /// Number of currently active threads
+        active: usize,
+        /// Maximum thread pool size
+        max: usize,
+        /// Number of tasks waiting in queue
+        queued: usize,
+        /// Estimated wait time in milliseconds
+        estimated_wait_ms: u64,
+    },
+
+    /// GPU device is unavailable
+    #[error("GPU unavailable: {reason}")]
+    GpuUnavailable {
+        /// Human-readable reason for unavailability
+        reason: String,
+        /// Device identifier if known
+        device_id: Option<String>,
+        /// Whether fallback to CPU is possible
+        cpu_fallback_available: bool,
+        /// Whether this is a transient condition that may recover
+        is_transient: bool,
+    },
 
     #[error("Performance violation: {0}")]
     PerformanceViolation(String),
@@ -396,6 +495,75 @@ pub enum AosError {
         actual: String,
     },
 
+    /// Disk is full (ENOSPC) or quota exceeded (EDQUOT)
+    ///
+    /// This error occurs when the filesystem cannot allocate more space for a write
+    /// operation. The error includes available space information when possible.
+    #[error("Disk full at {path}: {details}")]
+    DiskFull {
+        /// Path where the write operation failed
+        path: String,
+        /// Human-readable description of the failure
+        details: String,
+        /// Bytes needed for the operation (if known)
+        bytes_needed: Option<u64>,
+        /// Bytes available on the filesystem (if known)
+        bytes_available: Option<u64>,
+    },
+
+    /// Temporary directory does not exist or is inaccessible
+    ///
+    /// This error occurs when operations requiring a temporary directory fail
+    /// because the directory doesn't exist, isn't writable, or can't be created.
+    #[error("Temporary directory unavailable: {path} - {reason}")]
+    TempDirUnavailable {
+        /// Path to the temporary directory
+        path: String,
+        /// Reason why the directory is unavailable
+        reason: String,
+    },
+
+    /// File permission denied (EACCES/EPERM)
+    ///
+    /// This error occurs when a file operation is denied due to insufficient
+    /// permissions. The error includes the operation that was attempted and
+    /// whether a permission fix was attempted.
+    #[error("Permission denied for {path}: {operation} - {reason}")]
+    PermissionDenied {
+        /// Path to the file or directory
+        path: String,
+        /// Operation that was denied (e.g., "open", "create", "read", "write")
+        operation: String,
+        /// Detailed reason for the denial
+        reason: String,
+    },
+
+    /// File path contains invalid characters for the operating system
+    ///
+    /// This error occurs when a file path contains characters that are not
+    /// allowed on the current operating system (e.g., NUL on Unix, <>:"|?* on Windows).
+    #[error("Invalid path characters in '{path}': {details}")]
+    InvalidPathCharacters {
+        /// The path containing invalid characters
+        path: String,
+        /// Description of the validation failure
+        details: String,
+        /// List of invalid characters found
+        invalid_chars: Vec<char>,
+    },
+
+    /// File watcher events dropped due to channel overflow
+    ///
+    /// This error occurs when the file watcher's internal channel is full and
+    /// events cannot be queued. A rescan may be triggered automatically.
+    #[error("File watcher dropped {count} events in {window_secs}s")]
+    WatcherEventsDropped {
+        /// Number of events dropped
+        count: u64,
+        /// Time window in seconds over which events were dropped
+        window_secs: u64,
+    },
+
     #[error("Health check failed for model {model_id}: {reason} (attempt {retry_count})")]
     HealthCheckFailed {
         model_id: String,
@@ -414,6 +582,160 @@ pub enum AosError {
         context: String,
         #[source]
         source: Box<AosError>,
+    },
+
+    // =========================================================================
+    // Build/Toolchain errors (Category 20)
+    // =========================================================================
+    /// Build toolchain version mismatch with CI
+    #[error("Toolchain mismatch: {component} - expected {expected}, got {actual}")]
+    ToolchainMismatch {
+        /// Component that mismatches (e.g., "rust", "metal_sdk", "macos")
+        component: String,
+        /// Expected version
+        expected: String,
+        /// Actual version found
+        actual: String,
+        /// CI version if available
+        ci_version: Option<String>,
+    },
+
+    /// Build cache is stale and may hide errors
+    #[error("Build cache stale: {path} - {reason}")]
+    StaleBuildCache {
+        /// Path to the stale cache
+        path: String,
+        /// Reason why it's considered stale
+        reason: String,
+        /// Last modification time if available
+        last_modified: Option<String>,
+    },
+
+    /// Lint step skipped due to missing target
+    #[error("Lint target missing: {target} - run `cargo build --target {target}` first")]
+    LintTargetMissing {
+        /// The missing target
+        target: String,
+        /// The lint command that failed
+        lint_command: String,
+    },
+
+    /// Cargo.lock is out of sync with Cargo.toml
+    #[error("Cargo.lock out of sync with Cargo.toml: {details}")]
+    LockfileOutOfSync {
+        /// Description of the sync issue
+        details: String,
+        /// Affected crate name if known
+        crate_name: Option<String>,
+        /// Version in Cargo.toml
+        toml_version: Option<String>,
+        /// Version in Cargo.lock
+        lock_version: Option<String>,
+    },
+
+    /// Workspace member path is invalid
+    #[error("Workspace member path invalid: {member} at {path} - {reason}")]
+    WorkspaceMemberPathInvalid {
+        /// Workspace member name
+        member: String,
+        /// Path that is invalid
+        path: String,
+        /// Reason for the invalidity
+        reason: String,
+    },
+
+    // =========================================================================
+    // CLI errors (Category 21)
+    // =========================================================================
+    /// CLI uses a deprecated flag
+    #[error(
+        "Deprecated flag: --{flag} - use {replacement} instead (removed in {removal_version})"
+    )]
+    DeprecatedFlag {
+        /// The deprecated flag name
+        flag: String,
+        /// The replacement flag or option
+        replacement: String,
+        /// Version when the flag will be removed
+        removal_version: String,
+    },
+
+    /// CLI output format changed without version bump
+    #[error(
+        "CLI output format changed: {format} - expected schema version {expected}, got {actual}"
+    )]
+    OutputFormatMismatch {
+        /// Output format (e.g., "json", "yaml", "table")
+        format: String,
+        /// Expected schema version
+        expected: String,
+        /// Actual schema version
+        actual: String,
+    },
+
+    /// CLI cannot write to specified output directory
+    #[error("Cannot write to {path}: {reason}")]
+    CliWritePermissionDenied {
+        /// Path that cannot be written to
+        path: String,
+        /// Reason for the denial
+        reason: String,
+        /// Operation that was attempted
+        operation: String,
+    },
+
+    /// CLI received binary input when UTF-8 was expected
+    #[error("Invalid input encoding: expected UTF-8, received binary data at byte {offset}")]
+    InvalidInputEncoding {
+        /// Byte offset where invalid encoding was found
+        offset: usize,
+        /// Context describing where input came from
+        context: String,
+        /// Suggested flag to use for binary input
+        suggested_flag: Option<String>,
+    },
+
+    /// CLI attempted to retry a non-retriable error
+    #[error("Retried non-retriable error: {error_type} - {reason}")]
+    InvalidRetryAttempt {
+        /// Type of the original error
+        error_type: String,
+        /// Reason why it's not retriable
+        reason: String,
+        /// The original error message
+        original_error: String,
+    },
+
+    // =========================================================================
+    // Rate limiting errors (Category 23)
+    // =========================================================================
+    /// Rate limiter configuration is missing
+    #[error("Rate limiter not configured: {reason}")]
+    RateLimiterNotConfigured {
+        /// Reason for the missing configuration
+        reason: String,
+        /// Which limiter is affected
+        limiter_name: String,
+    },
+
+    /// Rate limiter configuration is invalid
+    #[error("Invalid rate limit config: {reason}")]
+    InvalidRateLimitConfig {
+        /// Reason for the invalid configuration
+        reason: String,
+        /// The invalid parameter
+        parameter: String,
+        /// The invalid value
+        value: String,
+    },
+
+    /// Request rejected due to thundering herd protection
+    #[error("Thundering herd rejected: {reason}")]
+    ThunderingHerdRejected {
+        /// Reason for the rejection
+        reason: String,
+        /// Recommended retry delay in milliseconds
+        retry_after_ms: u64,
     },
 }
 
@@ -516,6 +838,235 @@ impl AosError {
             reason: reason.into(),
         }
     }
+
+    /// Disk full error
+    pub fn disk_full(
+        path: impl Into<String>,
+        details: impl Into<String>,
+        bytes_needed: Option<u64>,
+        bytes_available: Option<u64>,
+    ) -> Self {
+        AosError::DiskFull {
+            path: path.into(),
+            details: details.into(),
+            bytes_needed,
+            bytes_available,
+        }
+    }
+
+    /// Temporary directory unavailable error
+    pub fn temp_dir_unavailable(path: impl Into<String>, reason: impl Into<String>) -> Self {
+        AosError::TempDirUnavailable {
+            path: path.into(),
+            reason: reason.into(),
+        }
+    }
+
+    /// Permission denied error
+    pub fn permission_denied(
+        path: impl Into<String>,
+        operation: impl Into<String>,
+        reason: impl Into<String>,
+    ) -> Self {
+        AosError::PermissionDenied {
+            path: path.into(),
+            operation: operation.into(),
+            reason: reason.into(),
+        }
+    }
+
+    /// Invalid path characters error
+    pub fn invalid_path_characters(
+        path: impl Into<String>,
+        details: impl Into<String>,
+        invalid_chars: Vec<char>,
+    ) -> Self {
+        AosError::InvalidPathCharacters {
+            path: path.into(),
+            details: details.into(),
+            invalid_chars,
+        }
+    }
+
+    /// File watcher events dropped error
+    pub fn watcher_events_dropped(count: u64, window_secs: u64) -> Self {
+        AosError::WatcherEventsDropped { count, window_secs }
+    }
+
+    /// CoreML unsupported ops error
+    pub fn coreml_unsupported_ops(model_path: impl Into<String>, ops: Vec<String>) -> Self {
+        AosError::CoreMLUnsupportedOps {
+            model_path: model_path.into(),
+            ops,
+        }
+    }
+
+    /// CoreML missing weights error
+    pub fn coreml_missing_weights(package_path: impl Into<String>, missing: Vec<String>) -> Self {
+        AosError::CoreMLMissingWeights {
+            package_path: package_path.into(),
+            missing,
+        }
+    }
+
+    /// CoreML export path exists error
+    pub fn coreml_export_path_exists(path: impl Into<String>, file_count: usize) -> Self {
+        AosError::CoreMLExportPathExists {
+            path: path.into(),
+            file_count,
+        }
+    }
+
+    /// CoreML export timeout error
+    pub fn coreml_export_timeout(
+        operation: impl Into<String>,
+        duration: std::time::Duration,
+    ) -> Self {
+        AosError::CoreMLExportTimeout {
+            operation: operation.into(),
+            duration,
+        }
+    }
+
+    /// LoRA shape mismatch error
+    pub fn lora_shape_mismatch(
+        layer: usize,
+        target: impl Into<String>,
+        expected_a: usize,
+        got_a: usize,
+        expected_b: usize,
+        got_b: usize,
+    ) -> Self {
+        AosError::LoraShapeMismatch {
+            layer,
+            target: target.into(),
+            expected_a,
+            got_a,
+            expected_b,
+            got_b,
+        }
+    }
+
+    // =========================================================================
+    // Build/Toolchain error constructors (Category 20)
+    // =========================================================================
+
+    /// Toolchain version mismatch error
+    pub fn toolchain_mismatch(
+        component: impl Into<String>,
+        expected: impl Into<String>,
+        actual: impl Into<String>,
+        ci_version: Option<String>,
+    ) -> Self {
+        AosError::ToolchainMismatch {
+            component: component.into(),
+            expected: expected.into(),
+            actual: actual.into(),
+            ci_version,
+        }
+    }
+
+    /// Stale build cache error
+    pub fn stale_build_cache(
+        path: impl Into<String>,
+        reason: impl Into<String>,
+        last_modified: Option<String>,
+    ) -> Self {
+        AosError::StaleBuildCache {
+            path: path.into(),
+            reason: reason.into(),
+            last_modified,
+        }
+    }
+
+    /// Lockfile out of sync error
+    pub fn lockfile_out_of_sync(details: impl Into<String>) -> Self {
+        AosError::LockfileOutOfSync {
+            details: details.into(),
+            crate_name: None,
+            toml_version: None,
+            lock_version: None,
+        }
+    }
+
+    // =========================================================================
+    // CLI error constructors (Category 21)
+    // =========================================================================
+
+    /// Deprecated flag error
+    pub fn deprecated_flag(
+        flag: impl Into<String>,
+        replacement: impl Into<String>,
+        removal_version: impl Into<String>,
+    ) -> Self {
+        AosError::DeprecatedFlag {
+            flag: flag.into(),
+            replacement: replacement.into(),
+            removal_version: removal_version.into(),
+        }
+    }
+
+    /// Invalid input encoding error
+    pub fn invalid_input_encoding(
+        offset: usize,
+        context: impl Into<String>,
+        suggested_flag: Option<String>,
+    ) -> Self {
+        AosError::InvalidInputEncoding {
+            offset,
+            context: context.into(),
+            suggested_flag,
+        }
+    }
+
+    /// CLI write permission denied error
+    pub fn cli_write_permission_denied(
+        path: impl Into<String>,
+        reason: impl Into<String>,
+        operation: impl Into<String>,
+    ) -> Self {
+        AosError::CliWritePermissionDenied {
+            path: path.into(),
+            reason: reason.into(),
+            operation: operation.into(),
+        }
+    }
+
+    // =========================================================================
+    // Rate limiting error constructors (Category 23)
+    // =========================================================================
+
+    /// Rate limiter not configured error
+    pub fn rate_limiter_not_configured(
+        limiter_name: impl Into<String>,
+        reason: impl Into<String>,
+    ) -> Self {
+        AosError::RateLimiterNotConfigured {
+            limiter_name: limiter_name.into(),
+            reason: reason.into(),
+        }
+    }
+
+    /// Invalid rate limit config error
+    pub fn invalid_rate_limit_config(
+        parameter: impl Into<String>,
+        value: impl Into<String>,
+        reason: impl Into<String>,
+    ) -> Self {
+        AosError::InvalidRateLimitConfig {
+            parameter: parameter.into(),
+            value: value.into(),
+            reason: reason.into(),
+        }
+    }
+
+    /// Thundering herd rejection error
+    pub fn thundering_herd_rejected(reason: impl Into<String>, retry_after_ms: u64) -> Self {
+        AosError::ThunderingHerdRejected {
+            reason: reason.into(),
+            retry_after_ms,
+        }
+    }
 }
 
 /// Serializable representation of cache budget exceeded error
@@ -586,6 +1137,60 @@ impl From<rusqlite::Error> for AosError {
 impl From<std::io::Error> for AosError {
     fn from(err: std::io::Error) -> Self {
         AosError::Io(err.to_string())
+    }
+}
+
+// Conversion from AosValidationError for validation-specific errors
+impl From<crate::errors::AosValidationError> for AosError {
+    fn from(err: crate::errors::AosValidationError) -> Self {
+        use crate::errors::AosValidationError;
+        match err {
+            AosValidationError::ConfigFileNotFound { path, .. } => {
+                AosError::Config(format!("Config file not found: {}", path))
+            }
+            AosValidationError::ConfigFilePermissionDenied { path, reason } => AosError::Config(
+                format!("Config file permission denied: {} - {}", path, reason),
+            ),
+            AosValidationError::ConfigSchemaViolation {
+                field,
+                value,
+                constraint,
+                ..
+            } => AosError::Config(format!(
+                "Config schema violation: {} = '{}' - {}",
+                field, value, constraint
+            )),
+            AosValidationError::EmptyEnvOverride { variable, .. } => AosError::Config(format!(
+                "Empty environment override: {} - set a value or unset the variable",
+                variable
+            )),
+            AosValidationError::BlankSecret { variable, reason } => {
+                AosError::Config(format!("Invalid secret value for {}: {}", variable, reason))
+            }
+            // Map other validation errors to their base AosError types
+            AosValidationError::Validation(msg) => AosError::Validation(msg),
+            AosValidationError::InvalidManifest(msg) => AosError::InvalidManifest(msg),
+            AosValidationError::Parse(msg) => AosError::Parse(msg),
+            AosValidationError::Serialization(msg) => {
+                AosError::Internal(format!("Serialization error: {}", msg))
+            }
+            AosValidationError::InvalidCPID(msg) => AosError::InvalidCPID(msg),
+            AosValidationError::ChatTemplate(msg) => AosError::ChatTemplate(msg),
+            AosValidationError::Config(msg) => AosError::Config(msg),
+            AosValidationError::InvalidInput(msg) => AosError::Validation(msg),
+            AosValidationError::MissingVersion => {
+                AosError::Validation("Adapter version string is missing from metadata".to_string())
+            }
+            AosValidationError::UnknownManifestFields(fields) => {
+                AosError::InvalidManifest(format!("Unknown required fields: {:?}", fields))
+            }
+            AosValidationError::TtlInPast => {
+                AosError::Validation("Adapter pin TTL is in the past".to_string())
+            }
+            AosValidationError::MissingArtifacts(artifacts) => {
+                AosError::Validation(format!("Missing required artifacts: {:?}", artifacts))
+            }
+        }
     }
 }
 

@@ -6,9 +6,10 @@ use std::{fmt, str::FromStr};
 ///
 /// All user- and config-facing backend strings must parse through this type so
 /// we have a single source of truth (and error messages) for CoreML, MLX,
-/// Metal, CPU, and Auto detection. CoreML is treated as a first-class option
-/// (including ANE) and `Auto` preserves the current behavior of "pick the best
-/// available backend" without changing defaults for existing callers.
+/// Metal, CPU, and Auto detection. MLX is the primary backend for its
+/// flexibility and HKDF-seeded determinism, with CoreML as a high-performance
+/// fallback when ANE acceleration is preferred. `Auto` preserves the current
+/// behavior of "pick the best available backend".
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "lowercase")]
@@ -52,21 +53,22 @@ impl BackendKind {
         &["auto", "coreml", "mlx", "mlxbridge", "metal", "cpu"]
     }
 
-    /// Canonical CoreML-first priority list for inference backends.
+    /// Canonical MLX-first priority list for inference backends.
     ///
-    /// Order: CoreML → MLX → MlxBridge → Metal → CPU. Use this helper anywhere
+    /// Order: MLX → CoreML → MlxBridge → Metal → CPU. Use this helper anywhere
     /// a fallback chain is needed so the system stays consistent across control
     /// plane, worker selection, and UI hints.
     ///
-    /// Note: MlxBridge is positioned after Mlx because it's intended for
-    /// MoE models that Mlx FFI doesn't support. Auto-selection logic may
-    /// prefer MlxBridge when it detects an MoE model.
+    /// MLX is primary for its flexibility and HKDF-seeded determinism. CoreML
+    /// is the first fallback for ANE acceleration when MLX is unavailable.
+    /// MlxBridge is positioned after CoreML because it's intended for MoE
+    /// models that MLX FFI doesn't support.
     pub fn inference_priority() -> &'static [BackendKind] {
         // NOTE: CPU remains last for observability even though inference kernels
         // are not implemented for CPU today.
         static ORDER: [BackendKind; 5] = [
-            BackendKind::CoreML,
             BackendKind::Mlx,
+            BackendKind::CoreML,
             BackendKind::MlxBridge,
             BackendKind::Metal,
             BackendKind::CPU,
@@ -79,13 +81,15 @@ impl BackendKind {
         matches!(self, BackendKind::Mlx | BackendKind::MlxBridge)
     }
 
-    /// CoreML-first default backend when capabilities allow it.
+    /// MLX-first default backend when capabilities allow it.
     ///
-    /// On macOS builds with the CoreML backend enabled we default to CoreML.
-    /// Other platforms fall back to Auto, which will still respect the
-    /// `inference_priority()` order at selection time.
+    /// On macOS builds with the multi-backend feature enabled we default to MLX
+    /// for its flexibility and HKDF-seeded determinism. Falls back to CoreML
+    /// when only coreml-backend is enabled, and Auto otherwise.
     pub fn default_inference_backend() -> BackendKind {
-        if cfg!(all(target_os = "macos", feature = "coreml-backend")) {
+        if cfg!(all(target_os = "macos", feature = "multi-backend")) {
+            BackendKind::Mlx
+        } else if cfg!(all(target_os = "macos", feature = "coreml-backend")) {
             BackendKind::CoreML
         } else {
             BackendKind::Auto
@@ -219,14 +223,18 @@ mod tests {
     }
 
     #[test]
-    fn inference_priority_includes_mlxbridge() {
+    fn inference_priority_mlx_first() {
         let priority = BackendKind::inference_priority();
         assert!(priority.contains(&BackendKind::MlxBridge));
 
-        // Verify order: MLX before MlxBridge
+        // Verify order: MLX is primary, then CoreML, then MlxBridge
         let mlx_pos = priority.iter().position(|&b| b == BackendKind::Mlx);
+        let coreml_pos = priority.iter().position(|&b| b == BackendKind::CoreML);
         let bridge_pos = priority.iter().position(|&b| b == BackendKind::MlxBridge);
-        assert!(mlx_pos.unwrap() < bridge_pos.unwrap());
+
+        assert_eq!(mlx_pos.unwrap(), 0, "MLX should be first priority");
+        assert!(mlx_pos.unwrap() < coreml_pos.unwrap());
+        assert!(coreml_pos.unwrap() < bridge_pos.unwrap());
     }
 
     #[test]

@@ -35,6 +35,9 @@ parking_lot = { workspace = true }
 dashmap = "5.5"
 unicode-normalization = "0.1"
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 futures = "0.3"
 proptest = { workspace = true }
@@ -50,6 +53,7 @@ sqlx = ["dep:sqlx"]
 utoipa = ["dep:utoipa"]
 async = []
 coreml-backend = []
+multi-backend = []  # MLX primary with CoreML fallback
 evidence-signing = ["ed25519-dalek"]
 
 [dependencies.utoipa]
