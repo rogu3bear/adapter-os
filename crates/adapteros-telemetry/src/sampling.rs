@@ -18,6 +18,7 @@ use rand::{Rng, SeedableRng};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tracing::warn;
 
 /// Sampling strategy for telemetry events
 #[derive(Debug, Clone)]
@@ -229,7 +230,39 @@ impl EventSampler {
     }
 
     /// Set a custom sampling strategy for an event type
+    ///
+    /// # Warnings
+    /// - Setting `SamplingStrategy::Never` or `SamplingStrategy::Fixed(0.0)` will
+    ///   cause all events of this type to be dropped, which may hide important telemetry.
+    /// - A warning is logged if the sampling rate is set to zero for non-security event types.
     pub async fn set_strategy(&self, event_type: String, strategy: SamplingStrategy) {
+        // Warn if sampling is disabled for non-security/policy event types
+        let is_zero_sampling = matches!(&strategy, SamplingStrategy::Never)
+            || matches!(&strategy, SamplingStrategy::Fixed(rate) if *rate <= 0.0);
+
+        if is_zero_sampling {
+            // Check if this is a critical event type that should never be zero-sampled
+            let is_critical = event_type.starts_with("security.")
+                || event_type.starts_with("policy.")
+                || event_type.starts_with("network.")
+                || event_type.contains("violation")
+                || event_type.contains("error")
+                || event_type.contains("alert");
+
+            if is_critical {
+                warn!(
+                    event_type = %event_type,
+                    "Zero sampling rate set for critical event type. \
+                     This may cause security or policy events to be silently dropped!"
+                );
+            } else {
+                warn!(
+                    event_type = %event_type,
+                    "Sampling disabled for event type. All events of this type will be dropped."
+                );
+            }
+        }
+
         let mut strategies = self.strategies.write().await;
         strategies.insert(event_type, strategy);
     }

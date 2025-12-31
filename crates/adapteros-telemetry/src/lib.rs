@@ -13,7 +13,6 @@ use std::sync::Arc;
 use std::thread;
 
 pub mod alerting;
-pub mod audit_log;
 pub mod bundle;
 pub mod bundle_store;
 pub mod compression;
@@ -32,6 +31,7 @@ pub mod replay;
 pub mod report;
 pub mod ring_buffer;
 pub mod sampling;
+pub mod signature_audit;
 pub mod tracing;
 pub mod uds_exporter;
 pub mod unified_events;
@@ -41,13 +41,13 @@ pub use alerting::{
     AlertComparator, AlertRecord, AlertRule, AlertSeverity, AlertingEngine, EscalationPolicy,
     NotificationChannel,
 };
-pub use audit_log::{
-    SignatureAuditEntry, SignatureAuditLogger, SignatureOperation, SignatureResult,
-};
 pub use bundle::BundleWriter;
 pub use bundle_store::{
     BundleStore, ChainVerificationReport, EvictionStrategy, GarbageCollectionReport,
     RetentionPolicy, StorageStats,
+};
+pub use signature_audit::{
+    SignatureAuditEntry, SignatureAuditLogger, SignatureOperation, SignatureResult,
 };
 // Re-export canonical BundleMetadata with StoredBundleMetadata alias for backward compatibility
 pub use adapteros_telemetry_types::BundleMetadata as StoredBundleMetadata;
