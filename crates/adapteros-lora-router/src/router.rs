@@ -1390,6 +1390,15 @@ impl Router {
             scores.push((i, score));
         }
 
+        // Return empty decision if no adapters passed policy filtering
+        if scores.is_empty() {
+            tracing::debug!(
+                target: "determinism",
+                "No adapters passed policy filtering; returning empty decision"
+            );
+            return Ok(Self::empty_decision_with_mask(policy_mask));
+        }
+
         // Prepare adaptive tie-breakers when adaptive routing is enabled
         let tie_breakers: Vec<u64> = if self.adaptive_routing {
             let seed = determinism
@@ -1400,21 +1409,33 @@ impl Router {
         } else {
             Vec::new()
         };
-        if self.adaptive_routing && determinism_debug_enabled() {
-            let seed_hash = B3Hash::hash(
-                &determinism
-                    .expect("determinism context required for adaptive routing")
-                    .router_tiebreak_seed(),
-            );
-            let seed_hex = seed_hash.to_hex();
+        let log_ties = determinism_debug_enabled();
+        if log_ties {
             tracing::info!(
                 target: "determinism",
-                tie_seed_prefix = %seed_hex.get(..16).unwrap_or(&seed_hex),
-                tie_breakers = tie_breakers.len(),
-                "Adaptive routing tie-break seed (AOS_DEBUG_DETERMINISM=1)"
+                adapter_count = adapter_info.len(),
+                scores_count = scores.len(),
+                k = self.k,
+                tau = self.tau,
+                eps = self.eps,
+                adaptive_routing = self.adaptive_routing,
+                "Router scoring complete (AOS_DEBUG_DETERMINISM=1)"
             );
+            if self.adaptive_routing {
+                let seed_hash = B3Hash::hash(
+                    &determinism
+                        .expect("determinism context required for adaptive routing")
+                        .router_tiebreak_seed(),
+                );
+                let seed_hex = seed_hash.to_hex();
+                tracing::info!(
+                    target: "determinism",
+                    tie_seed_prefix = %seed_hex.get(..16).unwrap_or(&seed_hex),
+                    tie_breakers = tie_breakers.len(),
+                    "Adaptive routing tie-break seed"
+                );
+            }
         }
-        let log_ties = determinism_debug_enabled();
         let mut tie_events: Vec<(usize, usize, f32, f32)> = Vec::new();
 
         // Sort by score descending, then by deterministic index-based tie-break

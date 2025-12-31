@@ -47,11 +47,12 @@ serde_json = { workspace = true }
 tracing = { workspace = true }
 hex = { workspace = true }
 safetensors = { workspace = true }
-tokio = { workspace = true, features = ["sync"] }
+tokio = { workspace = true, features = ["sync", "rt", "time"] }
 memmap2 = { workspace = true }
 tempfile = { workspace = true }
 libc = "0.2"
 half = { workspace = true }
+blake3 = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc = { workspace = true }

@@ -11,9 +11,8 @@
 use adapteros_api_types::inference::RouterDecision;
 use adapteros_api_types::RoutingPolicy;
 use adapteros_core::{AosError, Result};
-use adapteros_lora_router::{Decision, DecisionCandidate};
+use adapteros_lora_router::{filter_decision_by_policy, Decision, DecisionCandidate};
 use adapteros_lora_worker::router_bridge::decision_to_router_ring;
-use adapteros_lora_worker::routing_policy_filter::filter_decision_by_policy;
 use smallvec::SmallVec;
 use std::collections::HashSet;
 

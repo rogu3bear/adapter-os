@@ -41,8 +41,17 @@ impl TtlManager {
         }
     }
 
-    pub fn track(&mut self, record: TtlRecord) {
+    /// Track a TTL record for an adapter.
+    ///
+    /// Returns an error if the expiration time is in the past.
+    pub fn track(&mut self, record: TtlRecord) -> Result<(), String> {
+        // === ISSUE 3: Validate TTL expiration is not in the past ===
+        let now = Utc::now();
+        if record.expires_at <= now {
+            return Err("Adapter pin TTL is in the past".to_string());
+        }
         self.records.insert(record.adapter_id.clone(), record);
+        Ok(())
     }
 
     pub fn extend_ttl(&mut self, adapter_id: &str, additional_hours: u64) {
@@ -102,13 +111,15 @@ mod tests {
     fn eviction_records_are_logged() {
         let mut manager = TtlManager::new(10);
         let now = Utc::now();
-        manager.track(TtlRecord {
-            adapter_id: "a".into(),
-            tenant_id: "tenant".into(),
-            expires_at: now + Duration::hours(1),
-            ttl_hours: 24,
-            last_extension: None,
-        });
+        manager
+            .track(TtlRecord {
+                adapter_id: "a".into(),
+                tenant_id: "tenant".into(),
+                expires_at: now + Duration::hours(1),
+                ttl_hours: 24,
+                last_extension: None,
+            })
+            .expect("track should succeed for future expiry");
 
         let audit = manager.evict_expired(now + Duration::hours(5));
         assert_eq!(audit.len(), 1);
@@ -120,13 +131,15 @@ mod tests {
     fn extension_is_capped() {
         let mut manager = TtlManager::new(5);
         let now = Utc::now();
-        manager.track(TtlRecord {
-            adapter_id: "a".into(),
-            tenant_id: "tenant".into(),
-            expires_at: now + Duration::hours(10),
-            ttl_hours: 24,
-            last_extension: None,
-        });
+        manager
+            .track(TtlRecord {
+                adapter_id: "a".into(),
+                tenant_id: "tenant".into(),
+                expires_at: now + Duration::hours(10),
+                ttl_hours: 24,
+                last_extension: None,
+            })
+            .expect("track should succeed for future expiry");
         manager.extend_ttl("a", 200);
         let record = manager.records.get("a").unwrap();
         let after = Utc::now();
@@ -137,5 +150,20 @@ mod tests {
         );
         assert!(record.expires_at <= after + Duration::hours(72) + Duration::seconds(2));
         assert!(record.last_extension.is_some());
+    }
+
+    #[test]
+    fn track_rejects_past_ttl() {
+        let mut manager = TtlManager::new(5);
+        let past = Utc::now() - Duration::hours(1);
+        let result = manager.track(TtlRecord {
+            adapter_id: "expired".into(),
+            tenant_id: "tenant".into(),
+            expires_at: past,
+            ttl_hours: 24,
+            last_extension: None,
+        });
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Adapter pin TTL is in the past");
     }
 }

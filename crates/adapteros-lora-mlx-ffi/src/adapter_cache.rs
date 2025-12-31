@@ -74,11 +74,35 @@ impl MLXAdapterCache {
     }
 
     /// Try to get cached adapter weights (cache hit)
+    ///
+    /// Returns None if the adapter is not cached or if the TTL has expired.
+    /// TTL is a sliding window - checked against last access time before updating.
     pub fn get_cached(&self, adapter_id: u16) -> Option<Arc<Vec<u8>>> {
         let mut cache = self.cache.write();
         let mut lru = self.lru_order.write();
+        let mut total = self.total_cached_bytes.write();
+        let mut stats = self.stats.write();
 
         if let Some(entry) = cache.get_mut(&adapter_id) {
+            // Check TTL before updating last_accessed (sliding window)
+            if entry.last_accessed.elapsed() > self.config.adapter_ttl {
+                // Entry expired - evict it
+                let evicted_size = entry.size_bytes;
+                cache.remove(&adapter_id);
+                lru.retain(|&id| id != adapter_id);
+                *total = total.saturating_sub(evicted_size);
+                stats.evictions += 1;
+                stats.cache_misses += 1;
+
+                tracing::debug!(
+                    adapter_id,
+                    ttl_secs = self.config.adapter_ttl.as_secs(),
+                    "Adapter cache entry expired (TTL exceeded)"
+                );
+                return None;
+            }
+
+            // Entry is valid - update access time and stats
             entry.last_accessed = Instant::now();
             entry.access_count += 1;
 
@@ -88,14 +112,12 @@ impl MLXAdapterCache {
             }
             lru.push_back(adapter_id);
 
-            let mut stats = self.stats.write();
             stats.cache_hits += 1;
 
             tracing::debug!(adapter_id, hits = stats.cache_hits, "Adapter cache hit");
             return Some(Arc::clone(&entry.weights));
         }
 
-        let mut stats = self.stats.write();
         stats.cache_misses += 1;
         tracing::debug!(
             adapter_id,

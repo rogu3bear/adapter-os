@@ -6,6 +6,7 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
+adapteros-api-types = { path = "../adapteros-api-types" }
 adapteros-core = { path = "../adapteros-core" }
 adapteros-types = { path = "../adapteros-types" }
 adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }

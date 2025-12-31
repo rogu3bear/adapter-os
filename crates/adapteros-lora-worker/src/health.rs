@@ -3,10 +3,11 @@
 //! Implements health checks and process monitoring to prevent runaway processes.
 //! Aligns with Isolation Ruleset #8 and Memory Ruleset #12 from policy enforcement.
 
+use crate::resource_monitor::{ResourceMonitor, ResourceThresholds};
 use adapteros_core::{identity::IdentityEnvelope, AosError, Result};
 use adapteros_telemetry::{make_health_payload, HealthEventKind, TelemetryWriter};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::time::interval;
 use tracing::{error, info, warn};
@@ -69,6 +70,8 @@ pub struct HealthMonitor {
     tenant_id: String,
     worker_id: String,
     last_status: Mutex<Option<String>>,
+    /// Resource monitor for CPU, memory, FD, thread pool, and GPU exhaustion
+    resource_monitor: Option<Arc<ResourceMonitor>>,
 }
 
 impl HealthMonitor {
@@ -88,7 +91,31 @@ impl HealthMonitor {
             tenant_id: "system".to_string(),
             worker_id: "unknown".to_string(),
             last_status: Mutex::new(None),
+            resource_monitor: None,
         })
+    }
+
+    /// Attach a resource monitor for comprehensive resource exhaustion checking
+    pub fn with_resource_monitor(mut self, monitor: Arc<ResourceMonitor>) -> Self {
+        self.resource_monitor = Some(monitor);
+        self
+    }
+
+    /// Create and attach a resource monitor with custom thresholds
+    pub fn with_resource_thresholds(mut self, thresholds: ResourceThresholds) -> Result<Self> {
+        let monitor = ResourceMonitor::new(thresholds)?;
+        self.resource_monitor = Some(Arc::new(monitor));
+        Ok(self)
+    }
+
+    /// Create and attach a resource monitor with default thresholds
+    pub fn with_default_resource_monitor(self) -> Result<Self> {
+        self.with_resource_thresholds(ResourceThresholds::default())
+    }
+
+    /// Get a reference to the resource monitor if configured
+    pub fn resource_monitor(&self) -> Option<&Arc<ResourceMonitor>> {
+        self.resource_monitor.as_ref()
     }
 
     /// Attach telemetry context for health lifecycle emissions.
@@ -219,6 +246,44 @@ impl HealthMonitor {
     }
 
     async fn check_health(&self) -> Result<ProcessHealthStatus> {
+        // Check resource exhaustion if monitor is configured
+        if let Some(resource_monitor) = &self.resource_monitor {
+            if let Err(e) = resource_monitor.check_resources().await {
+                // Map resource errors to appropriate health status
+                return match &e {
+                    AosError::CpuThrottled { .. } => {
+                        Err(e) // Critical - needs backoff
+                    }
+                    AosError::OutOfMemory {
+                        restart_imminent, ..
+                    } => {
+                        if *restart_imminent {
+                            Err(e) // Critical - imminent restart
+                        } else {
+                            Ok(ProcessHealthStatus::Warning(e.to_string()))
+                        }
+                    }
+                    AosError::FileDescriptorExhausted { .. } => {
+                        Err(e) // Critical - cannot open new connections
+                    }
+                    AosError::ThreadPoolSaturated { .. } => {
+                        Ok(ProcessHealthStatus::Warning(e.to_string()))
+                    }
+                    AosError::GpuUnavailable {
+                        cpu_fallback_available,
+                        ..
+                    } => {
+                        if *cpu_fallback_available {
+                            Ok(ProcessHealthStatus::Warning(e.to_string()))
+                        } else {
+                            Err(e) // Critical - no fallback
+                        }
+                    }
+                    _ => Err(e), // Other errors are critical
+                };
+            }
+        }
+
         // Check memory growth
         let current_memory = get_process_memory()?;
         let memory_growth = current_memory.saturating_sub(self.baseline_memory);

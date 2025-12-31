@@ -53,7 +53,6 @@ use crate::device_placement::{
 use crate::memory::MemoryPressureLevel;
 use crate::request_pinner::RequestPinner;
 use crate::router_bridge::decision_to_router_ring_with_active_ids_and_strengths;
-use crate::routing_policy_filter::filter_decision_by_policy;
 use adapteros_api_types::inference::{
     FusionIntervalTrace, RouterDecisionChainEntry, RouterDecisionHash, RouterModelType, RunReceipt,
 };
@@ -64,7 +63,8 @@ use adapteros_config::{
 use adapteros_core::{
     determinism::{DeterminismContext, DeterminismSource},
     determinism_violation_event, emit_observability_event, AosError, B3Hash, BackendKind,
-    DeterminismViolationKind, FusionInterval, RepoAdapterPaths, Result, SeedMode,
+    CircuitBreaker as CircuitBreakerTrait, CircuitBreakerConfig, DeterminismViolationKind,
+    FusionInterval, RepoAdapterPaths, Result, SeedMode, StandardCircuitBreaker,
 };
 use adapteros_db::{Db, SqlTraceSink, TraceFinalization, TraceSink, TraceStart, TraceTokenInput};
 use adapteros_lora_kernel_api::{
@@ -143,8 +143,8 @@ pub mod patch_validator;
 pub mod prefix_kv_cache;
 pub mod reasoning_router;
 pub mod request_pinner;
+pub mod resource_monitor;
 pub mod router_bridge;
-pub mod routing_policy_filter;
 pub mod services;
 pub mod signal;
 pub mod stop_controller;
@@ -270,10 +270,12 @@ pub use adapter_hotswap::{
     AdapterCacheIdentity, AdapterCommand, AdapterCommandResult, AdapterTable, GpuFingerprint,
     HotSwapManager, HotSwapManagerNoKernel, Stack, StackCheckpoint,
 };
+// Re-export CircuitState for downstream consumers
 pub use adapteros_core::CircuitState;
 pub use adapteros_lora_rag::DocIndexImpl;
 pub use adapteros_lora_rag::SymbolIndexImpl;
 pub use adapteros_lora_rag::TestIndexImpl;
+pub use adapteros_lora_router::filter_decision_by_policy;
 pub use anomaly_detection::{
     AnomalyDetectionConfig, AnomalyDetector, AnomalyScore, DetectionAlgorithm,
 };
@@ -330,7 +332,7 @@ pub use telemetry_lora::{
     TelemetryTask,
 };
 pub use test_executor::{TestExecutor, TestFailure, TestFramework, TestResult};
-pub use timeout::{CircuitBreaker, TimeoutConfig, TimeoutWrapper};
+pub use timeout::{TimeoutConfig, TimeoutWrapper};
 pub use training::{
     AdapterManifest, AdapterPackager, DatasetGenerator, LoRAQuantizer, LoRAWeights,
     MicroLoRATrainer, PackagedAdapter, QuantizedLoRAWeights, TrainingBackend, TrainingConfig,
@@ -1407,7 +1409,7 @@ pub struct Worker<K: FusedKernels + StrictnessControl + Send + Sync + 'static> {
     // Safety mechanisms
     _timeout_config: TimeoutConfig,
     _timeout_wrapper: TimeoutWrapper,
-    circuit_breaker: CircuitBreaker,
+    circuit_breaker: StandardCircuitBreaker,
     pub(crate) resource_limiter: Arc<ResourceLimiter>,
     _deadlock_detector: DeadlockDetector,
     health_monitor: Arc<HealthMonitor>,
@@ -1474,7 +1476,14 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         // Initialize safety mechanisms
         let timeout_config = TimeoutConfig::default();
         let timeout_wrapper = TimeoutWrapper::new(timeout_config.clone());
-        let circuit_breaker = CircuitBreaker::new(5, std::time::Duration::from_secs(60));
+        let circuit_breaker = StandardCircuitBreaker::new(
+            "worker".to_string(),
+            CircuitBreakerConfig {
+                failure_threshold: 5,
+                timeout_ms: 60000,
+                ..Default::default()
+            },
+        );
         let resource_limiter = Arc::new(ResourceLimiter::new(ResourceLimits::from_env()));
         let deadlock_detector = DeadlockDetector::new(DeadlockConfig::default());
         let health_monitor = Arc::new(HealthMonitor::new(HealthConfig::default())?.with_telemetry(
@@ -2023,7 +2032,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 duration_ms: duration.as_millis() as u64,
                 success: result.is_ok(),
                 timeout_occurred: matches!(result, Err(AosError::Worker(ref msg)) if msg.contains("timeout")),
-                circuit_breaker_open: self.circuit_breaker.is_open(),
+                circuit_breaker_open: matches!(CircuitBreakerTrait::state(&self.circuit_breaker), CircuitState::Open { .. }),
                 memory_usage: self.health_monitor.get_memory_usage().unwrap_or(0),
             }).ok();
         }

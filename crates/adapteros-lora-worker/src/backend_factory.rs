@@ -43,7 +43,7 @@ use model_config::{build_model_cache_identity, load_and_validate_model_config};
 #[cfg(test)]
 use adapteros_core::{backend::BackendKind, ExecutionProfile};
 #[cfg(test)]
-use model_io::parse_safetensors_index;
+use model_io::{compute_model_directory_hash, parse_safetensors_index, verify_model_integrity};
 
 #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
 use adapteros_config::CoreMLComputePreference;
