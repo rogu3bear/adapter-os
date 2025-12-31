@@ -1,5 +1,6 @@
 use crate::Db;
 use adapteros_core::{AosError, Result};
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use uuid::Uuid;
@@ -45,6 +46,24 @@ impl Db {
     ) -> Result<String> {
         // Look up adapter PK by (tenant_id, adapter_id) tuple
         let adapter_pk = self.get_adapter_pk(tenant_id, adapter_id).await?;
+
+        // === ISSUE 3: Validate pin TTL is not in the past ===
+        if let Some(until_str) = pinned_until {
+            let expires_at = DateTime::parse_from_rfc3339(until_str)
+                .map_err(|e| {
+                    AosError::validation(format!(
+                        "Invalid pinned_until timestamp format: {}. Expected RFC3339 (e.g., 2099-12-31T23:59:59Z)",
+                        e
+                    ))
+                })?
+                .with_timezone(&Utc);
+
+            if expires_at <= Utc::now() {
+                return Err(AosError::validation(
+                    "Adapter pin TTL is in the past".to_string(),
+                ));
+            }
+        }
 
         let id = Uuid::now_v7().to_string();
         sqlx::query(

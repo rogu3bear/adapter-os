@@ -65,6 +65,7 @@ pub mod chat_sessions_kv;
 pub mod collections_kv;
 pub mod coreml_fusion_pairs;
 pub mod documents_kv;
+pub mod error_classification;
 pub mod evidence_envelopes;
 pub mod factory;
 pub mod kv_backend;
@@ -77,6 +78,7 @@ pub mod rag;
 pub mod reembedding;
 pub mod replay_kv;
 pub mod repository_training_policies;
+pub mod retry;
 pub mod sqlite_backend;
 pub mod storage_issues;
 pub mod storage_reconciliation;
@@ -90,6 +92,9 @@ pub mod traits;
 
 // Lifecycle rules module
 pub mod lifecycle_rules;
+
+// Migration validation utilities
+pub mod migration_validation;
 
 // Re-export commonly used types
 pub use adapter_repositories::{

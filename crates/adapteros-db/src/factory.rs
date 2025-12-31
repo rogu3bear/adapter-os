@@ -2,7 +2,11 @@
 //!
 //! Provides initialization logic for the dual-write migration system, allowing
 //! gradual transition from SQL-only to KV-primary storage.
+//!
+//! Supports both SQLite and PostgreSQL backends with automatic detection
+//! based on the connection URL format.
 
+use crate::error_classification::{sqlx_to_storage_error, DatabaseBackend};
 use crate::{Db, KvDb, StorageMode};
 use adapteros_core::{AosError, Result};
 use sqlx::sqlite::SqlitePoolOptions;
@@ -33,10 +37,42 @@ pub enum StorageBackend {
     KvOnly,
 }
 
+/// Database type for connection URL detection
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DatabaseType {
+    /// SQLite embedded database
+    Sqlite,
+    /// PostgreSQL client-server database
+    Postgres,
+}
+
 /// Database factory for creating Db instances
 pub struct DbFactory;
 
 impl DbFactory {
+    /// Detect database type from connection URL
+    ///
+    /// # Arguments
+    /// * `database_url` - Connection URL or path
+    ///
+    /// # Returns
+    /// The detected database type
+    pub fn detect_database_type(database_url: &str) -> DatabaseType {
+        if database_url.starts_with("postgres://") || database_url.starts_with("postgresql://") {
+            DatabaseType::Postgres
+        } else {
+            DatabaseType::Sqlite
+        }
+    }
+
+    /// Get the DatabaseBackend enum for error classification
+    pub fn get_database_backend(database_url: &str) -> DatabaseBackend {
+        match Self::detect_database_type(database_url) {
+            DatabaseType::Sqlite => DatabaseBackend::Sqlite,
+            DatabaseType::Postgres => DatabaseBackend::Postgres,
+        }
+    }
+
     /// Create a Db instance based on configuration
     ///
     /// # Arguments
@@ -116,7 +152,11 @@ impl DbFactory {
             .max_connections(pool_size)
             .connect_with(options)
             .await
-            .map_err(|e| AosError::Database(format!("Failed to connect to database: {}", e)))?;
+            .map_err(|e| {
+                let storage_err =
+                    sqlx_to_storage_error(e, DatabaseBackend::Sqlite, "connect to SQLite database");
+                AosError::Database(storage_err.to_string())
+            })?;
 
         // Estimate and warn about potential cache memory usage
         let estimated_cache_memory = pool_size as usize * CACHE_MEMORY_WARNING_THRESHOLD;
@@ -135,6 +175,51 @@ impl DbFactory {
             pool_size = pool_size,
             statement_cache_capacity = STATEMENT_CACHE_CAPACITY,
             "SQL connection pool initialized"
+        );
+
+        Ok(pool)
+    }
+
+    /// Create PostgreSQL connection pool
+    ///
+    /// This method is available when the `postgres` feature is enabled.
+    /// It creates a connection pool suitable for PostgreSQL databases.
+    ///
+    /// # Arguments
+    /// * `database_url` - PostgreSQL connection URL (e.g., "postgres://user:pass@host/db")
+    /// * `pool_size` - Maximum number of connections in the pool
+    ///
+    /// # Returns
+    /// A configured PostgreSQL connection pool
+    #[cfg(feature = "postgres")]
+    pub async fn create_postgres_pool(database_url: &str, pool_size: u32) -> Result<sqlx::PgPool> {
+        use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+        use std::str::FromStr;
+
+        let options = PgConnectOptions::from_str(database_url)
+            .map_err(|e| AosError::Config(format!("Invalid PostgreSQL URL: {}", e)))?
+            .statement_cache_capacity(100);
+
+        let pool = PgPoolOptions::new()
+            .max_connections(pool_size)
+            .min_connections(1)
+            .acquire_timeout(Duration::from_secs(30))
+            .idle_timeout(Duration::from_secs(600))
+            .connect_with(options)
+            .await
+            .map_err(|e| {
+                let storage_err = sqlx_to_storage_error(
+                    e,
+                    DatabaseBackend::Postgres,
+                    "connect to PostgreSQL database",
+                );
+                AosError::Database(storage_err.to_string())
+            })?;
+
+        info!(
+            database_url = %database_url,
+            pool_size = pool_size,
+            "PostgreSQL connection pool initialized"
         );
 
         Ok(pool)
