@@ -42,7 +42,7 @@ unicode-normalization = "0.1"
 
 # Random number generation (for deterministic executor)
 rand = { workspace = true }
-rand_chacha = "0.3"
+rand_chacha = "0.9"
 
 # HKDF for seed derivation
 hkdf = { workspace = true }

@@ -20,7 +20,7 @@ toml = { workspace = true }
 smallvec = { workspace = true }
 rand = { workspace = true }
 rand_core = { workspace = true }
-rand_chacha = "0.3"
+rand_chacha = "0.9"
 tracing = { workspace = true }
 
 [dev-dependencies]

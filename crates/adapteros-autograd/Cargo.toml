@@ -17,7 +17,7 @@ serde_json.workspace = true
 # Math and computation
 ndarray = "0.15"
 rand.workspace = true
-rand_chacha = "0.3"
+rand_chacha = "0.9"
 
 # Utilities
 tracing.workspace = true

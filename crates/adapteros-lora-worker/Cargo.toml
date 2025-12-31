@@ -92,7 +92,7 @@ half = "2.3"
 crossbeam = { workspace = true }
 parking_lot = { workspace = true }
 rand = { workspace = true }
-rand_chacha = "0.3"
+rand_chacha = "0.9"
 zeroize = { version = "1.7", features = ["derive"] }
 bytemuck = "1.14"
 tracing = { workspace = true }

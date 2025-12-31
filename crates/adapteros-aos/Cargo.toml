@@ -50,7 +50,7 @@ memmap2 = { version = "0.9", optional = true }
 metal = { workspace = true, optional = true }
 safetensors = { workspace = true, optional = true }
 rand = { workspace = true, optional = true }
-rand_chacha = "0.3"
+rand_chacha = "0.9"
 hex = { workspace = true }
 
 [dev-dependencies]
