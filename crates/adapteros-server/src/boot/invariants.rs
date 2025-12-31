@@ -305,6 +305,16 @@ pub fn validate_boot_invariants(
         } else {
             report.record_pass();
         }
+
+        // Log effective cookie configuration for debugging session issues
+        let cookie_domain = cfg.security.cookie_domain.as_deref().unwrap_or("<not set>");
+        info!(
+            same_site = %cfg.security.cookie_same_site,
+            secure = cookie_secure,
+            domain = cookie_domain,
+            clock_skew_seconds = cfg.security.clock_skew_seconds,
+            "Cookie configuration"
+        );
     }
 
     // =========================================================================

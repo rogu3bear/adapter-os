@@ -27,6 +27,8 @@ use tokio::sync::{broadcast, Mutex};
 use crate::caching::DashboardCache;
 use crate::config::PathsConfig;
 use crate::handlers::chunked_upload::UploadSessionManager;
+use crate::idempotency::IdempotencyStore;
+use crate::sse::SseEventManager;
 use crate::telemetry::{MetricsRegistry, TelemetryBuffer, TelemetrySender, TraceBuffer};
 use adapteros_registry::Registry;
 
@@ -337,6 +339,12 @@ pub struct SecurityConfigApi {
     pub cookie_domain: Option<String>,
     #[serde(default)]
     pub cookie_secure: Option<bool>,
+    #[serde(default = "default_clock_skew_seconds")]
+    pub clock_skew_seconds: u64,
+}
+
+fn default_clock_skew_seconds() -> u64 {
+    300 // 5 minutes default
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -763,6 +771,10 @@ pub struct AppState {
     pub kv_isolation_lock: Arc<tokio::sync::Mutex<()>>,
     // Background task spawn tracking
     pub background_tasks: Arc<BackgroundTaskTracker>,
+    // SSE event manager for reliable streaming with replay support
+    pub sse_manager: Arc<SseEventManager>,
+    // Idempotency store for safe request retries
+    pub idempotency_store: Arc<IdempotencyStore>,
 }
 
 impl AppState {
@@ -935,6 +947,8 @@ impl AppState {
             kv_isolation_snapshot: Arc::new(RwLock::new(KvIsolationSnapshot::default())),
             kv_isolation_lock: Arc::new(tokio::sync::Mutex::new(())),
             background_tasks: Arc::new(BackgroundTaskTracker::default()),
+            sse_manager: Arc::new(SseEventManager::new()),
+            idempotency_store: Arc::new(IdempotencyStore::new()),
         }
     }
 
@@ -1118,6 +1132,23 @@ impl AppState {
     pub fn with_background_task_tracker(mut self, tracker: Arc<BackgroundTaskTracker>) -> Self {
         self.background_tasks = tracker;
         self
+    }
+
+    /// Set custom SSE event manager for reliable streaming with replay support
+    pub fn with_sse_manager(mut self, manager: Arc<SseEventManager>) -> Self {
+        self.sse_manager = manager;
+        self
+    }
+
+    /// Set custom idempotency store for request deduplication
+    pub fn with_idempotency_store(mut self, store: Arc<IdempotencyStore>) -> Self {
+        self.idempotency_store = store;
+        self
+    }
+
+    /// Get a reference to the idempotency store
+    pub fn idempotency_store(&self) -> Arc<IdempotencyStore> {
+        Arc::clone(&self.idempotency_store)
     }
 
     pub fn background_task_tracker(&self) -> Arc<BackgroundTaskTracker> {

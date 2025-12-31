@@ -175,6 +175,8 @@ async fn test_session_stack_fallback_disabled() {
         tags_json: None,
         pinned_adapter_ids: None,
         codebase_adapter_id: None,
+        archived_at: None,
+        status: None,
     };
     let core = InferenceCore::new(&state);
     let mut req = InferenceRequestInternal::new("tenant-1".to_string(), "hi".to_string());
@@ -213,6 +215,8 @@ async fn test_session_stack_fallback_enabled() {
         tags_json: None,
         pinned_adapter_ids: None,
         codebase_adapter_id: None,
+        archived_at: None,
+        status: None,
     };
     let core = InferenceCore::new(&state);
     let mut req = InferenceRequestInternal::new("tenant-1".to_string(), "hi".to_string());

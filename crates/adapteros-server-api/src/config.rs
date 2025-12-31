@@ -32,6 +32,9 @@ pub struct Config {
     /// Boot invariant check configuration (escape hatch for incidents)
     #[serde(default)]
     pub invariants: InvariantsConfig,
+    /// SSE streaming configuration for reliable event delivery
+    #[serde(default)]
+    pub sse: SseConfig,
 }
 
 fn default_self_hosting_mode() -> String {
@@ -194,6 +197,50 @@ impl Default for OtelConfig {
     }
 }
 
+/// SSE streaming configuration for reliable event delivery
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SseConfig {
+    /// Default buffer capacity for SSE ring buffers (default: 1000)
+    ///
+    /// This controls how many events are stored per stream type for
+    /// client reconnection replay. Higher values allow longer disconnection
+    /// windows but use more memory.
+    #[serde(default = "default_sse_buffer_capacity")]
+    pub buffer_capacity: usize,
+
+    /// Default retry hint in milliseconds (default: 3000)
+    ///
+    /// This is sent to clients as the `retry` field in SSE events,
+    /// suggesting how long to wait before reconnecting.
+    #[serde(default = "default_sse_retry_ms")]
+    pub retry_ms: u32,
+
+    /// Per-stream-type buffer capacity overrides
+    ///
+    /// Keys are stream type names (e.g., "inference", "telemetry")
+    /// Values are buffer capacities for that specific stream.
+    #[serde(default)]
+    pub stream_capacities: std::collections::HashMap<String, usize>,
+}
+
+fn default_sse_buffer_capacity() -> usize {
+    1000
+}
+
+fn default_sse_retry_ms() -> u32 {
+    3000
+}
+
+impl Default for SseConfig {
+    fn default() -> Self {
+        Self {
+            buffer_capacity: default_sse_buffer_capacity(),
+            retry_ms: default_sse_retry_ms(),
+            stream_capacities: std::collections::HashMap::new(),
+        }
+    }
+}
+
 impl Config {
     pub fn load(path: &str) -> Result<Self> {
         let contents = fs::read_to_string(path)?;
@@ -202,30 +249,90 @@ impl Config {
     }
 
     /// Validate required secret material is present and non-trivial.
+    ///
+    /// Checks for:
+    /// - Empty or whitespace-only secrets
+    /// - Placeholder values like "changeme", "secret", "password", etc.
+    /// - Minimum length requirements in production mode
+    ///
+    /// # Errors
+    ///
+    /// Returns an error listing all validation failures if any secrets are invalid.
     pub fn validate_secrets(&self) -> Result<()> {
+        let production_mode = self.server.production_mode;
         let mut errors = Vec::new();
 
-        let jwt_secret = self.security.jwt_secret.trim();
-        if jwt_secret.is_empty() {
-            errors.push("security.jwt_secret is required but missing".to_string());
-        } else {
-            let weak_markers = ["secret", "changeme", "password", "insecure"];
-            if weak_markers
-                .iter()
-                .any(|w| jwt_secret.eq_ignore_ascii_case(w))
-            {
-                errors.push("security.jwt_secret uses a placeholder value".to_string());
-            }
-            if self.server.production_mode && jwt_secret.len() < 32 {
-                errors.push(format!(
-                    "security.jwt_secret must be at least 32 characters in production mode (got {})",
-                    jwt_secret.len()
-                ));
+        // Placeholder values that indicate unset secrets
+        let placeholders = [
+            "secret", "changeme", "password", "insecure", "REPLACE", "TODO", "xxx", "yyy", "zzz",
+        ];
+
+        // Helper to validate a secret value
+        let check_secret =
+            |name: &str, value: &str, required: bool, min_len: Option<usize>| -> Option<String> {
+                let trimmed = value.trim();
+
+                // Scenario 5: Blank or whitespace secret
+                if trimmed.is_empty() {
+                    if required {
+                        return Some(format!("{} is required but blank", name));
+                    }
+                    return None;
+                }
+
+                // Check for placeholder values
+                if placeholders.iter().any(|p| trimmed.eq_ignore_ascii_case(p)) {
+                    return Some(format!("{} uses placeholder value '{}'", name, trimmed));
+                }
+
+                // Check minimum length (typically for production mode)
+                if let Some(min) = min_len {
+                    if trimmed.len() < min {
+                        return Some(format!(
+                            "{} must be at least {} characters (got {})",
+                            name,
+                            min,
+                            trimmed.len()
+                        ));
+                    }
+                }
+
+                None
+            };
+
+        // JWT secret (always required)
+        if let Some(e) = check_secret(
+            "security.jwt_secret",
+            &self.security.jwt_secret,
+            true,
+            if production_mode { Some(32) } else { None },
+        ) {
+            errors.push(e);
+        }
+
+        // Metrics bearer token (required when metrics enabled)
+        if self.metrics.enabled {
+            if let Some(e) = check_secret(
+                "metrics.bearer_token",
+                &self.metrics.bearer_token,
+                true,
+                None,
+            ) {
+                errors.push(e);
             }
         }
 
-        if self.metrics.enabled && self.metrics.bearer_token.trim().is_empty() {
-            errors.push("metrics.bearer_token must be set when metrics are enabled".to_string());
+        // Signing key (required in production for artifact signing)
+        if production_mode {
+            let signing_key = std::env::var("AOS_SIGNING_KEY").unwrap_or_default();
+            if let Some(e) = check_secret(
+                "AOS_SIGNING_KEY",
+                &signing_key,
+                true,
+                Some(64), // Ed25519 key should be 64 hex chars
+            ) {
+                errors.push(e);
+            }
         }
 
         if errors.is_empty() {
@@ -296,5 +403,103 @@ rotate_size_mb = 5
             cfg.security.jwt_additional_hmac_secrets.as_deref().unwrap(),
             ["hmac-1", "hmac-2"]
         );
+    }
+
+    fn make_test_config(
+        jwt_secret: &str,
+        production_mode: bool,
+        metrics_enabled: bool,
+        metrics_token: &str,
+    ) -> Config {
+        let contents = format!(
+            r#"
+[server]
+port = 8080
+production_mode = {}
+
+[db]
+path = "var/aos-cp.sqlite3"
+
+[security]
+jwt_secret = "{}"
+
+[paths]
+artifacts_root = "var/artifacts"
+bundles_root = "var/bundles"
+
+[rate_limits]
+requests_per_minute = 100
+burst_size = 50
+inference_per_minute = 100
+
+[metrics]
+enabled = {}
+bearer_token = "{}"
+include_histogram = false
+histogram_buckets = [0.1, 0.5, 1.0]
+
+[alerting]
+enabled = false
+alert_dir = "var/alerts"
+max_alerts_per_file = 10
+rotate_size_mb = 5
+            "#,
+            production_mode, jwt_secret, metrics_enabled, metrics_token
+        );
+        toml::from_str(&contents).expect("config parses")
+    }
+
+    #[test]
+    fn test_validate_secrets_blank_jwt_fails() {
+        let cfg = make_test_config("   ", false, false, "");
+        let result = cfg.validate_secrets();
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("jwt_secret") && err_msg.contains("blank"));
+    }
+
+    #[test]
+    fn test_validate_secrets_placeholder_fails() {
+        let cfg = make_test_config("changeme", false, false, "");
+        let result = cfg.validate_secrets();
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("placeholder"));
+    }
+
+    #[test]
+    fn test_validate_secrets_production_min_length() {
+        // In production mode, JWT secret must be at least 32 characters
+        let cfg = make_test_config("short_secret", true, false, "");
+        let result = cfg.validate_secrets();
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("at least 32 characters"));
+    }
+
+    #[test]
+    fn test_validate_secrets_metrics_token_required() {
+        let cfg = make_test_config(
+            "valid_secret_that_is_long_enough_for_testing",
+            false,
+            true,
+            "   ",
+        );
+        let result = cfg.validate_secrets();
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("metrics.bearer_token"));
+    }
+
+    #[test]
+    fn test_validate_secrets_valid_config_passes() {
+        let cfg = make_test_config(
+            "valid_secret_that_is_long_enough_for_testing",
+            false,
+            true,
+            "valid_token",
+        );
+        let result = cfg.validate_secrets();
+        assert!(result.is_ok());
     }
 }

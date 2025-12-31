@@ -28,6 +28,47 @@ use tracing::{error, info, warn};
 /// Maximum adapter file size (500 MB)
 const MAX_ADAPTER_SIZE: u64 = 500 * 1024 * 1024;
 
+/// Known manifest fields - reject import if unknown fields are present
+/// This list must be explicitly maintained to catch schema drift
+const KNOWN_MANIFEST_FIELDS: &[&str] = &[
+    // Core identity
+    "adapter_id",
+    "name",
+    "version",
+    "schema_version",
+    // Classification
+    "scope",
+    "category",
+    "tier",
+    // Technical
+    "rank",
+    "alpha",
+    "targets",
+    "backend_family",
+    "base_model",
+    // Hashes
+    "weights_hash",
+    "content_hash",
+    "manifest_hash",
+    // Metadata container (nested fields allowed)
+    "metadata",
+    "description",
+    "intent",
+    // Source tracking
+    "framework",
+    "framework_version",
+    "repo_id",
+    "commit_sha",
+    // Security
+    "signature",
+    "signed_by",
+    // Optional extension fields (allowed but not required)
+    "tags",
+    "labels",
+    "annotations",
+    "custom",
+];
+
 // ============================================================================
 // Handlers
 // ============================================================================
@@ -351,6 +392,35 @@ pub async fn import_adapter(
         )
     })?;
 
+    // === ISSUE 4: Reject if unknown fields are present in manifest ===
+    if let Some(obj) = manifest.as_object() {
+        let unknown_fields: Vec<&str> = obj
+            .keys()
+            .filter(|k| !KNOWN_MANIFEST_FIELDS.contains(&k.as_str()))
+            .map(|k| k.as_str())
+            .collect();
+
+        if !unknown_fields.is_empty() {
+            let _ = tokio::fs::remove_file(&temp_path).await;
+            warn!(
+                tenant_id = %claims.tenant_id,
+                actor = %claims.sub,
+                unknown_fields = ?unknown_fields,
+                "Rejected import: unknown manifest fields"
+            );
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new(format!(
+                        "Adapter import contains unknown required fields: [{}]",
+                        unknown_fields.join(", ")
+                    ))
+                    .with_code("UNKNOWN_MANIFEST_FIELDS"),
+                ),
+            ));
+        }
+    }
+
     let metadata_obj = manifest.get("metadata").and_then(|m| m.as_object());
     let scope_path = match metadata_obj
         .and_then(|m| m.get("scope_path"))
@@ -603,7 +673,24 @@ pub async fn import_adapter(
         .map(|r| r as i32)
         .unwrap_or(16);
 
-    // Validate user-provided version if present (must be semver-like)
+    // === ISSUE 1: Reject if version string is missing from metadata ===
+    if manifest.get("version").and_then(|v| v.as_str()).is_none() {
+        let _ = tokio::fs::remove_file(&temp_path).await;
+        warn!(
+            tenant_id = %claims.tenant_id,
+            actor = %claims.sub,
+            "Rejected import: missing version string in metadata"
+        );
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("Adapter version string is missing from metadata")
+                    .with_code("MISSING_VERSION"),
+            ),
+        ));
+    }
+
+    // Validate user-provided version (must be semver-like)
     if let Some(user_version) = manifest.get("version").and_then(|v| v.as_str()) {
         if user_version.is_empty() {
             let _ = tokio::fs::remove_file(&temp_path).await;
@@ -637,11 +724,12 @@ pub async fn import_adapter(
             ));
         }
     }
+    // Version is guaranteed to exist after ISSUE 1 validation above
     let version = manifest
         .get("version")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
-        .unwrap_or_else(|| "1.0.0".to_string());
+        .expect("version already validated as present");
     let uploaded_file_name = filename.clone().unwrap_or_else(|| _name.clone());
 
     emit_adapter_progress(

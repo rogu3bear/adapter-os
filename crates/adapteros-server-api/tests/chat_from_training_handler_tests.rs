@@ -366,6 +366,7 @@ async fn test_create_chat_from_job_with_provenance_fields() {
         metadata_json: None,
         tags_json: None,
         pinned_adapter_ids: None,
+        codebase_adapter_id: None,
     };
 
     match db.create_chat_session(params).await {
@@ -696,6 +697,7 @@ async fn test_full_provenance_chain_job_to_chat() {
         metadata_json: None,
         tags_json: None,
         pinned_adapter_ids: None,
+        codebase_adapter_id: None,
     };
 
     if let Err(e) = db.create_chat_session(params).await {

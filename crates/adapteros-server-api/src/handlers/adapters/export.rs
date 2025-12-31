@@ -18,6 +18,8 @@ use axum::{
     response::Json,
     Extension,
 };
+use blake3;
+use serde_json;
 use tokio_util::io::ReaderStream;
 use tracing::{error, info, warn};
 
@@ -110,6 +112,57 @@ pub async fn export_adapter(
     // Validate tenant isolation
     validate_tenant_isolation(&claims, &adapter.tenant_id)?;
 
+    // === ISSUE 5: Validate required SBOM fields are present before export ===
+    let mut missing_artifacts: Vec<&str> = Vec::new();
+
+    // name field - adapter must have a name
+    if adapter.name.is_empty() {
+        missing_artifacts.push("name");
+    }
+
+    // version field - adapter must have a version (String type, not Option)
+    if adapter.version.is_empty() {
+        missing_artifacts.push("version");
+    }
+
+    // checksum field - adapter must have hash_b3 or aos_file_hash
+    // hash_b3 is String, aos_file_hash is Option<String>
+    if adapter.hash_b3.is_empty() && adapter.aos_file_hash.as_ref().is_none_or(|h| h.is_empty()) {
+        missing_artifacts.push("checksum");
+    }
+
+    // dependencies field - check if metadata_json contains dependencies array
+    let has_dependencies = adapter
+        .metadata_json
+        .as_ref()
+        .and_then(|json_str| serde_json::from_str::<serde_json::Value>(json_str).ok())
+        .and_then(|v| v.get("dependencies").cloned())
+        .and_then(|deps| deps.as_array().cloned())
+        .is_some_and(|arr| !arr.is_empty());
+
+    if !has_dependencies {
+        missing_artifacts.push("dependencies");
+    }
+
+    if !missing_artifacts.is_empty() {
+        warn!(
+            tenant_id = %claims.tenant_id,
+            adapter_id = %adapter_id,
+            missing = ?missing_artifacts,
+            "Export rejected: missing required SBOM artifacts"
+        );
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new(format!(
+                    "Adapter export omits required artifacts: [{}]",
+                    missing_artifacts.join(", ")
+                ))
+                .with_code("MISSING_ARTIFACTS"),
+            ),
+        ));
+    }
+
     // Check if adapter is archived/purged
     if adapter.purged_at.is_some() {
         return Err((
@@ -149,6 +202,55 @@ pub async fn export_adapter(
                     .with_code("FILE_NOT_FOUND"),
             ),
         ));
+    }
+
+    // === ISSUE 2: Re-compute BLAKE3 hash and verify against stored aos_file_hash ===
+    if let Some(stored_hash) = &adapter.aos_file_hash {
+        let file_data = tokio::fs::read(path).await.map_err(|e| {
+            error!(
+                tenant_id = %claims.tenant_id,
+                adapter_id = %adapter_id,
+                error = %e,
+                "Failed to read .aos file for checksum verification"
+            );
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to verify adapter file integrity")
+                        .with_code("IO_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+        let computed_hash = blake3::hash(&file_data).to_hex().to_string();
+
+        if &computed_hash != stored_hash {
+            error!(
+                tenant_id = %claims.tenant_id,
+                adapter_id = %adapter_id,
+                stored_hash = %stored_hash,
+                computed_hash = %computed_hash,
+                "Archive checksum mismatch - file may be corrupted or tampered"
+            );
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Adapter archive checksum does not match")
+                        .with_code("CHECKSUM_MISMATCH")
+                        .with_string_details(format!(
+                            "Stored hash {} does not match computed hash {}",
+                            stored_hash, computed_hash
+                        )),
+                ),
+            ));
+        }
+
+        info!(
+            adapter_id = %adapter_id,
+            hash = %computed_hash,
+            "Archive checksum verified successfully"
+        );
     }
 
     // Open the file for streaming

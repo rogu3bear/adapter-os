@@ -9,6 +9,7 @@
 //! Note: These tests verify the control plane logic without requiring a live worker.
 //! Full end-to-end tests with actual inference are in the e2e test suite.
 
+use adapteros_db::adapters::AdapterRegistrationBuilder;
 use adapteros_db::chat_sessions::CreateChatSessionParams;
 use adapteros_db::Db;
 use adapteros_server_api::inference_core::parse_pinned_adapter_ids;
@@ -54,6 +55,7 @@ async fn create_test_session(
         metadata_json: None,
         tags_json: None,
         pinned_adapter_ids: pinned_adapter_ids.map(|ids| serde_json::to_string(&ids).unwrap()),
+        codebase_adapter_id: None,
     })
     .await
     .expect("Failed to create test session");
@@ -496,6 +498,7 @@ async fn test_tenant_default_pinned_adapters_inheritance() {
         metadata_json: None,
         tags_json: None,
         pinned_adapter_ids: None, // Not provided - should inherit
+        codebase_adapter_id: None,
     })
     .await
     .unwrap();
@@ -540,6 +543,7 @@ async fn test_session_explicit_pinned_overrides_tenant_default() {
         metadata_json: None,
         tags_json: None,
         pinned_adapter_ids: Some(serde_json::to_string(&explicit_adapters).unwrap()),
+        codebase_adapter_id: None,
     })
     .await
     .unwrap();
@@ -744,5 +748,160 @@ fn test_inference_event_done_skips_none_fields() {
     assert!(
         !json.contains("pinned_routing_fallback"),
         "Should not contain pinned_routing_fallback when None"
+    );
+}
+
+// =============================================================================
+// Pin TTL Validation Tests (ISSUE 3)
+// =============================================================================
+
+#[tokio::test]
+async fn test_pin_adapter_rejects_past_ttl() {
+    let db = create_test_db().await;
+    let tenant_id = create_test_tenant(&db, "test-tenant").await;
+
+    // Register an adapter first
+    let params = AdapterRegistrationBuilder::new()
+        .tenant_id(&tenant_id)
+        .adapter_id("test-adapter")
+        .name("test-adapter")
+        .hash_b3("b3:somehash")
+        .rank(16)
+        .tier("ephemeral")
+        .category("general")
+        .build()
+        .expect("adapter params");
+    db.register_adapter(params)
+        .await
+        .expect("Failed to register adapter");
+
+    // Try to pin with a TTL in the past
+    let past_ttl = "2020-01-01T00:00:00Z";
+    let result = db
+        .pin_adapter(
+            &tenant_id,
+            "test-adapter",
+            Some(past_ttl),
+            "test reason",
+            Some("test-user"),
+        )
+        .await;
+
+    assert!(result.is_err(), "Pin with past TTL should fail");
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("TTL is in the past"),
+        "Error message should mention TTL in past: {}",
+        err_msg
+    );
+}
+
+#[tokio::test]
+async fn test_pin_adapter_accepts_future_ttl() {
+    let db = create_test_db().await;
+    let tenant_id = create_test_tenant(&db, "test-tenant").await;
+
+    // Register an adapter first
+    let params = AdapterRegistrationBuilder::new()
+        .tenant_id(&tenant_id)
+        .adapter_id("test-adapter")
+        .name("test-adapter")
+        .hash_b3("b3:somehash")
+        .rank(16)
+        .tier("ephemeral")
+        .category("general")
+        .build()
+        .expect("adapter params");
+    db.register_adapter(params)
+        .await
+        .expect("Failed to register adapter");
+
+    // Pin with a TTL in the future
+    let future_ttl = "2099-12-31T23:59:59Z";
+    let result = db
+        .pin_adapter(
+            &tenant_id,
+            "test-adapter",
+            Some(future_ttl),
+            "test reason",
+            Some("test-user"),
+        )
+        .await;
+
+    assert!(result.is_ok(), "Pin with future TTL should succeed");
+}
+
+#[tokio::test]
+async fn test_pin_adapter_accepts_no_ttl() {
+    let db = create_test_db().await;
+    let tenant_id = create_test_tenant(&db, "test-tenant").await;
+
+    // Register an adapter first
+    let params = AdapterRegistrationBuilder::new()
+        .tenant_id(&tenant_id)
+        .adapter_id("test-adapter")
+        .name("test-adapter")
+        .hash_b3("b3:somehash")
+        .rank(16)
+        .tier("ephemeral")
+        .category("general")
+        .build()
+        .expect("adapter params");
+    db.register_adapter(params)
+        .await
+        .expect("Failed to register adapter");
+
+    // Pin without TTL (indefinite pin)
+    let result = db
+        .pin_adapter(
+            &tenant_id,
+            "test-adapter",
+            None,
+            "test reason",
+            Some("test-user"),
+        )
+        .await;
+
+    assert!(result.is_ok(), "Pin without TTL should succeed");
+}
+
+#[tokio::test]
+async fn test_pin_adapter_rejects_invalid_ttl_format() {
+    let db = create_test_db().await;
+    let tenant_id = create_test_tenant(&db, "test-tenant").await;
+
+    // Register an adapter first
+    let params = AdapterRegistrationBuilder::new()
+        .tenant_id(&tenant_id)
+        .adapter_id("test-adapter")
+        .name("test-adapter")
+        .hash_b3("b3:somehash")
+        .rank(16)
+        .tier("ephemeral")
+        .category("general")
+        .build()
+        .expect("adapter params");
+    db.register_adapter(params)
+        .await
+        .expect("Failed to register adapter");
+
+    // Try to pin with invalid TTL format
+    let invalid_ttl = "not-a-valid-timestamp";
+    let result = db
+        .pin_adapter(
+            &tenant_id,
+            "test-adapter",
+            Some(invalid_ttl),
+            "test reason",
+            Some("test-user"),
+        )
+        .await;
+
+    assert!(result.is_err(), "Pin with invalid TTL format should fail");
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("Invalid pinned_until"),
+        "Error message should mention invalid format: {}",
+        err_msg
     );
 }

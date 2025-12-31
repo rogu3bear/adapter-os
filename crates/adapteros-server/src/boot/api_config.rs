@@ -74,6 +74,7 @@ pub fn build_api_config(server_config: Arc<RwLock<Config>>) -> Result<Arc<RwLock
             cookie_same_site: Some(cfg.security.cookie_same_site.clone()),
             cookie_domain: cfg.security.cookie_domain.clone(),
             cookie_secure: cfg.security.cookie_secure,
+            clock_skew_seconds: cfg.security.clock_skew_seconds,
         },
         auth: adapteros_server_api::state::AuthConfigApi {
             dev_algo: cfg.auth.dev_algo.clone(),

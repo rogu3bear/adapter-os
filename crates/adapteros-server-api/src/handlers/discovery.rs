@@ -1,19 +1,21 @@
 use crate::auth::Claims;
+use crate::sse::{SseEventManager, SseStreamType};
 use crate::state::AppState;
 use crate::types::*;
 use adapteros_db::sqlx;
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::sse::{Event, KeepAlive, Sse},
     Extension, Json,
 };
 use futures_util::stream::{self, Stream};
+use futures_util::StreamExt as FuturesStreamExt;
 use serde::Deserialize;
 use std::convert::Infallible;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio_stream::wrappers::BroadcastStream;
-use tokio_stream::StreamExt as TokioStreamExt;
 
 /// Stream query parameters (for training and contacts streams)
 #[derive(Debug, Deserialize)]
@@ -56,85 +58,125 @@ pub async fn discovery_stream(
     State(state): State<AppState>,
     Extension(_claims): Extension<Claims>,
     Query(params): Query<DiscoveryStreamQuery>,
+    headers: HeaderMap,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let sse_manager = state.sse_manager.clone();
     let tenant_id = params.tenant.clone();
     let repo_filter = params.repo.clone();
+
+    // Parse Last-Event-ID for replay
+    let last_event_id = SseEventManager::parse_last_event_id(&headers);
+
+    // Get replay events if reconnecting
+    let replay_events = if let Some(last_id) = last_event_id {
+        sse_manager
+            .get_replay_events(SseStreamType::Discovery, last_id)
+            .await
+    } else {
+        Vec::new()
+    };
+
+    // Create replay stream
+    let replay_stream = stream::iter(
+        replay_events
+            .into_iter()
+            .map(|e| Ok(SseEventManager::to_axum_event(&e))),
+    );
 
     // Subscribe to the discovery signal broadcast channel
     let rx = state.discovery_signal_tx.subscribe();
 
     // Convert the broadcast receiver into a stream that filters by tenant and repo
-    let signal_stream = BroadcastStream::new(rx).filter_map(move |result| {
+    let mgr_for_signals = Arc::new(state.sse_manager.clone());
+    let signal_stream = FuturesStreamExt::filter_map(BroadcastStream::new(rx), move |result| {
         let tenant_filter = tenant_id.clone();
         let repo_filter_clone = repo_filter.clone();
-        match result {
-            Ok(signal) => {
-                // Filter signals by tenant_id if present in payload
-                let signal_tenant = signal
-                    .payload
-                    .get("tenant_id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+        let mgr = Arc::clone(&mgr_for_signals);
+        async move {
+            match result {
+                Ok(signal) => {
+                    // Filter signals by tenant_id if present in payload
+                    let signal_tenant = signal
+                        .payload
+                        .get("tenant_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
 
-                // Filter by repo_id if specified
-                let signal_repo = signal
-                    .payload
-                    .get("repo_id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+                    // Filter by repo_id if specified
+                    let signal_repo = signal
+                        .payload
+                        .get("repo_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
 
-                let tenant_matches = signal_tenant.is_empty() || signal_tenant == tenant_filter;
-                let repo_matches = repo_filter_clone
-                    .as_ref()
-                    .map(|r| signal_repo.is_empty() || signal_repo == r)
-                    .unwrap_or(true);
+                    let tenant_matches = signal_tenant.is_empty() || signal_tenant == tenant_filter;
+                    let repo_matches = repo_filter_clone
+                        .as_ref()
+                        .map(|r| signal_repo.is_empty() || signal_repo == r)
+                        .unwrap_or(true);
 
-                if tenant_matches && repo_matches {
-                    let event_data = serde_json::json!({
-                        "type": signal.signal_type.to_string(),
-                        "timestamp": signal.timestamp,
-                        "priority": format!("{:?}", signal.priority),
-                        "payload": signal.payload,
-                        "trace_id": signal.trace_id,
-                    });
+                    if tenant_matches && repo_matches {
+                        let event_data = serde_json::json!({
+                            "type": signal.signal_type.to_string(),
+                            "timestamp": signal.timestamp,
+                            "priority": format!("{:?}", signal.priority),
+                            "payload": signal.payload,
+                            "trace_id": signal.trace_id,
+                        });
 
-                    Some(Ok(Event::default()
-                        .event("discovery")
-                        .data(event_data.to_string())))
-                } else {
+                        let event = mgr
+                            .create_event(
+                                SseStreamType::Discovery,
+                                "discovery",
+                                event_data.to_string(),
+                            )
+                            .await;
+
+                        Some(Ok(SseEventManager::to_axum_event(&event)))
+                    } else {
+                        None
+                    }
+                }
+                Err(e) => {
+                    tracing::debug!("Discovery broadcast stream error (likely lag): {}", e);
                     None
                 }
-            }
-            Err(e) => {
-                tracing::debug!("Discovery broadcast stream error (likely lag): {}", e);
-                None
             }
         }
     });
 
     // Include a periodic heartbeat to keep connection alive
-    let heartbeat_stream = stream::unfold(0u64, |counter| async move {
-        tokio::time::sleep(Duration::from_secs(30)).await;
-        let event_data = serde_json::json!({
-            "type": "heartbeat",
-            "timestamp": std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("System time before UNIX epoch")
-                .as_millis(),
-            "sequence": counter,
-        });
-        Some((
-            Ok(Event::default()
-                .event("discovery")
-                .data(event_data.to_string())),
-            counter + 1,
-        ))
+    let mgr_for_heartbeat = state.sse_manager.clone();
+    let heartbeat_stream = stream::unfold(0u64, move |counter| {
+        let mgr = mgr_for_heartbeat.clone();
+        async move {
+            tokio::time::sleep(Duration::from_secs(30)).await;
+            let event_data = serde_json::json!({
+                "type": "heartbeat",
+                "timestamp": std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("System time before UNIX epoch")
+                    .as_millis(),
+                "sequence": counter,
+            });
+
+            let event = mgr
+                .create_event(
+                    SseStreamType::Discovery,
+                    "discovery",
+                    event_data.to_string(),
+                )
+                .await;
+
+            Some((Ok(SseEventManager::to_axum_event(&event)), counter + 1))
+        }
     });
 
     // Merge the signal stream with heartbeat stream
     let merged_stream = futures_util::stream::select(signal_stream, heartbeat_stream);
 
-    Sse::new(merged_stream).keep_alive(KeepAlive::default())
+    // Chain replay with merged stream
+    Sse::new(FuturesStreamExt::chain(replay_stream, merged_stream)).keep_alive(KeepAlive::default())
 }
 
 /// Contacts stream SSE endpoint
@@ -158,71 +200,107 @@ pub async fn contacts_stream(
     State(state): State<AppState>,
     Extension(_claims): Extension<Claims>,
     Query(params): Query<StreamQuery>,
+    headers: HeaderMap,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let sse_manager = state.sse_manager.clone();
     let tenant_id = params.tenant.clone();
+
+    // Parse Last-Event-ID for replay
+    let last_event_id = SseEventManager::parse_last_event_id(&headers);
+
+    // Get replay events if reconnecting
+    let replay_events = if let Some(last_id) = last_event_id {
+        sse_manager
+            .get_replay_events(SseStreamType::Activity, last_id)
+            .await
+    } else {
+        Vec::new()
+    };
+
+    // Create replay stream
+    let replay_stream = stream::iter(
+        replay_events
+            .into_iter()
+            .map(|e| Ok(SseEventManager::to_axum_event(&e))),
+    );
 
     // Subscribe to the contact signal broadcast channel
     let rx = state.contact_signal_tx.subscribe();
 
     // Convert the broadcast receiver into a stream that filters by tenant
-    let signal_stream = BroadcastStream::new(rx).filter_map(move |result| {
+    let mgr_for_signals = Arc::new(state.sse_manager.clone());
+    let signal_stream = FuturesStreamExt::filter_map(BroadcastStream::new(rx), move |result| {
         let tenant_filter = tenant_id.clone();
-        match result {
-            Ok(signal) => {
-                // Filter signals by tenant_id if present in payload
-                let signal_tenant = signal
-                    .payload
-                    .get("tenant_id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+        let mgr = Arc::clone(&mgr_for_signals);
+        async move {
+            match result {
+                Ok(signal) => {
+                    // Filter signals by tenant_id if present in payload
+                    let signal_tenant = signal
+                        .payload
+                        .get("tenant_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
 
-                // Pass through if tenant matches or if no tenant filter in signal
-                if signal_tenant.is_empty() || signal_tenant == tenant_filter {
-                    let event_data = serde_json::json!({
-                        "type": signal.signal_type.to_string(),
-                        "timestamp": signal.timestamp,
-                        "priority": format!("{:?}", signal.priority),
-                        "payload": signal.payload,
-                        "trace_id": signal.trace_id,
-                    });
+                    // Pass through if tenant matches or if no tenant filter in signal
+                    if signal_tenant.is_empty() || signal_tenant == tenant_filter {
+                        let event_data = serde_json::json!({
+                            "type": signal.signal_type.to_string(),
+                            "timestamp": signal.timestamp,
+                            "priority": format!("{:?}", signal.priority),
+                            "payload": signal.payload,
+                            "trace_id": signal.trace_id,
+                        });
 
-                    Some(Ok(Event::default()
-                        .event("contact")
-                        .data(event_data.to_string())))
-                } else {
+                        let event = mgr
+                            .create_event(
+                                SseStreamType::Activity,
+                                "contact",
+                                event_data.to_string(),
+                            )
+                            .await;
+
+                        Some(Ok(SseEventManager::to_axum_event(&event)))
+                    } else {
+                        None
+                    }
+                }
+                Err(e) => {
+                    tracing::debug!("Contact broadcast stream error (likely lag): {}", e);
                     None
                 }
-            }
-            Err(e) => {
-                tracing::debug!("Contact broadcast stream error (likely lag): {}", e);
-                None
             }
         }
     });
 
     // Include a periodic heartbeat to keep connection alive
-    let heartbeat_stream = stream::unfold(0u64, |counter| async move {
-        tokio::time::sleep(Duration::from_secs(30)).await;
-        let event_data = serde_json::json!({
-            "type": "heartbeat",
-            "timestamp": std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("System time before UNIX epoch")
-                .as_millis(),
-            "sequence": counter,
-        });
-        Some((
-            Ok(Event::default()
-                .event("contact")
-                .data(event_data.to_string())),
-            counter + 1,
-        ))
+    let mgr_for_heartbeat = state.sse_manager.clone();
+    let heartbeat_stream = stream::unfold(0u64, move |counter| {
+        let mgr = mgr_for_heartbeat.clone();
+        async move {
+            tokio::time::sleep(Duration::from_secs(30)).await;
+            let event_data = serde_json::json!({
+                "type": "heartbeat",
+                "timestamp": std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("System time before UNIX epoch")
+                    .as_millis(),
+                "sequence": counter,
+            });
+
+            let event = mgr
+                .create_event(SseStreamType::Activity, "contact", event_data.to_string())
+                .await;
+
+            Some((Ok(SseEventManager::to_axum_event(&event)), counter + 1))
+        }
     });
 
     // Merge the signal stream with heartbeat stream
     let merged_stream = futures_util::stream::select(signal_stream, heartbeat_stream);
 
-    Sse::new(merged_stream).keep_alive(KeepAlive::default())
+    // Chain replay with merged stream
+    Sse::new(FuturesStreamExt::chain(replay_stream, merged_stream)).keep_alive(KeepAlive::default())
 }
 
 // ============================================================================

@@ -12,7 +12,7 @@
 use axum::{
     body::Body,
     extract::State,
-    http::{header, HeaderValue, Method, Request, StatusCode},
+    http::{header, HeaderName, HeaderValue, Method, Request, StatusCode},
     middleware::Next,
     response::Response,
     Json,
@@ -45,9 +45,10 @@ pub async fn security_headers_middleware(req: Request<axum::body::Body>, next: N
     let headers = response.headers_mut();
 
     // Content Security Policy - restrict resource loading
+    // Note: 'unsafe-inline' and 'unsafe-eval' required for React runtime
     headers.insert(
         "Content-Security-Policy",
-        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; media-src 'none'; object-src 'none'; child-src 'none'; worker-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self';"
+        "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; media-src 'none'; object-src 'none'; child-src 'none'; worker-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self';"
             .parse().expect("valid CSP header value"),
     );
 
@@ -436,7 +437,12 @@ pub fn cors_layer() -> CorsLayer {
             Method::PATCH,
             Method::OPTIONS,
         ])
-        .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE, header::ACCEPT])
+        .allow_headers([
+            header::AUTHORIZATION,
+            header::CONTENT_TYPE,
+            header::ACCEPT,
+            HeaderName::from_static("x-csrf-token"),
+        ])
         .allow_credentials(true)
         .max_age(std::time::Duration::from_secs(86400))
 }
@@ -453,7 +459,7 @@ mod tests {
     };
     use tower::ServiceExt;
 
-    const CSP_HEADER_VALUE: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; media-src 'none'; object-src 'none'; child-src 'none'; worker-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self';";
+    const CSP_HEADER_VALUE: &str = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; media-src 'none'; object-src 'none'; child-src 'none'; worker-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self';";
     const PERMISSIONS_POLICY_HEADER_VALUE: &str = "camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), accelerometer=(), gyroscope=(), ambient-light-sensor=(), autoplay=(), encrypted-media=(), fullscreen=(self), picture-in-picture=()";
 
     fn build_security_app() -> Router {
