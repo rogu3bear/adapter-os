@@ -50,6 +50,7 @@ pub mod hash;
 pub mod id;
 pub mod identity;
 pub mod index_snapshot;
+pub mod io_utils;
 pub mod json;
 pub mod lifecycle;
 pub mod naming;
@@ -134,6 +135,11 @@ pub use fusion_interval::FusionInterval;
 pub use guard_common::{GuardConfig, GuardLogLevel};
 pub use hash::B3Hash;
 pub use id::CPID;
+pub use io_utils::{
+    check_disk_space, classify_and_convert_io_error, classify_io_error, ensure_temp_dir,
+    get_available_space, validate_path_characters, IoErrorKind, TempFileGuard,
+    DEFAULT_DISK_SPACE_MARGIN,
+};
 pub use lifecycle::{
     validate_deterministic_transition, LifecycleError, LifecycleState, LifecycleTransition,
     SemanticVersion, TransitionReason,

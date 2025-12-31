@@ -26,6 +26,22 @@ pub enum AosAuthError {
     /// Invalid token format or signature
     #[error("Invalid token: {0}")]
     InvalidToken(String),
+
+    /// Auth token is missing from the request
+    #[error("Auth token is missing from the request")]
+    TokenMissing,
+
+    /// Auth token signature is invalid
+    #[error("Auth token signature is invalid")]
+    TokenSignatureInvalid,
+
+    /// Session storage entry is corrupted
+    #[error("Session storage entry is corrupted: {0}")]
+    SessionCorrupted(String),
+
+    /// Tenant selection header is absent when required
+    #[error("Tenant selection header is absent when required")]
+    TenantHeaderMissing,
 }
 
 impl AosAuthError {
@@ -37,11 +53,30 @@ impl AosAuthError {
                 | Self::TokenExpired(_)
                 | Self::TokenRevoked(_)
                 | Self::InvalidToken(_)
+                | Self::TokenMissing
+                | Self::TokenSignatureInvalid
+                | Self::SessionCorrupted(_)
+                | Self::TenantHeaderMissing
         )
     }
 
     /// Check if this is an authorization (403) error
     pub fn is_authorization(&self) -> bool {
         matches!(self, Self::Authorization(_))
+    }
+
+    /// Get the error code for this error type
+    pub fn error_code(&self) -> &'static str {
+        match self {
+            Self::Authentication(_) => "UNAUTHORIZED",
+            Self::Authorization(_) => "FORBIDDEN",
+            Self::TokenExpired(_) => "TOKEN_EXPIRED",
+            Self::TokenRevoked(_) => "TOKEN_REVOKED",
+            Self::InvalidToken(_) => "INVALID_TOKEN",
+            Self::TokenMissing => "TOKEN_MISSING",
+            Self::TokenSignatureInvalid => "TOKEN_SIGNATURE_INVALID",
+            Self::SessionCorrupted(_) => "SESSION_CORRUPTED",
+            Self::TenantHeaderMissing => "TENANT_HEADER_MISSING",
+        }
     }
 }
