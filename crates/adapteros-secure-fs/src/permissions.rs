@@ -1,10 +1,25 @@
 //! Secure file permissions
 //!
 //! Implements secure file and directory permissions for AdapterOS.
+//!
+//! ## Permission Recovery
+//!
+//! This module provides functions that automatically attempt to fix permissions
+//! before failing. When a permission denied error occurs, the functions will:
+//!
+//! 1. Attempt to chmod the file/directory to the configured permissions
+//! 2. Retry the original operation once
+//! 3. Only fail if the retry also fails
+//!
+//! This is useful for recovering from permission issues caused by:
+//! - Files created by other processes with restrictive permissions
+//! - Permission drift over time
+//! - Manual permission changes by administrators
 
 use adapteros_core::{AosError, Result};
+use std::fs::File;
 use std::path::Path;
-use tracing::debug;
+use tracing::{debug, error, info, warn};
 
 /// Permission configuration
 #[derive(Debug, Clone)]
@@ -190,6 +205,232 @@ pub fn check_and_fix_permissions_recursive(
     }
 
     Ok(())
+}
+
+/// Attempt to open a file, auto-fixing permissions on EACCES
+///
+/// On permission denied:
+/// 1. Try to chmod the file to 0o600 (owner read/write)
+/// 2. Retry the open operation once
+/// 3. Only fail if retry also fails
+///
+/// # Example
+///
+/// ```rust
+/// use adapteros_secure_fs::permissions::{try_open_with_permission_fix, PermissionConfig};
+/// use std::path::Path;
+///
+/// let config = PermissionConfig::default();
+/// let file = try_open_with_permission_fix(Path::new("/path/to/file"), &config)?;
+/// ```
+pub fn try_open_with_permission_fix(
+    path: impl AsRef<Path>,
+    config: &PermissionConfig,
+) -> Result<File> {
+    let path = path.as_ref();
+
+    match File::open(path) {
+        Ok(f) => {
+            debug!(path = %path.display(), "File opened successfully");
+            Ok(f)
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+            info!(
+                path = %path.display(),
+                "Permission denied, attempting chmod fix"
+            );
+
+            // Attempt to fix permissions (chmod to configured default)
+            if let Err(chmod_err) = set_secure_file_permissions(path, config) {
+                warn!(
+                    path = %path.display(),
+                    error = %chmod_err,
+                    "Failed to fix file permissions, will try open anyway"
+                );
+            } else {
+                debug!(
+                    path = %path.display(),
+                    mode = format!("{:o}", config.default_file_permissions),
+                    "Fixed file permissions"
+                );
+            }
+
+            // Retry open after chmod attempt
+            File::open(path).map_err(|retry_err| {
+                error!(
+                    path = %path.display(),
+                    original_error = %e,
+                    retry_error = %retry_err,
+                    "Permission denied after chmod retry"
+                );
+                AosError::PermissionDenied {
+                    path: path.display().to_string(),
+                    operation: "open".to_string(),
+                    reason: format!("Permission denied (chmod attempted): {}", retry_err),
+                }
+            })
+        }
+        Err(e) => Err(AosError::Io(format!(
+            "Failed to open file {}: {}",
+            path.display(),
+            e
+        ))),
+    }
+}
+
+/// Attempt to create a file, auto-fixing parent directory permissions on EACCES
+///
+/// On permission denied:
+/// 1. Try to chmod the parent directory to 0o700 (owner read/write/execute)
+/// 2. Retry the create operation once
+/// 3. Only fail if retry also fails
+///
+/// # Example
+///
+/// ```rust
+/// use adapteros_secure_fs::permissions::{try_create_with_permission_fix, PermissionConfig};
+/// use std::path::Path;
+///
+/// let config = PermissionConfig::default();
+/// let file = try_create_with_permission_fix(Path::new("/path/to/file"), &config)?;
+/// ```
+pub fn try_create_with_permission_fix(
+    path: impl AsRef<Path>,
+    config: &PermissionConfig,
+) -> Result<File> {
+    let path = path.as_ref();
+
+    match File::create(path) {
+        Ok(f) => {
+            debug!(path = %path.display(), "File created successfully");
+            // Set secure permissions on the newly created file
+            if let Err(e) = set_secure_file_permissions(path, config) {
+                warn!(
+                    path = %path.display(),
+                    error = %e,
+                    "Failed to set permissions on new file"
+                );
+            }
+            Ok(f)
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+            info!(
+                path = %path.display(),
+                "Permission denied for file creation, attempting to fix parent directory"
+            );
+
+            // Try to fix parent directory permissions
+            if let Some(parent) = path.parent() {
+                if let Err(chmod_err) = set_secure_dir_permissions(parent, config) {
+                    warn!(
+                        path = %parent.display(),
+                        error = %chmod_err,
+                        "Failed to fix parent directory permissions"
+                    );
+                } else {
+                    debug!(
+                        path = %parent.display(),
+                        mode = format!("{:o}", config.default_dir_permissions),
+                        "Fixed parent directory permissions"
+                    );
+                }
+            }
+
+            // Retry create after chmod attempt
+            match File::create(path) {
+                Ok(f) => {
+                    // Set secure permissions on the newly created file
+                    if let Err(perm_err) = set_secure_file_permissions(path, config) {
+                        warn!(
+                            path = %path.display(),
+                            error = %perm_err,
+                            "Failed to set permissions on new file after retry"
+                        );
+                    }
+                    Ok(f)
+                }
+                Err(retry_err) => {
+                    error!(
+                        path = %path.display(),
+                        original_error = %e,
+                        retry_error = %retry_err,
+                        "Permission denied after chmod retry"
+                    );
+                    Err(AosError::PermissionDenied {
+                        path: path.display().to_string(),
+                        operation: "create".to_string(),
+                        reason: format!("Permission denied (chmod attempted): {}", retry_err),
+                    })
+                }
+            }
+        }
+        Err(e) => Err(AosError::Io(format!(
+            "Failed to create file {}: {}",
+            path.display(),
+            e
+        ))),
+    }
+}
+
+/// Attempt to read a directory, auto-fixing permissions on EACCES
+///
+/// On permission denied:
+/// 1. Try to chmod the directory to 0o700 (owner read/write/execute)
+/// 2. Retry the read_dir operation once
+/// 3. Only fail if retry also fails
+pub fn try_read_dir_with_permission_fix(
+    path: impl AsRef<Path>,
+    config: &PermissionConfig,
+) -> Result<std::fs::ReadDir> {
+    let path = path.as_ref();
+
+    match std::fs::read_dir(path) {
+        Ok(entries) => {
+            debug!(path = %path.display(), "Directory read successfully");
+            Ok(entries)
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+            info!(
+                path = %path.display(),
+                "Permission denied, attempting chmod fix for directory"
+            );
+
+            // Attempt to fix directory permissions
+            if let Err(chmod_err) = set_secure_dir_permissions(path, config) {
+                warn!(
+                    path = %path.display(),
+                    error = %chmod_err,
+                    "Failed to fix directory permissions"
+                );
+            } else {
+                debug!(
+                    path = %path.display(),
+                    mode = format!("{:o}", config.default_dir_permissions),
+                    "Fixed directory permissions"
+                );
+            }
+
+            // Retry read_dir after chmod attempt
+            std::fs::read_dir(path).map_err(|retry_err| {
+                error!(
+                    path = %path.display(),
+                    original_error = %e,
+                    retry_error = %retry_err,
+                    "Permission denied after chmod retry"
+                );
+                AosError::PermissionDenied {
+                    path: path.display().to_string(),
+                    operation: "read_dir".to_string(),
+                    reason: format!("Permission denied (chmod attempted): {}", retry_err),
+                }
+            })
+        }
+        Err(e) => Err(AosError::Io(format!(
+            "Failed to read directory {}: {}",
+            path.display(),
+            e
+        ))),
+    }
 }
 
 #[cfg(test)]

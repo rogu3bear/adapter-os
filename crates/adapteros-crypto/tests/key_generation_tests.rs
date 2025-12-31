@@ -7,6 +7,7 @@
 //! - Provider-specific behaviors
 //! - Error handling
 
+use adapteros_config::test_support::TestEnvGuard;
 use adapteros_crypto::{KeyAlgorithm, KeyManager, KeyManagerConfig, KeyProviderMode};
 use tempfile::TempDir;
 
@@ -369,6 +370,8 @@ async fn test_production_mode_allows_file_with_flag() {
 
 #[tokio::test]
 async fn test_env_key_takes_precedence() {
+    let _guard = TestEnvGuard::new();
+
     let temp_dir = new_test_tempdir();
     let key_file = temp_dir.path().join("test_keys.json");
 
@@ -388,9 +391,7 @@ async fn test_env_key_takes_precedence() {
 
     // Environment variable should take precedence (mode will be File but backed by env)
     assert_eq!(manager.mode(), &KeyProviderMode::File);
-
-    // Clean up
-    std::env::remove_var("AOS_SIGNING_KEY");
+    // Guard automatically restores env vars on drop
 }
 
 #[tokio::test]

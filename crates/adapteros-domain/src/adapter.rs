@@ -85,8 +85,11 @@ impl TensorData {
 }
 
 /// Metadata about a domain adapter
+///
+/// Named `DomainAdapterMetadata` to distinguish from `AdapterMetadata` in
+/// `adapteros-types` which is for LoRA adapters.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AdapterMetadata {
+pub struct DomainAdapterMetadata {
     /// Unique name of the adapter
     pub name: String,
     /// Version of the adapter
@@ -119,7 +122,7 @@ pub trait DomainAdapter: Send + Sync {
     fn name(&self) -> &str;
 
     /// Get adapter metadata
-    fn metadata(&self) -> &AdapterMetadata;
+    fn metadata(&self) -> &DomainAdapterMetadata;
 
     /// Prepare adapter for execution
     ///

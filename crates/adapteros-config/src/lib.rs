@@ -45,8 +45,10 @@ pub mod schema;
 pub mod session;
 pub mod types;
 
-#[cfg(test)]
-mod test_support;
+/// Test support utilities for environment variable isolation.
+/// Available when running tests or when `testkit` feature is enabled.
+#[cfg(any(test, feature = "testkit"))]
+pub mod test_support;
 
 pub use coreml::CoreMLComputePreference;
 pub use effective::{

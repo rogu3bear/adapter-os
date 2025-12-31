@@ -2,16 +2,34 @@
 
 use crate::config::WatcherConfig;
 use crate::types::{ChangeType, FileChangeEvent};
-use adapteros_core::{AosError, Result};
+use adapteros_core::{validate_path_characters, AosError, Result};
 use adapteros_deterministic_exec::spawn_deterministic;
 use crossbeam_channel::{bounded, Sender};
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
+
+/// Threshold for triggering automatic rescan: number of dropped events
+const RESCAN_DROP_THRESHOLD: u64 = 100;
+
+/// Time window in seconds for counting dropped events
+const RESCAN_WINDOW_SECS: u64 = 60;
+
+/// Metrics for the file watcher
+///
+/// These can be exposed via Prometheus or other monitoring systems.
+#[derive(Debug, Clone, Copy)]
+pub struct WatcherMetrics {
+    /// Number of events dropped due to channel overflow in current window
+    pub dropped_events: u64,
+    /// Whether a rescan is currently pending
+    pub rescan_pending: bool,
+}
 
 /// Git file watcher that monitors repositories for changes
 pub struct GitWatcher {
@@ -21,6 +39,12 @@ pub struct GitWatcher {
     watched_repos: Arc<RwLock<HashMap<String, PathBuf>>>,
     event_sender: Sender<FileChangeEvent>,
     running: Arc<RwLock<bool>>,
+    /// Counter for dropped events in the current window
+    dropped_events: Arc<AtomicU64>,
+    /// Start time of the current drop counting window
+    dropped_window_start: Arc<RwLock<Instant>>,
+    /// Flag indicating a rescan should be triggered
+    rescan_pending: Arc<AtomicBool>,
 }
 
 impl GitWatcher {
@@ -37,7 +61,42 @@ impl GitWatcher {
             watched_repos: Arc::new(RwLock::new(HashMap::new())),
             event_sender,
             running: Arc::new(RwLock::new(false)),
+            dropped_events: Arc::new(AtomicU64::new(0)),
+            dropped_window_start: Arc::new(RwLock::new(Instant::now())),
+            rescan_pending: Arc::new(AtomicBool::new(false)),
         })
+    }
+
+    /// Get the count of dropped events in the current window
+    pub fn dropped_event_count(&self) -> u64 {
+        self.dropped_events.load(Ordering::Relaxed)
+    }
+
+    /// Check if a rescan is pending
+    pub fn is_rescan_pending(&self) -> bool {
+        self.rescan_pending.load(Ordering::Relaxed)
+    }
+
+    /// Get watcher metrics for monitoring
+    ///
+    /// Returns a struct with current metrics that can be exposed via
+    /// Prometheus or other monitoring systems.
+    pub fn metrics(&self) -> WatcherMetrics {
+        WatcherMetrics {
+            dropped_events: self.dropped_events.load(Ordering::Relaxed),
+            rescan_pending: self.rescan_pending.load(Ordering::Relaxed),
+        }
+    }
+
+    /// Log current watcher metrics (for observability)
+    pub fn log_metrics(&self) {
+        let metrics = self.metrics();
+        info!(
+            component = "git_file_watcher",
+            dropped_events = metrics.dropped_events,
+            rescan_pending = metrics.rescan_pending,
+            "File watcher metrics"
+        );
     }
 
     /// Start watching repositories
@@ -58,15 +117,54 @@ impl GitWatcher {
         let watched_repos = self.watched_repos.clone();
         let event_sender = self.event_sender.clone();
 
-        // Create the watcher
+        // Clone drop tracking state for the watcher callback
+        let dropped_events = self.dropped_events.clone();
+        let dropped_window_start = self.dropped_window_start.clone();
+        let rescan_pending = self.rescan_pending.clone();
+
+        // Create the watcher with drop counting on channel overflow
         let mut watcher = RecommendedWatcher::new(
             move |res: notify::Result<Event>| {
-                if let Err(e) = tx.send(res) {
-                    error!(
-                        component = "git_file_watcher",
-                        error = %e,
-                        "Failed to send file system event"
-                    );
+                match tx.try_send(res) {
+                    Ok(_) => {}
+                    Err(crossbeam_channel::TrySendError::Full(_)) => {
+                        let count = dropped_events.fetch_add(1, Ordering::Relaxed) + 1;
+
+                        // Check if we've exceeded threshold in the current window
+                        // Note: Using blocking_read is safe here as this is a sync callback
+                        // and the lock is held briefly
+                        if let Ok(guard) = dropped_window_start.try_read() {
+                            if guard.elapsed().as_secs() > RESCAN_WINDOW_SECS {
+                                // Reset window on next opportunity
+                                drop(guard);
+                                if let Ok(mut write_guard) = dropped_window_start.try_write() {
+                                    *write_guard = Instant::now();
+                                    dropped_events.store(1, Ordering::Relaxed);
+                                }
+                            } else if count >= RESCAN_DROP_THRESHOLD {
+                                // Trigger rescan: 100+ drops in 1 minute
+                                rescan_pending.store(true, Ordering::Release);
+                                warn!(
+                                    dropped_count = count,
+                                    "Threshold exceeded ({} drops in {}s), triggering rescan",
+                                    RESCAN_DROP_THRESHOLD,
+                                    RESCAN_WINDOW_SECS
+                                );
+                            }
+                        }
+
+                        warn!(
+                            component = "git_file_watcher",
+                            dropped_count = count,
+                            "File watcher event dropped: channel full"
+                        );
+                    }
+                    Err(crossbeam_channel::TrySendError::Disconnected(_)) => {
+                        error!(
+                            component = "git_file_watcher",
+                            "File watcher channel disconnected"
+                        );
+                    }
                 }
             },
             notify::Config::default().with_poll_interval(Duration::from_millis(config.debounce_ms)),
@@ -103,6 +201,32 @@ impl GitWatcher {
         let _ = spawn_deterministic("Git file watcher".to_string(), async move {
             Self::process_events(rx, config, db, watched_repos, event_sender).await;
         });
+
+        // Spawn background task to monitor for rescan trigger
+        let rescan_pending = self.rescan_pending.clone();
+        let watched_repos_rescan = self.watched_repos.clone();
+        let event_sender_rescan = self.event_sender.clone();
+        let config_rescan = self.config.clone();
+        let _ = spawn_deterministic(
+            "Git file watcher rescan monitor".to_string(),
+            async move {
+                loop {
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                    if rescan_pending.swap(false, Ordering::AcqRel) {
+                        info!(
+                            component = "git_file_watcher",
+                            "Auto-rescan triggered after event drops"
+                        );
+                        Self::perform_rescan(
+                            &watched_repos_rescan,
+                            &event_sender_rescan,
+                            &config_rescan,
+                        )
+                        .await;
+                    }
+                }
+            },
+        );
 
         Ok(())
     }
@@ -213,6 +337,16 @@ impl GitWatcher {
 
         // Process each path in the event
         for path in event.paths {
+            // Validate path has no OS-specific invalid characters
+            if let Err(e) = validate_path_characters(&path) {
+                warn!(
+                    path = %path.display(),
+                    error = %e,
+                    "Skipping path with invalid characters"
+                );
+                continue;
+            }
+
             // Check if path should be excluded
             if Self::should_exclude(&path, config) {
                 continue;
@@ -298,5 +432,111 @@ impl GitWatcher {
             }
         }
         None
+    }
+
+    /// Perform a full rescan of all watched repositories
+    ///
+    /// This function walks all watched repository directories and emits
+    /// synthetic Create events for all tracked files. This is used to
+    /// recover state after event drops.
+    async fn perform_rescan(
+        watched_repos: &Arc<RwLock<HashMap<String, PathBuf>>>,
+        event_sender: &Sender<FileChangeEvent>,
+        config: &WatcherConfig,
+    ) {
+        let repos = watched_repos.read().await;
+        let mut total_files = 0u64;
+
+        for (repo_id, repo_path) in repos.iter() {
+            info!(
+                repo_id = %repo_id,
+                path = %repo_path.display(),
+                "Rescanning repository after event drops"
+            );
+
+            // Walk the repository directory
+            if let Err(e) = Self::walk_and_emit(repo_id, repo_path, event_sender, config, &mut total_files).await {
+                warn!(
+                    repo_id = %repo_id,
+                    path = %repo_path.display(),
+                    error = %e,
+                    "Error during rescan"
+                );
+            }
+        }
+
+        info!(
+            component = "git_file_watcher",
+            total_files = total_files,
+            "Rescan complete"
+        );
+    }
+
+    /// Walk a directory tree and emit events for matching files
+    async fn walk_and_emit(
+        repo_id: &str,
+        root: &Path,
+        event_sender: &Sender<FileChangeEvent>,
+        config: &WatcherConfig,
+        total_files: &mut u64,
+    ) -> Result<()> {
+        let mut stack = vec![root.to_path_buf()];
+
+        while let Some(current) = stack.pop() {
+            let entries = match std::fs::read_dir(&current) {
+                Ok(entries) => entries,
+                Err(e) => {
+                    debug!(
+                        path = %current.display(),
+                        error = %e,
+                        "Cannot read directory during rescan"
+                    );
+                    continue;
+                }
+            };
+
+            for entry in entries.flatten() {
+                let path = entry.path();
+
+                // Skip excluded paths
+                if Self::should_exclude(&path, config) {
+                    continue;
+                }
+
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path.is_file() && Self::should_include(&path, config) {
+                    // Validate path before emitting
+                    if let Err(e) = validate_path_characters(&path) {
+                        debug!(
+                            path = %path.display(),
+                            error = %e,
+                            "Skipping invalid path during rescan"
+                        );
+                        continue;
+                    }
+
+                    // Emit synthetic Create event
+                    let file_event = FileChangeEvent::new(
+                        repo_id.to_string(),
+                        path.clone(),
+                        ChangeType::Create,
+                        None,
+                    );
+
+                    if let Err(e) = event_sender.try_send(file_event) {
+                        debug!(
+                            path = %path.display(),
+                            error = %e,
+                            "Failed to emit rescan event"
+                        );
+                    } else {
+                        *total_files += 1;
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 }

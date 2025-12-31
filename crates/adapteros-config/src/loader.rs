@@ -4,6 +4,7 @@ use crate::model::load_dotenv;
 use crate::precedence::ConfigBuilder;
 use crate::types::PrecedenceLevel;
 use crate::types::*;
+use adapteros_core::errors::AosValidationError;
 use adapteros_core::{AosError, Result};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -65,9 +66,24 @@ impl ConfigLoader {
     ///
     /// Maps TOML keys to config_key using the schema's toml_key field.
     /// For example, `db.path` in cp.toml maps to `database.url` (AOS_DATABASE_URL).
+    ///
+    /// # Errors
+    ///
+    /// When `require_manifest` is enabled (default), returns an error if:
+    /// - The config file does not exist
+    /// - The config file cannot be read (permission denied or other I/O error)
+    /// - The config file contains invalid TOML syntax
     fn load_manifest(&self, mut builder: ConfigBuilder, path: &str) -> Result<ConfigBuilder> {
         let manifest_path = Path::new(path);
+
+        // Scenario 1: Required config file missing
         if !manifest_path.exists() {
+            if self.options.require_manifest {
+                return Err(AosError::from(AosValidationError::ConfigFileNotFound {
+                    path: path.to_string(),
+                    tried_locations: vec![path.to_string()],
+                }));
+            }
             tracing::warn!(
                 manifest = %path,
                 "Manifest not found, using compiled-in defaults and environment"
@@ -77,9 +93,25 @@ impl ConfigLoader {
 
         builder = builder.with_manifest_path(path.to_string());
 
+        // Scenario 2: Permission denied or other read errors
         let content = match fs::read_to_string(manifest_path) {
             Ok(c) => c,
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                // Always fail on permission errors - they indicate a real problem
+                return Err(AosError::from(
+                    AosValidationError::ConfigFilePermissionDenied {
+                        path: path.to_string(),
+                        reason: format!("chmod 644 '{}' to fix", path),
+                    },
+                ));
+            }
             Err(e) => {
+                if self.options.require_manifest {
+                    return Err(AosError::Config(format!(
+                        "Failed to read config file '{}': {}",
+                        path, e
+                    )));
+                }
                 tracing::warn!(
                     manifest = %path,
                     error = %e,
@@ -89,15 +121,15 @@ impl ConfigLoader {
             }
         };
 
+        // Scenario 3: Invalid TOML syntax
         let manifest: Value = match toml::from_str(&content) {
             Ok(v) => v,
             Err(e) => {
-                tracing::warn!(
-                    manifest = %path,
-                    error = %e,
-                    "Manifest invalid TOML, using compiled-in defaults and environment"
-                );
-                return Ok(builder);
+                // Always fail on parse errors - invalid config should not silently fall back
+                return Err(AosError::Config(format!(
+                    "Invalid TOML in '{}': {}",
+                    path, e
+                )));
             }
         };
 
@@ -132,42 +164,98 @@ impl ConfigLoader {
     /// - `AOS_*` - All AOS_* vars mapped to config keys (e.g., `AOS_SERVER_PORT` -> `server.port`)
     ///
     /// Mapping uses the schema's `config_key` field when available for proper TOML integration.
+    ///
+    /// # Empty Value Handling
+    ///
+    /// When `reject_empty_env_vars` is enabled (default) and production mode is active,
+    /// empty or whitespace-only environment variables cause an error. In development mode,
+    /// empty values are logged as warnings and skipped.
     fn load_environment(&self, mut builder: ConfigBuilder) -> Result<ConfigBuilder> {
         let schema = crate::schema::default_schema();
 
+        // Check if we're in production mode for stricter validation
+        let is_production = std::env::var("AOS_PRODUCTION_MODE")
+            .map(|v| v == "true" || v == "1")
+            .unwrap_or(false);
+
         // Collect ALL vars with AOS_ prefix and map using schema (canonical)
         let aos_prefix = "AOS_";
-        let aos_vars: HashMap<String, (String, String)> = std::env::vars()
-            .filter(|(key, _)| key.starts_with(aos_prefix))
-            .map(|(key, value)| {
-                // Use schema config_key if available for proper TOML mapping
-                let config_key = if let Some(var) = schema.get_variable(&key) {
-                    var.config_key.clone()
-                } else {
-                    // Fallback: Remove AOS_ prefix and convert to lowercase with dots
-                    key.strip_prefix(aos_prefix)
-                        .unwrap_or(&key)
-                        .to_lowercase()
-                        .replace('_', ".")
-                };
-                tracing::debug!(env_var = %key, config_key = %config_key, "Mapped AOS_ env var");
-                (config_key, (key, value))
-            })
-            .collect();
+        let mut aos_vars: HashMap<String, (String, String)> = HashMap::new();
 
-        // Collect vars with legacy ADAPTEROS_ prefix (deprecated, warn)
-        let adapteros_vars: HashMap<String, (String, String)> = std::env::vars()
-            .filter(|(key, _)| key.starts_with(&self.options.env_prefix))
-            .map(|(key, value)| {
-                // Remove prefix and convert to lowercase with dots
-                let config_key = key
-                    .strip_prefix(&self.options.env_prefix)
+        for (key, value) in std::env::vars().filter(|(k, _)| k.starts_with(aos_prefix)) {
+            // Scenario 4: Empty environment variable override
+            if value.trim().is_empty() {
+                if self.options.reject_empty_env_vars && is_production {
+                    // Get config_key for error reporting
+                    let schema = crate::schema::default_schema();
+                    let config_key = if let Some(var) = schema.get_variable(&key) {
+                        var.config_key.clone()
+                    } else {
+                        key.strip_prefix(aos_prefix)
+                            .unwrap_or(&key)
+                            .to_lowercase()
+                            .replace('_', ".")
+                    };
+                    return Err(AosError::from(AosValidationError::EmptyEnvOverride {
+                        variable: key,
+                        config_key,
+                    }));
+                }
+                tracing::warn!(
+                    var = %key,
+                    "Environment variable is empty, ignoring (would fail in production)"
+                );
+                continue; // Skip empty values
+            }
+
+            // Use schema config_key if available for proper TOML mapping
+            let config_key = if let Some(var) = schema.get_variable(&key) {
+                var.config_key.clone()
+            } else {
+                // Fallback: Remove AOS_ prefix and convert to lowercase with dots
+                key.strip_prefix(aos_prefix)
                     .unwrap_or(&key)
                     .to_lowercase()
-                    .replace('_', ".");
-                (config_key, (key, value))
-            })
-            .collect();
+                    .replace('_', ".")
+            };
+            tracing::debug!(env_var = %key, config_key = %config_key, "Mapped AOS_ env var");
+            aos_vars.insert(config_key, (key, value));
+        }
+
+        // Collect vars with legacy ADAPTEROS_ prefix (deprecated, warn)
+        // Also skip empty values with the same logic as AOS_* vars
+        let mut adapteros_vars: HashMap<String, (String, String)> = HashMap::new();
+        for (key, value) in
+            std::env::vars().filter(|(k, _)| k.starts_with(&self.options.env_prefix))
+        {
+            // Skip empty values with same logic as AOS_* vars
+            if value.trim().is_empty() {
+                if self.options.reject_empty_env_vars && is_production {
+                    let config_key = key
+                        .strip_prefix(&self.options.env_prefix)
+                        .unwrap_or(&key)
+                        .to_lowercase()
+                        .replace('_', ".");
+                    return Err(AosError::from(AosValidationError::EmptyEnvOverride {
+                        variable: key,
+                        config_key,
+                    }));
+                }
+                tracing::warn!(
+                    var = %key,
+                    "Environment variable is empty, ignoring (would fail in production)"
+                );
+                continue;
+            }
+
+            // Remove prefix and convert to lowercase with dots
+            let config_key = key
+                .strip_prefix(&self.options.env_prefix)
+                .unwrap_or(&key)
+                .to_lowercase()
+                .replace('_', ".");
+            adapteros_vars.insert(config_key, (key, value));
+        }
 
         // Merge with canonical AOS_* taking precedence over legacy ADAPTEROS_*
         let mut env_vars: HashMap<String, (String, String)> = HashMap::new();
@@ -636,5 +724,108 @@ port = 8888
         // Clean up
         std::env::remove_var("AOS_SERVER_PORT");
         std::env::remove_var("AOS_DATABASE_URL");
+    }
+
+    #[test]
+    fn test_missing_config_returns_error() {
+        let _env = TestEnvGuard::new();
+        let loader = ConfigLoader::new();
+
+        // Try to load a non-existent config file
+        let result = loader.load(vec![], Some("/nonexistent/config.toml".into()));
+
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("not found"),
+            "Error message should mention file not found: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_missing_config_allowed_when_not_required() {
+        let _env = TestEnvGuard::new();
+        let options = LoaderOptions {
+            require_manifest: false,
+            ..Default::default()
+        };
+        let loader = ConfigLoader::with_options(options);
+
+        // Should succeed even with non-existent config when require_manifest is false
+        let result = loader.load(vec![], Some("/nonexistent/config.toml".into()));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_invalid_toml_returns_error() {
+        let _env = TestEnvGuard::new();
+        let mut temp_file = new_temp_file();
+
+        // Write invalid TOML
+        writeln!(temp_file, "this is not valid [TOML syntax").unwrap();
+        temp_file.flush().unwrap();
+
+        let loader = ConfigLoader::new();
+        let result = loader.load(vec![], Some(temp_file.path().to_string_lossy().to_string()));
+
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("Invalid TOML"),
+            "Error message should mention invalid TOML: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_empty_env_var_skipped_in_dev_mode() {
+        let _env = TestEnvGuard::new();
+        // Ensure we're NOT in production mode
+        std::env::remove_var("AOS_PRODUCTION_MODE");
+
+        // Set an empty env var - should be skipped
+        std::env::set_var("AOS_SERVER_PORT", "   ");
+        // Set a valid var to ensure config loads
+        std::env::set_var("AOS_DATABASE_URL", "sqlite://test.db");
+
+        let loader = ConfigLoader::new();
+        let config = loader.load(vec![], None).unwrap();
+
+        // Empty var should be skipped, so server.port should not be set from env
+        // (it will have default or none)
+        assert_ne!(
+            config.get("server.port"),
+            Some(&"   ".to_string()),
+            "Empty env var should be skipped"
+        );
+
+        // Clean up
+        std::env::remove_var("AOS_SERVER_PORT");
+        std::env::remove_var("AOS_DATABASE_URL");
+    }
+
+    #[test]
+    fn test_empty_env_var_fails_in_production() {
+        let _env = TestEnvGuard::new();
+        // Set production mode
+        std::env::set_var("AOS_PRODUCTION_MODE", "true");
+        // Set an empty env var
+        std::env::set_var("AOS_SERVER_PORT", "   ");
+
+        let loader = ConfigLoader::new();
+        let result = loader.load(vec![], None);
+
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("empty or whitespace"),
+            "Error message should mention empty value: {}",
+            err_msg
+        );
+
+        // Clean up
+        std::env::remove_var("AOS_PRODUCTION_MODE");
+        std::env::remove_var("AOS_SERVER_PORT");
     }
 }

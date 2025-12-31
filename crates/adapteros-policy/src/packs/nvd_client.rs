@@ -21,6 +21,9 @@ const MAX_RETRIES: u32 = 3;
 /// Retry delay in milliseconds
 const RETRY_DELAY_MS: u64 = 100;
 
+/// Request timeout in seconds (prevents indefinite hangs on network issues)
+const REQUEST_TIMEOUT_SECS: u64 = 30;
+
 /// CVE from NVD API response
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NvdCve {
@@ -215,6 +218,7 @@ impl NvdClient {
         let rate_limiter = Arc::new(RateLimiter::direct(Quota::per_second(rate_limit)));
 
         let http_client = Client::builder()
+            .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECS))
             .no_proxy()
             .build()
             .unwrap_or_else(|_| Client::new());

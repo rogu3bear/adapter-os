@@ -11,6 +11,8 @@ categories = ["configuration"]
 
 [features]
 extended-tests = []
+# Enable test utilities (TestEnvGuard) for external crates
+testkit = []
 
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }

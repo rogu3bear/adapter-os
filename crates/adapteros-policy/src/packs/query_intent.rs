@@ -180,6 +180,8 @@ impl KeywordClassifier {
                 r"(?i)\b(breaking|just (announced|released|happened|updated))\b",
                 r"(?i)\b20(2[4-9]|[3-9]\d)\b", // Current/future year references
                 r"(?i)\bwhat (is|are) (the )?(current|latest)\b",
+                r"(?i)\b(tomorrow|tonight|next (week|month|day))\b", // Near-future references
+                r"(?i)\b(weather|forecast)\b", // Weather is inherently time-sensitive
             ])
             .expect("Invalid recency regex patterns"),
 

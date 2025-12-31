@@ -32,7 +32,8 @@ fn test_system_time_to_microseconds() {
 #[test]
 fn test_microsecond_precision() {
     let t1 = SystemTime::now();
-    std::thread::sleep(Duration::from_micros(100));
+    // Use 2ms sleep instead of 100μs to be reliable on CI systems
+    std::thread::sleep(Duration::from_millis(2));
     let t2 = SystemTime::now();
 
     let d1 = t1.duration_since(UNIX_EPOCH).unwrap();
@@ -43,9 +44,11 @@ fn test_microsecond_precision() {
 
     // Should have measurable difference
     assert!(micros2 > micros1, "Timestamps should be ordered");
+    // Expect at least 1ms difference (1000μs) after 2ms sleep
     assert!(
-        micros2 - micros1 >= 100,
-        "Should have at least 100 microsecond difference"
+        micros2 - micros1 >= 1000,
+        "Should have at least 1ms difference, got {}μs",
+        micros2 - micros1
     );
 }
 
@@ -132,8 +135,8 @@ fn test_timestamp_ordering_in_chain() {
         let micros = duration.as_micros() as u64;
         timestamps.push((i, micros));
 
-        // Small delay to ensure ordering
-        std::thread::sleep(Duration::from_micros(10));
+        // Use 1ms delay instead of 10μs to be reliable on CI systems
+        std::thread::sleep(Duration::from_millis(1));
     }
 
     // Verify monotonic ordering

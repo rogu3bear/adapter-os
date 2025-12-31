@@ -25,6 +25,12 @@ pub struct TestEnvGuard {
     snapshot: HashMap<String, String>,
 }
 
+impl Default for TestEnvGuard {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TestEnvGuard {
     pub fn new() -> Self {
         let lock = env_lock();
