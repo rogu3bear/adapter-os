@@ -30,6 +30,128 @@ export interface RetryConfig {
   retryableErrors?: (error: unknown) => boolean; // Custom function to determine if error is retryable
 }
 
+/**
+ * Validation errors for retry configuration
+ */
+export interface RetryConfigValidationError {
+  field: string;
+  message: string;
+  value: unknown;
+}
+
+/**
+ * Result of retry configuration validation
+ */
+export interface RetryConfigValidationResult {
+  valid: boolean;
+  errors: RetryConfigValidationError[];
+}
+
+/**
+ * Validate retry configuration to ensure safe defaults
+ *
+ * Key validations:
+ * - jitter > 0: Required for thundering herd protection
+ * - maxDelay >= baseDelay: Prevents configuration errors
+ * - backoffMultiplier >= 1: Ensures delays don't decrease
+ * - maxAttempts >= 1: At least one attempt required
+ *
+ * @param config The retry configuration to validate
+ * @returns Validation result with any errors
+ */
+export function validateRetryConfig(config: Partial<RetryConfig>): RetryConfigValidationResult {
+  const errors: RetryConfigValidationError[] = [];
+
+  // Validate jitter > 0 for thundering herd protection
+  if (config.jitter !== undefined && config.jitter <= 0) {
+    errors.push({
+      field: 'jitter',
+      message: 'Jitter must be greater than 0 for thundering herd prevention',
+      value: config.jitter,
+    });
+  }
+
+  // Validate jitter <= 1 (100%)
+  if (config.jitter !== undefined && config.jitter > 1) {
+    errors.push({
+      field: 'jitter',
+      message: 'Jitter must be at most 1 (100%)',
+      value: config.jitter,
+    });
+  }
+
+  // Validate maxDelay >= baseDelay
+  if (
+    config.maxDelay !== undefined &&
+    config.baseDelay !== undefined &&
+    config.maxDelay < config.baseDelay
+  ) {
+    errors.push({
+      field: 'maxDelay',
+      message: 'maxDelay must be greater than or equal to baseDelay',
+      value: config.maxDelay,
+    });
+  }
+
+  // Validate backoffMultiplier >= 1
+  if (config.backoffMultiplier !== undefined && config.backoffMultiplier < 1) {
+    errors.push({
+      field: 'backoffMultiplier',
+      message: 'backoffMultiplier must be at least 1',
+      value: config.backoffMultiplier,
+    });
+  }
+
+  // Validate maxAttempts >= 1
+  if (config.maxAttempts !== undefined && config.maxAttempts < 1) {
+    errors.push({
+      field: 'maxAttempts',
+      message: 'maxAttempts must be at least 1',
+      value: config.maxAttempts,
+    });
+  }
+
+  // Validate baseDelay > 0
+  if (config.baseDelay !== undefined && config.baseDelay <= 0) {
+    errors.push({
+      field: 'baseDelay',
+      message: 'baseDelay must be greater than 0',
+      value: config.baseDelay,
+    });
+  }
+
+  // Validate maxDelay > 0
+  if (config.maxDelay !== undefined && config.maxDelay <= 0) {
+    errors.push({
+      field: 'maxDelay',
+      message: 'maxDelay must be greater than 0',
+      value: config.maxDelay,
+    });
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+  };
+}
+
+/**
+ * Create a validated retry configuration
+ * Throws if the configuration is invalid
+ *
+ * @param config The retry configuration to validate
+ * @returns The validated configuration merged with defaults
+ * @throws Error if configuration is invalid
+ */
+export function createValidatedRetryConfig(config: Partial<RetryConfig> = {}): RetryConfig {
+  const validation = validateRetryConfig(config);
+  if (!validation.valid) {
+    const errorMessages = validation.errors.map(e => `${e.field}: ${e.message}`).join('; ');
+    throw new Error(`Invalid retry configuration: ${errorMessages}`);
+  }
+  return { ...DEFAULT_RETRY_CONFIG, ...config };
+}
+
 export type RetryResult<T> =
   | {
       success: true;

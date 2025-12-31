@@ -21,6 +21,24 @@ import { AUTH_STORAGE_KEYS } from '@/auth/constants';
 import { createTokenCoordinator, TokenCoordinator } from '@/auth/tokenCoordination';
 import { toCamelCase, toSnakeCase } from './transformers';
 
+// Expected schema version - bump when client is updated to support new API schemas
+const EXPECTED_SCHEMA_VERSION = '1.0';
+
+// Compare semantic versions (e.g., "1.0", "1.1", "2.0")
+// Returns: negative if a < b, 0 if equal, positive if a > b
+function compareVersions(a: string, b: string): number {
+  const partsA = a.split('.').map(Number);
+  const partsB = b.split('.').map(Number);
+  for (let i = 0; i < Math.max(partsA.length, partsB.length); i++) {
+    const diff = (partsA[i] || 0) - (partsB[i] || 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+// Track if we've already warned about schema version mismatch to avoid spam
+let schemaVersionWarningEmitted = false;
+
 // Type-safe API error with extended properties
 export interface ApiError extends Error {
   code?: string;
@@ -387,6 +405,7 @@ class ApiClient {
     const headers: HeadersInit = {
       ...(isFormDataBody ? {} : { 'Content-Type': 'application/json' }),
       'X-Request-ID': requestId,
+      'X-Client-Schema-Version': EXPECTED_SCHEMA_VERSION,
       ...(this.token && !hasAuthHeader ? { Authorization: `Bearer ${this.token}` } : {}),
       ...options.headers,
     };
@@ -395,6 +414,12 @@ class ApiClient {
       const csrfToken = readCookie('csrf_token');
       if (csrfToken && !(headers as Record<string, string>)['X-CSRF-Token']) {
         (headers as Record<string, string>)['X-CSRF-Token'] = csrfToken;
+      }
+      // Add idempotency key for mutation requests to enable safe retries
+      // Uses crypto.randomUUID() for secure, collision-resistant unique IDs
+      const headersRecord = headers as Record<string, string>;
+      if (!headersRecord['Idempotency-Key'] && typeof crypto !== 'undefined' && crypto.randomUUID) {
+        headersRecord['Idempotency-Key'] = crypto.randomUUID();
       }
     }
 
@@ -470,6 +495,27 @@ class ApiClient {
     // Track request ID for error correlation
     if (returnedId) {
       logger.trackRequestId(returnedId);
+    }
+
+    // Check schema version compatibility - warn if server is newer than client expects
+    const schemaVersion = response.headers.get('X-Schema-Version');
+    if (schemaVersion && !schemaVersionWarningEmitted) {
+      if (compareVersions(schemaVersion, EXPECTED_SCHEMA_VERSION) > 0) {
+        schemaVersionWarningEmitted = true;
+        logger.warn('API schema version newer than expected', {
+          component: 'ApiClient',
+          operation: 'schema_version_check',
+          serverVersion: schemaVersion,
+          clientVersion: EXPECTED_SCHEMA_VERSION,
+          action: 'Consider updating the client to support new API features',
+        });
+        // Emit custom event for UI components to handle (e.g., show upgrade banner)
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('api:schema-version-mismatch', {
+            detail: { serverVersion: schemaVersion, clientVersion: EXPECTED_SCHEMA_VERSION }
+          }));
+        }
+      }
     }
 
     if (!response.ok) {
@@ -845,7 +891,7 @@ class ApiClient {
       response = await fetch(url, {
         method: 'POST',
         headers,
-        body: JSON.stringify(request),
+        body: JSON.stringify(toSnakeCase(request)),
         credentials: 'omit',
         signal: cancelToken,
       });
@@ -915,7 +961,9 @@ class ApiClient {
             }
 
             try {
-              const event = JSON.parse(jsonStr);
+              // Transform streaming events from snake_case to camelCase for consistency
+              const rawEvent = JSON.parse(jsonStr);
+              const event = toCamelCase(rawEvent) as Record<string, unknown>;
 
               // Handle different event types based on 'event' discriminator
               if (typeof event === 'object' && event !== null && 'event' in event) {
@@ -930,15 +978,15 @@ class ApiClient {
                   case 'Done':
                     finishReason = 'stop';
                     metadata = {
-                      unavailable_pinned_adapters: event.unavailable_pinned_adapters,
-                      pinned_routing_fallback: event.pinned_routing_fallback,
+                      unavailablePinnedAdapters: event.unavailablePinnedAdapters,
+                      pinnedRoutingFallback: event.pinnedRoutingFallback,
                       citations: event.citations,
                     } as TMetadata;
                     callbacks.onComplete(fullText, finishReason, metadata);
                     return;
 
                   case 'Error':
-                    const errorMsg = event.message || 'Stream error';
+                    const errorMsg = typeof event.message === 'string' ? event.message : 'Stream error';
                     const streamError = new Error(errorMsg);
                     callbacks.onError(streamError);
                     if (!event.recoverable) {
@@ -959,10 +1007,10 @@ class ApiClient {
                     });
                 }
               } else if (typeof event === 'object' && event !== null && 'choices' in event) {
-                // OpenAI-compatible format (StreamingChunk)
+                // OpenAI-compatible format (StreamingChunk) - already transformed to camelCase
                 const choices = event.choices as Array<{
                   delta?: { content?: string };
-                  finish_reason?: string | null;
+                  finishReason?: string | null;
                 }>;
                 if (choices && choices[0]) {
                   const choice = choices[0];
@@ -970,8 +1018,8 @@ class ApiClient {
                     fullText += choice.delta.content;
                     callbacks.onToken(choice.delta.content, event as TChunk);
                   }
-                  if (choice.finish_reason) {
-                    finishReason = choice.finish_reason;
+                  if (choice.finishReason) {
+                    finishReason = choice.finishReason;
                   }
                 }
               }

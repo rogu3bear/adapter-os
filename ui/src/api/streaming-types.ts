@@ -1048,3 +1048,177 @@ export function isIngestionComplete(phase: IngestionPhase): boolean {
 export function isIngestionFailed(phase: IngestionPhase): boolean {
   return phase === 'failed';
 }
+
+// ============================================================================
+// SSE Error Event Types (Category 18 - Streaming Errors)
+// Matches SseErrorEvent from crates/adapteros-server-api/src/sse/types.rs
+// ============================================================================
+
+/**
+ * Recovery hints for event gap scenarios
+ * Tells clients how to recover when events are missed
+ */
+export type SseGapRecoveryHint =
+  | { type: 'refetch_full_state' }
+  | { type: 'continue_with_gap' }
+  | { type: 'restart_stream' }
+  | { type: 'refetch_resource'; resource_type: string; resource_id: string };
+
+/**
+ * SSE stream disconnected event
+ * Sent when the server is about to close the connection
+ */
+export interface SseStreamDisconnectedEvent {
+  type: 'stream_disconnected';
+  /** Last event ID sent before disconnect */
+  last_event_id: number;
+  /** Reason for the disconnect */
+  reason: string;
+  /** Suggested reconnect delay in milliseconds */
+  reconnect_hint_ms: number;
+}
+
+/**
+ * SSE buffer overflow event
+ * Sent when events are dropped due to buffer constraints
+ */
+export interface SseBufferOverflowEvent {
+  type: 'buffer_overflow';
+  /** Number of events that were dropped */
+  dropped_count: number;
+  /** Oldest available event ID after the overflow */
+  oldest_available_id: number;
+}
+
+/**
+ * SSE event gap detected event
+ * Sent when a client reconnects and some events are no longer available
+ */
+export interface SseEventGapDetectedEvent {
+  type: 'event_gap';
+  /** Client's last known event ID */
+  client_last_id: number;
+  /** Server's oldest available event ID */
+  server_oldest_id: number;
+  /** Estimated number of events lost */
+  events_lost: number;
+  /** Recovery hint for the client */
+  recovery_hint: SseGapRecoveryHint;
+}
+
+/**
+ * SSE heartbeat event
+ * Sent periodically to keep the connection alive and inform client of current state
+ */
+export interface SseHeartbeatEvent {
+  type: 'heartbeat';
+  /** Current server event ID */
+  current_id: number;
+  /** Server timestamp in milliseconds */
+  timestamp_ms: number;
+}
+
+/**
+ * Union of all SSE error event types
+ */
+export type SseErrorEvent =
+  | SseStreamDisconnectedEvent
+  | SseBufferOverflowEvent
+  | SseEventGapDetectedEvent
+  | SseHeartbeatEvent;
+
+/**
+ * Type guard for SSE stream disconnected event
+ */
+export function isSseStreamDisconnectedEvent(data: unknown): data is SseStreamDisconnectedEvent {
+  return (
+    typeof data === 'object' &&
+    data !== null &&
+    'type' in data &&
+    (data as SseStreamDisconnectedEvent).type === 'stream_disconnected'
+  );
+}
+
+/**
+ * Type guard for SSE buffer overflow event
+ */
+export function isSseBufferOverflowEvent(data: unknown): data is SseBufferOverflowEvent {
+  return (
+    typeof data === 'object' &&
+    data !== null &&
+    'type' in data &&
+    (data as SseBufferOverflowEvent).type === 'buffer_overflow'
+  );
+}
+
+/**
+ * Type guard for SSE event gap detected event
+ */
+export function isSseEventGapDetectedEvent(data: unknown): data is SseEventGapDetectedEvent {
+  return (
+    typeof data === 'object' &&
+    data !== null &&
+    'type' in data &&
+    (data as SseEventGapDetectedEvent).type === 'event_gap'
+  );
+}
+
+/**
+ * Type guard for SSE heartbeat event
+ */
+export function isSseHeartbeatEvent(data: unknown): data is SseHeartbeatEvent {
+  return (
+    typeof data === 'object' &&
+    data !== null &&
+    'type' in data &&
+    (data as SseHeartbeatEvent).type === 'heartbeat'
+  );
+}
+
+/**
+ * Type guard for any SSE error event
+ */
+export function isSseErrorEvent(data: unknown): data is SseErrorEvent {
+  return (
+    isSseStreamDisconnectedEvent(data) ||
+    isSseBufferOverflowEvent(data) ||
+    isSseEventGapDetectedEvent(data) ||
+    isSseHeartbeatEvent(data)
+  );
+}
+
+/**
+ * Helper to get recommended action for gap recovery
+ */
+export function getGapRecoveryAction(hint: SseGapRecoveryHint): {
+  action: 'refetch' | 'continue' | 'restart' | 'refetch_resource';
+  message: string;
+  requiresRefresh: boolean;
+} {
+  switch (hint.type) {
+    case 'refetch_full_state':
+      return {
+        action: 'refetch',
+        message: 'Full state refresh required',
+        requiresRefresh: true,
+      };
+    case 'continue_with_gap':
+      return {
+        action: 'continue',
+        message: 'Some events were missed, but you can continue',
+        requiresRefresh: false,
+      };
+    case 'restart_stream':
+      return {
+        action: 'restart',
+        message: 'Stream restart required',
+        requiresRefresh: true,
+      };
+    case 'refetch_resource':
+      return {
+        action: 'refetch_resource',
+        message: `Refresh ${hint.resource_type}: ${hint.resource_id}`,
+        requiresRefresh: true,
+      };
+  }
+}

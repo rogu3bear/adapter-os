@@ -1,13 +1,14 @@
-// Page header components
+// Page header components - use BasePageHeader directly
+// CrudPageHeader and ConfigPageHeader were removed as redundant wrappers
 export { BasePageHeader } from './BasePageHeader';
-export { CrudPageHeader, type CrudPageHeaderProps } from './CrudPageHeader';
-export { ConfigPageHeader, type ConfigPageHeaderProps } from './ConfigPageHeader';
 
 // Types
 export type {
   BasePageHeaderAction,
   CrudPageHeaderAction,
   ConfigPageHeaderAction,
+  CrudPageHeaderProps,
+  ConfigPageHeaderProps,
   BasePageHeaderProps,
 } from './types';
 

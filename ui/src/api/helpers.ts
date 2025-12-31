@@ -293,3 +293,24 @@ export function extractArrayFromResponse<T>(response: unknown): T[] {
   // Fallback: return empty array (prevents .map errors on undefined/null)
   return [];
 }
+
+/**
+ * Ensure data is in camelCase format.
+ *
+ * This helper provides a type-safe way to ensure API responses are
+ * transformed from snake_case to camelCase format. Use when receiving
+ * data from APIs that may use snake_case naming convention.
+ *
+ * @param data - Unknown data that may be in snake_case format
+ * @returns Data transformed to camelCase format, typed as T
+ *
+ * @example
+ * const user = ensureCamelCase<User>(response);
+ * // Transforms { user_name: "foo" } to { userName: "foo" }
+ */
+export function ensureCamelCase<T>(data: unknown): T {
+  // Import dynamically to avoid circular dependencies
+  // The toCamelCase function handles nested objects and arrays
+  const { toCamelCase } = require('./transformers');
+  return toCamelCase(data) as T;
+}
