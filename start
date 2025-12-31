@@ -37,6 +37,7 @@ VERBOSE=0
 TRACE=0
 SCRIPT_LOG="$AOS_LOG_DIR/start.log"
 READYZ_TIMELINE_PATH="$AOS_LOG_DIR/readyz-timeline.jsonl"
+DEBUG_LOG_PATH="$AOS_LOG_DIR/debug.jsonl"
 
 # Animation characters
 SPINNER_CHARS="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
