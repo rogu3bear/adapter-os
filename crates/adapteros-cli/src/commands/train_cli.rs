@@ -524,6 +524,7 @@ fn map_trust_error(err: &ErrorResponse, dataset_hint: Option<&String>) -> Option
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adapteros_api_types::API_SCHEMA_VERSION;
 
     fn base_args() -> TrainStartArgs {
         TrainStartArgs {
@@ -570,7 +571,7 @@ mod tests {
     #[test]
     fn maps_trust_errors_to_ui_copy() {
         let err = ErrorResponse {
-            schema_version: "v1".into(),
+            schema_version: API_SCHEMA_VERSION.into(),
             error: "Dataset version dsv-1 is not trainable (trust_state: blocked)".into(),
             code: "DATASET_TRUST_BLOCKED".into(),
             details: None,
@@ -584,7 +585,7 @@ mod tests {
     #[test]
     fn maps_needs_approval_errors() {
         let err = ErrorResponse {
-            schema_version: "v1".into(),
+            schema_version: API_SCHEMA_VERSION.into(),
             error: "dataset version dsv-2 trust_state=needs_approval blocks training".into(),
             code: "DATASET_TRUST_NEEDS_APPROVAL".into(),
             details: None,
@@ -598,14 +599,14 @@ mod tests {
     #[test]
     fn maps_lineage_required_and_hash_mismatch() {
         let lineage = ErrorResponse {
-            schema_version: "v1".into(),
+            schema_version: API_SCHEMA_VERSION.into(),
             error: "dataset_version_ids are required for non-synthetic training jobs".into(),
             code: "LINEAGE_REQUIRED".into(),
             details: None,
             failure_code: None,
         };
         let hash = ErrorResponse {
-            schema_version: "v1".into(),
+            schema_version: API_SCHEMA_VERSION.into(),
             error: "data_spec_hash mismatch".into(),
             code: "DATA_SPEC_HASH_MISMATCH".into(),
             details: None,

@@ -123,7 +123,7 @@ mod tests {
         load_auth, preload_env_from_store, save_auth, warn_if_tenant_mismatch,
     };
     use crate::output::{OutputMode, OutputWriter};
-    use adapteros_api_types::auth::LoginResponse;
+    use adapteros_api_types::{auth::LoginResponse, API_SCHEMA_VERSION};
     use adapteros_platform::common::PlatformUtils;
     use axum::{routing::post, serve, Json, Router};
     use serial_test::serial;
@@ -177,7 +177,7 @@ mod tests {
         env::remove_var("AOSCTL_AUTH_PATH");
 
         let login_response = LoginResponse {
-            schema_version: "1".to_string(),
+            schema_version: API_SCHEMA_VERSION.to_string(),
             token: "token-login-1".to_string(),
             user_id: "user-xyz".to_string(),
             tenant_id: "tenant-xyz".to_string(),

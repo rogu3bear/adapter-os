@@ -457,6 +457,156 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
              4. Check DATABASE_URL environment variable",
             docs = ["crates/mplora-db/"]
         ),
+        error_code!(
+            "E8004",
+            "CLI/Config",
+            "Required Config File Missing",
+            "The specified configuration file does not exist.",
+            "1. Verify the config file path is correct\n\
+             2. Create the config file: cp configs/cp.toml.example configs/cp.toml\n\
+             3. Or remove the --config flag to use compiled defaults",
+            docs = ["configs/"]
+        ),
+        error_code!(
+            "E8005",
+            "CLI/Config",
+            "Config File Permission Denied",
+            "Configuration file exists but cannot be read due to permissions.",
+            "1. Check file permissions: ls -la <config-file>\n\
+             2. Fix permissions: chmod 644 <config-file>\n\
+             3. Ensure the process user has read access",
+            docs = ["docs/CONFIGURATION.md"]
+        ),
+        error_code!(
+            "E8006",
+            "CLI/Config",
+            "Config File Parse Error",
+            "Configuration file contains invalid TOML syntax.",
+            "1. Validate TOML syntax: taplo check <config-file>\n\
+             2. Check for typos, missing quotes, or invalid values\n\
+             3. Review example: configs/cp.toml.example",
+            docs = ["configs/"]
+        ),
+        error_code!(
+            "E8007",
+            "CLI/Config",
+            "Empty Environment Variable",
+            "An environment variable was set but contains only whitespace.",
+            "1. Check the variable value: echo $AOS_<VAR>\n\
+             2. Either set a valid value or unset the variable\n\
+             3. Empty values are ignored; unset to use defaults",
+            docs = ["docs/CONFIGURATION.md"]
+        ),
+        error_code!(
+            "E8008",
+            "CLI/Config",
+            "Invalid Secret Value",
+            "A required secret is blank, whitespace, or uses a placeholder value.",
+            "1. Generate a secure secret: openssl rand -base64 32\n\
+             2. Set the secret in environment or config file\n\
+             3. Never use placeholder values like 'changeme' in production",
+            docs = ["docs/CONFIGURATION.md"]
+        ),
+        error_code!(
+            "E8009",
+            "CLI/Config",
+            "Deprecated Flag Used",
+            "A deprecated CLI flag was used that will be removed in a future version.",
+            "1. Replace the deprecated flag with its replacement\n\
+             2. Check release notes for migration guide\n\
+             3. Update any scripts using this flag",
+            docs = ["docs/CLI_REFERENCE.md"]
+        ),
+        error_code!(
+            "E8010",
+            "CLI/Config",
+            "Output Format Mismatch",
+            "CLI output format version doesn't match expected schema.",
+            "1. Update client consuming CLI output\n\
+             2. Check --format-version flag\n\
+             3. Review API changelog for schema changes",
+            docs = ["docs/CLI_REFERENCE.md"]
+        ),
+        error_code!(
+            "E8011",
+            "CLI/Config",
+            "Write Permission Denied",
+            "CLI cannot write to the specified output directory.",
+            "1. Check directory permissions: ls -la <dir>\n\
+             2. Use --output to specify a writable location\n\
+             3. Run with appropriate permissions",
+            docs = ["docs/TROUBLESHOOTING.md"]
+        ),
+        error_code!(
+            "E8012",
+            "CLI/Config",
+            "Invalid Input Encoding",
+            "Input contains binary data but UTF-8 was expected.",
+            "1. Check input file encoding: file <input>\n\
+             2. Use --binary flag for binary input\n\
+             3. Convert input to UTF-8: iconv -f <encoding> -t UTF-8",
+            docs = ["docs/CLI_REFERENCE.md"]
+        ),
+        error_code!(
+            "E8013",
+            "CLI/Config",
+            "Invalid Retry Attempt",
+            "Attempted to retry a non-retriable error.",
+            "1. Check the original error type\n\
+             2. Non-retriable errors include: auth, validation, policy violations\n\
+             3. Fix the underlying issue before retrying",
+            docs = ["docs/TROUBLESHOOTING.md"]
+        ),
+        // E3xxx extensions: Build/Toolchain errors
+        error_code!(
+            "E3005",
+            "Kernels/Build/Manifest",
+            "Toolchain Version Mismatch",
+            "Build toolchain differs from CI-verified version.",
+            "1. Check rust-toolchain.toml: cat rust-toolchain.toml\n\
+             2. Run: rustup override set <version>\n\
+             3. Verify: rustc --version",
+            docs = ["rust-toolchain.toml"]
+        ),
+        error_code!(
+            "E3006",
+            "Kernels/Build/Manifest",
+            "Stale Build Cache",
+            "Build cache may hide compilation errors.",
+            "1. Clean build cache: cargo clean\n\
+             2. Rebuild: cargo build --release\n\
+             3. Verify CI matches local build",
+            docs = ["docs/BUILD.md"]
+        ),
+        error_code!(
+            "E3007",
+            "Kernels/Build/Manifest",
+            "Lint Target Missing",
+            "Cannot run lints without building target first.",
+            "1. Build target: cargo build --target <target>\n\
+             2. Then run lints: cargo clippy --target <target>",
+            docs = ["docs/BUILD.md"]
+        ),
+        error_code!(
+            "E3008",
+            "Kernels/Build/Manifest",
+            "Cargo.lock Out of Sync",
+            "Cargo.lock doesn't match Cargo.toml dependencies.",
+            "1. Update lock file: cargo update\n\
+             2. Or: cargo generate-lockfile\n\
+             3. Commit the updated Cargo.lock",
+            docs = ["Cargo.lock"]
+        ),
+        error_code!(
+            "E3009",
+            "Kernels/Build/Manifest",
+            "Workspace Member Path Invalid",
+            "Workspace member references an invalid path.",
+            "1. Check workspace members in Cargo.toml\n\
+             2. Verify member directory exists\n\
+             3. Update path if directory was moved",
+            docs = ["Cargo.toml"]
+        ),
         // E9xxx: OS/Environment Issues
         error_code!(
             "E9001",
@@ -502,6 +652,63 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
              4. Archive old CPs",
             docs = ["scripts/gc_bundles.sh"]
         ),
+        error_code!(
+            "E9005",
+            "OS/Environment",
+            "CPU Throttled",
+            "Process CPU usage exceeded configured limits, causing throttling.",
+            "1. Check CPU-intensive operations: aosctl diag --system\n\
+             2. Reduce concurrent inference requests\n\
+             3. Increase max_cpu_time_per_request in config\n\
+             4. Consider scaling horizontally",
+            docs = ["docs/CONFIGURATION.md"]
+        ),
+        error_code!(
+            "E9006",
+            "OS/Environment",
+            "Out of Memory",
+            "Process memory usage exceeded limits, triggering OOM condition.",
+            "1. Check memory usage: aosctl diag --system\n\
+             2. Reduce max_concurrent_requests\n\
+             3. Evict unused adapters: aosctl adapter evict\n\
+             4. Increase system memory or container limits\n\
+             5. Consider quantized model variants",
+            docs = ["docs/ARCHITECTURE.md", "crates/adapteros-lora-worker/"]
+        ),
+        error_code!(
+            "E9007",
+            "OS/Environment",
+            "File Descriptor Limit Reached",
+            "Process exhausted available file descriptors.",
+            "1. Check current usage: lsof -p $(pgrep aos) | wc -l\n\
+             2. Increase ulimit: ulimit -n 65536\n\
+             3. Check for file/socket leaks\n\
+             4. Reduce connection pool sizes if applicable",
+            docs = ["docs/TROUBLESHOOTING.md"]
+        ),
+        error_code!(
+            "E9008",
+            "OS/Environment",
+            "Thread Pool Saturated",
+            "All worker threads are busy, causing request queuing.",
+            "1. Check thread pool status: aosctl diag --system\n\
+             2. Reduce concurrent_requests setting\n\
+             3. Scale horizontally for higher throughput\n\
+             4. Check for blocking operations in hot paths",
+            docs = ["docs/CONFIGURATION.md"]
+        ),
+        error_code!(
+            "E9009",
+            "OS/Environment",
+            "GPU Device Unavailable",
+            "Metal/GPU device became unavailable during operation.",
+            "1. Check GPU status: system_profiler SPDisplaysDataType\n\
+             2. Verify no other processes hold exclusive GPU access\n\
+             3. Check Activity Monitor for GPU memory pressure\n\
+             4. Restart the worker process: aosctl serve restart\n\
+             5. Use --backend=coreml for ANE fallback if available",
+            docs = ["docs/BACKEND_SELECTION.md"]
+        ),
     ]
 }
 
@@ -543,6 +750,28 @@ pub fn find_by_aos_error(error_name: &str) -> Option<ErrorCode> {
         "Config" => find_by_code("E8001"),
         "Database" => find_by_code("E8003"),
         "Io" | "Parse" => find_by_code("E9002"),
+        // Resource exhaustion errors
+        "CpuThrottled" => find_by_code("E9005"),
+        "OutOfMemory" => find_by_code("E9006"),
+        "FileDescriptorExhausted" => find_by_code("E9007"),
+        "ThreadPoolSaturated" => find_by_code("E9008"),
+        "GpuUnavailable" => find_by_code("E9009"),
+        // Build/Toolchain errors (Category 20)
+        "ToolchainMismatch" => find_by_code("E3005"),
+        "StaleBuildCache" => find_by_code("E3006"),
+        "LintTargetMissing" => find_by_code("E3007"),
+        "LockfileOutOfSync" => find_by_code("E3008"),
+        "WorkspaceMemberPathInvalid" => find_by_code("E3009"),
+        // CLI errors (Category 21)
+        "DeprecatedFlag" => find_by_code("E8009"),
+        "OutputFormatMismatch" => find_by_code("E8010"),
+        "CliWritePermissionDenied" => find_by_code("E8011"),
+        "InvalidInputEncoding" => find_by_code("E8012"),
+        "InvalidRetryAttempt" => find_by_code("E8013"),
+        // Rate limiting errors (Category 23)
+        "RateLimiterNotConfigured" | "InvalidRateLimitConfig" | "ThunderingHerdRejected" => {
+            find_by_code("E9008") // Use thread pool saturated as closest match
+        }
         _ => None,
     }
 }
@@ -595,6 +824,11 @@ pub enum ExitCode {
     InvalidManifest = 11,
     Parse = 12,
     Toolchain = 13,
+    DeprecatedFlag = 14,
+    OutputFormat = 15,
+    InputEncoding = 16,
+    InvalidRetry = 17,
+    RateLimitConfig = 18,
 
     // Database errors (20-29)
     Database = 20,
@@ -700,6 +934,22 @@ impl From<&adapteros_core::AosError> for ExitCode {
             AosError::InvalidManifest(_) => ExitCode::InvalidManifest,
             AosError::Parse(_) => ExitCode::Parse,
             AosError::Toolchain(_) => ExitCode::Toolchain,
+            // Build/Toolchain errors (Category 20)
+            AosError::ToolchainMismatch { .. } => ExitCode::Toolchain,
+            AosError::StaleBuildCache { .. } => ExitCode::Toolchain,
+            AosError::LintTargetMissing { .. } => ExitCode::Toolchain,
+            AosError::LockfileOutOfSync { .. } => ExitCode::Toolchain,
+            AosError::WorkspaceMemberPathInvalid { .. } => ExitCode::Toolchain,
+            // CLI errors (Category 21)
+            AosError::DeprecatedFlag { .. } => ExitCode::DeprecatedFlag,
+            AosError::OutputFormatMismatch { .. } => ExitCode::OutputFormat,
+            AosError::CliWritePermissionDenied { .. } => ExitCode::Io,
+            AosError::InvalidInputEncoding { .. } => ExitCode::InputEncoding,
+            AosError::InvalidRetryAttempt { .. } => ExitCode::InvalidRetry,
+            // Rate limiting errors (Category 23)
+            AosError::RateLimiterNotConfigured { .. } => ExitCode::RateLimitConfig,
+            AosError::InvalidRateLimitConfig { .. } => ExitCode::RateLimitConfig,
+            AosError::ThunderingHerdRejected { .. } => ExitCode::ResourceExhaustion,
 
             // Database errors (20-29)
             AosError::Database(_) | AosError::DatabaseError { .. } => ExitCode::Database,
@@ -921,6 +1171,30 @@ mod tests {
 
         let validation_err = AosError::Validation("test".to_string());
         assert_eq!(ExitCode::from(&validation_err), ExitCode::Validation);
+
+        // Test new Build/Toolchain errors
+        let toolchain_err = AosError::ToolchainMismatch {
+            component: "rust".to_string(),
+            expected: "1.75".to_string(),
+            actual: "1.74".to_string(),
+            ci_version: None,
+        };
+        assert_eq!(ExitCode::from(&toolchain_err), ExitCode::Toolchain);
+
+        // Test new CLI errors
+        let deprecated_err = AosError::DeprecatedFlag {
+            flag: "old-flag".to_string(),
+            replacement: "--new-flag".to_string(),
+            removal_version: "2.0.0".to_string(),
+        };
+        assert_eq!(ExitCode::from(&deprecated_err), ExitCode::DeprecatedFlag);
+
+        // Test rate limiting errors
+        let rate_limit_err = AosError::RateLimiterNotConfigured {
+            reason: "missing config".to_string(),
+            limiter_name: "api".to_string(),
+        };
+        assert_eq!(ExitCode::from(&rate_limit_err), ExitCode::RateLimitConfig);
     }
 
     #[test]
@@ -929,6 +1203,11 @@ mod tests {
         assert_eq!(ExitCode::Success as u8, 0);
         assert!((1..=9).contains(&(ExitCode::GeneralError as u8)));
         assert!((10..=19).contains(&(ExitCode::Config as u8)));
+        assert!((10..=19).contains(&(ExitCode::DeprecatedFlag as u8)));
+        assert!((10..=19).contains(&(ExitCode::OutputFormat as u8)));
+        assert!((10..=19).contains(&(ExitCode::InputEncoding as u8)));
+        assert!((10..=19).contains(&(ExitCode::InvalidRetry as u8)));
+        assert!((10..=19).contains(&(ExitCode::RateLimitConfig as u8)));
         assert!((20..=29).contains(&(ExitCode::Database as u8)));
         assert!((30..=39).contains(&(ExitCode::Network as u8)));
         assert!((40..=49).contains(&(ExitCode::Crypto as u8)));

@@ -5,7 +5,7 @@ use clap::Subcommand;
 use std::path::PathBuf;
 
 use crate::output::OutputWriter;
-use adapteros_core::policy::DriftPolicy;
+use adapteros_core::{policy::DriftPolicy, version::API_SCHEMA_VERSION};
 use adapteros_db::{
     adapters::AdapterRegistrationBuilder,
     chat_sessions::{AddMessageParams, CreateChatSessionParams},
@@ -789,7 +789,7 @@ async fn run_seed_fixtures(
         .category("code")
         .scope("global")
         .base_model_id(Some(MODEL_ID))
-        .manifest_schema_version(Some("1.0.0"))
+        .manifest_schema_version(Some(API_SCHEMA_VERSION))
         .content_hash_b3(Some("b3_adapter_content_seed"))
         .metadata_json(Some(
             json!({"description": "Seed adapter for Cypress", "owner": "seed-fixtures"})

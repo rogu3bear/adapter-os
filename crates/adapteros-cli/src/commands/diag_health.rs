@@ -1036,7 +1036,7 @@ async fn resolve_adapter_id(
 mod tests {
     use super::*;
     use crate::output::{OutputMode, OutputWriter};
-    use adapteros_api_types::adapters::AdapterDatasetHealth;
+    use adapteros_api_types::{adapters::AdapterDatasetHealth, API_SCHEMA_VERSION};
     use std::sync::{Arc, Mutex};
 
     #[test]
@@ -1050,7 +1050,7 @@ mod tests {
         let sink = Arc::new(Mutex::new(Vec::new()));
         let writer = OutputWriter::with_sink(OutputMode::Text, true, sink.clone());
         let body = AdapterHealthResponse {
-            schema_version: "v1".to_string(),
+            schema_version: API_SCHEMA_VERSION.to_string(),
             adapter_id: "adapter-1".to_string(),
             health: AdapterHealthFlag::Unsafe,
             primary_subcode: None,
