@@ -1,4 +1,5 @@
 use crate::output::OutputWriter;
+use adapteros_core::io_utils::{ensure_temp_dir, validate_path_characters};
 use anyhow::{Context, Result};
 use dirs::home_dir;
 use serde::{Deserialize, Serialize};
@@ -14,8 +15,11 @@ pub struct AuthStore {
 }
 
 fn auth_file_path() -> Result<PathBuf> {
-    if let Ok(path) = env::var("AOSCTL_AUTH_PATH") {
-        return Ok(PathBuf::from(path));
+    if let Ok(path_str) = env::var("AOSCTL_AUTH_PATH") {
+        let path = PathBuf::from(&path_str);
+        validate_path_characters(&path)
+            .with_context(|| format!("Invalid auth path: {}", path_str))?;
+        return Ok(path);
     }
 
     let home = home_dir().context("HOME directory not set")?;
@@ -38,7 +42,8 @@ pub fn load_auth() -> Result<Option<AuthStore>> {
 pub fn save_auth(store: &AuthStore) -> Result<()> {
     let path = auth_file_path()?;
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
+        // Use ensure_temp_dir for proper permission checking before write
+        ensure_temp_dir(parent)
             .with_context(|| format!("Failed to create auth directory {}", parent.display()))?;
     }
     let json = serde_json::to_string_pretty(store)?;

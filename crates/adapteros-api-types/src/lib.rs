@@ -3,11 +3,12 @@
 //! This crate provides unified request/response types used across
 //! the control plane API, client libraries, and UI components.
 
-/// API schema version for forward/backward compatibility
-pub const API_SCHEMA_VERSION: &str = "1.0";
+// Re-export API_SCHEMA_VERSION from core as the single source of truth
+pub use adapteros_core::version::API_SCHEMA_VERSION;
 
-/// Helper function to return the current API schema version
-fn schema_version() -> String {
+/// Get the current API schema version as a String.
+/// Used as serde default for response types.
+pub fn schema_version() -> String {
     API_SCHEMA_VERSION.to_string()
 }
 

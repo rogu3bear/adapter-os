@@ -507,6 +507,11 @@ mod tests {
             dataset_version_id: None,
             registration_timestamp: None,
             manifest_hash: None,
+            adapter_type: None,
+            base_adapter_id: None,
+            coreml_package_hash: None,
+            stream_session_id: None,
+            versioning_threshold: None,
             created_at: "now".to_string(),
             updated_at: "now".to_string(),
         }
