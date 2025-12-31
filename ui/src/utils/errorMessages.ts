@@ -440,6 +440,294 @@ const ERROR_CODE_MAP: Record<string, (context?: ErrorContext) => UserFriendlyErr
     actionText: 'Check Status',
     helpUrl: '/docs/status',
     variant: 'info'
+  }),
+
+  // Migration errors (Category 5)
+  'MIGRATION_FILE_MISSING': () => ({
+    title: 'Migration File Missing',
+    message: 'A required database migration file is missing. Please ensure all migration files are present.',
+    actionText: 'Check Migrations',
+    helpUrl: '/docs/troubleshooting#migrations',
+    variant: 'error'
+  }),
+
+  'MIGRATION_CHECKSUM_MISMATCH': () => ({
+    title: 'Migration Checksum Mismatch',
+    message: 'A migration file has been modified after being applied. This may cause inconsistencies.',
+    actionText: 'Review Migrations',
+    helpUrl: '/docs/troubleshooting#migration-checksums',
+    variant: 'error'
+  }),
+
+  'MIGRATION_OUT_OF_ORDER': () => ({
+    title: 'Migration Out of Order',
+    message: 'Migration files are being applied out of sequence. Please check migration timestamps.',
+    actionText: 'Fix Order',
+    helpUrl: '/docs/troubleshooting#migration-order',
+    variant: 'error'
+  }),
+
+  'DOWN_MIGRATION_BLOCKED': () => ({
+    title: 'Rollback Blocked',
+    message: 'Cannot roll back migration because the table contains data. Back up data before proceeding.',
+    actionText: 'View Table',
+    helpUrl: '/docs/troubleshooting#migration-rollback',
+    variant: 'warning'
+  }),
+
+  'SCHEMA_VERSION_MISMATCH': () => ({
+    title: 'Schema Version Mismatch',
+    message: 'The database schema version doesn\'t match the application. Run migrations to sync.',
+    actionText: 'Run Migrations',
+    helpUrl: '/docs/troubleshooting#schema-version',
+    variant: 'error'
+  }),
+
+  'SCHEMA_VERSION_AHEAD': () => ({
+    title: 'Schema Version Ahead',
+    message: 'The database schema is newer than this application version. Update the application.',
+    actionText: 'Update App',
+    helpUrl: '/docs/troubleshooting#schema-version',
+    variant: 'warning'
+  }),
+
+  // Cache errors (Category 6)
+  'CACHE_STALE': (context) => ({
+    title: 'Cache Data Stale',
+    message: context?.retryAfter
+      ? `Cached data has expired. Refreshing in ${context.retryAfter} seconds.`
+      : 'Cached data has expired and is being refreshed.',
+    actionText: 'Refresh Now',
+    helpUrl: '/docs/troubleshooting#cache',
+    variant: 'info'
+  }),
+
+  'CACHE_EVICTION': () => ({
+    title: 'Cache Eviction',
+    message: 'Some cached data was evicted to free up memory. This is normal under high load.',
+    actionText: 'Dismiss',
+    helpUrl: '/docs/troubleshooting#cache-eviction',
+    variant: 'info'
+  }),
+
+  'CACHE_KEY_NONDETERMINISTIC': () => ({
+    title: 'Cache Key Issue',
+    message: 'A nondeterministic cache key was detected. Results may vary between requests.',
+    actionText: 'Report Issue',
+    helpUrl: '/docs/troubleshooting#cache-determinism',
+    variant: 'warning'
+  }),
+
+  'CACHE_SERIALIZATION_ERROR': () => ({
+    title: 'Cache Serialization Error',
+    message: 'Failed to serialize or deserialize cached data. The cache will be refreshed.',
+    actionText: 'Retry',
+    helpUrl: '/docs/troubleshooting#cache-serialization',
+    variant: 'warning'
+  }),
+
+  'CACHE_INVALIDATION_FAILED': () => ({
+    title: 'Cache Invalidation Failed',
+    message: 'Failed to invalidate stale cache entries. Some data may be outdated.',
+    actionText: 'Clear Cache',
+    helpUrl: '/docs/troubleshooting#cache-invalidation',
+    variant: 'warning'
+  }),
+
+  // Rate limiting errors (Category 23)
+  'RATE_LIMITER_NOT_CONFIGURED': () => ({
+    title: 'Rate Limiter Not Configured',
+    message: 'The rate limiter is not properly configured for this resource.',
+    actionText: 'Contact Admin',
+    helpUrl: '/docs/administration#rate-limiting',
+    variant: 'error'
+  }),
+
+  'INVALID_RATE_LIMIT_CONFIG': () => ({
+    title: 'Invalid Rate Limit Configuration',
+    message: 'The rate limiting configuration is invalid. Using default limits.',
+    actionText: 'Review Config',
+    helpUrl: '/docs/administration#rate-limit-config',
+    variant: 'warning'
+  }),
+
+  'THUNDERING_HERD_REJECTED': (context) => ({
+    title: 'Request Temporarily Blocked',
+    message: context?.retryAfter
+      ? `Too many simultaneous requests detected. Please retry in ${context.retryAfter} seconds.`
+      : 'Too many simultaneous requests detected. Please wait a moment and try again.',
+    actionText: 'Try Again Later',
+    helpUrl: '/docs/troubleshooting#thundering-herd',
+    variant: 'warning'
+  }),
+
+  // Config errors (Category 1)
+  'CONFIG_FILE_NOT_FOUND': () => ({
+    title: 'Configuration Not Found',
+    message: 'The configuration file could not be found. Using default settings.',
+    actionText: 'Create Config',
+    helpUrl: '/docs/configuration#file-locations',
+    variant: 'warning'
+  }),
+
+  'CONFIG_FILE_PERMISSION_DENIED': () => ({
+    title: 'Configuration Access Denied',
+    message: 'Cannot read configuration file due to permission issues.',
+    actionText: 'Fix Permissions',
+    helpUrl: '/docs/configuration#permissions',
+    variant: 'error'
+  }),
+
+  'CONFIG_SCHEMA_VIOLATION': () => ({
+    title: 'Invalid Configuration',
+    message: 'The configuration file contains invalid values. Check the schema requirements.',
+    actionText: 'Fix Config',
+    helpUrl: '/docs/configuration#schema',
+    variant: 'error'
+  }),
+
+  'EMPTY_ENV_OVERRIDE': () => ({
+    title: 'Empty Environment Variable',
+    message: 'An environment variable override is set but empty. Using default value instead.',
+    actionText: 'Fix Environment',
+    helpUrl: '/docs/configuration#environment',
+    variant: 'warning'
+  }),
+
+  'BLANK_SECRET': () => ({
+    title: 'Missing Secret',
+    message: 'A required secret is blank or not configured. Please set it before continuing.',
+    actionText: 'Configure Secret',
+    helpUrl: '/docs/configuration#secrets',
+    variant: 'error'
+  }),
+
+  // Toolchain/Build errors (Category 20)
+  'TOOLCHAIN_MISMATCH': () => ({
+    title: 'Toolchain Version Mismatch',
+    message: 'The required toolchain version doesn\'t match. Some features may not work correctly.',
+    actionText: 'Update Toolchain',
+    helpUrl: '/docs/installation#toolchain',
+    variant: 'warning'
+  }),
+
+  'STALE_BUILD_CACHE': () => ({
+    title: 'Stale Build Cache',
+    message: 'The build cache is outdated and may cause issues. Consider clearing it.',
+    actionText: 'Clear Cache',
+    helpUrl: '/docs/troubleshooting#build-cache',
+    variant: 'info'
+  }),
+
+  // Network/DNS errors (Category 3)
+  'DNS_RESOLUTION_FAILED': () => ({
+    title: 'DNS Resolution Failed',
+    message: 'Could not resolve the server hostname. Check your network connection or DNS settings.',
+    actionText: 'Check Network',
+    helpUrl: '/docs/troubleshooting#dns',
+    variant: 'error'
+  }),
+
+  'TLS_CERTIFICATE_ERROR': () => ({
+    title: 'TLS Certificate Error',
+    message: 'Could not verify the server\'s TLS certificate. The connection may not be secure.',
+    actionText: 'View Details',
+    helpUrl: '/docs/troubleshooting#tls',
+    variant: 'error'
+  }),
+
+  'PROXY_CONNECTION_FAILED': () => ({
+    title: 'Proxy Connection Failed',
+    message: 'Could not connect through the configured proxy server.',
+    actionText: 'Check Proxy',
+    helpUrl: '/docs/configuration#proxy',
+    variant: 'error'
+  }),
+
+  // SSE/Streaming errors (Category 18)
+  'STREAM_DISCONNECTED': (context) => ({
+    title: 'Stream Disconnected',
+    message: context?.retryAfter
+      ? `The real-time connection was lost. Reconnecting in ${context.retryAfter} seconds.`
+      : 'The real-time connection was lost. Attempting to reconnect.',
+    actionText: 'Reconnect Now',
+    helpUrl: '/docs/troubleshooting#streaming',
+    variant: 'warning'
+  }),
+
+  'BUFFER_OVERFLOW': () => ({
+    title: 'Event Buffer Overflow',
+    message: 'Some real-time events were dropped due to high volume. Data will be refreshed.',
+    actionText: 'Refresh',
+    helpUrl: '/docs/troubleshooting#streaming-buffer',
+    variant: 'warning'
+  }),
+
+  'EVENT_GAP_DETECTED': () => ({
+    title: 'Events Missed',
+    message: 'Some real-time events were missed during a disconnection. Data may need refreshing.',
+    actionText: 'Refresh Data',
+    helpUrl: '/docs/troubleshooting#event-gaps',
+    variant: 'warning'
+  }),
+
+  // Storage errors (Category 9)
+  'STORAGE_QUOTA_EXCEEDED': () => ({
+    title: 'Storage Quota Exceeded',
+    message: 'You\'ve exceeded your storage quota. Delete some files or upgrade your plan.',
+    actionText: 'Manage Storage',
+    helpUrl: '/docs/storage#quotas',
+    variant: 'error'
+  }),
+
+  'STATIC_ASSET_NOT_FOUND': () => ({
+    title: 'Asset Not Found',
+    message: 'A required static asset could not be loaded. Try refreshing the page.',
+    actionText: 'Refresh',
+    helpUrl: '/docs/troubleshooting#assets',
+    variant: 'warning'
+  }),
+
+  // Security errors
+  'CSP_VIOLATION': () => ({
+    title: 'Security Policy Violation',
+    message: 'A content security policy violation was detected. Some features may not work.',
+    actionText: 'Report Issue',
+    helpUrl: '/docs/security#csp',
+    variant: 'warning'
+  }),
+
+  // CLI errors (Category 21)
+  'DEPRECATED_FLAG': () => ({
+    title: 'Deprecated Flag Used',
+    message: 'A deprecated command-line flag was used. Please update to the new syntax.',
+    actionText: 'View Migration',
+    helpUrl: '/docs/cli#deprecated-flags',
+    variant: 'warning'
+  }),
+
+  'OUTPUT_FORMAT_MISMATCH': () => ({
+    title: 'Output Format Error',
+    message: 'The requested output format doesn\'t match the available data format.',
+    actionText: 'Fix Format',
+    helpUrl: '/docs/cli#output-formats',
+    variant: 'warning'
+  }),
+
+  'INVALID_INPUT_ENCODING': () => ({
+    title: 'Invalid Input Encoding',
+    message: 'The input contains invalid character encoding. Please use UTF-8.',
+    actionText: 'Fix Encoding',
+    helpUrl: '/docs/troubleshooting#encoding',
+    variant: 'error'
+  }),
+
+  'INVALID_RETRY_ATTEMPT': () => ({
+    title: 'Cannot Retry',
+    message: 'This error type cannot be automatically retried. Please fix the underlying issue.',
+    actionText: 'View Details',
+    helpUrl: '/docs/troubleshooting#retries',
+    variant: 'warning'
   })
 };
 
@@ -618,7 +906,20 @@ export function isTransientError(error: unknown): boolean {
     'RATE_LIMIT',
     'RESOURCE_BUSY',
     'SERVICE_UNAVAILABLE',
-    'MAINTENANCE'
+    'MAINTENANCE',
+    // Streaming/SSE transient errors
+    'STREAM_DISCONNECTED',
+    'BUFFER_OVERFLOW',
+    'EVENT_GAP_DETECTED',
+    // Cache transient errors
+    'CACHE_STALE',
+    'CACHE_EVICTION',
+    'CACHE_INVALIDATION_FAILED',
+    // Rate limiting transient errors
+    'THUNDERING_HERD_REJECTED',
+    // Network transient errors
+    'DNS_RESOLUTION_FAILED',
+    'PROXY_CONNECTION_FAILED',
   ];
 
   // HTTP status codes that indicate transient failures
@@ -626,6 +927,45 @@ export function isTransientError(error: unknown): boolean {
 
   return (errorCode !== undefined && transientCodes.includes(errorCode)) ||
          (httpStatus !== undefined && transientStatuses.includes(httpStatus));
+}
+
+/**
+ * Error codes that should NOT be retried automatically
+ * These require user intervention to fix the underlying issue
+ */
+export function isNonRetryableError(error: unknown): boolean {
+  const errorCode = (error as { failure_code?: string }).failure_code ?? (error as { code?: string }).code;
+
+  const nonRetryableCodes = [
+    // Auth errors - need user action
+    'UNAUTHORIZED',
+    'FORBIDDEN',
+    'SESSION_EXPIRED',
+    // Validation errors - need input correction
+    'CONFIG_SCHEMA_VIOLATION',
+    'INVALID_PROMPT',
+    'INVALID_FILE_FORMAT',
+    'INVALID_TRAINING_DATA',
+    'INVALID_INPUT_ENCODING',
+    // Resource not found - won't magically appear
+    'ADAPTER_NOT_FOUND',
+    'MODEL_NOT_FOUND',
+    // Corruption - needs manual intervention
+    'ADAPTER_CORRUPTED',
+    // Migration errors - need manual intervention
+    'MIGRATION_CHECKSUM_MISMATCH',
+    'MIGRATION_OUT_OF_ORDER',
+    'DOWN_MIGRATION_BLOCKED',
+    // Config errors - need configuration change
+    'BLANK_SECRET',
+    'CONFIG_FILE_PERMISSION_DENIED',
+    'RATE_LIMITER_NOT_CONFIGURED',
+    // Policy errors - need policy review
+    'POLICY_DIVERGENCE',
+    'TENANT_ACCESS_DENIED',
+  ];
+
+  return errorCode !== undefined && nonRetryableCodes.includes(errorCode);
 }
 
 /**

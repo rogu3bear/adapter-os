@@ -9,8 +9,10 @@ export default defineConfig({
     include: [
       'src/__tests__/**/*.test.{ts,tsx}',
       'src/api/__tests__/**/*.test.{ts,tsx}',
+      'src/api/**/__tests__/**/*.test.{ts,tsx}',
       'src/components/**/__tests__/**/*.test.{ts,tsx}',
       'src/config/__tests__/**/*.test.{ts,tsx}',
+      'src/hooks/**/__tests__/**/*.test.{ts,tsx}',
       'src/pages/**/*.test.{ts,tsx}',
       'src/utils/**/*.test.{ts,tsx}',
     ],

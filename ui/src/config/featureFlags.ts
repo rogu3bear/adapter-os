@@ -2,7 +2,7 @@
  * Centralized feature flag helpers.
  *
  * Flags are sourced from Vite environment variables (VITE_*). Defaults are
- * false unless explicitly set to the string "true".
+ * defined in FLAG_DEFAULTS below; if not present, defaults to false.
  */
 
 type EnvReader = {
@@ -10,6 +10,15 @@ type EnvReader = {
 };
 
 const env = (import.meta as unknown as EnvReader).env || {};
+
+/**
+ * Default values for feature flags when not set via environment variables.
+ * Keys should match the flag name without the VITE_ prefix.
+ */
+const FLAG_DEFAULTS: Record<string, boolean> = {
+  COREML_EXPORT_UI: false,
+  CHAT_AUTO_LOAD_MODELS: true,
+};
 
 /**
  * Returns true when CoreML export/verification UI should be shown.
@@ -22,8 +31,13 @@ export function isCoremlPackageUiEnabled(): boolean {
 
 /**
  * Generic helper for ad-hoc flags.
+ * Checks environment variable first, then falls back to FLAG_DEFAULTS.
  */
 export function isFeatureEnabled(flagName: string): boolean {
   const key = `VITE_${flagName}`;
-  return env[key] === 'true';
+  const envValue = env[key];
+  if (envValue !== undefined) {
+    return envValue === 'true';
+  }
+  return FLAG_DEFAULTS[flagName] ?? false;
 }

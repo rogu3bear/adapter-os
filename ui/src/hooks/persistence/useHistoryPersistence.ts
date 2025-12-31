@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { logger } from '@/utils/logger';
 import { ActionHistoryItem } from '@/types/history';
+import { getStorageStatus, evictOldestEntries } from '@/utils/storage';
 
 const STORAGE_KEY = 'aos_action_history_v2';
 const BACKUP_KEY = 'aos_action_history_backup';
@@ -281,6 +282,28 @@ export function useHistoryPersistence(config: PersistenceConfig = {}) {
     }
   }, [useLocalStorage]);
 
+  // Save with quota check - warns at 80%, evicts at 90%
+  const saveWithQuotaCheck = useCallback(async (actions: ActionHistoryItem[]): Promise<boolean> => {
+    const status = await getStorageStatus();
+
+    if (status?.shouldEvict) {
+      logger.warn('Storage quota at 90%+, evicting oldest entries', {
+        component: 'useHistoryPersistence',
+        percent: Math.round(status.percent * 100),
+      });
+      evictOldestEntries(STORAGE_KEY, Math.floor(MAX_STORED_SIZE * 0.5));
+    } else if (status?.shouldWarn) {
+      logger.warn('Storage quota at 80%+', {
+        component: 'useHistoryPersistence',
+        percent: Math.round(status.percent * 100),
+        used: status.used,
+        total: status.total,
+      });
+    }
+
+    return saveToLocalStorage(actions);
+  }, [saveToLocalStorage]);
+
   // Setup auto backup
   useEffect(() => {
     if (!autoBackup) return;
@@ -316,6 +339,7 @@ export function useHistoryPersistence(config: PersistenceConfig = {}) {
   return {
     // LocalStorage
     saveToLocalStorage,
+    saveWithQuotaCheck,
     loadFromLocalStorage,
 
     // IndexedDB
