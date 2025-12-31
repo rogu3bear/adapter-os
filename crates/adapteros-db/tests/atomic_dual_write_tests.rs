@@ -1,3 +1,4 @@
+use adapteros_config::test_support::TestEnvGuard;
 use adapteros_core::Result;
 use adapteros_db::{
     adapters::{AdapterRegistrationBuilder, AdapterRegistrationParams, AtomicDualWriteConfig},
@@ -46,6 +47,8 @@ async fn atomic_dual_write_config_strict() {
 
 #[tokio::test]
 async fn atomic_dual_write_config_from_env() {
+    let _guard = TestEnvGuard::new();
+
     // Default (no env var) - CHANGED: now defaults to strict mode
     std::env::remove_var("AOS_ATOMIC_DUAL_WRITE_STRICT");
     assert!(AtomicDualWriteConfig::from_env().is_strict());
@@ -62,8 +65,7 @@ async fn atomic_dual_write_config_from_env() {
 
     std::env::set_var("AOS_ATOMIC_DUAL_WRITE_STRICT", "0");
     assert!(!AtomicDualWriteConfig::from_env().is_strict());
-
-    std::env::remove_var("AOS_ATOMIC_DUAL_WRITE_STRICT");
+    // Guard automatically restores env vars on drop
 }
 
 #[tokio::test]

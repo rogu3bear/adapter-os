@@ -10,8 +10,8 @@ use std::str::FromStr;
 // Re-export lifecycle types from core
 pub use adapteros_core::LifecycleState;
 
-/// API schema version for backward compatibility tracking
-pub const API_SCHEMA_VERSION: &str = "1.0.0";
+// Re-export API_SCHEMA_VERSION from core as the single source of truth
+pub use adapteros_core::version::API_SCHEMA_VERSION;
 
 /// Canonical adapter metadata
 ///

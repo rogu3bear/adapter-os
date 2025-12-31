@@ -61,6 +61,10 @@ chacha20poly1305 = "0.10"
 utoipa = { workspace = true, optional = true }
 
 [features]
+default = []
+# Enable PostgreSQL support
+postgres = []
+# Enable OpenAPI schema generation
 utoipa = ["dep:utoipa"]
 
 [dev-dependencies]
@@ -68,6 +72,7 @@ tempfile = { workspace = true }
 criterion = { workspace = true }
 toml = { workspace = true }
 adapteros-lora-lifecycle = { path = "../adapteros-lora-lifecycle" }
+adapteros-config = { path = "../adapteros-config", features = ["testkit"] }
 
 [[bench]]
 name = "kv_vs_sql"

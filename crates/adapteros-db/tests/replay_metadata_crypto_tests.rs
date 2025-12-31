@@ -1,7 +1,10 @@
+use adapteros_config::test_support::TestEnvGuard;
 use adapteros_db::{CreateReplayMetadataParams, Db};
 
 #[tokio::test]
 async fn stores_ciphertext_and_recovers_plaintext() {
+    let _guard = TestEnvGuard::new();
+
     // Enable crypto-at-rest with local fallback to avoid UDS dependency in tests.
     std::env::set_var("AOS_CRYPTO_AT_REST", "1");
     std::env::set_var("AOS_CRYPTO_FAKE", "1");
@@ -96,7 +99,5 @@ async fn stores_ciphertext_and_recovers_plaintext() {
         metadata.response_text.as_deref(),
         Some("secret response text")
     );
-
-    std::env::remove_var("AOS_CRYPTO_AT_REST");
-    std::env::remove_var("AOS_CRYPTO_FAKE");
+    // Guard automatically restores env vars on drop
 }
