@@ -1,5 +1,6 @@
 //! Error types for web browse service
 
+use std::time::Duration;
 use thiserror::Error;
 
 /// Result type alias for web browse operations
@@ -75,6 +76,68 @@ pub enum WebBrowseError {
     /// Internal error
     #[error("Internal error: {0}")]
     InternalError(String),
+
+    /// Blocked by robots.txt or similar access restrictions
+    #[error("Access blocked (likely robots.txt) for domain: {domain}, status: {status}")]
+    RobotsTxtBlocked { domain: String, status: u16 },
+
+    /// Server rate limited with retry information
+    #[error("Server rate limited: {url}, retry after {retry_after_secs:?}s")]
+    ServerRateLimited {
+        url: String,
+        status: u16,
+        retry_after_secs: Option<u64>,
+        message: String,
+    },
+
+    /// Redirect loop or max redirects exceeded
+    #[error("Redirect limit exceeded ({max_redirects}) for: {url}")]
+    RedirectLoopExceeded {
+        url: String,
+        max_redirects: u32,
+        redirect_chain: Vec<String>,
+    },
+
+    /// Request failed after retry attempts exhausted
+    #[error("Request failed after {attempts} attempts: {last_error}")]
+    RetryExhausted {
+        url: String,
+        attempts: u32,
+        last_error: String,
+    },
+}
+
+impl WebBrowseError {
+    /// Check if this error is retriable
+    pub fn is_retriable(&self) -> bool {
+        match self {
+            WebBrowseError::NetworkError(_) => true,
+            WebBrowseError::Timeout { .. } => true,
+            WebBrowseError::ServerRateLimited { .. } => true,
+            WebBrowseError::HttpError { status, .. } => is_retriable_status(*status),
+            _ => false,
+        }
+    }
+
+    /// Get retry delay hint from Retry-After header (if available)
+    pub fn retry_after_hint(&self) -> Option<Duration> {
+        match self {
+            WebBrowseError::ServerRateLimited {
+                retry_after_secs: Some(secs),
+                ..
+            } => Some(Duration::from_secs(*secs)),
+            _ => None,
+        }
+    }
+}
+
+/// Determines if an HTTP status code is retriable
+pub fn is_retriable_status(status: u16) -> bool {
+    match status {
+        429 => true,       // Too Many Requests - always retry
+        500..=599 => true, // Server errors - retry
+        _ => false,        // 4xx (except 429) - don't retry
+    }
 }
 
 impl From<reqwest::Error> for WebBrowseError {
@@ -84,12 +147,22 @@ impl From<reqwest::Error> for WebBrowseError {
                 url: err.url().map(|u| u.to_string()).unwrap_or_default(),
                 timeout_secs: 10,
             }
+        } else if err.is_redirect() {
+            // Redirect limit exceeded
+            WebBrowseError::RedirectLoopExceeded {
+                url: err.url().map(|u| u.to_string()).unwrap_or_default(),
+                max_redirects: 10,
+                redirect_chain: Vec::new(),
+            }
         } else if err.is_status() {
             let status = err.status().map(|s| s.as_u16()).unwrap_or(0);
             WebBrowseError::HttpError {
                 status,
                 message: err.to_string(),
             }
+        } else if err.is_connect() || err.is_request() {
+            // Network-level errors are retriable
+            WebBrowseError::NetworkError(err.to_string())
         } else {
             WebBrowseError::NetworkError(err.to_string())
         }

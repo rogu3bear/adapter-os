@@ -10,9 +10,33 @@ use std::time::{Duration, Instant};
 use crate::{
     error::{WebBrowseError, WebBrowseResult},
     evidence::{EvidenceBuilder, EvidenceType, Freshness, SourceRecord},
+    retry::{calculate_retry_delay, parse_retry_after, resolve_redirect_url, HttpRetryConfig},
     service::{PageFetchRequest, PageFetchResponse, PageImage},
+    streaming::{stream_response_body, StreamingConfig},
     TenantId,
 };
+
+/// Maximum number of redirects to follow
+const MAX_REDIRECTS: u32 = 10;
+
+/// Extended response metadata with redirect tracking
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FetchMetadata {
+    /// Original requested URL
+    pub original_url: String,
+    /// Final URL after redirects
+    pub final_url: String,
+    /// Redirect chain (if any)
+    pub redirect_chain: Vec<String>,
+    /// Number of redirects followed
+    pub redirect_count: u32,
+    /// Whether content was truncated
+    pub was_truncated: bool,
+    /// Original size before truncation (if truncated)
+    pub original_size_bytes: Option<u64>,
+    /// Number of retry attempts made
+    pub retry_attempts: u32,
+}
 
 /// Page fetcher configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,6 +55,14 @@ pub struct PageFetcherConfig {
 
     /// Blocked domains
     pub blocked_domains: Vec<String>,
+
+    /// Retry configuration
+    #[serde(default)]
+    pub retry_config: HttpRetryConfig,
+
+    /// Streaming configuration
+    #[serde(default)]
+    pub streaming_config: StreamingConfig,
 }
 
 impl Default for PageFetcherConfig {
@@ -41,6 +73,8 @@ impl Default for PageFetcherConfig {
             user_agent: "AdapterOS-WebBrowse/1.0".to_string(),
             https_only: true,
             blocked_domains: vec!["localhost".to_string(), "127.0.0.1".to_string()],
+            retry_config: HttpRetryConfig::default(),
+            streaming_config: StreamingConfig::default(),
         }
     }
 }
@@ -57,14 +91,15 @@ impl PageFetcher {
         let client = Client::builder()
             .timeout(Duration::from_secs(config.timeout_secs as u64))
             .user_agent(&config.user_agent)
-            .redirect(reqwest::redirect::Policy::limited(10))
+            // Disable auto-redirect to track chain manually
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .unwrap_or_default();
 
         Self { config, client }
     }
 
-    /// Fetch page content
+    /// Fetch page content with retry and redirect tracking
     pub async fn fetch(
         &self,
         tenant_id: &TenantId,
@@ -81,67 +116,20 @@ impl PageFetcher {
         }
 
         // Check blocked domains
-        if let Some(host) = url.host_str() {
-            for blocked in &self.config.blocked_domains {
-                if host == blocked || host.ends_with(&format!(".{}", blocked)) {
-                    return Err(WebBrowseError::DomainBlocked {
-                        domain: host.to_string(),
-                    });
-                }
-            }
-        }
+        self.check_blocked_domain(&url)?;
 
         let start = Instant::now();
 
-        // Fetch the page
-        let response = self
-            .client
-            .get(&request.url)
-            .header("Accept", "text/html,application/xhtml+xml")
-            .send()
-            .await?;
+        // Fetch with retry and redirect tracking
+        let (response, metadata) = self.fetch_with_retry(&request.url).await?;
 
-        // Get final URL (after redirects)
-        let final_url = response.url().to_string();
-
-        if !response.status().is_success() {
-            return Err(WebBrowseError::HttpError {
-                status: response.status().as_u16(),
-                message: format!("Failed to fetch: {}", request.url),
-            });
-        }
-
-        // Check content length
-        if let Some(content_length) = response.content_length() {
-            let max_bytes = self.config.max_content_kb * 1024;
-            if content_length > max_bytes {
-                return Err(WebBrowseError::ContentTooLarge {
-                    size_kb: content_length / 1024,
-                    limit_kb: self.config.max_content_kb,
-                });
-            }
-        }
-
-        let html_content = response
-            .text()
-            .await
-            .map_err(|e| WebBrowseError::ParseError(format!("Failed to read response: {}", e)))?;
-
-        // Check actual content size
-        let content_length = html_content.len();
-        let max_bytes =
-            (request.max_content_kb.unwrap_or(self.config.max_content_kb) * 1024) as usize;
-        if content_length > max_bytes {
-            return Err(WebBrowseError::ContentTooLarge {
-                size_kb: (content_length / 1024) as u64,
-                limit_kb: self.config.max_content_kb,
-            });
-        }
+        // Stream response body with truncation support
+        let streamed = stream_response_body(response, &self.config.streaming_config).await?;
 
         let latency_ms = start.elapsed().as_millis() as u64;
 
         // Parse HTML
-        let document = Html::parse_document(&html_content);
+        let document = Html::parse_document(&streamed.content);
 
         // Extract title
         let title_selector = Selector::parse("title").unwrap();
@@ -170,16 +158,16 @@ impl PageFetcher {
 
         // Extract images if requested
         let images = if request.include_images {
-            extract_images(&document, &final_url)
+            extract_images(&document, &metadata.final_url)
         } else {
             Vec::new()
         };
 
         // Build evidence
-        let source = SourceRecord::new(&final_url)
+        let source = SourceRecord::new(&metadata.final_url)
             .with_title(&title)
             .with_content_hash(&content)
-            .with_freshness(Freshness::Fresh); // Just fetched
+            .with_freshness(Freshness::Fresh);
 
         let evidence = EvidenceBuilder::new(tenant_id.clone(), request.request_id.clone())
             .evidence_type(EvidenceType::PageFetch)
@@ -189,9 +177,9 @@ impl PageFetcher {
 
         Ok(PageFetchResponse {
             title,
-            url: final_url,
+            url: metadata.final_url,
             content,
-            content_length,
+            content_length: streamed.content.len(),
             description,
             images,
             evidence,
@@ -199,6 +187,193 @@ impl PageFetcher {
             from_cache: false,
         })
     }
+
+    /// Check if a domain is blocked
+    fn check_blocked_domain(&self, url: &url::Url) -> WebBrowseResult<()> {
+        if let Some(host) = url.host_str() {
+            for blocked in &self.config.blocked_domains {
+                if host == blocked || host.ends_with(&format!(".{}", blocked)) {
+                    return Err(WebBrowseError::DomainBlocked {
+                        domain: host.to_string(),
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Fetch with retry logic
+    async fn fetch_with_retry(
+        &self,
+        url: &str,
+    ) -> WebBrowseResult<(reqwest::Response, FetchMetadata)> {
+        let retry_config = &self.config.retry_config;
+        let mut attempts = 0u32;
+        let mut last_error: Option<WebBrowseError> = None;
+
+        loop {
+            attempts += 1;
+
+            match self.single_fetch(url).await {
+                Ok((response, metadata)) => {
+                    return Ok((
+                        response,
+                        FetchMetadata {
+                            original_url: url.to_string(),
+                            final_url: metadata.final_url,
+                            redirect_chain: metadata.redirect_chain,
+                            redirect_count: metadata.redirect_count,
+                            was_truncated: false,
+                            original_size_bytes: None,
+                            retry_attempts: attempts - 1,
+                        },
+                    ));
+                }
+                Err(e) if e.is_retriable() && attempts <= retry_config.max_retries => {
+                    let delay = calculate_retry_delay(&e, attempts, retry_config);
+                    tracing::warn!(
+                        url = %url,
+                        attempt = attempts,
+                        max_retries = retry_config.max_retries,
+                        delay_ms = delay.as_millis() as u64,
+                        error = %e,
+                        "Retriable error, backing off"
+                    );
+                    last_error = Some(e);
+                    tokio::time::sleep(delay).await;
+                }
+                Err(e) => {
+                    if attempts > 1 {
+                        return Err(WebBrowseError::RetryExhausted {
+                            url: url.to_string(),
+                            attempts,
+                            last_error: last_error
+                                .map(|le| le.to_string())
+                                .unwrap_or_else(|| e.to_string()),
+                        });
+                    }
+                    return Err(e);
+                }
+            }
+        }
+    }
+
+    /// Single fetch with manual redirect handling
+    async fn single_fetch(
+        &self,
+        url: &str,
+    ) -> WebBrowseResult<(reqwest::Response, SingleFetchMeta)> {
+        let mut current_url = url.to_string();
+        let mut redirect_chain = Vec::new();
+
+        for _ in 0..MAX_REDIRECTS {
+            let response = self
+                .client
+                .get(&current_url)
+                .header("Accept", "text/html,application/xhtml+xml")
+                .send()
+                .await?;
+
+            let status = response.status().as_u16();
+
+            // Check for rate limiting (429)
+            if status == 429 {
+                let retry_after = parse_retry_after(&response);
+                return Err(WebBrowseError::ServerRateLimited {
+                    url: current_url,
+                    status,
+                    retry_after_secs: retry_after,
+                    message: "Too Many Requests".to_string(),
+                });
+            }
+
+            // Check for potential robots.txt block (403)
+            if status == 403 && self.looks_like_robots_block(&response) {
+                let domain = url::Url::parse(&current_url)
+                    .ok()
+                    .and_then(|u| u.host_str().map(String::from))
+                    .unwrap_or_default();
+                return Err(WebBrowseError::RobotsTxtBlocked { domain, status });
+            }
+
+            // Handle redirects manually
+            if response.status().is_redirection() {
+                if let Some(location) = response.headers().get("location") {
+                    redirect_chain.push(current_url.clone());
+                    let new_url = resolve_redirect_url(&current_url, location)?;
+
+                    // Check for HTTPS downgrade
+                    if self.config.https_only
+                        && current_url.starts_with("https://")
+                        && new_url.starts_with("http://")
+                    {
+                        return Err(WebBrowseError::HttpsRequired { url: new_url });
+                    }
+
+                    // Check if redirecting to blocked domain
+                    let parsed_new = url::Url::parse(&new_url)?;
+                    self.check_blocked_domain(&parsed_new)?;
+
+                    current_url = new_url;
+                    continue;
+                }
+            }
+
+            // Check for other HTTP errors
+            if !response.status().is_success() {
+                return Err(WebBrowseError::HttpError {
+                    status,
+                    message: format!("Failed to fetch: {}", current_url),
+                });
+            }
+
+            // Success
+            let redirect_count = redirect_chain.len() as u32;
+            return Ok((
+                response,
+                SingleFetchMeta {
+                    final_url: current_url,
+                    redirect_chain,
+                    redirect_count,
+                },
+            ));
+        }
+
+        // Exceeded max redirects
+        Err(WebBrowseError::RedirectLoopExceeded {
+            url: url.to_string(),
+            max_redirects: MAX_REDIRECTS,
+            redirect_chain,
+        })
+    }
+
+    /// Heuristics to detect if a 403 is likely a robots.txt block
+    fn looks_like_robots_block(&self, response: &reqwest::Response) -> bool {
+        // Check for common CDN/protection service headers
+        let server = response
+            .headers()
+            .get("server")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+
+        // Common protection services that block bots
+        let is_protection_service = server.to_lowercase().contains("cloudflare")
+            || server.to_lowercase().contains("akamai")
+            || server.to_lowercase().contains("imperva")
+            || server.to_lowercase().contains("datadome");
+
+        // Check for x-robots-tag header
+        let has_robots_header = response.headers().contains_key("x-robots-tag");
+
+        is_protection_service || has_robots_header
+    }
+}
+
+/// Internal metadata from single fetch
+struct SingleFetchMeta {
+    final_url: String,
+    redirect_chain: Vec<String>,
+    redirect_count: u32,
 }
 
 /// Extract main content from HTML

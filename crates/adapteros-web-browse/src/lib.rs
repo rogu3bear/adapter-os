@@ -38,20 +38,24 @@ mod config;
 mod error;
 mod evidence;
 mod rate_limit;
+mod retry;
 mod service;
+mod streaming;
 
 pub mod providers;
 
 // Re-exports
 pub use cache::{CacheConfig, WebBrowseCache};
 pub use config::{TenantBrowseConfig, WebBrowseConfig};
-pub use error::{WebBrowseError, WebBrowseResult};
+pub use error::{is_retriable_status, WebBrowseError, WebBrowseResult};
 pub use evidence::{BrowseEvidence, EvidenceBuilder};
 pub use rate_limit::{RateLimitConfig, RateLimiter};
+pub use retry::HttpRetryConfig;
 pub use service::{
     ImageSearchRequest, ImageSearchResponse, ImageSearchResult, PageFetchRequest,
     PageFetchResponse, WebBrowseService, WebSearchRequest, WebSearchResponse, WebSearchResult,
 };
+pub use streaming::{StreamedContent, StreamingConfig};
 
 /// Tenant ID type alias
 pub type TenantId = String;

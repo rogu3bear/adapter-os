@@ -3,9 +3,11 @@
 //! L1: In-memory moka cache for fast access
 //! L2: Database cache for persistence across restarts
 
+use adapteros_db::Db;
 use moka::future::Cache;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::{error::WebBrowseResult, TenantId};
@@ -66,15 +68,40 @@ pub struct CacheEntry {
     pub expires_at: i64,
 }
 
+/// Row type for sqlx query results
+#[derive(Debug, sqlx::FromRow)]
+struct CacheEntryRow {
+    cache_key: String,
+    tenant_id: String,
+    query_type: String,
+    query: String,
+    response_json: String,
+    created_at: String,
+    expires_at: String,
+}
+
+/// Parse SQLite datetime string to Unix timestamp
+fn parse_sqlite_datetime(s: &str) -> i64 {
+    chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S")
+        .map(|dt| dt.and_utc().timestamp())
+        .unwrap_or(0)
+}
+
 /// Web browse cache
 pub struct WebBrowseCache {
     config: CacheConfig,
     l1_cache: Option<Cache<String, CacheEntry>>,
+    db: Option<Arc<Db>>,
 }
 
 impl WebBrowseCache {
-    /// Create new cache
+    /// Create new cache without database (L1 only)
     pub fn new(config: CacheConfig) -> Self {
+        Self::with_db(config, None)
+    }
+
+    /// Create new cache with database (L1 + L2)
+    pub fn with_db(config: CacheConfig, db: Option<Arc<Db>>) -> Self {
         let l1_cache = if config.enable_l1 {
             Some(
                 Cache::builder()
@@ -86,7 +113,11 @@ impl WebBrowseCache {
             None
         };
 
-        Self { config, l1_cache }
+        Self {
+            config,
+            l1_cache,
+            db,
+        }
     }
 
     /// Generate cache key
@@ -114,7 +145,135 @@ impl WebBrowseCache {
         }
     }
 
+    /// Get from L2 (database) cache
+    async fn get_l2(&self, key: &str) -> WebBrowseResult<Option<CacheEntry>> {
+        let Some(db) = &self.db else {
+            return Ok(None);
+        };
+        if !self.config.enable_l2 {
+            return Ok(None);
+        }
+
+        let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+        let row: Option<CacheEntryRow> = sqlx::query_as(
+            r#"SELECT cache_key, tenant_id, query_type, query, response_json, created_at, expires_at
+               FROM web_browse_cache
+               WHERE cache_key = ? AND expires_at > ?"#,
+        )
+        .bind(key)
+        .bind(&now)
+        .fetch_optional(db.pool())
+        .await
+        .map_err(|e| {
+            tracing::warn!(error = %e, "L2 cache get failed");
+            crate::error::WebBrowseError::CacheError(format!("L2 cache get failed: {}", e))
+        })?;
+
+        match row {
+            Some(row) => {
+                let entry = CacheEntry {
+                    key: row.cache_key,
+                    tenant_id: row.tenant_id,
+                    query_type: row.query_type,
+                    query: row.query,
+                    response_json: row.response_json,
+                    created_at: parse_sqlite_datetime(&row.created_at),
+                    expires_at: parse_sqlite_datetime(&row.expires_at),
+                };
+                tracing::debug!(key = %entry.key, "L2 cache hit");
+                Ok(Some(entry))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Set in L2 (database) cache
+    async fn set_l2(&self, entry: &CacheEntry) -> WebBrowseResult<()> {
+        let Some(db) = &self.db else {
+            return Ok(());
+        };
+        if !self.config.enable_l2 {
+            return Ok(());
+        }
+
+        let created_at = chrono::DateTime::from_timestamp(entry.created_at, 0)
+            .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+            .unwrap_or_default();
+        let expires_at = chrono::DateTime::from_timestamp(entry.expires_at, 0)
+            .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+            .unwrap_or_default();
+
+        sqlx::query(
+            r#"INSERT OR REPLACE INTO web_browse_cache
+               (cache_key, tenant_id, query_type, query, response_json, created_at, expires_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)"#,
+        )
+        .bind(&entry.key)
+        .bind(&entry.tenant_id)
+        .bind(&entry.query_type)
+        .bind(&entry.query)
+        .bind(&entry.response_json)
+        .bind(&created_at)
+        .bind(&expires_at)
+        .execute(db.pool())
+        .await
+        .map_err(|e| {
+            tracing::warn!(error = %e, "L2 cache set failed");
+            crate::error::WebBrowseError::CacheError(format!("L2 cache set failed: {}", e))
+        })?;
+
+        tracing::debug!(key = %entry.key, "L2 cache set");
+        Ok(())
+    }
+
+    /// Invalidate from L2 (database) cache
+    async fn invalidate_l2(&self, key: &str) -> WebBrowseResult<()> {
+        let Some(db) = &self.db else {
+            return Ok(());
+        };
+
+        sqlx::query("DELETE FROM web_browse_cache WHERE cache_key = ?")
+            .bind(key)
+            .execute(db.pool())
+            .await
+            .map_err(|e| {
+                tracing::warn!(error = %e, "L2 cache invalidate failed");
+                crate::error::WebBrowseError::CacheError(format!(
+                    "L2 cache invalidate failed: {}",
+                    e
+                ))
+            })?;
+
+        Ok(())
+    }
+
+    /// Clear all L2 cache entries for a tenant
+    async fn clear_tenant_l2(&self, tenant_id: &TenantId) -> WebBrowseResult<()> {
+        let Some(db) = &self.db else {
+            return Ok(());
+        };
+
+        sqlx::query("DELETE FROM web_browse_cache WHERE tenant_id = ?")
+            .bind(tenant_id)
+            .execute(db.pool())
+            .await
+            .map_err(|e| {
+                tracing::warn!(error = %e, "L2 cache clear tenant failed");
+                crate::error::WebBrowseError::CacheError(format!(
+                    "L2 cache clear tenant failed: {}",
+                    e
+                ))
+            })?;
+
+        tracing::debug!(tenant_id = %tenant_id, "L2 cache cleared for tenant");
+        Ok(())
+    }
+
     /// Get from cache (L1, then L2)
+    ///
+    /// Tries L1 (memory) first, then falls back to L2 (database).
+    /// If L2 hit occurs, promotes entry to L1 for faster subsequent access.
     pub async fn get(
         &self,
         query_type: &str,
@@ -127,6 +286,7 @@ impl WebBrowseCache {
         if let Some(entry) = self.get_l1(&key).await {
             let now = chrono::Utc::now().timestamp();
             if entry.expires_at > now {
+                tracing::debug!(key = %key, "L1 cache hit");
                 return Ok(Some(entry));
             }
             // Entry expired, remove from L1
@@ -135,8 +295,12 @@ impl WebBrowseCache {
             }
         }
 
-        // TODO: Try L2 (database) cache
-        // For now, return None
+        // Try L2 (database) cache
+        if let Some(entry) = self.get_l2(&key).await? {
+            // Promote to L1 for faster subsequent access
+            self.set_l1(entry.clone()).await;
+            return Ok(Some(entry));
+        }
 
         Ok(None)
     }
@@ -152,7 +316,8 @@ impl WebBrowseCache {
     ) -> WebBrowseResult<()> {
         let key = Self::generate_key(query_type, query, tenant_id);
         let now = chrono::Utc::now().timestamp();
-        let ttl = ttl_secs.unwrap_or(self.config.l1_ttl_secs);
+        // Use L2 TTL for persistence, L1 TTL for memory cache
+        let l2_ttl = ttl_secs.unwrap_or(self.config.l2_ttl_secs);
 
         let entry = CacheEntry {
             key: key.clone(),
@@ -161,13 +326,14 @@ impl WebBrowseCache {
             query: query.to_string(),
             response_json: response_json.to_string(),
             created_at: now,
-            expires_at: now + ttl as i64,
+            expires_at: now + l2_ttl as i64,
         };
 
-        // Set in L1
+        // Set in L1 (uses its own TTL via moka time_to_live)
         self.set_l1(entry.clone()).await;
 
-        // TODO: Set in L2 (database) cache
+        // Set in L2 (database) cache
+        self.set_l2(&entry).await?;
 
         Ok(())
     }
@@ -186,18 +352,63 @@ impl WebBrowseCache {
             cache.remove(&key).await;
         }
 
-        // TODO: Remove from L2
+        // Remove from L2
+        self.invalidate_l2(&key).await?;
 
         Ok(())
     }
 
     /// Clear all cache entries for a tenant
-    pub async fn clear_tenant(&self, _tenant_id: &TenantId) -> WebBrowseResult<()> {
-        // L1 cache doesn't support prefix deletion easily
-        // Would need to iterate or use a different structure
-        // For now, this is a no-op for L1
+    pub async fn clear_tenant(&self, tenant_id: &TenantId) -> WebBrowseResult<()> {
+        // L1 cache: Moka doesn't support prefix deletion easily
+        // Clear the entire L1 cache (safe but aggressive)
+        if let Some(cache) = &self.l1_cache {
+            cache.invalidate_all();
+            tracing::debug!(tenant_id = %tenant_id, "L1 cache cleared (full invalidation)");
+        }
 
-        // TODO: Clear L2 cache for tenant
+        // Clear L2 cache for tenant (precise deletion)
+        self.clear_tenant_l2(tenant_id).await?;
+
+        Ok(())
+    }
+
+    /// Invalidate all cache entries matching a query type for a tenant
+    ///
+    /// Useful for invalidating all search results or all page fetches
+    /// when the underlying data source changes.
+    pub async fn invalidate_by_query_type(
+        &self,
+        query_type: &str,
+        tenant_id: &TenantId,
+    ) -> WebBrowseResult<()> {
+        // L1 cache: Moka doesn't support prefix deletion
+        // We'd need to iterate which is expensive, so just clear all
+        if let Some(cache) = &self.l1_cache {
+            cache.invalidate_all();
+        }
+
+        // L2 cache: Precise deletion by query type
+        if let Some(db) = &self.db {
+            sqlx::query("DELETE FROM web_browse_cache WHERE query_type = ? AND tenant_id = ?")
+                .bind(query_type)
+                .bind(tenant_id)
+                .execute(db.pool())
+                .await
+                .map_err(|e| {
+                    tracing::warn!(error = %e, "L2 cache invalidate by query type failed");
+                    crate::error::WebBrowseError::CacheError(format!(
+                        "L2 cache invalidate by query type failed: {}",
+                        e
+                    ))
+                })?;
+
+            tracing::debug!(
+                query_type = %query_type,
+                tenant_id = %tenant_id,
+                "L2 cache invalidated by query type"
+            );
+        }
 
         Ok(())
     }
