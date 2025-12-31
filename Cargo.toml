@@ -67,7 +67,6 @@ members = [
     "crates/adapteros-base-llm",
     "crates/adapteros-testing",
     "crates/adapteros-verification",
-    # "crates/adapteros-codegraph",  # Temporarily disabled due to SQLite conflict
     # "crates/adapteros-codegraph-viewer/src-tauri",  # Temporarily disabled due to SQLite conflict
     "crates/sign-migrations",  # Migration signing tool
     "crates/adapteros-plugin-advanced-metrics",  # Advanced metrics plugin
@@ -79,6 +78,10 @@ members = [
     "crates/adapteros-telemetry-verifier",
     "crates/adapteros-normalization",  # Shared normalization utilities
     "crates/adapteros-web-browse",  # Web browsing for live data retrieval
+    "crates/adapteros-single-file-adapter",
+    "crates/adapteros-api-types",
+    "crates/adapteros-secd",
+    "crates/adapteros-secure-fs",
 ]
 
 [workspace.package]
@@ -89,9 +92,9 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/rogu3bear/mplora"
 
 [features]
-# Default configuration: deterministic-only + CoreML backend on macOS
-# CoreML provides ANE acceleration and guaranteed determinism for production
-default = ["deterministic-only", "coreml-backend"]
+# Default configuration: deterministic-only + MLX primary with CoreML fallback
+# MLX provides flexibility and HKDF-seeded determinism; CoreML for ANE acceleration
+default = ["deterministic-only", "multi-backend", "coreml-backend"]
 
 # Core capability flags
 deterministic-only = []
@@ -204,7 +207,7 @@ toml = "0.8"
 # Database
 rusqlite = { version = "0.32.1", features = ["bundled"] }
 refinery = { version = "0.8", features = ["rusqlite"] }
-sqlx = { version = "0.8.2", default-features = false, features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono", "uuid"] }
+sqlx = { version = "0.8.2", default-features = false, features = ["runtime-tokio", "sqlite", "postgres", "macros", "migrate", "chrono", "uuid"] }
 libsqlite3-sys = { version = "=0.30.1", features = ["bundled"] }
 
 # Compression & Archive
@@ -365,6 +368,10 @@ path = "tests/kv_residency_quota_integration.rs"
 name = "kv_quota_concurrent_e2e"
 path = "tests/kv_quota_concurrent_e2e.rs"
 
+[[test]]
+name = "error_handling_integration_tests"
+path = "tests/error_handling_integration_tests.rs"
+
 # Test dependencies
 [dev-dependencies]
 smallvec = { workspace = true }
@@ -402,6 +409,7 @@ adapteros-db = { path = "crates/adapteros-db" }
 adapteros-config = { path = "crates/adapteros-config" }
 # adapteros-codegraph = { path = "crates/adapteros-codegraph" }
 adapteros-client = { path = "crates/adapteros-client" }
+adapteros-cli = { path = "crates/adapteros-cli" }
 adapteros-node = { path = "crates/adapteros-node" }
 adapteros-metrics-exporter = { path = "crates/adapteros-metrics-exporter" }
 adapteros-orchestrator = { path = "crates/adapteros-orchestrator" }

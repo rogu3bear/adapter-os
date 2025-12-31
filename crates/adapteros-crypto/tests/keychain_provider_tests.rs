@@ -7,6 +7,8 @@
 //! - Password fallback mode
 //! - Error handling
 
+#[cfg(feature = "password-fallback")]
+use adapteros_config::test_support::TestEnvGuard;
 use adapteros_crypto::key_provider::KeyProviderConfig;
 use adapteros_crypto::{
     KeyAlgorithm, KeyManager, KeyManagerConfig, KeyProviderMode, KeychainProvider,
@@ -99,6 +101,8 @@ async fn test_keychain_mode_keymanager() {
 #[tokio::test]
 #[cfg(feature = "password-fallback")]
 async fn test_password_fallback_mode() {
+    let _guard = TestEnvGuard::new();
+
     // Set password fallback environment variable
     std::env::set_var("ADAPTEROS_KEYCHAIN_FALLBACK", "pass:testpassword123");
 
@@ -121,14 +125,14 @@ async fn test_password_fallback_mode() {
         provider.backend(),
         KeychainBackend::PasswordFallback
     ));
-
-    // Clean up
-    std::env::remove_var("ADAPTEROS_KEYCHAIN_FALLBACK");
+    // Guard automatically restores env vars on drop
 }
 
 #[tokio::test]
 #[cfg(feature = "password-fallback")]
 async fn test_password_fallback_rejects_short_password() {
+    let _guard = TestEnvGuard::new();
+
     // Set a password that's too short (< 8 chars)
     std::env::set_var("ADAPTEROS_KEYCHAIN_FALLBACK", "pass:short");
 
@@ -149,13 +153,14 @@ async fn test_password_fallback_rejects_short_password() {
         // Should NOT be PasswordFallback
         assert!(!matches!(p.backend(), KeychainBackend::PasswordFallback));
     }
-
-    std::env::remove_var("ADAPTEROS_KEYCHAIN_FALLBACK");
+    // Guard automatically restores env vars on drop
 }
 
 #[tokio::test]
 #[cfg(feature = "password-fallback")]
 async fn test_password_fallback_invalid_format() {
+    let _guard = TestEnvGuard::new();
+
     // Invalid format (missing "pass:" prefix)
     std::env::set_var("ADAPTEROS_KEYCHAIN_FALLBACK", "invalidformat");
 
@@ -174,8 +179,7 @@ async fn test_password_fallback_invalid_format() {
         use adapteros_crypto::providers::keychain::KeychainBackend;
         assert!(!matches!(p.backend(), KeychainBackend::PasswordFallback));
     }
-
-    std::env::remove_var("ADAPTEROS_KEYCHAIN_FALLBACK");
+    // Guard automatically restores env vars on drop
 }
 
 #[tokio::test]
@@ -339,6 +343,8 @@ async fn test_keychain_vs_file_provider_comparison() {
 #[tokio::test]
 #[cfg(all(target_os = "macos", feature = "password-fallback"))]
 async fn test_keychain_fallback_integration() {
+    let _guard = TestEnvGuard::new();
+
     // First, try normal keychain
     let normal_config = KeyProviderConfig {
         mode: KeyProviderMode::Keychain,
@@ -378,8 +384,7 @@ async fn test_keychain_fallback_integration() {
             KeychainBackend::PasswordFallback
         ));
     }
-
-    std::env::remove_var("ADAPTEROS_KEYCHAIN_FALLBACK");
+    // Guard automatically restores env vars on drop
 }
 
 #[tokio::test]

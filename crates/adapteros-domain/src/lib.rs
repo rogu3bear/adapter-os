@@ -55,7 +55,10 @@ pub mod telemetry;
 pub mod text;
 pub mod vision;
 
-pub use adapter::{AdapterMetadata, DomainAdapter, TensorData};
+pub use adapter::{DomainAdapter, DomainAdapterMetadata, TensorData};
+/// Backward compatibility alias
+#[deprecated(since = "0.12.0", note = "Use DomainAdapterMetadata instead")]
+pub type AdapterMetadata = DomainAdapterMetadata;
 pub use error::{DomainAdapterError, Result};
 pub use manifest::{load_manifest, AdapterManifest};
 pub use telemetry::TelemetryAdapter;

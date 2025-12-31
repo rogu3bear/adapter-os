@@ -89,6 +89,9 @@ pub struct SecurityConfig {
     /// Force Secure flag on cookies (defaults to true in production_mode)
     #[serde(default)]
     pub cookie_secure: Option<bool>,
+    /// Clock skew tolerance in seconds for token/session validation (default: 60)
+    #[serde(default = "default_clock_skew_seconds")]
+    pub clock_skew_seconds: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -219,6 +222,10 @@ pub fn default_session_ttl_seconds() -> u64 {
 
 pub fn default_cookie_same_site() -> String {
     "Lax".to_string()
+}
+
+pub fn default_clock_skew_seconds() -> u64 {
+    60
 }
 
 pub fn default_dev_algo() -> String {

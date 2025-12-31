@@ -13,6 +13,7 @@ dependencies = [
  "adapteros-base-llm",
  "adapteros-boot",
  "adapteros-chat",
+ "adapteros-cli",
  "adapteros-client",
  "adapteros-config",
  "adapteros-core",
@@ -422,6 +423,7 @@ dependencies = [
  "hex",
  "hkdf",
  "lazy_static",
+ "libc",
  "once_cell",
  "parking_lot",
  "proptest",
@@ -448,6 +450,7 @@ dependencies = [
 name = "adapteros-crypto"
 version = "0.11.0"
 dependencies = [
+ "adapteros-config",
  "adapteros-core",
  "aes-gcm",
  "anyhow",
@@ -946,6 +949,7 @@ dependencies = [
 name = "adapteros-lora-router"
 version = "0.11.0"
 dependencies = [
+ "adapteros-api-types",
  "adapteros-core",
  "adapteros-lora-kernel-api",
  "adapteros-numerics",
@@ -1523,6 +1527,8 @@ dependencies = [
  "hkdf",
  "hmac",
  "hostname",
+ "http-body 1.0.1",
+ "http-body-util",
  "httpdate",
  "hyper 1.8.1",
  "hyper-util",
@@ -1885,6 +1891,7 @@ name = "adapteros-web-browse"
 version = "0.11.0"
 dependencies = [
  "adapteros-core",
+ "adapteros-db",
  "adapteros-policy",
  "adapteros-telemetry",
  "anyhow",
@@ -1895,11 +1902,13 @@ dependencies = [
  "hex",
  "mockall",
  "moka",
+ "rand 0.8.5",
  "reqwest",
  "scraper",
  "serde",
  "serde_json",
  "sha2",
+ "sqlx",
  "thiserror 1.0.69",
  "tokio",
  "tracing",

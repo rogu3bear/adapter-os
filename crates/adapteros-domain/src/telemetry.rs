@@ -8,7 +8,7 @@ use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::adapter::{AdapterMetadata, DomainAdapter, TensorData};
+use crate::adapter::{DomainAdapter, DomainAdapterMetadata, TensorData};
 use crate::error::{DomainAdapterError, Result};
 use crate::manifest::{load_manifest, AdapterManifest};
 
@@ -21,7 +21,7 @@ use crate::manifest::{load_manifest, AdapterManifest};
 /// - Anomaly detection with fixed thresholds
 pub struct TelemetryAdapter {
     /// Adapter metadata
-    metadata: AdapterMetadata,
+    metadata: DomainAdapterMetadata,
     /// Internal state
     state: Arc<RwLock<TelemetryAdapterState>>,
     /// Manifest configuration
@@ -63,7 +63,7 @@ impl TelemetryAdapter {
 
         let model_hash = manifest.parse_hash()?;
 
-        let metadata = AdapterMetadata {
+        let metadata = DomainAdapterMetadata {
             name: manifest.adapter.name.clone(),
             version: manifest.adapter.version.clone(),
             model_hash,
@@ -328,7 +328,7 @@ impl DomainAdapter for TelemetryAdapter {
         &self.metadata.name
     }
 
-    fn metadata(&self) -> &AdapterMetadata {
+    fn metadata(&self) -> &DomainAdapterMetadata {
         &self.metadata
     }
 

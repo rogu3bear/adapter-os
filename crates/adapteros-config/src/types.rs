@@ -87,6 +87,12 @@ pub struct LoaderOptions {
     pub validate_types: bool,
     pub allow_unknown_keys: bool,
     pub env_prefix: String,
+    /// Fail if manifest_path is provided but file is missing or unreadable.
+    /// When true, explicitly provided config paths are treated as required.
+    pub require_manifest: bool,
+    /// Fail on empty/whitespace environment variable overrides in production mode.
+    /// When true, empty AOS_* env vars cause an error instead of being silently skipped.
+    pub reject_empty_env_vars: bool,
 }
 
 impl Default for LoaderOptions {
@@ -96,6 +102,8 @@ impl Default for LoaderOptions {
             validate_types: true,
             allow_unknown_keys: false,
             env_prefix: "ADAPTEROS_".to_string(),
+            require_manifest: true,
+            reject_empty_env_vars: true,
         }
     }
 }

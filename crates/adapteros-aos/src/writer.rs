@@ -5,13 +5,16 @@
 //!
 //! See docs/AOS_FORMAT.md for full specification.
 
-use adapteros_core::{AosError, B3Hash, Result};
+use adapteros_core::{
+    check_disk_space, classify_and_convert_io_error, ensure_temp_dir, AosError, B3Hash, Result,
+    TempFileGuard,
+};
 use serde::Serialize;
 use serde_json::Value;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
-use tracing::info;
+use tracing::{debug, info};
 
 /// Magic bytes identifying an AOS archive (4 bytes)
 pub const AOS_MAGIC: [u8; 4] = *b"AOS2";
@@ -215,6 +218,12 @@ impl AosWriter {
     }
 
     /// Write adapter archive to file using the queued segments
+    ///
+    /// This function performs the following safety checks before writing:
+    /// 1. Validates disk space is available (with 10% margin)
+    /// 2. Ensures the output directory exists
+    /// 3. Uses atomic write pattern (temp file + rename)
+    /// 4. Cleans up temp file on failure
     pub fn write_archive<P, M>(&self, output_path: P, manifest: &M) -> Result<u64>
     where
         P: AsRef<Path>,
@@ -254,9 +263,26 @@ impl AosWriter {
         // Serialize manifest to JSON
         let manifest_json = serde_json::to_vec_pretty(&manifest_value)?;
 
+        // Calculate total payload size for disk space check
+        let total_payload: u64 = self.segments.iter().map(|s| s.payload.len() as u64).sum();
+
         // Layout
         let index_offset = HEADER_SIZE as u64;
         let index_size = (self.segments.len() as u64) * INDEX_ENTRY_SIZE as u64;
+
+        // Estimate total archive size for disk space check
+        let estimated_size =
+            HEADER_SIZE as u64 + index_size + total_payload + manifest_json.len() as u64;
+
+        // Check disk space before attempting write (with 10% margin)
+        if let Some(parent) = output_path.parent() {
+            check_disk_space(parent, estimated_size)?;
+            debug!(
+                path = %parent.display(),
+                estimated_size = estimated_size,
+                "Disk space check passed for AOS archive write"
+            );
+        }
         let mut current_offset = index_offset + index_size;
 
         // Build index bytes and capture payload offsets
@@ -302,8 +328,17 @@ impl AosWriter {
         // Write archive atomically: write to temp file first, then rename
         let temp_path = output_path.with_extension("aos.tmp");
 
+        // Ensure parent directory exists
+        if let Some(parent) = temp_path.parent() {
+            ensure_temp_dir(parent)?;
+        }
+
+        // Create temp file with cleanup guard (will clean up on failure)
         let mut file = File::create(&temp_path)
-            .map_err(|e| AosError::Io(format!("Failed to create temp archive: {}", e)))?;
+            .map_err(|e| classify_and_convert_io_error(e, &temp_path, "create"))?;
+
+        // Guard to clean up temp file if we fail partway through
+        let cleanup_guard = TempFileGuard::new(&temp_path);
 
         // Write 64-byte header
         let mut header = [0u8; HEADER_SIZE];
@@ -315,25 +350,29 @@ impl AosWriter {
         header[32..40].copy_from_slice(&manifest_size.to_le_bytes());
 
         file.write_all(&header)
-            .map_err(|e| AosError::Io(format!("Failed to write header: {}", e)))?;
+            .map_err(|e| classify_and_convert_io_error(e, &temp_path, "write header"))?;
         file.write_all(&index_bytes)
-            .map_err(|e| AosError::Io(format!("Failed to write index: {}", e)))?;
+            .map_err(|e| classify_and_convert_io_error(e, &temp_path, "write index"))?;
 
         for segment in &self.segments {
             file.write_all(&segment.payload)
-                .map_err(|e| AosError::Io(format!("Failed to write segment: {}", e)))?;
+                .map_err(|e| classify_and_convert_io_error(e, &temp_path, "write segment"))?;
         }
 
         file.write_all(&manifest_json)
-            .map_err(|e| AosError::Io(format!("Failed to write manifest: {}", e)))?;
+            .map_err(|e| classify_and_convert_io_error(e, &temp_path, "write manifest"))?;
         file.flush()
-            .map_err(|e| AosError::Io(format!("Failed to flush archive: {}", e)))?;
+            .map_err(|e| classify_and_convert_io_error(e, &temp_path, "flush"))?;
         file.sync_all()
-            .map_err(|e| AosError::Io(format!("Failed to sync archive: {}", e)))?;
+            .map_err(|e| classify_and_convert_io_error(e, &temp_path, "sync"))?;
 
         // Atomic rename from temp file to final destination
         std::fs::rename(&temp_path, output_path)
-            .map_err(|e| AosError::Io(format!("Failed to finalize archive: {}", e)))?;
+            .map_err(|e| classify_and_convert_io_error(e, output_path, "rename"))?;
+
+        // Success! Defuse the cleanup guard so temp file is not deleted
+        // (it's already been renamed to the final path)
+        cleanup_guard.defuse();
 
         info!(
             path = %output_path.display(),
