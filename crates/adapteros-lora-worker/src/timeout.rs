@@ -1,13 +1,14 @@
-//! Request timeout and circuit breaker mechanisms
+//! Request timeout mechanisms
 //!
-//! Implements timeout protection and circuit breaker patterns to prevent runaway processes.
+//! Implements timeout protection to prevent runaway processes.
 //! Aligns with Memory Ruleset #12 and Performance Ruleset #11 from policy enforcement.
+//!
+//! For circuit breaker functionality, use `adapteros_core::CircuitBreaker` or
+//! `adapteros_core::StandardCircuitBreaker`.
 
-use adapteros_core::{AosError, CircuitState, Result};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
+use adapteros_core::{AosError, Result};
+use std::time::Duration;
 use tokio::time::timeout;
-use tracing::error;
 
 /// Timeout configuration per request type
 #[derive(Debug, Clone)]
@@ -26,92 +27,6 @@ impl Default for TimeoutConfig {
             router_timeout: Duration::from_millis(100),
             policy_timeout: Duration::from_millis(50),
         }
-    }
-}
-
-// CircuitState is imported from adapteros_core::CircuitState
-
-/// Circuit breaker for runaway detection
-pub struct CircuitBreaker {
-    state: CircuitState,
-    failure_threshold: usize,
-    failure_count: AtomicUsize,
-    _timeout: Duration,
-    last_failure: AtomicU64,
-}
-
-impl CircuitBreaker {
-    pub fn new(failure_threshold: usize, timeout: Duration) -> Self {
-        Self {
-            state: CircuitState::Closed,
-            failure_threshold,
-            failure_count: AtomicUsize::new(0),
-            _timeout: timeout,
-            last_failure: AtomicU64::new(0),
-        }
-    }
-
-    pub async fn call<F, T>(&self, f: F) -> Result<T>
-    where
-        F: std::future::Future<Output = Result<T>>,
-    {
-        // Check circuit state
-        match &self.state {
-            CircuitState::Open { until } => {
-                if Instant::now() < *until {
-                    return Err(AosError::Worker("Circuit breaker open".to_string()));
-                }
-                // Transition to half-open (would need interior mutability in real implementation)
-            }
-            CircuitState::HalfOpen => {
-                // Allow one request through
-            }
-            CircuitState::Closed => {
-                // Normal operation
-            }
-        }
-
-        let result = f.await;
-
-        match result {
-            Ok(value) => {
-                self.on_success();
-                Ok(value)
-            }
-            Err(e) => {
-                self.on_failure();
-                Err(e)
-            }
-        }
-    }
-
-    fn on_success(&self) {
-        self.failure_count.store(0, Ordering::Relaxed);
-        // In real implementation, would need interior mutability to update state
-    }
-
-    fn on_failure(&self) {
-        let count = self.failure_count.fetch_add(1, Ordering::Relaxed) + 1;
-        self.last_failure.store(
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("System time before UNIX epoch")
-                .as_secs(),
-            Ordering::Relaxed,
-        );
-
-        if count >= self.failure_threshold {
-            error!("Circuit breaker threshold reached: {} failures", count);
-            // In real implementation, would transition to Open state
-        }
-    }
-
-    pub fn is_open(&self) -> bool {
-        matches!(self.state, CircuitState::Open { .. })
-    }
-
-    pub fn failure_count(&self) -> usize {
-        self.failure_count.load(Ordering::Relaxed)
     }
 }
 
@@ -206,35 +121,6 @@ impl TimeoutEvent {
 mod tests {
     use super::*;
     use std::time::Duration;
-
-    #[tokio::test]
-    async fn test_circuit_breaker_success() {
-        let breaker = CircuitBreaker::new(3, Duration::from_secs(10));
-
-        let result = breaker.call(async { Ok("success") }).await;
-
-        assert!(result.is_ok());
-        assert_eq!(breaker.failure_count(), 0);
-    }
-
-    #[tokio::test]
-    async fn test_circuit_breaker_failure() {
-        let breaker = CircuitBreaker::new(2, Duration::from_secs(10));
-
-        // First failure
-        let result: Result<()> = breaker
-            .call(async { Err(AosError::Worker("test failure".to_string())) })
-            .await;
-        assert!(result.is_err());
-        assert_eq!(breaker.failure_count(), 1);
-
-        // Second failure - should trigger threshold
-        let result: Result<()> = breaker
-            .call(async { Err(AosError::Worker("test failure".to_string())) })
-            .await;
-        assert!(result.is_err());
-        assert_eq!(breaker.failure_count(), 2);
-    }
 
     #[tokio::test]
     async fn test_timeout_wrapper() {

@@ -39,9 +39,9 @@ use crate::reasoning_router::{
     FastEmbedder, ReasoningRouterConfig, ReasoningScorer, StreamInspector, ThoughtTransition,
 };
 use crate::router_bridge::decision_to_router_ring;
-use crate::routing_policy_filter::filter_decision_by_policy;
 use crate::stop_controller::StopController;
 use crate::tokenizer::QwenTokenizer;
+use adapteros_lora_router::filter_decision_by_policy;
 
 /// Configuration for inference pipeline
 #[derive(Debug, Clone)]
@@ -1774,6 +1774,7 @@ fn fallback_decision(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::request_types::RequestType;
 
     #[test]
     fn test_inference_config_default() {

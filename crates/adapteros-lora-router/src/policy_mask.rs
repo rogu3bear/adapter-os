@@ -1,6 +1,10 @@
 use std::collections::HashSet;
 
-use adapteros_core::B3Hash;
+use adapteros_api_types::RoutingPolicy;
+use adapteros_core::{AosError, B3Hash, Result};
+use smallvec::SmallVec;
+
+use crate::Decision;
 
 /// Flags indicating which policy overrides were applied when building the mask.
 #[derive(Debug, Clone, Default)]
@@ -143,6 +147,141 @@ pub fn compute_policy_mask_digest(
     }
     bytes.extend(allowed_bits.iter().map(|b| if *b { 1u8 } else { 0u8 }));
     B3Hash::hash(&bytes)
+}
+
+/// Deterministically filter a router Decision using a RoutingPolicy.
+///
+/// - Runs after router scoring and before kernel execution.
+/// - Preserves original decision order; only removes entries.
+/// - Does not renormalize gates to avoid changing deterministic gate values.
+/// - Returns PolicyViolation when no adapters remain after filtering.
+///
+/// Limitations / future hooks:
+/// - Only ID-based allow/deny and max-adapters cap; no tag/tier/stack checks yet.
+/// - Gate values are left as-is; optional renormalization could be added later.
+/// - Max cap truncates deterministically using router ordering for stability.
+pub fn filter_decision_by_policy(
+    decision: Decision,
+    adapter_ids: &[String],
+    adapter_clusters: &[Option<String>],
+    policy: Option<&RoutingPolicy>,
+) -> Result<Decision> {
+    let policy_mask_digest_b3 = decision.policy_mask_digest_b3;
+    let policy_overrides_applied = decision.policy_overrides_applied.clone();
+
+    if adapter_ids.len() != adapter_clusters.len() {
+        return Err(AosError::PolicyViolation(
+            "RoutingPolicy adapter ids/clusters length mismatch".to_string(),
+        ));
+    }
+
+    let Some(policy) = policy else {
+        return Ok(decision);
+    };
+
+    let allowed_set = policy
+        .allowed_adapter_ids
+        .as_ref()
+        .map(|ids| ids.iter().cloned().collect::<HashSet<String>>());
+    let denied_set = policy
+        .denied_adapter_ids
+        .as_ref()
+        .map(|ids| ids.iter().cloned().collect::<HashSet<String>>());
+    let allowed_clusters = policy
+        .allowed_clusters
+        .as_ref()
+        .map(|ids| ids.iter().cloned().collect::<HashSet<String>>());
+    let denied_clusters = policy
+        .denied_clusters
+        .as_ref()
+        .map(|ids| ids.iter().cloned().collect::<HashSet<String>>());
+
+    let mut filtered_indices = SmallVec::<[u16; 8]>::new();
+    let mut filtered_gates = SmallVec::<[i16; 8]>::new();
+    let mut filtered_candidates = Vec::new();
+    let mut cluster_filtered = 0usize;
+
+    for (i, (adapter_idx, gate_q15)) in decision
+        .indices
+        .iter()
+        .zip(decision.gates_q15.iter())
+        .enumerate()
+    {
+        let adapter_id = adapter_ids.get(*adapter_idx as usize).ok_or_else(|| {
+            AosError::PolicyViolation(format!(
+                "RoutingPolicy adapter index {} out of bounds",
+                adapter_idx
+            ))
+        })?;
+
+        if let Some(allowed) = &allowed_set {
+            if !allowed.contains(adapter_id) {
+                continue;
+            }
+        }
+
+        if let Some(denied) = &denied_set {
+            if denied.contains(adapter_id) {
+                continue;
+            }
+        }
+
+        let cluster = adapter_clusters
+            .get(*adapter_idx as usize)
+            .and_then(|c| c.as_ref());
+
+        if let Some(allowed) = &allowed_clusters {
+            if cluster.map(|c| !allowed.contains(c)).unwrap_or(true) {
+                cluster_filtered += 1;
+                continue;
+            }
+        }
+
+        if let Some(denied) = &denied_clusters {
+            if cluster.map(|c| denied.contains(c)).unwrap_or(false) {
+                cluster_filtered += 1;
+                continue;
+            }
+        }
+
+        filtered_indices.push(*adapter_idx);
+        filtered_gates.push(*gate_q15);
+        if let Some(candidate) = decision.candidates.get(i) {
+            filtered_candidates.push(candidate.clone());
+        }
+    }
+
+    if let Some(max) = policy.max_adapters_per_token {
+        if max == 0 {
+            return Err(AosError::PolicyViolation(
+                "Routing policy rejected all adapters (max_adapters_per_token=0)".to_string(),
+            ));
+        }
+        if filtered_indices.len() > max {
+            filtered_indices.truncate(max);
+            filtered_gates.truncate(max);
+            filtered_candidates.truncate(max);
+        }
+    }
+
+    if filtered_indices.is_empty() {
+        let reason = if cluster_filtered > 0 {
+            "Routing policy denied all adapters for this token (clusters)".to_string()
+        } else {
+            "Routing policy denied all adapters for this token".to_string()
+        };
+        return Err(AosError::PolicyViolation(reason));
+    }
+
+    Ok(Decision {
+        indices: filtered_indices,
+        gates_q15: filtered_gates,
+        entropy: decision.entropy,
+        candidates: filtered_candidates,
+        decision_hash: decision.decision_hash,
+        policy_mask_digest_b3,
+        policy_overrides_applied,
+    })
 }
 
 #[cfg(test)]

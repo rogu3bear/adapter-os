@@ -74,6 +74,15 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+/// Options for controlling fusion behavior
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct FusionOptions {
+    /// If true, shape mismatches cause hard errors instead of being skipped with warnings.
+    /// Default is false for backwards compatibility.
+    #[serde(default)]
+    pub strict: bool,
+}
+
 /// Configuration for LoRA fusion
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoraFusionConfig {
@@ -85,6 +94,9 @@ pub struct LoraFusionConfig {
     pub adapters: Vec<AdapterFusionSpec>,
     /// Compute units for compilation
     pub compute_units: crate::ComputeUnits,
+    /// Fusion options
+    #[serde(default)]
+    pub options: FusionOptions,
 }
 
 /// Specification for a single adapter to fuse
@@ -306,6 +318,48 @@ pub fn fuse_weights(
     fused
 }
 
+/// Validate LoRA matrix dimensions match expected shapes.
+///
+/// Returns structured error if dimensions don't match, enabling consistent
+/// handling across batch and single-adapter fusion paths.
+///
+/// # Arguments
+/// * `layer` - Layer index
+/// * `target` - LoRA target module
+/// * `lora_a` - LoRA A matrix
+/// * `lora_b` - LoRA B matrix
+/// * `rank` - Expected LoRA rank
+/// * `in_dim` - Expected input dimension
+/// * `out_dim` - Expected output dimension
+///
+/// # Returns
+/// * `Ok(())` if dimensions match
+/// * `Err(LoraShapeMismatch)` with structured error if dimensions don't match
+pub fn validate_lora_shapes(
+    layer: usize,
+    target: &LoraTarget,
+    lora_a: &[f32],
+    lora_b: &[f32],
+    rank: usize,
+    in_dim: usize,
+    out_dim: usize,
+) -> Result<()> {
+    let expected_a = rank * in_dim;
+    let expected_b = out_dim * rank;
+
+    if lora_a.len() != expected_a || lora_b.len() != expected_b {
+        return Err(AosError::LoraShapeMismatch {
+            layer,
+            target: format!("{:?}", target),
+            expected_a,
+            got_a: lora_a.len(),
+            expected_b,
+            got_b: lora_b.len(),
+        });
+    }
+    Ok(())
+}
+
 /// Result of LoRA fusion operation
 #[derive(Debug)]
 pub struct FusionResult {
@@ -454,7 +508,11 @@ pub fn fuse_lora_into_model(config: &LoraFusionConfig) -> Result<FusionResult> {
     }
 
     // Perform the fusion
-    let fused = fuse_adapters_to_weights(&config.base_model_path, &all_adapter_weights)?;
+    let fused = fuse_adapters_to_weights(
+        &config.base_model_path,
+        &all_adapter_weights,
+        config.options.strict,
+    )?;
 
     // Write fused weights to output path
     write_fused_weights(&config.output_path, &fused)?;
@@ -479,9 +537,15 @@ pub fn fuse_lora_into_model(config: &LoraFusionConfig) -> Result<FusionResult> {
 ///
 /// This is the core fusion algorithm that computes:
 /// W_fused = W_base + sum_i(gate_i * alpha_i / rank_i * B_i @ A_i)
+///
+/// # Arguments
+/// * `base_weights_path` - Path to base model weights
+/// * `adapters` - List of adapters to fuse
+/// * `strict` - If true, shape mismatches cause hard errors; if false, skip with warnings
 pub fn fuse_adapters_to_weights(
     base_weights_path: &PathBuf,
     adapters: &[(AdapterFusionSpec, ParsedLoraWeights)],
+    strict: bool,
 ) -> Result<FusedModelWeights> {
     // Load base model weights
     let base_file_data = std::fs::read(base_weights_path)
@@ -565,31 +629,23 @@ pub fn fuse_adapters_to_weights(
 
                 let scale = adapter_spec.gate_weight * adapter_spec.alpha / (rank as f32);
 
-                // Validate dimensions
-                // A: [rank, in_dim], B: [out_dim, rank]
-                let expected_a_len = rank * in_dim;
-                let expected_b_len = out_dim * rank;
-
-                if lora_a.len() != expected_a_len {
-                    tracing::warn!(
-                        layer = layer_idx,
-                        target = ?target,
-                        expected = expected_a_len,
-                        got = lora_a.len(),
-                        "LoRA A dimension mismatch, skipping"
-                    );
-                    continue;
-                }
-
-                if lora_b.len() != expected_b_len {
-                    tracing::warn!(
-                        layer = layer_idx,
-                        target = ?target,
-                        expected = expected_b_len,
-                        got = lora_b.len(),
-                        "LoRA B dimension mismatch, skipping"
-                    );
-                    continue;
+                // Validate dimensions using unified validation helper
+                if let Err(e) =
+                    validate_lora_shapes(layer_idx, target, lora_a, lora_b, rank, in_dim, out_dim)
+                {
+                    if strict {
+                        // In strict mode, shape mismatches are fatal
+                        return Err(e);
+                    } else {
+                        // In lenient mode, log warning and skip
+                        tracing::warn!(
+                            layer = layer_idx,
+                            target = ?target,
+                            error = %e,
+                            "Shape mismatch, skipping adapter for this layer/target"
+                        );
+                        continue;
+                    }
                 }
 
                 // Compute B @ A and add to fused weights
@@ -998,22 +1054,26 @@ impl FusedModelCache {
     }
 
     /// Get cache key for fusion configuration
+    ///
+    /// Uses BLAKE3 for deterministic hashing across process restarts.
+    /// DefaultHasher is seeded with ASLR-derived values, producing
+    /// different hashes on different runs.
     pub fn cache_key(config: &LoraFusionConfig) -> String {
-        use std::hash::{Hash, Hasher};
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        let mut hasher = blake3::Hasher::new();
 
         // Hash base model path
-        config.base_model_path.to_string_lossy().hash(&mut hasher);
+        hasher.update(config.base_model_path.to_string_lossy().as_bytes());
 
-        // Hash each adapter configuration
+        // Hash each adapter configuration deterministically
         for adapter in &config.adapters {
-            adapter.weights_path.to_string_lossy().hash(&mut hasher);
-            adapter.gate_weight.to_bits().hash(&mut hasher);
-            adapter.alpha.to_bits().hash(&mut hasher);
-            adapter.rank.hash(&mut hasher);
+            hasher.update(adapter.weights_path.to_string_lossy().as_bytes());
+            hasher.update(&adapter.gate_weight.to_le_bytes());
+            hasher.update(&adapter.alpha.to_le_bytes());
+            hasher.update(&(adapter.rank as u32).to_le_bytes());
         }
 
-        format!("{:016x}", hasher.finish())
+        // Return first 16 hex chars for a compact but unique key
+        hasher.finalize().to_hex()[..16].to_string()
     }
 
     /// Check if fused model exists in cache
@@ -1302,6 +1362,7 @@ mod tests {
                 rank: 16,
             }],
             compute_units: crate::ComputeUnits::CpuAndNeuralEngine,
+            options: FusionOptions::default(),
         };
 
         let key1 = FusedModelCache::cache_key(&config);
@@ -1321,6 +1382,7 @@ mod tests {
                 rank: 16,
             }],
             compute_units: crate::ComputeUnits::CpuAndNeuralEngine,
+            options: FusionOptions::default(),
         };
 
         let config2 = LoraFusionConfig {
@@ -1333,6 +1395,7 @@ mod tests {
                 rank: 16,
             }],
             compute_units: crate::ComputeUnits::CpuAndNeuralEngine,
+            options: FusionOptions::default(),
         };
 
         let key1 = FusedModelCache::cache_key(&config1);
@@ -1356,6 +1419,7 @@ mod tests {
             output_path: temp_dir.path().join("test_output.safetensors"),
             adapters: vec![],
             compute_units: crate::ComputeUnits::CpuAndNeuralEngine,
+            options: FusionOptions::default(),
         };
 
         let result = fuse_lora_into_model(&config);

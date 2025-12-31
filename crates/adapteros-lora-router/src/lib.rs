@@ -38,6 +38,7 @@ pub use metrics::{
 };
 pub use orthogonal::OrthogonalConstraints;
 pub use path_routing::{compute_path_scores, DirectoryRoutingContext, PathRoutingScore};
+pub use policy_mask::filter_decision_by_policy;
 pub use scoring::{create_scorer, EntropyFloorScorer, ScoringFunction, WeightedScorer};
 
 pub(crate) use quantization::quantize_gate;

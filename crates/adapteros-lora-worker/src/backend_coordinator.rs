@@ -6,6 +6,7 @@
 //! - Tensor sharing between Metal and CoreML
 //! - Health monitoring and telemetry
 
+use crate::resource_monitor::ResourceMonitor;
 use adapteros_core::{AosError, Result};
 use adapteros_lora_kernel_api::{
     BackendHealth, BackendMetrics, FusedKernels, IoBuffers, RouterRing,
@@ -47,6 +48,8 @@ pub struct BackendCoordinator {
     active_backend: Arc<RwLock<ActiveBackend>>,
     /// Whether primary has been marked degraded
     primary_degraded: Arc<RwLock<bool>>,
+    /// Resource monitor for GPU availability tracking (optional)
+    resource_monitor: Option<Arc<ResourceMonitor>>,
 }
 
 /// Coordinator metrics for telemetry
@@ -153,7 +156,90 @@ impl BackendCoordinator {
             capabilities,
             active_backend: Arc::new(RwLock::new(ActiveBackend::Primary)),
             primary_degraded: Arc::new(RwLock::new(false)),
+            resource_monitor: None,
         })
+    }
+
+    /// Attach a resource monitor for GPU availability tracking
+    pub fn with_resource_monitor(mut self, monitor: Arc<ResourceMonitor>) -> Self {
+        self.resource_monitor = Some(monitor);
+        self
+    }
+
+    /// Check if an error indicates GPU unavailability
+    ///
+    /// Returns true if the error is likely caused by GPU hardware issues
+    /// that may be transient or require fallback.
+    pub fn is_gpu_error(error: &AosError) -> bool {
+        match error {
+            AosError::GpuUnavailable { .. } => true,
+            AosError::Mtl(msg) | AosError::Kernel(msg) | AosError::CoreML(msg) => {
+                let lower = msg.to_lowercase();
+                lower.contains("gpu")
+                    || lower.contains("metal")
+                    || lower.contains("device")
+                    || lower.contains("timeout")
+                    || lower.contains("not responding")
+                    || lower.contains("command buffer")
+                    || lower.contains("execution error")
+            }
+            _ => false,
+        }
+    }
+
+    /// Handle GPU error by marking resource monitor and attempting fallback
+    async fn handle_gpu_error(&self, error: &AosError) -> Option<AosError> {
+        // Notify resource monitor of GPU unavailability
+        if let Some(ref monitor) = self.resource_monitor {
+            monitor.mark_gpu_unavailable();
+        }
+
+        // Mark primary as degraded
+        {
+            let mut health = self.primary_health.write().await;
+            *health = BackendHealth::Degraded {
+                reason: format!("GPU unavailable: {}", error),
+            };
+        }
+        {
+            let mut degraded = self.primary_degraded.write().await;
+            *degraded = true;
+        }
+
+        // Check if fallback is available
+        if self.fallback.is_some() {
+            warn!(
+                error = %error,
+                "GPU error detected, attempting fallback to alternate backend"
+            );
+
+            // Switch to fallback
+            {
+                let mut active = self.active_backend.write().await;
+                *active = ActiveBackend::Fallback;
+            }
+            {
+                let mut metrics = self.metrics.write().await;
+                metrics.backend_switches += 1;
+            }
+
+            None // Fallback available, caller should retry
+        } else {
+            // No fallback available, return structured GPU error
+            Some(AosError::GpuUnavailable {
+                reason: error.to_string(),
+                device_id: None,
+                cpu_fallback_available: false,
+                is_transient: true,
+            })
+        }
+    }
+
+    /// Mark GPU as recovered after successful operation
+    pub fn mark_gpu_recovered(&self) {
+        if let Some(ref monitor) = self.resource_monitor {
+            monitor.mark_gpu_available();
+        }
     }
 
     /// Select appropriate fallback backend based on primary
@@ -183,11 +269,11 @@ impl BackendCoordinator {
                 }
             }
             BackendChoice::Mlx => {
-                // MLX primary -> Metal or CoreML fallback
-                if capabilities.has_metal {
-                    Ok(BackendChoice::Metal)
-                } else if capabilities.has_ane {
+                // MLX primary -> CoreML (ANE efficiency) or Metal fallback
+                if capabilities.has_ane && capabilities.has_coreml {
                     Ok(BackendChoice::CoreML)
+                } else if capabilities.has_metal {
+                    Ok(BackendChoice::Metal)
                 } else {
                     Err(AosError::Config("No suitable fallback for MLX".to_string()))
                 }
@@ -250,6 +336,9 @@ impl BackendCoordinator {
 
                 match step_result {
                     Ok(_) => {
+                        // Mark GPU as recovered on successful operation
+                        self.mark_gpu_recovered();
+
                         // Update state after releasing the primary lock.
                         // Each lock is acquired and released independently.
                         {
@@ -269,6 +358,15 @@ impl BackendCoordinator {
                     }
                     Err(e) => {
                         warn!(error = %e, "Primary backend failed");
+
+                        // Check if this is a GPU error
+                        if Self::is_gpu_error(&e) {
+                            if let Some(gpu_err) = self.handle_gpu_error(&e).await {
+                                return Err(gpu_err);
+                            }
+                            // Fallback available - return error and let caller retry
+                        }
+
                         // Update state after releasing the primary lock.
                         // Each lock is acquired and released independently.
                         {

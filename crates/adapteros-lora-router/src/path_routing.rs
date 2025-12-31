@@ -73,8 +73,7 @@ pub fn compute_path_scores(
 
     scores.sort_by(|a, b| {
         b.score
-            .partial_cmp(&a.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
+            .total_cmp(&a.score)
             .then_with(|| a.rank.cmp(&b.rank))
             .then_with(|| a.adapter_id.cmp(&b.adapter_id))
     });
