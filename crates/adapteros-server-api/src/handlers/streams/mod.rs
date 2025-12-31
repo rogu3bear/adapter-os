@@ -1,23 +1,31 @@
-//! SSE streaming handlers
+//! SSE streaming handlers with reliable replay support
 //!
 //! This module provides Server-Sent Events (SSE) endpoints for real-time
 //! data streaming including system metrics, telemetry, adapters, training,
 //! alerts, anomalies, and dashboard metrics.
+//!
+//! All streams support:
+//! - Monotonic event IDs for ordering
+//! - Last-Event-ID header for reconnection replay
+//! - Ring buffer storage for missed event recovery
 
 use crate::auth::Claims;
+use crate::sse::{SseEventManager, SseStreamType};
 use crate::state::AppState;
 use crate::types::*;
 use axum::{
     extract::{Path, Query, State},
+    http::HeaderMap,
     response::sse::{Event, KeepAlive, Sse},
     Extension,
 };
 use futures_util::stream::{self, Stream};
+use futures_util::StreamExt as FuturesStreamExt;
 use serde::Deserialize;
 use std::convert::Infallible;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio_stream::wrappers::BroadcastStream;
-use tokio_stream::StreamExt as TokioStreamExt;
 
 /// Query parameters for stream endpoints
 #[derive(Debug, Deserialize)]
@@ -25,163 +33,261 @@ pub struct StreamQuery {
     pub tenant: String,
 }
 
+/// Helper to create replay stream from Last-Event-ID
+fn create_replay_stream(
+    events: Vec<crate::sse::SseEvent>,
+) -> impl Stream<Item = Result<Event, Infallible>> {
+    stream::iter(
+        events
+            .into_iter()
+            .map(|e| Ok(SseEventManager::to_axum_event(&e))),
+    )
+}
+
 /// SSE stream for system metrics
-/// Pushes SystemMetrics every 5 seconds
+/// Pushes SystemMetrics every 5 seconds with monotonic IDs and replay support
 pub async fn system_metrics_stream(
     State(state): State<AppState>,
     Extension(_claims): Extension<Claims>,
+    headers: HeaderMap,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    let stream = stream::unfold(state, |state| async move {
-        tokio::time::sleep(Duration::from_secs(5)).await;
+    let sse_manager = state.sse_manager.clone();
 
-        // Fetch metrics
-        let metrics = match get_system_metrics_internal(&state).await {
-            Ok(m) => m,
-            Err(e) => {
-                tracing::warn!("Failed to fetch metrics for SSE: {}", e);
-                return Some((
-                    Ok(Event::default()
-                        .event("error")
-                        .data(format!("{{\"error\": \"{}\"}}", e))),
-                    state,
-                ));
-            }
-        };
+    // Parse Last-Event-ID for replay
+    let last_event_id = SseEventManager::parse_last_event_id(&headers);
 
-        let json = match serde_json::to_string(&metrics) {
-            Ok(j) => j,
-            Err(e) => {
-                tracing::warn!("Failed to serialize metrics: {}", e);
-                return Some((
-                    Ok(Event::default()
-                        .event("error")
-                        .data("{\"error\": \"serialization failed\"}")),
-                    state,
-                ));
-            }
-        };
+    // Get replay events if reconnecting
+    let replay_events = if let Some(last_id) = last_event_id {
+        let result = sse_manager
+            .get_replay_with_analysis(SseStreamType::SystemMetrics, last_id)
+            .await;
 
-        Some((Ok(Event::default().event("metrics").data(json)), state))
-    });
+        // Log gap warning if events were lost
+        if result.has_gap {
+            tracing::warn!(
+                last_id = last_id,
+                dropped = result.dropped_count,
+                "SSE client reconnected with gap in SystemMetrics stream"
+            );
+        }
+        result.events
+    } else {
+        Vec::new()
+    };
 
-    Sse::new(stream).keep_alive(KeepAlive::default())
-}
+    // Create replay stream
+    let replay_stream = create_replay_stream(replay_events);
 
-/// SSE stream for telemetry events
-/// Streams telemetry events in real-time via broadcast channel.
-/// Falls back to periodic bundle checks if no real-time events are available.
-pub async fn telemetry_events_stream(
-    State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
-) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    // Subscribe to the telemetry broadcast channel for real-time events
-    let receiver = state.telemetry_tx.subscribe();
+    // Create live stream
+    let live_stream = stream::unfold(state.clone(), move |state| {
+        let mgr = state.sse_manager.clone();
+        async move {
+            tokio::time::sleep(Duration::from_secs(5)).await;
 
-    let stream = stream::unfold((receiver, state), |(mut rx, state)| async move {
-        // Use select to handle both real-time events and keepalive timeout
-        tokio::select! {
-            // Try to receive a real-time telemetry event
-            result = rx.recv() => {
-                match result {
-                    Ok(event) => {
-                        // Serialize the telemetry event
-                        let json = match serde_json::to_string(&event) {
-                            Ok(j) => j,
-                            Err(e) => {
-                                tracing::warn!("Failed to serialize telemetry event: {}", e);
-                                return Some((
-                                    Ok(Event::default()
-                                        .event("error")
-                                        .data(format!("{{\"error\": \"serialization failed: {}\"}}", e))),
-                                    (rx, state),
-                                ));
-                            }
-                        };
-                        Some((
-                            Ok(Event::default().event("telemetry").data(json)),
-                            (rx, state),
-                        ))
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(count)) => {
-                        // Client is lagging behind, notify and continue
-                        tracing::warn!(lagged_count = count, "Telemetry SSE client lagged behind");
-                        Some((
-                            Ok(Event::default()
-                                .event("warning")
-                                .data(format!("{{\"lagged_events\": {}}}", count))),
-                            (rx, state),
-                        ))
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                        // Channel closed, end the stream gracefully
-                        tracing::info!("Telemetry broadcast channel closed");
-                        None
-                    }
+            // Fetch metrics
+            let metrics = match get_system_metrics_internal(&state).await {
+                Ok(m) => m,
+                Err(e) => {
+                    tracing::warn!("Failed to fetch metrics for SSE: {}", e);
+                    let event = mgr
+                        .create_error_event(SseStreamType::SystemMetrics, &e)
+                        .await;
+                    return Some((Ok(SseEventManager::to_axum_event(&event)), state));
                 }
-            }
-            // Send keepalive if no events for 30 seconds
-            _ = tokio::time::sleep(Duration::from_secs(30)) => {
-                // Check buffer health and send status
-                let buffer_len = state.telemetry_buffer.len().await;
-                let health_json = format!(
-                    "{{\"status\": \"keepalive\", \"buffer_size\": {}}}",
-                    buffer_len
-                );
-                Some((
-                    Ok(Event::default().event("keepalive").data(health_json)),
-                    (rx, state),
-                ))
-            }
+            };
+
+            let json = match serde_json::to_string(&metrics) {
+                Ok(j) => j,
+                Err(e) => {
+                    tracing::warn!("Failed to serialize metrics: {}", e);
+                    let event = mgr
+                        .create_error_event(SseStreamType::SystemMetrics, "serialization failed")
+                        .await;
+                    return Some((Ok(SseEventManager::to_axum_event(&event)), state));
+                }
+            };
+
+            // Create event with monotonic ID
+            let event = mgr
+                .create_event(SseStreamType::SystemMetrics, "metrics", json)
+                .await;
+
+            Some((Ok(SseEventManager::to_axum_event(&event)), state))
         }
     });
 
-    Sse::new(stream).keep_alive(KeepAlive::default())
+    // Chain replay with live stream
+    Sse::new(FuturesStreamExt::chain(replay_stream, live_stream)).keep_alive(KeepAlive::default())
+}
+
+/// SSE stream for telemetry events
+/// Streams telemetry events in real-time via broadcast channel with replay support
+pub async fn telemetry_events_stream(
+    State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+    headers: HeaderMap,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let sse_manager = state.sse_manager.clone();
+
+    // Parse Last-Event-ID for replay
+    let last_event_id = SseEventManager::parse_last_event_id(&headers);
+
+    // Get replay events if reconnecting
+    let replay_events = if let Some(last_id) = last_event_id {
+        sse_manager
+            .get_replay_events(SseStreamType::Telemetry, last_id)
+            .await
+    } else {
+        Vec::new()
+    };
+
+    // Create replay stream
+    let replay_stream = create_replay_stream(replay_events);
+
+    // Subscribe to the telemetry broadcast channel for real-time events
+    let receiver = state.telemetry_tx.subscribe();
+
+    let live_stream = stream::unfold(
+        (receiver, state.clone()),
+        move |(mut rx, state)| async move {
+            let mgr = state.sse_manager.clone();
+
+            // Use select to handle both real-time events and keepalive timeout
+            tokio::select! {
+                // Try to receive a real-time telemetry event
+                result = rx.recv() => {
+                    match result {
+                        Ok(telemetry_event) => {
+                            // Serialize the telemetry event
+                            let json = match serde_json::to_string(&telemetry_event) {
+                                Ok(j) => j,
+                                Err(e) => {
+                                    tracing::warn!("Failed to serialize telemetry event: {}", e);
+                                    let event = mgr
+                                        .create_error_event(SseStreamType::Telemetry, &format!("serialization failed: {}", e))
+                                        .await;
+                                    return Some((Ok(SseEventManager::to_axum_event(&event)), (rx, state)));
+                                }
+                            };
+
+                            // Create event with monotonic ID
+                            let event = mgr
+                                .create_event(SseStreamType::Telemetry, "telemetry", json)
+                                .await;
+
+                            Some((Ok(SseEventManager::to_axum_event(&event)), (rx, state)))
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(count)) => {
+                            // Client is lagging behind, notify and continue
+                            tracing::warn!(lagged_count = count, "Telemetry SSE client lagged behind");
+                            let data = serde_json::json!({ "lagged_events": count }).to_string();
+                            let event = mgr
+                                .create_event(SseStreamType::Telemetry, "warning", data)
+                                .await;
+                            Some((Ok(SseEventManager::to_axum_event(&event)), (rx, state)))
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                            // Channel closed, end the stream gracefully
+                            tracing::info!("Telemetry broadcast channel closed");
+                            None
+                        }
+                    }
+                }
+                // Send keepalive if no events for 30 seconds
+                _ = tokio::time::sleep(Duration::from_secs(30)) => {
+                    // Check buffer health and send status
+                    let buffer_len = state.telemetry_buffer.len().await;
+                    let health_json = serde_json::json!({
+                        "status": "keepalive",
+                        "buffer_size": buffer_len
+                    }).to_string();
+
+                    let event = mgr
+                        .create_event(SseStreamType::Telemetry, "keepalive", health_json)
+                        .await;
+
+                    Some((Ok(SseEventManager::to_axum_event(&event)), (rx, state)))
+                }
+            }
+        },
+    );
+
+    Sse::new(FuturesStreamExt::chain(replay_stream, live_stream)).keep_alive(KeepAlive::default())
 }
 
 /// SSE stream for adapter state transitions
-/// Streams adapter lifecycle events
+/// Streams adapter lifecycle events with replay support
 pub async fn adapter_state_stream(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    headers: HeaderMap,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let sse_manager = state.sse_manager.clone();
     let tenant_id = claims.tenant_id.clone();
-    let stream = stream::unfold((state, tenant_id), |(state, tenant_id)| async move {
-        tokio::time::sleep(Duration::from_secs(3)).await;
 
-        // Fetch all adapters
-        let adapters = match state.db.list_adapters_for_tenant(&tenant_id).await {
-            Ok(a) => a,
-            Err(e) => {
-                tracing::warn!("Failed to fetch adapters for SSE: {}", e);
-                return Some((
-                    Ok(Event::default()
-                        .event("error")
-                        .data(format!("{{\"error\": \"{}\"}}", e))),
-                    (state, tenant_id),
-                ));
-            }
-        };
+    // Parse Last-Event-ID for replay
+    let last_event_id = SseEventManager::parse_last_event_id(&headers);
 
-        let json = match serde_json::to_string(&adapters) {
-            Ok(j) => j,
-            Err(e) => {
-                tracing::warn!("Failed to serialize adapters: {}", e);
-                return Some((
-                    Ok(Event::default()
-                        .event("error")
-                        .data("{\"error\": \"serialization failed\"}")),
-                    (state, tenant_id),
-                ));
-            }
-        };
+    // Get replay events if reconnecting
+    let replay_events = if let Some(last_id) = last_event_id {
+        sse_manager
+            .get_replay_events(SseStreamType::AdapterState, last_id)
+            .await
+    } else {
+        Vec::new()
+    };
 
-        Some((
-            Ok(Event::default().event("adapters").data(json)),
-            (state, tenant_id),
-        ))
-    });
+    // Create replay stream
+    let replay_stream = create_replay_stream(replay_events);
 
-    Sse::new(stream).keep_alive(KeepAlive::default())
+    let live_stream = stream::unfold(
+        (state.clone(), tenant_id),
+        move |(state, tenant_id)| async move {
+            let mgr = state.sse_manager.clone();
+
+            tokio::time::sleep(Duration::from_secs(3)).await;
+
+            // Fetch all adapters
+            let adapters = match state.db.list_adapters_for_tenant(&tenant_id).await {
+                Ok(a) => a,
+                Err(e) => {
+                    tracing::warn!("Failed to fetch adapters for SSE: {}", e);
+                    let event = mgr
+                        .create_error_event(SseStreamType::AdapterState, &e.to_string())
+                        .await;
+                    return Some((
+                        Ok(SseEventManager::to_axum_event(&event)),
+                        (state, tenant_id),
+                    ));
+                }
+            };
+
+            let json = match serde_json::to_string(&adapters) {
+                Ok(j) => j,
+                Err(e) => {
+                    tracing::warn!("Failed to serialize adapters: {}", e);
+                    let event = mgr
+                        .create_error_event(SseStreamType::AdapterState, "serialization failed")
+                        .await;
+                    return Some((
+                        Ok(SseEventManager::to_axum_event(&event)),
+                        (state, tenant_id),
+                    ));
+                }
+            };
+
+            let event = mgr
+                .create_event(SseStreamType::AdapterState, "adapters", json)
+                .await;
+
+            Some((
+                Ok(SseEventManager::to_axum_event(&event)),
+                (state, tenant_id),
+            ))
+        },
+    );
+
+    Sse::new(FuturesStreamExt::chain(replay_stream, live_stream)).keep_alive(KeepAlive::default())
 }
 
 /// Training stream SSE endpoint
@@ -190,8 +296,10 @@ pub async fn adapter_state_stream(
 /// promotion/demotion events, profiler metrics, and K reduction events.
 ///
 /// Events are sent as Server-Sent Events (SSE) with the following format:
-/// ```
+/// ```text
+/// id: 42
 /// event: training
+/// retry: 3000
 /// data: {"type":"adapter_promoted","timestamp":...,"payload":{...}}
 /// ```
 #[utoipa::path(
@@ -209,80 +317,133 @@ pub async fn training_stream(
     State(state): State<AppState>,
     Extension(_claims): Extension<Claims>,
     Query(params): Query<StreamQuery>,
+    headers: HeaderMap,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let sse_manager = state.sse_manager.clone();
     let tenant_id = params.tenant.clone();
+
+    // Parse Last-Event-ID for replay
+    let last_event_id = SseEventManager::parse_last_event_id(&headers);
+
+    // Get replay events if reconnecting
+    let replay_events = if let Some(last_id) = last_event_id {
+        sse_manager
+            .get_replay_events(SseStreamType::Training, last_id)
+            .await
+    } else {
+        Vec::new()
+    };
+
+    // Create replay stream
+    let replay_stream = create_replay_stream(replay_events);
 
     // Subscribe to the training signal broadcast channel
     let rx = state.training_signal_tx.subscribe();
 
     // Convert the broadcast receiver into a stream that filters by tenant
-    let signal_stream = BroadcastStream::new(rx).filter_map(move |result| {
+    // Use FuturesStreamExt::filter_map explicitly for async closure support
+    let mgr_for_signals = Arc::new(state.sse_manager.clone());
+    let signal_stream = FuturesStreamExt::filter_map(BroadcastStream::new(rx), move |result| {
         let tenant_filter = tenant_id.clone();
-        match result {
-            Ok(signal) => {
-                // Filter signals by tenant_id if present in payload
-                let signal_tenant = signal
-                    .payload
-                    .get("tenant_id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+        let mgr = Arc::clone(&mgr_for_signals);
+        async move {
+            match result {
+                Ok(signal) => {
+                    // Filter signals by tenant_id if present in payload
+                    let signal_tenant = signal
+                        .payload
+                        .get("tenant_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
 
-                // Pass through if tenant matches or if no tenant filter in signal
-                if signal_tenant.is_empty() || signal_tenant == tenant_filter {
-                    let event_data = serde_json::json!({
-                        "type": signal.signal_type.to_string(),
-                        "timestamp": signal.timestamp,
-                        "priority": format!("{:?}", signal.priority),
-                        "payload": signal.payload,
-                        "trace_id": signal.trace_id,
-                    });
+                    // Pass through if tenant matches or if no tenant filter in signal
+                    if signal_tenant.is_empty() || signal_tenant == tenant_filter {
+                        let event_data = serde_json::json!({
+                            "type": signal.signal_type.to_string(),
+                            "timestamp": signal.timestamp,
+                            "priority": format!("{:?}", signal.priority),
+                            "payload": signal.payload,
+                            "trace_id": signal.trace_id,
+                        });
 
-                    Some(Ok(Event::default()
-                        .event("training")
-                        .data(event_data.to_string())))
-                } else {
+                        let event = mgr
+                            .create_event(
+                                SseStreamType::Training,
+                                "training",
+                                event_data.to_string(),
+                            )
+                            .await;
+
+                        Some(Ok(SseEventManager::to_axum_event(&event)))
+                    } else {
+                        None
+                    }
+                }
+                Err(e) => {
+                    tracing::debug!("Broadcast stream error (likely lag): {}", e);
                     None
                 }
-            }
-            Err(e) => {
-                tracing::debug!("Broadcast stream error (likely lag): {}", e);
-                None
             }
         }
     });
 
-    // Also include a periodic heartbeat to keep connection alive and provide fallback data
-    let heartbeat_stream = stream::unfold(0u64, |counter| async move {
-        tokio::time::sleep(Duration::from_secs(30)).await;
-        let event_data = serde_json::json!({
-            "type": "heartbeat",
-            "timestamp": std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("System time before UNIX epoch")
-                .as_millis(),
-            "sequence": counter,
-        });
-        Some((
-            Ok(Event::default()
-                .event("training")
-                .data(event_data.to_string())),
-            counter + 1,
-        ))
+    // Also include a periodic heartbeat to keep connection alive
+    let mgr_for_heartbeat = state.sse_manager.clone();
+    let heartbeat_stream = stream::unfold(0u64, move |counter| {
+        let mgr = mgr_for_heartbeat.clone();
+        async move {
+            tokio::time::sleep(Duration::from_secs(30)).await;
+            let event_data = serde_json::json!({
+                "type": "heartbeat",
+                "timestamp": std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("System time before UNIX epoch")
+                    .as_millis(),
+                "sequence": counter,
+            });
+
+            let event = mgr
+                .create_event(SseStreamType::Training, "training", event_data.to_string())
+                .await;
+
+            Some((Ok(SseEventManager::to_axum_event(&event)), counter + 1))
+        }
     });
 
     // Merge the signal stream with heartbeat stream
     let merged_stream = futures_util::stream::select(signal_stream, heartbeat_stream);
 
-    Sse::new(merged_stream).keep_alive(KeepAlive::default())
+    // Chain replay with merged stream
+    Sse::new(FuturesStreamExt::chain(replay_stream, merged_stream)).keep_alive(KeepAlive::default())
 }
 
 /// SSE stream for alerts
-/// Pushes real-time alerts as they are created or updated
+/// Pushes real-time alerts as they are created or updated with replay support
 pub async fn alerts_stream(
     State(state): State<AppState>,
     Extension(_claims): Extension<Claims>,
+    headers: HeaderMap,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    let stream = stream::unfold(state, |state| async move {
+    let sse_manager = state.sse_manager.clone();
+
+    // Parse Last-Event-ID for replay
+    let last_event_id = SseEventManager::parse_last_event_id(&headers);
+
+    // Get replay events if reconnecting
+    let replay_events = if let Some(last_id) = last_event_id {
+        sse_manager
+            .get_replay_events(SseStreamType::Alerts, last_id)
+            .await
+    } else {
+        Vec::new()
+    };
+
+    // Create replay stream
+    let replay_stream = create_replay_stream(replay_events);
+
+    let live_stream = stream::unfold(state.clone(), move |state| async move {
+        let mgr = state.sse_manager.clone();
+
         tokio::time::sleep(Duration::from_secs(2)).await;
 
         // Fetch recent alerts
@@ -301,12 +462,10 @@ pub async fn alerts_stream(
                 Ok(alerts) => alerts,
                 Err(e) => {
                     tracing::warn!("Failed to fetch alerts for SSE: {}", e);
-                    return Some((
-                        Ok(Event::default()
-                            .event("error")
-                            .data(format!("{{\"error\": \"{}\"}}", e))),
-                        state,
-                    ));
+                    let event = mgr
+                        .create_error_event(SseStreamType::Alerts, &e.to_string())
+                        .await;
+                    return Some((Ok(SseEventManager::to_axum_event(&event)), state));
                 }
             };
 
@@ -316,24 +475,47 @@ pub async fn alerts_stream(
             "count": alerts.len()
         });
 
-        Some((
-            Ok(Event::default()
-                .event("alerts")
-                .data(serde_json::to_string(&alert_data).unwrap_or_else(|_| "{}".to_string()))),
-            state,
-        ))
+        let event = mgr
+            .create_event(
+                SseStreamType::Alerts,
+                "alerts",
+                serde_json::to_string(&alert_data).unwrap_or_else(|_| "{}".to_string()),
+            )
+            .await;
+
+        Some((Ok(SseEventManager::to_axum_event(&event)), state))
     });
 
-    Sse::new(stream).keep_alive(KeepAlive::default())
+    Sse::new(FuturesStreamExt::chain(replay_stream, live_stream)).keep_alive(KeepAlive::default())
 }
 
 /// SSE stream for anomalies
-/// Pushes real-time anomaly detections
+/// Pushes real-time anomaly detections with replay support
 pub async fn anomalies_stream(
     State(state): State<AppState>,
     Extension(_claims): Extension<Claims>,
+    headers: HeaderMap,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    let stream = stream::unfold(state, |state| async move {
+    let sse_manager = state.sse_manager.clone();
+
+    // Parse Last-Event-ID for replay
+    let last_event_id = SseEventManager::parse_last_event_id(&headers);
+
+    // Get replay events if reconnecting
+    let replay_events = if let Some(last_id) = last_event_id {
+        sse_manager
+            .get_replay_events(SseStreamType::Anomalies, last_id)
+            .await
+    } else {
+        Vec::new()
+    };
+
+    // Create replay stream
+    let replay_stream = create_replay_stream(replay_events);
+
+    let live_stream = stream::unfold(state.clone(), move |state| async move {
+        let mgr = state.sse_manager.clone();
+
         tokio::time::sleep(Duration::from_secs(10)).await;
 
         // Fetch recent anomalies
@@ -352,12 +534,10 @@ pub async fn anomalies_stream(
                 Ok(anomalies) => anomalies,
                 Err(e) => {
                     tracing::warn!("Failed to fetch anomalies for SSE: {}", e);
-                    return Some((
-                        Ok(Event::default()
-                            .event("error")
-                            .data(format!("{{\"error\": \"{}\"}}", e))),
-                        state,
-                    ));
+                    let event = mgr
+                        .create_error_event(SseStreamType::Anomalies, &e.to_string())
+                        .await;
+                    return Some((Ok(SseEventManager::to_axum_event(&event)), state));
                 }
             };
 
@@ -367,208 +547,241 @@ pub async fn anomalies_stream(
             "count": anomalies.len()
         });
 
-        Some((
-            Ok(Event::default()
-                .event("anomalies")
-                .data(serde_json::to_string(&anomaly_data).unwrap_or_else(|_| "{}".to_string()))),
-            state,
-        ))
+        let event = mgr
+            .create_event(
+                SseStreamType::Anomalies,
+                "anomalies",
+                serde_json::to_string(&anomaly_data).unwrap_or_else(|_| "{}".to_string()),
+            )
+            .await;
+
+        Some((Ok(SseEventManager::to_axum_event(&event)), state))
     });
 
-    Sse::new(stream).keep_alive(KeepAlive::default())
+    Sse::new(FuturesStreamExt::chain(replay_stream, live_stream)).keep_alive(KeepAlive::default())
 }
 
 /// SSE stream for dashboard-specific metrics
-/// Pushes metrics tailored for dashboard widgets
+/// Pushes metrics tailored for dashboard widgets with replay support
 pub async fn dashboard_metrics_stream(
     State(state): State<AppState>,
     Extension(_claims): Extension<Claims>,
     Path(dashboard_id): Path<String>,
+    headers: HeaderMap,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    let stream = stream::unfold((state, dashboard_id), |(state, dashboard_id)| async move {
-        tokio::time::sleep(Duration::from_secs(5)).await;
+    let sse_manager = state.sse_manager.clone();
 
-        // Get dashboard configuration (placeholder for now)
-        let dashboard_config = serde_json::json!({
-            "widgets": [
-                {
-                    "type": "time_series",
-                    "metric": "cpu_usage",
-                    "aggregation": "avg",
-                    "window": "1h"
-                },
-                {
-                    "type": "gauge",
-                    "metric": "gpu_utilization",
-                    "threshold_warning": 80,
-                    "threshold_critical": 95
-                },
-                {
-                    "type": "alert_list",
-                    "severities": ["critical", "error"],
-                    "limit": 10
-                }
-            ],
-            "refresh_interval": 30,
-            "time_range": "24h"
-        });
+    // Parse Last-Event-ID for replay
+    let last_event_id = SseEventManager::parse_last_event_id(&headers);
 
-        // Fetch metrics for each widget
-        let mut widget_data = Vec::new();
-
-        for widget in dashboard_config["widgets"].as_array().unwrap_or(&vec![]) {
-            let widget_type = widget["type"].as_str().unwrap_or("unknown");
-            let metric_name = widget["metric"].as_str().unwrap_or("");
-
-            let filters = adapteros_system_metrics::MetricFilters {
-                worker_id: None,
-                tenant_id: None,
-                metric_name: Some(metric_name.to_string()),
-                start_time: Some(chrono::Utc::now() - chrono::Duration::hours(1)),
-                end_time: None,
-                limit: Some(100),
-            };
-
-            let metrics = match adapteros_system_metrics::ProcessHealthMetric::query(
-                state.db.pool(),
-                filters,
-            )
+    // Get replay events if reconnecting
+    let replay_events = if let Some(last_id) = last_event_id {
+        sse_manager
+            .get_replay_events(SseStreamType::Dashboard, last_id)
             .await
-            {
-                Ok(metrics) => metrics,
-                Err(e) => {
-                    tracing::warn!("Failed to fetch metrics for widget: {}", e);
-                    continue;
-                }
-            };
+    } else {
+        Vec::new()
+    };
 
-            let widget_result = match widget_type {
-                "time_series" => {
-                    let points: Vec<serde_json::Value> = metrics
-                        .iter()
-                        .map(|m| {
-                            serde_json::json!({
-                                "timestamp": m.collected_at.to_rfc3339(),
-                                "value": m.metric_value,
-                                "worker_id": m.worker_id
+    // Create replay stream
+    let replay_stream = create_replay_stream(replay_events);
+
+    let live_stream = stream::unfold(
+        (state.clone(), dashboard_id),
+        move |(state, dashboard_id)| async move {
+            let mgr = state.sse_manager.clone();
+
+            tokio::time::sleep(Duration::from_secs(5)).await;
+
+            // Get dashboard configuration (placeholder for now)
+            let dashboard_config = serde_json::json!({
+                "widgets": [
+                    {
+                        "type": "time_series",
+                        "metric": "cpu_usage",
+                        "aggregation": "avg",
+                        "window": "1h"
+                    },
+                    {
+                        "type": "gauge",
+                        "metric": "gpu_utilization",
+                        "threshold_warning": 80,
+                        "threshold_critical": 95
+                    },
+                    {
+                        "type": "alert_list",
+                        "severities": ["critical", "error"],
+                        "limit": 10
+                    }
+                ],
+                "refresh_interval": 30,
+                "time_range": "24h"
+            });
+
+            // Fetch metrics for each widget
+            let mut widget_data = Vec::new();
+
+            for widget in dashboard_config["widgets"].as_array().unwrap_or(&vec![]) {
+                let widget_type = widget["type"].as_str().unwrap_or("unknown");
+                let metric_name = widget["metric"].as_str().unwrap_or("");
+
+                let filters = adapteros_system_metrics::MetricFilters {
+                    worker_id: None,
+                    tenant_id: None,
+                    metric_name: Some(metric_name.to_string()),
+                    start_time: Some(chrono::Utc::now() - chrono::Duration::hours(1)),
+                    end_time: None,
+                    limit: Some(100),
+                };
+
+                let metrics = match adapteros_system_metrics::ProcessHealthMetric::query(
+                    state.db.pool(),
+                    filters,
+                )
+                .await
+                {
+                    Ok(metrics) => metrics,
+                    Err(e) => {
+                        tracing::warn!("Failed to fetch metrics for widget: {}", e);
+                        continue;
+                    }
+                };
+
+                let widget_result = match widget_type {
+                    "time_series" => {
+                        let points: Vec<serde_json::Value> = metrics
+                            .iter()
+                            .map(|m| {
+                                serde_json::json!({
+                                    "timestamp": m.collected_at.to_rfc3339(),
+                                    "value": m.metric_value,
+                                    "worker_id": m.worker_id
+                                })
                             })
+                            .collect();
+
+                        serde_json::json!({
+                            "widget_id": "time_series_1",
+                            "widget_type": "time_series",
+                            "data": {
+                                "metric": metric_name,
+                                "points": points,
+                                "aggregation": widget["aggregation"],
+                                "window": widget["window"]
+                            }
                         })
-                        .collect();
+                    }
+                    "gauge" => {
+                        let current_value = metrics.last().map(|m| m.metric_value).unwrap_or(0.0);
+                        let status = if current_value
+                            >= widget["threshold_critical"].as_f64().unwrap_or(95.0)
+                        {
+                            "critical"
+                        } else if current_value
+                            >= widget["threshold_warning"].as_f64().unwrap_or(80.0)
+                        {
+                            "warning"
+                        } else {
+                            "healthy"
+                        };
 
-                    serde_json::json!({
-                        "widget_id": "time_series_1",
-                        "widget_type": "time_series",
-                        "data": {
-                            "metric": metric_name,
-                            "points": points,
-                            "aggregation": widget["aggregation"],
-                            "window": widget["window"]
-                        }
-                    })
-                }
-                "gauge" => {
-                    let current_value = metrics.last().map(|m| m.metric_value).unwrap_or(0.0);
-                    let status = if current_value
-                        >= widget["threshold_critical"].as_f64().unwrap_or(95.0)
-                    {
-                        "critical"
-                    } else if current_value >= widget["threshold_warning"].as_f64().unwrap_or(80.0)
-                    {
-                        "warning"
-                    } else {
-                        "healthy"
-                    };
+                        serde_json::json!({
+                            "widget_id": "gauge_1",
+                            "widget_type": "gauge",
+                            "data": {
+                                "metric": metric_name,
+                                "current_value": current_value,
+                                "threshold_warning": widget["threshold_warning"],
+                                "threshold_critical": widget["threshold_critical"],
+                                "status": status
+                            }
+                        })
+                    }
+                    "alert_list" => {
+                        let alert_filters = adapteros_system_metrics::AlertFilters {
+                            tenant_id: None,
+                            worker_id: None,
+                            status: Some(adapteros_system_metrics::AlertStatus::Active),
+                            severity: None,
+                            start_time: None,
+                            end_time: None,
+                            limit: Some(widget["limit"].as_i64().unwrap_or(10)),
+                        };
 
-                    serde_json::json!({
-                        "widget_id": "gauge_1",
-                        "widget_type": "gauge",
-                        "data": {
-                            "metric": metric_name,
-                            "current_value": current_value,
-                            "threshold_warning": widget["threshold_warning"],
-                            "threshold_critical": widget["threshold_critical"],
-                            "status": status
-                        }
-                    })
-                }
-                "alert_list" => {
-                    let alert_filters = adapteros_system_metrics::AlertFilters {
-                        tenant_id: None,
-                        worker_id: None,
-                        status: Some(adapteros_system_metrics::AlertStatus::Active),
-                        severity: None,
-                        start_time: None,
-                        end_time: None,
-                        limit: Some(widget["limit"].as_i64().unwrap_or(10)),
-                    };
+                        let alerts = match adapteros_system_metrics::ProcessAlert::list(
+                            state.db.pool(),
+                            alert_filters,
+                        )
+                        .await
+                        {
+                            Ok(alerts) => alerts,
+                            Err(e) => {
+                                tracing::warn!("Failed to fetch alerts for widget: {}", e);
+                                vec![]
+                            }
+                        };
 
-                    let alerts = match adapteros_system_metrics::ProcessAlert::list(
-                        state.db.pool(),
-                        alert_filters,
-                    )
-                    .await
-                    {
-                        Ok(alerts) => alerts,
-                        Err(e) => {
-                            tracing::warn!("Failed to fetch alerts for widget: {}", e);
-                            vec![]
-                        }
-                    };
-
-                    let alert_summaries: Vec<serde_json::Value> = alerts
-                        .iter()
-                        .map(|a| {
-                            serde_json::json!({
-                                "id": a.id,
-                                "title": a.title,
-                                "severity": a.severity.to_string(),
-                                "status": a.status.to_string(),
-                                "worker_id": a.worker_id,
-                                "created_at": a.created_at.to_rfc3339(),
-                                "acknowledged_by": a.acknowledged_by
+                        let alert_summaries: Vec<serde_json::Value> = alerts
+                            .iter()
+                            .map(|a| {
+                                serde_json::json!({
+                                    "id": a.id,
+                                    "title": a.title,
+                                    "severity": a.severity.to_string(),
+                                    "status": a.status.to_string(),
+                                    "worker_id": a.worker_id,
+                                    "created_at": a.created_at.to_rfc3339(),
+                                    "acknowledged_by": a.acknowledged_by
+                                })
                             })
+                            .collect();
+
+                        serde_json::json!({
+                            "widget_id": "alert_list_1",
+                            "widget_type": "alert_list",
+                            "data": {
+                                "alerts": alert_summaries,
+                                "total_count": alerts.len(),
+                                "unacknowledged_count": alerts.iter().filter(|a| a.status.to_string() == "active").count()
+                            }
                         })
-                        .collect();
+                    }
+                    _ => {
+                        serde_json::json!({
+                            "widget_id": "unknown_1",
+                            "widget_type": widget_type,
+                            "data": {},
+                            "error": "Unknown widget type"
+                        })
+                    }
+                };
 
-                    serde_json::json!({
-                        "widget_id": "alert_list_1",
-                        "widget_type": "alert_list",
-                        "data": {
-                            "alerts": alert_summaries,
-                            "total_count": alerts.len(),
-                            "unacknowledged_count": alerts.iter().filter(|a| a.status.to_string() == "active").count()
-                        }
-                    })
-                }
-                _ => {
-                    serde_json::json!({
-                        "widget_id": "unknown_1",
-                        "widget_type": widget_type,
-                        "data": {},
-                        "error": "Unknown widget type"
-                    })
-                }
-            };
+                widget_data.push(widget_result);
+            }
 
-            widget_data.push(widget_result);
-        }
+            let dashboard_data = serde_json::json!({
+                "dashboard_id": dashboard_id,
+                "widgets": widget_data,
+                "timestamp": chrono::Utc::now().to_rfc3339(),
+                "refresh_interval": dashboard_config["refresh_interval"]
+            });
 
-        let dashboard_data = serde_json::json!({
-            "dashboard_id": dashboard_id,
-            "widgets": widget_data,
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-            "refresh_interval": dashboard_config["refresh_interval"]
-        });
+            let event = mgr
+                .create_event(
+                    SseStreamType::Dashboard,
+                    "dashboard_metrics",
+                    serde_json::to_string(&dashboard_data).unwrap_or_else(|_| "{}".to_string()),
+                )
+                .await;
 
-        Some((
-            Ok(Event::default()
-                .event("dashboard_metrics")
-                .data(serde_json::to_string(&dashboard_data).unwrap_or_else(|_| "{}".to_string()))),
-            (state, dashboard_id),
-        ))
-    });
+            Some((
+                Ok(SseEventManager::to_axum_event(&event)),
+                (state, dashboard_id),
+            ))
+        },
+    );
 
-    Sse::new(stream).keep_alive(KeepAlive::default())
+    Sse::new(FuturesStreamExt::chain(replay_stream, live_stream)).keep_alive(KeepAlive::default())
 }
 
 /// Enhanced system metrics stream with monitoring data
@@ -576,8 +789,28 @@ pub async fn dashboard_metrics_stream(
 pub async fn enhanced_system_metrics_stream(
     State(state): State<AppState>,
     Extension(_claims): Extension<Claims>,
+    headers: HeaderMap,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    let stream = stream::unfold(state, |state| async move {
+    let sse_manager = state.sse_manager.clone();
+
+    // Parse Last-Event-ID for replay
+    let last_event_id = SseEventManager::parse_last_event_id(&headers);
+
+    // Get replay events if reconnecting (using SystemMetrics type for enhanced too)
+    let replay_events = if let Some(last_id) = last_event_id {
+        sse_manager
+            .get_replay_events(SseStreamType::SystemMetrics, last_id)
+            .await
+    } else {
+        Vec::new()
+    };
+
+    // Create replay stream
+    let replay_stream = create_replay_stream(replay_events);
+
+    let live_stream = stream::unfold(state.clone(), move |state| async move {
+        let mgr = state.sse_manager.clone();
+
         tokio::time::sleep(Duration::from_secs(5)).await;
 
         // Fetch basic system metrics
@@ -585,12 +818,10 @@ pub async fn enhanced_system_metrics_stream(
             Ok(m) => m,
             Err(e) => {
                 tracing::warn!("Failed to fetch metrics for SSE: {}", e);
-                return Some((
-                    Ok(Event::default()
-                        .event("error")
-                        .data(format!("{{\"error\": \"{}\"}}", e))),
-                    state,
-                ));
+                let event = mgr
+                    .create_error_event(SseStreamType::SystemMetrics, &e)
+                    .await;
+                return Some((Ok(SseEventManager::to_axum_event(&event)), state));
             }
         };
 
@@ -602,7 +833,7 @@ pub async fn enhanced_system_metrics_stream(
             severity: None,
             start_time: None,
             end_time: None,
-            limit: Some(1), // Just count, not actual alerts
+            limit: Some(1),
         };
 
         let active_alerts_count = match adapteros_system_metrics::ProcessAlert::list(
@@ -623,7 +854,7 @@ pub async fn enhanced_system_metrics_stream(
             anomaly_type: None,
             start_time: Some(chrono::Utc::now() - chrono::Duration::hours(1)),
             end_time: None,
-            limit: Some(1), // Just count, not actual anomalies
+            limit: Some(1),
         };
 
         let recent_anomalies_count =
@@ -665,15 +896,18 @@ pub async fn enhanced_system_metrics_stream(
             "timestamp": chrono::Utc::now().to_rfc3339()
         });
 
-        Some((
-            Ok(Event::default().event("enhanced_metrics").data(
+        let event = mgr
+            .create_event(
+                SseStreamType::SystemMetrics,
+                "enhanced_metrics",
                 serde_json::to_string(&enhanced_metrics).unwrap_or_else(|_| "{}".to_string()),
-            )),
-            state,
-        ))
+            )
+            .await;
+
+        Some((Ok(SseEventManager::to_axum_event(&event)), state))
     });
 
-    Sse::new(stream).keep_alive(KeepAlive::default())
+    Sse::new(FuturesStreamExt::chain(replay_stream, live_stream)).keep_alive(KeepAlive::default())
 }
 
 // Helper to extract system metrics logic

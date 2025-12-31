@@ -349,6 +349,134 @@ impl ApiError {
             ),
         )
     }
+
+    // --- Migration & Schema error codes (Category 5) ---
+
+    /// Migration file missing - 500 Internal Server Error
+    pub fn migration_file_missing(filename: impl Into<String>) -> Self {
+        let filename = filename.into();
+        error!("Migration file missing: {}", filename);
+        Self::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "MIGRATION_FILE_MISSING",
+            format!("Migration file '{}' is missing", filename),
+        )
+    }
+
+    /// Migration checksum mismatch - 500 Internal Server Error
+    pub fn migration_checksum_mismatch(filename: impl Into<String>) -> Self {
+        let filename = filename.into();
+        error!("Migration checksum mismatch: {}", filename);
+        Self::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "MIGRATION_CHECKSUM_MISMATCH",
+            format!(
+                "Migration '{}' has been modified after being applied",
+                filename
+            ),
+        )
+    }
+
+    /// Schema version mismatch - 500 Internal Server Error
+    pub fn schema_version_mismatch(
+        app_version: impl Into<String>,
+        db_version: impl Into<String>,
+    ) -> Self {
+        Self::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "SCHEMA_VERSION_MISMATCH",
+            format!(
+                "Schema version mismatch: app expects {}, database has {}",
+                app_version.into(),
+                db_version.into()
+            ),
+        )
+    }
+
+    // --- Cache error codes (Category 6) ---
+
+    /// Cache stale - 503 Service Unavailable (with retry hint)
+    pub fn cache_stale(key: impl Into<String>, ttl_secs: u64) -> Self {
+        Self::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "CACHE_STALE",
+            format!(
+                "Cached data for '{}' is stale (TTL: {} seconds)",
+                key.into(),
+                ttl_secs
+            ),
+        )
+    }
+
+    /// Cache eviction - 503 Service Unavailable
+    pub fn cache_eviction(evicted_count: usize, reason: impl Into<String>) -> Self {
+        Self::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "CACHE_EVICTION",
+            format!("Evicted {} cache entries: {}", evicted_count, reason.into()),
+        )
+    }
+
+    // --- Rate limiting error codes (Category 23) ---
+
+    /// Thundering herd rejected - 429 Too Many Requests
+    pub fn thundering_herd_rejected(retry_after_ms: u64) -> Self {
+        warn!(
+            retry_after_ms = retry_after_ms,
+            "Request rejected by thundering herd protection"
+        );
+        Self::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            "THUNDERING_HERD_REJECTED",
+            "Too many simultaneous requests detected",
+        )
+        .with_details(format!("Retry after {} seconds", retry_after_ms / 1000))
+    }
+
+    /// Rate limiter not configured - 500 Internal Server Error
+    pub fn rate_limiter_not_configured(resource: impl Into<String>) -> Self {
+        let resource = resource.into();
+        error!("Rate limiter not configured for: {}", resource);
+        Self::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "RATE_LIMITER_NOT_CONFIGURED",
+            format!("Rate limiter not configured for '{}'", resource),
+        )
+    }
+
+    // --- SSE/Streaming error codes (Category 18) ---
+
+    /// Stream disconnected - used for SSE error events
+    pub fn stream_disconnected(reason: impl Into<String>, reconnect_hint_ms: u64) -> Self {
+        Self::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "STREAM_DISCONNECTED",
+            reason,
+        )
+        .with_details(format!("Reconnect after {} ms", reconnect_hint_ms))
+    }
+
+    /// Event gap detected - used when client missed events
+    pub fn event_gap_detected(
+        client_last_id: u64,
+        server_oldest_id: u64,
+        events_lost: u64,
+    ) -> Self {
+        warn!(
+            client_last_id = client_last_id,
+            server_oldest_id = server_oldest_id,
+            events_lost = events_lost,
+            "Event gap detected during reconnection"
+        );
+        Self::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "EVENT_GAP_DETECTED",
+            format!(
+                "Missed {} events (client last ID: {}, server oldest: {})",
+                events_lost, client_last_id, server_oldest_id
+            ),
+        )
+    }
 }
 
 impl IntoResponse for ApiError {
@@ -628,6 +756,41 @@ impl From<AosError> for ApiError {
                 "CACHE_BUDGET_EXCEEDED",
                 err.to_string(),
             ),
+            AosError::CpuThrottled { .. } => ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "CPU_THROTTLED",
+                err.to_string(),
+            ),
+            AosError::OutOfMemory { .. } => ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "OUT_OF_MEMORY",
+                err.to_string(),
+            ),
+            AosError::FileDescriptorExhausted { .. } => ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "FD_EXHAUSTED",
+                err.to_string(),
+            ),
+            AosError::ThreadPoolSaturated { .. } => ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "THREAD_POOL_SATURATED",
+                err.to_string(),
+            ),
+            AosError::GpuUnavailable { .. } => ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "GPU_UNAVAILABLE",
+                err.to_string(),
+            ),
+            AosError::DiskFull { .. } => ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "DISK_FULL",
+                err.to_string(),
+            ),
+            AosError::TempDirUnavailable { .. } => ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "TEMP_DIR_UNAVAILABLE",
+                err.to_string(),
+            ),
 
             // ========== 504 Gateway Timeout (1 variant) ==========
             AosError::Timeout { duration } => {
@@ -677,9 +840,44 @@ impl From<AosError> for ApiError {
             | AosError::MissingSegment { .. }
             | AosError::MissingCanonicalSegment
             | AosError::CacheCorruption { .. }
-            | AosError::DualWriteInconsistency { .. } => {
+            | AosError::DualWriteInconsistency { .. }
+            | AosError::PermissionDenied { .. }
+            | AosError::InvalidPathCharacters { .. }
+            | AosError::WatcherEventsDropped { .. }
+            | AosError::CoreMLUnsupportedOps { .. }
+            | AosError::CoreMLMissingWeights { .. }
+            | AosError::CoreMLExportPathExists { .. }
+            | AosError::CoreMLExportTimeout { .. }
+            | AosError::LoraShapeMismatch { .. }
+            // Build/Toolchain errors (Category 20)
+            | AosError::ToolchainMismatch { .. }
+            | AosError::StaleBuildCache { .. }
+            | AosError::LintTargetMissing { .. }
+            | AosError::LockfileOutOfSync { .. }
+            | AosError::WorkspaceMemberPathInvalid { .. }
+            // CLI errors (Category 21)
+            | AosError::DeprecatedFlag { .. }
+            | AosError::OutputFormatMismatch { .. }
+            | AosError::CliWritePermissionDenied { .. }
+            | AosError::InvalidInputEncoding { .. }
+            | AosError::InvalidRetryAttempt { .. } => {
                 error!("Internal error: {}", err);
                 ApiError::internal(err.to_string())
+            }
+
+            // Rate limiting errors (Category 23)
+            AosError::RateLimiterNotConfigured { .. } => {
+                error!("Rate limiter not configured: {}", err);
+                ApiError::internal(err.to_string())
+            }
+            AosError::InvalidRateLimitConfig { .. } => {
+                error!("Invalid rate limit configuration: {}", err);
+                ApiError::internal(err.to_string())
+            }
+            AosError::ThunderingHerdRejected { retry_after_ms, .. } => {
+                warn!("Request rejected by thundering herd protection (retry after {}ms): {}", retry_after_ms, err);
+                ApiError::too_many_requests(err.to_string())
+                    .with_details(format!("Retry after {} seconds", retry_after_ms / 1000))
             }
 
             // Wrapper - log context and return internal error
@@ -926,5 +1124,564 @@ mod tests {
             !adapteros_core::redaction::is_redaction_disabled(),
             "Redaction should be enabled by default"
         );
+    }
+
+    // =========================================================================
+    // Constructor Tests: HTTP Status Codes
+    // =========================================================================
+
+    #[test]
+    fn test_internal_returns_500() {
+        let error = ApiError::internal("something went wrong");
+        assert_eq!(error.status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(error.code, "INTERNAL_ERROR");
+        assert_eq!(error.message, "something went wrong");
+    }
+
+    #[test]
+    fn test_not_found_returns_404() {
+        let error = ApiError::not_found("User");
+        assert_eq!(error.status, StatusCode::NOT_FOUND);
+        assert_eq!(error.code, "NOT_FOUND");
+        assert_eq!(error.message, "User not found");
+    }
+
+    #[test]
+    fn test_not_found_msg_returns_404() {
+        let error = ApiError::not_found_msg("Custom not found message");
+        assert_eq!(error.status, StatusCode::NOT_FOUND);
+        assert_eq!(error.code, "NOT_FOUND");
+        assert_eq!(error.message, "Custom not found message");
+    }
+
+    #[test]
+    fn test_bad_request_returns_400() {
+        let error = ApiError::bad_request("Invalid input");
+        assert_eq!(error.status, StatusCode::BAD_REQUEST);
+        assert_eq!(error.code, "BAD_REQUEST");
+        assert_eq!(error.message, "Invalid input");
+    }
+
+    #[test]
+    fn test_unauthorized_returns_401() {
+        let error = ApiError::unauthorized("Token expired");
+        assert_eq!(error.status, StatusCode::UNAUTHORIZED);
+        assert_eq!(error.code, "UNAUTHORIZED");
+        assert_eq!(error.message, "Token expired");
+    }
+
+    #[test]
+    fn test_forbidden_returns_403() {
+        let error = ApiError::forbidden("Access denied");
+        assert_eq!(error.status, StatusCode::FORBIDDEN);
+        assert_eq!(error.code, "FORBIDDEN");
+        assert_eq!(error.message, "Access denied");
+    }
+
+    #[test]
+    fn test_conflict_returns_409() {
+        let error = ApiError::conflict("Resource already exists");
+        assert_eq!(error.status, StatusCode::CONFLICT);
+        assert_eq!(error.code, "CONFLICT");
+        assert_eq!(error.message, "Resource already exists");
+    }
+
+    #[test]
+    fn test_payload_too_large_returns_413() {
+        let error = ApiError::payload_too_large("File exceeds 10MB limit");
+        assert_eq!(error.status, StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(error.code, "PAYLOAD_TOO_LARGE");
+        assert_eq!(error.message, "File exceeds 10MB limit");
+    }
+
+    #[test]
+    fn test_not_implemented_returns_501() {
+        let error = ApiError::not_implemented("Feature not available");
+        assert_eq!(error.status, StatusCode::NOT_IMPLEMENTED);
+        assert_eq!(error.code, "FEATURE_DISABLED");
+        assert_eq!(error.message, "Feature not available");
+    }
+
+    #[test]
+    fn test_service_unavailable_returns_503() {
+        let error = ApiError::service_unavailable("Server is busy");
+        assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(error.code, "SERVICE_UNAVAILABLE");
+        assert_eq!(error.message, "Server is busy");
+    }
+
+    #[test]
+    fn test_too_many_requests_returns_429() {
+        let error = ApiError::too_many_requests("Rate limit exceeded");
+        assert_eq!(error.status, StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(error.code, "TOO_MANY_REQUESTS");
+        assert_eq!(error.message, "Rate limit exceeded");
+    }
+
+    #[test]
+    fn test_gateway_timeout_returns_504() {
+        let error = ApiError::gateway_timeout("Upstream timed out");
+        assert_eq!(error.status, StatusCode::GATEWAY_TIMEOUT);
+        assert_eq!(error.code, "GATEWAY_TIMEOUT");
+        assert_eq!(error.message, "Upstream timed out");
+    }
+
+    #[test]
+    fn test_bad_gateway_returns_502() {
+        let error = ApiError::bad_gateway("Upstream error");
+        assert_eq!(error.status, StatusCode::BAD_GATEWAY);
+        assert_eq!(error.code, "BAD_GATEWAY");
+        assert_eq!(error.message, "Upstream error");
+    }
+
+    // =========================================================================
+    // Artifact-Specific Error Constructors (PRD-ART-01)
+    // =========================================================================
+
+    #[test]
+    fn test_incompatible_schema_version() {
+        let error = ApiError::incompatible_schema_version("2.0", "1.5");
+        assert_eq!(error.status, StatusCode::BAD_REQUEST);
+        assert_eq!(error.code, "INCOMPATIBLE_SCHEMA_VERSION");
+        assert!(error.message.contains("2.0"));
+        assert!(error.message.contains("1.5"));
+        assert!(error.message.contains("Update AdapterOS"));
+    }
+
+    #[test]
+    fn test_incompatible_base_model() {
+        let error = ApiError::incompatible_base_model("llama-unknown");
+        assert_eq!(error.status, StatusCode::BAD_REQUEST);
+        assert_eq!(error.code, "INCOMPATIBLE_BASE_MODEL");
+        assert!(error.message.contains("llama-unknown"));
+        assert!(error.message.contains("not found"));
+    }
+
+    #[test]
+    fn test_unsupported_backend() {
+        let error = ApiError::unsupported_backend("cuda-custom");
+        assert_eq!(error.status, StatusCode::BAD_REQUEST);
+        assert_eq!(error.code, "UNSUPPORTED_BACKEND");
+        assert!(error.message.contains("cuda-custom"));
+    }
+
+    #[test]
+    fn test_hash_integrity_failure() {
+        let error = ApiError::hash_integrity_failure("abc123", "def456");
+        assert_eq!(error.status, StatusCode::BAD_REQUEST);
+        assert_eq!(error.code, "HASH_INTEGRITY_FAILURE");
+        assert!(error.message.contains("abc123"));
+        assert!(error.message.contains("def456"));
+        assert!(error.message.contains("mismatch"));
+    }
+
+    #[test]
+    fn test_signature_required() {
+        let error = ApiError::signature_required();
+        assert_eq!(error.status, StatusCode::FORBIDDEN);
+        assert_eq!(error.code, "SIGNATURE_REQUIRED");
+        assert!(error.message.contains("policy requires signed adapters"));
+    }
+
+    #[test]
+    fn test_signature_invalid() {
+        let error = ApiError::signature_invalid("Invalid signature format");
+        assert_eq!(error.status, StatusCode::FORBIDDEN);
+        assert_eq!(error.code, "SIGNATURE_INVALID");
+        assert_eq!(error.message, "Invalid signature format");
+    }
+
+    #[test]
+    fn test_export_failed() {
+        let error = ApiError::export_failed("Failed to write weights");
+        assert_eq!(error.status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(error.code, "EXPORT_FAILED");
+        assert_eq!(error.message, "Failed to write weights");
+    }
+
+    // =========================================================================
+    // Repository-Specific Error Constructors
+    // =========================================================================
+
+    #[test]
+    fn test_repo_not_found() {
+        let error = ApiError::repo_not_found("my-repo");
+        assert_eq!(error.status, StatusCode::NOT_FOUND);
+        assert_eq!(error.code, "REPO_NOT_FOUND");
+        assert!(error.message.contains("my-repo"));
+        assert!(error.message.contains("not found"));
+    }
+
+    #[test]
+    fn test_version_not_found() {
+        let error = ApiError::version_not_found("my-repo", "v1.0.0");
+        assert_eq!(error.status, StatusCode::NOT_FOUND);
+        assert_eq!(error.code, "VERSION_NOT_FOUND");
+        assert!(error.message.contains("v1.0.0"));
+        assert!(error.message.contains("my-repo"));
+    }
+
+    #[test]
+    fn test_repo_already_exists() {
+        let error = ApiError::repo_already_exists("existing-repo");
+        assert_eq!(error.status, StatusCode::CONFLICT);
+        assert_eq!(error.code, "REPO_ALREADY_EXISTS");
+        assert!(error.message.contains("existing-repo"));
+        assert!(error.message.contains("already exists"));
+    }
+
+    #[test]
+    fn test_repo_archived() {
+        let error = ApiError::repo_archived("old-repo");
+        assert_eq!(error.status, StatusCode::FORBIDDEN);
+        assert_eq!(error.code, "REPO_ARCHIVED");
+        assert!(error.message.contains("old-repo"));
+        assert!(error.message.contains("archived"));
+    }
+
+    #[test]
+    fn test_version_not_promotable() {
+        let error = ApiError::version_not_promotable("v1.0.0", "tests not passing");
+        assert_eq!(error.status, StatusCode::BAD_REQUEST);
+        assert_eq!(error.code, "VERSION_NOT_PROMOTABLE");
+        assert!(error.message.contains("v1.0.0"));
+        assert!(error.message.contains("tests not passing"));
+    }
+
+    // =========================================================================
+    // Error Message Formatting Tests
+    // =========================================================================
+
+    #[test]
+    fn test_display_format_basic() {
+        let error = ApiError::bad_request("Invalid JSON");
+        let display = format!("{}", error);
+        assert!(display.contains("BAD_REQUEST"));
+        assert!(display.contains("400"));
+        assert!(display.contains("Invalid JSON"));
+    }
+
+    #[test]
+    fn test_display_format_with_details() {
+        let error = ApiError::internal("Operation failed").with_details("step 2 of 5");
+        let display = format!("{}", error);
+        assert!(display.contains("INTERNAL_ERROR"));
+        assert!(display.contains("Operation failed"));
+        assert!(display.contains("step 2 of 5"));
+    }
+
+    #[test]
+    fn test_with_request_id() {
+        let error = ApiError::internal("failed").with_request_id("req-12345");
+        assert_eq!(error.request_id, Some("req-12345".to_string()));
+    }
+
+    #[test]
+    fn test_with_tenant_id() {
+        let error = ApiError::internal("failed").with_tenant_id("tenant-abc");
+        assert_eq!(error.tenant_id, Some("tenant-abc".to_string()));
+    }
+
+    #[test]
+    fn test_builder_chain() {
+        let error = ApiError::internal("failed")
+            .with_details("extra info")
+            .with_request_id("req-123")
+            .with_tenant_id("tenant-456");
+
+        assert_eq!(error.status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(error.message, "failed");
+        assert_eq!(error.details, Some("extra info".to_string()));
+        assert_eq!(error.request_id, Some("req-123".to_string()));
+        assert_eq!(error.tenant_id, Some("tenant-456".to_string()));
+    }
+
+    // =========================================================================
+    // Retryable Error Tests (Retry Hints)
+    // =========================================================================
+
+    #[test]
+    fn test_thundering_herd_has_retry_hint() {
+        let error = ApiError::thundering_herd_rejected(10000);
+        assert_eq!(error.status, StatusCode::TOO_MANY_REQUESTS);
+        let details = error.details.as_ref().expect("should have details");
+        assert!(details.contains("Retry after"));
+        assert!(details.contains("10 seconds"));
+    }
+
+    #[test]
+    fn test_stream_disconnected_has_reconnect_hint() {
+        let error = ApiError::stream_disconnected("connection lost", 5000);
+        assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
+        let details = error.details.as_ref().expect("should have details");
+        assert!(details.contains("Reconnect after"));
+        assert!(details.contains("5000 ms"));
+    }
+
+    #[test]
+    fn test_cache_stale_is_retryable_status() {
+        let error = ApiError::cache_stale("session:123", 60);
+        // 503 is a retryable status code
+        assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(error.code, "CACHE_STALE");
+    }
+
+    #[test]
+    fn test_service_unavailable_is_retryable_status() {
+        let error = ApiError::service_unavailable("temporarily unavailable");
+        assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
+        // 503 indicates the service may recover - clients should retry
+    }
+
+    #[test]
+    fn test_too_many_requests_is_retryable_status() {
+        let error = ApiError::too_many_requests("rate limit hit");
+        assert_eq!(error.status, StatusCode::TOO_MANY_REQUESTS);
+        // 429 indicates rate limiting - clients should retry with backoff
+    }
+
+    #[test]
+    fn test_gateway_timeout_is_retryable_status() {
+        let error = ApiError::gateway_timeout("upstream took too long");
+        assert_eq!(error.status, StatusCode::GATEWAY_TIMEOUT);
+        // 504 indicates timeout - clients may retry
+    }
+
+    // =========================================================================
+    // FailureCode Mapping Tests (via AosError conversion)
+    // =========================================================================
+
+    #[test]
+    fn test_aos_timeout_maps_to_gateway_timeout() {
+        let aos_err = AosError::Timeout {
+            duration: std::time::Duration::from_secs(30),
+        };
+        let api_err: ApiError = aos_err.into();
+        assert_eq!(api_err.status, StatusCode::GATEWAY_TIMEOUT);
+        assert_eq!(api_err.code, "GATEWAY_TIMEOUT");
+    }
+
+    #[test]
+    fn test_aos_resource_exhaustion_maps_to_503() {
+        let aos_err = AosError::ResourceExhaustion("memory limit exceeded".to_string());
+        let api_err: ApiError = aos_err.into();
+        assert_eq!(api_err.status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(api_err.code, "SERVICE_UNAVAILABLE");
+    }
+
+    #[test]
+    fn test_aos_memory_pressure_maps_to_503() {
+        let aos_err = AosError::MemoryPressure("high memory usage".to_string());
+        let api_err: ApiError = aos_err.into();
+        assert_eq!(api_err.status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(api_err.code, "MEMORY_PRESSURE");
+    }
+
+    #[test]
+    fn test_aos_circuit_breaker_open_maps_to_503() {
+        let aos_err = AosError::CircuitBreakerOpen {
+            service: "inference".to_string(),
+        };
+        let api_err: ApiError = aos_err.into();
+        assert_eq!(api_err.status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(api_err.code, "CIRCUIT_BREAKER_OPEN");
+    }
+
+    #[test]
+    fn test_aos_worker_not_responding_maps_to_503() {
+        let aos_err = AosError::WorkerNotResponding {
+            path: std::path::PathBuf::from("/tmp/worker.sock"),
+        };
+        let api_err: ApiError = aos_err.into();
+        assert_eq!(api_err.status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(api_err.code, "WORKER_NOT_RESPONDING");
+    }
+
+    #[test]
+    fn test_aos_policy_violation_maps_to_403() {
+        let aos_err = AosError::PolicyViolation("blocked by policy".to_string());
+        let api_err: ApiError = aos_err.into();
+        assert_eq!(api_err.status, StatusCode::FORBIDDEN);
+        assert_eq!(api_err.code, "POLICY_VIOLATION");
+    }
+
+    #[test]
+    fn test_aos_auth_error_maps_to_401() {
+        let aos_err = AosError::Auth("invalid credentials".to_string());
+        let api_err: ApiError = aos_err.into();
+        assert_eq!(api_err.status, StatusCode::UNAUTHORIZED);
+        assert_eq!(api_err.code, "UNAUTHORIZED");
+    }
+
+    #[test]
+    fn test_aos_not_found_maps_to_404() {
+        let aos_err = AosError::NotFound("resource missing".to_string());
+        let api_err: ApiError = aos_err.into();
+        assert_eq!(api_err.status, StatusCode::NOT_FOUND);
+        assert_eq!(api_err.code, "NOT_FOUND");
+    }
+
+    #[test]
+    fn test_aos_model_not_found_maps_to_404() {
+        let aos_err = AosError::ModelNotFound {
+            model_id: "llama-v2".to_string(),
+        };
+        let api_err: ApiError = aos_err.into();
+        assert_eq!(api_err.status, StatusCode::NOT_FOUND);
+        assert_eq!(api_err.code, "MODEL_NOT_FOUND");
+    }
+
+    #[test]
+    fn test_aos_http_error_maps_to_502() {
+        let aos_err = AosError::Http("connection refused".to_string());
+        let api_err: ApiError = aos_err.into();
+        assert_eq!(api_err.status, StatusCode::BAD_GATEWAY);
+        assert_eq!(api_err.code, "BAD_GATEWAY");
+    }
+
+    #[test]
+    fn test_aos_network_error_maps_to_502() {
+        let aos_err = AosError::Network("dns lookup failed".to_string());
+        let api_err: ApiError = aos_err.into();
+        assert_eq!(api_err.status, StatusCode::BAD_GATEWAY);
+        assert_eq!(api_err.code, "NETWORK_ERROR");
+    }
+
+    #[test]
+    fn test_aos_validation_error_maps_to_400() {
+        let aos_err = AosError::Validation("field required".to_string());
+        let api_err: ApiError = aos_err.into();
+        assert_eq!(api_err.status, StatusCode::BAD_REQUEST);
+        assert_eq!(api_err.code, "VALIDATION_ERROR");
+    }
+
+    #[test]
+    fn test_aos_parse_error_maps_to_400() {
+        // Use Parse instead of Serialization since Serialization requires serde_json::Error
+        let aos_err = AosError::Parse("invalid json".to_string());
+        let api_err: ApiError = aos_err.into();
+        assert_eq!(api_err.status, StatusCode::BAD_REQUEST);
+        assert_eq!(api_err.code, "PARSE_ERROR");
+    }
+
+    #[test]
+    fn test_aos_adapter_hash_mismatch_maps_to_409() {
+        use adapteros_core::B3Hash;
+        let aos_err = AosError::AdapterHashMismatch {
+            adapter_id: "adapter-1".to_string(),
+            expected: B3Hash::new([0u8; 32]),
+            actual: B3Hash::new([1u8; 32]),
+        };
+        let api_err: ApiError = aos_err.into();
+        assert_eq!(api_err.status, StatusCode::CONFLICT);
+        assert_eq!(api_err.code, "ADAPTER_HASH_MISMATCH");
+    }
+
+    #[test]
+    fn test_aos_quota_exceeded_maps_to_429() {
+        use adapteros_api_types::FailureCode;
+        let aos_err = AosError::QuotaExceeded {
+            resource: "kv_cache".to_string(),
+            failure_code: FailureCode::KvQuotaExceeded,
+        };
+        let api_err: ApiError = aos_err.into();
+        assert_eq!(api_err.status, StatusCode::TOO_MANY_REQUESTS);
+        assert!(api_err.message.contains("kv_cache"));
+    }
+
+    #[test]
+    fn test_aos_thundering_herd_rejected_maps_to_429_with_hint() {
+        let aos_err = AosError::ThunderingHerdRejected {
+            reason: "too many concurrent requests".to_string(),
+            retry_after_ms: 3000,
+        };
+        let api_err: ApiError = aos_err.into();
+        assert_eq!(api_err.status, StatusCode::TOO_MANY_REQUESTS);
+        assert!(api_err.details.as_ref().unwrap().contains("Retry after"));
+    }
+
+    #[test]
+    fn test_aos_reasoning_loop_maps_to_422() {
+        let aos_err = AosError::ReasoningLoop("infinite loop detected".to_string());
+        let api_err: ApiError = aos_err.into();
+        assert_eq!(api_err.status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(api_err.code, "REASONING_LOOP_DETECTED");
+    }
+
+    // =========================================================================
+    // New Error Constructor Tests (Categories 5, 6, 18, 23)
+    // =========================================================================
+
+    #[test]
+    fn test_migration_file_missing() {
+        let error = ApiError::migration_file_missing("20250101_add_users.sql");
+        assert_eq!(error.status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(error.code, "MIGRATION_FILE_MISSING");
+        assert!(error.message.contains("20250101_add_users.sql"));
+    }
+
+    #[test]
+    fn test_migration_checksum_mismatch() {
+        let error = ApiError::migration_checksum_mismatch("20250101_add_users.sql");
+        assert_eq!(error.status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(error.code, "MIGRATION_CHECKSUM_MISMATCH");
+        assert!(error.message.contains("modified after being applied"));
+    }
+
+    #[test]
+    fn test_schema_version_mismatch() {
+        let error = ApiError::schema_version_mismatch("5", "3");
+        assert_eq!(error.status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(error.code, "SCHEMA_VERSION_MISMATCH");
+        assert!(error.message.contains("app expects 5"));
+        assert!(error.message.contains("database has 3"));
+    }
+
+    #[test]
+    fn test_cache_stale() {
+        let error = ApiError::cache_stale("user:123", 300);
+        assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(error.code, "CACHE_STALE");
+        assert!(error.message.contains("300 seconds"));
+    }
+
+    #[test]
+    fn test_cache_eviction() {
+        let error = ApiError::cache_eviction(100, "memory pressure");
+        assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(error.code, "CACHE_EVICTION");
+        assert!(error.message.contains("100 cache entries"));
+    }
+
+    #[test]
+    fn test_thundering_herd_rejected() {
+        let error = ApiError::thundering_herd_rejected(5000);
+        assert_eq!(error.status, StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(error.code, "THUNDERING_HERD_REJECTED");
+        assert!(error.details.as_ref().unwrap().contains("5 seconds"));
+    }
+
+    #[test]
+    fn test_rate_limiter_not_configured() {
+        let error = ApiError::rate_limiter_not_configured("/api/v1/infer");
+        assert_eq!(error.status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(error.code, "RATE_LIMITER_NOT_CONFIGURED");
+        assert!(error.message.contains("/api/v1/infer"));
+    }
+
+    #[test]
+    fn test_stream_disconnected() {
+        let error = ApiError::stream_disconnected("server shutdown", 3000);
+        assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(error.code, "STREAM_DISCONNECTED");
+        assert!(error.details.as_ref().unwrap().contains("3000 ms"));
+    }
+
+    #[test]
+    fn test_event_gap_detected() {
+        let error = ApiError::event_gap_detected(50, 100, 50);
+        assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(error.code, "EVENT_GAP_DETECTED");
+        assert!(error.message.contains("Missed 50 events"));
     }
 }

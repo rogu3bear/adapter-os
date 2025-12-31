@@ -242,6 +242,7 @@ async fn test_chat_created_from_training_job_has_stack_id() {
         metadata_json: None,
         tags_json: None,
         pinned_adapter_ids: None,
+        codebase_adapter_id: None,
     };
 
     match db.create_chat_session(params).await {
@@ -363,6 +364,7 @@ async fn test_tenant_isolation_training_to_chat() {
         metadata_json: None,
         tags_json: None,
         pinned_adapter_ids: None,
+        codebase_adapter_id: None,
     };
 
     // This should fail due to FK constraints (tenant_id mismatch)

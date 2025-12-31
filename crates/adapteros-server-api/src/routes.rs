@@ -3,9 +3,12 @@ use crate::handlers;
 use crate::handlers::auth;
 use crate::handlers::domain_adapters;
 use crate::health::system_ready;
+use crate::idempotency::idempotency_middleware;
 use crate::middleware::audit::audit_middleware;
 use crate::middleware::context::context_middleware;
+use crate::middleware::error_code_enforcement::ErrorCodeEnforcementLayer;
 use crate::middleware::policy_enforcement::policy_enforcement_middleware;
+use crate::middleware::versioning;
 use crate::middleware::{
     auth_middleware, client_ip_middleware, csrf_middleware, optional_auth_middleware,
     tenant_route_guard_middleware,
@@ -16,7 +19,6 @@ use crate::middleware_security::{
 };
 use crate::request_id;
 use crate::state::AppState;
-use crate::versioning;
 use axum::{
     middleware,
     routing::{delete, get, patch, post, put},
@@ -2372,10 +2374,18 @@ pub fn build(state: AppState) -> Router {
 
     // Combine routes and apply security middleware layers
     // (layers are applied in reverse order - first layer applied processes last)
+    // Capture idempotency store for middleware closure
+    let idempotency_store = state.idempotency_store();
+
     let app = app
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         // Apply layers (innermost to outermost):
         .layer(TraceLayer::new_for_http()) // Request tracing (innermost)
+        .layer(ErrorCodeEnforcementLayer) // Ensure all errors have machine-readable codes
+        .layer(axum::middleware::from_fn(move |req, next| {
+            let store = idempotency_store.clone();
+            async move { idempotency_middleware(store, req, next).await }
+        })) // Idempotency for mutation requests
         .layer(CompressionLayer::new()) // Response compression (gzip, br, deflate)
         .layer(cors_layer()) // CORS configuration
         .layer(axum::middleware::from_fn_with_state(

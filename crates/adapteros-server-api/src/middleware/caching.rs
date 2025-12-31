@@ -14,8 +14,6 @@ use axum::{
     middleware::Next,
     response::{IntoResponse, Response},
 };
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use tracing::debug;
 
 /// Cache control directives
@@ -81,10 +79,13 @@ impl CachingMetadata {
 }
 
 /// Generate ETag from response body hash
+///
+/// Uses BLAKE3 for deterministic hashing across process restarts.
+/// DefaultHasher is seeded with ASLR-derived values, producing
+/// different hashes on different runs, breaking HTTP caching semantics.
 pub fn generate_etag(content: &[u8]) -> String {
-    let mut hasher = DefaultHasher::new();
-    content.hash(&mut hasher);
-    format!("\"{}\"", hasher.finish())
+    let hash = blake3::hash(content);
+    format!("\"{}\"", &hash.to_hex()[..16])
 }
 
 /// Check if request has matching ETag

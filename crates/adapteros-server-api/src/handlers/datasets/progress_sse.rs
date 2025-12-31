@@ -7,25 +7,28 @@
 
 use super::types::ProgressStreamQuery;
 use crate::error_helpers::internal_error;
+use crate::sse::{SseEventManager, SseStreamType};
 use crate::state::{AppState, DatasetProgressEvent, IngestionPhase, SessionProgressEvent};
 use crate::types::ErrorResponse;
 use axum::{
     extract::{Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::{
         sse::{Event, KeepAlive},
         Sse,
     },
     Json,
 };
-use futures_util::stream::Stream;
+use futures_util::stream::{self, Stream};
+use futures_util::StreamExt as FuturesStreamExt;
 use serde::Deserialize;
 use std::convert::Infallible;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::broadcast;
-use tokio_stream::{wrappers::BroadcastStream, StreamExt};
+use tokio_stream::wrappers::BroadcastStream;
+use tokio_stream::StreamExt as TokioStreamExt;
 use tracing::{debug, info, warn};
 use utoipa::{IntoParams, ToSchema};
 
@@ -420,7 +423,29 @@ impl SessionProgressEmitter {
 pub async fn dataset_upload_progress(
     State(state): State<AppState>,
     Query(query): Query<ProgressStreamQuery>,
+    headers: HeaderMap,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<ErrorResponse>)> {
+    let sse_manager = state.sse_manager.clone();
+
+    // Parse Last-Event-ID for replay
+    let last_event_id = SseEventManager::parse_last_event_id(&headers);
+
+    // Get replay events if reconnecting
+    let replay_events = if let Some(last_id) = last_event_id {
+        sse_manager
+            .get_replay_events(SseStreamType::DatasetProgress, last_id)
+            .await
+    } else {
+        Vec::new()
+    };
+
+    // Create replay stream
+    let replay_stream = stream::iter(
+        replay_events
+            .into_iter()
+            .map(|e| Ok(SseEventManager::to_axum_event(&e))),
+    );
+
     // Get progress broadcast channel from state
     let rx = state
         .dataset_progress_tx
@@ -437,16 +462,20 @@ pub async fn dataset_upload_progress(
     const MAX_CONSECUTIVE_LAGS: u32 = 3;
     let consecutive_lags = Arc::new(AtomicU32::new(0));
     let consecutive_lags_clone = consecutive_lags.clone();
+    let mgr_for_stream = Arc::new(state.sse_manager.clone());
 
-    let stream = BroadcastStream::new(rx)
-        .filter_map(move |result| {
+    let live_stream = FuturesStreamExt::filter_map(BroadcastStream::new(rx), move |result| {
+        let consecutive_lags_inner = consecutive_lags_clone.clone();
+        let query_dataset_id = query.dataset_id.clone();
+        let mgr = Arc::clone(&mgr_for_stream);
+        async move {
             match result {
                 Ok(event) => {
                     // Reset lag counter on successful receive
-                    consecutive_lags_clone.store(0, Ordering::Relaxed);
+                    consecutive_lags_inner.store(0, Ordering::Relaxed);
 
                     // Filter by dataset_id if specified
-                    if let Some(ref dataset_id) = query.dataset_id {
+                    if let Some(ref dataset_id) = query_dataset_id {
                         if event.dataset_id != *dataset_id {
                             return None;
                         }
@@ -454,7 +483,16 @@ pub async fn dataset_upload_progress(
 
                     // Convert to SSE event
                     match serde_json::to_string(&event) {
-                        Ok(json) => Some(Ok(Event::default().event(&event.event_type).data(json))),
+                        Ok(json) => {
+                            let sse_event = mgr
+                                .create_event(
+                                    SseStreamType::DatasetProgress,
+                                    &event.event_type,
+                                    json,
+                                )
+                                .await;
+                            Some(Ok(SseEventManager::to_axum_event(&sse_event)))
+                        }
                         Err(e) => {
                             warn!(error = %e, "Failed to serialize dataset progress event");
                             None
@@ -462,7 +500,7 @@ pub async fn dataset_upload_progress(
                     }
                 }
                 Err(e) => {
-                    let lags = consecutive_lags_clone.fetch_add(1, Ordering::Relaxed) + 1;
+                    let lags = consecutive_lags_inner.fetch_add(1, Ordering::Relaxed) + 1;
                     if lags >= MAX_CONSECUTIVE_LAGS {
                         warn!(
                             consecutive_lags = lags,
@@ -477,10 +515,13 @@ pub async fn dataset_upload_progress(
                     None
                 }
             }
-        })
-        // Force disconnect after 5 minutes to prevent indefinite connections
-        .timeout(Duration::from_secs(300))
-        .map(|result| match result {
+        }
+    });
+
+    // Apply timeout and take_while
+    let live_stream = TokioStreamExt::map(
+        TokioStreamExt::timeout(live_stream, Duration::from_secs(300)),
+        |result| match result {
             Ok(event) => event,
             Err(_timeout) => {
                 warn!("Dataset progress SSE stream timed out after 5 minutes");
@@ -488,24 +529,17 @@ pub async fn dataset_upload_progress(
                     .event("timeout")
                     .data(r#"{"error":"stream_timeout"}"#))
             }
-        })
-        // Take until we hit a terminal condition (error or timeout event)
-        .take_while(|result| {
-            if let Ok(event) = result {
-                // Check if this is a terminal event by examining the data
-                // The event doesn't expose its internal data easily, so we check by converting
-                // We allow stream to continue for normal events
-                true
-            } else {
-                true
-            }
-        });
+        },
+    );
 
-    Ok(Sse::new(stream).keep_alive(
-        KeepAlive::new()
-            .interval(Duration::from_secs(15))
-            .text("keep-alive"),
-    ))
+    // Chain replay with live stream
+    Ok(
+        Sse::new(FuturesStreamExt::chain(replay_stream, live_stream)).keep_alive(
+            KeepAlive::new()
+                .interval(Duration::from_secs(15))
+                .text("keep-alive"),
+        ),
+    )
 }
 
 /// Stream session-based codebase ingestion progress via SSE
@@ -549,7 +583,29 @@ pub async fn dataset_upload_progress(
 pub async fn session_progress_stream(
     State(state): State<AppState>,
     Query(query): Query<SessionProgressStreamQuery>,
+    headers: HeaderMap,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<ErrorResponse>)> {
+    let sse_manager = state.sse_manager.clone();
+
+    // Parse Last-Event-ID for replay
+    let last_event_id = SseEventManager::parse_last_event_id(&headers);
+
+    // Get replay events if reconnecting
+    let replay_events = if let Some(last_id) = last_event_id {
+        sse_manager
+            .get_replay_events(SseStreamType::DatasetProgress, last_id)
+            .await
+    } else {
+        Vec::new()
+    };
+
+    // Create replay stream
+    let replay_stream = stream::iter(
+        replay_events
+            .into_iter()
+            .map(|e| Ok(SseEventManager::to_axum_event(&e))),
+    );
+
     // Get session progress broadcast channel from state
     let rx = state
         .session_progress_tx
@@ -568,30 +624,36 @@ pub async fn session_progress_stream(
     const MAX_CONSECUTIVE_LAGS: u32 = 3;
     let consecutive_lags = Arc::new(AtomicU32::new(0));
     let consecutive_lags_clone = consecutive_lags.clone();
+    let mgr_for_stream = Arc::new(state.sse_manager.clone());
 
-    let stream = BroadcastStream::new(rx)
-        .filter_map(move |result| {
+    let live_stream = FuturesStreamExt::filter_map(BroadcastStream::new(rx), move |result| {
+        let consecutive_lags_inner = consecutive_lags_clone.clone();
+        let query_session_id = query.session_id.clone();
+        let query_dataset_id = query.dataset_id.clone();
+        let query_phase = query.phase.clone();
+        let mgr = Arc::clone(&mgr_for_stream);
+        async move {
             match result {
                 Ok(event) => {
                     // Reset lag counter on successful receive
-                    consecutive_lags_clone.store(0, Ordering::Relaxed);
+                    consecutive_lags_inner.store(0, Ordering::Relaxed);
 
                     // Filter by session_id if specified
-                    if let Some(ref session_id) = query.session_id {
+                    if let Some(ref session_id) = query_session_id {
                         if event.session_id != *session_id {
                             return None;
                         }
                     }
 
                     // Filter by dataset_id if specified
-                    if let Some(ref dataset_id) = query.dataset_id {
+                    if let Some(ref dataset_id) = query_dataset_id {
                         if event.dataset_id.as_ref() != Some(dataset_id) {
                             return None;
                         }
                     }
 
                     // Filter by phase if specified
-                    if let Some(ref phase_filter) = query.phase {
+                    if let Some(ref phase_filter) = query_phase {
                         let event_phase = event.phase.to_string();
                         if event_phase != *phase_filter {
                             return None;
@@ -600,7 +662,16 @@ pub async fn session_progress_stream(
 
                     // Convert to SSE event
                     match serde_json::to_string(&event) {
-                        Ok(json) => Some(Ok(Event::default().event("session_progress").data(json))),
+                        Ok(json) => {
+                            let sse_event = mgr
+                                .create_event(
+                                    SseStreamType::DatasetProgress,
+                                    "session_progress",
+                                    json,
+                                )
+                                .await;
+                            Some(Ok(SseEventManager::to_axum_event(&sse_event)))
+                        }
                         Err(e) => {
                             warn!(error = %e, "Failed to serialize session progress event");
                             None
@@ -608,7 +679,7 @@ pub async fn session_progress_stream(
                     }
                 }
                 Err(e) => {
-                    let lags = consecutive_lags_clone.fetch_add(1, Ordering::Relaxed) + 1;
+                    let lags = consecutive_lags_inner.fetch_add(1, Ordering::Relaxed) + 1;
                     if lags >= MAX_CONSECUTIVE_LAGS {
                         warn!(
                             consecutive_lags = lags,
@@ -623,10 +694,13 @@ pub async fn session_progress_stream(
                     None
                 }
             }
-        })
-        // Force disconnect after 5 minutes to prevent indefinite connections
-        .timeout(Duration::from_secs(300))
-        .map(|result| match result {
+        }
+    });
+
+    // Apply timeout
+    let live_stream = TokioStreamExt::map(
+        TokioStreamExt::timeout(live_stream, Duration::from_secs(300)),
+        |result| match result {
             Ok(event) => event,
             Err(_timeout) => {
                 warn!("Session progress SSE stream timed out after 5 minutes");
@@ -634,13 +708,17 @@ pub async fn session_progress_stream(
                     .event("timeout")
                     .data(r#"{"error":"stream_timeout"}"#))
             }
-        });
+        },
+    );
 
-    Ok(Sse::new(stream).keep_alive(
-        KeepAlive::new()
-            .interval(Duration::from_secs(10))
-            .text("keep-alive"),
-    ))
+    // Chain replay with live stream
+    Ok(
+        Sse::new(FuturesStreamExt::chain(replay_stream, live_stream)).keep_alive(
+            KeepAlive::new()
+                .interval(Duration::from_secs(10))
+                .text("keep-alive"),
+        ),
+    )
 }
 
 // ============================================================================

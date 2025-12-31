@@ -333,6 +333,7 @@ async fn test_create_chat_session_with_stack() {
         metadata_json: None,
         tags_json: None,
         pinned_adapter_ids: None,
+        codebase_adapter_id: None,
     })
     .await
     .expect("Failed to create chat session");

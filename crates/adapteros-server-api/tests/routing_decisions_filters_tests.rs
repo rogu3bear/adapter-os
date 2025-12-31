@@ -40,6 +40,7 @@ async fn routing_decisions_filter_by_source_type() {
             metadata_json: None,
             tags_json: None,
             pinned_adapter_ids: None,
+            codebase_adapter_id: None,
         })
         .await
         .expect("doc session");
@@ -61,6 +62,7 @@ async fn routing_decisions_filter_by_source_type() {
             metadata_json: None,
             tags_json: None,
             pinned_adapter_ids: None,
+            codebase_adapter_id: None,
         })
         .await
         .expect("general session");

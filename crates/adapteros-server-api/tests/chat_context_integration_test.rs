@@ -42,6 +42,7 @@ async fn create_test_session(db: &Db, session_id: &str, tenant_id: &str) {
         metadata_json: None,
         tags_json: None,
         pinned_adapter_ids: None,
+        codebase_adapter_id: None,
     })
     .await
     .expect("Failed to create test session");
@@ -73,10 +74,10 @@ async fn test_build_chat_prompt_with_real_db() {
     create_test_session(&db, session_id, &tenant_id).await;
 
     add_test_message(&db, session_id, "system", "You are a helpful assistant.").await;
-    // Small delay to ensure timestamp ordering
-    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+    // Delay to ensure timestamp ordering - use 50ms for CI reliability
+    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
     add_test_message(&db, session_id, "user", "Hello, how are you?").await;
-    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
     add_test_message(&db, session_id, "assistant", "I'm doing well, thank you!").await;
 
     // Build prompt with new message
@@ -193,7 +194,8 @@ async fn test_build_chat_prompt_determinism() {
     create_test_session(&db, session_id, &tenant_id).await;
 
     add_test_message(&db, session_id, "user", "Hello").await;
-    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+    // Delay for timestamp ordering - use 50ms for CI reliability
+    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
     add_test_message(&db, session_id, "assistant", "Hi there").await;
 
     let config = ChatContextConfig::default();
@@ -223,9 +225,10 @@ async fn test_build_chat_prompt_excludes_system_messages() {
     create_test_session(&db, session_id, &tenant_id).await;
 
     add_test_message(&db, session_id, "system", "System prompt").await;
-    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+    // Delay for timestamp ordering - use 50ms for CI reliability
+    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
     add_test_message(&db, session_id, "user", "User message").await;
-    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
     add_test_message(&db, session_id, "assistant", "Assistant response").await;
 
     // Config that excludes system messages

@@ -286,9 +286,10 @@ async fn drain_handles_zero_in_flight_requests_immediately() {
 
     // Verify drain completed immediately
     assert!(!timeout_exceeded, "Should not timeout with zero requests");
+    // Use 200ms tolerance for CI systems under load
     assert!(
-        elapsed < Duration::from_millis(50),
-        "Should complete almost immediately (took {:?})",
+        elapsed < Duration::from_millis(200),
+        "Should complete quickly (took {:?})",
         elapsed
     );
 

@@ -152,6 +152,7 @@ async fn test_e2e_inference_with_audit_trail() {
             metadata_json: None,
             tags_json: None,
             pinned_adapter_ids: None,
+            codebase_adapter_id: None,
         })
         .await
         .expect("Failed to create chat session");

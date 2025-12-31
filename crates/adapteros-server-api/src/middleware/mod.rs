@@ -127,6 +127,58 @@ fn csrf_error(msg: impl Into<String>) -> (StatusCode, Json<ErrorResponse>) {
     )
 }
 
+fn token_missing() -> (StatusCode, Json<ErrorResponse>) {
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(
+            ErrorResponse::new("Auth token is missing from the request").with_code("TOKEN_MISSING"),
+        ),
+    )
+}
+
+fn token_expired(msg: impl Into<String>) -> (StatusCode, Json<ErrorResponse>) {
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(
+            ErrorResponse::new("Auth token is expired")
+                .with_code("TOKEN_EXPIRED")
+                .with_string_details(msg.into()),
+        ),
+    )
+}
+
+fn token_signature_invalid(msg: impl Into<String>) -> (StatusCode, Json<ErrorResponse>) {
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(
+            ErrorResponse::new("Auth token signature is invalid")
+                .with_code("TOKEN_SIGNATURE_INVALID")
+                .with_string_details(msg.into()),
+        ),
+    )
+}
+
+fn session_corrupted(msg: impl Into<String>) -> (StatusCode, Json<ErrorResponse>) {
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(
+            ErrorResponse::new("Session storage entry is corrupted")
+                .with_code("SESSION_CORRUPTED")
+                .with_string_details(msg.into()),
+        ),
+    )
+}
+
+fn tenant_header_missing() -> (StatusCode, Json<ErrorResponse>) {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(
+            ErrorResponse::new("Tenant selection header is absent when required")
+                .with_code("TENANT_HEADER_MISSING"),
+        ),
+    )
+}
+
 fn build_principal_from_claims(
     claims: &mut Claims,
     principal_type: PrincipalType,
@@ -141,6 +193,7 @@ pub mod audit;
 pub mod caching;
 pub mod compression;
 pub mod context;
+pub mod error_code_enforcement;
 pub mod observability;
 pub mod policy_enforcement;
 pub mod request_id;
@@ -149,6 +202,7 @@ pub mod versioning;
 
 pub use caching::{caching_middleware, CacheControl};
 pub use compression::compression_middleware;
+pub use error_code_enforcement::ErrorCodeEnforcementLayer;
 pub use observability::observability_middleware;
 pub use policy_enforcement::policy_enforcement_middleware;
 pub use request_id::request_id_middleware;
@@ -278,6 +332,35 @@ pub async fn tenant_route_guard_middleware(
                 "Tenant isolation granted for cross-tenant access"
             );
         }
+    }
+
+    Ok(next.run(req).await)
+}
+
+/// Require X-Tenant-Id header for routes that need explicit tenant selection.
+///
+/// This middleware is for routes that operate across tenants or need the caller
+/// to explicitly specify which tenant context to use. It rejects requests that
+/// don't include the X-Tenant-Id header.
+///
+/// Use this for admin or system routes that require explicit tenant targeting.
+pub async fn require_tenant_header_middleware(
+    req: Request<axum::body::Body>,
+    next: Next,
+) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
+    let tenant_header = req
+        .headers()
+        .get("X-Tenant-Id")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty());
+
+    if tenant_header.is_none() {
+        tracing::warn!(
+            path = %req.uri().path(),
+            "Tenant selection header is absent when required"
+        );
+        return Err(tenant_header_missing());
     }
 
     Ok(next.run(req).await)
@@ -434,8 +517,8 @@ async fn validate_access_token_with_session(
         validate_token(token, &state.hmac_keys, state.jwt_secret.as_slice())
     }
     .map_err(|e| {
-        tracing::warn!(error = %e, "Token validation failed");
-        unauthenticated("token validation failed")
+        tracing::warn!(error = %e, "Auth token signature is invalid");
+        token_signature_invalid(e.to_string())
     })?;
 
     if claims.iss != crate::auth::JWT_ISSUER {
@@ -537,16 +620,31 @@ async fn validate_access_token_with_session(
         match get_session_by_id(&state.db, &session_id).await {
             Ok(Some(session)) => {
                 // Use the longer session expiry (expires_at), falling back to refresh_expires_at
-                let session_exp_ts = chrono::DateTime::parse_from_rfc3339(&session.expires_at)
-                    .ok()
-                    .or_else(|| {
-                        session
+                let session_exp_ts = match chrono::DateTime::parse_from_rfc3339(&session.expires_at)
+                {
+                    Ok(dt) => dt.timestamp(),
+                    Err(_) => {
+                        // Try refresh_expires_at as fallback
+                        match session
                             .refresh_expires_at
                             .as_ref()
                             .and_then(|dt| chrono::DateTime::parse_from_rfc3339(dt).ok())
-                    })
-                    .map(|dt| dt.timestamp())
-                    .unwrap_or(now_ts);
+                        {
+                            Some(dt) => dt.timestamp(),
+                            None => {
+                                tracing::warn!(
+                                    session_id = %session_id,
+                                    expires_at = %session.expires_at,
+                                    refresh_expires_at = ?session.refresh_expires_at,
+                                    "Session storage entry is corrupted: invalid timestamp format"
+                                );
+                                return Err(session_corrupted(
+                                    "invalid timestamp format in session data",
+                                ));
+                            }
+                        }
+                    }
+                };
 
                 if session.locked != 0 || session_exp_ts <= now_ts {
                     tracing::warn!(session_id = %session_id, "Session expired or locked (SQL)");
@@ -758,14 +856,8 @@ pub async fn auth_middleware(
                 let response = next.run(req).await;
                 let now = Utc::now().timestamp();
                 if now >= token_exp {
-                    return Err((
-                        StatusCode::UNAUTHORIZED,
-                        Json(
-                            ErrorResponse::new("session expired")
-                                .with_code("SESSION_EXPIRED")
-                                .with_string_details("token expired during request processing"),
-                        ),
-                    ));
+                    tracing::warn!(exp = token_exp, now = now, "Auth token is expired");
+                    return Err(token_expired("token expired during request processing"));
                 }
 
                 return Ok(response);
@@ -825,12 +917,8 @@ pub async fn auth_middleware(
                         let response = next.run(req).await;
                         let now = Utc::now().timestamp();
                         if now >= token_exp {
-                            tracing::warn!(
-                                exp = token_exp,
-                                now = now,
-                                "Token expired during request processing"
-                            );
-                            return Err(session_expired("token expired during request processing"));
+                            tracing::warn!(exp = token_exp, now = now, "Auth token is expired");
+                            return Err(token_expired("token expired during request processing"));
                         }
 
                         return Ok(response);
@@ -841,8 +929,8 @@ pub async fn auth_middleware(
         }
     }
 
-    tracing::warn!("Missing or invalid Authorization header");
-    Err(unauthenticated("missing or invalid Authorization header"))
+    tracing::warn!("Auth token is missing from the request");
+    Err(token_missing())
 }
 
 /// Extract and validate API key OR JWT from Authorization header
@@ -1023,8 +1111,8 @@ pub async fn dual_auth_middleware(
         }
     }
 
-    tracing::warn!("Missing or invalid Authorization header");
-    Err(unauthenticated("missing or invalid Authorization header"))
+    tracing::warn!("Auth token is missing from the request");
+    Err(token_missing())
 }
 
 /// Optional authentication middleware - validates token if present, allows request if not

@@ -1224,6 +1224,7 @@ pub async fn list_workspace_files(
 
 #[cfg(test)]
 mod file_validation_tests {
+    use super::super::validation::ValidationMode;
     use super::*;
     use tempfile::tempdir;
     use tokio::fs::File;

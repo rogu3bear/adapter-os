@@ -145,6 +145,42 @@ pub async fn pin_adapter(
     let pinned_by = claims.sub.clone();
     let pinned_at = chrono::Utc::now().to_rfc3339();
 
+    // === ISSUE 3: Validate pin TTL is not in the past (API layer) ===
+    if let Some(ref until_str) = req.pinned_until {
+        use chrono::{DateTime, Utc};
+        match DateTime::parse_from_rfc3339(until_str) {
+            Ok(parsed) => {
+                if parsed.with_timezone(&Utc) <= Utc::now() {
+                    warn!(
+                        tenant_id = %claims.tenant_id,
+                        adapter_id = %adapter_id,
+                        pinned_until = %until_str,
+                        "Rejected pin request: TTL is in the past"
+                    );
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        Json(
+                            ErrorResponse::new("Adapter pin TTL is in the past")
+                                .with_code("TTL_IN_PAST"),
+                        ),
+                    ));
+                }
+            }
+            Err(e) => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(
+                        ErrorResponse::new(format!(
+                            "Invalid pinned_until timestamp format: {}. Expected RFC3339 (e.g., 2099-12-31T23:59:59Z)",
+                            e
+                        ))
+                        .with_code("INVALID_TTL_FORMAT"),
+                    ),
+                ));
+            }
+        }
+    }
+
     // Pin the adapter
     state
         .db

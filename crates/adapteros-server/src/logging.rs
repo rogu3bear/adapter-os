@@ -260,8 +260,27 @@ pub fn initialize_logging(
         std::env::set_var("RUST_BACKTRACE", "1");
     }
 
-    let env_filter =
-        EnvFilter::try_new(&filter_source).unwrap_or_else(|_| EnvFilter::new(&config.level));
+    // Validate log level - warn if too restrictive
+    let level_lower = filter_source.to_lowercase();
+    if level_lower == "error" || level_lower.starts_with("error,") {
+        eprintln!(
+            "WARNING: Log level set to 'error' only. This will hide all warnings and info messages. \
+             Consider using 'warn' or 'info' for better observability."
+        );
+    } else if level_lower == "off" {
+        eprintln!(
+            "WARNING: Logging is disabled (level=off). No log messages will be recorded. \
+             This may make debugging issues impossible."
+        );
+    }
+
+    let env_filter = EnvFilter::try_new(&filter_source).unwrap_or_else(|e| {
+        eprintln!(
+            "WARNING: Invalid RUST_LOG filter '{}': {}. Falling back to '{}'.",
+            filter_source, e, config.level
+        );
+        EnvFilter::new(&config.level)
+    });
 
     // Determine rotation strategy
     let rotation = match config.rotation.as_str() {

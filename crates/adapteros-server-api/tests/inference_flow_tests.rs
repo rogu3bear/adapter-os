@@ -86,6 +86,7 @@ async fn ready_model_happy_path_inference_and_routing() {
             metadata_json: None,
             tags_json: None,
             pinned_adapter_ids: None,
+            codebase_adapter_id: None,
         })
         .await
         .expect("create chat session");

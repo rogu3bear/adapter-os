@@ -9,16 +9,15 @@ pub mod caching;
 pub mod chat_context;
 pub mod chat_session_config;
 pub mod citations;
-pub mod compression;
 pub mod config;
 pub mod determinism_context;
 pub mod embedding_resilience;
 pub mod error_helpers;
-pub mod errors;
 pub mod event_bus;
 pub mod execution_profile;
 pub mod handlers;
 pub mod health;
+pub mod idempotency;
 pub mod inference_core;
 pub mod ip_extraction;
 pub mod kv_isolation;
@@ -43,6 +42,7 @@ pub mod self_hosting;
 pub mod services;
 pub mod settings_loader;
 pub mod signing;
+pub mod sse;
 pub mod state;
 pub mod storage_reconciler;
 pub mod storage_usage;
@@ -52,7 +52,6 @@ pub mod telemetry_ext;
 pub mod types;
 pub mod uds_client;
 pub mod validation;
-pub mod versioning;
 pub mod worker_health;
 
 pub use auth::Claims;
@@ -79,6 +78,9 @@ pub use uds_client::{
 pub use worker_health::{
     HealthConfig, WorkerHealthMonitor, WorkerHealthStatus, WorkerHealthSummary,
 };
+
+// SSE event management for reliable streaming with replay support
+pub use sse::{SseEvent, SseEventManager, SseRingBuffer, SseStreamType};
 
 // Export the router builder function
 pub use routes::build as create_app;

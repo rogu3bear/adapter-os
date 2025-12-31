@@ -461,6 +461,7 @@ pub async fn check_db_health(State(state): State<AppState>) -> impl IntoResponse
 /// Verifies:
 /// - Metrics exporter operational
 /// - Recent telemetry events recorded
+/// - Detects prolonged idle periods that may indicate a broken telemetry pipeline
 pub async fn check_telemetry_health(State(state): State<AppState>) -> impl IntoResponse {
     // Check metrics exporter availability
     let metrics_snapshot = state.metrics_exporter.snapshot();
@@ -471,17 +472,47 @@ pub async fn check_telemetry_health(State(state): State<AppState>) -> impl IntoR
     // Check latency metrics as a proxy for telemetry health
     let latency_ok = metrics_snapshot.avg_latency_ms < 1000.0; // <1s is healthy
 
+    // Get uptime to detect prolonged idle periods
+    let uptime_secs = state
+        .boot_state
+        .as_ref()
+        .map(|bs| bs.elapsed().as_secs())
+        .unwrap_or(0);
+
+    // After 5 minutes of uptime with no activity, telemetry may be broken
+    const IDLE_WARNING_THRESHOLD_SECS: u64 = 300;
+
     if !has_activity {
-        // Treat idle telemetry as healthy so initial startup doesn't appear degraded
-        ComponentHealth::new(
-            "telemetry",
-            ComponentStatus::Healthy,
-            "Telemetry idle (no activity yet)",
-        )
-        .with_details(serde_json::json!({
-            "total_requests": metrics_snapshot.total_requests,
-            "avg_latency_ms": metrics_snapshot.avg_latency_ms
-        }))
+        if uptime_secs > IDLE_WARNING_THRESHOLD_SECS {
+            // System has been running for a while with no telemetry activity
+            // This may indicate a broken telemetry pipeline
+            ComponentHealth::new(
+                "telemetry",
+                ComponentStatus::Degraded,
+                format!(
+                    "Telemetry idle for {}s - may indicate broken pipeline",
+                    uptime_secs
+                ),
+            )
+            .with_details(serde_json::json!({
+                "total_requests": metrics_snapshot.total_requests,
+                "avg_latency_ms": metrics_snapshot.avg_latency_ms,
+                "uptime_secs": uptime_secs,
+                "warning": "No telemetry activity detected after extended uptime"
+            }))
+        } else {
+            // Early startup - idle is expected
+            ComponentHealth::new(
+                "telemetry",
+                ComponentStatus::Healthy,
+                "Telemetry idle (no activity yet)",
+            )
+            .with_details(serde_json::json!({
+                "total_requests": metrics_snapshot.total_requests,
+                "avg_latency_ms": metrics_snapshot.avg_latency_ms,
+                "uptime_secs": uptime_secs
+            }))
+        }
     } else if !latency_ok {
         ComponentHealth::new(
             "telemetry",
@@ -490,7 +521,8 @@ pub async fn check_telemetry_health(State(state): State<AppState>) -> impl IntoR
         )
         .with_details(serde_json::json!({
             "total_requests": metrics_snapshot.total_requests,
-            "avg_latency_ms": metrics_snapshot.avg_latency_ms
+            "avg_latency_ms": metrics_snapshot.avg_latency_ms,
+            "uptime_secs": uptime_secs
         }))
     } else {
         ComponentHealth::new(
@@ -503,7 +535,8 @@ pub async fn check_telemetry_health(State(state): State<AppState>) -> impl IntoR
         )
         .with_details(serde_json::json!({
             "total_requests": metrics_snapshot.total_requests,
-            "avg_latency_ms": metrics_snapshot.avg_latency_ms
+            "avg_latency_ms": metrics_snapshot.avg_latency_ms,
+            "uptime_secs": uptime_secs
         }))
     }
 }

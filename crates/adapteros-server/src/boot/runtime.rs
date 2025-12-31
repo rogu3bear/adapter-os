@@ -278,6 +278,7 @@ pub async fn initialize_runtime(
                 cookie_same_site: "Lax".to_string(),
                 cookie_domain: None,
                 cookie_secure: None,
+                clock_skew_seconds: 300,
             },
             auth: adapteros_server_api::config::AuthConfig {
                 dev_algo: "hs256".to_string(),
@@ -317,6 +318,7 @@ pub async fn initialize_runtime(
             logging: Default::default(),
             otel: Default::default(),
             invariants: Default::default(),
+            sse: Default::default(),
         };
 
         RuntimeModeResolver::resolve(&api_cfg, db)
@@ -399,6 +401,7 @@ pub async fn initialize_runtime(
                     cookie_same_site: "Lax".to_string(),
                     cookie_domain: None,
                     cookie_secure: None,
+                    clock_skew_seconds: cfg.security.clock_skew_seconds,
                 },
                 auth: adapteros_server_api::config::AuthConfig {
                     dev_algo: cfg.auth.dev_algo.clone(),
@@ -438,6 +441,7 @@ pub async fn initialize_runtime(
                 logging: Default::default(),
                 otel: Default::default(),
                 invariants: Default::default(),
+                sse: Default::default(),
             }
         }; // Close the scope, dropping cfg
 

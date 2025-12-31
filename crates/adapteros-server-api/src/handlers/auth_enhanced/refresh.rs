@@ -445,7 +445,17 @@ pub async fn refresh_token_handler(
         .map(|dt| dt.timestamp())
         .unwrap_or(refresh_claims.exp);
 
-    if refresh_claims.exp <= now_ts || session_exp_ts <= now_ts {
+    // Apply clock skew tolerance for session expiry check
+    let clock_skew = {
+        let config = state.config.read().unwrap_or_else(|e| {
+            warn!("Config lock was poisoned in refresh handler, recovering");
+            e.into_inner()
+        });
+        config.security.clock_skew_seconds as i64
+    };
+    let now_with_skew = now_ts - clock_skew;
+
+    if refresh_claims.exp <= now_with_skew || session_exp_ts <= now_with_skew {
         log_refresh_failure(
             &state.db,
             Some(&session_id),

@@ -26,6 +26,7 @@ pub struct AuthConfig<'a> {
     pub cookie_same_site: String,
     pub cookie_domain: Option<String>,
     pub cookie_secure: bool,
+    pub clock_skew_seconds: u64,
 }
 
 impl<'a> AuthConfig<'a> {
@@ -76,6 +77,7 @@ impl<'a> AuthConfig<'a> {
             cookie_domain: config.security.cookie_domain.clone(),
             cookie_secure,
             jwt_kid: state.jwt_primary_kid.clone(),
+            clock_skew_seconds: config.security.clock_skew_seconds,
         }
     }
 
@@ -412,6 +414,7 @@ mod tests {
             cookie_same_site: "Strict".to_string(),
             cookie_domain: None,
             cookie_secure: true,
+            clock_skew_seconds: 60,
         };
 
         let ctx = AuthContext::from_user(sample_user()).unwrap();
@@ -450,6 +453,7 @@ mod tests {
             cookie_same_site: "Lax".to_string(),
             cookie_domain: None,
             cookie_secure: false,
+            clock_skew_seconds: 60,
         };
 
         let ctx = AuthContext::from_user(sample_user()).unwrap();
@@ -488,6 +492,7 @@ mod tests {
             cookie_same_site: "Lax".to_string(),
             cookie_domain: None,
             cookie_secure: false,
+            clock_skew_seconds: 60,
         };
 
         let ctx = AuthContext::from_user(sample_user()).unwrap();
@@ -528,6 +533,7 @@ mod tests {
             cookie_same_site: "Lax".to_string(),
             cookie_domain: None,
             cookie_secure: false,
+            clock_skew_seconds: 60,
         };
         assert!(
             !cfg.dev_login_allowed(),
@@ -565,6 +571,7 @@ mod tests {
             cookie_same_site: "Strict".to_string(),
             cookie_domain: None,
             cookie_secure: true,
+            clock_skew_seconds: 60,
         };
         assert!(
             !cfg.dev_login_allowed(),

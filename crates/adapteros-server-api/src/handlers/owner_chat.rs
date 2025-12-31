@@ -689,7 +689,7 @@ fn generate_response(message: &str, context: &Option<ChatContext>) -> OwnerChatR
         || message_lower.contains("worker")
     {
         return OwnerChatResponse {
-            response: "Nodes are machines in the cluster; workers handle training and inference. View status, spawn workers, or troubleshoot.".to_string(),
+            response: "A node is a machine in the cluster; workers handle training and inference. View status, spawn workers, or troubleshoot.".to_string(),
             suggested_cli: Some("aosctl node list".to_string()),
             relevant_links: vec!["/system".to_string(), "/admin/workers".to_string()],
             source: None,
