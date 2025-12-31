@@ -6,12 +6,15 @@
 //! - Thread-safe concurrent access
 //! - <1ms overhead for event insertion
 //!
-//! Supports 100% event delivery guarantee with efficient storage
+//! Note: When the buffer is full, oldest events are overwritten.
+//! The `dropped_count` metric tracks overwritten events.
+//! A warning is logged when the drop rate exceeds the configured threshold.
 
 use crate::unified_events::TelemetryEvent;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tracing::warn;
 
 /// Lock-free ring buffer for telemetry events
 pub struct TelemetryRingBuffer {
@@ -25,6 +28,10 @@ pub struct TelemetryRingBuffer {
     capacity: usize,
     /// Events dropped due to buffer overflow
     dropped_count: AtomicUsize,
+    /// Last drop count when warning was logged (prevents log spam)
+    last_warned_drop_count: AtomicUsize,
+    /// Warning threshold: log when drop rate exceeds this percentage of capacity
+    drop_warning_threshold_pct: usize,
 }
 
 impl TelemetryRingBuffer {
@@ -40,6 +47,16 @@ impl TelemetryRingBuffer {
     /// let buffer = TelemetryRingBuffer::new(10000);
     /// ```
     pub fn new(capacity: usize) -> Self {
+        Self::with_drop_warning_threshold(capacity, 10)
+    }
+
+    /// Create a new ring buffer with specified capacity and drop warning threshold
+    ///
+    /// # Arguments
+    /// * `capacity` - Maximum number of events to store
+    /// * `drop_warning_threshold_pct` - Log a warning when drops exceed this % of capacity
+    ///   (e.g., 10 means warn after 10% of capacity is dropped)
+    pub fn with_drop_warning_threshold(capacity: usize, drop_warning_threshold_pct: usize) -> Self {
         let mut events = Vec::with_capacity(capacity);
         events.resize_with(capacity, || None);
 
@@ -49,12 +66,15 @@ impl TelemetryRingBuffer {
             total_written: AtomicUsize::new(0),
             capacity,
             dropped_count: AtomicUsize::new(0),
+            last_warned_drop_count: AtomicUsize::new(0),
+            drop_warning_threshold_pct,
         }
     }
 
     /// Push an event into the ring buffer
     ///
-    /// Returns Ok(()) if successful, Err if event was dropped
+    /// Returns Ok(()) if successful. Events may be dropped (overwritten) if the buffer
+    /// is full - check `dropped_count()` to monitor for drops.
     pub async fn push(&self, event: TelemetryEvent) -> Result<(), ()> {
         // Get current write position and increment atomically
         let pos = self.write_pos.fetch_add(1, Ordering::SeqCst) % self.capacity;
@@ -67,7 +87,38 @@ impl TelemetryRingBuffer {
 
         // Check if we're overwriting an existing event
         if events[pos].is_some() {
-            self.dropped_count.fetch_add(1, Ordering::SeqCst);
+            let new_drop_count = self.dropped_count.fetch_add(1, Ordering::SeqCst) + 1;
+
+            // Check if we should log a warning (avoid log spam by using thresholds)
+            let warning_interval = (self.capacity * self.drop_warning_threshold_pct) / 100;
+            let warning_interval = warning_interval.max(1); // At least 1 to avoid division issues
+
+            let last_warned = self.last_warned_drop_count.load(Ordering::Relaxed);
+            if new_drop_count >= last_warned + warning_interval {
+                // Try to update last_warned_drop_count atomically
+                if self
+                    .last_warned_drop_count
+                    .compare_exchange(
+                        last_warned,
+                        new_drop_count,
+                        Ordering::SeqCst,
+                        Ordering::Relaxed,
+                    )
+                    .is_ok()
+                {
+                    let drop_rate_pct = (new_drop_count as f64
+                        / self.total_written.load(Ordering::Relaxed) as f64)
+                        * 100.0;
+                    warn!(
+                        dropped_count = new_drop_count,
+                        total_written = self.total_written.load(Ordering::Relaxed),
+                        drop_rate_pct = format!("{:.1}%", drop_rate_pct),
+                        capacity = self.capacity,
+                        "Telemetry ring buffer overflow: events are being dropped. \
+                         Consider increasing buffer capacity or reducing event rate."
+                    );
+                }
+            }
         }
 
         events[pos] = Some(event);
@@ -161,6 +212,7 @@ impl TelemetryRingBuffer {
         self.write_pos.store(0, Ordering::SeqCst);
         self.total_written.store(0, Ordering::SeqCst);
         self.dropped_count.store(0, Ordering::SeqCst);
+        self.last_warned_drop_count.store(0, Ordering::SeqCst);
     }
 
     /// Get buffer statistics
