@@ -1274,9 +1274,6 @@ impl<'a> InferenceCore<'a> {
             adapters_used: worker_response.trace.router_summary.adapters_used,
             router_decisions,
             router_decision_chain,
-            moe_info: worker_response.trace.moe_info.clone(),
-            expert_routing: worker_response.trace.expert_routing.clone(),
-            active_experts: worker_response.trace.active_experts.clone(),
             model_type: worker_response
                 .trace
                 .model_type

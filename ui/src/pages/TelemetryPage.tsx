@@ -272,11 +272,7 @@ function TraceTabContent({ traceId, tenantId, trace, loading, error, onTraceIdCh
       {trace && (
         <div className="space-y-4">
           <TraceSummaryPanel trace={trace} onExport={handleExport} />
-          <TraceTokenTable
-            tokens={trace.tokens}
-            modelType={trace.model_type}
-            activeExperts={trace.active_experts}
-          />
+          <TraceTokenTable tokens={trace.tokens} />
         </div>
       )}
     </div>

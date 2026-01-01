@@ -31,7 +31,6 @@ pub mod kv_cache;
 pub mod liquid;
 pub mod lora;
 pub mod memory_pool;
-pub mod moe;
 pub mod monitoring;
 pub mod quantization;
 pub mod routing;
@@ -62,10 +61,6 @@ pub use lora::{LoRAAdapter, LoRAConfig};
 pub use memory_pool::{MLXMemoryPool, MLXMemoryPoolConfig, MemoryPoolStats, MemoryPressureEvent};
 #[cfg(feature = "mlx-rs-backend")]
 pub use model::{MlxRsModel, MlxRsModelConfig};
-pub use moe::{
-    compute_topk_gating, switch_glu_forward_quantized, QuantizedExpertWeights, QuantizedMoeConfig,
-    QuantizedMoeLayer,
-};
 pub use quantization::{
     MLXQuantizer, QuantizationConfig, QuantizationMetadata, QuantizationStats, QuantizedTensor,
     WeightCompressor,

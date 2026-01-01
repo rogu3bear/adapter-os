@@ -63,7 +63,7 @@ export function useModelStatus(
   const [fetchError, setFetchError] = useState<Error | null>(null);
   const isMountedRef = useRef(true);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  const { enabled: demoMode, activeModel, modelSwitching } = useDemoMode();
+  const { enabled: demoMode, activeModel } = useDemoMode();
 
   // Exponential backoff state for error handling
   const errorCountRef = useRef(0);
@@ -210,14 +210,14 @@ export function useModelStatus(
   const demoOverride = useMemo(() => {
     if (!demoMode || !activeModel) return null;
     return {
-      status: modelSwitching ? ('loading' as ModelStatusState) : ('ready' as ModelStatusState),
+      status: 'ready' as ModelStatusState,
       modelName: activeModel.name,
       modelId: activeModel.id,
       modelPath: activeModel.backend ?? activeModel.format ?? null,
       memoryUsageMb: activeModel.memoryUsageMb ?? memoryUsageMb,
       errorMessage: null,
     };
-  }, [activeModel, demoMode, memoryUsageMb, modelSwitching]);
+  }, [activeModel, demoMode, memoryUsageMb]);
 
   // Allow external triggers (e.g., model management UI) to push status updates immediately
   useEffect(() => {

@@ -109,17 +109,56 @@ pub async fn security_headers_middleware(req: Request<axum::body::Body>, next: N
     response
 }
 
+/// Paths that are exempt from rate limiting
+/// These are bootstrap/setup endpoints that need to work before the system is fully initialized
+/// Note: paths are checked WITHOUT the /api prefix since the middleware runs after routing
+const RATE_LIMIT_EXEMPT_PATHS: &[&str] = &[
+    // Auth and bootstrap endpoints
+    "/v1/auth/bootstrap",
+    "/v1/dev/bootstrap",
+    "/v1/auth/login",
+    "/v1/auth/config",
+    "/v1/auth/health",
+    "/v1/auth/dev-bypass",
+    // Health checks
+    "/healthz",
+    "/readyz",
+    // Worker registration and lifecycle
+    "/v1/workers/register",
+    "/v1/workers/heartbeat",
+    "/v1/workers/status",
+    // System and model status
+    "/v1/system/",
+    "/v1/models/",
+    "/v1/plans",
+];
+
+/// Check if a path should be exempt from rate limiting
+fn is_rate_limit_exempt(path: &str) -> bool {
+    RATE_LIMIT_EXEMPT_PATHS
+        .iter()
+        .any(|exempt| path.starts_with(exempt))
+}
+
 /// Rate limiting middleware
 ///
 /// Implements per-tenant and per-IP rate limiting to prevent abuse:
 /// - Tenant-based limits for API usage fairness
 /// - IP-based limits for DoS protection
 /// - Configurable limits per endpoint type
+/// - Exempt paths for bootstrap/setup endpoints
 pub async fn rate_limiting_middleware(
     State(state): State<AppState>,
     req: Request<axum::body::Body>,
     next: Next,
 ) -> Response {
+    // Skip rate limiting for exempt paths (bootstrap, health checks, etc.)
+    let path = req.uri().path();
+    if is_rate_limit_exempt(path) {
+        debug!(path = %path, "Skipping rate limiting for exempt path");
+        return next.run(req).await;
+    }
+
     // Extract tenant from request (from JWT claims if authenticated)
     let tenant_id = req
         .extensions()

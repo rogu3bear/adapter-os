@@ -3,7 +3,6 @@ use adapteros_core::{
     backend::BackendKind, constants::BYTES_PER_MB, AosError, ExecutionProfile, Result,
 };
 use serde::{Deserialize, Serialize};
-use std::path::Path;
 use tracing::{debug, info, warn};
 
 /// Backend strategy for automatic selection
@@ -201,83 +200,6 @@ fn detect_mlx_bridge_availability() -> bool {
     }
 }
 
-/// Check if a model is a Mixture of Experts (MoE) model
-///
-/// MoE models require special handling and typically need the MLX bridge
-/// as they may not be supported by the standard FFI backends.
-pub fn is_moe_model(model_path: &Path) -> bool {
-    let config_path = model_path.join("config.json");
-    if !config_path.exists() {
-        return false;
-    }
-
-    match std::fs::read_to_string(&config_path) {
-        Ok(contents) => {
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&contents) {
-                // Check for num_experts field (common in MoE configs)
-                if let Some(num_experts) = json
-                    .get("num_experts")
-                    .or_else(|| json.get("num_local_experts"))
-                {
-                    if let Some(n) = num_experts.as_u64() {
-                        if n > 0 {
-                            debug!(
-                                model_path = %model_path.display(),
-                                num_experts = n,
-                                "Detected MoE model by num_experts field"
-                            );
-                            return true;
-                        }
-                    }
-                }
-
-                // Check model_type for known MoE architectures
-                if let Some(model_type) = json.get("model_type").and_then(|v| v.as_str()) {
-                    let model_type_lower = model_type.to_lowercase();
-                    if model_type_lower.contains("moe")
-                        || model_type_lower.contains("mixtral")
-                        || model_type_lower == "qwen2moe"
-                        || model_type_lower == "dbrx"
-                    {
-                        debug!(
-                            model_path = %model_path.display(),
-                            model_type = model_type,
-                            "Detected MoE model by model_type"
-                        );
-                        return true;
-                    }
-                }
-
-                // Check architectures array
-                if let Some(archs) = json.get("architectures").and_then(|v| v.as_array()) {
-                    for arch in archs {
-                        if let Some(arch_str) = arch.as_str() {
-                            let arch_lower = arch_str.to_lowercase();
-                            if arch_lower.contains("moe") || arch_lower.contains("mixtral") {
-                                debug!(
-                                    model_path = %model_path.display(),
-                                    architecture = arch_str,
-                                    "Detected MoE model by architecture"
-                                );
-                                return true;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        Err(e) => {
-            warn!(
-                model_path = %model_path.display(),
-                error = %e,
-                "Failed to read config.json for MoE detection"
-            );
-        }
-    }
-
-    false
-}
-
 /// Detect Metal device and populate capability info
 #[cfg(target_os = "macos")]
 fn detect_metal_device(caps: &mut BackendCapabilities) -> bool {
@@ -392,50 +314,6 @@ pub fn auto_select_backend(capabilities: &BackendCapabilities) -> Result<Backend
     Err(AosError::Config(
         "No suitable backend available. Checked priority CoreML → MLX → Metal → CPU.".to_string(),
     ))
-}
-
-/// Automatic backend selection with MoE model awareness
-///
-/// This function checks if the model is a Mixture of Experts (MoE) model and
-/// automatically selects the MLX Bridge backend if so, as MoE models may not
-/// be fully supported by other backends.
-///
-/// # Arguments
-/// * `model_path` - Path to the model directory
-/// * `capabilities` - Backend capabilities
-///
-/// # Returns
-/// The selected backend choice, preferring MLX Bridge for MoE models
-pub fn auto_select_backend_with_model(
-    model_path: &Path,
-    capabilities: &BackendCapabilities,
-) -> Result<BackendChoice> {
-    // Check if model is MoE
-    if is_moe_model(model_path) {
-        info!(
-            model_path = %model_path.display(),
-            "Detected MoE model, checking if MLX Bridge is available"
-        );
-
-        // Prefer MLX Bridge for MoE models
-        if cfg!(feature = "mlx-bridge") && capabilities.has_mlx_bridge {
-            info!(
-                model_path = %model_path.display(),
-                "Auto-selected MLX Bridge backend for MoE model"
-            );
-            return Ok(BackendChoice::MlxBridge);
-        } else {
-            warn!(
-                model_path = %model_path.display(),
-                mlx_bridge_enabled = cfg!(feature = "mlx-bridge"),
-                has_mlx_bridge = capabilities.has_mlx_bridge,
-                "MoE model detected but MLX Bridge not available, falling back to standard selection"
-            );
-        }
-    }
-
-    // Fall back to standard auto-selection for non-MoE models or if MLX Bridge unavailable
-    auto_select_backend(capabilities)
 }
 
 /// Result of selecting a backend from an ExecutionProfile.

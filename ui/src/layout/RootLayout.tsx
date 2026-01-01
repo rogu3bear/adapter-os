@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Outlet, useLocation, useNavigate, Navigate } from 'react-router-dom';
-import { Toaster } from '@/components/ui/sonner';
 import { AppHeader } from '@/components/header';
 import {
   Sidebar,
@@ -32,6 +31,7 @@ import { cn } from '@/lib/utils';
 import { Lock, ChevronDown, ChevronRight, RefreshCw, LogOut, CheckCircle2, ArrowRight } from 'lucide-react';
 import { LiveDataStatusProvider } from '@/hooks/realtime/useLiveDataStatus';
 import { ConnectionStatusIndicator } from '@/components/header/ConnectionStatusIndicator';
+import { SSEErrorBanner } from '@/components/header/SSEErrorBanner';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -380,6 +380,7 @@ function RootLayoutContent({
           <div className="flex-none">
             <SessionModeBanner sessionMode={sessionMode} />
             <ScenarioController />
+            <SSEErrorBanner />
             {backendReachability.status === 'offline' && (
               <div className="mb-4">
                 <FetchErrorPanel
@@ -415,9 +416,6 @@ function RootLayoutContent({
 
       <CopilotDrawer />
       <SystemStatusDrawer open={systemStatusOpen} onOpenChange={setSystemStatusOpen} tenantId={tenantId} />
-
-      {/* Toaster stays above global overlays */}
-      <Toaster position="top-right" className="z-[60]" />
 
       {/* Live region for screen reader announcements */}
       <div id="sr-announcer" aria-live="polite" aria-atomic="true" className="sr-only" />
@@ -631,18 +629,14 @@ if (!user && location.pathname !== '/login') {
   // Login page without sidebar/navigation - LoginForm handles its own layout
   if (location.pathname === '/login') {
     return (
-      <>
-        <Outlet />
-        <Toaster position="top-right" className="z-[60]" />
-      </>
+      <Outlet />
     );
   }
 
   if (user && !tenantsLoading && requiresTenantSelection) {
     return (
-      <>
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-background via-background to-muted/30 px-4 py-10">
-          <Card className="w-full max-w-3xl border-border/70 shadow-2xl">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-background via-background to-muted/30 px-4 py-10">
+        <Card className="w-full max-w-3xl border-border/70 shadow-2xl">
             <CardHeader className="space-y-2">
               <CardTitle className="text-2xl">Select a workspace</CardTitle>
               <CardDescription className="text-base">
@@ -709,13 +703,11 @@ if (!user && location.pathname !== '/login') {
                   Sign out
                 </Button>
               </div>
-          </CardFooter>
-        </Card>
-      </div>
-      <Toaster position="top-right" className="z-[60]" />
-    </>
-  );
-}
+            </CardFooter>
+          </Card>
+        </div>
+    );
+  }
 
   return (
     <LiveDataStatusProvider>

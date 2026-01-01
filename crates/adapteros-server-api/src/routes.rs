@@ -2161,6 +2161,10 @@ pub fn build(state: AppState) -> Router {
             get(handlers::streaming::activity_stream),
         )
         .route(
+            "/v1/stream/trace-receipts",
+            get(handlers::streaming::trace_receipts_stream),
+        )
+        .route(
             "/v1/plugins/{name}/enable",
             post(handlers::plugins::enable_plugin),
         )

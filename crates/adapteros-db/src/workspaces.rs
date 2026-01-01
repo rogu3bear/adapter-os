@@ -8,6 +8,8 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum WorkspaceRole {
+    #[serde(rename = "admin")]
+    Admin,
     #[serde(rename = "owner")]
     Owner,
     #[serde(rename = "member")]
@@ -19,6 +21,7 @@ pub enum WorkspaceRole {
 impl std::fmt::Display for WorkspaceRole {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            WorkspaceRole::Admin => write!(f, "admin"),
             WorkspaceRole::Owner => write!(f, "owner"),
             WorkspaceRole::Member => write!(f, "member"),
             WorkspaceRole::Viewer => write!(f, "viewer"),
@@ -31,6 +34,7 @@ impl std::str::FromStr for WorkspaceRole {
 
     fn from_str(s: &str) -> Result<Self> {
         match s {
+            "admin" => Ok(WorkspaceRole::Admin),
             "owner" => Ok(WorkspaceRole::Owner),
             "member" => Ok(WorkspaceRole::Member),
             "viewer" => Ok(WorkspaceRole::Viewer),
@@ -360,12 +364,35 @@ impl Db {
 
     // Permission checking
 
+    /// Check if a user has access to a workspace.
+    ///
+    /// The `admin_tenants` parameter allows admin bypass: if it contains "*",
+    /// the function returns `Admin` role without checking the database.
     pub async fn check_workspace_access(
         &self,
         workspace_id: &str,
         user_id: &str,
         tenant_id: &str,
     ) -> Result<Option<WorkspaceRole>> {
+        self.check_workspace_access_with_admin(workspace_id, user_id, tenant_id, &[])
+            .await
+    }
+
+    /// Check workspace access with optional admin bypass.
+    ///
+    /// If `admin_tenants` contains "*", returns Admin role without DB lookup.
+    pub async fn check_workspace_access_with_admin(
+        &self,
+        workspace_id: &str,
+        user_id: &str,
+        tenant_id: &str,
+        admin_tenants: &[String],
+    ) -> Result<Option<WorkspaceRole>> {
+        // Dev bypass: admin_tenants=["*"] grants access to all workspaces
+        if admin_tenants.iter().any(|t| t == "*") {
+            return Ok(Some(WorkspaceRole::Admin));
+        }
+
         // Check if user has direct membership or tenant-wide membership
         let row = sqlx::query(
             r#"

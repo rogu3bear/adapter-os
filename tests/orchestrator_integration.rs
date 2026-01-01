@@ -59,6 +59,7 @@ async fn test_orchestrator_gate_run() -> Result<()> {
         test_cpid,
         "manifest_hash_123",
         "{}",
+        "layout_hash_123",
     )
     .await?;
 

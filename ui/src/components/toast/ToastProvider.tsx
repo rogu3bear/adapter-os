@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useMemo, useRef, type ReactNode } from 'react';
 import { toast } from 'sonner';
+import { Toaster } from '@/components/ui/sonner';
 import { isE2EMode } from '@/utils/e2e';
 
 type ToastVariant = 'info' | 'success' | 'warning' | 'error';
@@ -71,6 +72,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastQueueContext.Provider value={value}>
       {children}
+      <Toaster position="top-right" className="z-[60]" />
     </ToastQueueContext.Provider>
   );
 }

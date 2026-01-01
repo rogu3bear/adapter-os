@@ -250,13 +250,9 @@ export const RouterDecisionSchema = z.object({
     .optional()
     .describe('Stack hash for verification'),
 
-  model_type: z.enum(['dense', 'moe'])
+  model_type: z.literal('dense')
     .default('dense')
     .describe('Routing model type'),
-
-  active_experts: z.array(z.number())
-    .optional()
-    .describe('Active experts for MoE models'),
 });
 
 export type RouterDecision = z.infer<typeof RouterDecisionSchema>;
@@ -312,22 +308,7 @@ export const InferenceTraceSchema = z.object({
     .min(0, 'Latency must be non-negative')
     .describe('Total inference latency in milliseconds'),
 
-  moe_info: z.object({
-    is_moe: z.boolean(),
-    num_experts: z.number().int(),
-    experts_per_token: z.number().int(),
-  }).optional()
-    .describe('MoE metadata for the model'),
-
-  expert_routing: z.array(z.array(z.array(z.number().int())))
-    .optional()
-    .describe('Per-token expert routing (layer_idx, expert_id) tuples'),
-
-  active_experts: z.array(z.array(z.number().int()))
-    .optional()
-    .describe('Flattened experts per token'),
-
-  model_type: z.enum(['dense', 'moe'])
+  model_type: z.literal('dense')
     .optional()
     .describe('Routing model type for this trace'),
 });

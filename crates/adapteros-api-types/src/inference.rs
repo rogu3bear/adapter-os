@@ -329,17 +329,7 @@ pub struct InferenceTrace {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fusion_intervals: Option<Vec<FusionIntervalTrace>>,
     pub latency_ms: u64,
-    /// MoE metadata for the underlying model (if applicable)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub moe_info: Option<MoEInfo>,
-    /// Per-token expert routing data (layer_idx, expert_id) for MoE models
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schema(value_type = Option<Vec<Vec<Vec<usize>>>>)]
-    pub expert_routing: Option<SequenceExpertRouting>,
-    /// Flattened expert IDs per token for quick visualization
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub active_experts: Option<Vec<Vec<u8>>>,
-    /// Model type for the trace (dense vs MoE)
+    /// Model type for the trace
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_type: Option<RouterModelType>,
 }
@@ -372,7 +362,6 @@ pub struct RouterCandidate {
 #[serde(rename_all = "snake_case")]
 pub enum RouterModelType {
     Dense,
-    Moe,
 }
 
 impl RouterModelType {
@@ -445,12 +434,9 @@ pub struct RouterDecision {
     pub policy_mask_digest_b3: Option<B3Hash>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy_overrides_applied: Option<PolicyOverrideFlags>,
-    /// Model type for this decision (dense vs MoE)
+    /// Model type for this decision
     #[serde(default = "RouterModelType::dense")]
     pub model_type: RouterModelType,
-    /// Active experts used for this token when running an MoE model
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub active_experts: Option<Vec<u16>>,
 }
 
 /// Flags describing which policy overrides affected routing.
@@ -461,23 +447,6 @@ pub struct PolicyOverrideFlags {
     pub deny_list: bool,
     pub trust_state: bool,
 }
-
-/// MoE (Mixture of Experts) model information
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Default)]
-#[serde(rename_all = "snake_case")]
-pub struct MoEInfo {
-    /// Whether the underlying model is MoE
-    pub is_moe: bool,
-    /// Total number of experts available
-    pub num_experts: usize,
-    /// Number of experts activated per token
-    pub experts_per_token: usize,
-}
-
-/// Per-token expert routing: (layer_idx, expert_id)
-pub type ExpertRouting = Vec<(usize, u8)>;
-/// Expert routing for an entire sequence of tokens
-pub type SequenceExpertRouting = Vec<ExpertRouting>;
 
 /// KV cache usage statistics for receipt generation
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]

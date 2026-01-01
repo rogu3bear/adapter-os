@@ -390,7 +390,7 @@ pub async fn create_training_job(
     } else {
         state
             .db
-            .check_workspace_access(&workspace_id, &claims.sub, &claims.tenant_id)
+            .check_workspace_access_with_admin(&workspace_id, &claims.sub, &claims.tenant_id, &claims.admin_tenants)
             .await
             .map_err(|e| {
                 (

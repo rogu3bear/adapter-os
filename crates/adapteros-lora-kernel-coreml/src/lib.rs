@@ -35,7 +35,6 @@ pub mod ffi;
 pub mod fusion;
 pub mod hybrid;
 pub mod matmul;
-pub mod moe;
 pub mod placement;
 
 pub use placement::{
@@ -46,16 +45,6 @@ pub use config::{ComputeUnits, CoreMLConfig, CoreMLModelParams};
 pub use ffi::{
     capabilities, AneCheckResult, ComputeUnitPreference, CoreMLAsyncCallback, MLTensorHandle,
     MltensorApiVersion, OperationType,
-};
-// Re-export main types (correct casing per naming contract)
-pub use moe::{
-    MoEAdapterWeights, MoEConfig, MoEGpuFingerprint, MoELoRAStrategy, MoELoRATarget, MoELoRAWeights,
-};
-
-// Re-export deprecated aliases for backwards compatibility
-#[allow(deprecated)]
-pub use moe::{
-    MoeAdapterWeights, MoeConfig, MoeGpuFingerprint, MoeLoraStrategy, MoeLoraTarget, MoeLoraWeights,
 };
 
 pub use hybrid::{HybridCoreMLBackend, LmHeadLoRA};
@@ -986,10 +975,6 @@ pub struct CoreMLBackend {
     placement_spec: Option<CoreMLPlacementSpec>,
     /// Placement resolution against the loaded CoreML graph.
     placement_resolution: Option<PlacementResolution>,
-    /// MoE configuration (if loaded model is an MoE model)
-    moe_config: Option<MoEConfig>,
-    /// MoE adapter cache keyed by adapter slot
-    moe_adapter_cache: HashMap<u16, MoEAdapterWeights>,
 }
 
 unsafe impl Send for CoreMLBackend {}
@@ -1056,8 +1041,6 @@ impl CoreMLBackend {
             active_fused_adapter: None,
             placement_spec: None,
             placement_resolution: None,
-            moe_config: None,
-            moe_adapter_cache: HashMap::new(),
         })
     }
 
@@ -1187,8 +1170,6 @@ impl CoreMLBackend {
                 active_fused_adapter: None,
                 placement_spec: None,
                 placement_resolution: None,
-                moe_config: None,
-                moe_adapter_cache: HashMap::new(),
             })
         }
     }
@@ -1956,194 +1937,6 @@ impl CoreMLBackend {
 
         Ok(())
     }
-
-    // ==================== MoE Support Methods ====================
-
-    /// Check if the loaded model is an MoE (Mixture of Experts) model
-    pub fn is_moe_model(&self) -> bool {
-        self.moe_config.is_some()
-    }
-
-    /// Set MoE configuration for the loaded model
-    pub fn set_moe_config(&mut self, config: MoEConfig) {
-        tracing::info!(
-            num_experts = config.num_experts,
-            num_experts_per_token = config.num_experts_per_token,
-            hidden_size = config.hidden_size,
-            moe_intermediate_size = config.moe_intermediate_size,
-            "Setting MoE configuration for CoreML backend"
-        );
-        self.moe_config = Some(config);
-    }
-
-    /// Get the current MoE configuration
-    pub fn moe_config(&self) -> Option<&MoEConfig> {
-        self.moe_config.as_ref()
-    }
-
-    /// Clear MoE configuration
-    pub fn clear_moe_config(&mut self) {
-        self.moe_config = None;
-        self.moe_adapter_cache.clear();
-    }
-
-    /// Load an MoE adapter into the cache
-    ///
-    /// This loads the adapter weights and precomputes deltas for faster inference.
-    pub fn load_moe_adapter(&mut self, adapter_id: u16, weights: MoEAdapterWeights) -> Result<()> {
-        if self.moe_config.is_none() {
-            return Err(AosError::Kernel(
-                "Cannot load MoE adapter: no MoE configuration set".to_string(),
-            ));
-        }
-
-        let mut weights = weights;
-        weights.precompute_all_deltas();
-
-        let memory_bytes = weights.memory_bytes();
-        tracing::info!(
-            adapter_id = adapter_id,
-            num_targets = weights.targets.len(),
-            memory_bytes = memory_bytes,
-            strategy = ?weights.strategy,
-            "Loading MoE adapter into CoreML backend"
-        );
-
-        self.moe_adapter_cache.insert(adapter_id, weights);
-        Ok(())
-    }
-
-    /// Unload an MoE adapter from the cache
-    pub fn unload_moe_adapter(&mut self, adapter_id: u16) -> bool {
-        let removed = self.moe_adapter_cache.remove(&adapter_id).is_some();
-        if removed {
-            tracing::info!(adapter_id = adapter_id, "Unloaded MoE adapter");
-        }
-        removed
-    }
-
-    /// Get total MoE adapter memory usage
-    pub fn moe_adapter_memory_bytes(&self) -> usize {
-        self.moe_adapter_cache
-            .values()
-            .map(|w| w.memory_bytes())
-            .sum()
-    }
-
-    /// Apply MoE LoRA fusion to expert outputs
-    ///
-    /// This implements the routing-weighted shared LoRA formula:
-    /// `expert_out += (Q15_gate / 32767.0) * routing_score[e] * (alpha/rank) * delta @ x`
-    ///
-    /// # Arguments
-    /// * `expert_outputs` - Mutable slice of expert output tensors (num_active_experts x out_features)
-    /// * `expert_inputs` - Input to the expert layer (batch_size x in_features)
-    /// * `routing_scores` - Expert routing scores from the router (num_active_experts,)
-    /// * `adapter_id` - The adapter slot ID
-    /// * `target` - Which layer target (GateProj, UpProj, DownProj)
-    /// * `gate_q15` - The Q15 gate value for this adapter
-    #[allow(dead_code)]
-    fn apply_moe_lora_fusion(
-        &self,
-        expert_outputs: &mut [f32],
-        expert_inputs: &[f32],
-        routing_scores: &[f32],
-        adapter_id: u16,
-        target: MoELoRATarget,
-        gate_q15: i16,
-    ) -> Result<()> {
-        // Get the adapter weights
-        let adapter = self
-            .moe_adapter_cache
-            .get(&adapter_id)
-            .ok_or_else(|| AosError::Kernel(format!("MoE adapter {} not loaded", adapter_id)))?;
-
-        // Get the target weights
-        let weights = adapter.targets.get(&target).ok_or_else(|| {
-            AosError::Kernel(format!(
-                "MoE adapter {} missing target {:?}",
-                adapter_id, target
-            ))
-        })?;
-
-        // Get precomputed delta (B @ A)
-        let delta = weights.precomputed_delta.as_ref().ok_or_else(|| {
-            AosError::Kernel(format!(
-                "MoE adapter {} target {:?} missing precomputed delta",
-                adapter_id, target
-            ))
-        })?;
-
-        // Compute gate scale: Q15_gate / 32767.0
-        let gate_scale = Self::gate_q15_to_f32(gate_q15);
-
-        // Compute LoRA scale: alpha / rank
-        let lora_scale = weights.lora_scale();
-
-        // Check if we should use routing weights
-        let use_routing = matches!(
-            adapter.strategy,
-            MoELoRAStrategy::RoutingWeightedShared {
-                use_routing_weights: true
-            }
-        );
-
-        let out_features = weights.out_features;
-        let in_features = weights.in_features;
-
-        // Apply LoRA contribution to each expert's output
-        for (e, score) in routing_scores.iter().enumerate() {
-            // Compute per-expert weight
-            let expert_weight = if use_routing {
-                gate_scale * *score * lora_scale
-            } else {
-                gate_scale * lora_scale
-            };
-
-            // Skip if weight is effectively zero
-            if expert_weight.abs() < 1e-8 {
-                continue;
-            }
-
-            // Apply delta: expert_out[e] += weight * (delta @ x)
-            // delta: (out_features, in_features)
-            // x: (in_features,)
-            // result: (out_features,)
-            let expert_out_start = e * out_features;
-            let expert_out_end = expert_out_start + out_features;
-            let expert_out = &mut expert_outputs[expert_out_start..expert_out_end];
-
-            for out_idx in 0..out_features {
-                let mut sum = 0.0f32;
-                for in_idx in 0..in_features {
-                    sum += delta[out_idx * in_features + in_idx] * expert_inputs[in_idx];
-                }
-                expert_out[out_idx] += expert_weight * sum;
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Run a step with MoE LoRA fusion (stub implementation for testing)
-    #[cfg(any(test, debug_assertions, feature = "coreml-stub"))]
-    #[allow(dead_code)]
-    fn run_step_moe_with_lora_stub(&mut self, ring: &RouterRing, io: &mut IoBuffers) -> Result<()> {
-        let moe_config = self.moe_config.as_ref().ok_or_else(|| {
-            AosError::Kernel("MoE run_step called but no MoE config set".to_string())
-        })?;
-
-        tracing::debug!(
-            num_experts = moe_config.num_experts,
-            num_experts_per_token = moe_config.num_experts_per_token,
-            num_adapters = self.moe_adapter_cache.len(),
-            "MoE stub inference step"
-        );
-
-        // For stub mode, just run the regular stub inference
-        // Real MoE LoRA fusion would happen in the native FFI layer
-        self.run_step_stub(ring, io)
-    }
 }
 
 impl FusedKernels for CoreMLBackend {
@@ -2480,127 +2273,6 @@ impl CoreMLBackend {
         let mut ids: Vec<u16> = self.attached_adapters.iter().copied().collect();
         ids.sort_unstable();
         ids
-    }
-
-    // ==================== MoE GPU Fingerprinting ====================
-
-    /// Generate GPU fingerprint for an MoE adapter
-    ///
-    /// This creates a fingerprint that can be used to verify cross-layer
-    /// determinism and adapter integrity for MoE models.
-    pub fn generate_moe_fingerprint(&self, adapter_id: u16) -> Option<MoEGpuFingerprint> {
-        use adapteros_core::B3Hash;
-
-        let adapter = self.moe_adapter_cache.get(&adapter_id)?;
-
-        let mut all_slices: Vec<&[u8]> = Vec::new();
-        let mut expert_fingerprints = std::collections::HashMap::new();
-        let mut total_buffer_bytes: u64 = 0;
-
-        // Collect all weight data for hashing
-        for (target, weights) in &adapter.targets {
-            // Get LoRA A matrix as bytes
-            let a_bytes: &[u8] = unsafe {
-                std::slice::from_raw_parts(
-                    weights.lora_a.as_ptr() as *const u8,
-                    weights.lora_a.len() * std::mem::size_of::<f32>(),
-                )
-            };
-            total_buffer_bytes += a_bytes.len() as u64;
-
-            // Get LoRA B matrix as bytes
-            let b_bytes: &[u8] = unsafe {
-                std::slice::from_raw_parts(
-                    weights.lora_b.as_ptr() as *const u8,
-                    weights.lora_b.len() * std::mem::size_of::<f32>(),
-                )
-            };
-            total_buffer_bytes += b_bytes.len() as u64;
-
-            // Add to combined hash slices
-            all_slices.push(a_bytes);
-            all_slices.push(b_bytes);
-
-            // Create per-target fingerprint
-            let target_id = match target {
-                MoELoRATarget::QProj => 0,
-                MoELoRATarget::KProj => 1,
-                MoELoRATarget::VProj => 2,
-                MoELoRATarget::OProj => 3,
-                MoELoRATarget::GateProj => 4,
-                MoELoRATarget::UpProj => 5,
-                MoELoRATarget::DownProj => 6,
-            };
-
-            // Hash just this target's data for per-expert fingerprint
-            let target_hash = B3Hash::hash_multi(&[a_bytes, b_bytes]);
-            expert_fingerprints.insert(target_id, target_hash);
-        }
-
-        // Compute combined hash
-        let combined_hash = B3Hash::hash_multi(&all_slices);
-
-        Some(MoEGpuFingerprint {
-            adapter_id,
-            total_buffer_bytes,
-            combined_hash,
-            expert_fingerprints,
-            loaded_expert_count: adapter.targets.len(),
-        })
-    }
-
-    /// Get all MoE GPU fingerprints for loaded adapters
-    pub fn get_moe_fingerprints(&self) -> HashMap<u16, MoEGpuFingerprint> {
-        self.moe_adapter_cache
-            .keys()
-            .filter_map(|&id| self.generate_moe_fingerprint(id).map(|fp| (id, fp)))
-            .collect()
-    }
-
-    /// Verify MoE adapter integrity against a known fingerprint
-    pub fn verify_moe_fingerprint(
-        &self,
-        adapter_id: u16,
-        expected: &MoEGpuFingerprint,
-    ) -> Result<bool> {
-        let actual = self
-            .generate_moe_fingerprint(adapter_id)
-            .ok_or_else(|| AosError::Kernel(format!("MoE adapter {} not loaded", adapter_id)))?;
-
-        // Compare combined hashes
-        if actual.combined_hash != expected.combined_hash {
-            tracing::warn!(
-                adapter_id = adapter_id,
-                expected_hash = %expected.combined_hash,
-                actual_hash = %actual.combined_hash,
-                "MoE adapter fingerprint mismatch (combined hash)"
-            );
-            return Ok(false);
-        }
-
-        // Compare buffer sizes
-        if actual.total_buffer_bytes != expected.total_buffer_bytes {
-            tracing::warn!(
-                adapter_id = adapter_id,
-                expected_bytes = expected.total_buffer_bytes,
-                actual_bytes = actual.total_buffer_bytes,
-                "MoE adapter fingerprint mismatch (buffer size)"
-            );
-            return Ok(false);
-        }
-
-        // Compare expert counts
-        if actual.loaded_expert_count != expected.loaded_expert_count {
-            tracing::warn!(
-                adapter_id = adapter_id,
-                expected_count = expected.loaded_expert_count,
-                actual_count = actual.loaded_expert_count,
-                "MoE adapter fingerprint mismatch (expert count)"
-            );
-            return Ok(false);
-        }
-
-        Ok(true)
     }
 }
 

@@ -51,7 +51,7 @@ export function ActiveModelCard({
 }: ActiveModelCardProps) {
   const navigate = useNavigate();
   const [operationLoading, setOperationLoading] = useState(false);
-  const { enabled: demoMode, activeModel, modelSwitching } = useDemoMode();
+  const { enabled: demoMode, activeModel } = useDemoMode();
 
   // Find the currently loaded model
   const loadedModel = useMemo(() => {
@@ -61,12 +61,12 @@ export function ActiveModelCard({
         name: activeModel.name,
         size_bytes: activeModel.sizeBytes,
         format: activeModel.format,
-        status: modelSwitching ? 'loading' : 'ready',
+        status: 'ready',
         path: activeModel.backend,
       } as BaseModel;
     }
     return models.find((m) => m.status === 'ready');
-  }, [activeModel, demoMode, modelSwitching, models]);
+  }, [activeModel, demoMode, models]);
 
   // Calculate memory usage estimate
   const memoryEstimate = useMemo(() => {
@@ -80,7 +80,7 @@ export function ActiveModelCard({
 
   const handleUnloadModel = async () => {
     if (demoMode) {
-      toast.info('Demo mode: unload is simulated while the 30B MoE stays mounted.');
+      toast.info('Demo mode: unload action is simulated.');
       return;
     }
     if (!loadedModel) return;
@@ -130,7 +130,7 @@ export function ActiveModelCard({
                     {loadedModel.name}
                   </h3>
                   <Badge variant="default" className="text-xs bg-green-600">
-                    {modelSwitching ? 'Switching' : 'Loaded'}
+                    Loaded
                   </Badge>
                   {demoMode && (
                     <Badge variant="outline" className="text-xs">

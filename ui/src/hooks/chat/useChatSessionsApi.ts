@@ -350,9 +350,15 @@ export function useChatSessionsApi(tenantId: string, options: UseChatSessionsOpt
 
   // Convert backend sessions to local format and fetch messages
   useEffect(() => {
+    // Skip during loading to avoid re-render loops
+    if (isLoadingSessions) {
+      return;
+    }
+
     const loadSessionsWithMessages = async () => {
-      if (backendUnsupported || isLoadingSessions || backendSessions.length === 0) {
-        setSessions([]);
+      if (backendUnsupported || backendSessions.length === 0) {
+        // Only clear sessions if they're not already empty to avoid unnecessary re-renders
+        setSessions((prev) => (prev.length === 0 ? prev : []));
         return;
       }
 

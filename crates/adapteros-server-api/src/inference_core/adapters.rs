@@ -39,11 +39,7 @@ pub fn map_router_decisions(
             allowed_mask: None,
             policy_mask_digest_b3: policy_mask_digest,
             policy_overrides_applied: None,
-            model_type: match d.model_type {
-                adapteros_api_types::inference::RouterModelType::Dense => RouterModelType::Dense,
-                adapteros_api_types::inference::RouterModelType::Moe => RouterModelType::Moe,
-            },
-            active_experts: d.active_experts.clone(),
+            model_type: RouterModelType::Dense,
         })
         .collect()
 }

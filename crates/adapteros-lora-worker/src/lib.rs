@@ -132,10 +132,6 @@ pub mod mlx_subprocess_bridge;
 pub mod model_handle_cache;
 pub mod model_key;
 pub mod model_loader;
-#[cfg(feature = "mlx-bridge")]
-pub mod moe_prefix_cache;
-#[cfg(feature = "mlx-bridge")]
-pub mod moe_types;
 pub mod panic_utils;
 pub mod patch_generator;
 pub mod patch_telemetry;
@@ -319,8 +315,6 @@ pub use model_handle_cache::{
 };
 pub use model_key::{FusionMode, ModelCacheIdentityV2, ModelKey, QuantizationMode};
 pub use model_loader::{ModelInfo, ModelLoader, QwenModel, QwenModelConfig, TransformerLayer};
-#[cfg(feature = "mlx-bridge")]
-pub use moe_types::{ExpertId, ExpertRouting, LayerIdx, SequenceExpertRouting};
 pub use prefix_kv_cache::{PrefixKvCache, PrefixKvCacheStats, PrefixKvEntry};
 pub use stop_controller::{StopController, StopDecision};
 pub use telemetry_adapter::{
@@ -1238,16 +1232,7 @@ pub struct ResponseTrace {
     /// Fusion interval boundaries and fused tensor hashes
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fusion_intervals: Option<Vec<FusionIntervalTrace>>,
-    /// MoE model information (optional)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub moe_info: Option<adapteros_lora_kernel_api::MoEInfo>,
-    /// Expert routing data per token (optional)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub expert_routing: Option<adapteros_lora_kernel_api::SequenceExpertRouting>,
-    /// Flattened expert IDs per token (for visualization)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub active_experts: Option<Vec<Vec<u8>>>,
-    /// Model type for this trace (dense vs MoE)
+    /// Model type for this trace
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_type: Option<adapteros_api_types::inference::RouterModelType>,
 }
@@ -2229,9 +2214,6 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                             router_decisions: None,
                             router_decision_chain: None,
                             fusion_intervals: None,
-                            moe_info: None,
-                            expert_routing: None,
-                            active_experts: None,
                             model_type: None,
                         },
                         run_receipt: None,
@@ -2407,8 +2389,6 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 adapteros_core::FusionInterval::PerRequest,
                 &[],   // active_ids
                 false, // base_only
-                None,
-                None,
             );
 
             return Ok(InferenceResponse {
@@ -2892,8 +2872,6 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 fusion_interval,
                 &active_ids,
                 base_only_request,
-                moe_info.clone(),
-                generation_result.expert_routing,
             );
 
             // ============================================================================
@@ -3091,12 +3069,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                         trust_state: flags.trust_state,
                     }
                 }),
-                model_type: if is_moe {
-                    RouterModelType::Moe
-                } else {
-                    RouterModelType::Dense
-                },
-                active_experts: None,
+                model_type: RouterModelType::Dense,
             });
 
             // Build chained router decision entry (per-token)
@@ -3542,8 +3515,6 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 fusion_interval,
                 &active_ids,
                 base_only_request,
-                self.current_moe_info(is_moe).await,
-                None, // No expert routing for token-by-token yet
             ),
             run_receipt,
             refusal: None,

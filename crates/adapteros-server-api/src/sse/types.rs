@@ -37,6 +37,8 @@ pub enum SseStreamType {
     DatasetProgress,
     /// Git operations progress
     GitProgress,
+    /// Inference trace receipts for deterministic proof
+    TraceReceipts,
 }
 
 impl SseStreamType {
@@ -71,6 +73,7 @@ impl SseStreamType {
             Self::BootProgress => "boot_progress",
             Self::DatasetProgress => "dataset_progress",
             Self::GitProgress => "git_progress",
+            Self::TraceReceipts => "trace_receipts",
         }
     }
 }

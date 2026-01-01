@@ -96,7 +96,7 @@ pub async fn activate_adapter(
     if workspace_id != claims.tenant_id {
         let access = state
             .db
-            .check_workspace_access(&workspace_id, &claims.sub, &claims.tenant_id)
+            .check_workspace_access_with_admin(&workspace_id, &claims.sub, &claims.tenant_id, &claims.admin_tenants)
             .await
             .map_err(|e| {
                 (

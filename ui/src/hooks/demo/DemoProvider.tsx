@@ -7,7 +7,6 @@ import { useAuth } from '@/providers/CoreProviders';
 import {
   getDemoActivitySeed,
   getDemoDefaultModel,
-  getDemoMoEModel,
   getDemoScriptPrompt,
   getDemoSystemToastMessages,
   isDemoMvpMode,
@@ -19,8 +18,6 @@ interface DemoContextValue {
   simulateTraffic: boolean;
   setSimulateTraffic: (value: boolean) => void;
   activeModel: DemoModelState;
-  modelSwitching: boolean;
-  switchToMoE: () => void;
   seededActivity: RecentActivityEvent[];
   simulatedMetrics: { metrics: SystemMetrics; updatedAt: Date } | null;
   demoScript: string;
@@ -53,8 +50,7 @@ function buildSimulatedMetrics(tick: number): SystemMetrics {
 export function DemoProvider({ children }: { children: ReactNode }) {
   const { sessionMode, user } = useAuth();
   const [simulateTraffic, setSimulateTraffic] = useState(false);
-  const [activeModel, setActiveModel] = useState<DemoModelState>(getDemoDefaultModel);
-  const [modelSwitching, setModelSwitching] = useState(false);
+  const activeModel = useMemo(() => getDemoDefaultModel(), []);
   const [seededActivity, setSeededActivity] = useState<RecentActivityEvent[]>([]);
   const [simulatedMetrics, setSimulatedMetrics] = useState<{ metrics: SystemMetrics; updatedAt: Date } | null>(null);
   const toastTimerRef = useRef<number | null>(null);
@@ -66,8 +62,6 @@ export function DemoProvider({ children }: { children: ReactNode }) {
 
   const resetDemoState = useCallback(() => {
     setSimulateTraffic(false);
-    setActiveModel(getDemoDefaultModel());
-    setModelSwitching(false);
     setSeededActivity([]);
     setSimulatedMetrics(null);
   }, []);
@@ -144,48 +138,17 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     };
   }, [enabled, simulateTraffic]);
 
-  const switchToMoE = useCallback(() => {
-    if (!enabled || modelSwitching) return;
-    setModelSwitching(true);
-
-    const loadingId = toast.loading('Unloading 7B...', { duration: 2800 });
-
-    window.setTimeout(() => {
-      toast.loading('Mounting 30B MoE (Rank 64)...', {
-        id: loadingId,
-        duration: 3000,
-      });
-    }, 1100);
-
-    window.setTimeout(() => {
-      setActiveModel(getDemoMoEModel());
-      toast.success('30B MoE ready for inference', { id: loadingId, duration: 3200 });
-      setModelSwitching(false);
-    }, 3000);
-  }, [enabled, modelSwitching]);
-
   const value: DemoContextValue = useMemo(
     () => ({
       enabled,
       simulateTraffic,
       setSimulateTraffic,
       activeModel,
-      modelSwitching,
-      switchToMoE,
       seededActivity,
       simulatedMetrics,
       demoScript,
     }),
-    [
-      activeModel,
-      demoScript,
-      enabled,
-      modelSwitching,
-      seededActivity,
-      simulateTraffic,
-      simulatedMetrics,
-      switchToMoE,
-    ],
+    [activeModel, demoScript, enabled, seededActivity, simulateTraffic, simulatedMetrics],
   );
 
   return <DemoContext.Provider value={value}>{children}</DemoContext.Provider>;
@@ -199,8 +162,6 @@ export function useDemoMode(): DemoContextValue {
       simulateTraffic: false,
       setSimulateTraffic: () => {},
       activeModel: getDemoDefaultModel(),
-      modelSwitching: false,
-      switchToMoE: () => {},
       seededActivity: [],
       simulatedMetrics: null,
       demoScript: getDemoScriptPrompt(),

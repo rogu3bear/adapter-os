@@ -88,22 +88,30 @@ export function getDevBypassRemainingMs(): number {
  * Returns claims when the server reports admin with wildcard tenants.
  */
 export async function tryDevBypassLogin(): Promise<UserInfoResponse | null> {
-  if (!isDevBypassEnabled()) {
+  const devBypassEnabled = isDevBypassEnabled();
+  console.log('[DEV-BYPASS] isDevBypassEnabled:', devBypassEnabled);
+
+  if (!devBypassEnabled) {
     logger.debug('Dev bypass disabled by env; skipping bootstrap', { component: 'authBootstrap' });
     return null;
   }
 
   try {
     const tenantId = readSelectedTenantId();
+    console.log('[DEV-BYPASS] Fetching /api/v1/auth/me...');
     const res = await fetch('/api/v1/auth/me', {
       credentials: 'include',
       ...(tenantId ? { headers: { 'X-Tenant-Id': tenantId } } : {}),
     });
+    console.log('[DEV-BYPASS] Response status:', res.status, res.ok);
+
     if (!res.ok) {
+      console.log('[DEV-BYPASS] Response not OK, returning null');
       return null;
     }
 
     const claims = (await res.json()) as UserInfoResponse;
+    console.log('[DEV-BYPASS] Claims:', JSON.stringify(claims, null, 2));
     const { role, admin_tenants } = claims;
 
     const isDevBypass =
@@ -112,13 +120,18 @@ export async function tryDevBypassLogin(): Promise<UserInfoResponse | null> {
       Array.isArray(admin_tenants) &&
       admin_tenants.includes('*');
 
+    console.log('[DEV-BYPASS] Check result:', { role, admin_tenants, isDevBypass });
+
     if (isDevBypass) {
       logger.debug('Dev bypass bootstrap activated', { component: 'authBootstrap' });
+      console.log('[DEV-BYPASS] ✓ Returning claims for dev bypass');
       return claims;
     }
 
+    console.log('[DEV-BYPASS] ✗ Not a dev bypass response');
     return null;
   } catch (error) {
+    console.error('[DEV-BYPASS] Error:', error);
     logger.error(
       'Dev bypass bootstrap check failed; continuing with normal auth',
       { component: 'authBootstrap' },

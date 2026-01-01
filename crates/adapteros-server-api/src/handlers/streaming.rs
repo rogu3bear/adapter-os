@@ -1568,3 +1568,158 @@ pub async fn activity_stream(
             .text("keep-alive"),
     )
 }
+
+/// Trace receipt event for SSE streaming
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct TraceReceiptEvent {
+    /// Trace ID
+    pub trace_id: String,
+    /// Tenant ID
+    pub tenant_id: String,
+    /// Receipt digest (hex)
+    pub receipt_digest: String,
+    /// Output digest (hex)
+    pub output_digest: String,
+    /// Timestamp of creation
+    pub created_at: String,
+    /// Token counts
+    pub logical_prompt_tokens: i64,
+    pub logical_output_tokens: i64,
+    pub billed_input_tokens: i64,
+    pub billed_output_tokens: i64,
+}
+
+/// Trace receipts streaming endpoint
+///
+/// Streams inference trace receipts for deterministic proof and audit.
+/// Polls the database every 5 seconds for new receipts.
+/// CRITICAL: Only streams receipts for the authenticated tenant.
+///
+/// # SSE Event Format
+/// ```json
+/// event: trace_receipts
+/// data: {"receipts": [...], "count": 2}
+/// ```
+pub async fn trace_receipts_stream(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    // Permission check: TelemetryView required for trace receipts
+    let has_permission = crate::permissions::require_permission(
+        &claims,
+        crate::permissions::Permission::TelemetryView,
+    )
+    .is_ok();
+
+    if !has_permission {
+        warn!(
+            user_id = %claims.sub,
+            tenant_id = %claims.tenant_id,
+            "Permission denied for trace receipts stream"
+        );
+    } else {
+        info!(
+            user_id = %claims.sub,
+            tenant_id = %claims.tenant_id,
+            "Starting trace receipts SSE stream"
+        );
+    }
+
+    // Capture tenant_id for filtering
+    let tenant_id = claims.tenant_id.clone();
+
+    // Track last seen timestamp to only send new receipts
+    let initial_timestamp = chrono::Utc::now().to_rfc3339();
+
+    // Track error_sent to terminate stream after one error
+    let stream = stream::unfold(
+        (state, initial_timestamp, tenant_id, has_permission, false),
+        |(state, last_timestamp, tenant_id, has_permission, error_sent)| async move {
+            if !has_permission {
+                if error_sent {
+                    // Already sent error, terminate stream
+                    return None;
+                }
+                // Return error event once then terminate
+                return Some((
+                    Ok(Event::default()
+                        .event("error")
+                        .data("{\"error\": \"Permission denied - TelemetryView required\"}")),
+                    (state, last_timestamp, tenant_id, false, true),
+                ));
+            }
+
+            // Poll every 5 seconds for new receipts
+            tokio::time::sleep(Duration::from_secs(5)).await;
+
+            let current_timestamp = chrono::Utc::now().to_rfc3339();
+
+            // Query for new trace receipts since last timestamp
+            let receipts: Vec<TraceReceiptEvent> = match sqlx::query_as::<_, (String, String, Vec<u8>, Vec<u8>, String, i64, i64, i64, i64)>(
+                r#"
+                SELECT
+                    r.trace_id,
+                    t.tenant_id,
+                    r.receipt_digest,
+                    r.output_digest,
+                    r.created_at,
+                    r.logical_prompt_tokens,
+                    r.logical_output_tokens,
+                    r.billed_input_tokens,
+                    r.billed_output_tokens
+                FROM inference_trace_receipts r
+                JOIN inference_traces t ON r.trace_id = t.trace_id
+                WHERE t.tenant_id = ? AND r.created_at > ?
+                ORDER BY r.created_at DESC
+                LIMIT 100
+                "#,
+            )
+            .bind(&tenant_id)
+            .bind(&last_timestamp)
+            .fetch_all(state.db.pool())
+            .await
+            {
+                Ok(rows) => rows
+                    .into_iter()
+                    .map(|(trace_id, tenant_id, receipt_digest, output_digest, created_at, logical_prompt, logical_output, billed_input, billed_output)| {
+                        TraceReceiptEvent {
+                            trace_id,
+                            tenant_id,
+                            receipt_digest: hex::encode(&receipt_digest),
+                            output_digest: hex::encode(&output_digest),
+                            created_at,
+                            logical_prompt_tokens: logical_prompt,
+                            logical_output_tokens: logical_output,
+                            billed_input_tokens: billed_input,
+                            billed_output_tokens: billed_output,
+                        }
+                    })
+                    .collect(),
+                Err(e) => {
+                    warn!(error = %e, "Failed to query trace receipts for stream");
+                    vec![]
+                }
+            };
+
+            // Create the response JSON
+            let response = serde_json::json!({
+                "receipts": receipts,
+                "count": receipts.len(),
+                "timestamp": current_timestamp,
+            });
+
+            let json = serde_json::to_string(&response).unwrap_or_else(|_| "{}".to_string());
+
+            Some((
+                Ok(Event::default().event("trace_receipts").data(json)),
+                (state, current_timestamp, tenant_id, has_permission, false),
+            ))
+        },
+    );
+
+    Sse::new(stream).keep_alive(
+        KeepAlive::new()
+            .interval(Duration::from_secs(15))
+            .text("keep-alive"),
+    )
+}

@@ -1582,7 +1582,7 @@ mod tests {
         use adapteros_api_types::FailureCode;
         let aos_err = AosError::QuotaExceeded {
             resource: "kv_cache".to_string(),
-            failure_code: FailureCode::KvQuotaExceeded,
+            failure_code: Some(FailureCode::KvQuotaExceeded.to_string()),
         };
         let api_err: ApiError = aos_err.into();
         assert_eq!(api_err.status, StatusCode::TOO_MANY_REQUESTS);
