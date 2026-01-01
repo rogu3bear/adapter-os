@@ -754,6 +754,17 @@ impl MLXFFIModel {
         // Convert token_ids to C array (shared logic)
         let token_ints: Vec<i32> = token_ids.iter().map(|&x| x as i32).collect();
 
+        // SAFETY: Validate token_ids length fits in i32 before FFI call.
+        // In practice, token sequences are limited by model context length (typically < 128K).
+        const MAX_TOKEN_LEN: usize = i32::MAX as usize;
+        if token_ints.len() > MAX_TOKEN_LEN {
+            return Err(AosError::Mlx(format!(
+                "Token sequence length {} exceeds maximum {}",
+                token_ints.len(),
+                MAX_TOKEN_LEN
+            )));
+        }
+
         // Create MLX array from token IDs (RAII guard ensures cleanup)
         let input_guard = ffi_error::MlxArrayGuard::new_with_context(
             unsafe { mlx_array_from_ints(token_ints.as_ptr(), token_ints.len() as i32) },
@@ -764,7 +775,13 @@ impl MLXFFIModel {
         let mut hidden_states_ptr: *mut mlx_array_t = std::ptr::null_mut();
         let mut num_hidden: i32 = 0;
 
+        // Maximum hidden states from FFI (used for bounds validation below)
+        const MAX_HIDDEN_STATES: i32 = 1024;
+
         // Helper closure to cleanup hidden states when capture_hidden is true
+        // SAFETY: This assumes the C++ FFI contract is upheld - that the returned
+        // num_hidden matches the actual allocation size. We validate num_hidden
+        // is in bounds (0..=MAX_HIDDEN_STATES) but cannot verify C++ consistency.
         let cleanup_hidden = |ptr: *mut mlx_array_t, count: i32| {
             if !ptr.is_null() {
                 unsafe { mlx_hidden_states_free(ptr, count) };
@@ -790,6 +807,22 @@ impl MLXFFIModel {
                     error
                 )));
             }
+
+            // SAFETY: Validate num_hidden from FFI before using as loop bound.
+            // The C++ FFI returns this value and we must not trust it blindly.
+            if num_hidden < 0 {
+                return Err(AosError::Mlx(format!(
+                    "Invalid hidden state count from FFI: {} (must be >= 0)",
+                    num_hidden
+                )));
+            }
+            if num_hidden > MAX_HIDDEN_STATES {
+                return Err(AosError::Mlx(format!(
+                    "Hidden state count {} exceeds maximum {} - possible FFI corruption",
+                    num_hidden, MAX_HIDDEN_STATES
+                )));
+            }
+
             ffi_error::MlxArrayGuard::new(output_array)?
         } else {
             // Regular forward pass
@@ -805,6 +838,10 @@ impl MLXFFIModel {
             let mut arrays_to_eval: Vec<*mut mlx_array_t> = vec![output_guard.as_ptr()];
 
             if !hidden_states_ptr.is_null() && num_hidden > 0 {
+                // SAFETY: Pointer arithmetic is safe because:
+                // 1. num_hidden was validated >= 0 and <= MAX_HIDDEN_STATES (line 797-808)
+                // 2. hidden_states_ptr is non-null (checked above)
+                // 3. The C++ FFI contract guarantees num_hidden matches allocated array size
                 for i in 0..num_hidden {
                     let hs_array =
                         unsafe { *(hidden_states_ptr as *mut *mut mlx_array_t).add(i as usize) };
@@ -814,6 +851,9 @@ impl MLXFFIModel {
                 }
             }
 
+            // SAFETY: arrays_to_eval.len() is bounded by 1 + MAX_HIDDEN_STATES (1025),
+            // which fits safely in i32.
+            debug_assert!(arrays_to_eval.len() <= (MAX_HIDDEN_STATES as usize + 1));
             unsafe {
                 mlx_eval_all(arrays_to_eval.as_mut_ptr(), arrays_to_eval.len() as i32);
                 mlx_synchronize();
@@ -856,6 +896,11 @@ impl MLXFFIModel {
             return Err(AosError::Mlx("Invalid output data pointer".to_string()));
         }
 
+        // SAFETY: We have validated:
+        // 1. output_data is non-null (line 876-880)
+        // 2. output_size > 0 (line 858-863)
+        // 3. output_size <= MAX_TENSOR_SIZE (line 865-873)
+        // 4. Alignment: mlx_array_data returns properly aligned f32*
         let logits: Vec<f32> =
             unsafe { std::slice::from_raw_parts(output_data, output_size as usize).to_vec() };
 
@@ -866,8 +911,13 @@ impl MLXFFIModel {
             if !hidden_states_ptr.is_null() && num_hidden > 0 {
                 let hidden_array_ptr = hidden_states_ptr as *mut *mut mlx_array_t;
 
+                // SAFETY: Pointer arithmetic is safe because:
+                // 1. num_hidden was validated >= 0 and <= MAX_HIDDEN_STATES (line 797-808)
+                // 2. hidden_states_ptr is non-null (checked above)
+                // 3. The C++ FFI contract guarantees num_hidden matches allocated array size
                 for i in 0..num_hidden {
                     // Get the module name for this hidden state
+                    // SAFETY: name_buf is 256 bytes, which fits in i32 (256 < i32::MAX)
                     let mut name_buf = [0i8; 256];
                     let name_len = unsafe {
                         mlx_model_get_hidden_state_name(
@@ -891,6 +941,7 @@ impl MLXFFIModel {
                     };
 
                     // Get the hidden state array for this index
+                    // SAFETY: i is bounded by num_hidden which was validated <= MAX_HIDDEN_STATES
                     let hidden_array = unsafe { *hidden_array_ptr.add(i as usize) };
                     if hidden_array.is_null() {
                         tracing::warn!("Hidden state array at index {} is null, skipping", i);
@@ -909,7 +960,23 @@ impl MLXFFIModel {
                         continue;
                     }
 
-                    // Copy the data to a Vec
+                    // SAFETY: Validate hidden_size from FFI before using in from_raw_parts.
+                    // This prevents reading beyond allocated memory if FFI returns corrupted size.
+                    if hidden_size > MAX_TENSOR_SIZE {
+                        tracing::warn!(
+                            "Hidden state '{}' size {} exceeds max {}, skipping",
+                            module_name,
+                            hidden_size,
+                            MAX_TENSOR_SIZE
+                        );
+                        continue;
+                    }
+
+                    // SAFETY: We have validated:
+                    // 1. hidden_data is non-null (checked above)
+                    // 2. hidden_size > 0 (checked above)
+                    // 3. hidden_size <= MAX_TENSOR_SIZE (prevents OOB read)
+                    // 4. Alignment: mlx_array_data returns properly aligned f32*
                     let hidden_vec: Vec<f32> =
                         unsafe { std::slice::from_raw_parts(hidden_data, hidden_size).to_vec() };
 
@@ -923,6 +990,9 @@ impl MLXFFIModel {
                 }
 
                 // Clean up hidden states array
+                // SAFETY: num_hidden was validated at lines 813-822. We trust the C++
+                // FFI contract that mlx_model_forward_with_hidden_states allocated
+                // exactly num_hidden array slots.
                 unsafe { mlx_hidden_states_free(hidden_states_ptr, num_hidden) };
             }
 
