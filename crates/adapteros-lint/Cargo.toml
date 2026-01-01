@@ -5,7 +5,7 @@ edition = "2021"
 description = "Runtime guards for AdapterOS determinism enforcement"
 
 [dependencies]
-rand = "0.9"
+rand = { workspace = true }
 tracing = { workspace = true }
 syn = { version = "2.0", features = ["full", "parsing", "extra-traits", "visit"] }
 quote = "1.0"

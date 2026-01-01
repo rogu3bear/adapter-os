@@ -85,7 +85,7 @@ uuid = { version = "1.6", features = ["v4", "serde"] }
 rusqlite = { workspace = true }
 tokenizers = "0.15"
 argon2 = "0.5"
-rand = "0.9"
+rand = { workspace = true }
 indicatif = "0.17"
 adapteros-orchestrator = { path = "../adapteros-orchestrator", optional = true }
 adapteros-normalization = { path = "../adapteros-normalization" }

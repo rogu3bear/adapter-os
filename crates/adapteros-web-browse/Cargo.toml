@@ -53,7 +53,7 @@ url = "2.5"
 tracing.workspace = true
 
 # Random (for jitter in retry backoff)
-rand = "0.9"
+rand = { workspace = true }
 
 # Database (for L2 cache)
 sqlx = { workspace = true, default-features = false, features = ["sqlite", "runtime-tokio"] }
