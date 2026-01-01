@@ -18,7 +18,7 @@ use smallvec::SmallVec;
 use std::collections::HashSet;
 use std::sync::OnceLock;
 
-use crate::constants::MAX_K;
+use crate::constants::{FRAMEWORK_SPECIALIZATION_MULTIPLIER, LANGUAGE_AFFINITY_MULTIPLIER, MAX_K};
 use crate::{framework_routing, path_routing, scoring};
 
 fn determinism_debug_enabled() -> bool {
@@ -764,7 +764,9 @@ impl Router {
             if let Some(lang_idx) = detected_lang_idx {
                 if adapter_info.supports_language(lang_idx) && features[lang_idx] > 0.0 {
                     // Boost score if adapter supports the detected language
-                    score += features[lang_idx] * self.feature_weights.language_weight * 2.0;
+                    score += features[lang_idx]
+                        * self.feature_weights.language_weight
+                        * LANGUAGE_AFFINITY_MULTIPLIER;
                 }
             }
         }
@@ -778,7 +780,9 @@ impl Router {
                 let framework_strength = features[8..11].iter().sum::<f32>();
                 if framework_strength > 0.0 {
                     // Boost adapters that have framework specialization when frameworks are detected
-                    score += framework_strength * self.feature_weights.framework_weight * 1.5;
+                    score += framework_strength
+                        * self.feature_weights.framework_weight
+                        * FRAMEWORK_SPECIALIZATION_MULTIPLIER;
                 }
             }
         }
@@ -800,6 +804,8 @@ impl Router {
         }
 
         // Tier-based boost: Higher tiers get slight boost
+        // TODO: Refactor to use DRY principle: AdapterTier::from_str().unwrap_or_default().boost()
+        // instead of duplicating tier values from types.rs
         let tier_boost = match adapter_info.tier.as_str() {
             "tier_0" => 0.3,
             "tier_1" => 0.2,
@@ -1083,7 +1089,11 @@ impl Router {
                 match best {
                     None => best = Some((*adapter_idx, *score)),
                     Some((best_idx, best_score)) => {
-                        if *score > best_score || (*score == best_score && *adapter_idx < best_idx)
+                        // Use total_cmp() for strict determinism with floating-point comparison.
+                        // This ensures consistent tie-breaking behavior regardless of NaN or ordering edge cases.
+                        if score.total_cmp(&best_score) == std::cmp::Ordering::Greater
+                            || (score.total_cmp(&best_score) == std::cmp::Ordering::Equal
+                                && *adapter_idx < best_idx)
                         {
                             best = Some((*adapter_idx, *score));
                         }
@@ -1129,13 +1139,32 @@ impl Router {
             .collect();
 
         // Normalize and convert back to f32
-        if sum == 0.0 {
+        let result = if sum == 0.0 {
             // All logits were -inf, return uniform distribution
             let uniform = 1.0f32 / logits.len() as f32;
             vec![uniform; logits.len()]
         } else {
             exps.iter().map(|&e| (e / sum) as f32).collect()
+        };
+
+        if determinism_debug_enabled() {
+            let entropy = result
+                .iter()
+                .filter(|&&p| p > 0.0)
+                .map(|&p| -p * p.ln())
+                .sum::<f32>();
+            tracing::debug!(
+                target: "determinism",
+                tau = tau,
+                logit_count = logits.len(),
+                sum_f64 = sum,
+                entropy = entropy,
+                max_gate = result.iter().copied().fold(0.0f32, f32::max),
+                "Softmax computed (AOS_DEBUG_DETERMINISM=1)"
+            );
         }
+
+        result
     }
 
     /// Compute decision hash for audit and reproducibility verification
