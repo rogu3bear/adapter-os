@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { createContext, useContext, useMemo, useState } from 'react';
 import { useSSE } from '@/hooks/realtime/useSSE';
 import { useModelStatus } from '@/hooks/model-loading/useModelStatus';
@@ -40,9 +39,10 @@ function extractGpuMetrics(event: MetricsStreamEvent): { used?: number | null; t
     };
   }
 
-  if ('gpu_memory_used_mb' in (event as Record<string, unknown>)) {
-    const maybeUsed = (event as { gpu_memory_used_mb?: number }).gpu_memory_used_mb;
-    const maybeTotal = (event as { gpu_memory_total_mb?: number }).gpu_memory_total_mb;
+  const eventRecord = event as unknown as Record<string, unknown>;
+  if ('gpu_memory_used_mb' in eventRecord) {
+    const maybeUsed = eventRecord.gpu_memory_used_mb;
+    const maybeTotal = eventRecord.gpu_memory_total_mb;
     return {
       used: typeof maybeUsed === 'number' ? maybeUsed : null,
       total: typeof maybeTotal === 'number' ? maybeTotal : null,
@@ -56,8 +56,9 @@ function extractLatency(event: MetricsStreamEvent): number | null {
   if ((event as MetricsSnapshotEvent).latency) {
     return (event as MetricsSnapshotEvent).latency.p95_ms;
   }
-  if ('latency_p95_ms' in (event as Record<string, unknown>)) {
-    const maybe = (event as { latency_p95_ms?: number }).latency_p95_ms;
+  const eventRecord = event as unknown as Record<string, unknown>;
+  if ('latency_p95_ms' in eventRecord) {
+    const maybe = eventRecord.latency_p95_ms;
     return typeof maybe === 'number' ? maybe : null;
   }
   return null;

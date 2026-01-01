@@ -23,7 +23,7 @@ interface StackSortableAdapterItemProps<T extends FieldValues> {
   index: number;
 }
 
-export function StackSortableAdapterItem<T extends FieldValues = FieldValues>({
+function StackSortableAdapterItemComponent<T extends FieldValues = FieldValues>({
   id,
   adapterId,
   gate,
@@ -133,4 +133,6 @@ export function StackSortableAdapterItem<T extends FieldValues = FieldValues>({
     </div>
   );
 }
+
+export const StackSortableAdapterItem = React.memo(StackSortableAdapterItemComponent) as typeof StackSortableAdapterItemComponent;
 

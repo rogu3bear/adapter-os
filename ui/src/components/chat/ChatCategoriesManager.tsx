@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Folder, FolderPlus, ChevronRight } from 'lucide-react';
 import { useChatCategories, useCreateCategory, useSetSessionCategory } from '@/hooks/chat/useChatCategories';
-import type { ChatCategory } from '@/api/chat-types';
+import type { ChatCategory } from '@/api/services/chat';
 import {
   Select,
   SelectContent,

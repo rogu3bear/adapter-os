@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -32,15 +32,15 @@ interface TrainingEvent {
 // Use utility function for formatting
 const formatDuration = formatDurationUtil;
 
-export function TrainingProgressCard({ jobId, initialJob }: TrainingProgressCardProps) {
+function TrainingProgressCardComponent({ jobId, initialJob }: TrainingProgressCardProps) {
   const [progress, setProgress] = useState<TrainingMetrics>({
     progress_pct: initialJob?.progress_pct ?? 0,
-    loss: initialJob?.current_loss ?? initialJob?.loss,
-    current_epoch: initialJob?.current_epoch,
-    total_epochs: initialJob?.total_epochs,
-    tokens_per_second: initialJob?.tokens_per_second,
-    eta_seconds: initialJob?.eta_seconds,
-    learning_rate: initialJob?.learning_rate,
+    loss: initialJob?.current_loss ?? initialJob?.loss ?? undefined,
+    current_epoch: initialJob?.current_epoch ?? undefined,
+    total_epochs: initialJob?.total_epochs ?? undefined,
+    tokens_per_second: initialJob?.tokens_per_second ?? undefined,
+    eta_seconds: initialJob?.eta_seconds ?? undefined,
+    learning_rate: initialJob?.learning_rate ?? undefined,
   });
   const [status, setStatus] = useState<string>(initialJob?.status ?? 'running');
   const [errorMessage, setErrorMessage] = useState<string | undefined>(initialJob?.error_message ?? undefined);
@@ -234,3 +234,5 @@ export function TrainingProgressCard({ jobId, initialJob }: TrainingProgressCard
     </Card>
   );
 }
+
+export const TrainingProgressCard = React.memo(TrainingProgressCardComponent);

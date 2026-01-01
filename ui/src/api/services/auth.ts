@@ -17,6 +17,18 @@ export class AuthService {
       body: JSON.stringify(credentials),
     });
 
+    // Defensive check: if we got an error response body instead of throw, handle it
+    // This shouldn't happen but protects against edge cases in error handling
+    if (response && typeof response === 'object' && 'code' in response && 'message' in response) {
+      const errResp = response as { code: string; message: string; hint?: string };
+      const error = new Error(errResp.message) as ApiError;
+      error.code = errResp.code;
+      if (errResp.hint) {
+        error.details = { hint: errResp.hint };
+      }
+      throw error;
+    }
+
     // Runtime validation of login response structure
     try {
       const validated = LoginResponseSchema.parse(response);
@@ -58,6 +70,17 @@ export class AuthService {
 
   async devBypass(): Promise<authTypes.LoginResponse> {
     const response = await this.client.request<unknown>('/v1/auth/dev-bypass', { method: 'POST' });
+
+    // Defensive check: if we got an error response body instead of throw, handle it
+    if (response && typeof response === 'object' && 'code' in response && 'message' in response) {
+      const errResp = response as { code: string; message: string; hint?: string };
+      const error = new Error(errResp.message) as ApiError;
+      error.code = errResp.code;
+      if (errResp.hint) {
+        error.details = { hint: errResp.hint };
+      }
+      throw error;
+    }
 
     try {
       const validated = LoginResponseSchema.parse(response);

@@ -98,10 +98,13 @@ export function RegisterAdapterForm({ onClose }: RegisterAdapterFormProps) {
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={() => {
-            toast.info('Adapter registration coming soon');
-            onClose();
-          }}>
+          <Button
+            disabled={!formData.name.trim() || !formData.adapter_hash.trim()}
+            onClick={() => {
+              toast.info('Adapter registration coming soon');
+              onClose();
+            }}
+          >
             Register Adapter
           </Button>
         </div>

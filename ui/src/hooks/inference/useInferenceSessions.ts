@@ -1,6 +1,5 @@
-// @ts-nocheck
 import { useState, useCallback, useEffect } from 'react';
-import { InferenceSession, InferenceConfig, InferResponse } from '@/api/api-types';
+import type { InferenceSession, InferenceConfig, InferResponse, InferRequest } from '@/api/api-types';
 import { logger } from '@/utils/logger';
 
 /**
@@ -172,11 +171,14 @@ export function useInferenceSessions(
     config: InferenceConfig,
     response: InferResponse
   ): InferenceSession => {
+    // Extract id from config since it's not part of InferRequest
+    const { id: _configId, ...requestConfig } = config;
+
     const session: InferenceSession = {
       id: `session-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
       created_at: new Date().toISOString(),
       prompt: config.prompt,
-      request: config,
+      request: requestConfig as InferRequest,
       response: response,
       status: 'completed',
       stack_id: config.stack_id ?? undefined,

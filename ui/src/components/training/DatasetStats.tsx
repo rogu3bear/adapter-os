@@ -37,7 +37,7 @@ const CHART_COLORS = [
   '#14b8a6', '#10b981', '#84cc16', '#eab308', '#f59e0b'
 ];
 
-export const DatasetStats: React.FC<DatasetStatsProps> = ({
+const DatasetStatsComponent: React.FC<DatasetStatsProps> = ({
   datasetId,
   fileCount,
   totalSizeBytes,
@@ -361,4 +361,5 @@ export const DatasetStats: React.FC<DatasetStatsProps> = ({
   );
 };
 
+export const DatasetStats = React.memo(DatasetStatsComponent);
 export default DatasetStats;

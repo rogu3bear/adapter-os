@@ -43,7 +43,7 @@ import DatasetValidation from './DatasetValidation';
 import { TrustOverrideDialog } from '@/components/training/TrustOverrideDialog';
 
 type TabValue = 'overview' | 'files' | 'preview' | 'validation' | 'lineage';
-type TrainingJobSummary = { id: string; status: string; progress_pct?: number };
+type TrainingJobSummary = { id: string; status: string; progress_pct?: number | null };
 
 const STATUS_CONFIG: Record<ValidationStatus, {
   icon: React.ElementType;
@@ -296,7 +296,7 @@ function TrainingJobsCard({
               key={job.id}
               jobId={job.id}
               status={job.status}
-              progress={job.progress_pct}
+              progress={job.progress_pct ?? undefined}
               onClick={() => onNavigateJob(job.id)}
             />
           ))}

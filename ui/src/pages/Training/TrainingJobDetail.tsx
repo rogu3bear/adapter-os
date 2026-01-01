@@ -733,7 +733,7 @@ function TrainingJobDetailContent() {
                   <div className="p-3 bg-muted rounded-lg">
                     <div className="text-sm text-muted-foreground">Latest Loss</div>
                     <div className="text-lg font-mono">
-                      {latestLoss !== undefined ? latestLoss.toFixed(4) : 'N/A'}
+                      {latestLoss != null ? latestLoss.toFixed(4) : 'N/A'}
                     </div>
                   </div>
                   {lossCurveSnippet && lossCurveSnippet.length > 0 && (

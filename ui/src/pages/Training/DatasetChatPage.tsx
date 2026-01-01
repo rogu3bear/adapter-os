@@ -54,7 +54,7 @@ function DatasetChatPageInner({ dataset }: { dataset: { id: string; name: string
           },
         });
 
-        const sessionId = created.session_id;
+        const sessionId = created.sessionId;
 
         // Best-effort: hydrate a system prompt with a deterministic dataset preview (kept small on purpose).
         try {

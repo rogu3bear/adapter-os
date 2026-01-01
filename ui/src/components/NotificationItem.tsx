@@ -74,7 +74,7 @@ function getNotificationBadgeVariant(type: Notification['type']): 'default' | 's
   }
 }
 
-export function NotificationItem({ notification, onMarkRead }: NotificationItemProps) {
+function NotificationItemComponent({ notification, onMarkRead }: NotificationItemProps) {
   const navigate = useNavigate();
   const relativeTime = useRelativeTime(notification.created_at);
   const Icon = getNotificationIcon(notification.type);
@@ -308,3 +308,13 @@ export function NotificationItem({ notification, onMarkRead }: NotificationItemP
     </div>
   );
 }
+
+export const NotificationItem = React.memo(NotificationItemComponent, (prevProps, nextProps) => {
+  // Custom comparison: memoize if notification ID and read status are the same
+  // and onMarkRead callback reference hasn't changed
+  return (
+    prevProps.notification.id === nextProps.notification.id &&
+    prevProps.notification.read_at === nextProps.notification.read_at &&
+    prevProps.onMarkRead === nextProps.onMarkRead
+  );
+});

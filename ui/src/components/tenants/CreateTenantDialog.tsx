@@ -88,7 +88,12 @@ export function CreateTenantDialog({
               placeholder="Enter workspace name"
               value={newTenant.name}
               onChange={(e) => setNewTenant({ ...newTenant, name: e.target.value })}
+              aria-required="true"
+              aria-describedby="name-description"
             />
+            <div id="name-description" className="sr-only">
+              Workspace name is required
+            </div>
           </div>
 
           <div className="mb-4">
@@ -128,7 +133,7 @@ export function CreateTenantDialog({
                 })
               }
             >
-              <SelectTrigger>
+              <SelectTrigger aria-required="true" aria-describedby="classification-description">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -138,6 +143,9 @@ export function CreateTenantDialog({
                 <SelectItem value="restricted">Restricted</SelectItem>
               </SelectContent>
             </Select>
+            <div id="classification-description" className="sr-only">
+              Data classification is required
+            </div>
           </div>
 
           <div className="flex items-center justify-between">

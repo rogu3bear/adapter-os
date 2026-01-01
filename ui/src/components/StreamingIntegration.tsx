@@ -61,34 +61,34 @@ function TrainingProgressDisplay() {
 
   if (!connected && !data) {
     return (
-      <div className="training-stream disconnected">
-        <p>Training stream: Disconnected</p>
-        {error && <p className="error">{typeof error === 'string' ? error : error.message}</p>}
+      <div className="rounded-lg border border-border bg-card p-4">
+        <p className="text-sm text-foreground">Training stream: Disconnected</p>
+        {error && <p className="mt-2 text-sm text-red-600">{typeof error === 'string' ? error : error.message}</p>}
       </div>
     );
   }
 
   const trainingData = data as TrainingProgressEvent | null;
   return (
-    <div className="training-stream">
-      <h3>Training Progress</h3>
+    <div className="rounded-lg border border-border bg-card p-4">
+      <h3 className="font-semibold text-lg text-foreground">Training Progress</h3>
       {trainingData ? (
-        <div>
-          <p>Job ID: {trainingData.job_id}</p>
-          <p>Status: {trainingData.status}</p>
-          <div className="progress-bar">
+        <div className="mt-4 space-y-2">
+          <p className="text-sm">Job ID: {trainingData.job_id}</p>
+          <p className="text-sm">Status: {trainingData.status}</p>
+          <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
             <div
-              className="progress-fill"
+              className="bg-primary h-full transition-all duration-300"
               style={{ width: `${trainingData.progress_pct || 0}%` }}
             />
           </div>
-          <p>{trainingData.progress_pct?.toFixed(1) || 0}% Complete</p>
-          {trainingData.current_loss && <p>Loss: {trainingData.current_loss.toFixed(4)}</p>}
-          {trainingData.tokens_per_second && <p>Speed: {trainingData.tokens_per_second} tokens/sec</p>}
-          <p className="timestamp">Updated: {trainingData.timestamp}</p>
+          <p className="text-sm">{trainingData.progress_pct?.toFixed(1) || 0}% Complete</p>
+          {trainingData.current_loss && <p className="text-sm">Loss: {trainingData.current_loss.toFixed(4)}</p>}
+          {trainingData.tokens_per_second && <p className="text-sm">Speed: {trainingData.tokens_per_second} tokens/sec</p>}
+          <p className="text-xs text-muted-foreground">Updated: {trainingData.timestamp}</p>
         </div>
       ) : (
-        <p>Waiting for training events...</p>
+        <p className="mt-2 text-sm text-muted-foreground">Waiting for training events...</p>
       )}
     </div>
   );
@@ -115,41 +115,41 @@ function MetricsDisplay() {
 
   if (!connected && !data) {
     return (
-      <div className="metrics-stream disconnected">
-        <p>Metrics stream: Disconnected</p>
-        {error && <p className="error">{typeof error === 'string' ? error : error.message}</p>}
+      <div className="rounded-lg border border-border bg-card p-4">
+        <p className="text-sm text-foreground">Metrics stream: Disconnected</p>
+        {error && <p className="mt-2 text-sm text-red-600">{typeof error === 'string' ? error : error.message}</p>}
       </div>
     );
   }
 
   const metricsData = data as SystemMetricsEvent | null;
   return (
-    <div className="metrics-stream">
-      <h3>System Metrics</h3>
+    <div className="rounded-lg border border-border bg-card p-4">
+      <h3 className="font-semibold text-lg text-foreground">System Metrics</h3>
       {metricsData ? (
-        <div className="metrics-grid">
-          <div className="metric">
-            <label>CPU</label>
-            <span className="value">{metricsData.cpu?.usage_percent?.toFixed(1) || 0}%</span>
+        <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-4">
+          <div className="rounded-md border border-border bg-muted p-3">
+            <p className="text-xs font-medium text-muted-foreground">CPU</p>
+            <p className="mt-1 text-lg font-semibold text-foreground">{metricsData.cpu?.usage_percent?.toFixed(1) || 0}%</p>
           </div>
-          <div className="metric">
-            <label>Memory</label>
-            <span className="value">{metricsData.memory?.usage_percent?.toFixed(1) || 0}%</span>
+          <div className="rounded-md border border-border bg-muted p-3">
+            <p className="text-xs font-medium text-muted-foreground">Memory</p>
+            <p className="mt-1 text-lg font-semibold text-foreground">{metricsData.memory?.usage_percent?.toFixed(1) || 0}%</p>
           </div>
-          <div className="metric">
-            <label>Disk</label>
-            <span className="value">{metricsData.disk?.usage_percent?.toFixed(1) || 0}%</span>
+          <div className="rounded-md border border-border bg-muted p-3">
+            <p className="text-xs font-medium text-muted-foreground">Disk</p>
+            <p className="mt-1 text-lg font-semibold text-foreground">{metricsData.disk?.usage_percent?.toFixed(1) || 0}%</p>
           </div>
           {metricsData.gpu && (
-            <div className="metric">
-              <label>GPU</label>
-              <span className="value">{metricsData.gpu.utilization_percent?.toFixed(1) || 0}%</span>
+            <div className="rounded-md border border-border bg-muted p-3">
+              <p className="text-xs font-medium text-muted-foreground">GPU</p>
+              <p className="mt-1 text-lg font-semibold text-foreground">{metricsData.gpu.utilization_percent?.toFixed(1) || 0}%</p>
             </div>
           )}
-          <p className="timestamp">Updated: {metricsData.timestamp}</p>
+          <p className="col-span-2 text-xs text-muted-foreground md:col-span-4">Updated: {metricsData.timestamp}</p>
         </div>
       ) : (
-        <p>Waiting for metrics...</p>
+        <p className="mt-2 text-sm text-muted-foreground">Waiting for metrics...</p>
       )}
     </div>
   );
@@ -174,52 +174,52 @@ function AdapterStateDisplay() {
 
   if (!connected && recentEvents.length === 0) {
     return (
-      <div className="adapters-stream disconnected">
-        <p>Adapter stream: Disconnected</p>
-        {error && <p className="error">{typeof error === 'string' ? error : error.message}</p>}
+      <div className="rounded-lg border border-border bg-card p-4">
+        <p className="text-sm text-foreground">Adapter stream: Disconnected</p>
+        {error && <p className="mt-2 text-sm text-red-600">{typeof error === 'string' ? error : error.message}</p>}
       </div>
     );
   }
 
   return (
-    <div className="adapters-stream">
-      <h3>Adapter State Changes</h3>
+    <div className="rounded-lg border border-border bg-card p-4">
+      <h3 className="font-semibold text-lg text-foreground">Adapter State Changes</h3>
       {recentEvents.length > 0 ? (
-        <div className="event-list">
+        <div className="mt-4 space-y-2">
           {recentEvents.map((item) => {
             const evt = item.event;
             if ('previous_state' in evt) {
               const stateEvent = evt as AdapterStateTransitionEvent;
               return (
-                <div key={item.id} className="event-item state-change">
-                  <p>
-                    <strong>{stateEvent.adapter_id}</strong>
+                <div key={item.id} className="rounded border border-border bg-muted p-3">
+                  <p className="font-medium text-sm text-foreground">
+                    {stateEvent.adapter_id}
                   </p>
-                  <p>
+                  <p className="text-sm text-muted-foreground">
                     {stateEvent.previous_state} → {stateEvent.new_state || stateEvent.current_state}
                   </p>
-                  <small>{new Date(stateEvent.timestamp).toLocaleString()}</small>
+                  <p className="text-xs text-muted-foreground">{new Date(stateEvent.timestamp).toLocaleString()}</p>
                 </div>
               );
             }
             return (
-              <div key={item.id} className="event-item">
-                <p>
-                  <strong>{evt.adapter_id}</strong>
+              <div key={item.id} className="rounded border border-border bg-muted p-3">
+                <p className="font-medium text-sm text-foreground">
+                  {evt.adapter_id}
                 </p>
-                <small>
+                <p className="text-xs text-muted-foreground">
                   {hasProperty(evt, 'timestamp')
                     ? typeof evt.timestamp === 'number'
                       ? new Date(evt.timestamp).toLocaleString()
                       : evt.timestamp
                     : 'N/A'}
-                </small>
+                </p>
               </div>
             );
           })}
         </div>
       ) : (
-        <p>Waiting for adapter events...</p>
+        <p className="mt-2 text-sm text-muted-foreground">Waiting for adapter events...</p>
       )}
     </div>
   );
@@ -253,24 +253,26 @@ function DiscoveryDisplay() {
 
   if (!connected && discoveredAdapters.length === 0) {
     return (
-      <div className="discovery-stream disconnected">
-        <p>Discovery stream: Disconnected</p>
-        {error && <p className="error">{typeof error === 'string' ? error : error.message}</p>}
+      <div className="rounded-lg border border-border bg-card p-4">
+        <p className="text-sm text-foreground">Discovery stream: Disconnected</p>
+        {error && <p className="mt-2 text-sm text-red-600">{typeof error === 'string' ? error : error.message}</p>}
       </div>
     );
   }
 
   return (
-    <div className="discovery-stream">
-      <h3>Recently Discovered Adapters</h3>
+    <div className="rounded-lg border border-border bg-card p-4">
+      <h3 className="font-semibold text-lg text-foreground">Recently Discovered Adapters</h3>
       {discoveredAdapters.length > 0 ? (
-        <ul className="adapter-list">
+        <ul className="mt-4 space-y-2">
           {discoveredAdapters.map((adapter) => (
-            <li key={adapter.id}>{adapter.name}</li>
+            <li key={adapter.id} className="rounded border border-border bg-muted px-3 py-2 text-sm text-foreground">
+              {adapter.name}
+            </li>
           ))}
         </ul>
       ) : (
-        <p>No adapters discovered yet...</p>
+        <p className="mt-2 text-sm text-muted-foreground">No adapters discovered yet...</p>
       )}
     </div>
   );
@@ -301,16 +303,20 @@ function StreamHealthMonitor() {
   }, []);
 
   return (
-    <div className="stream-health-monitor">
-      <h3>Stream Health ({streams.length} active)</h3>
-      <div className="streams-grid">
+    <div className="rounded-lg border border-border bg-card p-4">
+      <h3 className="font-semibold text-lg text-foreground">Stream Health ({streams.length} active)</h3>
+      <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-2">
         {streams.map((stream) => (
           <div
             key={stream.endpoint}
-            className={`stream-status ${stream.connected ? 'connected' : 'disconnected'}`}
+            className={`rounded border p-3 ${
+              stream.connected
+                ? 'border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950'
+                : 'border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950'
+            }`}
           >
-            <p className="endpoint">{stream.endpoint}</p>
-            <p className="status">
+            <p className="text-sm font-medium text-foreground break-all">{stream.endpoint}</p>
+            <p className={`text-sm font-medium mt-1 ${stream.connected ? 'text-green-600' : 'text-red-600'}`}>
               {stream.connected ? '✓ Connected' : '✗ Disconnected'}
             </p>
           </div>
@@ -338,55 +344,59 @@ export function StreamingIntegration() {
   const allStreamsStatus = useAllStreamsStatus();
 
   return (
-    <div className="streaming-integration">
-      <h2>Real-Time Streaming Integration</h2>
+    <div className="space-y-6 p-6">
+      <h2 className="text-2xl font-bold text-foreground">Real-Time Streaming Integration</h2>
 
       {/* Stream Health Monitor */}
-      <section className="monitor-section">
+      <section className="space-y-3">
         <StreamHealthMonitor />
       </section>
 
       {/* Controls */}
-      <section className="controls-section">
-        <h3>Toggle Streams</h3>
-        <div className="controls">
-          <label>
+      <section className="rounded-lg border border-border bg-card p-4">
+        <h3 className="font-semibold text-lg text-foreground">Toggle Streams</h3>
+        <div className="mt-4 flex flex-wrap gap-4">
+          <label className="flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"
               checked={displayMetrics}
               onChange={(e) => setDisplayMetrics(e.target.checked)}
+              className="rounded border border-border"
             />
-            System Metrics
+            <span className="text-sm text-foreground">System Metrics</span>
           </label>
-          <label>
+          <label className="flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"
               checked={displayTraining}
               onChange={(e) => setDisplayTraining(e.target.checked)}
+              className="rounded border border-border"
             />
-            Training Progress
+            <span className="text-sm text-foreground">Training Progress</span>
           </label>
-          <label>
+          <label className="flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"
               checked={displayAdapters}
               onChange={(e) => setDisplayAdapters(e.target.checked)}
+              className="rounded border border-border"
             />
-            Adapter States
+            <span className="text-sm text-foreground">Adapter States</span>
           </label>
-          <label>
+          <label className="flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"
               checked={displayDiscovery}
               onChange={(e) => setDisplayDiscovery(e.target.checked)}
+              className="rounded border border-border"
             />
-            Discovery Events
+            <span className="text-sm text-foreground">Discovery Events</span>
           </label>
         </div>
       </section>
 
       {/* Stream Displays */}
-      <section className="streams-section">
+      <section className="space-y-4">
         {displayMetrics && <MetricsDisplay />}
         {displayTraining && <TrainingProgressDisplay />}
         {displayAdapters && <AdapterStateDisplay />}
@@ -394,9 +404,9 @@ export function StreamingIntegration() {
       </section>
 
       {/* Overall Status */}
-      <section className="status-section">
-        <h3>Overall Stream Status</h3>
-        <p>
+      <section className="rounded-lg border border-border bg-card p-4">
+        <h3 className="font-semibold text-lg text-foreground">Overall Stream Status</h3>
+        <p className="mt-2 text-sm text-foreground">
           {Object.values(allStreamsStatus)
             .filter((v) => typeof v === 'boolean')
             .filter(Boolean).length}{' '}

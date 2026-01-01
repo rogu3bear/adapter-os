@@ -206,7 +206,7 @@ export class AdminService {
 
   async exportPlanManifest(planId: string): Promise<Blob> {
     const path = `/v1/plans/${planId}/manifest`;
-    const url = `${this.client['baseUrl']}${path}`;
+    const url = this.client.buildUrl(path);
     const token = this.client.getToken();
     const response = await fetch(url, {
       headers: token ? { Authorization: `Bearer ${token}` } : undefined,

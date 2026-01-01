@@ -65,6 +65,55 @@ const smoothData = (data: number[], windowSize: number = 5): number[] => {
   return smoothed;
 };
 
+// Custom tooltip component for charts
+interface CustomTooltipProps {
+  active?: boolean;
+  payload?: Array<{ dataKey: string; value: number; color: string }>;
+  label?: string | number;
+  jobs?: TrainingJob[];
+  visibleJobs?: Set<string>;
+}
+
+const CustomTooltip = React.memo(({
+  active,
+  payload,
+  label,
+  jobs = [],
+  visibleJobs = new Set(),
+}: CustomTooltipProps) => {
+  if (!active || !payload || payload.length === 0) return null;
+
+  return (
+    <div className="bg-background border border-border rounded-lg p-3 shadow-lg">
+      <div className="font-medium mb-2">Epoch {label}</div>
+      <div className="space-y-1">
+        {payload.map((entry, index: number) => {
+          const jobId = entry.dataKey.split('_')[0];
+          const job = jobs.find(j => j.id === jobId);
+          if (!job || !visibleJobs.has(jobId)) return null;
+
+          return (
+            <div key={index} className="flex items-center justify-between gap-4 text-sm">
+              <div className="flex items-center gap-2">
+                <div
+                  className="w-3 h-3 rounded-full"
+                  style={{ backgroundColor: entry.color }}
+                />
+                <span className="text-muted-foreground">{job.adapter_name}</span>
+              </div>
+              <span className="font-mono font-medium">
+                {typeof entry.value === 'number' ? entry.value.toFixed(4) : '—'}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+});
+
+CustomTooltip.displayName = 'CustomTooltip';
+
 export const MetricsComparison: React.FC<MetricsComparisonProps> = ({
   jobs,
   metricsHistory = new Map(),
@@ -111,7 +160,7 @@ export const MetricsComparison: React.FC<MetricsComparisonProps> = ({
           }
         } else if (epoch === (job.current_epoch || 0)) {
           // Use current metrics if available
-          point[`${job.id}_loss`] = job.current_loss;
+          point[`${job.id}_loss`] = job.current_loss ?? undefined;
           if (showValidation && job.metrics?.validation_loss !== undefined) {
             point[`${job.id}_val_loss`] = job.metrics.validation_loss;
           }
@@ -136,7 +185,7 @@ export const MetricsComparison: React.FC<MetricsComparisonProps> = ({
         if (history && history[epoch]) {
           point[`${job.id}_tokens_per_second`] = history[epoch].tokens_per_second;
         } else if (epoch === (job.current_epoch || 0)) {
-          point[`${job.id}_tokens_per_second`] = job.tokens_per_second;
+          point[`${job.id}_tokens_per_second`] = job.tokens_per_second ?? undefined;
         }
       });
       dataPoints.push(point);
@@ -253,39 +302,6 @@ export const MetricsComparison: React.FC<MetricsComparisonProps> = ({
       }, error instanceof Error ? error : new Error('Export failed'));
       toast.error('Failed to export chart');
     }
-  };
-
-  // Custom tooltip
-  const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: Array<{ dataKey: string; value: number; color: string }>; label?: string | number }) => {
-    if (!active || !payload || payload.length === 0) return null;
-
-    return (
-      <div className="bg-background border border-border rounded-lg p-3 shadow-lg">
-        <div className="font-medium mb-2">Epoch {label}</div>
-        <div className="space-y-1">
-          {payload.map((entry, index: number) => {
-            const jobId = entry.dataKey.split('_')[0];
-            const job = jobs.find(j => j.id === jobId);
-            if (!job || !visibleJobs.has(jobId)) return null;
-
-            return (
-              <div key={index} className="flex items-center justify-between gap-4 text-sm">
-                <div className="flex items-center gap-2">
-                  <div
-                    className="w-3 h-3 rounded-full"
-                    style={{ backgroundColor: entry.color }}
-                  />
-                  <span className="text-muted-foreground">{job.adapter_name}</span>
-                </div>
-                <span className="font-mono font-medium">
-                  {typeof entry.value === 'number' ? entry.value.toFixed(4) : '—'}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
   };
 
   return (
@@ -445,7 +461,7 @@ export const MetricsComparison: React.FC<MetricsComparisonProps> = ({
                   className="text-xs"
                   tick={{ fill: 'currentColor' }}
                 />
-                <Tooltip content={<CustomTooltip />} />
+                <Tooltip content={<CustomTooltip jobs={jobs} visibleJobs={visibleJobs} />} />
                 <Legend
                   wrapperStyle={{ paddingTop: '20px' }}
                   iconType="line"
@@ -538,7 +554,7 @@ export const MetricsComparison: React.FC<MetricsComparisonProps> = ({
                   className="text-xs"
                   tick={{ fill: 'currentColor' }}
                 />
-                <Tooltip content={<CustomTooltip />} />
+                <Tooltip content={<CustomTooltip jobs={jobs} visibleJobs={visibleJobs} />} />
                 <Legend wrapperStyle={{ paddingTop: '20px' }} />
                 {jobs.map((job, idx) => {
                   if (!visibleJobs.has(job.id)) return null;
@@ -589,7 +605,7 @@ export const MetricsComparison: React.FC<MetricsComparisonProps> = ({
                   className="text-xs"
                   tick={{ fill: 'currentColor' }}
                 />
-                <Tooltip content={<CustomTooltip />} />
+                <Tooltip content={<CustomTooltip jobs={jobs} visibleJobs={visibleJobs} />} />
                 {jobs.map((job, idx) => {
                   if (!visibleJobs.has(job.id)) return null;
                   return (
@@ -633,7 +649,7 @@ export const MetricsComparison: React.FC<MetricsComparisonProps> = ({
                   className="text-xs"
                   tick={{ fill: 'currentColor' }}
                 />
-                <Tooltip content={<CustomTooltip />} />
+                <Tooltip content={<CustomTooltip jobs={jobs} visibleJobs={visibleJobs} />} />
                 {jobs.map((job, idx) => {
                   if (!visibleJobs.has(job.id)) return null;
                   return (

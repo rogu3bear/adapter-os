@@ -11,7 +11,6 @@
  * Copyright JKCA | 2025 James KC Auchterlonie
  */
 
-import type { BaseModelStatus } from '@/api/api-types';
 import type { AdapterStateTransitionEvent } from '@/api/streaming-types';
 
 // ============================================================================
@@ -26,9 +25,16 @@ export type AdapterLifecycleState = AdapterStateTransitionEvent['current_state']
 
 /**
  * Base model loading status
- * Matches useModelStatus states
+ * String union type matching backend ModelLoadStatus values
+ * Defined explicitly to avoid enum assignment issues
  */
-export type ModelStatusState = BaseModelStatus['status'];
+export type ModelStatusState =
+  | 'no-model'
+  | 'loading'
+  | 'ready'
+  | 'unloading'
+  | 'error'
+  | 'checking';
 
 // ============================================================================
 // Error Types

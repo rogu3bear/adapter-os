@@ -5,7 +5,6 @@
  * Shows whether a model is loaded, loading, or no model is configured.
  */
 
-// @ts-nocheck
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { apiClient } from '@/api/services';
 import { logger } from '@/utils/logger';
@@ -259,7 +258,9 @@ export function useModelStatus(
     lastPolledAt,
     isFetchError: fetchError !== null,
     fetchError,
-    refetch: fetchStatus,
+    refetch: async () => {
+      await fetchStatus();
+    },
   };
 }
 

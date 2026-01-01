@@ -146,9 +146,9 @@ export function ChatShareDialog({ sessionId, open, onOpenChange }: Props) {
     }
   };
 
-  const activeShares = shares.filter((s) => !s.revoked_at);
-  const workspaceShares = activeShares.filter((s) => s.workspace_id);
-  const userShares = activeShares.filter((s) => s.shared_with_user_id);
+  const activeShares = shares.filter((s) => !s.revokedAt);
+  const workspaceShares = activeShares.filter((s) => s.workspaceId);
+  const userShares = activeShares.filter((s) => s.sharedWithUserId);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -187,6 +187,9 @@ export function ChatShareDialog({ sessionId, open, onOpenChange }: Props) {
           {!shareWithWorkspace && (
             <div className="space-y-3">
               <Label className="text-sm font-medium">Share with specific users</Label>
+              <p id="user-email-description" className="text-xs text-muted-foreground sr-only">
+                Enter user email or ID
+              </p>
               <div className="flex gap-2">
                 <Input
                   placeholder="Enter user email or ID"
@@ -197,6 +200,7 @@ export function ChatShareDialog({ sessionId, open, onOpenChange }: Props) {
                       handleShare();
                     }
                   }}
+                  aria-describedby="user-email-description"
                 />
                 <Select
                   value={selectedPermission}
@@ -275,7 +279,7 @@ export function ChatShareDialog({ sessionId, open, onOpenChange }: Props) {
                       <div>
                         <div className="font-medium">Workspace</div>
                         <div className="text-xs text-muted-foreground">
-                          Shared {new Date(share.shared_at).toLocaleDateString()}
+                          Shared {new Date(share.sharedAt).toLocaleDateString()}
                         </div>
                       </div>
                     </div>
@@ -308,15 +312,15 @@ export function ChatShareDialog({ sessionId, open, onOpenChange }: Props) {
                     <div className="flex items-center gap-3">
                       <Avatar className="h-10 w-10">
                         <div className="h-full w-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white font-medium">
-                          {share.shared_with_user_id?.charAt(0).toUpperCase() || 'U'}
+                          {share.sharedWithUserId?.charAt(0).toUpperCase() || 'U'}
                         </div>
                       </Avatar>
                       <div>
-                        <div className="font-medium">{share.shared_with_user_id}</div>
+                        <div className="font-medium">{share.sharedWithUserId}</div>
                         <div className="text-xs text-muted-foreground">
-                          Shared {new Date(share.shared_at).toLocaleDateString()}
-                          {share.expires_at && (
-                            <> • Expires {new Date(share.expires_at).toLocaleDateString()}</>
+                          Shared {new Date(share.sharedAt).toLocaleDateString()}
+                          {share.expiresAt && (
+                            <> • Expires {new Date(share.expiresAt).toLocaleDateString()}</>
                           )}
                         </div>
                       </div>
@@ -333,7 +337,7 @@ export function ChatShareDialog({ sessionId, open, onOpenChange }: Props) {
                         size="icon"
                         onClick={() => handleRevoke(share.id)}
                         disabled={revokeMutation.isPending}
-                        aria-label={`Revoke share for ${share.shared_with_user_id}`}
+                        aria-label={`Revoke share for ${share.sharedWithUserId}`}
                       >
                         <X className="h-4 w-4" />
                       </Button>

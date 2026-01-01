@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient, UseQueryOptions, UseMutationOptions } from '@tanstack/react-query';
 import { apiClient } from '@/api/services';
+import type { ChatCategory } from '@/api/services/chat';
 import type {
-  ChatCategory,
   CreateCategoryRequest,
   UpdateCategoryRequest,
 } from '@/api/chat-types';

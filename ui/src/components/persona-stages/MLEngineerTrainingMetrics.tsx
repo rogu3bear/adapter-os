@@ -141,13 +141,13 @@ export default function MLEngineerTrainingMetrics() {
       const currentStep = metrics.step || job.progress_pct || 0;
       const newDataPoint: MetricsDataPoint = {
         step: currentStep,
-        epoch: metrics.epoch || job.current_epoch,
-        training_loss: metrics.loss || job.current_loss,
-        validation_loss: metrics.validation_loss,
-        learning_rate: metrics.learning_rate || job.learning_rate,
+        epoch: metrics.epoch ?? job.current_epoch ?? undefined,
+        training_loss: metrics.loss ?? job.current_loss ?? undefined,
+        validation_loss: metrics.validation_loss ?? undefined,
+        learning_rate: metrics.learning_rate ?? job.learning_rate ?? undefined,
         gradient_norm: (metrics as ExtendedMetrics).gradient_norm,
         gpu_memory_gb: metrics.memory_usage ? metrics.memory_usage / 1024 : undefined,
-        tokens_per_second: metrics.tokens_per_second || job.tokens_per_second,
+        tokens_per_second: metrics.tokens_per_second ?? job.tokens_per_second ?? undefined,
       };
 
       setMetricsHistory(prev => {

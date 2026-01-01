@@ -108,14 +108,14 @@ function StatusBadge({ status }: { status: TrainingStatus }) {
 
 // formatDuration replaced by shared formatDurationSeconds from @/utils/format
 
-export function TrainingJobTable({
+const TrainingJobTableComponent = ({
   jobs,
   isLoading,
   onViewJob,
   onCancelJob,
   isCancelling,
   canCancel,
-}: TrainingJobTableProps) {
+}: TrainingJobTableProps) => {
   if (isLoading && jobs.length === 0) {
     return <LoadingState variant="minimal" message="Loading training jobs..." />;
   }
@@ -310,4 +310,6 @@ export function TrainingJobTable({
       </div>
     </PageTable>
   );
-}
+};
+
+export const TrainingJobTable = React.memo(TrainingJobTableComponent);

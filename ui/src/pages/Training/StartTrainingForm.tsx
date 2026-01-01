@@ -38,6 +38,7 @@ import type {
   TrustState,
 } from '@/api/training-types';
 import type { ModelWithStatsResponse, BaseModelStatus } from '@/api/api-types';
+import { LoraTier } from '@/api/generated';
 import { useTenant } from '@/providers/FeatureProviders';
 
 interface StartTrainingFormProps {
@@ -112,7 +113,7 @@ export function StartTrainingForm({
   const [selectedVersionId, setSelectedVersionId] = useState<string | undefined>(undefined);
   const [templateId, setTemplateId] = useState('');
   const [config, setConfig] = useState<TrainingConfigRequest>(DEFAULT_CONFIG);
-  const [loraTier, setLoraTier] = useState<'micro' | 'standard' | 'max'>('micro');
+  const [loraTier, setLoraTier] = useState<LoraTier>(LoraTier.micro);
   const [loraScope, setLoraScope] = useState<'project' | 'tenant'>('project');
 
   // Data from API
@@ -544,7 +545,7 @@ export function StartTrainingForm({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="lora-tier">LoRA Tier</Label>
-              <Select value={loraTier} onValueChange={(value) => setLoraTier(value as 'micro' | 'standard' | 'max')}>
+              <Select value={loraTier} onValueChange={(value) => setLoraTier(value as LoraTier)}>
                 <SelectTrigger id="lora-tier">
                   <SelectValue placeholder="Select tier" />
                 </SelectTrigger>

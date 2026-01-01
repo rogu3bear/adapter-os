@@ -14,6 +14,8 @@ import type { ApiError } from '@/api/client';
 import type {
   ChatSession,
   ChatMessage,
+} from '@/api/services/chat';
+import type {
   CreateChatSessionRequest,
   UpdateChatSessionRequest,
 } from '@/api/chat-types';
@@ -29,16 +31,16 @@ const UNSUPPORTED_MESSAGE = 'Chat history is not supported for this version.';
 function toLocalSession(backendSession: ChatSession, messages: ChatMessage[]): LocalChatSession {
   let metadata: Record<string, unknown> | undefined;
   try {
-    metadata = backendSession.metadata_json ? JSON.parse(backendSession.metadata_json) : undefined;
+    metadata = backendSession.metadataJson ? JSON.parse(backendSession.metadataJson) : undefined;
   } catch {
     metadata = undefined;
   }
 
   const sourceType =
-    backendSession.source_type ||
+    backendSession.sourceType ||
     (typeof metadata?.source_type === 'string' ? (metadata.source_type as string) : undefined);
   const documentId =
-    backendSession.document_id ||
+    backendSession.documentId ||
     (typeof metadata?.documentId === 'string' ? (metadata.documentId as string) : undefined);
   const documentName =
     typeof metadata?.documentName === 'string' ? (metadata.documentName as string) : undefined;
@@ -46,17 +48,17 @@ function toLocalSession(backendSession: ChatSession, messages: ChatMessage[]): L
   return {
     id: backendSession.id,
     name: backendSession.name,
-    stackId: backendSession.stack_id || '',
+    stackId: backendSession.stackId || '',
     stackName: (metadata?.stackName as string | undefined) || undefined,
-    collectionId: backendSession.collection_id ?? null,
+    collectionId: backendSession.collectionId ?? null,
     documentId,
     documentName,
     sourceType,
     metadata,
     messages: messages.map(toLocalMessage),
-    createdAt: new Date(backendSession.created_at),
-    updatedAt: new Date(backendSession.last_activity_at),
-    tenantId: backendSession.tenant_id,
+    createdAt: new Date(backendSession.createdAt),
+    updatedAt: new Date(backendSession.lastActivityAt),
+    tenantId: backendSession.tenantId,
   };
 }
 
@@ -64,8 +66,8 @@ function toLocalSession(backendSession: ChatSession, messages: ChatMessage[]): L
  * Convert backend ChatMessage to local ChatMessage format
  */
 function toLocalMessage(backendMessage: ChatMessage): LocalChatMessage {
-  const metadata = backendMessage.metadata_json
-    ? JSON.parse(backendMessage.metadata_json)
+  const metadata = backendMessage.metadataJson
+    ? JSON.parse(backendMessage.metadataJson)
     : undefined;
 
   return {
@@ -162,7 +164,7 @@ async function migrateLocalStorageSessions(tenantId: string): Promise<number> {
             : msg.timestamp;
 
           await apiClient.addChatMessage(
-            response.session_id,
+            response.sessionId,
             msg.role,
             msg.content,
             {
@@ -179,7 +181,7 @@ async function migrateLocalStorageSessions(tenantId: string): Promise<number> {
           component: 'useChatSessionsApi',
           operation: 'migrateLocalStorageSessions',
           sessionId: session.id,
-          newSessionId: response.session_id,
+          newSessionId: response.sessionId,
           messageCount: messages.length,
         });
       } catch (error) {
@@ -436,8 +438,8 @@ export function useChatSessionsApi(tenantId: string, options: UseChatSessionsOpt
         metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
       };
       const created = await apiClient.createChatSession(req);
-      const session = await apiClient.getChatSession(created.session_id);
-      const messages = await apiClient.getChatMessages(created.session_id);
+      const session = await apiClient.getChatSession(created.sessionId);
+      const messages = await apiClient.getChatMessages(created.sessionId);
       return toLocalSession(session, messages);
     },
     onSuccess: (session) => {
@@ -613,16 +615,16 @@ export function useChatSessionsApi(tenantId: string, options: UseChatSessionsOpt
             // Merge updated fields from backend without converting messages
             let metadata: Record<string, unknown> | undefined;
             try {
-              metadata = updated.metadata_json ? JSON.parse(updated.metadata_json) : undefined;
+              metadata = updated.metadataJson ? JSON.parse(updated.metadataJson) : undefined;
             } catch {
               metadata = undefined;
             }
 
             const sourceType =
-              updated.source_type ||
+              updated.sourceType ||
               (typeof metadata?.source_type === 'string' ? (metadata.source_type as string) : undefined);
             const documentId =
-              updated.document_id ||
+              updated.documentId ||
               (typeof metadata?.documentId === 'string' ? (metadata.documentId as string) : undefined);
             const documentName =
               typeof metadata?.documentName === 'string' ? (metadata.documentName as string) : undefined;
@@ -630,15 +632,15 @@ export function useChatSessionsApi(tenantId: string, options: UseChatSessionsOpt
             return {
               ...session,
               name: updated.name,
-              stackId: updated.stack_id || '',
+              stackId: updated.stackId || '',
               stackName: (metadata?.stackName as string | undefined) || undefined,
-              collectionId: updated.collection_id ?? null,
+              collectionId: updated.collectionId ?? null,
               documentId,
               documentName,
               sourceType,
               metadata,
-              updatedAt: new Date(updated.last_activity_at),
-              tenantId: updated.tenant_id,
+              updatedAt: new Date(updated.lastActivityAt),
+              tenantId: updated.tenantId,
               // Keep existing messages to avoid refetch
               messages: session.messages,
             };

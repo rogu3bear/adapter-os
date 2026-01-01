@@ -7,7 +7,7 @@ import { AppProviders } from "@/providers/AppProviders";
 import { LoginPage } from "@/components/login";
 import { ErrorBoundary } from "@/components/shared/Feedback";
 import { routes } from "@/config/routes";
-import { RouteGuard } from "@/components/route-guard";
+import { RouteGuard } from "@/components/RouteGuard";
 import { logger } from "@/utils/logger";
 import { captureException } from "@/stores/errorStore";
 import { toast } from "sonner";

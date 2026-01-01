@@ -76,7 +76,7 @@ const getLifecycleColor = (state: string) => {
   }
 };
 
-export const SortableAdapterItem: React.FC<SortableAdapterItemProps> = ({
+const SortableAdapterItemComponent: React.FC<SortableAdapterItemProps> = ({
   item,
   onRemove,
   onToggle,
@@ -252,5 +252,7 @@ export const SortableAdapterItem: React.FC<SortableAdapterItemProps> = ({
     </div>
   );
 };
+
+export const SortableAdapterItem = React.memo(SortableAdapterItemComponent);
 
 export default SortableAdapterItem;

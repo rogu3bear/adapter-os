@@ -30,7 +30,7 @@ import { useTenant } from '@/providers/FeatureProviders';
 import { apiClient } from '@/api/services';
 import { toast } from 'sonner';
 import { logger } from '@/utils/logger';
-import { withErrorBoundary } from '@/components/withErrorBoundary';
+import { withErrorBoundary } from '@/components/WithErrorBoundary';
 import {
   Box,
   ArrowLeft,

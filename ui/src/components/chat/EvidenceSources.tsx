@@ -7,12 +7,12 @@ import { EvidenceItem } from './EvidenceItem';
 import { useDocumentViewerOptional } from '@/contexts/DocumentViewerContext';
 
 interface EvidenceItemData {
-  document_id: string;
-  document_name: string;
-  chunk_id: string;
-  page_number: number | null;
-  text_preview: string;
-  relevance_score: number;
+  documentId: string;
+  documentName: string;
+  chunkId: string;
+  pageNumber: number | null;
+  textPreview: string;
+  relevanceScore: number;
   rank: number;
 }
 
@@ -75,12 +75,12 @@ export function EvidenceSources({ evidence, isVerified, verifiedAt, onViewDocume
       is_verified: isVerified,
       verified_at: verifiedAt,
       sources: evidence.map((item) => ({
-        document_id: item.document_id,
-        document_name: item.document_name,
-        chunk_id: item.chunk_id,
-        page_number: item.page_number,
-        text_preview: item.text_preview,
-        relevance_score: item.relevance_score,
+        document_id: item.documentId,
+        document_name: item.documentName,
+        chunk_id: item.chunkId,
+        page_number: item.pageNumber,
+        text_preview: item.textPreview,
+        relevance_score: item.relevanceScore,
         rank: item.rank,
       })),
     };
@@ -112,12 +112,12 @@ export function EvidenceSources({ evidence, isVerified, verifiedAt, onViewDocume
 
     evidence.forEach((item, index) => {
       textContent += `Source #${index + 1} (Rank ${item.rank})\n`;
-      textContent += `Document: ${item.document_name}\n`;
-      if (item.page_number) {
-        textContent += `Page: ${item.page_number}\n`;
+      textContent += `Document: ${item.documentName}\n`;
+      if (item.pageNumber) {
+        textContent += `Page: ${item.pageNumber}\n`;
       }
-      textContent += `Relevance Score: ${(item.relevance_score * 100).toFixed(1)}%\n`;
-      textContent += `Preview: "${item.text_preview}"\n`;
+      textContent += `Relevance Score: ${(item.relevanceScore * 100).toFixed(1)}%\n`;
+      textContent += `Preview: "${item.textPreview}"\n`;
       textContent += `\n${'-'.repeat(80)}\n\n`;
     });
 
@@ -152,10 +152,10 @@ export function EvidenceSources({ evidence, isVerified, verifiedAt, onViewDocume
       <CollapsibleContent className="mt-2 space-y-2">
         {evidence.map((item) => (
           <EvidenceItem
-            key={item.chunk_id}
+            key={item.chunkId}
             item={item}
             onView={handleViewEvidence}
-            isActive={activeEvidenceId === (item.chunk_id || item.document_id)}
+            isActive={activeEvidenceId === (item.chunkId || item.documentId)}
           />
         ))}
         {verifiedAt && (
