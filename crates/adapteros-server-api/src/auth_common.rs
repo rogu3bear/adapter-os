@@ -92,20 +92,11 @@ impl<'a> AuthConfig<'a> {
     }
 
     /// Whether dev login is allowed under the current config.
-    /// Security: Also checks ADAPTEROS_ENV runtime variable.
+    ///
+    /// Uses the same check as the middleware bypass (`dev_no_auth_enabled`).
+    /// When true, the UI should auto-skip the login page.
     pub fn dev_login_allowed(&self) -> bool {
-        // Compile-time check: must be debug build with dev-bypass feature
-        if !cfg!(all(feature = "dev-bypass", debug_assertions)) {
-            return false;
-        }
-
-        // Runtime check: environment must be explicitly set to development
-        let is_dev_env = std::env::var("ADAPTEROS_ENV")
-            .map(|v| v == "development" || v == "dev")
-            .unwrap_or(false);
-
-        // Both config flag AND dev environment must be true
-        self.dev_login_enabled && is_dev_env
+        crate::auth::dev_no_auth_enabled()
     }
 
     /// Cookie expiration instant for the current TTL.
