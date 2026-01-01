@@ -1,0 +1,16 @@
+[package]
+name = "adapteros-error-registry"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Unified error registry with compile-time exhaustiveness checking and recovery actions"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "2.0"
+strum = { version = "0.26", features = ["derive"] }
+lazy_static = "1.4"
+
+[dev-dependencies]
+serde_json = "1.0"
