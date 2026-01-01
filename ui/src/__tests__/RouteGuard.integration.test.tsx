@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
-import { RouteGuard } from '@/components/route-guard';
+import { RouteGuard } from '@/components/RouteGuard';
 import { routes } from '@/config/routes';
 import * as CoreProviders from '@/providers/CoreProviders';
 import * as FeatureProviders from '@/providers/FeatureProviders';
