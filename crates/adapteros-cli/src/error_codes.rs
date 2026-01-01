@@ -17,8 +17,92 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 
+/// Macro to define ECode enum and implementations from a single source of truth.
+///
+/// This ensures `as_str()`, `parse()`, and `category()` are always in sync.
+macro_rules! define_ecodes {
+    (
+        $(
+            $category:literal => [ $($variant:ident),+ $(,)? ]
+        ),+ $(,)?
+    ) => {
+        /// Typed error codes for compile-time checking.
+        ///
+        /// Categories:
+        /// - E1xxx: Crypto/Signing errors
+        /// - E2xxx: Policy/Determinism violations
+        /// - E3xxx: Kernels/Build/Manifest issues
+        /// - E4xxx: Telemetry/Chain problems
+        /// - E5xxx: Artifacts/CAS errors
+        /// - E6xxx: Adapters/DIR issues
+        /// - E7xxx: Node/Cluster problems
+        /// - E8xxx: CLI/Config errors
+        /// - E9xxx: OS/Environment issues
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+        #[allow(non_camel_case_types)]
+        pub enum ECode {
+            $($($variant,)+)+
+        }
+
+        impl ECode {
+            /// Get the string representation of this error code
+            pub const fn as_str(self) -> &'static str {
+                match self {
+                    $($(ECode::$variant => stringify!($variant),)+)+
+                }
+            }
+
+            /// Parse a string into an ECode
+            pub fn parse(s: &str) -> Option<Self> {
+                match s {
+                    $($(stringify!($variant) => Some(ECode::$variant),)+)+
+                    _ => None,
+                }
+            }
+
+            /// Get the category for this error code
+            pub const fn category(self) -> &'static str {
+                match self {
+                    $($(ECode::$variant)|+ => $category,)+
+                }
+            }
+        }
+    };
+}
+
+// Single source of truth for all error codes and their categories
+define_ecodes! {
+    "Crypto/Signing" => [E1001, E1002, E1003, E1004],
+    "Policy/Determinism" => [E2001, E2002, E2003, E2004],
+    "Kernels/Build/Manifest" => [E3001, E3002, E3003, E3004, E3005, E3006, E3007, E3008, E3009],
+    "Telemetry/Chain" => [E4001, E4002, E4003],
+    "Artifacts/CAS" => [E5001, E5002, E5003, E5004],
+    "Adapters/DIR" => [E6001, E6002, E6003, E6004, E6005, E6006, E6007, E6008, E6009],
+    "Node/Cluster" => [E7001, E7002],
+    "CLI/Config" => [E8001, E8002, E8003, E8004, E8005, E8006, E8007, E8008, E8009, E8010, E8011, E8012, E8013],
+    "OS/Environment" => [E9001, E9002, E9003, E9004, E9005, E9006, E9007, E9008, E9009],
+}
+
+impl fmt::Display for ECode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for ECode {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        ECode::parse(s).ok_or(())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ErrorCode {
+    /// The typed error code
+    pub ecode: ECode,
+    /// String representation (for backward compatibility)
+    #[serde(rename = "code")]
     pub code: &'static str,
     pub category: &'static str,
     pub title: &'static str,
@@ -67,10 +151,11 @@ impl fmt::Display for ErrorCode {
 }
 
 macro_rules! error_code {
-    ($code:expr, $cat:expr, $title:expr, $cause:expr, $fix:expr $(, docs = [$($doc:expr),*])?) => {
+    ($ecode:expr, $title:expr, $cause:expr, $fix:expr $(, docs = [$($doc:expr),*])?) => {
         ErrorCode {
-            code: $code,
-            category: $cat,
+            ecode: $ecode,
+            code: $ecode.as_str(),
+            category: $ecode.category(),
             title: $title,
             cause: $cause,
             fix: $fix,
@@ -84,8 +169,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
     vec![
         // E1xxx: Crypto/Signing Errors
         error_code!(
-            "E1001",
-            "Crypto/Signing",
+            ECode::E1001,
             "Invalid Signature",
             "The Ed25519 signature verification failed for an artifact or bundle.",
             "1. Verify the public key is correct\n\
@@ -95,8 +179,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["docs/ARCHITECTURE.md", "crates/adapteros-crypto/"]
         ),
         error_code!(
-            "E1002",
-            "Crypto/Signing",
+            ECode::E1002,
             "Missing Public Key",
             "No public key found for signature verification.",
             "1. Ensure public_key.hex is present in the bundle\n\
@@ -105,8 +188,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["docs/control-plane.md"]
         ),
         error_code!(
-            "E1003",
-            "Crypto/Signing",
+            ECode::E1003,
             "Key Rotation Required",
             "Signing key age exceeds policy threshold (>120 days).",
             "1. Generate new keypair: aos-secd rotate-keys\n\
@@ -116,8 +198,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["docs/control-plane.md"]
         ),
         error_code!(
-            "E1004",
-            "Crypto/Signing",
+            ECode::E1004,
             "Invalid Hash Format",
             "The provided BLAKE3 hash is malformed or has incorrect length.",
             "1. Verify hash is hex-encoded BLAKE3\n\
@@ -127,8 +208,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
         ),
         // E2xxx: Policy/Determinism Violations
         error_code!(
-            "E2001",
-            "Policy/Determinism",
+            ECode::E2001,
             "Determinism Violation Detected",
             "Replay produced different outputs for identical inputs.",
             "1. Check kernel compilation flags (no fast-math)\n\
@@ -139,8 +219,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["docs/ARCHITECTURE.md", "tests/determinism.rs"]
         ),
         error_code!(
-            "E2002",
-            "Policy/Determinism",
+            ECode::E2002,
             "Policy Violation",
             "Operation violates configured policy pack constraints.",
             "1. Review policy pack: cat configs/cp.toml\n\
@@ -150,8 +229,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["docs/ARCHITECTURE.md", "crates/adapteros-policy/"]
         ),
         error_code!(
-            "E2003",
-            "Policy/Determinism",
+            ECode::E2003,
             "Egress Violation",
             "Attempted network access while serving in deny_all mode.",
             "1. Verify PF rules are active: aosctl diag --system\n\
@@ -161,8 +239,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["docs/ARCHITECTURE.md"]
         ),
         error_code!(
-            "E2004",
-            "Policy/Determinism",
+            ECode::E2004,
             "Refusal Threshold Not Met",
             "Evidence below minimum confidence threshold for factual claim.",
             "1. Check abstain_threshold in policy\n\
@@ -173,8 +250,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
         ),
         // E3xxx: Kernels/Build/Manifest Issues
         error_code!(
-            "E3001",
-            "Kernels/Build/Manifest",
+            ECode::E3001,
             "Kernel Manifest Signature Invalid",
             "The Metal kernel manifest signature verification failed.",
             "1. Rebuild kernels: cd metal && ./build.sh\n\
@@ -184,8 +260,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["metal/build.sh", "docs/metal/phase4-metal-kernels.md"]
         ),
         error_code!(
-            "E3002",
-            "Kernels/Build/Manifest",
+            ECode::E3002,
             "Kernel Hash Mismatch",
             "Loaded kernel hash doesn't match Plan manifest.",
             "1. Verify kernel .metallib present and unmodified\n\
@@ -195,8 +270,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["crates/mplora-kernel-mtl/", "crates/mplora-plan/"]
         ),
         error_code!(
-            "E3003",
-            "Kernels/Build/Manifest",
+            ECode::E3003,
             "Invalid Manifest",
             "Manifest JSON is malformed or missing required fields.",
             "1. Validate JSON: jq . < manifest.json\n\
@@ -206,8 +280,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["manifests/"]
         ),
         error_code!(
-            "E3004",
-            "Kernels/Build/Manifest",
+            ECode::E3004,
             "Metal Device Not Found",
             "No compatible Metal GPU device detected.",
             "1. Verify macOS system with Apple Silicon\n\
@@ -218,8 +291,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
         ),
         // E4xxx: Telemetry/Chain Problems
         error_code!(
-            "E4001",
-            "Telemetry/Chain",
+            ECode::E4001,
             "Telemetry Bundle Chain Broken",
             "Merkle root hash mismatch in telemetry bundle chain.",
             "1. Verify bundle signatures: aosctl verify-telemetry <dir>\n\
@@ -232,8 +304,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             ]
         ),
         error_code!(
-            "E4002",
-            "Telemetry/Chain",
+            ECode::E4002,
             "Telemetry Write Failed",
             "Cannot write telemetry events to bundle.",
             "1. Check disk space: df -h var/telemetry\n\
@@ -243,8 +314,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["crates/mplora-telemetry/"]
         ),
         error_code!(
-            "E4003",
-            "Telemetry/Chain",
+            ECode::E4003,
             "Bundle Rotation Failed",
             "Failed to rotate telemetry bundle at threshold.",
             "1. Check disk space and inodes\n\
@@ -255,8 +325,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
         ),
         // E5xxx: Artifacts/CAS Errors
         error_code!(
-            "E5001",
-            "Artifacts/CAS",
+            ECode::E5001,
             "Artifact Not Found in CAS",
             "Content-addressed artifact missing from store.",
             "1. Verify hash: echo <hash>\n\
@@ -266,8 +335,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["crates/mplora-artifacts/"]
         ),
         error_code!(
-            "E5002",
-            "Artifacts/CAS",
+            ECode::E5002,
             "SBOM Incomplete",
             "SBOM missing required artifacts or metadata.",
             "1. Validate SBOM: jq . < sbom.json\n\
@@ -277,8 +345,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["crates/mplora-sbom/", "crates/mplora-artifacts/"]
         ),
         error_code!(
-            "E5003",
-            "Artifacts/CAS",
+            ECode::E5003,
             "Bundle Extraction Failed",
             "Failed to extract artifact bundle.",
             "1. Verify bundle is valid ZIP format\n\
@@ -288,8 +355,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["crates/mplora-artifacts/"]
         ),
         error_code!(
-            "E5004",
-            "Artifacts/CAS",
+            ECode::E5004,
             "Hash Mismatch",
             "Computed artifact hash doesn't match expected value.",
             "1. Verify artifact file integrity\n\
@@ -300,8 +366,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
         ),
         // E6xxx: Adapters/DIR Issues
         error_code!(
-            "E6001",
-            "Adapters/DIR",
+            ECode::E6001,
             "Adapter Not Found in Registry",
             "Specified adapter ID not registered or not allowed by ACL.",
             "1. List adapters: aosctl list-adapters\n\
@@ -311,8 +376,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["crates/mplora-registry/"]
         ),
         error_code!(
-            "E6002",
-            "Adapters/DIR",
+            ECode::E6002,
             "Adapter Eviction Occurred",
             "Adapter evicted due to memory pressure or low activation.",
             "1. Check memory headroom: aosctl diag --system\n\
@@ -322,8 +386,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["docs/ARCHITECTURE.md"]
         ),
         error_code!(
-            "E6003",
-            "Adapters/DIR",
+            ECode::E6003,
             "Router Skew Detected",
             "Router gate distribution exceeds entropy floor.",
             "1. Check router calibration\n\
@@ -333,8 +396,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["crates/mplora-router/"]
         ),
         error_code!(
-            "E6004",
-            "Adapters/DIR",
+            ECode::E6004,
             "Adapter Quality Below Threshold",
             "Adapter quality delta below minimum threshold for retention.",
             "1. Review min_quality_delta in policy\n\
@@ -344,8 +406,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["docs/ARCHITECTURE.md"]
         ),
         error_code!(
-            "E6005",
-            "Adapters/DIR",
+            ECode::E6005,
             "Adapter Socket Connection Failed",
             "Cannot connect to worker socket for adapter operations.",
             "1. Check if worker is running: aosctl serve status\n\
@@ -355,8 +416,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["crates/adapteros-client/"]
         ),
         error_code!(
-            "E6006",
-            "Adapters/DIR",
+            ECode::E6006,
             "Invalid Adapter ID Format",
             "Adapter ID contains invalid characters or exceeds length limit.",
             "1. Use only alphanumeric characters, hyphens, and underscores\n\
@@ -366,8 +426,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["crates/adapteros-cli/src/commands/adapter.rs"]
         ),
         error_code!(
-            "E6007",
-            "Adapters/DIR",
+            ECode::E6007,
             "Adapter Command Failed",
             "Adapter lifecycle command (promote/demote/pin/unpin) failed.",
             "1. Check adapter exists: aosctl adapter list\n\
@@ -377,8 +436,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["crates/adapteros-lora-worker/src/adapter_hotswap.rs"]
         ),
         error_code!(
-            "E6008",
-            "Adapters/DIR",
+            ECode::E6008,
             "Kernel Version Mismatch",
             "Adapter kernel version does not match runtime kernel version.",
             "1. Check adapter kernel version: aosctl adapter info <id>\n\
@@ -391,8 +449,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             ]
         ),
         error_code!(
-            "E6009",
-            "Adapters/DIR",
+            ECode::E6009,
             "Base Model Mismatch",
             "Adapters in stack target different base models.",
             "1. List adapters in stack: aosctl stack info <id>\n\
@@ -403,8 +460,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
         ),
         // E7xxx: Node/Cluster Problems
         error_code!(
-            "E7001",
-            "Node/Cluster",
+            ECode::E7001,
             "Node Unavailable",
             "Worker node not responding or unreachable.",
             "1. Check node status: aosctl node-status\n\
@@ -414,8 +470,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["crates/mplora-node/"]
         ),
         error_code!(
-            "E7002",
-            "Node/Cluster",
+            ECode::E7002,
             "Job Execution Failed",
             "Async job (scan, train, etc.) failed to complete.",
             "1. Check job status: aosctl job-status <id>\n\
@@ -426,8 +481,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
         ),
         // E8xxx: CLI/Config Errors
         error_code!(
-            "E8001",
-            "CLI/Config",
+            ECode::E8001,
             "Invalid Configuration",
             "Configuration file malformed or missing required fields.",
             "1. Check config syntax: cat configs/cp.toml\n\
@@ -437,8 +491,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["configs/"]
         ),
         error_code!(
-            "E8002",
-            "CLI/Config",
+            ECode::E8002,
             "Missing Required Argument",
             "Command requires argument that was not provided.",
             "1. Run: aosctl <command> --help\n\
@@ -447,8 +500,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = []
         ),
         error_code!(
-            "E8003",
-            "CLI/Config",
+            ECode::E8003,
             "Database Connection Failed",
             "Cannot connect to control plane database.",
             "1. Check database file exists: ls var/aos-cp.sqlite3\n\
@@ -458,8 +510,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["crates/mplora-db/"]
         ),
         error_code!(
-            "E8004",
-            "CLI/Config",
+            ECode::E8004,
             "Required Config File Missing",
             "The specified configuration file does not exist.",
             "1. Verify the config file path is correct\n\
@@ -468,8 +519,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["configs/"]
         ),
         error_code!(
-            "E8005",
-            "CLI/Config",
+            ECode::E8005,
             "Config File Permission Denied",
             "Configuration file exists but cannot be read due to permissions.",
             "1. Check file permissions: ls -la <config-file>\n\
@@ -478,8 +528,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["docs/CONFIGURATION.md"]
         ),
         error_code!(
-            "E8006",
-            "CLI/Config",
+            ECode::E8006,
             "Config File Parse Error",
             "Configuration file contains invalid TOML syntax.",
             "1. Validate TOML syntax: taplo check <config-file>\n\
@@ -488,8 +537,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["configs/"]
         ),
         error_code!(
-            "E8007",
-            "CLI/Config",
+            ECode::E8007,
             "Empty Environment Variable",
             "An environment variable was set but contains only whitespace.",
             "1. Check the variable value: echo $AOS_<VAR>\n\
@@ -498,8 +546,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["docs/CONFIGURATION.md"]
         ),
         error_code!(
-            "E8008",
-            "CLI/Config",
+            ECode::E8008,
             "Invalid Secret Value",
             "A required secret is blank, whitespace, or uses a placeholder value.",
             "1. Generate a secure secret: openssl rand -base64 32\n\
@@ -508,8 +555,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["docs/CONFIGURATION.md"]
         ),
         error_code!(
-            "E8009",
-            "CLI/Config",
+            ECode::E8009,
             "Deprecated Flag Used",
             "A deprecated CLI flag was used that will be removed in a future version.",
             "1. Replace the deprecated flag with its replacement\n\
@@ -518,8 +564,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["docs/CLI_REFERENCE.md"]
         ),
         error_code!(
-            "E8010",
-            "CLI/Config",
+            ECode::E8010,
             "Output Format Mismatch",
             "CLI output format version doesn't match expected schema.",
             "1. Update client consuming CLI output\n\
@@ -528,8 +573,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["docs/CLI_REFERENCE.md"]
         ),
         error_code!(
-            "E8011",
-            "CLI/Config",
+            ECode::E8011,
             "Write Permission Denied",
             "CLI cannot write to the specified output directory.",
             "1. Check directory permissions: ls -la <dir>\n\
@@ -538,8 +582,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["docs/TROUBLESHOOTING.md"]
         ),
         error_code!(
-            "E8012",
-            "CLI/Config",
+            ECode::E8012,
             "Invalid Input Encoding",
             "Input contains binary data but UTF-8 was expected.",
             "1. Check input file encoding: file <input>\n\
@@ -548,8 +591,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["docs/CLI_REFERENCE.md"]
         ),
         error_code!(
-            "E8013",
-            "CLI/Config",
+            ECode::E8013,
             "Invalid Retry Attempt",
             "Attempted to retry a non-retriable error.",
             "1. Check the original error type\n\
@@ -559,8 +601,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
         ),
         // E3xxx extensions: Build/Toolchain errors
         error_code!(
-            "E3005",
-            "Kernels/Build/Manifest",
+            ECode::E3005,
             "Toolchain Version Mismatch",
             "Build toolchain differs from CI-verified version.",
             "1. Check rust-toolchain.toml: cat rust-toolchain.toml\n\
@@ -569,8 +610,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["rust-toolchain.toml"]
         ),
         error_code!(
-            "E3006",
-            "Kernels/Build/Manifest",
+            ECode::E3006,
             "Stale Build Cache",
             "Build cache may hide compilation errors.",
             "1. Clean build cache: cargo clean\n\
@@ -579,8 +619,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["docs/BUILD.md"]
         ),
         error_code!(
-            "E3007",
-            "Kernels/Build/Manifest",
+            ECode::E3007,
             "Lint Target Missing",
             "Cannot run lints without building target first.",
             "1. Build target: cargo build --target <target>\n\
@@ -588,8 +627,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["docs/BUILD.md"]
         ),
         error_code!(
-            "E3008",
-            "Kernels/Build/Manifest",
+            ECode::E3008,
             "Cargo.lock Out of Sync",
             "Cargo.lock doesn't match Cargo.toml dependencies.",
             "1. Update lock file: cargo update\n\
@@ -598,8 +636,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["Cargo.lock"]
         ),
         error_code!(
-            "E3009",
-            "Kernels/Build/Manifest",
+            ECode::E3009,
             "Workspace Member Path Invalid",
             "Workspace member references an invalid path.",
             "1. Check workspace members in Cargo.toml\n\
@@ -609,8 +646,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
         ),
         // E9xxx: OS/Environment Issues
         error_code!(
-            "E9001",
-            "OS/Environment",
+            ECode::E9001,
             "Insufficient Memory",
             "System memory below minimum threshold for operation.",
             "1. Check memory: aosctl diag --system\n\
@@ -620,8 +656,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["docs/ARCHITECTURE.md"]
         ),
         error_code!(
-            "E9002",
-            "OS/Environment",
+            ECode::E9002,
             "Permission Denied",
             "Insufficient permissions for operation.",
             "1. Check file/directory permissions\n\
@@ -631,8 +666,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["docs/ARCHITECTURE.md"]
         ),
         error_code!(
-            "E9003",
-            "OS/Environment",
+            ECode::E9003,
             "Service Not Running",
             "Required system service (aos-secd) not running.",
             "1. Check service: ps aux | grep aos-secd\n\
@@ -642,8 +676,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["scripts/aos-secd.plist"]
         ),
         error_code!(
-            "E9004",
-            "OS/Environment",
+            ECode::E9004,
             "Disk Space Insufficient",
             "Insufficient disk space for operation.",
             "1. Check space: df -h\n\
@@ -653,8 +686,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["scripts/gc_bundles.sh"]
         ),
         error_code!(
-            "E9005",
-            "OS/Environment",
+            ECode::E9005,
             "CPU Throttled",
             "Process CPU usage exceeded configured limits, causing throttling.",
             "1. Check CPU-intensive operations: aosctl diag --system\n\
@@ -664,8 +696,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["docs/CONFIGURATION.md"]
         ),
         error_code!(
-            "E9006",
-            "OS/Environment",
+            ECode::E9006,
             "Out of Memory",
             "Process memory usage exceeded limits, triggering OOM condition.",
             "1. Check memory usage: aosctl diag --system\n\
@@ -676,8 +707,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["docs/ARCHITECTURE.md", "crates/adapteros-lora-worker/"]
         ),
         error_code!(
-            "E9007",
-            "OS/Environment",
+            ECode::E9007,
             "File Descriptor Limit Reached",
             "Process exhausted available file descriptors.",
             "1. Check current usage: lsof -p $(pgrep aos) | wc -l\n\
@@ -687,8 +717,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["docs/TROUBLESHOOTING.md"]
         ),
         error_code!(
-            "E9008",
-            "OS/Environment",
+            ECode::E9008,
             "Thread Pool Saturated",
             "All worker threads are busy, causing request queuing.",
             "1. Check thread pool status: aosctl diag --system\n\
@@ -698,8 +727,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             docs = ["docs/CONFIGURATION.md"]
         ),
         error_code!(
-            "E9009",
-            "OS/Environment",
+            ECode::E9009,
             "GPU Device Unavailable",
             "Metal/GPU device became unavailable during operation.",
             "1. Check GPU status: system_profiler SPDisplaysDataType\n\
@@ -712,16 +740,39 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
     ]
 }
 
-/// Find error code by code string (e.g., "E3001")
-pub fn find_by_code(code: &str) -> Option<ErrorCode> {
-    all_error_codes().into_iter().find(|ec| ec.code == code)
+/// Get error code info by typed ECode (compile-time checked)
+pub fn get(ecode: ECode) -> ErrorCode {
+    TYPED_REGISTRY
+        .get(&ecode)
+        .cloned()
+        .expect("All ECode variants must have corresponding ErrorCode entries")
 }
 
+/// Find error code by code string (e.g., "E3001")
+///
+/// For compile-time checked lookups with known codes, use `get(ECode::E3001)` instead.
+/// This function is appropriate for runtime lookups with dynamic/user-provided codes.
+#[deprecated(
+    since = "0.12.0",
+    note = "Use get(ECode::E3001) for compile-time checked lookups. \
+            This function remains valid for runtime/dynamic string lookups."
+)]
+pub fn find_by_code(code: &str) -> Option<ErrorCode> {
+    ECode::parse(code).map(get)
+}
+
+/// Alias for find_by_code
+#[deprecated(
+    since = "0.12.0",
+    note = "Use get(ECode::E3001) for compile-time checked lookups. \
+            Use find_by_code() for runtime/dynamic string lookups."
+)]
 pub fn get_error_code(code: &str) -> Option<ErrorCode> {
+    #[allow(deprecated)]
     find_by_code(code)
 }
 
-/// Registry of error codes for fast lookup
+/// Registry of error codes for fast lookup by string
 pub static REGISTRY: Lazy<HashMap<&'static str, ErrorCode>> = Lazy::new(|| {
     let mut m = HashMap::new();
     for code in all_error_codes() {
@@ -730,63 +781,87 @@ pub static REGISTRY: Lazy<HashMap<&'static str, ErrorCode>> = Lazy::new(|| {
     m
 });
 
+/// Registry of error codes for fast lookup by typed ECode
+pub static TYPED_REGISTRY: Lazy<HashMap<ECode, ErrorCode>> = Lazy::new(|| {
+    let mut m = HashMap::new();
+    for code in all_error_codes() {
+        m.insert(code.ecode, code);
+    }
+    m
+});
+
 /// Find error code by AosError variant name
-pub fn find_by_aos_error(error_name: &str) -> Option<ErrorCode> {
+/// Returns typed ECode for compile-time safety
+pub fn ecode_for_aos_error(error_name: &str) -> Option<ECode> {
     match error_name {
-        "InvalidHash" => find_by_code("E1004"),
-        "InvalidCPID" => find_by_code("E8001"),
-        "Crypto" => find_by_code("E1001"),
-        "PolicyViolation" => find_by_code("E2002"),
-        "InvalidManifest" => find_by_code("E3003"),
-        "Kernel" => find_by_code("E3002"),
-        "Telemetry" => find_by_code("E4002"),
-        "DeterminismViolation" => find_by_code("E2001"),
-        "EgressViolation" => find_by_code("E2003"),
-        "Artifact" => find_by_code("E5001"),
-        "Registry" => find_by_code("E6001"),
-        "Worker" => find_by_code("E7001"),
-        "Node" => find_by_code("E7001"),
-        "Job" => find_by_code("E7002"),
-        "Config" => find_by_code("E8001"),
-        "Database" => find_by_code("E8003"),
-        "Io" | "Parse" => find_by_code("E9002"),
-        // Resource exhaustion errors
-        "CpuThrottled" => find_by_code("E9005"),
-        "OutOfMemory" => find_by_code("E9006"),
-        "FileDescriptorExhausted" => find_by_code("E9007"),
-        "ThreadPoolSaturated" => find_by_code("E9008"),
-        "GpuUnavailable" => find_by_code("E9009"),
-        // Build/Toolchain errors (Category 20)
-        "ToolchainMismatch" => find_by_code("E3005"),
-        "StaleBuildCache" => find_by_code("E3006"),
-        "LintTargetMissing" => find_by_code("E3007"),
-        "LockfileOutOfSync" => find_by_code("E3008"),
-        "WorkspaceMemberPathInvalid" => find_by_code("E3009"),
-        // CLI errors (Category 21)
-        "DeprecatedFlag" => find_by_code("E8009"),
-        "OutputFormatMismatch" => find_by_code("E8010"),
-        "CliWritePermissionDenied" => find_by_code("E8011"),
-        "InvalidInputEncoding" => find_by_code("E8012"),
-        "InvalidRetryAttempt" => find_by_code("E8013"),
-        // Rate limiting errors (Category 23)
+        "InvalidHash" => Some(ECode::E1004),
+        "InvalidCPID" => Some(ECode::E8001),
+        "Crypto" => Some(ECode::E1001),
+        "PolicyViolation" => Some(ECode::E2002),
+        "InvalidManifest" => Some(ECode::E3003),
+        "Kernel" => Some(ECode::E3002),
+        "Telemetry" => Some(ECode::E4002),
+        "DeterminismViolation" => Some(ECode::E2001),
+        "EgressViolation" => Some(ECode::E2003),
+        "Artifact" => Some(ECode::E5001),
+        "Registry" => Some(ECode::E6001),
+        "Worker" => Some(ECode::E7001),
+        "Node" => Some(ECode::E7001),
+        "Job" => Some(ECode::E7002),
+        "Config" => Some(ECode::E8001),
+        "Database" => Some(ECode::E8003),
+        "Io" | "Parse" => Some(ECode::E9002),
+        "CpuThrottled" => Some(ECode::E9005),
+        "OutOfMemory" => Some(ECode::E9006),
+        "FileDescriptorExhausted" => Some(ECode::E9007),
+        "ThreadPoolSaturated" => Some(ECode::E9008),
+        "GpuUnavailable" => Some(ECode::E9009),
+        "ToolchainMismatch" => Some(ECode::E3005),
+        "StaleBuildCache" => Some(ECode::E3006),
+        "LintTargetMissing" => Some(ECode::E3007),
+        "LockfileOutOfSync" => Some(ECode::E3008),
+        "WorkspaceMemberPathInvalid" => Some(ECode::E3009),
+        "DeprecatedFlag" => Some(ECode::E8009),
+        "OutputFormatMismatch" => Some(ECode::E8010),
+        "CliWritePermissionDenied" => Some(ECode::E8011),
+        "InvalidInputEncoding" => Some(ECode::E8012),
+        "InvalidRetryAttempt" => Some(ECode::E8013),
         "RateLimiterNotConfigured" | "InvalidRateLimitConfig" | "ThunderingHerdRejected" => {
-            find_by_code("E9008") // Use thread pool saturated as closest match
+            Some(ECode::E9008)
         }
         _ => None,
     }
 }
 
-/// Map AosError variant names to error codes (fallback to E9000)
-pub fn map_aos_error(name: &str) -> &'static str {
+/// Find error code by AosError variant name (backward compatible)
+///
+/// For compile-time checked lookups, use `ecode_for_aos_error()` to get the typed ECode,
+/// then `get()` to retrieve the full ErrorCode.
+#[deprecated(
+    since = "0.12.0",
+    note = "Use ecode_for_aos_error() for typed ECode, then get() for full ErrorCode"
+)]
+pub fn find_by_aos_error(error_name: &str) -> Option<ErrorCode> {
+    ecode_for_aos_error(error_name).map(get)
+}
+
+/// Map AosError variant names to ECode (typed version)
+pub fn map_aos_error_to_ecode(name: &str) -> ECode {
     match name {
-        "PolicyViolation" => "E2001",
-        "InvalidHash" => "E3002",
-        "ManifestMissing" => "E3003",
-        "TelemetryGap" => "E4002",
-        "SignatureInvalid" => "E1001",
-        "AdapterIncompatible" => "E6003",
-        _ => "E9000", // OS/env
+        "PolicyViolation" => ECode::E2001,
+        "InvalidHash" => ECode::E3002,
+        "ManifestMissing" => ECode::E3003,
+        "TelemetryGap" => ECode::E4002,
+        "SignatureInvalid" => ECode::E1001,
+        "AdapterIncompatible" => ECode::E6003,
+        _ => ECode::E9001, // Default to OS/env
     }
+}
+
+// Backward compatible - keep old function signature
+#[deprecated(note = "Use map_aos_error_to_ecode for typed return")]
+pub fn map_aos_error(name: &str) -> &'static str {
+    map_aos_error_to_ecode(name).as_str()
 }
 
 /// Adapter kernel version does not match runtime kernel version
@@ -1104,12 +1179,14 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)] // Testing the deprecated function intentionally
     fn test_find_by_code() {
         assert!(find_by_code("E3001").is_some());
         assert!(find_by_code("E9999").is_none());
     }
 
     #[test]
+    #[allow(deprecated)] // Testing the deprecated function intentionally
     fn test_find_by_aos_error() {
         assert!(find_by_aos_error("InvalidHash").is_some());
         assert!(find_by_aos_error("PolicyViolation").is_some());

@@ -379,6 +379,7 @@ mod cli_error_codes {
 
     /// Test CLI error code lookup by code string
     #[test]
+    #[allow(deprecated)] // Testing the deprecated function intentionally
     fn test_cli_error_code_lookup() {
         // Known codes should be found
         assert!(find_by_code("E1001").is_some());
@@ -393,6 +394,7 @@ mod cli_error_codes {
 
     /// Test CLI error code lookup by AosError variant name
     #[test]
+    #[allow(deprecated)] // Testing the deprecated function intentionally
     fn test_cli_error_code_from_aos_error() {
         // Known AosError variants should map to codes
         assert!(find_by_aos_error("InvalidHash").is_some());
@@ -563,6 +565,7 @@ mod cli_error_codes {
 
     /// Test error code display formatting contains required fields
     #[test]
+    #[allow(deprecated)] // Testing the deprecated function intentionally
     fn test_cli_error_code_display_format() {
         if let Some(code) = find_by_code("E3001") {
             let display = format!("{}", code);

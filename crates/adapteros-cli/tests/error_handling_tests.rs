@@ -6,7 +6,7 @@
 //! - Error explanations
 //! - Error categorization
 
-use adapteros_cli::error_codes::{all_error_codes, get_error_code, ErrorCode};
+use adapteros_cli::error_codes::{all_error_codes, get_error_code, ECode, ErrorCode};
 
 #[cfg(test)]
 mod error_code_tests {
@@ -59,7 +59,7 @@ mod error_code_tests {
         let expected_categories = vec![
             "Crypto/Signing",
             "Policy/Determinism",
-            "Kernels/Build",
+            "Kernels/Build/Manifest",
             "Telemetry/Chain",
             "Artifacts/CAS",
             "Adapters/DIR",
@@ -100,10 +100,10 @@ mod error_code_tests {
                         code.code
                     );
                 }
-                "Kernels/Build" => {
+                "Kernels/Build/Manifest" => {
                     assert!(
                         (3000..4000).contains(&num),
-                        "Kernels/Build code {} should be E3xxx",
+                        "Kernels/Build/Manifest code {} should be E3xxx",
                         code.code
                     );
                 }
@@ -171,6 +171,7 @@ mod error_code_tests {
     }
 
     #[test]
+    #[allow(deprecated)] // Testing the deprecated function intentionally
     fn test_get_error_code_existing() {
         // Test that we can retrieve known error codes
         if let Some(code) = get_error_code("E1001") {
@@ -182,6 +183,7 @@ mod error_code_tests {
     }
 
     #[test]
+    #[allow(deprecated)] // Testing the deprecated function intentionally
     fn test_get_error_code_nonexistent() {
         let result = get_error_code("E9999");
         assert!(result.is_none(), "E9999 should not exist");
@@ -190,6 +192,7 @@ mod error_code_tests {
     #[test]
     fn test_error_code_display() {
         let code = ErrorCode {
+            ecode: ECode::E1001,
             code: "E1001",
             category: "Crypto/Signing",
             title: "Invalid Signature",
@@ -212,6 +215,7 @@ mod error_code_tests {
     #[test]
     fn test_error_code_display_no_docs() {
         let code = ErrorCode {
+            ecode: ECode::E8001,
             code: "E8001",
             category: "CLI/Config",
             title: "Config Error",
@@ -229,6 +233,7 @@ mod error_code_tests {
     #[test]
     fn test_error_code_multiline_fix() {
         let code = ErrorCode {
+            ecode: ECode::E2001,
             code: "E2001",
             category: "Policy/Determinism",
             title: "Determinism Violation",
@@ -267,7 +272,10 @@ mod error_code_tests {
                 || fix_lower.contains("remove")
                 || fix_lower.contains("add")
                 || fix_lower.contains("create")
-                || fix_lower.contains("delete");
+                || fix_lower.contains("delete")
+                || fix_lower.contains("use")
+                || fix_lower.contains("keep")
+                || fix_lower.contains("avoid");
 
             assert!(
                 has_action,
@@ -280,6 +288,7 @@ mod error_code_tests {
     #[test]
     fn test_error_code_serialization() {
         let code = ErrorCode {
+            ecode: ECode::E1001,
             code: "E1001",
             category: "Crypto/Signing",
             title: "Invalid Signature",
@@ -338,6 +347,7 @@ mod error_handling_behavior {
     use super::*;
 
     #[test]
+    #[allow(deprecated)] // Testing the deprecated function intentionally
     fn test_error_code_lookup_case_sensitivity() {
         // Error codes should be case-sensitive
         assert!(get_error_code("E1001").is_some());

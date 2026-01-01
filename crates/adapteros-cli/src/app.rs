@@ -1976,10 +1976,12 @@ fn extract_tenant_from_command(command: &Commands) -> Option<String> {
 
 /// Display user-friendly error message with CLI-specific formatting
 fn display_user_friendly_error(error: &anyhow::Error, error_code: Option<&str>, event_id: &str) {
+    #[allow(deprecated)] // Runtime lookup with dynamic error code string is valid
     use crate::error_codes::find_by_code;
 
     // First, try to get user-friendly message from error code registry
     if let Some(code) = error_code {
+        #[allow(deprecated)]
         if let Some(error_info) = find_by_code(code) {
             error!(
                 event_id = %event_id,
