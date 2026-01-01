@@ -649,7 +649,7 @@ function TrainingDashboardContent({ selectedTenant }: { selectedTenant: string }
                       <div className="text-xs text-muted-foreground">
                         Dataset: {job.dataset_id || '—'}
                       </div>
-                      {job.status === 'running' && job.progress_pct !== undefined && (
+                      {job.status === 'running' && job.progress_pct != null && (
                         <div className="space-y-1">
                           <div className="flex justify-between text-xs">
                             <span>Progress</span>

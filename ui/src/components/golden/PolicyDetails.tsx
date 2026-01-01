@@ -9,7 +9,7 @@ export interface PolicyDetailsProps {
   policy: PolicyCheck;
 }
 
-export function PolicyDetails({ policy }: PolicyDetailsProps) {
+function PolicyDetailsComponent({ policy }: PolicyDetailsProps) {
   const getAlertVariant = (status: string) => {
     switch (status) {
       case 'failed':
@@ -131,3 +131,5 @@ export function PolicyDetails({ policy }: PolicyDetailsProps) {
     </div>
   );
 }
+
+export const PolicyDetails = React.memo(PolicyDetailsComponent);

@@ -7,7 +7,7 @@ export interface PolicyCheckItemProps {
   icon?: React.ReactNode;
 }
 
-export function PolicyCheckItem({ policy, icon }: PolicyCheckItemProps) {
+function PolicyCheckItemComponent({ policy, icon }: PolicyCheckItemProps) {
   const getSeverityColor = (severity: string) => {
     switch (severity) {
       case 'critical':
@@ -80,3 +80,5 @@ export function PolicyCheckItem({ policy, icon }: PolicyCheckItemProps) {
     </div>
   );
 }
+
+export const PolicyCheckItem = React.memo(PolicyCheckItemComponent);

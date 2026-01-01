@@ -63,6 +63,7 @@ export function useHistoryPersistence(config: PersistenceConfig = {}) {
     } catch (error) {
       logger.warn('Failed to save history to localStorage', {
         component: 'useHistoryPersistence',
+        error: error instanceof Error ? error.message : String(error),
       });
       return false;
     }
@@ -89,6 +90,7 @@ export function useHistoryPersistence(config: PersistenceConfig = {}) {
     } catch (error) {
       logger.warn('Failed to load history from localStorage', {
         component: 'useHistoryPersistence',
+        error: error instanceof Error ? error.message : String(error),
       });
       return [];
     }
@@ -142,6 +144,7 @@ export function useHistoryPersistence(config: PersistenceConfig = {}) {
     } catch (error) {
       logger.warn('Failed to save to IndexedDB', {
         component: 'useHistoryPersistence',
+        error: error instanceof Error ? error.message : String(error),
       });
       return false;
     }
@@ -178,6 +181,7 @@ export function useHistoryPersistence(config: PersistenceConfig = {}) {
     } catch (error) {
       logger.warn('Failed to load from IndexedDB', {
         component: 'useHistoryPersistence',
+        error: error instanceof Error ? error.message : String(error),
       });
       return [];
     }
@@ -239,7 +243,10 @@ export function useHistoryPersistence(config: PersistenceConfig = {}) {
 
       return backup.actions;
     } catch (error) {
-      logger.error('Failed to import history', { component: 'useHistoryPersistence' }, error as Error);
+      logger.warn('Failed to import history', {
+        component: 'useHistoryPersistence',
+        error: error instanceof Error ? error.message : String(error),
+      });
       return null;
     }
   }, []);
@@ -258,7 +265,10 @@ export function useHistoryPersistence(config: PersistenceConfig = {}) {
         available: (estimate.quota || 0) - (estimate.usage || 0),
       };
     } catch (error) {
-      logger.warn('Failed to get storage quota', { component: 'useHistoryPersistence' });
+      logger.warn('Failed to get storage quota', {
+        component: 'useHistoryPersistence',
+        error: error instanceof Error ? error.message : String(error),
+      });
       return null;
     }
   }, []);
@@ -277,7 +287,10 @@ export function useHistoryPersistence(config: PersistenceConfig = {}) {
 
       return true;
     } catch (error) {
-      logger.warn('Failed to clear storage', { component: 'useHistoryPersistence' });
+      logger.warn('Failed to clear storage', {
+        component: 'useHistoryPersistence',
+        error: error instanceof Error ? error.message : String(error),
+      });
       return false;
     }
   }, [useLocalStorage]);
@@ -320,7 +333,10 @@ export function useHistoryPersistence(config: PersistenceConfig = {}) {
           try {
             localStorage.setItem(BACKUP_KEY, JSON.stringify(backupData));
           } catch (error) {
-            logger.warn('Failed to create auto backup', { component: 'useHistoryPersistence' });
+            logger.warn('Failed to create auto backup', {
+              component: 'useHistoryPersistence',
+              error: error instanceof Error ? error.message : String(error),
+            });
           }
         }
       }

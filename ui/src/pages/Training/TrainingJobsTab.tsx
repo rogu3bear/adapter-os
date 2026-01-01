@@ -13,7 +13,7 @@ import { useRBAC } from '@/hooks/security/useRBAC';
 import { useFilter, type FilterValue } from '@/hooks/ui/useFilter';
 import { LastUpdated } from '@/components/ui/last-updated';
 import { PageErrors, usePageErrors } from '@/components/ui/page-error-boundary';
-import { withErrorBoundary } from '@/components/withErrorBoundary';
+import { withErrorBoundary } from '@/components/WithErrorBoundary';
 import type { TrainingJob } from '@/api/training-types';
 import { Badge } from '@/components/ui/badge';
 import { parsePreselectParams, removeParams } from '@/utils/urlParams';

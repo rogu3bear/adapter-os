@@ -168,6 +168,7 @@ async function throwOnError(
     }
   } catch {
     // If JSON parsing fails, use status text
+    logger.warn('JSON parse failed in error response', { status: response.status });
   }
 
   const apiError = new Error(errorMessage) as ApiError;

@@ -2,10 +2,11 @@ import { useQuery, useMutation, UseQueryOptions, UseMutationOptions } from '@tan
 import { apiClient } from '@/api/services';
 import type {
   SessionShare,
+  ChatSessionWithStatus,
+} from '@/api/services/chat';
+import type {
   ShareSessionRequest,
   ShareSessionResponse,
-  ChatSession,
-  ChatSessionWithStatus,
 } from '@/api/chat-types';
 
 const QUERY_KEYS = {

@@ -1,9 +1,7 @@
 import { useQuery, useMutation, useQueryClient, UseQueryOptions, UseMutationOptions } from '@tanstack/react-query';
 import { apiClient } from '@/api/services';
-import type {
-  ChatSessionWithStatus,
-  ListArchivedQuery,
-} from '@/api/chat-types';
+import type { ChatSessionWithStatus } from '@/api/services/chat';
+import type { ListArchivedQuery } from '@/api/chat-types';
 import { toast } from 'sonner';
 import { useTenant } from '@/providers/FeatureProviders';
 import { withTenantKey } from '@/utils/tenant';

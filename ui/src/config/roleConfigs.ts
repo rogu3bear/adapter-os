@@ -1,4 +1,3 @@
-// @ts-nocheck
 import type { UserRole } from '@/api/auth-types';
 
 export interface RoleLanguage {
@@ -31,6 +30,16 @@ export const roleLanguage: Record<UserRole | 'unknown', RoleLanguage> = {
     technicalDetailsLabel: sharedLanguage.technicalDetails,
     emptyActivityCopy: 'No recent admin activity to review.',
     emptyTasksCopy: 'No admin tasks are waiting.',
+  },
+  developer: {
+    welcomeTitle: 'Welcome back',
+    roleLabel: 'Developer',
+    aiModelsLabel: sharedLanguage.aiModels,
+    learningTasksLabel: sharedLanguage.learningTasks,
+    systemHealthLabel: sharedLanguage.systemHealth,
+    technicalDetailsLabel: sharedLanguage.technicalDetails,
+    emptyActivityCopy: 'No recent development activity.',
+    emptyTasksCopy: 'No development tasks in queue.',
   },
   operator: {
     welcomeTitle: 'Welcome back',

@@ -101,7 +101,7 @@ export function TrainingComparison({ jobs: allJobs, onClose }: TrainingCompariso
   const metrics: ComparisonMetric[] = [
     {
       name: 'Final Loss',
-      getValue: (job) => job.current_loss,
+      getValue: (job) => job.current_loss ?? undefined,
       format: (val) => (typeof val === 'number' ? val.toFixed(4) : 'N/A'),
       compare: (a, b) => {
         if (a === undefined || b === undefined) return 'equal';
@@ -125,7 +125,7 @@ export function TrainingComparison({ jobs: allJobs, onClose }: TrainingCompariso
     },
     {
       name: 'Current Epoch',
-      getValue: (job) => job.current_epoch,
+      getValue: (job) => job.current_epoch ?? undefined,
       format: (val) => val?.toString() || 'N/A'
     },
     {
@@ -135,7 +135,7 @@ export function TrainingComparison({ jobs: allJobs, onClose }: TrainingCompariso
     },
     {
       name: 'Tokens/Second',
-      getValue: (job) => job.tokens_per_second,
+      getValue: (job) => job.tokens_per_second ?? undefined,
       format: (val) => (typeof val === 'number' ? val.toFixed(0) : 'N/A'),
       compare: (a, b) => {
         if (a === undefined || b === undefined) return 'equal';

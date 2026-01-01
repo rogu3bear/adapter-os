@@ -6,7 +6,7 @@
  * behavior, streaming message updates, and evidence panel integration.
  */
 
-import React, { useCallback, useEffect, useImperativeHandle, forwardRef, RefObject } from 'react';
+import React, { useCallback, useEffect, useImperativeHandle, forwardRef, memo, RefObject } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Layers } from 'lucide-react';
 import { ChatMessageComponent } from './ChatMessage';
@@ -150,28 +150,29 @@ function EmptyMessageState({
  * Uses @tanstack/react-virtual for efficient rendering of large message histories.
  * Automatically scrolls to the bottom when new messages arrive.
  */
-export const ChatMessageList = forwardRef<ChatMessageListRef, ChatMessageListProps>(
-  function ChatMessageList(
-    {
-      messages,
-      streamingMessageId,
-      selectedMessageId,
-      streamingContent,
-      chunks,
-      onSelectMessage,
-      onViewDocument,
-      onExportRunEvidence,
-      scrollAreaRef,
-      developerMode = false,
-      kernelMode = false,
-      documentContext,
-      datasetContext,
-      workspaceActiveState,
-      tenantId,
-      isLoadingDecision = false,
-    },
-    ref
-  ) {
+export const ChatMessageList = memo(
+  forwardRef<ChatMessageListRef, ChatMessageListProps>(
+    function ChatMessageList(
+      {
+        messages,
+        streamingMessageId,
+        selectedMessageId,
+        streamingContent,
+        chunks,
+        onSelectMessage,
+        onViewDocument,
+        onExportRunEvidence,
+        scrollAreaRef,
+        developerMode = false,
+        kernelMode = false,
+        documentContext,
+        datasetContext,
+        workspaceActiveState,
+        tenantId,
+        isLoadingDecision = false,
+      },
+      ref
+    ) {
     /**
      * Get the scroll element from the Radix ScrollArea.
      * The viewport element has the data-radix-scroll-area-viewport attribute.
@@ -319,7 +320,8 @@ export const ChatMessageList = forwardRef<ChatMessageListRef, ChatMessageListPro
         )}
       </div>
     );
-  }
+    }
+  )
 );
 
 export default ChatMessageList;

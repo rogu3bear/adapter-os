@@ -1,7 +1,7 @@
-// @ts-nocheck
 import React from 'react';
 import { apiClient } from '@/api/services';
 import type { BaseModelStatus, AllModelsStatusResponse } from '@/api/types';
+import { ModelLoadStatus } from '@/api/generated';
 import { CheckCircle, XCircle, Loader2, AlertCircle } from 'lucide-react';
 import { logger } from '@/utils/logger';
 import { usePolling } from '@/hooks/realtime/usePolling';
@@ -13,48 +13,53 @@ interface ModelStatusBadgeProps {
 
 function ModelStatusBadge({ status }: ModelStatusBadgeProps) {
   switch (status) {
-    case 'ready':
+    case ModelLoadStatus.ready:
       return (
         <div className="flex items-center gap-1.5 text-green-600">
           <CheckCircle className="h-4 w-4" />
           <span className="text-sm font-medium">Ready</span>
         </div>
       );
-    case 'loading':
+    case ModelLoadStatus.loading:
       return (
         <div className="flex items-center gap-1.5 text-blue-600">
           <Loader2 className="h-4 w-4 animate-spin" />
           <span className="text-sm font-medium">Loading</span>
         </div>
       );
-    case 'unloading':
+    case ModelLoadStatus.unloading:
       return (
         <div className="flex items-center gap-1.5 text-yellow-600">
           <Loader2 className="h-4 w-4 animate-spin" />
           <span className="text-sm font-medium">Unloading</span>
         </div>
       );
-    case 'no-model':
+    case ModelLoadStatus.no_model:
       return (
         <div className="flex items-center gap-1.5 text-gray-500">
           <XCircle className="h-4 w-4" />
           <span className="text-sm font-medium">No Model</span>
         </div>
       );
-    case 'error':
+    case ModelLoadStatus.error:
       return (
         <div className="flex items-center gap-1.5 text-red-600">
           <AlertCircle className="h-4 w-4" />
           <span className="text-sm font-medium">Error</span>
         </div>
       );
-    case 'checking':
+    case ModelLoadStatus.checking:
       return (
         <div className="flex items-center gap-1.5 text-blue-600">
           <Loader2 className="h-4 w-4 animate-spin" />
           <span className="text-sm font-medium">Checking</span>
         </div>
       );
+    default: {
+      // Exhaustive check - this should never be reached
+      const _exhaustiveCheck: never = status;
+      return _exhaustiveCheck;
+    }
   }
 }
 

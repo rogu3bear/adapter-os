@@ -50,7 +50,7 @@ export function AssignPoliciesDialog({
         <DialogHeader>
           <DialogTitle>Assign Policies to {tenant?.name}</DialogTitle>
         </DialogHeader>
-        <div className="space-y-4 max-h-96 overflow-y-auto">
+        <div className="space-y-4 max-h-96 overflow-y-auto" role="group">
           {policies.map((policy) => (
             <div
               key={policy.cpid}

@@ -9,7 +9,8 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ChatMessageComponent } from './chat/ChatMessage';
-import type { ChatMessage, EvidenceItem, ChatInterfaceProps, RunMetadata } from '@/types/components';
+import type { ChatMessage, ChatInterfaceProps, RunMetadata } from '@/types/components';
+import type { ChatEvidenceItem } from '@/api/services/chat';
 import { logger, toError } from '@/utils/logger';
 import { toast } from 'sonner';
 import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
@@ -1275,7 +1276,7 @@ function ChatInterfaceInner({
             .map((m) => {
               let metadata: Record<string, unknown> | undefined;
               try {
-                metadata = m.metadata_json ? (JSON.parse(m.metadata_json) as Record<string, unknown>) : undefined;
+                metadata = m.metadataJson ? (JSON.parse(m.metadataJson) as Record<string, unknown>) : undefined;
               } catch {
                 metadata = undefined;
               }
@@ -1283,7 +1284,7 @@ function ChatInterfaceInner({
                 id: m.id,
                 role: m.role as 'user' | 'assistant',
                 content: m.content,
-                timestamp: new Date(m.timestamp),
+                timestamp: new Date(m.timestamp ?? m.createdAt),
                 routerDecision: metadata?.routerDecision as ExtendedRouterDecision | null | undefined,
                 unavailablePinnedAdapters: metadata?.unavailablePinnedAdapters as string[] | undefined,
                 pinnedRoutingFallback: metadata?.pinnedRoutingFallback as 'stack_only' | 'partial' | undefined,
@@ -1292,7 +1293,7 @@ function ChatInterfaceInner({
 
           setCurrentSessionId(sessionId);
           setMessages(messagesLocal);
-          const stackId = remoteSession.stack_id?.trim() ? remoteSession.stack_id : null;
+          const stackId = remoteSession.stackId?.trim() ? remoteSession.stackId : null;
           setSelectedStackId(stackId);
         } catch (err) {
           if (cancelled) return;
@@ -1382,7 +1383,7 @@ function ChatInterfaceInner({
   }, [messages.length, virtualizer]);
 
   // Fetch evidence data for a message
-  const fetchMessageEvidence = useCallback(async (messageId: string): Promise<EvidenceItem[]> => {
+  const fetchMessageEvidence = useCallback(async (messageId: string): Promise<ChatEvidenceItem[]> => {
     try {
       return await apiClient.getMessageEvidence(messageId);
     } catch (err) {

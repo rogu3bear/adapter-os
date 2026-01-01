@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
@@ -52,12 +51,16 @@ import {
 
 // API and utilities
 import { apiClient } from '@/api/services';
-import { InferRequest, InferResponse, InferenceConfig, BackendName, InferenceSession } from '@/api/types';
+import { InferResponse, InferenceConfig, BackendName, InferenceSession } from '@/api/types';
+import { components } from '@/api/generated';
 import { InferenceRequestSchema } from '@/schemas';
 import { logger, toError } from '@/utils/logger';
 import { toast } from 'sonner';
 import { ZodError } from 'zod';
 import { LAST_MODEL_KEY } from './inference/constants';
+
+// Use the generated InferRequest type directly to ensure backend type compatibility
+type InferRequest = components['schemas']['InferRequest'];
 
 interface InferencePlaygroundProps {
   selectedTenant: string;
@@ -222,7 +225,7 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
       await startInference(async (signal) => {
         const request: InferRequest = {
           ...config.configA,
-          backend: resolvedBackend,
+          backend: resolvedBackend as components['schemas']['BackendKind'],
           model: selectedModelId || config.configA.model,
           adapter_stack: adapterIds,
         };

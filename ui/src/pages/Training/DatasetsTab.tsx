@@ -35,7 +35,7 @@ import {
 import { useTraining } from '@/hooks/training';
 import { useRBAC } from '@/hooks/security/useRBAC';
 import { PageErrors, usePageErrors } from '@/components/ui/page-error-boundary';
-import { withErrorBoundary } from '@/components/withErrorBoundary';
+import { withErrorBoundary } from '@/components/WithErrorBoundary';
 import { TrainingWizard } from '@/components/TrainingWizard';
 import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
 import { TERMS, formatSourceType, formatValidationStatus } from '@/constants/terminology';

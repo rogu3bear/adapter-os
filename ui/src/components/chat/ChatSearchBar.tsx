@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList } from '@/components/ui/command';
 import { useChatSearch } from '@/hooks/chat/useChatSearch';
-import type { ChatSearchResult } from '@/api/chat-types';
+import type { ChatSearchResult } from '@/api/services/chat';
 
 export interface ChatSearchBarProps {
   /**
@@ -97,10 +97,10 @@ export function ChatSearchBar({
 
   // Handle result selection
   const handleSelectResult = useCallback((result: ChatSearchResult) => {
-    if (result.match_type === 'session') {
-      onSelectSession(result.session_id);
-    } else if (result.match_type === 'message' && result.message_id) {
-      onSelectMessage(result.session_id, result.message_id);
+    if (result.matchType === 'session') {
+      onSelectSession(result.sessionId);
+    } else if (result.matchType === 'message' && result.messageId) {
+      onSelectMessage(result.sessionId, result.messageId);
     }
 
     // Close the dropdown and clear search
@@ -154,6 +154,7 @@ export function ChatSearchBar({
             aria-label="Search chat sessions and messages"
             aria-expanded={shouldShowDropdown}
             aria-autocomplete="list"
+            role="combobox"
           />
           {query && (
             <button
@@ -208,7 +209,7 @@ export function ChatSearchBar({
 
       {/* Search results dropdown */}
       {shouldShowDropdown && (
-        <div className="absolute top-full left-0 right-0 mt-2 bg-popover border border-border rounded-md shadow-lg z-50 max-h-[calc(var(--base-unit)*100)] overflow-hidden">
+        <div className="absolute top-full left-0 right-0 mt-2 bg-popover border border-border rounded-md shadow-lg z-50 max-h-[calc(var(--base-unit)*100)] overflow-hidden" aria-live="polite">
           <Command className="rounded-md">
             <CommandList>
               {/* Loading state */}
@@ -237,29 +238,29 @@ export function ChatSearchBar({
                   <CommandGroup heading={`${results.length} result${results.length === 1 ? '' : 's'}`}>
                     {results.map((result, index) => (
                       <CommandItem
-                        key={`${result.session_id}-${result.message_id || 'session'}-${index}`}
+                        key={`${result.sessionId}-${result.messageId || 'session'}-${index}`}
                         onSelect={() => handleSelectResult(result)}
                         className="flex flex-col items-start gap-2 py-3 cursor-pointer"
                       >
                         {/* Result header with session name and type badge */}
                         <div className="flex items-center justify-between w-full">
                           <div className="flex items-center gap-2">
-                            {result.match_type === 'session' ? (
+                            {result.matchType === 'session' ? (
                               <FileText className="h-4 w-4 text-muted-foreground" />
                             ) : (
                               <MessageSquare className="h-4 w-4 text-muted-foreground" />
                             )}
                             <span className="font-medium text-sm truncate max-w-[calc(var(--base-unit)*75)]">
-                              {result.session_name}
+                              {result.sessionName}
                             </span>
                           </div>
                           <div className="flex items-center gap-2">
                             <Badge variant="outline" className="text-xs">
-                              {result.match_type === 'session' ? 'Session' : 'Message'}
+                              {result.matchType === 'session' ? 'Session' : 'Message'}
                             </Badge>
-                            {result.relevance_score > 0 && (
+                            {result.relevanceScore > 0 && (
                               <Badge variant="secondary" className="text-xs">
-                                {Math.round(result.relevance_score * 100)}%
+                                {Math.round(result.relevanceScore * 100)}%
                               </Badge>
                             )}
                           </div>
@@ -271,15 +272,15 @@ export function ChatSearchBar({
                         </div>
 
                         {/* Message role badge if it's a message result */}
-                        {result.match_type === 'message' && result.message_role && (
+                        {result.matchType === 'message' && result.messageRole && (
                           <Badge variant="neutral" className="text-xs ml-6">
-                            {result.message_role}
+                            {result.messageRole}
                           </Badge>
                         )}
 
                         {/* Last activity timestamp */}
                         <div className="text-xs text-muted-foreground/70 pl-6">
-                          {new Date(result.last_activity_at).toLocaleString()}
+                          {new Date(result.lastActivityAt).toLocaleString()}
                         </div>
                       </CommandItem>
                     ))}

@@ -71,7 +71,7 @@ export function EvidenceIndicator({
   // Calculate average relevance score for color coding
   const avgRelevance =
     hasEvidence && evidence
-      ? evidence.reduce((sum, e) => sum + e.relevance_score, 0) / evidence.length
+      ? evidence.reduce((sum, e) => sum + e.relevanceScore, 0) / evidence.length
       : 0;
 
   const handleClick = () => {

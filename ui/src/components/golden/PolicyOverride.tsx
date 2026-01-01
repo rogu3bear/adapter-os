@@ -13,7 +13,7 @@ export interface PolicyOverrideProps {
   isLoading?: boolean;
 }
 
-export function PolicyOverride({
+function PolicyOverrideComponent({
   policyId,
   policyName,
   severity,
@@ -156,3 +156,5 @@ export function PolicyOverride({
     </Card>
   );
 }
+
+export const PolicyOverride = React.memo(PolicyOverrideComponent);

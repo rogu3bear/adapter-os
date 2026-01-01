@@ -42,14 +42,14 @@
  * Copyright JKCA | 2025 James KC Auchterlonie
  */
 
-// @ts-nocheck
 import { useState, useCallback } from 'react';
 import { toast } from 'sonner';
 import { apiClient } from '@/api/services';
 import { validatePrompt, ValidationResult } from '@/components/inference/PromptInput';
 import { BatchPromptSchema } from '@/schemas';
 import { logger, toError } from '@/utils/logger';
-import type { InferResponse, InferenceConfig } from '@/api/types';
+import type { InferenceConfig } from '@/api/types';
+import type { InferResponse, BatchInferItemRequest } from '@/api/domain-types';
 
 /**
  * Options for the batch inference hook
@@ -347,21 +347,25 @@ export function useBatchInference(options: UseBatchInferenceOptions): UseBatchIn
     });
 
     try {
-      // Create batch request items
+      // Create batch request items - use camelCase for frontend domain types
+      // InferenceService.batchInfer() will transform to snake_case for the backend
+      // Note: config uses snake_case (from api-types InferenceConfig), but we map to camelCase
+      // Type assertion needed because InferenceConfig uses string union for backend while
+      // BatchInferItemRequest uses the generated BackendKind enum
       const batchItems = batchPrompts.map((prompt, idx) => ({
         id: `batch-${Date.now()}-${idx}`,
         prompt: sanitizeInput(prompt),
-        model: config.model,
-        max_tokens: config.max_tokens,
-        temperature: config.temperature,
-        top_k: config.top_k,
-        top_p: config.top_p,
-        backend: config.backend || 'auto',
-        seed: config.seed,
-        require_evidence: config.require_evidence,
+        model: config.model ?? undefined,
+        maxTokens: config.max_tokens ?? undefined,
+        temperature: config.temperature ?? undefined,
+        topK: config.top_k ?? undefined,
+        topP: config.top_p ?? undefined,
+        backend: config.backend ?? undefined,
+        seed: config.seed ?? undefined,
+        requireEvidence: config.require_evidence ?? undefined,
         adapters: adapterId && adapterId !== 'none' ? [adapterId] : undefined,
-        adapter_stack: stackId ? [stackId] : undefined,
-      }));
+        adapterStack: stackId ? [stackId] : undefined,
+      } as BatchInferItemRequest));
 
       // Call batch inference API
       const response = await apiClient.batchInfer({
@@ -369,12 +373,13 @@ export function useBatchInference(options: UseBatchInferenceOptions): UseBatchIn
       });
 
       // Transform API response to BatchInferenceResult format
+      // Response from InferenceService.batchInfer() uses camelCase (domain types)
       const results: BatchInferenceResult[] = response.responses.map((apiResult, idx) => ({
         id: apiResult.id || `batch-${Date.now()}-${idx}`,
         prompt: batchPrompts[idx],
         response: apiResult.error ? null : apiResult.response ?? null,
         error: apiResult.error ? (typeof apiResult.error === 'string' ? apiResult.error : apiResult.error.error) : undefined,
-        duration: apiResult.response?.latency_ms ?? 0,
+        duration: apiResult.response?.latencyMs ?? 0,
       }));
 
       setBatchResults(results);
@@ -382,9 +387,9 @@ export function useBatchInference(options: UseBatchInferenceOptions): UseBatchIn
       const successCount = results.filter(r => r.response).length;
       const errorCount = results.filter(r => r.error).length;
 
-      // Calculate metrics
+      // Calculate metrics - use camelCase properties from domain types
       const totalTokens = results.reduce(
-        (sum, r) => sum + (r.response?.tokens_generated || 0),
+        (sum, r) => sum + (r.response?.tokensGenerated || 0),
         0
       );
       const totalLatency = results.reduce((sum, r) => sum + r.duration, 0);
@@ -453,13 +458,13 @@ export function useBatchInference(options: UseBatchInferenceOptions): UseBatchIn
         stack: stackId || null,
       },
       metrics,
-      results: batchResults.map((result, idx) => ({
+      results: batchResults.map((result) => ({
         id: result.id,
         prompt: result.prompt,
         response: result.response?.text,
-        token_count: result.response?.token_count || result.response?.tokens_generated,
-        latency_ms: result.response?.latency_ms,
-        finish_reason: result.response?.finish_reason,
+        token_count: result.response?.tokensGenerated,
+        latency_ms: result.response?.latencyMs,
+        finish_reason: result.response?.finishReason,
         error: result.error,
       })),
     };
@@ -493,8 +498,8 @@ export function useBatchInference(options: UseBatchInferenceOptions): UseBatchIn
     // CSV header
     const headers = ['ID', 'Prompt', 'Status', 'Response', 'Token Count', 'Latency (ms)', 'Finish Reason', 'Error'];
 
-    // CSV rows
-    const rows = batchResults.map((result, idx) => {
+    // CSV rows - use camelCase properties from domain types
+    const rows = batchResults.map((result) => {
       const prompt = (result.prompt || '').replace(/"/g, '""'); // Escape quotes
       const response = (result.response?.text || '').replace(/"/g, '""');
       const error = (result.error || '').replace(/"/g, '""');
@@ -505,9 +510,9 @@ export function useBatchInference(options: UseBatchInferenceOptions): UseBatchIn
         `"${prompt}"`,
         status,
         `"${response}"`,
-        result.response?.token_count || result.response?.tokens_generated || '',
-        result.response?.latency_ms || '',
-        result.response?.finish_reason || '',
+        result.response?.tokensGenerated ?? '',
+        result.response?.latencyMs ?? '',
+        result.response?.finishReason ?? '',
         `"${error}"`,
       ].join(',');
     });

@@ -38,11 +38,11 @@ export function RulebookTab({ evidence, onViewDocument }: RulebookTabProps) {
     const groups = new Map<string, GroupedEvidence>();
 
     evidence.forEach((item) => {
-      const key = item.document_id;
+      const key = item.documentId;
       if (!groups.has(key)) {
         groups.set(key, {
-          documentId: item.document_id,
-          documentName: item.document_name,
+          documentId: item.documentId,
+          documentName: item.documentName,
           items: [],
         });
       }
@@ -51,7 +51,7 @@ export function RulebookTab({ evidence, onViewDocument }: RulebookTabProps) {
 
     // Sort items within each group by relevance score (descending)
     groups.forEach((group) => {
-      group.items.sort((a, b) => b.relevance_score - a.relevance_score);
+      group.items.sort((a, b) => b.relevanceScore - a.relevanceScore);
     });
 
     return Array.from(groups.values()).sort((a, b) =>
@@ -101,8 +101,8 @@ export function RulebookTab({ evidence, onViewDocument }: RulebookTabProps) {
         lines.push(`Document: ${group.documentName}`);
         lines.push('---');
         group.items.forEach((item, idx) => {
-          lines.push(`${idx + 1}. Page ${item.page_number ?? 'N/A'} | Relevance: ${(item.relevance_score * 100).toFixed(1)}%`);
-          lines.push(`   "${item.text_preview}"`);
+          lines.push(`${idx + 1}. Page ${item.pageNumber ?? 'N/A'} | Relevance: ${(item.relevanceScore * 100).toFixed(1)}%`);
+          lines.push(`   "${item.textPreview}"`);
           lines.push('');
         });
         lines.push('');
@@ -187,12 +187,12 @@ export function RulebookTab({ evidence, onViewDocument }: RulebookTabProps) {
 
               <div className="space-y-2 ml-6">
                 {group.items.map((item) => {
-                  const relevanceColor = getRelevanceColor(item.relevance_score);
-                  const relevanceLabel = getRelevanceLabel(item.relevance_score);
+                  const relevanceColor = getRelevanceColor(item.relevanceScore);
+                  const relevanceLabel = getRelevanceLabel(item.relevanceScore);
 
                   return (
                     <div
-                      key={item.chunk_id}
+                      key={item.chunkId}
                       className={cn(
                         'p-3 rounded-lg border bg-card transition-colors',
                         onViewDocument && 'cursor-pointer hover:bg-accent/50'
@@ -200,30 +200,30 @@ export function RulebookTab({ evidence, onViewDocument }: RulebookTabProps) {
                       onClick={() => {
                         if (onViewDocument) {
                           onViewDocument(
-                            item.document_id,
-                            item.page_number ?? undefined,
-                            item.text_preview
+                            item.documentId,
+                            item.pageNumber ?? undefined,
+                            item.textPreview
                           );
                         }
                       }}
                     >
                       <div className="flex items-start justify-between gap-2 mb-2">
                         <div className="flex items-center gap-2 flex-wrap">
-                          {item.page_number !== null && (
+                          {item.pageNumber !== null && (
                             <Badge variant="secondary" className="text-xs">
-                              p. {item.page_number}
+                              p. {item.pageNumber}
                             </Badge>
                           )}
                           <Badge variant="outline" className={cn('text-xs', relevanceColor)}>
                             {relevanceLabel}
                           </Badge>
                           <span className="text-xs text-muted-foreground">
-                            {(item.relevance_score * 100).toFixed(1)}%
+                            {(item.relevanceScore * 100).toFixed(1)}%
                           </span>
                         </div>
                       </div>
                       <p className="text-sm text-foreground/90 line-clamp-3">
-                        "{item.text_preview}"
+                        "{item.textPreview}"
                       </p>
                     </div>
                   );

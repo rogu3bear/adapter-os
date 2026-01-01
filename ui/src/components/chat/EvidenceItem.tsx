@@ -11,12 +11,12 @@ interface HighlightBBox {
 
 interface EvidenceItemProps {
   item: {
-    document_name: string;
-    page_number: number | null;
-    text_preview: string;
-    relevance_score: number;
+    documentName: string;
+    pageNumber: number | null;
+    textPreview: string;
+    relevanceScore: number;
     reference?: string;
-    metadata_json?: string | Record<string, unknown>;
+    metadataJson?: string | Record<string, unknown>;
   };
   /** Callback when clicking to view the evidence source */
   onView?: (
@@ -48,12 +48,12 @@ interface EvidenceMetadata {
  * Base evidence item structure
  */
 interface BaseEvidenceItem {
-  document_name: string;
-  page_number: number | null;
-  text_preview: string;
-  relevance_score: number;
+  documentName: string;
+  pageNumber: number | null;
+  textPreview: string;
+  relevanceScore: number;
   reference?: string;
-  metadata_json?: string | Record<string, unknown>;
+  metadataJson?: string | Record<string, unknown>;
 }
 
 /**
@@ -61,7 +61,9 @@ interface BaseEvidenceItem {
  */
 interface ExtendedEvidenceItem extends BaseEvidenceItem {
   document_id?: string;
+  documentId?: string;
   chunk_id?: string;
+  chunkId?: string;
   bbox?: HighlightBBox;
 }
 
@@ -76,24 +78,24 @@ function parseDocumentMetadata(item: EvidenceItemProps['item']): {
 } {
   let metadata: EvidenceMetadata = {};
 
-  // Parse metadata_json if it's a string
-  if (typeof item.metadata_json === 'string') {
+  // Parse metadataJson if it's a string
+  if (typeof item.metadataJson === 'string') {
     try {
-      metadata = JSON.parse(item.metadata_json) as EvidenceMetadata;
+      metadata = JSON.parse(item.metadataJson) as EvidenceMetadata;
     } catch {
       // Failed to parse, metadata remains empty
     }
-  } else if (item.metadata_json && typeof item.metadata_json === 'object') {
-    metadata = item.metadata_json as EvidenceMetadata;
+  } else if (item.metadataJson && typeof item.metadataJson === 'object') {
+    metadata = item.metadataJson as EvidenceMetadata;
   }
 
   // Cast item to extended type to access optional fields
   const extendedItem = item as ExtendedEvidenceItem;
 
   // Extract IDs from metadata or top-level fields
-  const documentId = metadata.document_id || metadata.documentId || extendedItem.document_id;
-  const chunkId = metadata.chunk_id || metadata.chunkId || extendedItem.chunk_id;
-  const pageNumber = item.page_number ?? metadata.page_number ?? metadata.pageNumber;
+  const documentId = metadata.document_id || metadata.documentId || extendedItem.documentId || extendedItem.document_id;
+  const chunkId = metadata.chunk_id || metadata.chunkId || extendedItem.chunkId || extendedItem.chunk_id;
+  const pageNumber = item.pageNumber ?? metadata.page_number ?? metadata.pageNumber;
 
   // Extract bounding box if available
   let bbox: HighlightBBox | undefined;
@@ -137,17 +139,17 @@ function parseDocumentMetadata(item: EvidenceItemProps['item']): {
 }
 
 export function EvidenceItem({ item, onView, isActive = false }: EvidenceItemProps) {
-  const confidenceLevel = item.relevance_score >= 0.8 ? 'High' :
-                          item.relevance_score >= 0.6 ? 'Medium' : 'Low';
-  const confidenceColor = item.relevance_score >= 0.8 ? 'text-green-600' :
-                          item.relevance_score >= 0.6 ? 'text-yellow-600' : 'text-red-600';
+  const confidenceLevel = item.relevanceScore >= 0.8 ? 'High' :
+                          item.relevanceScore >= 0.6 ? 'Medium' : 'Low';
+  const confidenceColor = item.relevanceScore >= 0.8 ? 'text-green-600' :
+                          item.relevanceScore >= 0.6 ? 'text-yellow-600' : 'text-red-600';
 
   const { documentId, chunkId, pageNumber, bbox } = parseDocumentMetadata(item);
   const hasDocumentInfo = Boolean(documentId);
 
   const handleClick = () => {
     if (onView && documentId) {
-      onView(documentId, chunkId, pageNumber, item.text_preview, bbox);
+      onView(documentId, chunkId, pageNumber, item.textPreview, bbox);
     }
   };
 
@@ -164,11 +166,11 @@ export function EvidenceItem({ item, onView, isActive = false }: EvidenceItemPro
         <div className="flex items-center gap-2">
           <FileText className={`h-4 w-4 ${isActive ? 'text-blue-600' : 'text-slate-500'}`} />
           <span className={`font-medium text-sm ${isActive ? 'text-blue-900' : 'text-slate-900'}`}>
-            {item.document_name}
+            {item.documentName}
           </span>
-          {item.page_number && (
+          {item.pageNumber && (
             <Badge variant="secondary" className="text-xs">
-              p. {item.page_number}
+              p. {item.pageNumber}
             </Badge>
           )}
         </div>
@@ -182,7 +184,7 @@ export function EvidenceItem({ item, onView, isActive = false }: EvidenceItemPro
         </div>
       </div>
       <p className={`mt-2 text-sm line-clamp-2 ${isActive ? 'text-slate-700' : 'text-slate-600'}`}>
-        "{item.text_preview}"
+        "{item.textPreview}"
       </p>
       {isActive && hasDocumentInfo && (
         <div className="mt-2 pt-2 border-t border-blue-200">

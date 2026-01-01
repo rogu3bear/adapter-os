@@ -42,13 +42,13 @@ export function renderChatSessionMarkdown(
     if (msg.evidence && msg.evidence.length > 0) {
       md += `**Sources:**\n`;
       for (const ev of msg.evidence) {
-        const pageInfo = ev.page_number ? ` (p.${ev.page_number})` : '';
-        const score = ev.relevance_score
-          ? ` [${(ev.relevance_score * 100).toFixed(1)}% relevance]`
+        const pageInfo = ev.pageNumber ? ` (p.${ev.pageNumber})` : '';
+        const score = ev.relevanceScore
+          ? ` [${(ev.relevanceScore * 100).toFixed(1)}% relevance]`
           : '';
-        md += `- ${ev.document_name}${pageInfo}${score}\n`;
-        if (ev.text_preview) {
-          md += `  > "${ev.text_preview}"\n`;
+        md += `- ${ev.documentName}${pageInfo}${score}\n`;
+        if (ev.textPreview) {
+          md += `  > "${ev.textPreview}"\n`;
         }
       }
       md += '\n';

@@ -50,7 +50,11 @@ export function AssignAdaptersDialog({
         <DialogHeader>
           <DialogTitle>Assign Adapters to {tenant?.name}</DialogTitle>
         </DialogHeader>
-        <div className="space-y-4 max-h-96 overflow-y-auto">
+        <div
+          className="space-y-4 max-h-96 overflow-y-auto"
+          role="group"
+          aria-describedby="adapters-validation"
+        >
           {adapters.map((adapter) => (
             <div
               key={adapter.id}
@@ -76,6 +80,15 @@ export function AssignAdaptersDialog({
             <p className="text-center text-muted-foreground">No adapters available</p>
           )}
         </div>
+        {selectedAdapters.length === 0 && adapters.length > 0 && (
+          <p
+            id="adapters-validation"
+            className="text-sm text-muted-foreground"
+            role="status"
+          >
+            Please select at least one adapter
+          </p>
+        )}
         <DialogFooter>
           <Button variant="outline" onClick={handleClose}>
             Cancel

@@ -39,7 +39,7 @@ interface WorkspaceCardProps {
   canManage?: boolean;
 }
 
-export function WorkspaceCard({ workspace, onSelect, onEdit, onDelete, canManage = true }: WorkspaceCardProps) {
+function WorkspaceCardComponent({ workspace, onSelect, onEdit, onDelete, canManage = true }: WorkspaceCardProps) {
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [memberCount, setMemberCount] = useState<number | null>(null);
@@ -295,6 +295,15 @@ export function WorkspaceCard({ workspace, onSelect, onEdit, onDelete, canManage
     </>
   );
 }
+
+/**
+ * Memoized WorkspaceCard component for performance optimization in workspace lists.
+ *
+ * Prevents unnecessary re-renders when parent component updates but props remain the same.
+ * Callbacks (onSelect, onEdit, onDelete) are compared by reference - ensure they are wrapped
+ * with useCallback in the parent component to maximize memoization benefits.
+ */
+export const WorkspaceCard = React.memo(WorkspaceCardComponent);
 
 // Edit Workspace Dialog
 interface EditWorkspaceDialogProps {

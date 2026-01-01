@@ -12,24 +12,25 @@ import type { ApiClient } from '@/api/client';
 import * as chatTypes from '@/api/chat-types';
 import * as ownerTypes from '@/api/owner-types';
 import * as authTypes from '@/api/auth-types';
-import { toCamelCase, toSnakeCase } from '@/api/transformers';
+import { CamelCaseKeys, toCamelCase, toSnakeCase } from '@/api/transformers';
 import { logger } from '@/utils/logger';
 
 // Domain types (camelCase versions of backend types)
-// Note: These are opaque types - the transformer returns 'any' to avoid
-// complex type transformations. Consumers should use these for type safety.
-export type ChatSession = any;
-export type ChatMessage = any;
-export type ChatSessionTrace = any;
-export type ChatEvidenceItem = any;
-export type ChatTag = any;
-export type ChatCategory = any;
-export type ChatSearchResult = any;
-export type ChatSessionWithStatus = any;
-export type SessionShare = any;
-export type SessionSummary = any;
-export type CreateChatSessionResponse = any;
-export type ShareSessionResponse = any;
+// These types represent the frontend-facing data after toCamelCase() transformation.
+// Use CamelCaseKeys<T> to transform snake_case backend types to camelCase frontend types.
+// This provides type-safe property access with camelCase naming in components and hooks.
+export type ChatSession = CamelCaseKeys<chatTypes.ChatSession>;
+export type ChatMessage = CamelCaseKeys<chatTypes.ChatMessage>;
+export type ChatSessionTrace = CamelCaseKeys<chatTypes.ChatSessionTrace>;
+export type ChatEvidenceItem = CamelCaseKeys<chatTypes.ChatEvidenceItem>;
+export type ChatTag = CamelCaseKeys<chatTypes.ChatTag>;
+export type ChatCategory = CamelCaseKeys<chatTypes.ChatCategory>;
+export type ChatSearchResult = CamelCaseKeys<chatTypes.ChatSearchResult>;
+export type ChatSessionWithStatus = CamelCaseKeys<chatTypes.ChatSessionWithStatus>;
+export type SessionShare = CamelCaseKeys<chatTypes.SessionShare>;
+export type SessionSummary = CamelCaseKeys<chatTypes.SessionSummary>;
+export type CreateChatSessionResponse = CamelCaseKeys<chatTypes.CreateChatSessionResponse>;
+export type ShareSessionResponse = CamelCaseKeys<chatTypes.ShareSessionResponse>;
 
 export class ChatService {
   constructor(private client: ApiClient) {}
@@ -118,7 +119,7 @@ export class ChatService {
       }
     );
 
-    return toCamelCase<ChatSession>(response);
+    return toCamelCase<chatTypes.ChatSession>(response);
   }
 
   /**
@@ -141,7 +142,7 @@ export class ChatService {
       `/v1/chat/sessions${queryString ? `?${queryString}` : ''}`
     );
 
-    return toCamelCase<ChatSession[]>(response);
+    return toCamelCase<chatTypes.ChatSession[]>(response);
   }
 
   /**
@@ -157,7 +158,7 @@ export class ChatService {
       `/v1/chat/sessions/${encodeURIComponent(sessionId)}`
     );
 
-    return toCamelCase<ChatSession>(response);
+    return toCamelCase<chatTypes.ChatSession>(response);
   }
 
   /**
@@ -220,7 +221,7 @@ export class ChatService {
       }
     );
 
-    return toCamelCase<ChatMessage>(response);
+    return toCamelCase<chatTypes.ChatMessage>(response);
   }
 
   /**
@@ -241,7 +242,7 @@ export class ChatService {
       `/v1/chat/sessions/${encodeURIComponent(sessionId)}/messages${queryString ? `?${queryString}` : ''}`
     );
 
-    return toCamelCase<ChatMessage[]>(response);
+    return toCamelCase<chatTypes.ChatMessage[]>(response);
   }
 
   /**
@@ -257,7 +258,7 @@ export class ChatService {
       `/v1/chat/messages/${encodeURIComponent(messageId)}/evidence`
     );
 
-    return toCamelCase<ChatEvidenceItem[]>(response);
+    return toCamelCase<chatTypes.ChatEvidenceItem[]>(response);
   }
 
   // ============================================================================
@@ -277,7 +278,7 @@ export class ChatService {
       `/v1/chat/sessions/${encodeURIComponent(sessionId)}/summary`
     );
 
-    return toCamelCase<SessionSummary>(response);
+    return toCamelCase<chatTypes.SessionSummary>(response);
   }
 
   /**
@@ -402,7 +403,7 @@ export class ChatService {
       `/v1/chat/sessions/archived${queryString ? `?${queryString}` : ''}`
     );
 
-    return toCamelCase<ChatSessionWithStatus[]>(response);
+    return toCamelCase<chatTypes.ChatSessionWithStatus[]>(response);
   }
 
   /**
@@ -422,7 +423,7 @@ export class ChatService {
       `/v1/chat/sessions/trash${queryString ? `?${queryString}` : ''}`
     );
 
-    return toCamelCase<ChatSessionWithStatus[]>(response);
+    return toCamelCase<chatTypes.ChatSessionWithStatus[]>(response);
   }
 
   // ============================================================================
@@ -457,7 +458,7 @@ export class ChatService {
       `/v1/chat/sessions/search?${params.toString()}`
     );
 
-    return toCamelCase<ChatSearchResult[]>(response);
+    return toCamelCase<chatTypes.ChatSearchResult[]>(response);
   }
 
   // ============================================================================
@@ -510,7 +511,7 @@ export class ChatService {
       `/v1/chat/sessions/${encodeURIComponent(sessionId)}/shares`
     );
 
-    return toCamelCase<SessionShare[]>(response);
+    return toCamelCase<chatTypes.SessionShare[]>(response);
   }
 
   /**
@@ -532,7 +533,7 @@ export class ChatService {
       `/v1/chat/sessions/shared-with-me${queryString ? `?${queryString}` : ''}`
     );
 
-    return toCamelCase<ChatSessionWithStatus[]>(response);
+    return toCamelCase<chatTypes.ChatSessionWithStatus[]>(response);
   }
 
   /**
@@ -581,7 +582,7 @@ export class ChatService {
    */
   async listChatTags(): Promise<ChatTag[]> {
     const response = await this.client.requestList<chatTypes.ChatTag>('/v1/chat/tags');
-    return toCamelCase<ChatTag[]>(response);
+    return toCamelCase<chatTypes.ChatTag[]>(response);
   }
 
   /**
@@ -604,7 +605,7 @@ export class ChatService {
       body: JSON.stringify(req),
     });
 
-    return toCamelCase<ChatTag>(response);
+    return toCamelCase<chatTypes.ChatTag>(response);
   }
 
   /**
@@ -631,7 +632,7 @@ export class ChatService {
       }
     );
 
-    return toCamelCase<ChatTag>(response);
+    return toCamelCase<chatTypes.ChatTag>(response);
   }
 
   /**
@@ -682,7 +683,7 @@ export class ChatService {
       }
     );
 
-    return toCamelCase<ChatTag[]>(response);
+    return toCamelCase<chatTypes.ChatTag[]>(response);
   }
 
   /**
@@ -698,7 +699,7 @@ export class ChatService {
       `/v1/chat/sessions/${encodeURIComponent(sessionId)}/tags`
     );
 
-    return toCamelCase<ChatTag[]>(response);
+    return toCamelCase<chatTypes.ChatTag[]>(response);
   }
 
   /**
@@ -738,7 +739,7 @@ export class ChatService {
    */
   async listChatCategories(): Promise<ChatCategory[]> {
     const response = await this.client.requestList<chatTypes.ChatCategory>('/v1/chat/categories');
-    return toCamelCase<ChatCategory[]>(response);
+    return toCamelCase<chatTypes.ChatCategory[]>(response);
   }
 
   /**
@@ -762,7 +763,7 @@ export class ChatService {
       body: JSON.stringify(req),
     });
 
-    return toCamelCase<ChatCategory>(response);
+    return toCamelCase<chatTypes.ChatCategory>(response);
   }
 
   /**
@@ -792,7 +793,7 @@ export class ChatService {
       }
     );
 
-    return toCamelCase<ChatCategory>(response);
+    return toCamelCase<chatTypes.ChatCategory>(response);
   }
 
   /**

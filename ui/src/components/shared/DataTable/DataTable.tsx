@@ -39,6 +39,105 @@ import {
 } from "./hooks";
 
 /**
+ * Memoized row component for performance optimization in large tables.
+ * Prevents unnecessary re-renders of individual rows when other rows change.
+ * Uses a generic wrapper to maintain type safety.
+ */
+function DataTableRowComponent<TData>({
+  row,
+  rowId,
+  rowIndex,
+  isSelected,
+  selectionMode,
+  visibleColumns,
+  dense,
+  getRowClassName,
+  handleRowSelect,
+  renderCell,
+  onRowClick,
+  onRowDoubleClick,
+}: {
+  row: TData;
+  rowId: string;
+  rowIndex: number;
+  isSelected: boolean;
+  selectionMode: "none" | "single" | "multi";
+  visibleColumns: Column<TData, unknown>[];
+  dense: boolean;
+  getRowClassName: (row: TData, index: number) => string;
+  handleRowSelect: (row: TData) => void;
+  renderCell: <TValue,>(
+    row: TData,
+    column: Column<TData, TValue>,
+    rowIndex: number
+  ) => React.ReactNode;
+  onRowClick?: (row: TData) => void;
+  onRowDoubleClick?: (row: TData) => void;
+}) {
+  return (
+    <TableRow
+      data-row-id={rowId}
+      data-state={isSelected ? "selected" : undefined}
+      className={getRowClassName(row, rowIndex)}
+      onClick={(e) => {
+        // Don't trigger row click if clicking checkbox
+        if ((e.target as HTMLElement).closest('[role="checkbox"]')) {
+          return;
+        }
+        onRowClick?.(row);
+      }}
+      onDoubleClick={() => onRowDoubleClick?.(row)}
+    >
+      {selectionMode !== "none" && (
+        <TableCell className={cn(dense ? "py-1" : "py-2")}>
+          <Checkbox
+            checked={isSelected}
+            onCheckedChange={() => handleRowSelect(row)}
+            aria-label={`Select row ${rowId}`}
+          />
+        </TableCell>
+      )}
+      {visibleColumns.map((column) => (
+        <TableCell
+          key={column.id}
+          className={cn(dense ? "py-1" : "py-2", column.cellClassName)}
+          style={{
+            width: column.width,
+            minWidth: column.minWidth,
+            maxWidth: column.maxWidth,
+          }}
+        >
+          {renderCell(row, column, rowIndex)}
+        </TableCell>
+      ))}
+    </TableRow>
+  );
+}
+
+/**
+ * Memoized version with custom equality check.
+ * Only re-renders when critical props change, improving performance for large tables.
+ */
+const MemoizedDataTableRow = React.memo(DataTableRowComponent, (prevProps, nextProps) => {
+  // Custom equality check for performance
+  // Returns true if props are equal (skip re-render), false if different (re-render)
+  return (
+    prevProps.rowId === nextProps.rowId &&
+    prevProps.isSelected === nextProps.isSelected &&
+    prevProps.rowIndex === nextProps.rowIndex &&
+    prevProps.dense === nextProps.dense &&
+    prevProps.selectionMode === nextProps.selectionMode &&
+    prevProps.visibleColumns.length === nextProps.visibleColumns.length &&
+    prevProps.visibleColumns.every((col, i) => col.id === nextProps.visibleColumns[i].id)
+  );
+});
+
+MemoizedDataTableRow.displayName = "DataTableRow";
+
+// Provide a typed alias for the memoized component
+const DataTableRow = MemoizedDataTableRow as typeof DataTableRowComponent;
+
+/**
  * A flexible, reusable DataTable component with generic typing for row data.
  *
  * Features:
@@ -676,43 +775,21 @@ function DataTableInner<TData>(
             const isSelected = selectedIds.has(rowId);
 
             return (
-              <TableRow
+              <DataTableRow<TData>
                 key={rowId}
-                data-row-id={rowId}
-                data-state={isSelected ? "selected" : undefined}
-                className={getRowClassName(row, rowIndex)}
-                onClick={(e) => {
-                  // Don't trigger row click if clicking checkbox
-                  if ((e.target as HTMLElement).closest('[role="checkbox"]')) {
-                    return;
-                  }
-                  onRowClick?.(row);
-                }}
-                onDoubleClick={() => onRowDoubleClick?.(row)}
-              >
-                {selectionMode !== "none" && (
-                  <TableCell className={cn(dense ? "py-1" : "py-2")}>
-                    <Checkbox
-                      checked={isSelected}
-                      onCheckedChange={() => handleRowSelect(row)}
-                      aria-label={`Select row ${rowId}`}
-                    />
-                  </TableCell>
-                )}
-                {visibleColumns.map((column) => (
-                  <TableCell
-                    key={column.id}
-                    className={cn(dense ? "py-1" : "py-2", column.cellClassName)}
-                    style={{
-                      width: column.width,
-                      minWidth: column.minWidth,
-                      maxWidth: column.maxWidth,
-                    }}
-                  >
-                    {renderCell(row, column, rowIndex)}
-                  </TableCell>
-                ))}
-              </TableRow>
+                row={row}
+                rowId={rowId}
+                rowIndex={rowIndex}
+                isSelected={isSelected}
+                selectionMode={selectionMode}
+                visibleColumns={visibleColumns}
+                dense={dense}
+                getRowClassName={getRowClassName}
+                handleRowSelect={handleRowSelect}
+                renderCell={renderCell}
+                onRowClick={onRowClick}
+                onRowDoubleClick={onRowDoubleClick}
+              />
             );
           })}
         </TableBody>

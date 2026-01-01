@@ -44,12 +44,13 @@ export function EditTenantDialog({
         <div className="space-y-4">
           <div>
             <div className="flex items-center gap-1 mb-1">
-              <Label>Workspace Name</Label>
+              <Label htmlFor="workspace-name">Workspace Name</Label>
               <GlossaryTooltip termId="tenant-name">
                 <span className="cursor-help text-muted-foreground">(?)</span>
               </GlossaryTooltip>
             </div>
             <Input
+              id="workspace-name"
               value={editName}
               onChange={(e) => onEditNameChange(e.target.value)}
               placeholder="Enter workspace name"

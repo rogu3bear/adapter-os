@@ -68,7 +68,7 @@ function areMessagesEqual(prevProps: ChatMessageProps, nextProps: ChatMessagePro
     (prev.evidence === next.evidence ||
      (!!prev.evidence && !!next.evidence &&
       prev.evidence.length === next.evidence.length &&
-      prev.evidence.every((e, i) => e.chunk_id === next.evidence?.[i]?.chunk_id))) &&
+      prev.evidence.every((e, i) => e.chunkId === next.evidence?.[i]?.chunkId))) &&
     // Deep compare unavailable pinned adapters
     (prev.unavailablePinnedAdapters === next.unavailablePinnedAdapters ||
      (!!prev.unavailablePinnedAdapters && !!next.unavailablePinnedAdapters &&
@@ -226,16 +226,16 @@ export const ChatMessageComponent = memo(function ChatMessageComponent({
     isVerified: message.isVerified ?? undefined,
     verifiedAt: message.verifiedAt,
     evidence: message.evidence?.map((e) => ({
-      documentId: e.document_id,
-      documentName: e.document_name,
-      chunkId: e.chunk_id,
-      pageNumber: e.page_number,
-      textPreview: e.text_preview,
-      relevanceScore: e.relevance_score,
+      documentId: e.documentId,
+      documentName: e.documentName,
+      chunkId: e.chunkId,
+      pageNumber: e.pageNumber,
+      textPreview: e.textPreview,
+      relevanceScore: e.relevanceScore,
       rank: e.rank,
-      charRange: e.char_range,
+      charRange: e.charRange,
       bbox: e.bbox,
-      citationId: e.citation_id,
+      citationId: e.citationId,
     })),
     routerDecision: message.routerDecision ? {
       requestId: message.routerDecision.request_id,

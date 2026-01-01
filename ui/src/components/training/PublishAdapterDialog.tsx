@@ -157,7 +157,12 @@ export function PublishAdapterDialog({
                 value={attachMode}
                 onValueChange={(value) => setAttachMode(value as AttachMode)}
               >
-                <SelectTrigger id="attach-mode">
+                <SelectTrigger
+                  id="attach-mode"
+                  aria-required="true"
+                  aria-label="Attach Mode"
+                  aria-describedby="attach-mode-description"
+                >
                   <SelectValue placeholder="Select attach mode" />
                 </SelectTrigger>
                 <SelectContent>
@@ -169,7 +174,7 @@ export function PublishAdapterDialog({
                   </SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">
+              <p id="attach-mode-description" className="text-xs text-muted-foreground">
                 {attachMode === 'free'
                   ? 'Adapter can be used in any stack without restrictions.'
                   : 'Adapter requires a specific dataset context when attached.'}
@@ -185,7 +190,12 @@ export function PublishAdapterDialog({
                     value={requiredScopeDatasetVersionId}
                     onValueChange={setRequiredScopeDatasetVersionId}
                   >
-                    <SelectTrigger id="dataset-version">
+                    <SelectTrigger
+                      id="dataset-version"
+                      aria-required="true"
+                      aria-label="Required Dataset Version"
+                      aria-describedby="dataset-version-description"
+                    >
                       <SelectValue placeholder="Select dataset version" />
                     </SelectTrigger>
                     <SelectContent>
@@ -205,9 +215,12 @@ export function PublishAdapterDialog({
                     value={requiredScopeDatasetVersionId}
                     onChange={(e) => setRequiredScopeDatasetVersionId(e.target.value)}
                     placeholder="Enter dataset version ID"
+                    aria-required="true"
+                    aria-label="Required Dataset Version"
+                    aria-describedby="dataset-version-description"
                   />
                 )}
-                <p className="text-xs text-muted-foreground">
+                <p id="dataset-version-description" className="text-xs text-muted-foreground">
                   The dataset version this adapter was trained on.
                 </p>
               </div>

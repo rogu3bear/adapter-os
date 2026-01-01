@@ -28,25 +28,25 @@ export interface RunMetadata {
  */
 export interface EvidenceItem {
   /** Document ID in the system */
-  document_id: string;
+  documentId: string;
   /** Human-readable document name */
-  document_name: string;
+  documentName: string;
   /** Chunk ID within the document */
-  chunk_id: string;
+  chunkId: string;
   /** Page number (for PDF documents) */
-  page_number: number | null;
+  pageNumber: number | null;
   /** Preview text of the evidence */
-  text_preview: string;
+  textPreview: string;
   /** Relevance score (0-1) */
-  relevance_score: number;
+  relevanceScore: number;
   /** Rank in the evidence list */
   rank: number;
   /** Character range within the document for highlighting */
-  char_range?: { start: number; end: number };
+  charRange?: { start: number; end: number };
   /** Bounding box coordinates for PDF highlighting */
   bbox?: { x: number; y: number; width: number; height: number };
   /** Citation identifier for cross-referencing */
-  citation_id?: string;
+  citationId?: string;
 }
 
 /**

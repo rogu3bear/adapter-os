@@ -24,7 +24,7 @@ import {
 import { EmptyState } from '@/components/ui/empty-state';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import type { ChatSessionWithStatus } from '@/api/chat-types';
+import type { ChatSessionWithStatus } from '@/api/services/chat';
 import { formatTimestamp } from '@/lib/formatters';
 
 interface ChatArchivePanelProps {
@@ -92,23 +92,23 @@ function SessionCard({ session, onRestore, onDelete, isRestoring, isDeleting }: 
           <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
             <div className="flex items-center gap-1.5">
               <Clock className="h-3.5 w-3.5" />
-              <span>Last activity: {formatDate(session.last_activity_at)}</span>
+              <span>Last activity: {formatDate(session.lastActivityAt)}</span>
             </div>
-            {isArchived && session.archived_at && (
+            {isArchived && session.archivedAt && (
               <div className="flex items-center gap-1.5">
                 <Archive className="h-3.5 w-3.5" />
-                <span>Archived: {formatDate(session.archived_at)}</span>
+                <span>Archived: {formatDate(session.archivedAt)}</span>
               </div>
             )}
-            {isDeleted && session.deleted_at && (
+            {isDeleted && session.deletedAt && (
               <div className="flex items-center gap-1.5">
                 <Trash2 className="h-3.5 w-3.5" />
-                <span>Deleted: {formatDate(session.deleted_at)}</span>
+                <span>Deleted: {formatDate(session.deletedAt)}</span>
               </div>
             )}
-            {session.archive_reason && (
+            {session.archiveReason && (
               <Badge variant="outline" className="text-xs">
-                Reason: {session.archive_reason}
+                Reason: {session.archiveReason}
               </Badge>
             )}
           </div>

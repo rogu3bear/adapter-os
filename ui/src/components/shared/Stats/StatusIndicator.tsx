@@ -95,7 +95,7 @@ export interface StatusIndicatorProps
  * Displays a status indicator dot with optional label.
  * Supports multiple status states with semantic colors.
  */
-export function StatusIndicator({
+function StatusIndicatorComponent({
   className,
   size,
   status,
@@ -132,6 +132,8 @@ export function StatusIndicator({
   );
 }
 
+export const StatusIndicator = React.memo(StatusIndicatorComponent);
+
 export interface StatusBadgeProps
   extends React.HTMLAttributes<HTMLSpanElement>,
     VariantProps<typeof statusBadgeVariants> {
@@ -146,7 +148,7 @@ export interface StatusBadgeProps
 /**
  * Displays a status badge with background color and optional dot.
  */
-export function StatusBadge({
+function StatusBadgeComponent({
   className,
   size,
   status,
@@ -182,5 +184,7 @@ export function StatusBadge({
     </span>
   );
 }
+
+export const StatusBadge = React.memo(StatusBadgeComponent);
 
 export { statusIndicatorVariants, statusDotVariants, statusBadgeVariants };

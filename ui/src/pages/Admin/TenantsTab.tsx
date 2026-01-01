@@ -6,7 +6,7 @@ import { useTenants } from '@/hooks/admin/useAdmin';
 import { LoadingState } from '@/components/ui/loading-state';
 import { ErrorRecovery } from '@/components/ui/error-recovery';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { withErrorBoundary } from '@/components/withErrorBoundary';
+import { withErrorBoundary } from '@/components/WithErrorBoundary';
 import { Plus, RefreshCw } from 'lucide-react';
 
 export function TenantsTab() {

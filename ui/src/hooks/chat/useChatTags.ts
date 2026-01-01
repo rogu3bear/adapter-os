@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient, UseQueryOptions, UseMutationOptions } from '@tanstack/react-query';
 import { apiClient } from '@/api/services';
+import type { ChatTag } from '@/api/services/chat';
 import type {
-  ChatTag,
   CreateTagRequest,
   UpdateTagRequest,
   AssignTagsRequest,

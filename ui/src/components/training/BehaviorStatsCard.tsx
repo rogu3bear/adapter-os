@@ -21,7 +21,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   ttl_expired: 'var(--muted-foreground)',
 };
 
-export function BehaviorStatsCard({ tenantId }: BehaviorStatsCardProps) {
+function BehaviorStatsCardComponent({ tenantId }: BehaviorStatsCardProps) {
   const { data: stats, isLoading } = useBehaviorStats(tenantId);
 
   if (isLoading) {
@@ -128,4 +128,6 @@ export function BehaviorStatsCard({ tenantId }: BehaviorStatsCardProps) {
     </Card>
   );
 }
+
+export const BehaviorStatsCard = React.memo(BehaviorStatsCardComponent);
 

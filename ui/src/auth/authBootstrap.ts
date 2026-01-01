@@ -18,7 +18,8 @@ function readSelectedTenantId(): string | null {
     const parsed = JSON.parse(raw) as { tenantId?: unknown };
     const tenantId = typeof parsed.tenantId === 'string' ? parsed.tenantId.trim() : '';
     return tenantId ? tenantId : null;
-  } catch {
+  } catch (error) {
+    logger.warn('Failed to read selected tenant ID from session storage', { component: 'authBootstrap' }, error instanceof Error ? error : undefined);
     return null;
   }
 }
@@ -31,8 +32,8 @@ export function markDevBypassActivated(): void {
   try {
     localStorage.setItem(AUTH_STORAGE_KEYS.DEV_BYPASS_ACTIVATED_AT, Date.now().toString());
     logger.debug('Dev bypass activation timestamp recorded', { component: 'authBootstrap' });
-  } catch {
-    // Ignore storage errors
+  } catch (error) {
+    logger.warn('Failed to record dev bypass activation timestamp', { component: 'authBootstrap' }, error instanceof Error ? error : undefined);
   }
 }
 
@@ -43,8 +44,8 @@ export function markDevBypassActivated(): void {
 export function clearDevBypassTimestamp(): void {
   try {
     localStorage.removeItem(AUTH_STORAGE_KEYS.DEV_BYPASS_ACTIVATED_AT);
-  } catch {
-    // Ignore storage errors
+  } catch (error) {
+    logger.warn('Failed to clear dev bypass activation timestamp', { component: 'authBootstrap' }, error instanceof Error ? error : undefined);
   }
 }
 
@@ -60,7 +61,8 @@ export function isDevBypassExpired(): boolean {
     }
     const elapsed = Date.now() - parseInt(activatedAt, 10);
     return elapsed > AUTH_DEFAULTS.DEV_BYPASS_TIMEOUT_MS;
-  } catch {
+  } catch (error) {
+    logger.warn('Failed to check dev bypass expiration status', { component: 'authBootstrap' }, error instanceof Error ? error : undefined);
     return true; // Treat storage errors as expired
   }
 }
@@ -78,7 +80,8 @@ export function getDevBypassRemainingMs(): number {
     const elapsed = Date.now() - parseInt(activatedAt, 10);
     const remaining = AUTH_DEFAULTS.DEV_BYPASS_TIMEOUT_MS - elapsed;
     return Math.max(0, remaining);
-  } catch {
+  } catch (error) {
+    logger.warn('Failed to get dev bypass remaining time', { component: 'authBootstrap' }, error instanceof Error ? error : undefined);
     return 0;
   }
 }
@@ -89,7 +92,7 @@ export function getDevBypassRemainingMs(): number {
  */
 export async function tryDevBypassLogin(): Promise<UserInfoResponse | null> {
   const devBypassEnabled = isDevBypassEnabled();
-  console.log('[DEV-BYPASS] isDevBypassEnabled:', devBypassEnabled);
+  logger.debug(`[DEV-BYPASS] isDevBypassEnabled: ${devBypassEnabled}`, { component: 'authBootstrap' });
 
   if (!devBypassEnabled) {
     logger.debug('Dev bypass disabled by env; skipping bootstrap', { component: 'authBootstrap' });
@@ -98,20 +101,20 @@ export async function tryDevBypassLogin(): Promise<UserInfoResponse | null> {
 
   try {
     const tenantId = readSelectedTenantId();
-    console.log('[DEV-BYPASS] Fetching /api/v1/auth/me...');
+    logger.debug('[DEV-BYPASS] Fetching /api/v1/auth/me...', { component: 'authBootstrap' });
     const res = await fetch('/api/v1/auth/me', {
       credentials: 'include',
       ...(tenantId ? { headers: { 'X-Tenant-Id': tenantId } } : {}),
     });
-    console.log('[DEV-BYPASS] Response status:', res.status, res.ok);
+    logger.debug(`[DEV-BYPASS] Response status: ${res.status}, ok: ${res.ok}`, { component: 'authBootstrap' });
 
     if (!res.ok) {
-      console.log('[DEV-BYPASS] Response not OK, returning null');
+      logger.debug('[DEV-BYPASS] Response not OK, returning null', { component: 'authBootstrap' });
       return null;
     }
 
     const claims = (await res.json()) as UserInfoResponse;
-    console.log('[DEV-BYPASS] Claims:', JSON.stringify(claims, null, 2));
+    logger.debug(`[DEV-BYPASS] Claims: ${JSON.stringify(claims, null, 2)}`, { component: 'authBootstrap' });
     const { role, admin_tenants } = claims;
 
     const isDevBypass =
@@ -120,18 +123,17 @@ export async function tryDevBypassLogin(): Promise<UserInfoResponse | null> {
       Array.isArray(admin_tenants) &&
       admin_tenants.includes('*');
 
-    console.log('[DEV-BYPASS] Check result:', { role, admin_tenants, isDevBypass });
+    logger.debug(`[DEV-BYPASS] Check result: ${JSON.stringify({ role, admin_tenants, isDevBypass })}`, { component: 'authBootstrap' });
 
     if (isDevBypass) {
       logger.debug('Dev bypass bootstrap activated', { component: 'authBootstrap' });
-      console.log('[DEV-BYPASS] ✓ Returning claims for dev bypass');
+      logger.debug('[DEV-BYPASS] ✓ Returning claims for dev bypass', { component: 'authBootstrap' });
       return claims;
     }
 
-    console.log('[DEV-BYPASS] ✗ Not a dev bypass response');
+    logger.debug('[DEV-BYPASS] ✗ Not a dev bypass response', { component: 'authBootstrap' });
     return null;
   } catch (error) {
-    console.error('[DEV-BYPASS] Error:', error);
     logger.error(
       'Dev bypass bootstrap check failed; continuing with normal auth',
       { component: 'authBootstrap' },

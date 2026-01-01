@@ -36,7 +36,7 @@ export function InlineEvidencePreview({
 
   // Sort by relevance and take top items
   const sortedEvidence = [...evidence].sort(
-    (a, b) => b.relevance_score - a.relevance_score
+    (a, b) => b.relevanceScore - a.relevanceScore
   );
   const topEvidence = sortedEvidence.slice(0, maxItems);
   const remainingCount = evidence.length - maxItems;
@@ -48,7 +48,7 @@ export function InlineEvidencePreview({
     >
       {topEvidence.map((item, index) => (
         <div
-          key={`${item.chunk_id}-${index}`}
+          key={`${item.chunkId}-${index}`}
           className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
           onClick={onViewAll}
           role="button"
@@ -61,23 +61,23 @@ export function InlineEvidencePreview({
           }}
         >
           <FileText className="h-3 w-3 flex-shrink-0" />
-          <span className="truncate max-w-[200px]">{item.document_name}</span>
-          {item.page_number && (
+          <span className="truncate max-w-[200px]">{item.documentName}</span>
+          {item.pageNumber && (
             <span className="text-muted-foreground/70 flex-shrink-0">
-              p.{item.page_number}
+              p.{item.pageNumber}
             </span>
           )}
           <span
             className={cn(
               'text-[10px] px-1 py-0.5 rounded flex-shrink-0',
-              item.relevance_score >= 0.8
+              item.relevanceScore >= 0.8
                 ? 'bg-green-100 text-green-700'
-                : item.relevance_score >= 0.6
+                : item.relevanceScore >= 0.6
                   ? 'bg-yellow-100 text-yellow-700'
                   : 'bg-red-100 text-red-700'
             )}
           >
-            {Math.round(item.relevance_score * 100)}%
+            {Math.round(item.relevanceScore * 100)}%
           </span>
         </div>
       ))}

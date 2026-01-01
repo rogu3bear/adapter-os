@@ -10,6 +10,7 @@ import { AlertTriangle, Brain } from 'lucide-react';
 import { errorRecoveryTemplates } from './ui/error-recovery';
 import { apiClient } from '@/api/services';
 import { StartTrainingRequest, TrainingConfigRequest } from '@/api/types';
+import { LoraTier } from '@/api/generated';
 
 interface LanguageBaseAdapterDialogProps {
   open: boolean;
@@ -110,7 +111,7 @@ export function LanguageBaseAdapterDialog({
       const req: StartTrainingRequest = {
         adapter_name: adapterName,
         config,
-        lora_tier: 'micro',
+        lora_tier: LoraTier.micro,
         scope: 'project',
         // Optional backend fields can be added here:
         // template_id, repo_id, dataset_id
@@ -188,7 +189,7 @@ export function LanguageBaseAdapterDialog({
             <div className="space-y-2">
               <Label htmlFor="language">Language</Label>
               <Select value={language} onValueChange={(v) => setLanguage(v as SupportedLanguage)}>
-                <SelectTrigger id="language">
+                <SelectTrigger id="language" aria-invalid={!languageValid} aria-describedby={!languageValid ? 'language-error' : undefined}>
                   <SelectValue placeholder="Select language" />
                 </SelectTrigger>
                 <SelectContent>
@@ -198,7 +199,7 @@ export function LanguageBaseAdapterDialog({
                 </SelectContent>
               </Select>
               {!languageValid && (
-                <p className="text-xs text-muted-foreground">Choose a supported language: Rust, Python, TypeScript, JavaScript, Go.</p>
+                <p id="language-error" className="text-xs text-muted-foreground">Choose a supported language: Rust, Python, TypeScript, JavaScript, Go.</p>
               )}
             </div>
 

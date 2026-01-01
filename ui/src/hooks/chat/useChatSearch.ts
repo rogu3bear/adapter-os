@@ -13,7 +13,8 @@
 import { useQuery, UseQueryOptions } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { apiClient } from '@/api/services';
-import type { ChatSearchResult, SearchSessionsQuery } from '@/api/chat-types';
+import type { ChatSearchResult } from '@/api/services/chat';
+import type { SearchSessionsQuery } from '@/api/chat-types';
 import { useDebounce } from '@/hooks/ui/useDebouncedValue';
 import { logger } from '@/utils/logger';
 

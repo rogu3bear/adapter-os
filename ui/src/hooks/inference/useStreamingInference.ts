@@ -45,7 +45,6 @@
  * ```
  */
 
-// @ts-nocheck
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
 import { apiClient } from '@/api/services';
@@ -193,9 +192,15 @@ export function useStreamingInference(
     });
 
     try {
+      // Map unsupported backends to 'auto' - streaming only supports 'mlx', 'coreml', 'metal', 'auto'
+      const streamingBackend: StreamingInferRequest['backend'] =
+        effectiveBackend === 'cpu' || effectiveBackend === 'mlxbridge'
+          ? 'auto'
+          : effectiveBackend;
+
       const requestData: StreamingInferRequest = {
         prompt,
-        backend: effectiveBackend === 'cpu' ? 'auto' : effectiveBackend,
+        backend: streamingBackend,
         model: effectiveModel ?? undefined,
         max_tokens: overrides?.max_tokens ?? config.max_tokens ?? undefined,
         temperature: overrides?.temperature ?? config.temperature ?? undefined,
