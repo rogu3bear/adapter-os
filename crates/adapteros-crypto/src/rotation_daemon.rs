@@ -209,13 +209,26 @@ impl RotationDaemon {
         key_id: &str,
         reason: RotationReason,
     ) -> Result<RotationHistoryEntry> {
-        info!(key_id = %key_id, reason = %reason, "Starting key rotation");
+        info!(
+            target: "security.rotation",
+            key_id = %key_id,
+            reason = %reason,
+            "Starting key rotation"
+        );
 
         // Generate new key
         let _new_key = self
             .provider
             .generate(key_id, KeyAlgorithm::Aes256Gcm)
-            .await?;
+            .await
+            .inspect_err(|e| {
+                error!(
+                    target: "security.rotation",
+                    key_id = %key_id,
+                    error = %e,
+                    "Key generation failed during rotation"
+                );
+            })?;
 
         // Get rotation receipt from provider
         let receipt = self.provider.rotate(key_id).await?;
@@ -260,6 +273,7 @@ impl RotationDaemon {
         }
 
         info!(
+            target: "security.rotation",
             key_id = %key_id,
             deks_reencrypted = deks_reencrypted,
             "Key rotation completed successfully"
@@ -322,13 +336,21 @@ impl RotationDaemon {
 
     /// Force immediate rotation of a key (manual trigger)
     pub async fn force_rotate(&self, key_id: &str) -> Result<RotationHistoryEntry> {
-        warn!(key_id = %key_id, "Manual key rotation triggered");
+        warn!(
+            target: "security.rotation",
+            key_id = %key_id,
+            "Manual key rotation triggered"
+        );
         self.rotate_key(key_id, RotationReason::Manual).await
     }
 
     /// Emergency rotation due to suspected compromise
     pub async fn emergency_rotate(&self, key_id: &str) -> Result<RotationHistoryEntry> {
-        error!(key_id = %key_id, "Emergency key rotation due to suspected compromise");
+        error!(
+            target: "security.rotation",
+            key_id = %key_id,
+            "Emergency key rotation due to suspected compromise"
+        );
         self.rotate_key(key_id, RotationReason::Compromise).await
     }
 }

@@ -58,7 +58,9 @@ pub enum ModelsCommand {
 pub async fn handle_models_command(cmd: ModelsCommand, output: &OutputWriter) -> Result<()> {
     let command_name = get_models_command_name(&cmd);
     info!(command = ?cmd, "Handling models command");
-    let _ = crate::cli_telemetry::emit_cli_command(&command_name, None, true).await;
+    if let Err(e) = crate::cli_telemetry::emit_cli_command(&command_name, None, true).await {
+        tracing::debug!(error = %e, command = %command_name, "Telemetry emit failed (non-fatal)");
+    }
 
     match cmd {
         ModelsCommand::Seed {
@@ -245,10 +247,12 @@ async fn run_list(db_path: Option<PathBuf>, json: bool, output: &OutputWriter) -
                 })
             })
             .collect();
-        let _ = output.json(&serde_json::json!({
+        if let Err(e) = output.json(&serde_json::json!({
             "models": json_output,
             "count": models.len()
-        }));
+        })) {
+            tracing::debug!(error = %e, "JSON output failed (non-fatal)");
+        }
     } else {
         output.section("Registered Models");
         if models.is_empty() {

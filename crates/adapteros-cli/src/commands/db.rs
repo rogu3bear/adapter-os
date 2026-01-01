@@ -453,9 +453,12 @@ async fn run_unlock(db_path: Option<PathBuf>, output: &OutputWriter) -> Result<(
                 .rows_affected();
         output.info(format!("Removed {} dirty migration rows", cleared));
 
-        let _ = sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
+        if let Err(e) = sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
             .execute(pool)
-            .await;
+            .await
+        {
+            tracing::debug!(error = %e, "WAL checkpoint failed (non-fatal)");
+        }
     } else {
         output.info("No _sqlx_migrations table found; nothing to unlock");
     }
@@ -1215,7 +1218,7 @@ async fn run_repair_bootstrap(
     }
 
     // Report issues
-    let _ = output.warn("Bootstrap state has issues:");
+    output.warning("Bootstrap state has issues:");
     for issue in &status.issues {
         output.info(format!("  - {}", issue));
     }

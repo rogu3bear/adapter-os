@@ -1,5 +1,7 @@
 use crate::auth::Claims;
-use crate::error_helpers::{bad_gateway, db_error_msg, internal_error, internal_error_msg, not_found_with_details};
+use crate::error_helpers::{
+    bad_gateway, db_error_msg, internal_error, internal_error_msg, not_found_with_details,
+};
 use crate::middleware::require_any_role;
 use crate::state::AppState;
 use crate::types::*;
@@ -620,7 +622,14 @@ pub async fn register_worker(
                 // In dev mode, we use the manifest hash as the layout hash for simplicity
                 state
                     .db
-                    .create_plan(&req.plan_id, &req.tenant_id, &req.plan_id, &req.manifest_hash, "[]", &req.manifest_hash)
+                    .create_plan(
+                        &req.plan_id,
+                        &req.tenant_id,
+                        &req.plan_id,
+                        &req.manifest_hash,
+                        "[]",
+                        &req.manifest_hash,
+                    )
                     .await
                     .map_err(|e| db_error_msg("failed to create plan", e))?;
                 info!(
@@ -636,9 +645,7 @@ pub async fn register_worker(
                     .get_plan_by_plan_id(&req.plan_id)
                     .await
                     .map_err(|e| db_error_msg("failed to fetch created plan", e))?
-                    .ok_or_else(|| {
-                        internal_error("Plan creation succeeded but plan not found")
-                    })?
+                    .ok_or_else(|| internal_error("Plan creation succeeded but plan not found"))?
             } else {
                 warn!(
                     worker_id = %req.worker_id,

@@ -19,8 +19,10 @@ ln -sf target/release/aosctl ./aosctl
 # Start dev server (port 8080)
 cargo run -p adapteros-server -- --config configs/cp.toml
 
-# Start dev server with auth disabled
+# Start dev server with auth disabled (env var)
 AOS_DEV_NO_AUTH=1 cargo run -p adapteros-server -- --config configs/cp.toml
+
+# Or set in config file: security.dev_bypass = true (debug builds only)
 
 # Unified boot (backend + UI with health waits)
 ./start
@@ -164,6 +166,16 @@ VITE_BUILD_MODE=service-panel pnpm dev  # Service panel (port 3300)
 1. **CoreML** (primary): ANE acceleration for production
 2. **MLX** (secondary): GPU inference and training
 3. **Metal** (fallback): Legacy/incomplete
+
+### Intentional Complexity
+
+The architecture's scale is deliberate, not accidental:
+
+- **~70 crates**: Fine-grained modularity enables selective compilation for air-gapped deployments where only specific capabilities ship. Each crate has a single responsibility with explicit dependencies.
+- **15+ feature flags**: Required to target different hardware backends (CoreML/Metal/MLX), deployment modes (production/development), and testing scenarios (loom/hardware-residency) without runtime overhead.
+- **Dual-write patterns**: The database layer uses atomic dual-write (see `adapteros-db`) to maintain consistency guarantees required for deterministic replay and audit trails.
+
+This complexity serves the core constraint: **deterministic, auditable inference in air-gapped environments**. Do not simplify by merging crates or removing feature gates without understanding the deployment implications.
 
 ## Determinism Rules
 

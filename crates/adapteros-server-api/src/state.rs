@@ -341,6 +341,9 @@ pub struct SecurityConfigApi {
     pub cookie_secure: Option<bool>,
     #[serde(default = "default_clock_skew_seconds")]
     pub clock_skew_seconds: u64,
+    /// Dev bypass: skip all authentication (debug builds only)
+    #[serde(default)]
+    pub dev_bypass: bool,
 }
 
 fn default_clock_skew_seconds() -> u64 {

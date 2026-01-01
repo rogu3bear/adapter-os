@@ -142,7 +142,9 @@ pub async fn handle_node_command(cmd: NodeCommand, output: &OutputWriter) -> Res
     info!(command = ?cmd, "Handling node command");
 
     // Emit telemetry
-    let _ = crate::cli_telemetry::emit_cli_command(&command_name, None, true).await;
+    if let Err(e) = crate::cli_telemetry::emit_cli_command(&command_name, None, true).await {
+        tracing::debug!(error = %e, command = %command_name, "Telemetry emit failed (non-fatal)");
+    }
 
     match cmd {
         NodeCommand::List { offline, json } => list_nodes(offline, json, output).await,

@@ -96,9 +96,20 @@ pub async fn activate_adapter(
     if workspace_id != claims.tenant_id {
         let access = state
             .db
-            .check_workspace_access_with_admin(&workspace_id, &claims.sub, &claims.tenant_id, &claims.admin_tenants)
+            .check_workspace_access_with_admin(
+                &workspace_id,
+                &claims.sub,
+                &claims.tenant_id,
+                &claims.admin_tenants,
+            )
             .await
             .map_err(|e| {
+                error!(
+                    error = %e,
+                    workspace_id = %workspace_id,
+                    user_id = %claims.sub,
+                    "Failed to check workspace access"
+                );
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(
@@ -124,6 +135,12 @@ pub async fn activate_adapter(
         .get_adapter_for_tenant(&workspace_id, &adapter_id)
         .await
         .map_err(|e| {
+            error!(
+                error = %e,
+                adapter_id = %adapter_id,
+                workspace_id = %workspace_id,
+                "Failed to load adapter for tenant"
+            );
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(

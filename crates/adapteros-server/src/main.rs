@@ -167,6 +167,14 @@ async fn main() -> Result<()> {
         })?;
         boot_state.finish_phase_ok("router_build");
 
+        // Enable dev bypass from config if specified (debug builds only)
+        {
+            let cfg = api_config
+                .read()
+                .map_err(|e| anyhow::anyhow!("API config lock poisoned: {}", e))?;
+            adapteros_server_api::set_dev_bypass_from_config(cfg.security.dev_bypass);
+        }
+
         // =====================================================================
         // Phase 9b: Federation
         // =====================================================================

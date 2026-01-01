@@ -57,7 +57,15 @@ impl BundleSignature {
     pub fn verify(&self) -> Result<()> {
         self.public_key
             .verify(self.bundle_hash.as_bytes(), &self.signature)
-            .map_err(|e| AosError::Crypto(format!("Bundle signature verification failed: {}", e)))
+            .map_err(|e| {
+                tracing::warn!(
+                    target: "security.bundle",
+                    bundle_id = %self.bundle_hash.to_hex(),
+                    key_id = %self.key_id,
+                    "Bundle signature verification failed - possible tampering"
+                );
+                AosError::Crypto(format!("Bundle signature verification failed: {}", e))
+            })
     }
 
     /// Save signature to file

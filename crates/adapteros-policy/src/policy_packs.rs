@@ -650,6 +650,16 @@ impl PolicyPackManager {
 
                 match validator.validate(request) {
                     Ok(result) => {
+                        if !result.violations.is_empty() {
+                            warn!(
+                                target: "policy.violation",
+                                request_id = %request.request_id,
+                                policy_pack = %pack_id.name(),
+                                violation_count = result.violations.len(),
+                                violations = ?result.violations.iter().map(|v| &v.message).collect::<Vec<_>>(),
+                                "Policy pack validation found violations"
+                            );
+                        }
                         violations.extend(result.violations);
                         warnings.extend(result.warnings);
                     }

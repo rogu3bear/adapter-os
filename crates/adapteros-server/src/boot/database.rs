@@ -353,6 +353,7 @@ pub async fn initialize_database(
                 cookie_domain: None,
                 cookie_secure: None,
                 clock_skew_seconds: 300,
+                dev_bypass: false,
             },
             auth: adapteros_server_api::config::AuthConfig {
                 dev_algo: "hs256".to_string(),

@@ -172,6 +172,28 @@ pub(crate) fn dev_bypass_status() -> &'static DevBypassStatus {
     })
 }
 
+/// Enable dev bypass from config at server startup.
+///
+/// SECURITY: This must be called BEFORE any auth middleware is invoked
+/// (i.e., before the first request is processed) and BEFORE `dev_bypass_status()`
+/// is ever called. Sets the environment variable so that when `dev_bypass_status()`
+/// initializes its OnceLock, it sees the env var and enables bypass.
+///
+/// Only effective in debug builds; release builds ignore this entirely.
+#[cfg(debug_assertions)]
+pub fn set_dev_bypass_from_config(enabled: bool) {
+    if enabled {
+        // Set env var BEFORE dev_bypass_status() is called anywhere.
+        // The OnceLock in dev_bypass_status() will pick this up on first access.
+        std::env::set_var("AOS_DEV_NO_AUTH", "1");
+    }
+}
+
+#[cfg(not(debug_assertions))]
+pub fn set_dev_bypass_from_config(_enabled: bool) {
+    // No-op in release builds - bypass is never allowed
+}
+
 /// Access token claims (used across the API as `Claims`)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AccessClaims {

@@ -16,6 +16,7 @@ use rand::rngs::OsRng;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
+use tracing::warn;
 use utoipa::ToSchema;
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -67,6 +68,13 @@ fn enforce_scope_subset(claims: &Claims, scopes: &[Role]) -> Result<(), AosError
 
     // Non-admins can only mint keys equal to their own role
     if scopes.iter().any(|s| s != &caller_role) {
+        warn!(
+            target: "security.api_key",
+            caller_id = %claims.sub,
+            caller_role = %caller_role,
+            requested_scopes = ?scopes,
+            "Scope escalation attempt blocked"
+        );
         return Err(AosError::Authz(
             "scope not allowed for caller role".to_string(),
         ));

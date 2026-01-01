@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use std::collections::HashSet;
 use std::sync::Arc;
-use tracing::warn;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 const DEFAULT_SEED_MODE: &str = "best_effort";
@@ -625,6 +625,13 @@ impl Db {
             }
         }
 
+        info!(
+            target: "audit.training",
+            job_id = %id,
+            repo_id = %repo_id,
+            created_by = %created_by,
+            "Training job created"
+        );
         Ok(id)
     }
 
@@ -786,6 +793,14 @@ impl Db {
             ));
         }
 
+        let is_terminal = status == "completed" || status == "failed";
+        info!(
+            target: "audit.training",
+            job_id = %job_id,
+            new_status = %status,
+            is_terminal = %is_terminal,
+            "Training job status updated"
+        );
         Ok(())
     }
 
@@ -1031,6 +1046,7 @@ impl Db {
             ));
         }
 
+        info!(target: "audit.training", job_id = %job_id, "Training job deleted");
         Ok(())
     }
 

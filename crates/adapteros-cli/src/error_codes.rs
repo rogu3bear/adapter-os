@@ -790,79 +790,18 @@ pub static TYPED_REGISTRY: Lazy<HashMap<ECode, ErrorCode>> = Lazy::new(|| {
     m
 });
 
-/// Find error code by AosError variant name
-/// Returns typed ECode for compile-time safety
-pub fn ecode_for_aos_error(error_name: &str) -> Option<ECode> {
-    match error_name {
-        "InvalidHash" => Some(ECode::E1004),
-        "InvalidCPID" => Some(ECode::E8001),
-        "Crypto" => Some(ECode::E1001),
-        "PolicyViolation" => Some(ECode::E2002),
-        "InvalidManifest" => Some(ECode::E3003),
-        "Kernel" => Some(ECode::E3002),
-        "Telemetry" => Some(ECode::E4002),
-        "DeterminismViolation" => Some(ECode::E2001),
-        "EgressViolation" => Some(ECode::E2003),
-        "Artifact" => Some(ECode::E5001),
-        "Registry" => Some(ECode::E6001),
-        "Worker" => Some(ECode::E7001),
-        "Node" => Some(ECode::E7001),
-        "Job" => Some(ECode::E7002),
-        "Config" => Some(ECode::E8001),
-        "Database" => Some(ECode::E8003),
-        "Io" | "Parse" => Some(ECode::E9002),
-        "CpuThrottled" => Some(ECode::E9005),
-        "OutOfMemory" => Some(ECode::E9006),
-        "FileDescriptorExhausted" => Some(ECode::E9007),
-        "ThreadPoolSaturated" => Some(ECode::E9008),
-        "GpuUnavailable" => Some(ECode::E9009),
-        "ToolchainMismatch" => Some(ECode::E3005),
-        "StaleBuildCache" => Some(ECode::E3006),
-        "LintTargetMissing" => Some(ECode::E3007),
-        "LockfileOutOfSync" => Some(ECode::E3008),
-        "WorkspaceMemberPathInvalid" => Some(ECode::E3009),
-        "DeprecatedFlag" => Some(ECode::E8009),
-        "OutputFormatMismatch" => Some(ECode::E8010),
-        "CliWritePermissionDenied" => Some(ECode::E8011),
-        "InvalidInputEncoding" => Some(ECode::E8012),
-        "InvalidRetryAttempt" => Some(ECode::E8013),
-        "RateLimiterNotConfigured" | "InvalidRateLimitConfig" | "ThunderingHerdRejected" => {
-            Some(ECode::E9008)
-        }
-        _ => None,
-    }
-}
-
-/// Find error code by AosError variant name (backward compatible)
-///
-/// For compile-time checked lookups, use `ecode_for_aos_error()` to get the typed ECode,
-/// then `get()` to retrieve the full ErrorCode.
-#[deprecated(
-    since = "0.12.0",
-    note = "Use ecode_for_aos_error() for typed ECode, then get() for full ErrorCode"
-)]
-pub fn find_by_aos_error(error_name: &str) -> Option<ErrorCode> {
-    ecode_for_aos_error(error_name).map(get)
-}
-
-/// Map AosError variant names to ECode (typed version)
-pub fn map_aos_error_to_ecode(name: &str) -> ECode {
-    match name {
-        "PolicyViolation" => ECode::E2001,
-        "InvalidHash" => ECode::E3002,
-        "ManifestMissing" => ECode::E3003,
-        "TelemetryGap" => ECode::E4002,
-        "SignatureInvalid" => ECode::E1001,
-        "AdapterIncompatible" => ECode::E6003,
-        _ => ECode::E9001, // Default to OS/env
-    }
-}
-
-// Backward compatible - keep old function signature
-#[deprecated(note = "Use map_aos_error_to_ecode for typed return")]
-pub fn map_aos_error(name: &str) -> &'static str {
-    map_aos_error_to_ecode(name).as_str()
-}
+// NOTE: The legacy string-based AosError mapping functions have been removed.
+// Use the compile-time checked `AosError::ecode()` method instead:
+//
+//   use adapteros_core::errors::{AosError, HasECode};
+//   let error: AosError = ...;
+//   let code = error.ecode();  // Compile-time exhaustive mapping
+//   let recovery = error.recovery_action();  // Get recovery action
+//
+// The unified error registry (adapteros-error-registry) provides:
+// - Compile-time exhaustiveness checking via Rust match
+// - Consistent ECode mappings across all sub-enums
+// - Recovery actions with FixSafety levels
 
 /// Adapter kernel version does not match runtime kernel version
 pub const KERNEL_VERSION_MISMATCH: &str = "E_KERNEL_VERSION_MISMATCH";
@@ -1185,13 +1124,9 @@ mod tests {
         assert!(find_by_code("E9999").is_none());
     }
 
-    #[test]
-    #[allow(deprecated)] // Testing the deprecated function intentionally
-    fn test_find_by_aos_error() {
-        assert!(find_by_aos_error("InvalidHash").is_some());
-        assert!(find_by_aos_error("PolicyViolation").is_some());
-        assert!(find_by_aos_error("Unknown").is_none());
-    }
+    // Note: test_find_by_aos_error removed - function deleted in favor of
+    // compile-time checked AosError::ecode() method from adapteros-error-registry.
+    // See adapteros_core::errors::HasECode trait.
 
     #[test]
     fn test_code_categories() {

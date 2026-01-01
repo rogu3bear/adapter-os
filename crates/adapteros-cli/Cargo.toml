@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 adapteros-config = { path = "../adapteros-config" }
 adapteros-core = { path = "../adapteros-core" }
+adapteros-error-registry = { path = "../adapteros-error-registry" }
 adapteros-manifest = { path = "../adapteros-manifest" }
 adapteros-registry = { path = "../adapteros-registry" }
 adapteros-artifacts = { path = "../adapteros-artifacts" }

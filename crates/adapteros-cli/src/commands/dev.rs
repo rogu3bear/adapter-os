@@ -69,7 +69,9 @@ pub async fn handle_dev_command(cmd: DevCommand, output: &OutputWriter) -> Resul
     info!(command = ?cmd, "Handling dev command");
 
     // Emit telemetry
-    let _ = crate::cli_telemetry::emit_cli_command(&command_name, None, true).await;
+    if let Err(e) = crate::cli_telemetry::emit_cli_command(&command_name, None, true).await {
+        tracing::debug!(error = %e, command = %command_name, "Telemetry emit failed (non-fatal)");
+    }
 
     match cmd {
         DevCommand::Up {

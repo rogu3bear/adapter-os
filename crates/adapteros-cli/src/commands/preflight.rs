@@ -432,7 +432,9 @@ async fn attempt_fixes(
 
         // Attempt fix if available
         if let Some(issue) = fixable {
-            let _ = fixer.try_fix(issue);
+            if let Err(e) = fixer.try_fix(issue) {
+                tracing::debug!(error = %e, check = %result.name, "Auto-fix attempt failed (non-fatal)");
+            }
         }
     }
 

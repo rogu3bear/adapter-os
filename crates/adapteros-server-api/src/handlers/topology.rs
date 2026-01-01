@@ -10,7 +10,7 @@ use axum::{
 };
 use serde::Deserialize;
 use std::collections::HashMap;
-use tracing::{debug, warn};
+use tracing::{debug, error, warn};
 
 #[derive(Debug, Deserialize)]
 pub struct TopologyQuery {
@@ -139,15 +139,49 @@ fn should_skip_adapter(adapter: &adapteros_db::adapters::Adapter) -> bool {
 }
 
 fn parse_languages(raw: Option<&str>) -> Vec<usize> {
-    raw.and_then(|json| serde_json::from_str::<Vec<usize>>(json).ok())
-        .unwrap_or_default()
+    raw.and_then(|json| {
+        serde_json::from_str::<Vec<usize>>(json)
+            .map_err(|e| {
+                error!(
+                    target: "api.topology",
+                    error = %e,
+                    json = %json,
+                    "Failed to parse languages JSON"
+                );
+                e
+            })
+            .ok()
+    })
+    .unwrap_or_default()
 }
 
 fn parse_reasoning_specialties(raw: Option<&str>) -> Vec<String> {
-    raw.and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
-        .and_then(|val| val.get("reasoning_specialties").cloned())
-        .and_then(|value| serde_json::from_value::<Vec<String>>(value).ok())
-        .unwrap_or_default()
+    raw.and_then(|json| {
+        serde_json::from_str::<serde_json::Value>(json)
+            .map_err(|e| {
+                error!(
+                    target: "api.topology",
+                    error = %e,
+                    "Failed to parse metadata JSON for reasoning specialties"
+                );
+                e
+            })
+            .ok()
+    })
+    .and_then(|val| val.get("reasoning_specialties").cloned())
+    .and_then(|value| {
+        serde_json::from_value::<Vec<String>>(value.clone())
+            .map_err(|e| {
+                error!(
+                    target: "api.topology",
+                    error = %e,
+                    "Failed to parse reasoning_specialties array"
+                );
+                e
+            })
+            .ok()
+    })
+    .unwrap_or_default()
 }
 
 fn adapter_to_router_info(adapter: &adapteros_db::adapters::Adapter) -> AdapterInfo {
@@ -257,9 +291,47 @@ async fn load_router_cfg(state: &AppState) -> RouterCfg {
 }
 
 async fn load_default_stack(state: &AppState, tenant_id: &str) -> Option<(String, Vec<String>)> {
-    let stack_id = state.db.get_default_stack(tenant_id).await.ok().flatten()?;
-    let stack = state.db.get_stack(tenant_id, &stack_id).await.ok()??;
-    let adapter_ids = serde_json::from_str(&stack.adapter_ids_json).unwrap_or_default();
+    let stack_id = state
+        .db
+        .get_default_stack(tenant_id)
+        .await
+        .map_err(|e| {
+            error!(
+                target: "api.topology",
+                error = %e,
+                tenant_id = %tenant_id,
+                "Failed to get default stack"
+            );
+            e
+        })
+        .ok()
+        .flatten()?;
+    let stack = state
+        .db
+        .get_stack(tenant_id, &stack_id)
+        .await
+        .map_err(|e| {
+            error!(
+                target: "api.topology",
+                error = %e,
+                tenant_id = %tenant_id,
+                stack_id = %stack_id,
+                "Failed to get stack"
+            );
+            e
+        })
+        .ok()??;
+    let adapter_ids = serde_json::from_str(&stack.adapter_ids_json)
+        .map_err(|e| {
+            error!(
+                target: "api.topology",
+                error = %e,
+                stack_id = %stack.id,
+                "Failed to parse adapter_ids_json"
+            );
+            e
+        })
+        .unwrap_or_default();
     Some((stack.id, adapter_ids))
 }
 

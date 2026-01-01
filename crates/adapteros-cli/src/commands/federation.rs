@@ -51,7 +51,9 @@ pub async fn handle_federation_command(
     info!(command = ?cmd, "Handling federation command");
 
     // Emit telemetry
-    let _ = crate::cli_telemetry::emit_cli_command(command_name, None, true).await;
+    if let Err(e) = crate::cli_telemetry::emit_cli_command(command_name, None, true).await {
+        tracing::debug!(error = %e, command = %command_name, "Telemetry emit failed (non-fatal)");
+    }
 
     match cmd {
         FederationCommand::Verify {

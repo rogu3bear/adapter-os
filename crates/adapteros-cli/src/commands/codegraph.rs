@@ -115,7 +115,9 @@ pub async fn handle_codegraph_command(cmd: CodegraphCommand, output: &OutputWrit
     let command_name = get_codegraph_command_name(&cmd);
 
     // Emit telemetry for command execution
-    let _ = crate::cli_telemetry::emit_cli_command(command_name, None, true).await;
+    if let Err(e) = crate::cli_telemetry::emit_cli_command(command_name, None, true).await {
+        tracing::debug!(error = %e, command = %command_name, "Telemetry emit failed (non-fatal)");
+    }
 
     match cmd {
         CodegraphCommand::Export {

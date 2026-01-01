@@ -523,7 +523,7 @@ impl InferencePipeline {
         stage: &str,
         chain: &PolicyDecisionChain,
     ) {
-        let _ = self.telemetry.log(
+        if let Err(e) = self.telemetry.log(
             "policy.decision_chain",
             serde_json::json!({
                 "cpid": request.cpid,
@@ -534,7 +534,13 @@ impl InferencePipeline {
                 "warnings": chain.validation.warnings,
                 "decisions": chain.decisions,
             }),
-        );
+        ) {
+            debug!(
+                target: "telemetry",
+                error = %e,
+                "Telemetry emit failed (non-fatal)"
+            );
+        }
     }
 
     fn emit_policy_violation_event(&self, request: &InferenceRequest, stage: &str, reason: &str) {
@@ -546,7 +552,7 @@ impl InferencePipeline {
             Some(request.cpid.clone()),
         );
         emit_observability_event(&event);
-        let _ = self.telemetry.log(
+        if let Err(e) = self.telemetry.log(
             "policy.violation",
             serde_json::json!({
                 "cpid": request.cpid,
@@ -555,7 +561,13 @@ impl InferencePipeline {
                 "stack_id": request.stack_id,
                 "stack_version": request.stack_version,
             }),
-        );
+        ) {
+            debug!(
+                target: "telemetry",
+                error = %e,
+                "Telemetry emit failed (non-fatal)"
+            );
+        }
     }
 
     fn apply_abstain_context(&mut self, request: &InferenceRequest, prompt_hash: &B3Hash) {
@@ -580,7 +592,7 @@ impl InferencePipeline {
     ) -> AosError {
         let msg = "Router abstained due to policy thresholds";
         self.emit_policy_violation_event(request, stage, msg);
-        let _ = self.telemetry.log(
+        if let Err(e) = self.telemetry.log(
             "policy.abstain",
             serde_json::json!({
                 "cpid": request.cpid,
@@ -588,7 +600,13 @@ impl InferencePipeline {
                 "step": step,
                 "events": events,
             }),
-        );
+        ) {
+            debug!(
+                target: "telemetry",
+                error = %e,
+                "Telemetry emit failed (non-fatal)"
+            );
+        }
         AosError::PolicyViolation(msg.to_string())
     }
 
@@ -930,7 +948,13 @@ impl InferencePipeline {
                 model_type: adapteros_types::routing::RouterModelType::Dense,
                 active_experts: None,
             };
-            let _ = self.telemetry.log_router_decision(router_event);
+            if let Err(e) = self.telemetry.log_router_decision(router_event) {
+                debug!(
+                    target: "telemetry",
+                    error = %e,
+                    "Telemetry emit failed (non-fatal)"
+                );
+            }
 
             let _entropy = self.calculate_gate_entropy(&decision.gates_q15);
 
@@ -963,7 +987,7 @@ impl InferencePipeline {
 
             // 9. Record telemetry (sampled)
             if step < 128 || (step % 20 == 0) {
-                let _ = self.telemetry.log(
+                if let Err(e) = self.telemetry.log(
                     "inference.step",
                     serde_json::json!({
                         "cpid": request.cpid,
@@ -972,7 +996,13 @@ impl InferencePipeline {
                         "kernel_latency_us": kernel_latency.as_micros(),
                         "adapters": decision.indices.to_vec(),
                     }),
-                );
+                ) {
+                    debug!(
+                        target: "telemetry",
+                        error = %e,
+                        "Telemetry emit failed (non-fatal)"
+                    );
+                }
             }
 
             // 10. Record canonical router decision
@@ -1098,7 +1128,7 @@ impl InferencePipeline {
             }
         }
 
-        let _ = self.telemetry.log(
+        if let Err(e) = self.telemetry.log(
             "inference.complete",
             serde_json::json!({
                 "cpid": request.cpid,
@@ -1106,7 +1136,13 @@ impl InferencePipeline {
                 "generated_tokens": generated_tokens.len(),
                 "latency_ms": latency.as_millis(),
             }),
-        );
+        ) {
+            debug!(
+                target: "telemetry",
+                error = %e,
+                "Telemetry emit failed (non-fatal)"
+            );
+        }
 
         info!(
             "Streaming inference complete: generated {} tokens in {}ms",
@@ -1378,7 +1414,13 @@ impl InferencePipeline {
                 model_type: adapteros_types::routing::RouterModelType::Dense,
                 active_experts: None,
             };
-            let _ = self.telemetry.log_router_decision(router_event);
+            if let Err(e) = self.telemetry.log_router_decision(router_event) {
+                debug!(
+                    target: "telemetry",
+                    error = %e,
+                    "Telemetry emit failed (non-fatal)"
+                );
+            }
 
             // 6. Check policy: entropy floor (Router Ruleset #7)
             // Inline enforcement happens before kernel execution via policy engine + abstain checks.
@@ -1424,7 +1466,7 @@ impl InferencePipeline {
 
             // 9. Record telemetry (sampled)
             if step < 128 || (step % 20 == 0) {
-                let _ = self.telemetry.log(
+                if let Err(e) = self.telemetry.log(
                     "inference.step",
                     serde_json::json!({
                         "cpid": request.cpid,
@@ -1433,7 +1475,13 @@ impl InferencePipeline {
                         "kernel_latency_us": kernel_latency.as_micros(),
                         "adapters": decision.indices.to_vec(),
                     }),
-                );
+                ) {
+                    debug!(
+                        target: "telemetry",
+                        error = %e,
+                        "Telemetry emit failed (non-fatal)"
+                    );
+                }
             }
 
             // 10. Record canonical router decision
@@ -1527,7 +1575,7 @@ impl InferencePipeline {
         }
 
         // 15. Log final telemetry
-        let _ = self.telemetry.log(
+        if let Err(e) = self.telemetry.log(
             "inference.complete",
             serde_json::json!({
                 "cpid": request.cpid,
@@ -1535,7 +1583,13 @@ impl InferencePipeline {
                 "generated_tokens": generated_tokens.len(),
                 "latency_ms": latency.as_millis(),
             }),
-        );
+        ) {
+            debug!(
+                target: "telemetry",
+                error = %e,
+                "Telemetry emit failed (non-fatal)"
+            );
+        }
 
         info!(
             "Inference complete: generated {} tokens in {}ms",
@@ -1638,7 +1692,7 @@ impl InferencePipeline {
         reason: &str,
         fallback: &str,
     ) {
-        let _ = self.telemetry.log(
+        if let Err(e) = self.telemetry.log(
             "policy.blocked_transition",
             serde_json::json!({
                 "cpid": request.cpid,
@@ -1654,7 +1708,13 @@ impl InferencePipeline {
                     })
                 }),
             }),
-        );
+        ) {
+            debug!(
+                target: "telemetry",
+                error = %e,
+                "Telemetry emit failed (non-fatal)"
+            );
+        }
     }
 
     /// Batch inference for multiple prompts
