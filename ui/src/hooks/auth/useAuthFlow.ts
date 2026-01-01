@@ -197,6 +197,27 @@ export function useAuthFlow(): UseAuthFlowReturn {
     }
   }, [health.isReady, state.status, loadConfig]);
 
+  // Auto-trigger dev bypass when config indicates it's allowed
+  const autoBypassTriggeredRef = useRef(false);
+  useEffect(() => {
+    if (state.status !== 'ready') return;
+    const config = state.config;
+    if (
+      config?.dev_bypass_allowed &&
+      devBypassFlagEnabled &&
+      !autoBypassTriggeredRef.current
+    ) {
+      autoBypassTriggeredRef.current = true;
+      logger.info('Auto-triggering dev bypass (server has dev_bypass_allowed=true)', {
+        component: 'useAuthFlow',
+      });
+      // Trigger dev bypass login
+      devBypassLogin().catch((err) => {
+        logger.error('Auto dev bypass failed', { component: 'useAuthFlow' }, toError(err));
+      });
+    }
+  }, [state, devBypassFlagEnabled, devBypassLogin]);
+
   // Handle login
   const login = useCallback(
     async (credentials: LoginCredentials) => {
