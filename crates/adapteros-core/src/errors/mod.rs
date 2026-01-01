@@ -28,6 +28,8 @@
 //! 4. **No trailing periods**: Error strings should not end with periods
 //! 5. **Be specific and actionable**: Include enough context to debug
 
+pub use adapteros_error_registry::{ECode, HasECode, RecoveryAction};
+
 pub mod adapter;
 pub mod auth;
 pub mod crypto;
@@ -394,6 +396,43 @@ impl AosError {
             AosError::WithContext { source, .. } => source.root_cause(),
             other => other,
         }
+    }
+
+    /// Get the error code for this error (compile-time exhaustive on sub-enums)
+    ///
+    /// This delegates to each categorical sub-enum's `ecode()` method, ensuring
+    /// that the mapping is compile-time exhaustive within each category.
+    pub fn ecode(&self) -> ECode {
+        match self {
+            // Delegate to sub-enum ecode() methods where implemented
+            AosError::Crypto(e) => e.ecode(),
+            AosError::Policy(e) => e.ecode(),
+            AosError::Resource(e) => e.ecode(),
+
+            // Sub-enums without ecode() yet - use sensible defaults
+            AosError::Network(_) => ECode::E7001, // Node/Cluster
+            AosError::Storage(_) => ECode::E8003, // Database
+            AosError::Adapter(_) => ECode::E6001, // Adapters
+            AosError::Model(_) => ECode::E3004,   // Kernels/Build
+            AosError::Validation(_) => ECode::E8001, // Config
+            AosError::Auth(_) => ECode::E2002,    // Policy (auth is security)
+            AosError::Operations(_) => ECode::E7002, // Node/Cluster
+            AosError::Internal(_) => ECode::E9001, // OS/Environment
+
+            // WithContext: delegate to the wrapped error
+            AosError::WithContext { source, .. } => source.ecode(),
+        }
+    }
+
+    /// Get the recovery action for this error
+    pub fn recovery_action(&self) -> RecoveryAction {
+        self.ecode().recovery_action()
+    }
+}
+
+impl HasECode for AosError {
+    fn ecode(&self) -> ECode {
+        AosError::ecode(self)
     }
 }
 

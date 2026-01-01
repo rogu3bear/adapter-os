@@ -62,6 +62,7 @@ pub mod plugins;
 pub mod policy;
 pub mod prefix_kv_key;
 pub mod preflight;
+pub mod recovery;
 pub mod redaction;
 pub mod retry_policy;
 pub mod seed;
@@ -219,5 +220,11 @@ pub mod prelude {
         TransitionReason, VersionInfo, WorkerStatus, WorkerStatusTransition, BYTES_PER_GB,
         BYTES_PER_KB, BYTES_PER_MB, CPID, DEFAULT_TIMEOUT_SECS, DETERMINISM_VIOLATION_METRIC,
         SLOW_TIMEOUT_SECS,
+    };
+
+    // Recovery orchestrator types
+    pub use crate::recovery::{
+        FallbackConfig, RecoveryClassifier, RecoveryConfig, RecoveryError, RecoveryOrchestrator,
+        RecoveryOrchestratorBuilder, RecoveryOutcome, RecoveryStats,
     };
 }

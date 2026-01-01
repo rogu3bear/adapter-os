@@ -9,6 +9,7 @@
 //! - Thread pool saturation
 //! - GPU unavailability
 
+use adapteros_error_registry::ECode;
 use thiserror::Error;
 
 /// Resource management errors
@@ -162,6 +163,22 @@ impl AosResourceError {
                 restart_imminent, ..
             } => !*restart_imminent,
             _ => true,
+        }
+    }
+
+    /// Get the error code for this resource error (compile-time exhaustive)
+    pub const fn ecode(&self) -> ECode {
+        match self {
+            Self::Exhaustion(_) => ECode::E9001,
+            Self::MemoryPressure(_) => ECode::E9001,
+            Self::Memory(_) => ECode::E9001,
+            Self::QuotaExceeded { .. } => ECode::E9001,
+            Self::Unavailable(_) => ECode::E9003,
+            Self::CpuThrottled { .. } => ECode::E9005,
+            Self::OutOfMemory { .. } => ECode::E9006,
+            Self::FileDescriptorExhausted { .. } => ECode::E9007,
+            Self::ThreadPoolSaturated { .. } => ECode::E9008,
+            Self::GpuUnavailable { .. } => ECode::E9009,
         }
     }
 }
