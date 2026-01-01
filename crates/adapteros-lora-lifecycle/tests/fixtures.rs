@@ -469,7 +469,6 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    #[ignore = "Pending Db::ping method implementation [tracking: STAB-IGN-0030]"]
     async fn test_fixture_creation() {
         let _fixture = TestDbFixture::new().await;
         // Note: Db::ping() method doesn't exist, would need to be added
@@ -477,7 +476,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "Pending fixture API refactoring [tracking: STAB-IGN-0031]"]
     async fn test_single_unloaded_fixture() {
         let fixture = TestDbFixture::new().await;
         let adapter_id = fixtures::single_unloaded(fixture.db()).await;
@@ -488,7 +486,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "Pending fixture API refactoring [tracking: STAB-IGN-0032]"]
     async fn test_multi_state_fixture() {
         let fixture = TestDbFixture::new().await;
         let (cold, warm, hot) = fixtures::multi_state_lifecycle(fixture.db()).await;
@@ -503,7 +500,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "Pending fixture API refactoring [tracking: STAB-IGN-0033]"]
     async fn test_parallel_fixture_isolation() {
         // Two tests running in parallel should have independent databases
         let fixture1 = TestDbFixture::new().await;
