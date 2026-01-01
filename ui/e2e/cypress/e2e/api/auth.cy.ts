@@ -1,6 +1,6 @@
 // Authentication API Tests
 import '../../support/commands';
-import { getApiBaseUrl, getTestCredentials, validateLoginResponse, validateErrorResponse } from '../../../support/api-helpers';
+import { getApiBaseUrl, getTestCredentials, validateLoginResponse, validateErrorResponse } from '../../support/api-helpers';
 
 describe('Authentication API', () => {
   const apiBaseRoot = getApiBaseUrl().replace(/\/$/, '');

@@ -1492,6 +1492,29 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/v1/datasets/{dataset_id}/versions/{revision}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a specific dataset version by ID or revision number.
+         * @description The `revision` parameter can be:
+         *     - A version ID (UUID string)
+         *     - A version number (integer, e.g., "1", "2", "latest")
+         *     - "latest" to get the most recent version
+         */
+        get: operations["get_dataset_version"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/datasets/{dataset_id}/versions/{version_id}/safety": {
         parameters: {
             query?: never;
@@ -1520,6 +1543,27 @@ export type paths = {
         put?: never;
         /** Apply trust override to a specific dataset version */
         post: operations["apply_dataset_version_trust_override"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/datasets/by-codebase/{codebase_id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List dataset versions by codebase source location.
+         * @description This endpoint finds the dataset associated with a codebase (by source_location)
+         *     and returns all its versions. Useful for codebase adapter workflows.
+         */
+        get: operations["list_versions_by_codebase"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1555,7 +1599,24 @@ export type paths = {
             cookie?: never;
         };
         get?: never;
-        put?: never;
+        /**
+         * Retry uploading a specific chunk (for failed or corrupted chunks)
+         * @description This endpoint allows re-uploading a chunk that may have failed or been corrupted.
+         *     Unlike the regular upload_chunk endpoint, this allows overwriting an existing chunk.
+         *     Optionally, the client can provide an expected hash for validation.
+         *
+         *     ## Use Cases
+         *     - Network failure during chunk upload
+         *     - Chunk corruption detected during validation
+         *     - Resume after partial failure
+         *
+         *     ## Error Cases
+         *     - 404: Session not found or expired
+         *     - 400: Invalid chunk index or hash mismatch
+         *     - 413: Chunk size exceeds the session's configured chunk size
+         *     - 500: Failed to write chunk to disk
+         */
+        put: operations["retry_chunk"];
         /**
          * Upload a single chunk for a chunked upload session
          * @description This endpoint receives a single chunk of data for an ongoing chunked upload.
@@ -1626,6 +1687,30 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/v1/datasets/chunked-upload/cleanup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Trigger cleanup of expired upload sessions
+         * @description Manually triggers the cleanup of expired upload sessions and their
+         *     temporary files. This is normally done automatically by a background
+         *     task every hour, but can be triggered manually for immediate cleanup.
+         *
+         *     Requires admin permission.
+         */
+        post: operations["cleanup_expired_sessions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/datasets/chunked-upload/initiate": {
         parameters: {
             query?: never;
@@ -1637,6 +1722,33 @@ export type paths = {
         put?: never;
         /** Initiate a chunked upload for files > 10MB */
         post: operations["initiate_chunked_upload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/datasets/chunked-upload/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List all active chunked upload sessions
+         * @description Returns a summary of all active upload sessions. This is useful for
+         *     monitoring upload progress and identifying stale/abandoned sessions.
+         *     Requires DatasetView permission.
+         *
+         *     ## Response
+         *     - List of session summaries with progress information
+         *     - Total count and maximum allowed sessions
+         *     - Expired session indicators
+         */
+        get: operations["list_upload_sessions"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -4805,12 +4917,18 @@ export type components = {
          */
         AdapterResponse: {
             adapter_id: string;
+            /** @description Adapter classification: "standard" (portable), "codebase" (stream-scoped), "core" (baseline) */
+            adapter_type?: string | null;
             /** @description Assurance tier for drift/determinism (low|standard|high) */
             assurance_tier?: string | null;
+            /** @description Base adapter ID for codebase adapters (the core adapter they extend as delta) */
+            base_adapter_id?: string | null;
             /** @description Adapter category: 'code', 'framework', 'codebase', or 'ephemeral' */
             category?: string | null;
             /** @description Git commit SHA */
             commit_sha?: string | null;
+            /** @description BLAKE3 hash of fused CoreML package for deployment verification */
+            coreml_package_hash?: string | null;
             created_at: string;
             /** @description Whether the adapter was deduplicated (found existing instead of creating new) */
             deduplicated?: boolean | null;
@@ -4850,8 +4968,7 @@ export type components = {
              * @description Runtime strength multiplier (scales LoRA application without changing alpha)
              */
             lora_strength?: number | null;
-            /** @description Marketing/operational tier for routing (micro/standard/max) */
-            lora_tier?: string;
+            lora_tier?: null | components["schemas"]["LoraTier"];
             /**
              * Format: int64
              * @description Memory usage in bytes
@@ -4873,11 +4990,18 @@ export type components = {
             /** @description Adapter scope: 'global', 'tenant', 'repo', or 'commit' */
             scope?: string | null;
             stats?: null | components["schemas"]["AdapterStats"];
+            /** @description Exclusive session binding for codebase adapters */
+            stream_session_id?: string | null;
             /** @description Storage tier: 'persistent', 'warm', or 'ephemeral' */
             tier: string;
             updated_at?: string | null;
             /** @description Adapter version from migration 0068 (semantic or monotonic) */
             version: string;
+            /**
+             * Format: int32
+             * @description Activation threshold for auto-versioning (default: 100)
+             */
+            versioning_threshold?: number | null;
         };
         /** @description Adapter score */
         AdapterScore: {
@@ -5324,9 +5448,10 @@ export type components = {
          *
          *     All user- and config-facing backend strings must parse through this type so
          *     we have a single source of truth (and error messages) for CoreML, MLX,
-         *     Metal, CPU, and Auto detection. CoreML is treated as a first-class option
-         *     (including ANE) and `Auto` preserves the current behavior of "pick the best
-         *     available backend" without changing defaults for existing callers.
+         *     Metal, CPU, and Auto detection. MLX is the primary backend for its
+         *     flexibility and HKDF-seeded determinism, with CoreML as a high-performance
+         *     fallback when ANE acceleration is preferred. `Auto` preserves the current
+         *     behavior of "pick the best available backend".
          * @enum {string}
          */
         BackendKind: BackendKind;
@@ -5759,6 +5884,10 @@ export type components = {
         };
         /** @description Chat session record */
         ChatSession: {
+            /** @description Timestamp when session was archived (if applicable) */
+            archived_at?: string | null;
+            /** @description Exclusive codebase adapter bound to this session (from migration 0262) */
+            codebase_adapter_id?: string | null;
             collection_id?: string | null;
             created_at: string;
             created_by?: string | null;
@@ -5772,6 +5901,8 @@ export type components = {
             source_ref_id?: string | null;
             source_type?: string | null;
             stack_id?: string | null;
+            /** @description Session lifecycle status: active, archived, or deleted */
+            status?: string | null;
             tags_json?: string | null;
             tenant_id: string;
             title?: string | null;
@@ -5861,6 +5992,23 @@ export type components = {
             id: string;
             version: string;
         };
+        /** @description Response for listing versions by codebase */
+        CodebaseVersionsResponse: {
+            /** @description The canonical codebase identifier (normalized repo identifier or source location) */
+            codebase_id: string;
+            /** @description Dataset ID if a codebase dataset exists */
+            dataset_id?: string | null;
+            /** @description Repository slug for identifying the source repository (e.g., "org/repo-name") */
+            repo_slug?: string | null;
+            schema_version?: string;
+            /**
+             * Format: int64
+             * @description Total count of versions (for pagination)
+             */
+            total_count: number;
+            /** @description List of versions for this codebase */
+            versions: components["schemas"]["DatasetVersionSummary"][];
+        };
         /** @description Collection detail response (includes documents) */
         CollectionDetailResponse: {
             collection_id: string;
@@ -5935,6 +6083,8 @@ export type components = {
             format?: string;
             /** @description Dataset name (optional, defaults to file name) */
             name?: string | null;
+            /** @description Optional workspace ID for tenant isolation (should match initiate request) */
+            workspace_id?: string | null;
         };
         /** @description Response from completing a chunked upload */
         CompleteChunkedUploadResponse: {
@@ -5942,7 +6092,9 @@ export type components = {
             created_at: string;
             /** @description Created dataset ID */
             dataset_id: string;
-            /** @description Final BLAKE3 hash of assembled file */
+            /** @description The dataset version ID created for this upload */
+            dataset_version_id?: string | null;
+            /** @description Dataset hash (manifest-derived BLAKE3) */
             hash: string;
             /** @description Dataset name */
             name: string;
@@ -5953,6 +6105,8 @@ export type components = {
              * @description Total file size in bytes
              */
             total_size_bytes: number;
+            /** @description Workspace ID if dataset was scoped to a workspace */
+            workspace_id?: string | null;
         };
         /** @description Component readiness with optional metadata. */
         ComponentCheck: {
@@ -6383,6 +6537,31 @@ export type components = {
          * @enum {string}
          */
         DatasetValidationStatus: DatasetValidationStatus;
+        /** @description Response for a single dataset version with full details */
+        DatasetVersionDetailResponse: {
+            anomaly_status: string;
+            created_at: string;
+            created_by?: string | null;
+            dataset_id: string;
+            dataset_version_id: string;
+            hash_b3: string;
+            leak_status: string;
+            locked_at?: string | null;
+            manifest_path?: string | null;
+            overall_safety_status: string;
+            overall_trust_status: string;
+            pii_status: string;
+            schema_version?: string;
+            sensitivity?: string | null;
+            storage_path: string;
+            toxicity_status: string;
+            trust_state: string;
+            validation_errors?: string[] | null;
+            validation_status: string;
+            version_label?: string | null;
+            /** Format: int64 */
+            version_number: number;
+        };
         /** @description Dataset version selector with optional sampling weight (API surface). */
         DatasetVersionSelection: {
             dataset_version_id: string;
@@ -6400,6 +6579,8 @@ export type components = {
             created_at: string;
             dataset_version_id: string;
             hash_b3?: string | null;
+            /** @description Repository slug for identifying the source repository (e.g., "org/repo-name") */
+            repo_slug?: string | null;
             storage_path?: string | null;
             /** @description Effective trust_state for this version (includes overrides) */
             trust_state?: string | null;
@@ -6925,6 +7106,11 @@ export type components = {
             expected_state_hash?: string | null;
             tenant_id: string;
         };
+        /** @description Simple ID response for ingestion endpoints */
+        IdResponse: {
+            /** @description Created resource ID */
+            id: string;
+        };
         ImportModelRequest: {
             backend: string;
             capabilities?: string[] | null;
@@ -6983,17 +7169,12 @@ export type components = {
         InferenceReadyState: InferenceReadyState;
         /** @description Inference trace for observability */
         InferenceTrace: {
-            /** @description Flattened expert IDs per token for quick visualization */
-            active_experts?: number[][] | null;
             adapters_used: string[];
-            /** @description Per-token expert routing data (layer_idx, expert_id) for MoE models */
-            expert_routing?: number[][][] | null;
             /** @description Fusion intervals and fused tensor hashes for determinism evidence */
             fusion_intervals?: components["schemas"]["FusionIntervalTrace"][] | null;
             /** Format: int64 */
             latency_ms: number;
             model_type?: null | components["schemas"]["RouterModelType"];
-            moe_info?: null | components["schemas"]["MoEInfo"];
             router_decision_chain?: components["schemas"]["RouterDecisionChainEntry"][] | null;
             router_decisions: components["schemas"]["RouterDecision"][];
         };
@@ -7172,6 +7353,8 @@ export type components = {
              * @description Total file size in bytes
              */
             total_size: number;
+            /** @description Optional workspace ID for tenant isolation */
+            workspace_id?: string | null;
         };
         /** @description Response from initiating a chunked upload */
         InitiateChunkedUploadResponse: {
@@ -7371,6 +7554,15 @@ export type components = {
             source_type?: string | null;
             user_id?: string | null;
         };
+        /** @description Response for listing upload sessions */
+        ListUploadSessionsResponse: {
+            /** @description Maximum allowed concurrent sessions */
+            max_sessions: number;
+            /** @description List of active upload sessions */
+            sessions: components["schemas"]["UploadSessionSummary"][];
+            /** @description Total number of active sessions */
+            total_count: number;
+        };
         /** @description Load average information */
         LoadAverageInfo: {
             /** Format: double */
@@ -7426,6 +7618,16 @@ export type components = {
             /** Format: int32 */
             lines?: number;
         };
+        /**
+         * @description LoRA adapter tier for routing and UI badges.
+         *
+         *     # OpenAPI
+         *
+         *     This enum is exposed in the OpenAPI schema with proper enum constraints
+         *     rather than as a plain string type. Valid values: `micro`, `standard`, `max`.
+         * @enum {string}
+         */
+        LoraTier: LoraTier;
         /** @enum {string} */
         MaintenanceScope: MaintenanceScope;
         MaintenanceSection: {
@@ -7724,15 +7926,6 @@ export type components = {
             training_job_count: number;
             updated_at?: string | null;
         };
-        /** @description MoE (Mixture of Experts) model information */
-        MoEInfo: {
-            /** @description Number of experts activated per token */
-            experts_per_token: number;
-            /** @description Whether the underlying model is MoE */
-            is_moe: boolean;
-            /** @description Total number of experts available */
-            num_experts: number;
-        };
         /** @description Node detail response with complete node information */
         NodeDetailResponse: {
             adapters_loaded: string[];
@@ -7817,6 +8010,13 @@ export type components = {
             total_count: number;
             /** Format: int64 */
             unread_count: number;
+        };
+        /** @description Response for not-implemented endpoints */
+        NotImplementedResponse: {
+            /** @description Description message */
+            message: string;
+            /** @description Status indicating not implemented */
+            status: string;
         };
         /** @description Paginated response wrapper */
         PaginatedResponse_CollectionResponse: {
@@ -8425,6 +8625,32 @@ export type components = {
             restart_counter: number;
             supervisor_hook_configured: boolean;
         };
+        /** @description Query parameters for retrying a chunk upload */
+        RetryChunkQuery: {
+            /** @description Index of the chunk to retry (0-based) */
+            chunk_index: number;
+            /** @description Expected hash for validation (optional) */
+            expected_hash?: string | null;
+        };
+        /** @description Response from retrying a chunk upload */
+        RetryChunkResponse: {
+            /** @description BLAKE3 hash of the new chunk */
+            chunk_hash: string;
+            /** @description Chunk index that was retried */
+            chunk_index: number;
+            /** @description Total chunks received so far */
+            chunks_received: number;
+            /** @description Total expected chunks */
+            expected_chunks: number;
+            /** @description Is upload complete (all chunks received)? */
+            is_complete: boolean;
+            /** @description Previous hash if this was replacing an existing chunk */
+            previous_hash?: string | null;
+            /** @description Session ID */
+            session_id: string;
+            /** @description Whether this was actually a retry (chunk existed before) */
+            was_retry: boolean;
+        };
         RollbackRequest: {
             reason: string;
         };
@@ -8479,8 +8705,6 @@ export type components = {
         };
         /** @description Router decision at a specific position (canonical schema) */
         RouterDecision: {
-            /** @description Active experts used for this token when running an MoE model */
-            active_experts?: number[] | null;
             allowed_mask?: boolean[] | null;
             candidate_adapters: components["schemas"]["RouterCandidate"][];
             /** Format: float */
@@ -8490,7 +8714,7 @@ export type components = {
             /** Format: int32 */
             input_token_id?: number | null;
             interval_id?: string | null;
-            /** @description Model type for this decision (dense vs MoE) */
+            /** @description Model type for this decision */
             model_type?: components["schemas"]["RouterModelType"];
             policy_mask_digest_b3?: string;
             policy_overrides_applied?: null | components["schemas"]["PolicyOverrideFlags"];
@@ -8647,6 +8871,11 @@ export type components = {
         /** @description Response containing routing decisions */
         RoutingDecisionsResponse: {
             items: components["schemas"]["RoutingDecisionResponse"][];
+        };
+        /** @description Empty routing history response (placeholder) */
+        RoutingHistoryResponse: {
+            /** @description History entries (currently empty) */
+            entries: unknown[];
         };
         /**
          * @description Routing policy configuration
@@ -9142,8 +9371,7 @@ export type components = {
             hyperparameters?: string | null;
             /** @description Programming language (for code adapters) */
             language?: string | null;
-            /** @description Marketing/operational tier for routing and UI badges (micro/standard/max) */
-            lora_tier?: string;
+            lora_tier?: null | components["schemas"]["LoraTier"];
             post_actions?: null | components["schemas"]["PostActionsRequest"];
             repo_id?: string | null;
             /** @description Repository scope (for codebase adapters) */
@@ -9757,9 +9985,31 @@ export type components = {
             adapter_repo_id?: string | null;
             adapter_version_id?: string | null;
             aos_path?: string | null;
-            /** @description Alias of `package_hash_b3` for clients expecting an "artifact hash" surface. */
+            /**
+             * @deprecated
+             * @description Alias of `package_hash_b3` for clients expecting an "artifact hash" surface.
+             *
+             *     **Deprecated since 1.0.0**: Use `package_hash_b3` instead.
+             *     - **Removal timeline**: Will be removed in version 2.0.0 (see [`DEPRECATED_FIELD_SUNSET_VERSION`]).
+             *     - **Migration**: Replace `artifact_hash_b3` references with `package_hash_b3`.
+             *     - Both fields currently return the same value for backward compatibility.
+             *
+             *     # OpenAPI
+             *     This field is marked deprecated in the OpenAPI schema.
+             */
             artifact_hash_b3?: string | null;
-            /** @description Alias of `aos_path` for clients expecting an "artifact path" surface. */
+            /**
+             * @deprecated
+             * @description Alias of `aos_path` for clients expecting an "artifact path" surface.
+             *
+             *     **Deprecated since 1.0.0**: Use `aos_path` instead.
+             *     - **Removal timeline**: Will be removed in version 2.0.0 (see [`DEPRECATED_FIELD_SUNSET_VERSION`]).
+             *     - **Migration**: Replace `artifact_path` references with `aos_path`.
+             *     - Both fields currently return the same value for backward compatibility.
+             *
+             *     # OpenAPI
+             *     This field is marked deprecated in the OpenAPI schema.
+             */
             artifact_path?: string | null;
             backend?: string | null;
             backend_device?: string | null;
@@ -9788,10 +10038,26 @@ export type components = {
             coreml_package_path?: string | null;
             coreml_training_fallback?: string | null;
             created_at: string;
-            /** Format: int32 */
-            current_epoch: number;
-            /** Format: float */
-            current_loss: number;
+            /**
+             * Format: int32
+             * @description Current training epoch (0-indexed).
+             *     None if progress data is not yet available.
+             *
+             *     # Serialization Behavior
+             *     - On serialization: Omitted when `None` (via `skip_serializing_if`)
+             *     - On deserialization: Absent fields deserialize to `None` (via `#[serde(default)]`)
+             */
+            current_epoch?: number | null;
+            /**
+             * Format: float
+             * @description Current training loss value.
+             *     None if progress data is not yet available.
+             *
+             *     # Serialization Behavior
+             *     - On serialization: Omitted when `None` (via `skip_serializing_if`)
+             *     - On deserialization: Absent fields deserialize to `None` (via `#[serde(default)]`)
+             */
+            current_loss?: number | null;
             data_lineage_mode?: null | components["schemas"]["DataLineageMode"];
             data_spec?: string | null;
             data_spec_hash?: string | null;
@@ -9820,12 +10086,16 @@ export type components = {
             id: string;
             /** @description Programming language */
             language?: string | null;
-            /** Format: float */
+            /**
+             * Format: float
+             * @description Current learning rate
+             */
             learning_rate: number;
-            /** @description Marketing/operational tier for routing and UI badges (micro/standard/max) */
-            lora_tier?: string;
+            lora_tier?: null | components["schemas"]["LoraTier"];
             manifest_base_model?: string | null;
             manifest_hash_b3?: string | null;
+            /** @description Indicates the source of manifest_hash_b3: "manifest" or "package_fallback" */
+            manifest_hash_source?: string | null;
             manifest_per_layer_hashes?: boolean | null;
             /** Format: int32 */
             manifest_rank?: number | null;
@@ -9836,8 +10106,16 @@ export type components = {
             /** Format: float */
             peak_gpu_memory_mb?: number | null;
             produced_version_id?: string | null;
-            /** Format: float */
-            progress_pct: number;
+            /**
+             * Format: float
+             * @description Training progress percentage (0.0-100.0).
+             *     None if progress data is not yet available (distinguishes from 0% progress).
+             *
+             *     # Serialization Behavior
+             *     - On serialization: Omitted when `None` (via `skip_serializing_if`)
+             *     - On deserialization: Absent fields deserialize to `None` (via `#[serde(default)]`)
+             */
+            progress_pct?: number | null;
             repo_id?: string | null;
             repo_name?: string | null;
             requested_backend?: string | null;
@@ -9848,17 +10126,29 @@ export type components = {
             seed_inputs_json?: string | null;
             signature_status?: string | null;
             started_at?: string | null;
+            /** @description Current training status (pending, running, completed, failed, cancelled) */
             status: string;
             synthetic_mode?: boolean;
             target_branch?: string | null;
             template_id?: string | null;
             /** Format: float */
             throughput_examples_per_sec?: number | null;
-            /** Format: float */
-            tokens_per_second: number;
+            /**
+             * Format: float
+             * @description Tokens processed per second.
+             *     None if progress data is not yet available.
+             *
+             *     # Serialization Behavior
+             *     - On serialization: Omitted when `None` (via `skip_serializing_if`)
+             *     - On deserialization: Absent fields deserialize to `None` (via `#[serde(default)]`)
+             */
+            tokens_per_second?: number | null;
             /** Format: int64 */
             tokens_processed?: number | null;
-            /** Format: int32 */
+            /**
+             * Format: int32
+             * @description Total number of training epochs
+             */
             total_epochs: number;
             /** Format: int64 */
             training_seed?: number | null;
@@ -9866,6 +10156,50 @@ export type components = {
             training_time_ms?: number | null;
             /** @description BLAKE3 hash of adapter weights (for verification) */
             weights_hash_b3?: string | null;
+        };
+        /**
+         * @description Individual training metric entry for time-series data
+         *
+         *     Note: `learning_rate` is optional because per-step LR is not currently stored
+         *     in the training_metrics table. It's available at job level via TrainingProgress.
+         *     `tokens_processed` is populated when available from the "tokens_processed" metric.
+         */
+        TrainingMetricEntry: {
+            /**
+             * Format: int32
+             * @description Training epoch
+             */
+            epoch: number;
+            /**
+             * Format: double
+             * @description Learning rate at this step (optional - not stored per-step in current schema)
+             */
+            learning_rate?: number | null;
+            /**
+             * Format: double
+             * @description Loss value at this step
+             */
+            loss: number;
+            /**
+             * Format: int64
+             * @description Metric step (training iteration)
+             */
+            step: number;
+            /** @description Timestamp of this metric */
+            timestamp: string;
+            /**
+             * Format: int64
+             * @description Tokens processed up to this point
+             */
+            tokens_processed?: number | null;
+        };
+        /** @description Training metrics list response for time-series metrics endpoint */
+        TrainingMetricsListResponse: {
+            /** @description Training job ID */
+            job_id: string;
+            /** @description Time-series metrics */
+            metrics: components["schemas"]["TrainingMetricEntry"][];
+            schema_version?: string;
         };
         /** @description Training metrics response */
         TrainingMetricsResponse: {
@@ -10105,6 +10439,8 @@ export type components = {
             created_at: string;
             dataset_hash_b3?: string | null;
             dataset_id: string;
+            /** @description The dataset version ID created for this upload */
+            dataset_version_id?: string | null;
             description?: string | null;
             /** Format: int32 */
             file_count: number;
@@ -10136,6 +10472,36 @@ export type components = {
             is_complete: boolean;
             /** @description List of chunk indices that have been received */
             received_chunk_indices: number[];
+            /** @description Session ID */
+            session_id: string;
+            /**
+             * Format: int64
+             * @description Total file size in bytes
+             */
+            total_size: number;
+        };
+        /** @description Summary of an upload session for listing */
+        UploadSessionSummary: {
+            /**
+             * Format: int64
+             * @description Age of the session in seconds
+             */
+            age_seconds: number;
+            /** @description Number of chunks received */
+            chunks_received: number;
+            /** @description Session creation timestamp (RFC3339) */
+            created_at: string;
+            /** @description Total expected chunks */
+            expected_chunks: number;
+            /** @description Original file name */
+            file_name: string;
+            /** @description Whether the session has expired */
+            is_expired: boolean;
+            /**
+             * Format: float
+             * @description Upload progress percentage
+             */
+            progress_percent: number;
             /** @description Session ID */
             session_id: string;
             /**
@@ -13902,6 +14268,52 @@ export interface operations {
             };
         };
     };
+    get_dataset_version: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Dataset ID */
+                dataset_id: string;
+                /** @description Version ID, version number, or 'latest' */
+                revision: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Dataset version details */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatasetVersionDetailResponse"];
+                };
+            };
+            /** @description Tenant isolation violation */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Dataset or version not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     update_dataset_version_safety: {
         parameters: {
             query?: never;
@@ -14007,6 +14419,57 @@ export interface operations {
             };
         };
     };
+    list_versions_by_codebase: {
+        parameters: {
+            query?: {
+                /** @description Maximum number of versions to return (default: 50, max: 100) */
+                limit?: number | null;
+                /** @description Number of versions to skip for pagination */
+                offset?: number | null;
+                /** @description Filter by trust state (e.g., "allowed", "blocked", "needs_approval") */
+                trust_state?: string | null;
+            };
+            header?: never;
+            path: {
+                /** @description Codebase identifier (URL-encoded repo identifier or source location, e.g., repo path) */
+                codebase_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Codebase dataset versions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CodebaseVersionsResponse"];
+                };
+            };
+            /** @description Tenant isolation violation */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No dataset found for codebase */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     cancel_chunked_upload: {
         parameters: {
             query?: never;
@@ -14028,6 +14491,66 @@ export interface operations {
             };
             /** @description Session not found or expired */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    retry_chunk: {
+        parameters: {
+            query: {
+                /** @description Index of the chunk to retry (0-based) */
+                chunk_index: number;
+                /** @description Expected hash for validation (optional) */
+                expected_hash?: string | null;
+            };
+            header?: never;
+            path: {
+                /** @description Upload session ID */
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": number[];
+            };
+        };
+        responses: {
+            /** @description Chunk retried successfully */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetryChunkResponse"];
+                };
+            };
+            /** @description Invalid chunk index, data, or hash mismatch */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Session not found or expired */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Chunk too large */
+            413: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -14192,6 +14715,40 @@ export interface operations {
             };
         };
     };
+    cleanup_expired_sessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cleanup completed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     initiate_chunked_upload: {
         parameters: {
             query?: never;
@@ -14216,6 +14773,40 @@ export interface operations {
             };
             /** @description Invalid request */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    list_upload_sessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of active upload sessions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListUploadSessionsResponse"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -17099,13 +17690,13 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Routing debug info */
+            /** @description Routing debug info (not implemented) */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["NotImplementedResponse"];
                 };
             };
             /** @description Internal server error */
@@ -17207,7 +17798,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown[];
+                    "application/json": components["schemas"]["RoutingHistoryResponse"];
                 };
             };
             /** @description Internal server error */
@@ -18083,18 +18674,22 @@ export interface operations {
         };
         responses: {
             /** @description Decision ingested successfully */
-            201: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["IdResponse"];
+                };
             };
             /** @description Failed to ingest decision */
             500: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
         };
     };
@@ -18707,9 +19302,15 @@ export interface operations {
                 adapter_name?: string | null;
                 /** @description Filter by dataset ID */
                 dataset_id?: string | null;
-                /** @description Page number (1-indexed) */
+                /**
+                 * @description Page number (1-indexed). Values less than 1 are normalized to 1.
+                 *     Default: 1.
+                 */
                 page?: number | null;
-                /** @description Number of items per page (default: 20, max: 100) */
+                /**
+                 * @description Number of items per page. Clamped to range [1, 100].
+                 *     Default: 20.
+                 */
                 page_size?: number | null;
                 /** @description Filter by status (pending, running, completed, failed, cancelled) */
                 status?: string | null;
@@ -18898,7 +19499,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["TrainingMetricsListResponse"];
                 };
             };
             /** @description Access denied */
@@ -20234,6 +20835,10 @@ export enum FailureCode {
     TENANT_ACCESS_DENIED = "TENANT_ACCESS_DENIED",
     KV_QUOTA_EXCEEDED = "KV_QUOTA_EXCEEDED",
     WORKER_OVERLOADED = "WORKER_OVERLOADED",
+    CPU_THROTTLED = "CPU_THROTTLED",
+    FILE_DESCRIPTOR_EXHAUSTED = "FILE_DESCRIPTOR_EXHAUSTED",
+    THREAD_POOL_SATURATED = "THREAD_POOL_SATURATED",
+    GPU_UNAVAILABLE = "GPU_UNAVAILABLE",
     BOOT_DB_UNREACHABLE = "BOOT_DB_UNREACHABLE",
     BOOT_MIGRATION_FAILED = "BOOT_MIGRATION_FAILED",
     BOOT_SEED_FAILED = "BOOT_SEED_FAILED",
@@ -20241,7 +20846,24 @@ export enum FailureCode {
     BOOT_NO_MODELS = "BOOT_NO_MODELS",
     BOOT_DEPENDENCY_TIMEOUT = "BOOT_DEPENDENCY_TIMEOUT",
     BOOT_BACKGROUND_TASK_FAILED = "BOOT_BACKGROUND_TASK_FAILED",
-    BOOT_CONFIG_INVALID = "BOOT_CONFIG_INVALID"
+    BOOT_CONFIG_INVALID = "BOOT_CONFIG_INVALID",
+    BOOT_BOOTSTRAP_FAILED = "BOOT_BOOTSTRAP_FAILED",
+    MIGRATION_FILE_MISSING = "MIGRATION_FILE_MISSING",
+    MIGRATION_CHECKSUM_MISMATCH = "MIGRATION_CHECKSUM_MISMATCH",
+    MIGRATION_OUT_OF_ORDER = "MIGRATION_OUT_OF_ORDER",
+    DOWN_MIGRATION_BLOCKED = "DOWN_MIGRATION_BLOCKED",
+    SCHEMA_VERSION_AHEAD = "SCHEMA_VERSION_AHEAD",
+    CACHE_STALE = "CACHE_STALE",
+    CACHE_KEY_NONDETERMINISTIC = "CACHE_KEY_NONDETERMINISTIC",
+    CACHE_SERIALIZATION_ERROR = "CACHE_SERIALIZATION_ERROR",
+    CACHE_INVALIDATION_FAILED = "CACHE_INVALIDATION_FAILED",
+    DNS_RESOLUTION_FAILED = "DNS_RESOLUTION_FAILED",
+    TLS_CERTIFICATE_ERROR = "TLS_CERTIFICATE_ERROR",
+    PROXY_CONNECTION_FAILED = "PROXY_CONNECTION_FAILED",
+    ENVIRONMENT_MISMATCH = "ENVIRONMENT_MISMATCH",
+    RATE_LIMITER_NOT_CONFIGURED = "RATE_LIMITER_NOT_CONFIGURED",
+    INVALID_RATE_LIMIT_CONFIG = "INVALID_RATE_LIMIT_CONFIG",
+    THUNDERING_HERD_REJECTED = "THUNDERING_HERD_REJECTED"
 }
 export enum InferenceBlocker {
     database_unavailable = "database_unavailable",
@@ -20271,6 +20893,11 @@ export enum KvIsolationIssueKind {
 }
 export enum KvIsolationIssueKind {
     prefix_value_mismatch = "prefix_value_mismatch"
+}
+export enum LoraTier {
+    micro = "micro",
+    standard = "standard",
+    max = "max"
 }
 export enum MaintenanceScope {
     controlplane = "controlplane",
@@ -20333,8 +20960,7 @@ export enum RepoTier {
     experimental = "experimental"
 }
 export enum RouterModelType {
-    dense = "dense",
-    moe = "moe"
+    dense = "dense"
 }
 export enum ServiceHealthStatus {
     healthy = "healthy",

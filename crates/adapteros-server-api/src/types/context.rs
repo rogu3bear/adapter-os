@@ -248,17 +248,7 @@ pub struct InferenceResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub router_decision_chain:
         Option<Vec<adapteros_api_types::inference::RouterDecisionChainEntry>>,
-    /// MoE model information (if applicable)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub moe_info: Option<adapteros_api_types::inference::MoEInfo>,
-    /// Expert routing data per token (MoE models)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schema(value_type = Option<Vec<Vec<Vec<usize>>>>)]
-    pub expert_routing: Option<adapteros_api_types::inference::SequenceExpertRouting>,
-    /// Flattened expert IDs per token for visualization
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub active_experts: Option<Vec<Vec<u8>>>,
-    /// Model type for this trace (dense vs MoE)
+    /// Model type for this trace
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_type: Option<adapteros_api_types::inference::RouterModelType>,
     /// RAG evidence if RAG was used

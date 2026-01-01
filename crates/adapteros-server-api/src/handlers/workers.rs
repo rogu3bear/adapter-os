@@ -1,5 +1,5 @@
 use crate::auth::Claims;
-use crate::error_helpers::{bad_gateway, db_error_msg, internal_error_msg, not_found_with_details};
+use crate::error_helpers::{bad_gateway, db_error_msg, internal_error, internal_error_msg, not_found_with_details};
 use crate::middleware::require_any_role;
 use crate::state::AppState;
 use crate::types::*;
@@ -573,29 +573,88 @@ pub async fn register_worker(
     }
 
     // 2. Get plan and extract expected manifest_hash
+    // Use get_plan_by_plan_id since req.plan_id is the logical plan identifier (e.g., "dev"),
+    // not the primary key (which is a UUID)
     let plan = state
         .db
-        .get_plan(&req.plan_id)
+        .get_plan_by_plan_id(&req.plan_id)
         .await
         .map_err(|e| db_error_msg("failed to fetch plan", e))?;
 
     let plan = match plan {
         Some(p) => p,
         None => {
-            warn!(
-                worker_id = %req.worker_id,
-                plan_id = %req.plan_id,
-                "Plan not found, rejecting registration"
-            );
-            return Ok(Json(WorkerRegistrationResponse {
-                accepted: false,
-                worker_id: req.worker_id,
-                rejection_reason: Some(format!("Plan not found: {}", req.plan_id)),
-                heartbeat_interval_secs: 30,
-                kv_quota_bytes: None,
-                kv_residency_policy_id: None,
-                cp_strict_mode: state.strict_mode,
-            }));
+            // In development mode, auto-create the manifest and plan
+            let is_dev_mode = state.runtime_mode.map(|m| m.is_dev()).unwrap_or(false);
+
+            if is_dev_mode {
+                info!(
+                    worker_id = %req.worker_id,
+                    plan_id = %req.plan_id,
+                    manifest_hash = %req.manifest_hash,
+                    "Plan not found in dev mode, auto-creating manifest and plan"
+                );
+
+                // Ensure manifest exists
+                let manifest_exists = state
+                    .db
+                    .get_manifest_by_hash(&req.manifest_hash)
+                    .await
+                    .map_err(|e| db_error_msg("failed to check manifest", e))?;
+
+                if manifest_exists.is_none() {
+                    // Create placeholder manifest
+                    state
+                        .db
+                        .create_manifest(&req.tenant_id, &req.manifest_hash, "{}")
+                        .await
+                        .map_err(|e| db_error_msg("failed to create manifest", e))?;
+                    info!(
+                        manifest_hash = %req.manifest_hash,
+                        tenant_id = %req.tenant_id,
+                        "Auto-created manifest for dev mode"
+                    );
+                }
+
+                // Create the plan with a placeholder layout hash
+                // In dev mode, we use the manifest hash as the layout hash for simplicity
+                state
+                    .db
+                    .create_plan(&req.plan_id, &req.tenant_id, &req.plan_id, &req.manifest_hash, "[]", &req.manifest_hash)
+                    .await
+                    .map_err(|e| db_error_msg("failed to create plan", e))?;
+                info!(
+                    plan_id = %req.plan_id,
+                    manifest_hash = %req.manifest_hash,
+                    tenant_id = %req.tenant_id,
+                    "Auto-created plan for dev mode"
+                );
+
+                // Fetch the newly created plan
+                state
+                    .db
+                    .get_plan_by_plan_id(&req.plan_id)
+                    .await
+                    .map_err(|e| db_error_msg("failed to fetch created plan", e))?
+                    .ok_or_else(|| {
+                        internal_error("Plan creation succeeded but plan not found")
+                    })?
+            } else {
+                warn!(
+                    worker_id = %req.worker_id,
+                    plan_id = %req.plan_id,
+                    "Plan not found, rejecting registration"
+                );
+                return Ok(Json(WorkerRegistrationResponse {
+                    accepted: false,
+                    worker_id: req.worker_id,
+                    rejection_reason: Some(format!("Plan not found: {}", req.plan_id)),
+                    heartbeat_interval_secs: 30,
+                    kv_quota_bytes: None,
+                    kv_residency_policy_id: None,
+                    cp_strict_mode: state.strict_mode,
+                }));
+            }
         }
     };
 
@@ -680,11 +739,13 @@ pub async fn register_worker(
     let node_id = "local".to_string();
 
     // 7. Register worker in database
+    // Use plan.id (UUID) not req.plan_id (logical name like "dev") because
+    // workers.plan_id has a FK constraint to plans.id (the UUID)
     let params = WorkerRegistrationParams {
         worker_id: req.worker_id.clone(),
         tenant_id: req.tenant_id.clone(),
         node_id,
-        plan_id: req.plan_id.clone(),
+        plan_id: plan.id.clone(),
         uds_path: req.uds_path.clone(),
         pid: req.pid,
         manifest_hash: req.manifest_hash.clone(),

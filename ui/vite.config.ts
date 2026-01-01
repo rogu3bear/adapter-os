@@ -121,12 +121,30 @@ const getServerConfig = () => {
             target: `http://localhost:${process.env.AOS_SERVER_PORT || '8080'}`,
             changeOrigin: true,
             secure: false,
+            configure: (proxy) => {
+              proxy.on('proxyRes', (proxyRes, req) => {
+                if (req.url?.includes('/stream/')) {
+                  proxyRes.headers['cache-control'] = 'no-cache';
+                  proxyRes.headers['connection'] = 'keep-alive';
+                  proxyRes.headers['x-accel-buffering'] = 'no';
+                }
+              });
+            },
           },
           '/v1': {
             target: `http://localhost:${process.env.AOS_SERVER_PORT || '8080'}`,
             changeOrigin: true,
             secure: false,
             rewrite: (path) => `/api${path}`,
+            configure: (proxy) => {
+              proxy.on('proxyRes', (proxyRes, req) => {
+                if (req.url?.includes('/stream/')) {
+                  proxyRes.headers['cache-control'] = 'no-cache';
+                  proxyRes.headers['connection'] = 'keep-alive';
+                  proxyRes.headers['x-accel-buffering'] = 'no';
+                }
+              });
+            },
           },
         },
       };

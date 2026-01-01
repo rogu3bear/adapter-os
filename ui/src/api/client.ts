@@ -39,6 +39,19 @@ function compareVersions(a: string, b: string): number {
 // Track if we've already warned about schema version mismatch to avoid spam
 let schemaVersionWarningEmitted = false;
 
+// Endpoints where 404 is expected behavior (not an error condition)
+// These endpoints return 404 when a resource doesn't exist, which is normal
+const EXPECTED_404_PATTERNS = [
+  /\/tenants\/[^/]+\/default-stack$/,  // Tenant has no default stack configured
+];
+
+/**
+ * Check if a 404 error on this path is expected behavior
+ */
+function isExpected404(path: string): boolean {
+  return EXPECTED_404_PATTERNS.some(pattern => pattern.test(path));
+}
+
 // Type-safe API error with extended properties
 export interface ApiError extends Error {
   code?: string;
@@ -681,7 +694,10 @@ class ApiClient {
         (enhancedError as ApiError).details = originalError.details;
       }
 
-      if (import.meta.env.DEV) {
+      // Skip logging for expected 404 errors (e.g., tenant has no default stack)
+      const skipLogging = response.status === 404 && isExpected404(path);
+
+      if (import.meta.env.DEV && !skipLogging) {
         console.error('API error', {
           path,
           method,
@@ -694,6 +710,12 @@ class ApiClient {
       }
 
       // Log both original and enhanced error details with network context
+      // Skip for expected 404s to reduce noise
+      if (skipLogging) {
+        // Just throw without logging - caller handles the expected case
+        throw enhancedError;
+      }
+
       logger.networkError('API request failed', {
         component: 'ApiClient',
         operation: 'request',

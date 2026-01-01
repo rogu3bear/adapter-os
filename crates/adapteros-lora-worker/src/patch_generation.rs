@@ -70,8 +70,6 @@ impl<K: FusedKernels + crate::StrictnessControl + Send + Sync + 'static> Worker<
         fusion_interval: FusionInterval,
         active_ids: &[String],
         base_only_request: bool,
-        moe_info: Option<adapteros_lora_kernel_api::MoEInfo>,
-        expert_routing: Option<adapteros_lora_kernel_api::SequenceExpertRouting>,
     ) -> ResponseTrace {
         let active_pool: Vec<String> = if active_ids.is_empty() {
             self.manifest
@@ -96,26 +94,7 @@ impl<K: FusedKernels + crate::StrictnessControl + Send + Sync + 'static> Worker<
             &self.manifest.base.model_hash,
         );
 
-        let model_type = Some(
-            if moe_info.as_ref().map(|info| info.is_moe).unwrap_or(false) {
-                RouterModelType::Moe
-            } else {
-                RouterModelType::Dense
-            },
-        );
-
-        let active_experts = expert_routing.as_ref().map(|routing| {
-            routing
-                .iter()
-                .map(|token_routing| {
-                    let mut experts: Vec<u8> =
-                        token_routing.iter().map(|(_, expert)| *expert).collect();
-                    experts.sort_unstable();
-                    experts.dedup();
-                    experts
-                })
-                .collect()
-        });
+        let model_type = Some(RouterModelType::Dense);
 
         ResponseTrace {
             cpid: cpid.to_string(),
@@ -126,9 +105,6 @@ impl<K: FusedKernels + crate::StrictnessControl + Send + Sync + 'static> Worker<
             router_decisions,
             router_decision_chain,
             fusion_intervals,
-            moe_info,
-            expert_routing,
-            active_experts,
             model_type,
         }
     }
@@ -437,8 +413,6 @@ impl<K: FusedKernels + crate::StrictnessControl + Send + Sync + 'static> Worker<
                     .map(|a| a.id.clone())
                     .collect::<Vec<_>>(),
                 false,
-                None,
-                None,
             ),
             run_receipt: None,
             refusal: if !validation_result.is_valid {

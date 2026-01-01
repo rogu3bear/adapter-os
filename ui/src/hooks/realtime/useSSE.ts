@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { logger, toError } from '@/utils/logger';
 import { TENANT_SWITCH_EVENT } from '@/utils/tenant';
+import { useLiveDataStatus } from './useLiveDataStatus';
 
 //! Strongly typed SSE hook options
 //!
@@ -66,6 +67,11 @@ export function useSSE<T = unknown>(
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<Error | null>(null);
   const [connected, setConnected] = useState(false);
+
+  // Register with global live data status (for the connection indicator)
+  const { registerStream, unregisterStream, updateStream } = useLiveDataStatus();
+  const streamId = `sse-${endpoint.replace(/\//g, '-')}`;
+
   const createCircuitBreakerState = (): CircuitBreakerState => ({
     errorCount: 0,
     isOpen: false,
@@ -422,6 +428,36 @@ export function useSSE<T = unknown>(
     window.addEventListener(TENANT_SWITCH_EVENT, handleTenantSwitch);
     return () => window.removeEventListener(TENANT_SWITCH_EVENT, handleTenantSwitch);
   }, [enabled, recordSuccess, updateLastActivity]);
+
+  // Register stream with global status provider for connection indicator
+  useEffect(() => {
+    if (!enabled) return;
+
+    // Register on mount
+    registerStream(streamId, {
+      connected,
+      lastUpdate: connected ? new Date() : null,
+      error,
+      reconnecting: reconnectAttemptsRef.current > 0 && !connected,
+      reconnectAttempt: reconnectAttemptsRef.current,
+    });
+
+    // Unregister on unmount
+    return () => unregisterStream(streamId);
+  }, [enabled, streamId, registerStream, unregisterStream, connected, error]);
+
+  // Update stream status when connection state changes
+  useEffect(() => {
+    if (!enabled) return;
+
+    updateStream(streamId, {
+      connected,
+      lastUpdate: connected ? new Date() : null,
+      error,
+      reconnecting: reconnectAttemptsRef.current > 0 && !connected,
+      reconnectAttempt: reconnectAttemptsRef.current,
+    });
+  }, [enabled, streamId, updateStream, connected, error]);
 
   return {
     data,

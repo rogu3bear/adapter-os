@@ -488,56 +488,54 @@ function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const devBypassEnvEnabled = isDevBypassEnabled(); // Dev bypass environment policy documented in docs/AUTHENTICATION.md
         if (devBypassEnvEnabled) {
-          // Check if dev bypass has expired (1 hour timeout)
+          // Always try dev bypass when enabled - the server will validate
+          // Clear any stale timestamp if expired, but still attempt bypass
           if (isDevBypassExpired()) {
-            logger.debug('Dev bypass session expired; clearing state and requiring re-authentication', {
+            logger.debug('Dev bypass timestamp expired or not set; will attempt fresh bypass', {
               component: 'AuthProvider',
             });
             clearDevBypassTimestamp();
-            // Continue to normal auth flow
-          } else {
-            const devClaims = await tryDevBypassLogin();
-            if (devClaims) {
-              logger.debug('AuthProvider: using dev-bypass claims from /auth/me', {
-                component: 'AuthProvider',
-              });
-              const normalizedRole = typeof devClaims.role === 'string' ? devClaims.role.toLowerCase() : undefined;
-              const allowedRoles = ['admin', 'operator', 'sre', 'compliance', 'auditor', 'viewer'] as const;
-              const resolvedRole = (allowedRoles as readonly string[]).includes(normalizedRole ?? '')
-                ? (normalizedRole as User['role'])
-                : 'viewer';
+          }
 
-              setSessionMode('dev_bypass');
-              setUser({
-                id: devClaims.user_id,
-                email: devClaims.email,
-                display_name: devClaims.display_name || devClaims.email,
-                role: resolvedRole,
-                tenant_id: workspaceIdFromTenantId(devClaims.tenant_id),
-                permissions: devClaims.permissions || [],
-                last_login_at: devClaims.last_login_at ?? undefined,
-                mfa_enabled: devClaims.mfa_enabled ?? undefined,
-                token_last_rotated_at: devClaims.token_last_rotated_at ?? undefined,
-                admin_tenants: devClaims.admin_tenants,
-              });
-              setAuthError(null);
+          // Always attempt dev bypass login when env is enabled
+          const devClaims = await tryDevBypassLogin();
+          if (devClaims) {
+            logger.debug('AuthProvider: using dev-bypass claims from /auth/me', {
+              component: 'AuthProvider',
+            });
+            const normalizedRole = typeof devClaims.role === 'string' ? devClaims.role.toLowerCase() : undefined;
+            const allowedRoles = ['admin', 'operator', 'sre', 'compliance', 'auditor', 'viewer'] as const;
+            const resolvedRole = (allowedRoles as readonly string[]).includes(normalizedRole ?? '')
+              ? (normalizedRole as User['role'])
+              : 'viewer';
 
-              // If there's no activation timestamp yet, mark it now (first page load after login)
-              // If there is one, just start the timer to track remaining time
-              if (isDevBypassExpired()) {
-                markDevBypassActivated();
-              }
-              startDevBypassTimer();
+            setSessionMode('dev_bypass');
+            setUser({
+              id: devClaims.user_id,
+              email: devClaims.email,
+              display_name: devClaims.display_name || devClaims.email,
+              role: resolvedRole,
+              tenant_id: workspaceIdFromTenantId(devClaims.tenant_id),
+              permissions: devClaims.permissions || [],
+              last_login_at: devClaims.last_login_at ?? undefined,
+              mfa_enabled: devClaims.mfa_enabled ?? undefined,
+              token_last_rotated_at: devClaims.token_last_rotated_at ?? undefined,
+              admin_tenants: devClaims.admin_tenants,
+            });
+            setAuthError(null);
 
-              try {
-                sessionStorage.setItem(AUTH_STORAGE_KEYS.AUTH_SESSION, 'true');
-                sessionStorage.removeItem(AUTH_STORAGE_KEYS.SESSION_EXPIRED);
-              } catch {
-                // ignore storage errors
-              }
-              clearTimeout(timeoutId);
-              return;
+            // Mark activation timestamp for session timeout tracking
+            markDevBypassActivated();
+            startDevBypassTimer();
+
+            try {
+              sessionStorage.setItem(AUTH_STORAGE_KEYS.AUTH_SESSION, 'true');
+              sessionStorage.removeItem(AUTH_STORAGE_KEYS.SESSION_EXPIRED);
+            } catch {
+              // ignore storage errors
             }
+            clearTimeout(timeoutId);
+            return;
           }
         } else {
           logger.debug('Dev bypass disabled by env; skipping bootstrap', { component: 'AuthProvider' });

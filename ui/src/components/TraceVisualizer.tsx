@@ -20,9 +20,6 @@ interface TraceVisualizerProps {
 }
 
 export function TraceVisualizer({ trace }: TraceVisualizerProps) {
-  const traceModelType = trace.model_type || trace.router_decisions?.[0]?.model_type;
-  const moeInfo = trace.moe_info;
-
   return (
     <Card>
       <CardHeader className="pb-3 flex flex-col gap-2">
@@ -31,20 +28,10 @@ export function TraceVisualizer({ trace }: TraceVisualizerProps) {
             <Activity className="h-4 w-4" />
             Inference Trace
           </CardTitle>
-          {traceModelType && (
-            <Badge
-              variant={traceModelType === 'moe' ? 'secondary' : 'outline'}
-              className="text-xs"
-            >
-              {traceModelType === 'moe' ? 'MoE (ghost experts)' : 'Dense routing'}
-            </Badge>
-          )}
+          <Badge variant="outline" className="text-xs">
+            Dense routing
+          </Badge>
         </div>
-        {moeInfo && (
-          <div className="text-xs text-muted-foreground">
-            {moeInfo.num_experts} experts · {moeInfo.experts_per_token} per token
-          </div>
-        )}
       </CardHeader>
       <CardContent>
         {/* Trace Intro Section */}
@@ -81,69 +68,36 @@ export function TraceVisualizer({ trace }: TraceVisualizerProps) {
                 <div className="space-y-2 max-h-[300px] overflow-y-auto">
                   {trace.router_decisions.slice(0, 10).map((decision, idx) => (
                     <div key={idx} className="p-3 bg-muted rounded-lg text-sm">
-                      {(() => {
-                        const decisionModelType =
-                          decision.model_type || trace.model_type || 'dense';
-                        const activeExperts =
-                          decision.active_experts || trace.active_experts?.[idx];
-                        const isMoe = decisionModelType === 'moe';
-                        return (
-                          <>
-                            <div className="flex items-center justify-between mb-1">
-                              <div className="flex flex-col">
-                                <span className="font-medium">
-                                  Token {decision.step || decision.token_idx}
-                                  {decision.input_token_id !== undefined
-                                    ? ` (input ${decision.input_token_id})`
-                                    : ''}
-                                </span>
-                                {decision.entropy !== undefined && (
-                                  <span className="text-xs text-muted-foreground flex items-center gap-1">
-                                    Entropy: {decision.entropy.toFixed(3)}, Tau:{' '}
-                                    {decision.tau?.toFixed(3) || 'N/A'}, Floor:{' '}
-                                    {decision.entropy_floor?.toFixed(3) || 'N/A'}
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <HelpCircle className="h-3 w-3 cursor-help text-muted-foreground/60" />
-                                      </TooltipTrigger>
-                                      <TooltipContent side="right" className="max-w-xs">
-                                        <p><strong>Entropy:</strong> Uncertainty in token prediction. Higher values trigger more adapter routing.</p>
-                                        <p className="mt-1"><strong>Tau:</strong> Temperature scaling factor for routing decisions.</p>
-                                        <p className="mt-1"><strong>Floor:</strong> Minimum entropy threshold before routing activates.</p>
-                                      </TooltipContent>
-                                    </Tooltip>
-                                  </span>
-                                )}
-                              </div>
-                              <Badge variant="outline">
-                                {decision.candidate_adapters?.length || decision.adapters?.length || 0} adapters
-                              </Badge>
-                            </div>
-                            {isMoe && (
-                              <div className="mb-2 flex flex-wrap items-center gap-2">
-                                <Badge variant="secondary" className="text-[10px] uppercase">
-                                  Ghost experts
-                                </Badge>
-                                {activeExperts && activeExperts.length ? (
-                                  activeExperts.map((expert) => (
-                                    <Badge
-                                      key={expert}
-                                      variant="outline"
-                                      className="text-[11px]"
-                                    >
-                                      Expert {expert}
-                                    </Badge>
-                                  ))
-                                ) : (
-                                  <span className="text-xs text-muted-foreground">
-                                    No expert trace captured
-                                  </span>
-                                )}
-                              </div>
-                            )}
-                          </>
-                        );
-                      })()}
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex flex-col">
+                          <span className="font-medium">
+                            Token {decision.step || decision.token_idx}
+                            {decision.input_token_id !== undefined
+                              ? ` (input ${decision.input_token_id})`
+                              : ''}
+                          </span>
+                          {decision.entropy !== undefined && (
+                            <span className="text-xs text-muted-foreground flex items-center gap-1">
+                              Entropy: {decision.entropy.toFixed(3)}, Tau:{' '}
+                              {decision.tau?.toFixed(3) || 'N/A'}, Floor:{' '}
+                              {decision.entropy_floor?.toFixed(3) || 'N/A'}
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <HelpCircle className="h-3 w-3 cursor-help text-muted-foreground/60" />
+                                </TooltipTrigger>
+                                <TooltipContent side="right" className="max-w-xs">
+                                  <p><strong>Entropy:</strong> Uncertainty in token prediction. Higher values trigger more adapter routing.</p>
+                                  <p className="mt-1"><strong>Tau:</strong> Temperature scaling factor for routing decisions.</p>
+                                  <p className="mt-1"><strong>Floor:</strong> Minimum entropy threshold before routing activates.</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </span>
+                          )}
+                        </div>
+                        <Badge variant="outline">
+                          {decision.candidate_adapters?.length || decision.adapters?.length || 0} adapters
+                        </Badge>
+                      </div>
 
                       <div className="space-y-1">
                         <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
@@ -196,11 +150,6 @@ export function TraceVisualizer({ trace }: TraceVisualizerProps) {
               <div className="text-center py-8 text-muted-foreground">
                 <Target className="h-8 w-8 mx-auto mb-2 opacity-20" />
                 <p>No routing decisions available</p>
-                {traceModelType === 'moe' && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    MoE trace detected; ghost experts recorded for {trace.active_experts?.length ?? 0} tokens.
-                  </p>
-                )}
               </div>
             )}
           </TabsContent>

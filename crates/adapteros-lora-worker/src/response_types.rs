@@ -221,16 +221,7 @@ pub struct ResponseTrace {
     /// Fusion interval boundaries and fused tensor hashes
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fusion_intervals: Option<Vec<FusionIntervalTrace>>,
-    /// MoE model information (optional)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub moe_info: Option<adapteros_lora_kernel_api::MoEInfo>,
-    /// Expert routing data per token (optional)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub expert_routing: Option<adapteros_lora_kernel_api::SequenceExpertRouting>,
-    /// Flattened expert IDs per token (for visualization)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub active_experts: Option<Vec<Vec<u8>>>,
-    /// Model type for this trace (dense vs MoE)
+    /// Model type for this trace
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_type: Option<adapteros_api_types::inference::RouterModelType>,
 }

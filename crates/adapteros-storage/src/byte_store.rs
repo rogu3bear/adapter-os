@@ -1259,7 +1259,7 @@ mod tests {
     fn layout_sample_file_path() {
         let layout = DatasetStorageLayout::new("/var/datasets");
 
-        let path = layout.sample_file_path("ws-123", "ds-456", "preview.jsonl");
+        let path = layout.sample_file_path("ws-123", "ds-456", "preview.jsonl").unwrap();
         assert_eq!(
             path,
             PathBuf::from("/var/datasets/files/ws-123/ds-456/samples/preview.jsonl")
@@ -1270,7 +1270,7 @@ mod tests {
     fn layout_version_sample_file_path() {
         let layout = DatasetStorageLayout::new("/var/datasets");
 
-        let path = layout.version_sample_file_path("ws-123", "ds-456", "v1", "preview.jsonl");
+        let path = layout.version_sample_file_path("ws-123", "ds-456", "v1", "preview.jsonl").unwrap();
         assert_eq!(
             path,
             PathBuf::from("/var/datasets/files/ws-123/ds-456/versions/v1/samples/preview.jsonl")
@@ -1341,7 +1341,7 @@ mod tests {
             PathBuf::from("/var/datasets/temp/ws-123/ds-456")
         );
         assert_eq!(
-            layout.temp_file_path("ws-123", "ds-456", "upload.tmp"),
+            layout.temp_file_path("ws-123", "ds-456", "upload.tmp").unwrap(),
             PathBuf::from("/var/datasets/temp/ws-123/ds-456/upload.tmp")
         );
 

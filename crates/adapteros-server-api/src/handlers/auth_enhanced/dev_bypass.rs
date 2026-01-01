@@ -25,6 +25,8 @@ use adapteros_api_types::auth::LoginResponse;
 #[cfg(all(feature = "dev-bypass", debug_assertions))]
 use adapteros_db::users::{Role, User};
 #[cfg(all(feature = "dev-bypass", debug_assertions))]
+use adapteros_db::workspaces::WorkspaceRole;
+#[cfg(all(feature = "dev-bypass", debug_assertions))]
 use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
@@ -36,6 +38,8 @@ use blake3;
 use chrono::{DateTime, Duration, Utc};
 #[cfg(all(feature = "dev-bypass", debug_assertions))]
 use tracing::{info, warn};
+#[cfg(all(feature = "dev-bypass", debug_assertions))]
+use sqlx;
 #[cfg(all(feature = "dev-bypass", debug_assertions))]
 use uuid::Uuid;
 
@@ -116,7 +120,31 @@ pub async fn dev_bypass_handler(
     let user_id = "dev-admin-user".to_string();
     let email = "dev-admin@adapteros.local".to_string();
     let role = "admin".to_string();
-    let tenant_id = "default".to_string(); // Use "default" tenant which exists in DB
+    let tenant_id = "default".to_string();
+
+    // Ensure the "default" tenant exists in the database
+    match sqlx::query_scalar::<_, String>("SELECT id FROM tenants WHERE id = 'default'")
+        .fetch_optional(state.db.pool())
+        .await
+    {
+        Ok(Some(_)) => {
+            info!(tenant_id = %tenant_id, "Default tenant already exists");
+        }
+        Ok(None) => {
+            info!(tenant_id = %tenant_id, "Creating default tenant for dev mode");
+            if let Err(e) = sqlx::query(
+                "INSERT INTO tenants (id, name, itar_flag, created_at) VALUES ('default', 'Default', 0, datetime('now'))",
+            )
+            .execute(state.db.pool())
+            .await
+            {
+                warn!(error = %e, tenant_id = %tenant_id, "Failed to create default tenant");
+            }
+        }
+        Err(e) => {
+            warn!(error = %e, tenant_id = %tenant_id, "Failed to check for default tenant");
+        }
+    }
 
     // Ensure the dev user exists in the database so /auth/me works
     info!(user_id = %user_id, "Creating/updating dev user in database");
@@ -143,6 +171,135 @@ pub async fn dev_bypass_handler(
                 "Failed to ensure dev user exists in database, continuing anyway"
             );
             // Don't fail - the user can still authenticate, they just won't see their profile in /me
+        }
+    }
+
+    // Ensure a default workspace exists for the dev user
+    match sqlx::query_scalar::<_, String>(
+        "SELECT id FROM workspaces WHERE created_by = ? LIMIT 1",
+    )
+    .bind(&user_id)
+    .fetch_optional(state.db.pool())
+    .await
+    {
+        Ok(Some(ws_id)) => {
+            info!(workspace_id = %ws_id, user_id = %user_id, "Dev user already has a workspace");
+            // Ensure the dev user has membership (may have been created without it)
+            if let Ok(None) = state.db.check_workspace_access(&ws_id, &user_id, &tenant_id).await {
+                if let Err(e) = state
+                    .db
+                    .add_workspace_member(
+                        &ws_id,
+                        &tenant_id,
+                        Some(&user_id),
+                        WorkspaceRole::Owner,
+                        None,
+                        &user_id,
+                    )
+                    .await
+                {
+                    warn!(error = %e, workspace_id = %ws_id, user_id = %user_id, "Failed to add dev user as workspace member");
+                } else {
+                    info!(workspace_id = %ws_id, user_id = %user_id, "Added dev user as workspace owner (retroactive)");
+                }
+            }
+        }
+        Ok(None) => {
+            let ws_id = format!("ws-dev-{}", Uuid::now_v7());
+            info!(workspace_id = %ws_id, user_id = %user_id, "Creating default workspace for dev user");
+            if let Err(e) = sqlx::query(
+                "INSERT INTO workspaces (id, name, description, created_by, created_at, updated_at) VALUES (?, 'Default Workspace', 'Auto-created workspace for development', ?, datetime('now'), datetime('now'))",
+            )
+            .bind(&ws_id)
+            .bind(&user_id)
+            .execute(state.db.pool())
+            .await
+            {
+                warn!(error = %e, workspace_id = %ws_id, user_id = %user_id, "Failed to create default workspace");
+            } else {
+                // Add the dev user as owner of the workspace
+                if let Err(e) = state
+                    .db
+                    .add_workspace_member(
+                        &ws_id,
+                        &tenant_id,
+                        Some(&user_id),
+                        WorkspaceRole::Owner,
+                        None,
+                        &user_id,
+                    )
+                    .await
+                {
+                    warn!(error = %e, workspace_id = %ws_id, user_id = %user_id, "Failed to add dev user as workspace member");
+                } else {
+                    info!(workspace_id = %ws_id, user_id = %user_id, "Added dev user as workspace owner");
+                }
+            }
+        }
+        Err(e) => {
+            warn!(error = %e, user_id = %user_id, "Failed to check for existing workspaces");
+        }
+    }
+
+    // Ensure the dev user has access to "system" workspace (used by frontend for /v1/workspaces/system/active)
+    match sqlx::query_scalar::<_, String>("SELECT id FROM workspaces WHERE id = 'system'")
+        .fetch_optional(state.db.pool())
+        .await
+    {
+        Ok(Some(_)) => {
+            // System workspace exists, ensure dev user has membership
+            if let Ok(None) = state.db.check_workspace_access("system", &user_id, &tenant_id).await {
+                if let Err(e) = state
+                    .db
+                    .add_workspace_member(
+                        "system",
+                        &tenant_id,
+                        Some(&user_id),
+                        WorkspaceRole::Owner,
+                        None,
+                        &user_id,
+                    )
+                    .await
+                {
+                    warn!(error = %e, workspace_id = "system", user_id = %user_id, "Failed to add dev user to system workspace");
+                } else {
+                    info!(workspace_id = "system", user_id = %user_id, "Added dev user to system workspace");
+                }
+            }
+        }
+        Ok(None) => {
+            // Create system workspace
+            info!(workspace_id = "system", user_id = %user_id, "Creating system workspace for dev user");
+            if let Err(e) = sqlx::query(
+                "INSERT INTO workspaces (id, name, description, created_by, created_at, updated_at) VALUES ('system', 'System Workspace', 'System workspace for development', ?, datetime('now'), datetime('now'))",
+            )
+            .bind(&user_id)
+            .execute(state.db.pool())
+            .await
+            {
+                warn!(error = %e, workspace_id = "system", user_id = %user_id, "Failed to create system workspace");
+            } else {
+                // Add the dev user as owner of the system workspace
+                if let Err(e) = state
+                    .db
+                    .add_workspace_member(
+                        "system",
+                        &tenant_id,
+                        Some(&user_id),
+                        WorkspaceRole::Owner,
+                        None,
+                        &user_id,
+                    )
+                    .await
+                {
+                    warn!(error = %e, workspace_id = "system", user_id = %user_id, "Failed to add dev user to system workspace");
+                } else {
+                    info!(workspace_id = "system", user_id = %user_id, "Added dev user to system workspace");
+                }
+            }
+        }
+        Err(e) => {
+            warn!(error = %e, "Failed to check for system workspace");
         }
     }
 

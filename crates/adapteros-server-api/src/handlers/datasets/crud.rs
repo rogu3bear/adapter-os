@@ -41,7 +41,7 @@ pub async fn list_datasets(
     let datasets = if let Some(ref ws_id) = workspace_id {
         let workspace_access = state
             .db
-            .check_workspace_access(ws_id, &claims.sub, &claims.tenant_id)
+            .check_workspace_access_with_admin(ws_id, &claims.sub, &claims.tenant_id, &claims.admin_tenants)
             .await
             .map_err(|e| db_error(format!("Failed to check workspace access: {}", e)))?;
         if workspace_access.is_none() {
@@ -145,7 +145,7 @@ pub async fn get_dataset(
     if let Some(ref ws_id) = dataset.workspace_id {
         let access = state
             .db
-            .check_workspace_access(ws_id, &claims.sub, &claims.tenant_id)
+            .check_workspace_access_with_admin(ws_id, &claims.sub, &claims.tenant_id, &claims.admin_tenants)
             .await
             .map_err(|e| db_error(format!("Failed to check workspace access: {}", e)))?;
         if access.is_none() {

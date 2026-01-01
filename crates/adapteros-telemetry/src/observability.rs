@@ -450,7 +450,6 @@ mod tests {
                     trust_state: false,
                 }),
                 model_type: adapteros_types::routing::RouterModelType::Dense,
-                active_experts: None,
             }],
             router_decision_chain: None,
             is_replay: false,

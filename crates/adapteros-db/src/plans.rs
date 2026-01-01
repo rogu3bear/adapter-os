@@ -23,6 +23,7 @@ impl Db {
         plan_id_b3: &str,
         manifest_hash_b3: &str,
         kernel_hashes_json: &str,
+        layout_hash_b3: &str,
     ) -> Result<String> {
         let id = Uuid::now_v7().to_string();
         let now = Utc::now().to_rfc3339();
@@ -30,13 +31,14 @@ impl Db {
         if self.storage_mode().write_to_sql() {
             if let Some(pool) = self.pool_opt() {
                 sqlx::query(
-                    "INSERT INTO plans (id, tenant_id, plan_id_b3, manifest_hash_b3, kernel_hashes_json, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+                    "INSERT INTO plans (id, tenant_id, plan_id_b3, manifest_hash_b3, kernel_hashes_json, layout_hash_b3, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
                 )
                 .bind(&id)
                 .bind(tenant_id)
                 .bind(plan_id_b3)
                 .bind(manifest_hash_b3)
                 .bind(kernel_hashes_json)
+                .bind(layout_hash_b3)
                 .bind(&now)
                 .execute(pool)
                 .await
@@ -90,6 +92,35 @@ impl Db {
         .fetch_optional(pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to get plan: {}", e)))?;
+        Ok(plan)
+    }
+
+    /// Get plan by plan_id_b3 (the logical plan identifier, e.g., "dev")
+    /// This is distinct from the primary key `id` which is a UUID
+    pub async fn get_plan_by_plan_id(&self, plan_id_b3: &str) -> Result<Option<Plan>> {
+        if self.storage_mode().read_from_kv() {
+            if let Some(repo) = self.get_plan_kv_repo() {
+                let all = repo.list_all().await?;
+                if let Some(plan) = all.into_iter().find(|p| p.plan_id_b3 == plan_id_b3) {
+                    return Ok(Some(kv_to_plan(&plan)));
+                }
+            }
+            if !self.storage_mode().sql_fallback_enabled() {
+                return Ok(None);
+            }
+        }
+
+        let pool = match self.pool_opt() {
+            Some(p) => p,
+            None => return Ok(None),
+        };
+        let plan = sqlx::query_as::<_, Plan>(
+            "SELECT id, tenant_id, plan_id_b3, manifest_hash_b3, kernel_hashes_json, metallib_hash_b3, created_at FROM plans WHERE plan_id_b3 = ?"
+        )
+        .bind(plan_id_b3)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get plan by plan_id: {}", e)))?;
         Ok(plan)
     }
 

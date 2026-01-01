@@ -16,9 +16,9 @@ mod model_io;
 
 pub use cache::{configure_model_cache_telemetry, get_model_cache, validate_model_cache_budget};
 pub use capabilities::{
-    auto_select_backend, auto_select_backend_with_model, describe_available_backends,
-    detect_capabilities, is_moe_model, select_backend_from_execution_profile, BackendCapabilities,
-    BackendSelection, BackendStrategy, SelectionContext,
+    auto_select_backend, describe_available_backends, detect_capabilities,
+    select_backend_from_execution_profile, BackendCapabilities, BackendSelection, BackendStrategy,
+    SelectionContext,
 };
 pub use model_io::load_model_bytes_verified;
 
@@ -221,8 +221,7 @@ pub fn create_backend_with_model(choice: BackendChoice, model_path: &Path) -> Re
     match choice {
         BackendChoice::Auto => {
             let capabilities = detect_capabilities();
-            // Use MoE-aware selection that checks model configuration
-            let selected = auto_select_backend_with_model(model_path, &capabilities)?;
+            let selected = auto_select_backend(&capabilities)?;
             create_backend_with_model(selected, model_path)
         }
         BackendChoice::CPU => Err(AosError::Config(
@@ -390,23 +389,6 @@ fn create_mlx_backend(
 
     let model_path = validate_mlx_model_dir(model_path)?;
     let model_path_str = model_path.to_string_lossy();
-
-    // Check if this is a MoE model that requires subprocess bridge
-    if is_moe_model(&model_path) {
-        info!(
-            model_path = %model_path_str,
-            "Using MLX subprocess bridge for MoE model"
-        );
-        #[cfg(feature = "mlx-bridge")]
-        return create_mlx_subprocess_bridge(&model_path, manifest_hash);
-
-        #[cfg(not(feature = "mlx-bridge"))]
-        return Err(AosError::Config(
-            "MoE MLX models require the optional Python bridge ('mlx-bridge' feature). \
-             Rebuild with --features mlx-bridge or use a non-MoE model."
-                .to_string(),
-        ));
-    }
 
     use adapteros_lora_mlx_ffi::{
         mlx_get_backend_capabilities, mlx_runtime_init, mlx_runtime_init_with_device,
@@ -829,9 +811,6 @@ fn create_coreml_backend(
             cfg.max_seq_len,
         ));
     }
-
-    // Note: MoE detection happens automatically in backend.load_model()
-    // The backend will detect and log MoE architecture from config.json
 
     Ok(Box::new(backend))
 }

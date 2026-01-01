@@ -41,7 +41,7 @@ pub async fn create_message(
     // Check workspace access - must be member or owner
     let role = state
         .db
-        .check_workspace_access(&workspace_id, &claims.sub, &claims.tenant_id)
+        .check_workspace_access_with_admin(&workspace_id, &claims.sub, &claims.tenant_id, &claims.admin_tenants)
         .await
         .map_err(|e| {
             error!("Failed to check workspace access: {}", e);
@@ -134,7 +134,7 @@ pub async fn list_workspace_messages(
     // Check workspace access
     let role = state
         .db
-        .check_workspace_access(&workspace_id, &claims.sub, &claims.tenant_id)
+        .check_workspace_access_with_admin(&workspace_id, &claims.sub, &claims.tenant_id, &claims.admin_tenants)
         .await
         .map_err(|e| {
             error!("Failed to check workspace access: {}", e);
@@ -201,7 +201,7 @@ pub async fn get_message_thread(
     // Check workspace access
     let role = state
         .db
-        .check_workspace_access(&workspace_id, &claims.sub, &claims.tenant_id)
+        .check_workspace_access_with_admin(&workspace_id, &claims.sub, &claims.tenant_id, &claims.admin_tenants)
         .await
         .map_err(|e| {
             error!("Failed to check workspace access: {}", e);
@@ -262,7 +262,7 @@ pub async fn edit_message(
     // Check workspace access
     let role = state
         .db
-        .check_workspace_access(&workspace_id, &claims.sub, &claims.tenant_id)
+        .check_workspace_access_with_admin(&workspace_id, &claims.sub, &claims.tenant_id, &claims.admin_tenants)
         .await
         .map_err(|e| {
             error!("Failed to check workspace access: {}", e);

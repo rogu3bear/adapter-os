@@ -606,7 +606,7 @@ fn bench_adapter_lineage(c: &mut Criterion) {
             rt.block_on(async {
                 let result = sql_db
                     .db
-                    .get_adapter_lineage(black_box("child-adapter-1"))
+                    .get_adapter_lineage(black_box(&sql_db.tenant_id), black_box("child-adapter-1"))
                     .await;
                 black_box(result)
             })
@@ -619,7 +619,7 @@ fn bench_adapter_lineage(c: &mut Criterion) {
             rt.block_on(async {
                 let result = kv_db
                     .db
-                    .get_adapter_lineage(black_box("child-adapter-1"))
+                    .get_adapter_lineage(black_box(&kv_db.tenant_id), black_box("child-adapter-1"))
                     .await;
                 black_box(result)
             })

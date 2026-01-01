@@ -10,10 +10,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RouterModelType {
-    /// Standard dense adapter stack without MoE experts.
+    /// Standard dense adapter stack.
     Dense,
-    /// Mixture-of-experts routing that activates experts per token.
-    Moe,
 }
 
 impl RouterModelType {
@@ -85,13 +83,9 @@ pub struct RouterDecision {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub policy_overrides_applied: Option<PolicyOverrideFlags>,
 
-    /// Model type for this decision (dense vs MoE)
+    /// Model type for this decision
     #[serde(default = "RouterModelType::dense")]
     pub model_type: RouterModelType,
-
-    /// Active experts when running an MoE model (system-managed experts)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub active_experts: Option<Vec<u16>>,
 }
 
 impl RouterDecision {
@@ -116,7 +110,6 @@ impl RouterDecision {
             policy_mask_digest_b3: None,
             policy_overrides_applied: None,
             model_type: RouterModelType::Dense,
-            active_experts: None,
         }
     }
 

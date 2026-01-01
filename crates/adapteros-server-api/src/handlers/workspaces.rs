@@ -356,7 +356,7 @@ pub async fn get_workspace(
     // Isolation is enforced through workspace_members table membership validation.
     let role = state
         .db
-        .check_workspace_access(&workspace_id, &claims.sub, &claims.tenant_id)
+        .check_workspace_access_with_admin(&workspace_id, &claims.sub, &claims.tenant_id, &claims.admin_tenants)
         .await
         .map_err(|e| {
             error!("Failed to check workspace access: {}", e);
@@ -434,7 +434,7 @@ pub async fn update_workspace(
     // Validates user's tenant is a workspace member with appropriate role
     let role = state
         .db
-        .check_workspace_access(&workspace_id, &claims.sub, &claims.tenant_id)
+        .check_workspace_access_with_admin(&workspace_id, &claims.sub, &claims.tenant_id, &claims.admin_tenants)
         .await
         .map_err(|e| {
             error!("Failed to check workspace access: {}", e);
@@ -448,7 +448,7 @@ pub async fn update_workspace(
         })?;
 
     match role {
-        Some(WorkspaceRole::Owner) | Some(WorkspaceRole::Member) => {
+        Some(WorkspaceRole::Admin) | Some(WorkspaceRole::Owner) | Some(WorkspaceRole::Member) => {
             // Allowed
         }
         Some(WorkspaceRole::Viewer) => {
@@ -552,7 +552,7 @@ pub async fn delete_workspace(
     // Validates user's tenant is a workspace member with owner role
     let role = state
         .db
-        .check_workspace_access(&workspace_id, &claims.sub, &claims.tenant_id)
+        .check_workspace_access_with_admin(&workspace_id, &claims.sub, &claims.tenant_id, &claims.admin_tenants)
         .await
         .map_err(|e| {
             error!("Failed to check workspace access: {}", e);
@@ -634,7 +634,7 @@ pub async fn list_workspace_members(
     // Validates user's tenant is a workspace member before listing all members
     let role = state
         .db
-        .check_workspace_access(&workspace_id, &claims.sub, &claims.tenant_id)
+        .check_workspace_access_with_admin(&workspace_id, &claims.sub, &claims.tenant_id, &claims.admin_tenants)
         .await
         .map_err(|e| {
             error!("Failed to check workspace access: {}", e);
@@ -718,7 +718,7 @@ pub async fn add_workspace_member(
     // Note: req.tenant_id can be different from claims.tenant_id (cross-tenant by design)
     let role = state
         .db
-        .check_workspace_access(&workspace_id, &claims.sub, &claims.tenant_id)
+        .check_workspace_access_with_admin(&workspace_id, &claims.sub, &claims.tenant_id, &claims.admin_tenants)
         .await
         .map_err(|e| {
             error!("Failed to check workspace access: {}", e);
@@ -826,7 +826,7 @@ pub async fn update_workspace_member(
     // Validates user's tenant is a workspace member with owner role
     let role = state
         .db
-        .check_workspace_access(&workspace_id, &claims.sub, &claims.tenant_id)
+        .check_workspace_access_with_admin(&workspace_id, &claims.sub, &claims.tenant_id, &claims.admin_tenants)
         .await
         .map_err(|e| {
             error!("Failed to check workspace access: {}", e);
@@ -951,7 +951,7 @@ pub async fn remove_workspace_member(
     // Validates user's tenant is a workspace member with owner role
     let role = state
         .db
-        .check_workspace_access(&workspace_id, &claims.sub, &claims.tenant_id)
+        .check_workspace_access_with_admin(&workspace_id, &claims.sub, &claims.tenant_id, &claims.admin_tenants)
         .await
         .map_err(|e| {
             error!("Failed to check workspace access: {}", e);
@@ -1059,7 +1059,7 @@ pub async fn list_workspace_resources(
     // Validates user's tenant is a workspace member before listing shared resources
     let role = state
         .db
-        .check_workspace_access(&workspace_id, &claims.sub, &claims.tenant_id)
+        .check_workspace_access_with_admin(&workspace_id, &claims.sub, &claims.tenant_id, &claims.admin_tenants)
         .await
         .map_err(|e| {
             error!("Failed to check workspace access: {}", e);
@@ -1142,7 +1142,7 @@ pub async fn share_workspace_resource(
     // Validates user's tenant is a workspace member with appropriate role
     let role = state
         .db
-        .check_workspace_access(&workspace_id, &claims.sub, &claims.tenant_id)
+        .check_workspace_access_with_admin(&workspace_id, &claims.sub, &claims.tenant_id, &claims.admin_tenants)
         .await
         .map_err(|e| {
             error!("Failed to check workspace access: {}", e);
@@ -1338,7 +1338,7 @@ pub async fn unshare_workspace_resource(
     // Validates user's tenant is a workspace member with appropriate role
     let role = state
         .db
-        .check_workspace_access(&workspace_id, &claims.sub, &claims.tenant_id)
+        .check_workspace_access_with_admin(&workspace_id, &claims.sub, &claims.tenant_id, &claims.admin_tenants)
         .await
         .map_err(|e| {
             error!("Failed to check workspace access: {}", e);
@@ -1437,9 +1437,10 @@ pub async fn get_workspace_active_state(
     // TENANT ISOLATION: Check workspace access (validates user's tenant is a workspace member)
     // Workspaces don't have a single tenant_id - they're cross-tenant by design.
     // Isolation is enforced through workspace_members table membership validation.
+    // Admin bypass (admin_tenants=["*"]) is handled by check_workspace_access_with_admin.
     let role = state
         .db
-        .check_workspace_access(&workspace_id, &claims.sub, &claims.tenant_id)
+        .check_workspace_access_with_admin(&workspace_id, &claims.sub, &claims.tenant_id, &claims.admin_tenants)
         .await
         .map_err(|e| {
             error!("Failed to check workspace access: {}", e);
@@ -1500,7 +1501,7 @@ pub async fn set_workspace_active_state(
     // Isolation is enforced through workspace_members table membership validation.
     let role = state
         .db
-        .check_workspace_access(&workspace_id, &claims.sub, &claims.tenant_id)
+        .check_workspace_access_with_admin(&workspace_id, &claims.sub, &claims.tenant_id, &claims.admin_tenants)
         .await
         .map_err(|e| {
             error!("Failed to check workspace access: {}", e);

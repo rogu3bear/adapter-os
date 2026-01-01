@@ -160,8 +160,6 @@ export interface RawRouterDecision {
   candidates?: unknown[]; // Some endpoints use candidates
   k_value?: number;
   router_latency_us?: number;
-  model_type?: 'dense' | 'moe';
-  active_experts?: number[];
 }
 
 // ============================================================================
@@ -1372,13 +1370,6 @@ export interface TraceResponseV1 {
   policy_digest: string;
   backend_id: string;
   kernel_version_id: string;
-  model_type?: 'dense' | 'moe';
-  moe_info?: {
-    is_moe: boolean;
-    num_experts: number;
-    experts_per_token: number;
-  };
-  active_experts?: number[][];
   tokens: Array<{
     token_index: number;
     token_id?: string;
@@ -1388,8 +1379,6 @@ export interface TraceResponseV1 {
     policy_mask_digest: string;
     fusion_interval_id?: string;
     fused_weight_hash?: string;
-    active_experts?: number[];
-    model_type?: 'dense' | 'moe';
   }>;
 }
 
@@ -1823,8 +1812,6 @@ export interface ExtendedRouterDecision {
     deny_list: boolean;
     trust_state: boolean;
   };
-  model_type?: 'dense' | 'moe';
-  active_experts?: number[];
 }
 
 // Audit log entry
@@ -1978,8 +1965,6 @@ export interface InferenceTrace {
     gates?: number[];
     stack_hash?: string;
     interval_id?: string;
-    model_type?: 'dense' | 'moe';
-    active_experts?: number[];
   }>;
   evidence_spans?: Array<{
     text: string;
@@ -1994,14 +1979,6 @@ export interface InferenceTrace {
     latency_ms: number;
     tokens: number;
   }>;
-  moe_info?: {
-    is_moe: boolean;
-    num_experts: number;
-    experts_per_token: number;
-  };
-  expert_routing?: number[][][];
-  active_experts?: number[][];
-  model_type?: 'dense' | 'moe';
 }
 
 // Prompt Orchestration types

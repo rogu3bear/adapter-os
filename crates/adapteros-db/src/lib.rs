@@ -1050,6 +1050,7 @@ impl Db {
 
         // Apply compatibility fixes for schema drift between signed migrations and code expectations.
         self.ensure_adapter_lora_strength_column().await?;
+        self.ensure_adapter_recommended_for_moe_column().await?;
         self.ensure_worker_runtime_metadata_columns().await?;
 
         // Verify database version after migration
@@ -1081,6 +1082,35 @@ impl Db {
                 .await
                 .map_err(|e| {
                     AosError::Database(format!("Failed to backfill lora_strength: {}", e))
+                })?;
+        }
+
+        Ok(())
+    }
+
+    /// Backfill the `recommended_for_moe` column on adapters if migrations missed it.
+    async fn ensure_adapter_recommended_for_moe_column(&self) -> Result<()> {
+        let exists: Option<i64> = sqlx::query_scalar(
+            "SELECT 1 FROM pragma_table_info('adapters') WHERE name = 'recommended_for_moe' LIMIT 1",
+        )
+        .fetch_optional(self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to inspect adapters schema: {}", e)))?;
+
+        if exists.is_none() {
+            warn!("Adapters table missing recommended_for_moe column; applying runtime patch");
+            sqlx::query("ALTER TABLE adapters ADD COLUMN recommended_for_moe INTEGER DEFAULT 1")
+                .execute(self.pool())
+                .await
+                .map_err(|e| {
+                    AosError::Database(format!("Failed to add recommended_for_moe column: {}", e))
+                })?;
+            // Backfill existing rows to preserve deterministic defaults (true = recommended for MoE).
+            sqlx::query("UPDATE adapters SET recommended_for_moe = 1 WHERE recommended_for_moe IS NULL")
+                .execute(self.pool())
+                .await
+                .map_err(|e| {
+                    AosError::Database(format!("Failed to backfill recommended_for_moe: {}", e))
                 })?;
         }
 
@@ -1499,8 +1529,10 @@ impl Db {
             .await?;
         }
 
-        // Create sample nodes
+        // Create sample nodes - includes "local" for single-node dev environments
+        // The worker registration handler hardcodes node_id="local", so this must exist
         let nodes = vec![
+            ("local", "localhost", "Local Dev", 32),
             ("node-01", "m1-max-01.local", "M1 Max", 64),
             ("node-02", "m2-ultra-01.local", "M2 Ultra", 128),
             ("node-03", "m3-max-01.local", "M3 Max", 96),

@@ -235,9 +235,6 @@ fn test_inference_result_has_pinned_adapter_fields() {
         stop_reason_code: None,
         stop_reason_token_index: None,
         stop_policy_digest_b3: None,
-        moe_info: None,
-        expert_routing: None,
-        active_experts: None,
         model_type: None,
     };
 
@@ -290,9 +287,6 @@ fn test_inference_result_omits_none_pinned_fields() {
         stop_reason_code: None,
         stop_reason_token_index: None,
         stop_policy_digest_b3: None,
-        moe_info: None,
-        expert_routing: None,
-        active_experts: None,
         model_type: None,
     };
 
@@ -408,9 +402,6 @@ fn test_graceful_degradation_http_200_behavior() {
         stop_reason_code: None,
         stop_reason_token_index: None,
         stop_policy_digest_b3: None,
-        moe_info: None,
-        expert_routing: None,
-        active_experts: None,
         model_type: None,
     };
 

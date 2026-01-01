@@ -1,4 +1,5 @@
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, MockKernels, RouterRing};
+use adapteros_lora_router::policy_mask::PolicyMask;
 use adapteros_lora_router::Router;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 

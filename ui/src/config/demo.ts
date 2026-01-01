@@ -13,15 +13,15 @@ export interface DemoModelState {
 const DEMO_SYSTEM_TOASTS = [
   'Workspace A mounted Adapter X',
   'Auto-scaling worker node...',
-  'Router promoting MoE experts for Finance workspace',
+  'Router promoting adapters for Finance workspace',
   'Draining legacy 7B workers…',
   'Batching high-priority eval traffic',
   'Rolling restart of telemetry agent',
   'Workspace B shipped a new adapter revision',
 ];
 
-const DEMO_SCRIPT_PROMPT = `You are running an AdapterOS chaos drill for a multi-workspace MoE stack.
-- Switch routing to the 30B MoE (rank-64) backend for high-TPS workspaces.
+const DEMO_SCRIPT_PROMPT = `You are running an AdapterOS chaos drill for a multi-workspace adapter stack.
+- Switch routing to the 7B backend for high-TPS workspaces.
 - Keep Workspace A on the finance adapters; Workspace B on multilingual safety adapters.
 - Run a 2-minute synthetic load test at 1.2k RPM and capture latency P95 + tail token stats.
 - Generate an audit note summarizing model swaps, adapter mounts, and scaling decisions.`;
@@ -42,17 +42,6 @@ export function getDemoDefaultModel(): DemoModelState {
     format: 'gguf',
     backend: 'Metal',
     memoryUsageMb: 9200,
-  };
-}
-
-export function getDemoMoEModel(): DemoModelState {
-  return {
-    id: 'demo-30b-moe',
-    name: '30B MoE (Rank 64)',
-    sizeBytes: 32_000_000_000,
-    format: 'safetensors',
-    backend: 'MoE',
-    memoryUsageMb: 43_000,
   };
 }
 

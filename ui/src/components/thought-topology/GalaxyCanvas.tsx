@@ -185,6 +185,11 @@ export function GalaxyCanvas({
     clusterId: activeClusterId ?? null,
   });
   const activeOverrideRef = useRef<{ adapterId: string | null; clusterId: string | null; expiresAt: number; reason?: string | null } | null>(null);
+  const onPositionsUpdateRef = useRef(onPositionsUpdate);
+
+  useEffect(() => {
+    onPositionsUpdateRef.current = onPositionsUpdate;
+  }, [onPositionsUpdate]);
 
   const registerSwapEvent = (swap: ReasoningSwapEvent, eventTimestamp?: number) => {
     if (!swap?.id || seenSwapIdsRef.current.has(swap.id)) return;
@@ -293,12 +298,12 @@ export function GalaxyCanvas({
       });
       nodesRef.current = nextNodes;
 
-      if (onPositionsUpdate) {
+      if (onPositionsUpdateRef.current) {
         const snapshot: Record<string, { x: number; y: number; type: NodeKind; clusterId?: string }> = {};
         Object.values(targetsRef.current).forEach((target) => {
           snapshot[target.id] = { x: target.x, y: target.y, type: target.type, clusterId: target.clusterId };
         });
-        onPositionsUpdate({ nodes: snapshot, viewport: { width: rect.width, height: rect.height } });
+        onPositionsUpdateRef.current({ nodes: snapshot, viewport: { width: rect.width, height: rect.height } });
       }
     };
 
@@ -604,7 +609,7 @@ export function GalaxyCanvas({
       observer.disconnect();
       if (animationRef.current) cancelAnimationFrame(animationRef.current);
     };
-  }, [adapters, clusters, links, trail, ghostPath, activeClusterId, activeAdapterId, highlightClusterId, driftWarning, onPositionsUpdate, clusterColors]);
+  }, [adapters, clusters, links, trail, ghostPath, activeClusterId, activeAdapterId, highlightClusterId, driftWarning, clusterColors]);
 
   const handleClick = (event: MouseEvent<HTMLCanvasElement>) => {
     if (!canvasRef.current || !onClusterClick) return;
