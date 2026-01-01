@@ -1,6 +1,0 @@
-//! Multi-agent tick synchronization tests
-//! NOTE: Stubbed due to merge conflicts - requires cleanup
-
-#[test]
-#[ignore = "Test file has merge conflicts - needs cleanup [tracking: STAB-IGN-0196]"]
-fn test_multi_agent_tick_sync_stub() {}

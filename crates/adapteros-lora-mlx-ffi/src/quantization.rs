@@ -48,6 +48,9 @@ pub struct QuantizationMetadata {
     pub shape: Vec<i32>,
     /// Group size used
     pub group_size: u32,
+    /// Original number of elements (needed to strip padding during dequantization)
+    #[serde(default)]
+    pub original_len: usize,
 }
 
 /// Result of quantizing a tensor
@@ -145,6 +148,7 @@ impl MLXQuantizer {
             zero_points: None,
             shape: shape.to_vec(),
             group_size: group_size as u32,
+            original_len: data.len(),
         };
 
         Ok(QuantizedTensor {
@@ -226,6 +230,7 @@ impl MLXQuantizer {
             zero_points: None,
             shape: shape.to_vec(),
             group_size: group_size as u32,
+            original_len: data.len(),
         };
 
         Ok(QuantizedTensor {
@@ -244,13 +249,18 @@ impl MLXQuantizer {
         }
 
         let group_size = tensor.metadata.group_size as usize;
-        let mut result = Vec::with_capacity(tensor.data.len());
+        let original_len = tensor.metadata.original_len;
+        let mut result = Vec::with_capacity(original_len);
 
         for (group_idx, &scale) in tensor.metadata.scales.iter().enumerate() {
             let start = group_idx * group_size;
             let end = std::cmp::min(start + group_size, tensor.data.len());
 
             for i in start..end {
+                // Stop if we've reached the original element count (skip padding)
+                if result.len() >= original_len {
+                    break;
+                }
                 if i < tensor.data.len() {
                     let quantized = tensor.data[i] as i8;
                     let dequantized = Self::dequantize_value_int8(quantized, scale);
@@ -272,20 +282,28 @@ impl MLXQuantizer {
         }
 
         let group_size = tensor.metadata.group_size as usize;
-        let mut result = Vec::new();
+        let original_len = tensor.metadata.original_len;
+        let mut result = Vec::with_capacity(original_len);
+
+        // Track which element we're on globally
+        let mut element_idx = 0;
 
         for (group_idx, &scale) in tensor.metadata.scales.iter().enumerate() {
-            let group_start_idx = group_idx * group_size;
-            let group_end_idx = std::cmp::min((group_idx + 1) * group_size, tensor.data.len() * 2);
-            let elements_in_this_group = group_end_idx - group_start_idx;
+            // Calculate byte range for this group
+            // Each group has `group_size` elements, packed 2 per byte
+            let group_start_element = group_idx * group_size;
+            let byte_start = group_start_element / 2;
+            let bytes_in_group = group_size.div_ceil(2);
 
-            let byte_start = group_start_idx / 2;
-            let byte_end = std::cmp::min(group_end_idx.div_ceil(2), tensor.data.len());
+            for byte_offset in 0..bytes_in_group {
+                let byte_idx = byte_start + byte_offset;
+                if byte_idx >= tensor.data.len() {
+                    break;
+                }
 
-            for byte_idx in byte_start..byte_end {
                 let byte = tensor.data[byte_idx];
 
-                // Unpack two INT4 values
+                // Unpack two INT4 values (low nibble first)
                 let val1_unsigned = (byte & 0x0F) as i8;
                 let val2_unsigned = ((byte >> 4) & 0x0F) as i8;
 
@@ -301,14 +319,16 @@ impl MLXQuantizer {
                     val2_unsigned
                 };
 
-                // Add first value
-                if result.len() < elements_in_this_group + group_start_idx {
+                // Add first value if we haven't reached original length
+                if element_idx < original_len {
                     result.push(Self::dequantize_value_int4(val1, scale));
+                    element_idx += 1;
                 }
 
-                // Add second value if needed
-                if result.len() < elements_in_this_group + group_start_idx {
+                // Add second value if we haven't reached original length
+                if element_idx < original_len {
                     result.push(Self::dequantize_value_int4(val2, scale));
+                    element_idx += 1;
                 }
             }
         }
@@ -479,6 +499,7 @@ impl WeightCompressor {
                         zero_points: None,
                         shape: vec![],
                         group_size: config.group_size,
+                        original_len: 0, // Placeholder metadata, actual length unknown
                     };
 
                     self.metadata_cache.insert(name.clone(), metadata.clone());
@@ -557,7 +578,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Blocked: dequantization logic needs to match quantization - roundtrip fails with error > 0.1 [tracking: STAB-IGN-0034]"]
     fn test_dequantize_int8_roundtrip() {
         let original = vec![0.5, -0.3, 0.8, -0.1];
         let quantized = MLXQuantizer::quantize_int8(&original, 2, &[4]).unwrap();
@@ -581,7 +601,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Blocked: dequantization logic needs to match quantization - roundtrip fails with error > 0.1 [tracking: STAB-IGN-0035]"]
     fn test_dequantize_int4_roundtrip() {
         let original = vec![0.5, -0.3, 0.8, -0.1];
         let quantized = MLXQuantizer::quantize_int4(&original, 2, &[4]).unwrap();

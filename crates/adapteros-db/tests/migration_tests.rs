@@ -6,13 +6,6 @@
 //! - Handling of already-migrated adapters
 //! - Migration statistics accuracy
 //! - Error handling for failed migrations
-//!
-//! **NOTE**: One test (`test_migration_large_dataset`) is currently marked as `#[ignore]` due to
-//! a KV index query bug where prefix scanning causes false matches for adapter IDs with common
-//! prefixes (e.g., "test-adapter-1" incorrectly matches "test-adapter-10").
-//! See `crates/adapteros-storage/src/kv/indexing.rs` line 56-57 for the prefix scan implementation.
-//!
-//! This issue doesn't affect production use cases with UUIDs or properly namespaced adapter IDs.
 
 use adapteros_db::adapters::AdapterRegistrationBuilder;
 use adapteros_db::kv_migration::{MigrationDiscrepancy, MigrationStats};

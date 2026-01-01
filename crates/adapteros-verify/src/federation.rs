@@ -154,7 +154,6 @@ mod tests {
     // when running in parallel with other database tests. The functionality
     // is tested manually and in isolated test runs.
     #[tokio::test]
-    #[ignore = "Migration conflict with parallel test execution [tracking: STAB-IGN-0157]"]
     async fn test_verify_cross_host_empty_dir() -> VerifyResult<()> {
         let temp_dir = new_test_tempdir();
         let bundle_dir = temp_dir.path();
