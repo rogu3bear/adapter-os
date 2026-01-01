@@ -2,6 +2,7 @@
 //!
 //! Covers hashing, encryption, decryption, and sealed data operations.
 
+use adapteros_error_registry::ECode;
 use thiserror::Error;
 
 /// Cryptographic operation errors
@@ -35,4 +36,18 @@ pub enum AosCryptoError {
         counter: u64,
         message: String,
     },
+}
+
+impl AosCryptoError {
+    /// Get the error code for this crypto error (compile-time exhaustive)
+    pub const fn ecode(&self) -> ECode {
+        match self {
+            Self::InvalidHash(_) => ECode::E1004,
+            Self::Crypto(_) => ECode::E1001,
+            Self::EncryptionFailed { .. } => ECode::E1001,
+            Self::DecryptionFailed { .. } => ECode::E1001,
+            Self::InvalidSealedData { .. } => ECode::E1001,
+            Self::RngError { .. } => ECode::E2001, // Determinism-related
+        }
+    }
 }

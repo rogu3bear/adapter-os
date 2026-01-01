@@ -2,6 +2,7 @@
 //!
 //! Covers policy violations, egress restrictions, isolation breaches, and determinism failures.
 
+use adapteros_error_registry::ECode;
 use thiserror::Error;
 
 /// Policy and security errors
@@ -55,5 +56,19 @@ impl AosPolicyError {
                 | Self::Quarantined(_)
                 | Self::PolicyHashMismatch { .. }
         )
+    }
+
+    /// Get the error code for this policy error (compile-time exhaustive)
+    pub const fn ecode(&self) -> ECode {
+        match self {
+            Self::Violation(_) => ECode::E2002,
+            Self::Policy(_) => ECode::E2002,
+            Self::EgressViolation(_) => ECode::E2003,
+            Self::IsolationViolation(_) => ECode::E2002,
+            Self::Quarantined(_) => ECode::E2002,
+            Self::PolicyHashMismatch { .. } => ECode::E2002,
+            Self::DeterminismViolation(_) => ECode::E2001,
+            Self::PerformanceViolation(_) => ECode::E2004,
+        }
     }
 }
