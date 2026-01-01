@@ -587,6 +587,7 @@ mod tests {
     // =========================================================================
 
     #[test]
+    #[allow(deprecated)] // Testing the deprecated function intentionally
     fn test_error_code_from_deprecated_flag() {
         use crate::error_codes::{find_by_aos_error, ExitCode};
 
@@ -607,6 +608,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)] // Testing the deprecated function intentionally
     fn test_error_code_from_invalid_input_encoding() {
         use crate::error_codes::{find_by_aos_error, ExitCode};
 
@@ -626,6 +628,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)] // Testing the deprecated function intentionally
     fn test_error_code_from_write_permission_denied() {
         use crate::error_codes::{find_by_aos_error, ExitCode};
 
@@ -645,6 +648,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)] // Testing the deprecated function intentionally
     fn test_error_code_from_invalid_retry() {
         use crate::error_codes::{find_by_aos_error, ExitCode};
 
