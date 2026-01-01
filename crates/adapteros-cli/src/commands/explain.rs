@@ -11,7 +11,8 @@ pub async fn explain(code_or_name: &str) -> Result<()> {
         return Ok(());
     }
 
-    // Try as AosError variant name
+    // Try as AosError variant name (runtime lookup with user input)
+    #[allow(deprecated)]
     if let Some(error_code) = error_codes::find_by_aos_error(code_or_name) {
         println!(
             "📌 Mapped from AosError::{} to {}\n",
