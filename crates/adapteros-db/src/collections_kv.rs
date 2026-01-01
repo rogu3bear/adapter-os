@@ -12,6 +12,7 @@ use adapteros_storage::KvBackend;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tracing;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -120,7 +121,15 @@ impl CollectionKvRepository {
                 serde_json::from_slice(&bytes).map_err(AosError::Serialization)?;
             ids.retain(|v| v != id);
             if ids.is_empty() {
-                let _ = self.backend.delete(&key).await;
+                if let Err(e) = self.backend.delete(&key).await {
+                    tracing::warn!(
+                        target: "storage.kv",
+                        tenant_id = %tenant_id,
+                        collection_id = %id,
+                        error = %e,
+                        "Failed to delete empty collection index"
+                    );
+                }
             } else {
                 let payload = serde_json::to_vec(&ids).map_err(AosError::Serialization)?;
                 self.backend.set(&key, payload).await.map_err(|e| {
@@ -168,7 +177,16 @@ impl CollectionKvRepository {
                 serde_json::from_slice(&bytes).map_err(AosError::Serialization)?;
             ids.retain(|v| v != collection_id);
             if ids.is_empty() {
-                let _ = self.backend.delete(&key).await;
+                if let Err(e) = self.backend.delete(&key).await {
+                    tracing::warn!(
+                        target: "storage.kv",
+                        tenant_id = %tenant_id,
+                        document_id = %document_id,
+                        collection_id = %collection_id,
+                        error = %e,
+                        "Failed to delete empty doc collection index"
+                    );
+                }
             } else {
                 let payload = serde_json::to_vec(&ids).map_err(AosError::Serialization)?;
                 self.backend.set(&key, payload).await.map_err(|e| {
@@ -323,10 +341,20 @@ impl CollectionKvRepository {
         if let Some(new_name) = name {
             if new_name != coll.name {
                 // remove old name index
-                let _ = self
+                if let Err(e) = self
                     .backend
                     .delete(&Self::name_index_key(tenant_id, &coll.name))
-                    .await;
+                    .await
+                {
+                    tracing::warn!(
+                        target: "storage.kv",
+                        tenant_id = %tenant_id,
+                        collection_id = %id,
+                        old_name = %coll.name,
+                        error = %e,
+                        "Failed to delete old collection name index"
+                    );
+                }
                 self.backend
                     .set(
                         &Self::name_index_key(tenant_id, new_name),
@@ -372,7 +400,16 @@ impl CollectionKvRepository {
                         .await?;
                 }
             }
-            let _ = self.backend.delete(&key).await;
+            if let Err(e) = self.backend.delete(&key).await {
+                tracing::warn!(
+                    target: "storage.kv",
+                    tenant_id = %tenant_id,
+                    collection_id = %id,
+                    key = %key,
+                    error = %e,
+                    "Failed to delete collection-doc link"
+                );
+            }
         }
 
         // remove collection
@@ -381,10 +418,19 @@ impl CollectionKvRepository {
             .await
             .map_err(|e| AosError::Database(format!("Failed to delete collection: {}", e)))?;
         self.remove_collection_index(tenant_id, id).await?;
-        let _ = self
+        if let Err(e) = self
             .backend
             .delete(&Self::name_index_key(tenant_id, &format!("{}_removed", id)))
-            .await;
+            .await
+        {
+            tracing::warn!(
+                target: "storage.kv",
+                tenant_id = %tenant_id,
+                collection_id = %id,
+                error = %e,
+                "Failed to delete collection name index"
+            );
+        }
         Ok(())
     }
 

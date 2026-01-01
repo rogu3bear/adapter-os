@@ -122,7 +122,9 @@ impl DiagnosticRunner {
         self.check_permissions();
 
         // Database check
-        let _ = self.check_database().await;
+        if let Err(e) = self.check_database().await {
+            tracing::debug!(error = %e, "Database check failed (non-fatal)");
+        }
 
         // Kernel check
         self.check_kernels();
@@ -429,7 +431,9 @@ impl DiagnosticRunner {
         };
 
         // Check tenant registry
-        let _ = self.check_tenant_registry(&tenant_id).await;
+        if let Err(e) = self.check_tenant_registry(&tenant_id).await {
+            tracing::debug!(error = %e, tenant = %tenant_id, "Tenant registry check failed (non-fatal)");
+        }
 
         // Check telemetry
         self.check_telemetry(&tenant_id);

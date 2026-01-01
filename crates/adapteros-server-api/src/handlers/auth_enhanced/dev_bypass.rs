@@ -37,9 +37,9 @@ use blake3;
 #[cfg(all(feature = "dev-bypass", debug_assertions))]
 use chrono::{DateTime, Duration, Utc};
 #[cfg(all(feature = "dev-bypass", debug_assertions))]
-use tracing::{info, warn};
-#[cfg(all(feature = "dev-bypass", debug_assertions))]
 use sqlx;
+#[cfg(all(feature = "dev-bypass", debug_assertions))]
+use tracing::{info, warn};
 #[cfg(all(feature = "dev-bypass", debug_assertions))]
 use uuid::Uuid;
 
@@ -175,17 +175,19 @@ pub async fn dev_bypass_handler(
     }
 
     // Ensure a default workspace exists for the dev user
-    match sqlx::query_scalar::<_, String>(
-        "SELECT id FROM workspaces WHERE created_by = ? LIMIT 1",
-    )
-    .bind(&user_id)
-    .fetch_optional(state.db.pool())
-    .await
+    match sqlx::query_scalar::<_, String>("SELECT id FROM workspaces WHERE created_by = ? LIMIT 1")
+        .bind(&user_id)
+        .fetch_optional(state.db.pool())
+        .await
     {
         Ok(Some(ws_id)) => {
             info!(workspace_id = %ws_id, user_id = %user_id, "Dev user already has a workspace");
             // Ensure the dev user has membership (may have been created without it)
-            if let Ok(None) = state.db.check_workspace_access(&ws_id, &user_id, &tenant_id).await {
+            if let Ok(None) = state
+                .db
+                .check_workspace_access(&ws_id, &user_id, &tenant_id)
+                .await
+            {
                 if let Err(e) = state
                     .db
                     .add_workspace_member(
@@ -248,7 +250,11 @@ pub async fn dev_bypass_handler(
     {
         Ok(Some(_)) => {
             // System workspace exists, ensure dev user has membership
-            if let Ok(None) = state.db.check_workspace_access("system", &user_id, &tenant_id).await {
+            if let Ok(None) = state
+                .db
+                .check_workspace_access("system", &user_id, &tenant_id)
+                .await
+            {
                 if let Err(e) = state
                     .db
                     .add_workspace_member(

@@ -294,6 +294,7 @@ pub async fn run_preflight_checks(config: Arc<RwLock<Config>>, cli: &Cli) -> Res
                 cookie_domain: cfg.security.cookie_domain.clone(),
                 cookie_secure: cfg.security.cookie_secure,
                 clock_skew_seconds: cfg.security.clock_skew_seconds,
+                dev_bypass: cfg.security.dev_bypass,
             };
 
             if cli.skip_pf_check {

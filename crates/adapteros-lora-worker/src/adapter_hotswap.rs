@@ -381,6 +381,20 @@ impl AdapterTable {
     ///
     /// FIX 3: Hot-swap partial removal - Validate ALL add_ids exist in staged BEFORE removing any adapter
     pub async fn swap(&self, add_ids: &[String], remove_ids: &[String]) -> Result<(i64, usize)> {
+        let current_active_count = self.active.read().len();
+        let staged_count = self.staged.read().len();
+
+        tracing::info!(
+            target: "inference.cache",
+            add_count = add_ids.len(),
+            remove_count = remove_ids.len(),
+            current_active = current_active_count,
+            staged_available = staged_count,
+            add_ids = ?add_ids,
+            remove_ids = ?remove_ids,
+            "Swap decision: preparing adapter hot-swap"
+        );
+
         // Save current stack for potential rollback
         {
             let current = self.current_stack.load(Ordering::Acquire);
@@ -517,11 +531,31 @@ impl AdapterTable {
         // Retire previous stack if generation changed
         if previous_gen != new_gen {
             let mut retired = self.retired_stacks.lock().await;
+            let retired_adapter_ids: Vec<String> = old_active_snapshot.keys().cloned().collect();
             retired.push(Arc::new(Stack {
                 generation: previous_gen as u64,
                 active: old_active_snapshot,
             }));
+
+            tracing::warn!(
+                target: "inference.cache",
+                retired_generation = previous_gen,
+                new_generation = new_gen,
+                retired_adapter_count = retired_adapter_ids.len(),
+                retired_adapters = ?retired_adapter_ids,
+                pending_retirement_count = retired.len(),
+                "LRU eviction: stack retired pending cleanup"
+            );
         }
+
+        tracing::info!(
+            target: "inference.cache",
+            vram_delta_mb = vram_delta,
+            added_count = added_count,
+            new_generation = new_gen,
+            total_active = new_active_snapshot.len(),
+            "Swap decision: adapter hot-swap completed successfully"
+        );
 
         self.emit_swap_event(add_ids, remove_ids, true, None);
         Ok((vram_delta, added_count))

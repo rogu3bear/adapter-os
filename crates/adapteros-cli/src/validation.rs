@@ -586,79 +586,39 @@ mod tests {
     // Error Code Generation Tests
     // =========================================================================
 
+    /// Test that CLI-specific errors map to correct exit codes
+    ///
+    /// Note: For error code (ECode) mapping, use the compile-time checked
+    /// `AosError::ecode()` method from the unified error registry.
     #[test]
-    #[allow(deprecated)] // Testing the deprecated function intentionally
-    fn test_error_code_from_deprecated_flag() {
-        use crate::error_codes::{find_by_aos_error, ExitCode};
+    fn test_cli_error_exit_code_mapping() {
+        use crate::error_codes::ExitCode;
 
-        // DeprecatedFlag should map to E8009
-        let code = find_by_aos_error("DeprecatedFlag");
-        assert!(code.is_some());
-        let code = code.unwrap();
-        assert_eq!(code.code, "E8009");
-        assert_eq!(code.category, "CLI/Config");
-
-        // Should also map to correct exit code
+        // DeprecatedFlag should map to DeprecatedFlag exit code
         let deprecated_err = AosError::DeprecatedFlag {
             flag: "verbose".to_string(),
             replacement: "--log-level debug".to_string(),
             removal_version: "2.0.0".to_string(),
         };
         assert_eq!(ExitCode::from(&deprecated_err), ExitCode::DeprecatedFlag);
-    }
 
-    #[test]
-    #[allow(deprecated)] // Testing the deprecated function intentionally
-    fn test_error_code_from_invalid_input_encoding() {
-        use crate::error_codes::{find_by_aos_error, ExitCode};
-
-        // InvalidInputEncoding should map to E8012
-        let code = find_by_aos_error("InvalidInputEncoding");
-        assert!(code.is_some());
-        let code = code.unwrap();
-        assert_eq!(code.code, "E8012");
-
-        // Should also map to correct exit code
+        // InvalidInputEncoding should map to InputEncoding exit code
         let encoding_err = AosError::InvalidInputEncoding {
             offset: 10,
             context: "stdin".to_string(),
             suggested_flag: Some("--binary".to_string()),
         };
         assert_eq!(ExitCode::from(&encoding_err), ExitCode::InputEncoding);
-    }
 
-    #[test]
-    #[allow(deprecated)] // Testing the deprecated function intentionally
-    fn test_error_code_from_write_permission_denied() {
-        use crate::error_codes::{find_by_aos_error, ExitCode};
-
-        // CliWritePermissionDenied should map to E8011
-        let code = find_by_aos_error("CliWritePermissionDenied");
-        assert!(code.is_some());
-        let code = code.unwrap();
-        assert_eq!(code.code, "E8011");
-
-        // Should map to IO exit code
+        // CliWritePermissionDenied should map to Io exit code
         let perm_err = AosError::CliWritePermissionDenied {
             path: "/tmp/file.txt".to_string(),
             reason: "read-only".to_string(),
             operation: "write".to_string(),
         };
         assert_eq!(ExitCode::from(&perm_err), ExitCode::Io);
-    }
 
-    #[test]
-    #[allow(deprecated)] // Testing the deprecated function intentionally
-    fn test_error_code_from_invalid_retry() {
-        use crate::error_codes::{find_by_aos_error, ExitCode};
-
-        // InvalidRetryAttempt should map to E8013
-        let code = find_by_aos_error("InvalidRetryAttempt");
-        assert!(code.is_some());
-        let code = code.unwrap();
-        assert_eq!(code.code, "E8013");
-
-        // Should map to InvalidRetry exit code
+        // InvalidRetryAttempt should map to InvalidRetry exit code
         let retry_err = AosError::InvalidRetryAttempt {
             error_type: "Auth".to_string(),
             reason: "not retriable".to_string(),

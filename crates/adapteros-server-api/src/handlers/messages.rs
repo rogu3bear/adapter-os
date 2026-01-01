@@ -10,7 +10,7 @@ use axum::{
     response::Json,
 };
 use serde::{Deserialize, Serialize};
-use tracing::error;
+use tracing::{error, info};
 use utoipa::ToSchema;
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -111,6 +111,17 @@ pub async fn create_message(
                 Json(ErrorResponse::new("Message not found after creation").with_code("NOT_FOUND")),
             )
         })?;
+
+    info!(
+        target: "audit.messages",
+        message_id = %message.id,
+        workspace_id = %workspace_id,
+        user_id = %claims.sub,
+        tenant_id = %claims.tenant_id,
+        thread_id = ?req.thread_id,
+        action = "create",
+        "Message created"
+    );
 
     Ok(Json(MessageResponse {
         id: message.id,
@@ -340,6 +351,16 @@ pub async fn edit_message(
                 Json(ErrorResponse::new("Message not found").with_code("NOT_FOUND")),
             )
         })?;
+
+    info!(
+        target: "audit.messages",
+        message_id = %message_id,
+        workspace_id = %workspace_id,
+        user_id = %claims.sub,
+        tenant_id = %claims.tenant_id,
+        action = "edit",
+        "Message edited"
+    );
 
     Ok(Json(MessageResponse {
         id: updated_message.id,

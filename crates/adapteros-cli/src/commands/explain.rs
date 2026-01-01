@@ -1,34 +1,41 @@
 //! Explain error codes
+//!
+//! Use `aosctl explain <ERROR_CODE>` to get detailed information about any
+//! AdapterOS error code. For compile-time checked error code mapping from
+//! actual errors, use `AosError::ecode()` from `adapteros_core::errors`.
 
 use crate::error_codes;
 use anyhow::{Context, Result};
 
-/// Explain an error code or AosError name
+/// Explain an error code
+///
+/// Accepts error codes like E1001, E2002, etc. For programmatic mapping
+/// from AosError instances, use the compile-time checked `AosError::ecode()` method.
 pub async fn explain(code_or_name: &str) -> Result<()> {
-    // Try as error code first (E3001)
+    // Try as error code (E3001)
     if let Some(error_code) = error_codes::REGISTRY.get(code_or_name) {
         println!("{}", error_code);
         return Ok(());
     }
 
-    // Try as AosError variant name (runtime lookup with user input)
-    #[allow(deprecated)]
-    if let Some(error_code) = error_codes::find_by_aos_error(code_or_name) {
-        println!(
-            "📌 Mapped from AosError::{} to {}\n",
-            code_or_name, error_code.code
-        );
+    // Try case-insensitive match on error code
+    let upper = code_or_name.to_uppercase();
+    if let Some(error_code) = error_codes::REGISTRY.get(upper.as_str()) {
         println!("{}", error_code);
         return Ok(());
     }
 
-    // Not found
+    // Not found - provide helpful guidance
     Err(anyhow::anyhow!(
-        "Error code or AosError name not found: {}\n\n\
-         Try:\n\
-         - aosctl error-codes             (list all codes)\n\
-         - aosctl explain E3001           (explain specific code)\n\
-         - aosctl explain InvalidHash     (explain AosError variant)",
+        "Error code not found: {}\n\n\
+         Usage:\n\
+         - aosctl explain E3001           (explain specific error code)\n\
+         - aosctl error-codes             (list all codes)\n\n\
+         Note: AosError variant name lookup has been removed.\n\
+         Use the typed AosError::ecode() method for compile-time checked mapping:\n\
+         \n\
+           use adapteros_core::errors::{{AosError, HasECode}};\n\
+           let code = error.ecode();  // Returns ECode enum",
         code_or_name
     ))
 }

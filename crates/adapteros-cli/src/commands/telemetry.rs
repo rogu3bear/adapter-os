@@ -79,7 +79,9 @@ pub async fn handle_telemetry_command(cmd: TelemetryCommand, output: &OutputWrit
     info!(command = ?cmd, "Handling telemetry command");
 
     // Emit CLI telemetry
-    let _ = crate::cli_telemetry::emit_cli_command(&command_name, None, true).await;
+    if let Err(e) = crate::cli_telemetry::emit_cli_command(&command_name, None, true).await {
+        tracing::debug!(error = %e, command = %command_name, "Telemetry emit failed (non-fatal)");
+    }
 
     match cmd {
         TelemetryCommand::List {

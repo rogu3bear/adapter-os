@@ -3,7 +3,7 @@ use crate::{Db, StorageMode};
 use adapteros_core::error_helpers::DbErrorExt;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -200,6 +200,14 @@ impl Db {
             }
         }
 
+        info!(
+            target: "audit.user",
+            user_id = %id,
+            email = %email,
+            role = %role_str,
+            tenant_id = %tenant_id,
+            "User created"
+        );
         Ok(id)
     }
 
@@ -506,6 +514,7 @@ impl Db {
             }
         }
 
+        info!(target: "audit.user", user_id = %id, new_role = %role_str, "User role updated");
         Ok(())
     }
 
@@ -546,6 +555,7 @@ impl Db {
             }
         }
 
+        info!(target: "audit.user", user_id = %id, disabled = %disabled, "User disabled status changed");
         Ok(())
     }
 
@@ -621,6 +631,7 @@ impl Db {
             }
         }
 
+        info!(target: "audit.user", user_id = %id, "User deleted");
         Ok(())
     }
 
@@ -686,6 +697,7 @@ impl Db {
                 .await;
         }
 
+        info!(target: "audit.user.mfa", user_id = %user_id, "MFA enabled");
         Ok(())
     }
 
@@ -706,6 +718,7 @@ impl Db {
             let _ = repo.disable_user_mfa_kv(user_id).await;
         }
 
+        info!(target: "audit.user.mfa", user_id = %user_id, "MFA disabled");
         Ok(())
     }
 

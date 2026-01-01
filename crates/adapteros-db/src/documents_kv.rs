@@ -13,6 +13,7 @@ use adapteros_storage::KvBackend;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tracing;
 use uuid::Uuid;
 
 /// Document KV representation (parity with SQL schema)
@@ -412,13 +413,40 @@ impl DocumentKvRepository {
             let chunk_ids: Vec<String> =
                 serde_json::from_slice(&bytes).map_err(AosError::Serialization)?;
             for cid in chunk_ids {
-                let _ = self
+                if let Err(e) = self
                     .backend
                     .delete(&Self::chunk_key(tenant_id, id, &cid))
-                    .await;
-                let _ = self.backend.delete(&Self::chunk_lookup_key(&cid)).await;
+                    .await
+                {
+                    tracing::warn!(
+                        target: "storage.kv",
+                        tenant_id = %tenant_id,
+                        document_id = %id,
+                        chunk_id = %cid,
+                        error = %e,
+                        "Failed to delete document chunk"
+                    );
+                }
+                if let Err(e) = self.backend.delete(&Self::chunk_lookup_key(&cid)).await {
+                    tracing::warn!(
+                        target: "storage.kv",
+                        tenant_id = %tenant_id,
+                        document_id = %id,
+                        chunk_id = %cid,
+                        error = %e,
+                        "Failed to delete chunk lookup key"
+                    );
+                }
             }
-            let _ = self.backend.delete(&chunk_index_key).await;
+            if let Err(e) = self.backend.delete(&chunk_index_key).await {
+                tracing::warn!(
+                    target: "storage.kv",
+                    tenant_id = %tenant_id,
+                    document_id = %id,
+                    error = %e,
+                    "Failed to delete chunk index"
+                );
+            }
         }
 
         // remove document
@@ -430,12 +458,30 @@ impl DocumentKvRepository {
         // remove index and hash
         self.remove_index(tenant_id, id).await?;
         if let Some(doc) = self.get_document(tenant_id, id).await? {
-            let _ = self
+            if let Err(e) = self
                 .backend
                 .delete(&Self::hash_index_key(tenant_id, &doc.content_hash))
-                .await;
+                .await
+            {
+                tracing::warn!(
+                    target: "storage.kv",
+                    tenant_id = %tenant_id,
+                    document_id = %id,
+                    content_hash = %doc.content_hash,
+                    error = %e,
+                    "Failed to delete document hash index"
+                );
+            }
         }
-        let _ = self.backend.delete(&Self::doc_lookup_key(id)).await;
+        if let Err(e) = self.backend.delete(&Self::doc_lookup_key(id)).await {
+            tracing::warn!(
+                target: "storage.kv",
+                tenant_id = %tenant_id,
+                document_id = %id,
+                error = %e,
+                "Failed to delete document lookup key"
+            );
+        }
 
         Ok(())
     }

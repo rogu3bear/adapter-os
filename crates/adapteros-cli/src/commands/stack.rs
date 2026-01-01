@@ -183,7 +183,11 @@ pub async fn handle_stack_command(cmd: StackCommand, output: &OutputWriter) -> R
     info!(command = ?cmd, "Handling stack command");
 
     // Emit telemetry
-    let _ = crate::cli_telemetry::emit_cli_command(&command_name, tenant_id.as_deref(), true).await;
+    if let Err(e) =
+        crate::cli_telemetry::emit_cli_command(&command_name, tenant_id.as_deref(), true).await
+    {
+        tracing::debug!(error = %e, command = %command_name, "Telemetry emit failed (non-fatal)");
+    }
 
     match cmd {
         StackCommand::List { tenant, json } => list_stacks(tenant, json, output).await,

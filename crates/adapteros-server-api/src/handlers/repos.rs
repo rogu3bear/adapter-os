@@ -357,7 +357,15 @@ pub async fn create_repo(
             )
         })?;
 
-    info!(repo_id = %repo_id, name = %req.name, tenant_id = %claims.tenant_id, "Repository created");
+    tracing::info!(
+        target: "audit.repos",
+        repo_id = %repo_id,
+        user_id = %claims.sub,
+        tenant_id = %claims.tenant_id,
+        name = %req.name,
+        action = "create",
+        "Repository created"
+    );
 
     Ok((StatusCode::CREATED, Json(CreateRepoResponse { repo_id })))
 }
@@ -473,7 +481,14 @@ pub async fn update_repo(
             )
         })?;
 
-    info!(repo_id = %repo_id, tenant_id = %claims.tenant_id, "Repository updated");
+    tracing::info!(
+        target: "audit.repos",
+        repo_id = %repo_id,
+        user_id = %claims.sub,
+        tenant_id = %claims.tenant_id,
+        action = "update",
+        "Repository updated"
+    );
 
     Ok(Json(RepoDetailResponse {
         id: updated_repo.id,
@@ -758,11 +773,14 @@ pub async fn promote_version(
             )
         })?;
 
-    info!(
+    tracing::info!(
+        target: "audit.repos",
         version_id = %version_id,
         repo_id = %repo_id,
+        user_id = %claims.sub,
         tenant_id = %claims.tenant_id,
         actor = req.actor.as_deref().unwrap_or(&claims.sub),
+        action = "promote_version",
         "Promoted adapter version"
     );
 
@@ -847,12 +865,15 @@ pub async fn rollback_version(
             )
         })?;
 
-    info!(
+    tracing::info!(
+        target: "audit.repos",
         target_version_id = %req.target_version_id,
         branch = %branch,
         repo_id = %repo_id,
+        user_id = %claims.sub,
         tenant_id = %claims.tenant_id,
         actor = req.actor.as_deref().unwrap_or(&claims.sub),
+        action = "rollback_version",
         "Rolled back adapter branch"
     );
 
@@ -1039,11 +1060,14 @@ pub async fn tag_version(
             )
         })?;
 
-    info!(
+    tracing::info!(
+        target: "audit.repos",
         version_id = %version_id,
         repo_id = %repo_id,
+        user_id = %claims.sub,
         tenant_id = %claims.tenant_id,
         tag_name = %req.tag_name,
+        action = "tag_version",
         "Tagged adapter version"
     );
 

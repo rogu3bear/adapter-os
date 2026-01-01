@@ -107,6 +107,16 @@ impl BackendCoordinator {
         let primary = Arc::new(RwLock::new(create_backend(primary_choice)?));
 
         info!(
+            target: "inference.backend",
+            selected = ?primary_choice,
+            reason = "strategy_primary",
+            has_metal = capabilities.has_metal,
+            has_coreml = capabilities.has_coreml,
+            has_ane = capabilities.has_ane,
+            "Backend selected for inference"
+        );
+
+        info!(
             primary_backend = ?primary_choice,
             "Created primary backend"
         );
@@ -197,9 +207,19 @@ impl BackendCoordinator {
         // Mark primary as degraded
         {
             let mut health = self.primary_health.write().await;
-            *health = BackendHealth::Degraded {
-                reason: format!("GPU unavailable: {}", error),
-            };
+            let previous_state = std::mem::replace(
+                &mut *health,
+                BackendHealth::Degraded {
+                    reason: format!("GPU unavailable: {}", error),
+                },
+            );
+            info!(
+                target: "inference.backend",
+                previous = ?previous_state,
+                current = "degraded",
+                reason = %error,
+                "Health state transition: primary backend degraded"
+            );
         }
         {
             let mut degraded = self.primary_degraded.write().await;
@@ -222,6 +242,14 @@ impl BackendCoordinator {
                 let mut metrics = self.metrics.write().await;
                 metrics.backend_switches += 1;
             }
+
+            info!(
+                target: "inference.backend",
+                selected = "fallback",
+                reason = "gpu_error_recovery",
+                trigger_error = %error,
+                "Fallback backend activated"
+            );
 
             None // Fallback available, caller should retry
         } else {
@@ -445,9 +473,21 @@ impl BackendCoordinator {
                 let is_healthy = matches!(health, BackendHealth::Healthy);
 
                 // Update primary_health (single lock acquisition)
-                {
+                let previous_state = {
                     let mut guard = self.primary_health.write().await;
+                    let prev = guard.clone();
                     *guard = health.clone();
+                    prev
+                };
+
+                // Log health state transition if changed
+                if std::mem::discriminant(&previous_state) != std::mem::discriminant(&health) {
+                    info!(
+                        target: "inference.backend",
+                        previous = ?previous_state,
+                        current = ?health,
+                        "Health state transition: primary backend"
+                    );
                 }
 
                 // Update primary_degraded (separate lock acquisition)
@@ -501,11 +541,28 @@ impl BackendCoordinator {
 
                 match fallback_health_result {
                     Ok(health) => {
+                        let previous_state = {
+                            let mut guard = fallback_health_arc.write().await;
+                            let prev = guard.clone();
+                            *guard = health.clone();
+                            prev
+                        };
+
+                        // Log health state transition if changed
+                        if std::mem::discriminant(&previous_state)
+                            != std::mem::discriminant(&health)
+                        {
+                            info!(
+                                target: "inference.backend",
+                                previous = ?previous_state,
+                                current = ?health,
+                                "Health state transition: fallback backend"
+                            );
+                        }
+
                         if !matches!(health, BackendHealth::Healthy) {
                             warn!(health = ?health, "Fallback backend health check failed");
                         }
-                        let mut guard = fallback_health_arc.write().await;
-                        *guard = health;
                     }
                     Err(e) => {
                         error!(error = %e, "Fallback backend health check error");

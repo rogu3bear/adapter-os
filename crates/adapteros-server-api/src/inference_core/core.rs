@@ -1405,6 +1405,9 @@ impl<'a> InferenceCore<'a> {
     }
 
     /// Build allowlist of adapter IDs for a tenant for membership checks
+    ///
+    /// Includes both internal UUIDs (`id`) and human-readable adapter IDs (`adapter_id`)
+    /// to support lookups by either identifier.
     pub(crate) async fn adapter_allowlist_for_tenant(
         &self,
         tenant_id: &str,
@@ -1421,7 +1424,15 @@ impl<'a> InferenceCore<'a> {
                 ))
             })?;
 
-        Ok(adapters.into_iter().map(|a| a.id).collect())
+        // Include both internal UUID and human-readable adapter_id in allowlist
+        let mut allowlist = HashSet::new();
+        for adapter in adapters {
+            allowlist.insert(adapter.id);
+            if let Some(adapter_id) = adapter.adapter_id {
+                allowlist.insert(adapter_id);
+            }
+        }
+        Ok(allowlist)
     }
 
     /// Ensure every adapter in `ids` is permitted for the tenant.

@@ -374,7 +374,15 @@ pub async fn check_db_health(State(state): State<AppState>) -> impl IntoResponse
                             .await;
 
                     // Check KV backend health
-                    let kv_health = state.db.kv_health_check().await.ok();
+                    let kv_health = state
+                        .db
+                        .kv_health_check()
+                        .await
+                        .map_err(|e| {
+                            warn!(error = %e, "KV health check failed during readiness probe");
+                            e
+                        })
+                        .ok();
 
                     // Build details with KV health info
                     let mut details = serde_json::json!({
@@ -1247,10 +1255,17 @@ async fn has_healthy_worker(state: &AppState, summary: &[WorkerHealthSummary]) -
         Ok(mut conn) => query("SELECT 1 FROM workers WHERE status = 'healthy' LIMIT 1")
             .fetch_optional(&mut *conn)
             .await
+            .map_err(|e| {
+                warn!(error = %e, "Worker health query failed");
+                e
+            })
             .ok()
             .flatten()
             .is_some(),
-        Err(_) => false,
+        Err(e) => {
+            warn!(error = %e, "Failed to acquire DB connection for worker health check");
+            false
+        }
     }
 }
 

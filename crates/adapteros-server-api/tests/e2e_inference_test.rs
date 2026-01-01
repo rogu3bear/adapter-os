@@ -14,7 +14,7 @@
 
 mod common;
 
-use adapteros_api_types::inference::StopReasonCode;
+use adapteros_api_types::inference::{RouterDecisionChainEntry, StopReasonCode};
 use adapteros_api_types::InferRequest;
 use adapteros_core::identity::IdentityEnvelope;
 use adapteros_core::version::API_SCHEMA_VERSION;
@@ -50,13 +50,13 @@ use tokio::net::UnixListener;
 /// 10. Evidence & telemetry capture
 /// 11. Response assembly (with deterministic receipt)
 #[tokio::test]
-#[ignore = "requires full tenant/model fixture setup"]
 async fn test_e2e_inference_with_audit_trail() {
     // =============================================================================
     // Stage 1: Setup - Server Initialization
     // =============================================================================
 
-    let manifest_hash = "e2e-test-manifest-hash";
+    // Valid 64-character hex string for BLAKE3 hash format
+    let manifest_hash = "e2e0000000000000000000000000000000000000000000000000000000000001";
     let backend_name = "mlx";
     let model_name = "Qwen2.5-7B-Instruct";
     let adapter_id = "adapter-sentiment-analysis";
@@ -113,6 +113,8 @@ async fn test_e2e_inference_with_audit_trail() {
         .expect("Failed to mark model ready");
 
     // Register adapter for sentiment analysis
+    // Note: base_model_id is omitted because models are global (no tenant_id)
+    // and adapters are tenant-scoped. The FK constraint requires tenant match.
     let adapter_hash = B3Hash::hash(adapter_id.as_bytes()).to_hex();
     let adapter_params = AdapterRegistrationBuilder::new()
         .tenant_id(claims.tenant_id.clone())
@@ -121,15 +123,23 @@ async fn test_e2e_inference_with_audit_trail() {
         .hash_b3(adapter_hash)
         .rank(16)
         .targets_json(r#"["q_proj","v_proj"]"#)
-        .base_model_id(Some(model_id.clone()))
         .build()
         .expect("Failed to build adapter params");
 
-    state
+    // Register the adapter (returns internal UUID, but we use adapter_id for inference)
+    let _adapter_internal_id = state
         .db
         .register_adapter(adapter_params)
         .await
         .expect("Failed to register adapter");
+
+    // Verify adapter was registered and is loadable
+    let loadable = state
+        .db
+        .is_adapter_loadable(adapter_id)
+        .await
+        .expect("Failed to check adapter loadability");
+    assert!(loadable, "Adapter should be loadable after registration");
 
     // =============================================================================
     // Stage 4: Chat Session Creation
@@ -217,11 +227,25 @@ async fn test_e2e_inference_with_audit_trail() {
                 adapters_used: vec![adapter_id.to_string()],
             },
             router_decisions: None,
-            router_decision_chain: None,
+            // Required for strict determinism mode - Q15 quantized gate values
+            router_decision_chain: Some(vec![RouterDecisionChainEntry {
+                step: 0,
+                input_token_id: Some(1),
+                adapter_indices: vec![0],
+                adapter_ids: vec![adapter_id.to_string()],
+                gates_q15: vec![32767], // Max Q15 value = full weight
+                entropy: 0.0,
+                decision_hash: None,
+                previous_hash: None,
+                entry_hash: "e2e-entry-hash".to_string(),
+                policy_mask_digest_b3: None,
+                policy_overrides_applied: None,
+            }]),
             model_type: None,
         },
         backend_used: Some(backend_name.to_string()),
-        backend_version: Some("mlx-0.1.0".to_string()),
+        // Must match adapteros_core::version::VERSION for strict mode
+        backend_version: Some(adapteros_core::version::VERSION.to_string()),
         fallback_triggered: false,
         coreml_compute_preference: None,
         coreml_compute_units: None,
@@ -302,16 +326,17 @@ async fn test_e2e_inference_with_audit_trail() {
         .await
         .expect("Failed to register worker");
 
+    // Note: Valid statuses are: created, registered, healthy, draining, stopped, error
     state
         .db
         .transition_worker_status(
             worker_id,
-            "serving",
+            "healthy",
             "Ready for E2E test",
             Some("test-system"),
         )
         .await
-        .expect("Failed to transition worker to serving");
+        .expect("Failed to transition worker to healthy");
 
     // =============================================================================
     // Stage 7: Execute Inference Request
@@ -330,6 +355,7 @@ async fn test_e2e_inference_with_audit_trail() {
         prompt: "This product exceeded my expectations!".to_string(),
         model: Some(model_id.clone()),
         session_id: Some(request_id.to_string()),
+        // Use human-readable adapter_id (the is_adapter_loadable check uses this)
         adapters: Some(vec![adapter_id.to_string()]),
         max_tokens: Some(50),
         temperature: Some(0.7),
@@ -698,7 +724,6 @@ async fn test_e2e_inference_fails_when_model_not_ready() {
 /// This test verifies that cross-tenant access is blocked during inference.
 /// A user from tenant-1 should not be able to use an adapter from tenant-2.
 #[tokio::test]
-#[ignore = "requires full tenant/model fixture setup"]
 async fn test_e2e_inference_tenant_isolation() {
     let manifest_hash = "isolation-test";
     let backend_name = "mlx";
@@ -741,6 +766,7 @@ async fn test_e2e_inference_tenant_isolation() {
         .await
         .expect("Failed to mark model ready");
 
+    // Note: base_model_id omitted due to tenant isolation constraint
     let adapter_params = AdapterRegistrationBuilder::new()
         .tenant_id("tenant-2".to_string())
         .adapter_id("tenant-2-adapter".to_string())
@@ -748,7 +774,6 @@ async fn test_e2e_inference_tenant_isolation() {
         .hash_b3("t2-adapter-hash")
         .rank(8)
         .targets_json(r#"["q_proj"]"#)
-        .base_model_id(Some(model_id.clone()))
         .build()
         .expect("Failed to build adapter params");
 

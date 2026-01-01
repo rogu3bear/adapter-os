@@ -96,9 +96,14 @@ impl PublicKey {
     /// Verify a signature with constant-time comparison
     pub fn verify(&self, message: &[u8], signature: &Signature) -> Result<()> {
         // Use constant-time verification to prevent timing attacks
-        self.inner
-            .verify(message, &signature.inner)
-            .map_err(|e| AosError::Crypto(format!("Signature verification failed: {}", e)))
+        self.inner.verify(message, &signature.inner).map_err(|e| {
+            tracing::warn!(
+                target: "security.signing",
+                key_prefix = %hex::encode(&self.inner.to_bytes()[..4]),
+                "Signature verification failed"
+            );
+            AosError::Crypto(format!("Signature verification failed: {}", e))
+        })
     }
 
     /// Get the raw bytes

@@ -10,7 +10,7 @@
 //! and maintain consistency in error reporting throughout the system.
 
 use adapteros_api_types::{ErrorResponse, FailureCode};
-use adapteros_cli::error_codes::{all_error_codes, find_by_aos_error, find_by_code, ExitCode};
+use adapteros_cli::error_codes::{all_error_codes, find_by_code, ExitCode};
 use adapteros_core::errors::storage::AosStorageError;
 use adapteros_core::AosError;
 use adapteros_db::error_classification::{classify_sqlx_error, DatabaseBackend, DbErrorClass};
@@ -392,24 +392,73 @@ mod cli_error_codes {
         assert!(find_by_code("UNKNOWN").is_none());
     }
 
-    /// Test CLI error code lookup by AosError variant name
+    /// Test compile-time checked error code mapping via AosError::ecode()
+    ///
+    /// This test verifies that the unified error registry properly maps
+    /// AosError variants to ECode values at compile-time.
+    ///
+    /// Uses the hierarchical AosError from adapteros_core::errors module
+    /// which wraps categorical sub-enums for type-safe error handling.
     #[test]
-    #[allow(deprecated)] // Testing the deprecated function intentionally
-    fn test_cli_error_code_from_aos_error() {
-        // Known AosError variants should map to codes
-        assert!(find_by_aos_error("InvalidHash").is_some());
-        assert!(find_by_aos_error("PolicyViolation").is_some());
-        assert!(find_by_aos_error("DeterminismViolation").is_some());
+    fn test_aos_error_ecode_mapping() {
+        use adapteros_core::errors::{
+            crypto::AosCryptoError, policy::AosPolicyError, resource::AosResourceError,
+            AosError as HierarchicalError, ECode, HasECode,
+        };
+
+        // Crypto errors
+        let hash_err = HierarchicalError::Crypto(AosCryptoError::InvalidHash("bad".to_string()));
+        assert_eq!(hash_err.ecode(), ECode::E1004);
+
+        // Policy errors
+        let policy_err =
+            HierarchicalError::Policy(AosPolicyError::Violation("test violation".to_string()));
+        assert_eq!(policy_err.ecode(), ECode::E2002);
+
+        let determinism_err = HierarchicalError::Policy(AosPolicyError::DeterminismViolation(
+            "seed mismatch".to_string(),
+        ));
+        assert_eq!(determinism_err.ecode(), ECode::E2001);
 
         // Resource exhaustion errors
-        assert!(find_by_aos_error("CpuThrottled").is_some());
-        assert!(find_by_aos_error("OutOfMemory").is_some());
-        assert!(find_by_aos_error("FileDescriptorExhausted").is_some());
-        assert!(find_by_aos_error("ThreadPoolSaturated").is_some());
-        assert!(find_by_aos_error("GpuUnavailable").is_some());
+        let cpu_err = HierarchicalError::Resource(AosResourceError::CpuThrottled {
+            reason: "high load".to_string(),
+            usage_percent: 95.0,
+            limit_percent: 80.0,
+            backoff_ms: 1000,
+        });
+        assert_eq!(cpu_err.ecode(), ECode::E9005);
 
-        // Unknown should return None
-        assert!(find_by_aos_error("UnknownError").is_none());
+        let oom_err = HierarchicalError::Resource(AosResourceError::OutOfMemory {
+            reason: "heap exhausted".to_string(),
+            used_mb: 8000,
+            limit_mb: 8192,
+            restart_imminent: true,
+        });
+        assert_eq!(oom_err.ecode(), ECode::E9006);
+
+        let fd_err = HierarchicalError::Resource(AosResourceError::FileDescriptorExhausted {
+            current: 1024,
+            limit: 1024,
+            suggestion: "increase ulimit".to_string(),
+        });
+        assert_eq!(fd_err.ecode(), ECode::E9007);
+
+        let thread_err = HierarchicalError::Resource(AosResourceError::ThreadPoolSaturated {
+            active: 64,
+            max: 64,
+            queued: 100,
+            estimated_wait_ms: 500,
+        });
+        assert_eq!(thread_err.ecode(), ECode::E9008);
+
+        let gpu_err = HierarchicalError::Resource(AosResourceError::GpuUnavailable {
+            reason: "device busy".to_string(),
+            device_id: Some("gpu:0".to_string()),
+            cpu_fallback_available: true,
+            is_transient: true,
+        });
+        assert_eq!(gpu_err.ecode(), ECode::E9009);
     }
 
     /// Test that CLI error codes have proper category prefixes

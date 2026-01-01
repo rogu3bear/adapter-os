@@ -53,7 +53,9 @@ impl IndexManager {
         index_name: &str,
         index_value: &str,
     ) -> Result<Vec<String>, StorageError> {
-        let prefix = format!("index:{}:{}", index_name, index_value);
+        // IMPORTANT: Include trailing ':' to ensure exact prefix matching
+        // Without it, "test-adapter-1" would falsely match "test-adapter-10"
+        let prefix = format!("index:{}:{}:", index_name, index_value);
         let keys = self.backend.scan_prefix(&prefix).await?;
 
         // Extract entity IDs from index keys

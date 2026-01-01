@@ -105,7 +105,9 @@ pub async fn handle_registry_command(cmd: RegistryCommand, output: &OutputWriter
     info!(command = ?cmd, "Handling registry command");
 
     // Emit telemetry
-    let _ = crate::cli_telemetry::emit_cli_command(&command_name, None, true).await;
+    if let Err(e) = crate::cli_telemetry::emit_cli_command(&command_name, None, true).await {
+        tracing::debug!(error = %e, command = %command_name, "Telemetry emit failed (non-fatal)");
+    }
 
     match cmd {
         RegistryCommand::Sync {

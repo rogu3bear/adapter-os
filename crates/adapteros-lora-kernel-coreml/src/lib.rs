@@ -1447,18 +1447,38 @@ impl CoreMLBackend {
             .to_str()
             .ok_or_else(|| AosError::Io(format!("Invalid cache path: {}", cache_dir.display())))?;
 
+        tracing::info!(
+            model_path = %model_path.display(),
+            cache_dir = %cache_dir.display(),
+            "Compiling CoreML model"
+        );
+        let compile_start = std::time::Instant::now();
+
         let status = Command::new("xcrun")
             .args(["coremlc", "compile", model_str, cache_str])
             .status()
             .map_err(|e| AosError::Kernel(format!("Failed to spawn coremlc: {}", e)))?;
 
+        let compile_elapsed = compile_start.elapsed();
         if !status.success() {
+            tracing::error!(
+                model_path = %model_path.display(),
+                elapsed_ms = compile_elapsed.as_millis(),
+                status_code = ?status.code(),
+                "CoreML compilation failed"
+            );
             return Err(AosError::Kernel(format!(
                 "coremlc compile failed (status {:?}) for {}",
                 status.code(),
                 model_path.display()
             )));
         }
+
+        tracing::info!(
+            model_path = %model_path.display(),
+            elapsed_ms = compile_elapsed.as_millis(),
+            "CoreML compilation succeeded"
+        );
 
         Self::find_compiled_model(&cache_dir)?.ok_or_else(|| {
             AosError::Kernel(format!(
@@ -1758,6 +1778,14 @@ impl CoreMLBackend {
         gates: &[i16],
         ring_len: usize,
     ) -> Result<i32> {
+        tracing::trace!(
+            target: "ffi.coreml",
+            input_len = io.input_ids.len(),
+            adapter_count = indices.len(),
+            ring_len = ring_len,
+            "FFI call: coreml_run_inference_with_lora"
+        );
+
         // Pre-compute LoRA deltas from adapter_cache for each selected adapter
         let mut lora_delta_ptrs: Vec<*const f32> = Vec::with_capacity(indices.len());
         let mut delta_lens: Vec<usize> = Vec::with_capacity(indices.len());
@@ -1800,6 +1828,13 @@ impl CoreMLBackend {
         gates: &[i16],
         ring_len: usize,
     ) -> Result<i32> {
+        tracing::trace!(
+            target: "ffi.coreml",
+            input_len = io.input_ids.len(),
+            ring_len = ring_len,
+            "FFI call: coreml_run_inference"
+        );
+
         let result = unsafe {
             ffi::coreml_run_inference(
                 self.model_handle,

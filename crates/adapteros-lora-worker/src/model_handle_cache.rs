@@ -968,6 +968,21 @@ impl ModelHandleCache {
             return Ok(());
         }
 
+        // Log memory threshold crossing
+        let usage_pct = (current as f64 / self.max_memory_bytes as f64) * 100.0;
+        let after_load_pct =
+            ((current + needed_bytes) as f64 / self.max_memory_bytes as f64) * 100.0;
+        tracing::info!(
+            target: "inference.cache",
+            current_mb = current / BYTES_PER_MB,
+            needed_mb = needed_bytes / BYTES_PER_MB,
+            max_mb = self.max_memory_bytes / BYTES_PER_MB,
+            usage_pct = format!("{:.1}", usage_pct),
+            after_load_pct = format!("{:.1}", after_load_pct),
+            model_key = model_key.map(|k| k.short_hex()).unwrap_or_default(),
+            "Memory threshold crossing: eviction required"
+        );
+
         // Get pinned keys for filtering
         let pinned = self.pinned_keys.read();
         let active = self.active_counts.read();
@@ -1026,10 +1041,15 @@ impl ModelHandleCache {
             stats.evictions += 1;
             stats.total_memory_bytes = stats.total_memory_bytes.saturating_sub(mem);
 
-            tracing::info!(
+            tracing::warn!(
+                target: "inference.cache",
                 key = %key.short_hex(),
-                freed_mb = mem / (1024 * 1024),
-                "Evicted model from cache"
+                freed_mb = mem / BYTES_PER_MB,
+                total_freed_mb = freed / BYTES_PER_MB,
+                target_mb = target / BYTES_PER_MB,
+                eviction_count = stats.evictions,
+                remaining_memory_mb = stats.total_memory_bytes / BYTES_PER_MB,
+                "Cache eviction: model removed due to memory pressure"
             );
         }
 
@@ -1047,10 +1067,11 @@ impl ModelHandleCache {
             }
 
             tracing::warn!(
+                target: "inference.cache",
                 pinned_count = pinned_in_cache,
-                freed_mb = freed / (1024 * 1024),
-                target_mb = target / (1024 * 1024),
-                "Could not free enough memory due to pinned entries"
+                freed_mb = freed / BYTES_PER_MB,
+                target_mb = target / BYTES_PER_MB,
+                "Cache eviction blocked: pinned entries preventing memory recovery"
             );
         }
 
@@ -1059,10 +1080,11 @@ impl ModelHandleCache {
             stats.eviction_skip_active_count += active_in_cache as u64;
 
             tracing::warn!(
+                target: "inference.cache",
                 active_count = active_in_cache,
-                freed_mb = freed / (1024 * 1024),
-                target_mb = target / (1024 * 1024),
-                "Could not free enough memory due to active entries"
+                freed_mb = freed / BYTES_PER_MB,
+                target_mb = target / BYTES_PER_MB,
+                "Cache eviction blocked: active entries preventing memory recovery"
             );
         }
 

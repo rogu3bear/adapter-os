@@ -666,7 +666,6 @@ async fn test_migration_stats_with_failures() {
 }
 
 #[tokio::test]
-#[ignore = "Blocked by KV index prefix scan bug - adapter IDs with common prefixes cause false matches (test-adapter-1 matches test-adapter-10) [tracking: STAB-IGN-0022]"]
 async fn test_migration_large_dataset() {
     let (db, _sql_dir, _kv_dir) = create_test_db_with_kv().await;
 

@@ -259,6 +259,39 @@ fn dev_no_auth_tenant_override(headers: &HeaderMap) -> Option<String> {
     Some(tenant_id.to_string())
 }
 
+/// Inject dev bypass claims into request if bypass is enabled.
+///
+/// This consolidates the bypass logic used by all auth middleware functions.
+/// Returns `true` if bypass was applied (and caller should skip normal auth).
+fn inject_dev_bypass_claims(req: &mut Request<axum::body::Body>) -> bool {
+    if !dev_no_auth_enabled() {
+        return false;
+    }
+
+    let mut claims = dev_no_auth_claims();
+    if let Some(tenant_id) = dev_no_auth_tenant_override(req.headers()) {
+        tracing::debug!(tenant_id = %tenant_id, "Using dev no-auth tenant override");
+        claims.tenant_id = tenant_id;
+    }
+
+    let auth_mode = AuthMode::DevBypass;
+    let principal =
+        build_principal_from_claims(&mut claims, PrincipalType::DevBypass, auth_mode.clone());
+    let tenant_id = claims.tenant_id.clone();
+
+    req.extensions_mut().insert(auth_mode);
+    req.extensions_mut().insert(principal);
+    req.extensions_mut().insert(claims);
+    req.extensions_mut().insert(IdentityEnvelope::new(
+        tenant_id,
+        "api".to_string(),
+        "middleware".to_string(),
+        IdentityEnvelope::default_revision(),
+    ));
+
+    true
+}
+
 fn extract_tenant_id_from_path(path: &str) -> Option<String> {
     let mut segments = path.split('/').filter(|s| !s.is_empty());
     while let Some(seg) = segments.next() {
@@ -436,7 +469,14 @@ async fn validate_api_key(
 
     let record = match record {
         Some(r) => r,
-        None => return Err(unauthorized_api_key()),
+        None => {
+            tracing::warn!(
+                target: "security.api_key",
+                hash_prefix = %&hash[..8],
+                "API key not found"
+            );
+            return Err(unauthorized_api_key());
+        }
     };
 
     let user = state.db.get_user(&record.user_id).await.map_err(|e| {
@@ -449,7 +489,15 @@ async fn validate_api_key(
 
     let user = match user {
         Some(u) => u,
-        None => return Err(unauthorized_api_key()),
+        None => {
+            tracing::warn!(
+                target: "security.api_key",
+                user_id = %record.user_id,
+                key_id = %record.id,
+                "API key user not found"
+            );
+            return Err(unauthorized_api_key());
+        }
     };
 
     if user.tenant_id != record.tenant_id {
@@ -463,10 +511,23 @@ async fn validate_api_key(
 
     let scopes: Vec<String> = match serde_json::from_str(&record.scopes) {
         Ok(v) => v,
-        Err(_) => return Err(unauthorized_api_key()),
+        Err(e) => {
+            tracing::warn!(
+                target: "security.api_key",
+                key_id = %record.id,
+                error = %e,
+                "API key has malformed scopes"
+            );
+            return Err(unauthorized_api_key());
+        }
     };
 
     if scopes.is_empty() {
+        tracing::warn!(
+            target: "security.api_key",
+            key_id = %record.id,
+            "API key has empty scopes"
+        );
         return Err(unauthorized_api_key());
     }
 
@@ -723,6 +784,14 @@ pub async fn csrf_middleware(
                 .map(|s| s.to_string());
 
             if cookie_token.is_none() || header_token != cookie_token {
+                tracing::warn!(
+                    target: "security.csrf",
+                    method = %method,
+                    path = %req.uri().path(),
+                    cookie_present = cookie_token.is_some(),
+                    header_present = header_token.is_some(),
+                    "CSRF validation failed"
+                );
                 return Err(csrf_error("Missing or invalid CSRF token"));
             }
         }
@@ -737,27 +806,8 @@ pub async fn auth_middleware(
     mut req: Request<axum::body::Body>,
     next: Next,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
-    if dev_no_auth_enabled() {
-        let mut claims = dev_no_auth_claims();
-        if let Some(tenant_id) = dev_no_auth_tenant_override(req.headers()) {
-            tracing::debug!(tenant_id = %tenant_id, "Using dev no-auth tenant override");
-            claims.tenant_id = tenant_id;
-        }
-        let auth_mode = AuthMode::DevBypass;
-        let principal =
-            build_principal_from_claims(&mut claims, PrincipalType::DevBypass, auth_mode.clone());
-        let tenant_id = claims.tenant_id.clone();
+    if inject_dev_bypass_claims(&mut req) {
         tracing::info!("Dev no-auth bypass enabled; skipping authentication");
-        req.extensions_mut().insert(auth_mode);
-        req.extensions_mut().insert(principal.clone());
-        req.extensions_mut().insert(claims);
-        let identity = IdentityEnvelope::new(
-            tenant_id,
-            "api".to_string(),
-            "middleware".to_string(),
-            IdentityEnvelope::default_revision(),
-        );
-        req.extensions_mut().insert(identity);
         return Ok(next.run(req).await);
     }
 
@@ -939,23 +989,8 @@ pub async fn dual_auth_middleware(
     mut req: Request<axum::body::Body>,
     next: Next,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
-    if dev_no_auth_enabled() {
-        let mut claims = dev_no_auth_claims();
-        let auth_mode = AuthMode::DevBypass;
-        let principal =
-            build_principal_from_claims(&mut claims, PrincipalType::DevBypass, auth_mode.clone());
-        let tenant_id = claims.tenant_id.clone();
+    if inject_dev_bypass_claims(&mut req) {
         tracing::info!("Dev no-auth bypass enabled; skipping authentication");
-        req.extensions_mut().insert(auth_mode);
-        req.extensions_mut().insert(principal.clone());
-        req.extensions_mut().insert(claims);
-        let identity = IdentityEnvelope::new(
-            tenant_id,
-            "api".to_string(),
-            "middleware".to_string(),
-            IdentityEnvelope::default_revision(),
-        );
-        req.extensions_mut().insert(identity);
         return Ok(next.run(req).await);
     }
 
@@ -1129,23 +1164,8 @@ pub async fn optional_auth_middleware(
     mut req: Request<axum::body::Body>,
     next: Next,
 ) -> Response {
-    if dev_no_auth_enabled() {
-        let mut claims = dev_no_auth_claims();
-        let auth_mode = AuthMode::DevBypass;
-        let principal =
-            build_principal_from_claims(&mut claims, PrincipalType::DevBypass, auth_mode.clone());
-        let tenant_id = claims.tenant_id.clone();
+    if inject_dev_bypass_claims(&mut req) {
         tracing::debug!("Dev no-auth bypass enabled; injecting dev claims");
-        req.extensions_mut().insert(auth_mode);
-        req.extensions_mut().insert(principal.clone());
-        req.extensions_mut().insert(claims);
-        let identity = IdentityEnvelope::new(
-            tenant_id,
-            "api".to_string(),
-            "middleware".to_string(),
-            IdentityEnvelope::default_revision(),
-        );
-        req.extensions_mut().insert(identity);
         return next.run(req).await;
     }
 
@@ -1331,6 +1351,13 @@ pub fn require_role(
         return Ok(());
     }
 
+    tracing::warn!(
+        target: "security.authz",
+        user_id = %claims.sub,
+        user_role = %claims.role,
+        required_role = ?required,
+        "Authorization denied - insufficient role"
+    );
     Err(forbidden(format!("required role: {:?}", required)))
 }
 
@@ -1350,6 +1377,13 @@ pub fn require_any_role(
         return Ok(());
     }
 
+    tracing::warn!(
+        target: "security.authz",
+        user_id = %claims.sub,
+        user_role = %claims.role,
+        required_roles = ?roles,
+        "Authorization denied - insufficient role"
+    );
     Err(forbidden("insufficient permissions"))
 }
 

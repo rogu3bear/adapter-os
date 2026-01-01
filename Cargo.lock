@@ -258,6 +258,7 @@ dependencies = [
  "adapteros-crypto",
  "adapteros-db",
  "adapteros-deterministic-exec",
+ "adapteros-error-registry",
  "adapteros-ingest-docs",
  "adapteros-lora-kernel-api",
  "adapteros-lora-lifecycle",
@@ -410,6 +411,7 @@ dependencies = [
 name = "adapteros-core"
 version = "0.11.0"
 dependencies = [
+ "adapteros-error-registry",
  "adapteros-types",
  "anyhow",
  "async-trait",
@@ -604,6 +606,17 @@ dependencies = [
  "tokio-test",
  "toml 0.8.23",
  "tracing",
+]
+
+[[package]]
+name = "adapteros-error-registry"
+version = "0.11.0"
+dependencies = [
+ "lazy_static",
+ "serde",
+ "serde_json",
+ "strum 0.26.3",
+ "thiserror 2.0.17",
 ]
 
 [[package]]

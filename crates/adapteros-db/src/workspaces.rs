@@ -3,6 +3,7 @@ use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use std::str::FromStr;
+use tracing::info;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -129,6 +130,13 @@ impl Db {
         .bind(created_by)
         .execute(self.pool())
         .await?;
+        info!(
+            target: "audit.workspace",
+            workspace_id = %id,
+            name = %name,
+            created_by = %created_by,
+            "Workspace created"
+        );
         Ok(id)
     }
 
@@ -190,6 +198,7 @@ impl Db {
             .await
             .map_err(|e| AosError::Database(format!("Failed to commit transaction: {}", e)))?;
 
+        info!(target: "audit.workspace", workspace_id = %id, "Workspace deleted");
         Ok(())
     }
 
@@ -276,6 +285,15 @@ impl Db {
         .bind(added_by)
         .execute(self.pool())
         .await?;
+        info!(
+            target: "audit.workspace.member",
+            workspace_id = %workspace_id,
+            tenant_id = %tenant_id,
+            user_id = ?user_id,
+            role = %role_str,
+            added_by = %added_by,
+            "Workspace member added"
+        );
         Ok(id)
     }
 
@@ -338,6 +356,13 @@ impl Db {
         .bind(user_id)
         .execute(self.pool())
         .await?;
+        info!(
+            target: "audit.workspace.member",
+            workspace_id = %workspace_id,
+            user_id = ?user_id,
+            new_role = %role_str,
+            "Workspace member role updated"
+        );
         Ok(())
     }
 
@@ -359,6 +384,12 @@ impl Db {
         .bind(user_id)
         .execute(self.pool())
         .await?;
+        info!(
+            target: "audit.workspace.member",
+            workspace_id = %workspace_id,
+            user_id = ?user_id,
+            "Workspace member removed"
+        );
         Ok(())
     }
 

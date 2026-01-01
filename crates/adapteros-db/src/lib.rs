@@ -1106,12 +1106,14 @@ impl Db {
                     AosError::Database(format!("Failed to add recommended_for_moe column: {}", e))
                 })?;
             // Backfill existing rows to preserve deterministic defaults (true = recommended for MoE).
-            sqlx::query("UPDATE adapters SET recommended_for_moe = 1 WHERE recommended_for_moe IS NULL")
-                .execute(self.pool())
-                .await
-                .map_err(|e| {
-                    AosError::Database(format!("Failed to backfill recommended_for_moe: {}", e))
-                })?;
+            sqlx::query(
+                "UPDATE adapters SET recommended_for_moe = 1 WHERE recommended_for_moe IS NULL",
+            )
+            .execute(self.pool())
+            .await
+            .map_err(|e| {
+                AosError::Database(format!("Failed to backfill recommended_for_moe: {}", e))
+            })?;
         }
 
         Ok(())

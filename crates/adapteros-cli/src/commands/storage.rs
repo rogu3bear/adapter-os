@@ -427,7 +427,9 @@ pub async fn handle_storage_command(cmd: StorageCommand, output: &OutputWriter) 
     info!(command = ?cmd, "Handling storage command");
 
     // Emit telemetry
-    let _ = crate::cli_telemetry::emit_cli_command(&command_name, None, true).await;
+    if let Err(e) = crate::cli_telemetry::emit_cli_command(&command_name, None, true).await {
+        tracing::debug!(error = %e, command = %command_name, "Telemetry emit failed (non-fatal)");
+    }
 
     match cmd {
         StorageCommand::Mode { db_path } => show_mode(db_path, output).await,
@@ -648,7 +650,9 @@ async fn set_mode(
     // Record audit trail for the transition (best-effort)
     let kv_snapshot = global_kv_metrics().snapshot();
     let (safe_to_cutover, evidence) = compute_cutover_evidence(&kv_snapshot);
-    let _ = log_cutover_audit(&db, old_mode, mode, safe_to_cutover, &evidence).await;
+    if let Err(e) = log_cutover_audit(&db, old_mode, mode, safe_to_cutover, &evidence).await {
+        tracing::debug!(error = %e, "Cutover audit logging failed (non-fatal)");
+    }
 
     // Show recommendations based on mode
     match mode {
@@ -1345,7 +1349,7 @@ async fn log_cutover_audit(
     })
     .to_string();
 
-    let _ = repo
+    if let Err(e) = repo
         .log_policy_decision(
             "system",
             "storage_cutover",
@@ -1358,7 +1362,10 @@ async fn log_cutover_audit(
             Some(&to_str),
             Some(&metadata),
         )
-        .await;
+        .await
+    {
+        tracing::debug!(error = %e, "Policy decision logging failed (non-fatal)");
+    }
     Ok(())
 }
 

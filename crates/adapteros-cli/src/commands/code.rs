@@ -94,7 +94,9 @@ pub async fn handle_code_command(cmd: CodeCommand, output: &OutputWriter) -> Res
     info!(command = ?cmd, "Handling code command");
 
     // Emit CLI telemetry
-    let _ = crate::cli_telemetry::emit_cli_command(&command_name, None, true).await;
+    if let Err(e) = crate::cli_telemetry::emit_cli_command(&command_name, None, true).await {
+        tracing::debug!(error = %e, command = %command_name, "Telemetry emit failed (non-fatal)");
+    }
 
     match cmd {
         CodeCommand::Init { repo_path, tenant } => code_init(&repo_path, &tenant, output).await,

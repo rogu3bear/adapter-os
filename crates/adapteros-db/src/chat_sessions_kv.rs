@@ -13,6 +13,7 @@ use adapteros_storage::KvBackend;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tracing;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -380,12 +381,30 @@ impl ChatSessionKvRepository {
             .await
             .map_err(|e| AosError::Database(format!("Failed to scan chat messages: {}", e)))?
         {
-            let _ = self.backend.delete(&key).await;
+            if let Err(e) = self.backend.delete(&key).await {
+                tracing::warn!(
+                    target: "storage.kv",
+                    tenant_id = %session.tenant_id,
+                    session_id = %session.id,
+                    key = %key,
+                    error = %e,
+                    "Failed to delete chat message"
+                );
+            }
         }
-        let _ = self
+        if let Err(e) = self
             .backend
             .delete(&Self::messages_index_key(&session.tenant_id, &session.id))
-            .await;
+            .await
+        {
+            tracing::warn!(
+                target: "storage.kv",
+                tenant_id = %session.tenant_id,
+                session_id = %session.id,
+                error = %e,
+                "Failed to delete messages index"
+            );
+        }
 
         // remove session indexes
         if let Some(uid) = &session.user_id {
@@ -402,10 +421,19 @@ impl ChatSessionKvRepository {
                 serde_json::from_slice(&bytes).map_err(AosError::Serialization)?;
             ids.retain(|v| v != &session.id);
             if ids.is_empty() {
-                let _ = self
+                if let Err(e) = self
                     .backend
                     .delete(&Self::session_index_key(&session.tenant_id))
-                    .await;
+                    .await
+                {
+                    tracing::warn!(
+                        target: "storage.kv",
+                        tenant_id = %session.tenant_id,
+                        session_id = %session.id,
+                        error = %e,
+                        "Failed to delete empty session index"
+                    );
+                }
             } else {
                 let payload = serde_json::to_vec(&ids).map_err(AosError::Serialization)?;
                 self.backend
@@ -421,10 +449,19 @@ impl ChatSessionKvRepository {
             .delete(&Self::session_key(&session.tenant_id, &session.id))
             .await
             .map_err(|e| AosError::Database(format!("Failed to delete chat session: {}", e)))?;
-        let _ = self
+        if let Err(e) = self
             .backend
             .delete(&Self::session_lookup_key(&session.id))
-            .await;
+            .await
+        {
+            tracing::warn!(
+                target: "storage.kv",
+                tenant_id = %session.tenant_id,
+                session_id = %session.id,
+                error = %e,
+                "Failed to delete session lookup key"
+            );
+        }
         Ok(())
     }
 

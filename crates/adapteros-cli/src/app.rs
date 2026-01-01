@@ -1058,6 +1058,46 @@ pub enum Commands {
         json: bool,
     },
 
+    /// Recover from an error by executing the recommended recovery action
+    #[command(after_help = r#"Examples:
+  # Show recovery action for an error
+  aosctl recover E3001
+
+  # Execute recovery with confirmation
+  aosctl recover E9001
+
+  # Force execution without confirmation
+  aosctl recover E9001 --force
+
+  # Dry run (show what would be done)
+  aosctl recover E9001 --dry-run
+
+  # List all recovery actions by safety level
+  aosctl recover --list
+  aosctl recover --list --safety safe
+"#)]
+    Recover {
+        /// Error code to recover from (e.g., E3001)
+        #[arg(required_unless_present = "list")]
+        code: Option<String>,
+
+        /// Force execution without confirmation
+        #[arg(long, short)]
+        force: bool,
+
+        /// Dry run - show what would be done without executing
+        #[arg(long)]
+        dry_run: bool,
+
+        /// List all recovery actions
+        #[arg(long)]
+        list: bool,
+
+        /// Filter by safety level (safe, confirm, unsafe)
+        #[arg(long, requires = "list")]
+        safety: Option<String>,
+    },
+
     /// Interactive tutorial
     #[command(after_help = r#"Examples:
   # Run basic tutorial
@@ -1807,6 +1847,22 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             explain::list_error_codes(*json).await?;
         }
 
+        Commands::Recover {
+            code,
+            force,
+            dry_run,
+            list,
+            safety,
+        } => {
+            if *list {
+                commands::recover::list_recovery_actions(safety.as_deref()).await?;
+            } else if let Some(code) = code {
+                commands::recover::recover(code, *force, *dry_run).await?;
+            } else {
+                anyhow::bail!("Error code required. Use --list to see all recovery actions.");
+            }
+        }
+
         Commands::Tutorial { advanced, ci } => {
             commands::tutorial::run_tutorial(
                 output.clone(),
@@ -1940,6 +1996,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Diag { .. } => "diag",
         Commands::Explain { .. } => "explain",
         Commands::ErrorCodes { .. } => "error-codes",
+        Commands::Recover { .. } => "recover",
         Commands::Tutorial { .. } => "tutorial",
         Commands::Tui { .. } => "tui",
         Commands::Manual { .. } => "manual",

@@ -6,6 +6,10 @@ authors = ["James KC Auchterlonie <vats-springs0m@icloud.com>"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/rogu3bear/adapter-os"
 
+[[bin]]
+name = "test_debug_setup"
+path = "src/bin/test_debug_setup.rs"
+
 [workspace]
 resolver = "2"
 exclude = []  # adapteros-server temporarily included for building
@@ -64,6 +68,7 @@ members = [
     "crates/adapteros-federation",
     "crates/adapteros-domain",
     "crates/adapteros-error-recovery",
+    "crates/adapteros-error-registry",  # Unified error code registry with recovery actions
     "crates/adapteros-base-llm",
     "crates/adapteros-testing",
     "crates/adapteros-verification",
@@ -310,9 +315,6 @@ lto = true
 codegen-units = 1
 strip = "symbols"  # Strip symbols but preserve UUID load commands
 
-[profile.dev]
-opt-level = 0
-
 [profile.test]
 opt-level = 1
 
@@ -447,3 +449,29 @@ blake3 = { workspace = true }
 hex = { workspace = true }
 metal = { workspace = true }
 rusqlite.workspace = true
+
+# Debug profiles for better debugging experience
+[profile.dev]
+opt-level = 0
+debug = true
+overflow-checks = true
+lto = false
+panic = "abort"
+incremental = true
+
+# Sanitizer profiles (require nightly and profile-rustflags feature)
+# To use, run with: RUSTFLAGS="-Zsanitizer=address" cargo +nightly build
+# [profile.dev-asan]
+# inherits = "dev"
+# rustflags = ["-Zsanitizer=address"]
+
+# [profile.dev-tsan]
+# inherits = "dev"
+# rustflags = ["-Zsanitizer=thread"]
+
+# [profile.dev-ubsan]
+# inherits = "dev"
+# rustflags = ["-Zsanitizer=undefined"]
+
+# Debug profile with higher optimization for faster testing
+# Note: "debug" is reserved, so we configure "dev" profile directly above

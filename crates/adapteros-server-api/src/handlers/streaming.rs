@@ -1655,7 +1655,10 @@ pub async fn trace_receipts_stream(
             let current_timestamp = chrono::Utc::now().to_rfc3339();
 
             // Query for new trace receipts since last timestamp
-            let receipts: Vec<TraceReceiptEvent> = match sqlx::query_as::<_, (String, String, Vec<u8>, Vec<u8>, String, i64, i64, i64, i64)>(
+            let receipts: Vec<TraceReceiptEvent> = match sqlx::query_as::<
+                _,
+                (String, String, Vec<u8>, Vec<u8>, String, i64, i64, i64, i64),
+            >(
                 r#"
                 SELECT
                     r.trace_id,
@@ -1681,19 +1684,31 @@ pub async fn trace_receipts_stream(
             {
                 Ok(rows) => rows
                     .into_iter()
-                    .map(|(trace_id, tenant_id, receipt_digest, output_digest, created_at, logical_prompt, logical_output, billed_input, billed_output)| {
-                        TraceReceiptEvent {
+                    .map(
+                        |(
                             trace_id,
                             tenant_id,
-                            receipt_digest: hex::encode(&receipt_digest),
-                            output_digest: hex::encode(&output_digest),
+                            receipt_digest,
+                            output_digest,
                             created_at,
-                            logical_prompt_tokens: logical_prompt,
-                            logical_output_tokens: logical_output,
-                            billed_input_tokens: billed_input,
-                            billed_output_tokens: billed_output,
-                        }
-                    })
+                            logical_prompt,
+                            logical_output,
+                            billed_input,
+                            billed_output,
+                        )| {
+                            TraceReceiptEvent {
+                                trace_id,
+                                tenant_id,
+                                receipt_digest: hex::encode(&receipt_digest),
+                                output_digest: hex::encode(&output_digest),
+                                created_at,
+                                logical_prompt_tokens: logical_prompt,
+                                logical_output_tokens: logical_output,
+                                billed_input_tokens: billed_input,
+                                billed_output_tokens: billed_output,
+                            }
+                        },
+                    )
                     .collect(),
                 Err(e) => {
                     warn!(error = %e, "Failed to query trace receipts for stream");

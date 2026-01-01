@@ -30,7 +30,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::OnceLock;
-use tracing::warn;
+use tracing::{debug, warn};
 
 /// Global effective configuration instance
 static EFFECTIVE_CONFIG: OnceLock<EffectiveConfig> = OnceLock::new();
@@ -120,6 +120,8 @@ pub struct SecuritySection {
     pub require_pf_deny: bool,
     /// Dev login bypass enabled (should be false in production)
     pub dev_login_enabled: bool,
+    /// Dev bypass: skip all authentication (debug builds only)
+    pub dev_bypass: bool,
     /// Ed25519 signing key for manifests (sensitive)
     pub signing_key: Option<String>,
 }
@@ -345,6 +347,12 @@ impl std::fmt::Display for ConfigValueSource {
 impl EffectiveConfig {
     /// Build EffectiveConfig from DeterministicConfig
     pub fn from_deterministic(config: DeterministicConfig) -> Result<Self> {
+        debug!(
+            config_hash = %config.get_metadata().hash,
+            sources_count = config.get_metadata().sources.len(),
+            "Building effective configuration"
+        );
+
         let sources = Self::build_sources(&config);
         let is_production = config
             .get("server.production.mode")
@@ -391,6 +399,13 @@ impl EffectiveConfig {
 
         // Validate critical configuration values
         effective_config.validate_critical_config()?;
+
+        debug!(
+            is_production = is_production,
+            port = effective_config.server.port,
+            db_url = %effective_config.database.url,
+            "Effective configuration built successfully"
+        );
 
         Ok(effective_config)
     }
@@ -667,6 +682,10 @@ impl EffectiveConfig {
                 .unwrap_or(false),
             dev_login_enabled: config
                 .get("security.dev.login.enabled")
+                .map(|v| v == "true")
+                .unwrap_or(false),
+            dev_bypass: config
+                .get("security.dev.bypass")
                 .map(|v| v == "true")
                 .unwrap_or(false),
             signing_key: config.get("signing.key").cloned(),

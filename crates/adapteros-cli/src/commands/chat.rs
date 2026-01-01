@@ -151,7 +151,9 @@ pub async fn handle_chat_command(cmd: ChatCommand, output: &OutputWriter) -> Res
     info!(command = ?cmd, "Handling chat command");
 
     // Emit telemetry
-    let _ = crate::cli_telemetry::emit_cli_command(&command_name, None, true).await;
+    if let Err(e) = crate::cli_telemetry::emit_cli_command(&command_name, None, true).await {
+        tracing::debug!(error = %e, command = %command_name, "Telemetry emit failed (non-fatal)");
+    }
 
     match cmd {
         ChatCommand::Interactive {

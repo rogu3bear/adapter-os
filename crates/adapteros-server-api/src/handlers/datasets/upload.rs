@@ -391,7 +391,12 @@ pub async fn upload_dataset(
     if let Some(ref ws_id) = workspace_id_opt {
         let access = state
             .db
-            .check_workspace_access_with_admin(ws_id, &claims.sub, &claims.tenant_id, &claims.admin_tenants)
+            .check_workspace_access_with_admin(
+                ws_id,
+                &claims.sub,
+                &claims.tenant_id,
+                &claims.admin_tenants,
+            )
             .await
             .map_err(|e| db_error(format!("Failed to check workspace access: {}", e)))?;
         if access.is_none() {
@@ -899,7 +904,12 @@ pub async fn initiate_chunked_upload(
     if let Some(ref ws_id) = request.workspace_id {
         let access = state
             .db
-            .check_workspace_access_with_admin(ws_id, &claims.sub, &claims.tenant_id, &claims.admin_tenants)
+            .check_workspace_access_with_admin(
+                ws_id,
+                &claims.sub,
+                &claims.tenant_id,
+                &claims.admin_tenants,
+            )
             .await
             .map_err(|e| db_error(format!("Failed to check workspace access: {}", e)))?;
         if access.is_none() {

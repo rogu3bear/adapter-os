@@ -92,6 +92,9 @@ pub struct SecurityConfig {
     /// Clock skew tolerance in seconds for token/session validation (default: 60)
     #[serde(default = "default_clock_skew_seconds")]
     pub clock_skew_seconds: u64,
+    /// Enable dev auth bypass - skip all authentication (debug builds only)
+    #[serde(default = "default_false")]
+    pub dev_bypass: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
