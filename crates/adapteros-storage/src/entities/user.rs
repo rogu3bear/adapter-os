@@ -6,22 +6,22 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-/// User role enumeration
+/// User role enumeration - simplified 3-role model
 ///
-/// Defines the canonical roles in AdapterOS RBAC.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// # Roles
+/// - **Admin**: Full access to everything including system settings and user management
+/// - **Operator**: Can run inference, training, manage adapters. Cannot change system settings or users.
+/// - **Viewer**: Read-only access. Can view dashboards, logs, but cannot modify anything.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
+    /// Full access to everything
     #[serde(rename = "admin")]
     Admin,
-    #[serde(rename = "developer")]
-    Developer,
+    /// Can run inference, training, manage adapters. Cannot change system settings or users.
     #[serde(rename = "operator")]
     Operator,
-    #[serde(rename = "sre")]
-    SRE,
-    #[serde(rename = "compliance")]
-    Compliance,
+    /// Read-only access. Can view dashboards, logs, but cannot modify anything.
     #[serde(rename = "viewer")]
     Viewer,
 }
@@ -31,10 +31,7 @@ impl Role {
     pub fn as_str(&self) -> &'static str {
         match self {
             Role::Admin => "admin",
-            Role::Developer => "developer",
             Role::Operator => "operator",
-            Role::SRE => "sre",
-            Role::Compliance => "compliance",
             Role::Viewer => "viewer",
         }
     }
@@ -43,13 +40,30 @@ impl Role {
     pub fn parse_role(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "admin" => Some(Role::Admin),
-            "developer" => Some(Role::Developer),
             "operator" => Some(Role::Operator),
-            "sre" => Some(Role::SRE),
-            "compliance" => Some(Role::Compliance),
             "viewer" => Some(Role::Viewer),
+            // Backwards compatibility: map old roles to new ones
+            "developer" => Some(Role::Admin),
+            "sre" => Some(Role::Operator),
+            "compliance" => Some(Role::Viewer),
+            "auditor" => Some(Role::Viewer),
             _ => None,
         }
+    }
+
+    /// Check if this role has write (modify) access
+    pub fn can_write(&self) -> bool {
+        matches!(self, Role::Admin | Role::Operator)
+    }
+
+    /// Check if this role has admin access (full permissions)
+    pub fn can_admin(&self) -> bool {
+        matches!(self, Role::Admin)
+    }
+
+    /// Check if this role is viewer-only (read-only access)
+    pub fn is_viewer(&self) -> bool {
+        matches!(self, Role::Viewer)
     }
 }
 
@@ -67,7 +81,7 @@ pub struct RoleParseError {
 
 impl std::fmt::Display for RoleParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "invalid role: '{}'", self.invalid_role)
+        write!(f, "invalid role: '{}', valid roles are: admin, operator, viewer", self.invalid_role)
     }
 }
 
@@ -79,11 +93,13 @@ impl std::str::FromStr for Role {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "admin" => Ok(Role::Admin),
-            "developer" => Ok(Role::Developer),
             "operator" => Ok(Role::Operator),
-            "sre" => Ok(Role::SRE),
-            "compliance" => Ok(Role::Compliance),
             "viewer" => Ok(Role::Viewer),
+            // Backwards compatibility: map old roles to new ones
+            "developer" => Ok(Role::Admin),
+            "sre" => Ok(Role::Operator),
+            "compliance" => Ok(Role::Viewer),
+            "auditor" => Ok(Role::Viewer),
             _ => Err(RoleParseError {
                 invalid_role: s.to_string(),
             }),
@@ -159,37 +175,29 @@ impl UserKv {
         !self.disabled
     }
 
-    /// Check if the user has admin role
+    /// Check if the user has admin role (full access)
     pub fn is_admin(&self) -> bool {
         self.role == Role::Admin
     }
 
-    /// Check if the user has developer role (full access like admin)
-    pub fn is_developer(&self) -> bool {
-        self.role == Role::Developer
-    }
-
-    /// Check if the user has admin or developer role (full access)
+    /// Check if the user has admin role (full access)
     pub fn has_full_access(&self) -> bool {
-        matches!(self.role, Role::Admin | Role::Developer)
+        self.role == Role::Admin
     }
 
-    /// Check if the user has operator role or higher
+    /// Check if the user can write (admin or operator)
+    pub fn can_write(&self) -> bool {
+        self.role.can_write()
+    }
+
+    /// Check if the user has operator role or higher (admin or operator)
     pub fn is_operator_or_higher(&self) -> bool {
-        matches!(self.role, Role::Admin | Role::Developer | Role::Operator)
+        matches!(self.role, Role::Admin | Role::Operator)
     }
 
-    /// Check if the user has SRE role or higher
-    pub fn is_sre_or_higher(&self) -> bool {
-        matches!(self.role, Role::Admin | Role::Developer | Role::SRE)
-    }
-
-    /// Check if the user can perform compliance operations
-    pub fn can_access_compliance(&self) -> bool {
-        matches!(
-            self.role,
-            Role::Admin | Role::Developer | Role::SRE | Role::Compliance
-        )
+    /// Check if the user is a viewer (read-only access)
+    pub fn is_viewer(&self) -> bool {
+        self.role.is_viewer()
     }
 }
 
@@ -199,11 +207,17 @@ mod tests {
 
     #[test]
     fn test_role_conversion() {
+        // New roles
         assert_eq!(Role::parse_role("admin"), Some(Role::Admin));
         assert_eq!(Role::parse_role("operator"), Some(Role::Operator));
-        assert_eq!(Role::parse_role("sre"), Some(Role::SRE));
-        assert_eq!(Role::parse_role("compliance"), Some(Role::Compliance));
         assert_eq!(Role::parse_role("viewer"), Some(Role::Viewer));
+
+        // Backwards compatibility
+        assert_eq!(Role::parse_role("developer"), Some(Role::Admin));
+        assert_eq!(Role::parse_role("sre"), Some(Role::Operator));
+        assert_eq!(Role::parse_role("compliance"), Some(Role::Viewer));
+
+        // Invalid
         assert_eq!(Role::parse_role("invalid"), None);
     }
 
@@ -233,12 +247,42 @@ mod tests {
         };
 
         assert!(admin.is_admin());
+        assert!(admin.has_full_access());
+        assert!(admin.can_write());
         assert!(admin.is_operator_or_higher());
-        assert!(admin.is_sre_or_higher());
-        assert!(admin.can_access_compliance());
+        assert!(!admin.is_viewer());
+
+        let operator = UserKv {
+            id: "user-2".to_string(),
+            email: "operator@example.com".to_string(),
+            display_name: "Operator User".to_string(),
+            pw_hash: "hash".to_string(),
+            role: Role::Operator,
+            tenant_id: "tenant-1".to_string(),
+            disabled: false,
+            failed_attempts: 0,
+            last_failed_at: None,
+            lockout_until: None,
+            created_at: Utc::now(),
+            mfa_enabled: false,
+            mfa_secret_enc: None,
+            mfa_backup_codes_json: None,
+            mfa_enrolled_at: None,
+            mfa_last_verified_at: None,
+            mfa_recovery_last_used_at: None,
+            password_rotated_at: None,
+            token_rotated_at: None,
+            last_login_at: None,
+        };
+
+        assert!(!operator.is_admin());
+        assert!(!operator.has_full_access());
+        assert!(operator.can_write());
+        assert!(operator.is_operator_or_higher());
+        assert!(!operator.is_viewer());
 
         let viewer = UserKv {
-            id: "user-2".to_string(),
+            id: "user-3".to_string(),
             email: "viewer@example.com".to_string(),
             display_name: "Viewer User".to_string(),
             pw_hash: "hash".to_string(),
@@ -261,9 +305,10 @@ mod tests {
         };
 
         assert!(!viewer.is_admin());
+        assert!(!viewer.has_full_access());
+        assert!(!viewer.can_write());
         assert!(!viewer.is_operator_or_higher());
-        assert!(!viewer.is_sre_or_higher());
-        assert!(!viewer.can_access_compliance());
+        assert!(viewer.is_viewer());
     }
 
     #[test]

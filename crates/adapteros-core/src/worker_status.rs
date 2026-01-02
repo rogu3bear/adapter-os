@@ -5,7 +5,8 @@
 //! # Worker Status
 //!
 //! Workers progress through these states:
-//! - **Created**: Process launched, manifest not yet bound/registered
+//! - **Pending**: Process starting, pre-registered in DB, socket not yet bound
+//! - **Created**: Socket bound, manifest not yet registered with control plane
 //! - **Registered**: Control plane accepted registration and manifest hash
 //! - **Healthy**: Worker is ready and accepting requests; UDS is listening
 //! - **Draining**: Graceful shutdown; rejecting new requests
@@ -15,6 +16,7 @@
 //! # Valid Transitions
 //!
 //! ```text
+//! pending → created | error
 //! created → registered | error
 //! registered → healthy | error
 //! healthy → draining | error
@@ -53,7 +55,11 @@ use std::str::FromStr;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum WorkerStatus {
-    /// Process launched, manifest not yet bound/registered
+    /// Process starting, pre-registered in DB, socket not yet bound.
+    /// This state prevents race conditions where /readyz reports "no workers"
+    /// even though worker process has started but hasn't bound socket yet.
+    Pending,
+    /// Socket bound, manifest not yet registered with control plane
     Created,
     /// Control plane accepted registration and manifest hash
     Registered,
@@ -82,7 +88,8 @@ impl WorkerStatus {
     pub fn is_running(&self) -> bool {
         matches!(
             self,
-            WorkerStatus::Created
+            WorkerStatus::Pending
+                | WorkerStatus::Created
                 | WorkerStatus::Registered
                 | WorkerStatus::Healthy
                 | WorkerStatus::Draining
@@ -92,6 +99,7 @@ impl WorkerStatus {
     /// Returns all valid states this worker can transition to
     pub fn valid_transitions(&self) -> &'static [WorkerStatus] {
         match self {
+            WorkerStatus::Pending => &[WorkerStatus::Created, WorkerStatus::Error],
             WorkerStatus::Created => &[WorkerStatus::Registered, WorkerStatus::Error],
             WorkerStatus::Registered => &[WorkerStatus::Healthy, WorkerStatus::Error],
             WorkerStatus::Healthy => &[WorkerStatus::Draining, WorkerStatus::Error],
@@ -104,12 +112,14 @@ impl WorkerStatus {
     /// Returns all states that can transition to this state
     pub fn valid_predecessors(&self) -> &'static [WorkerStatus] {
         match self {
-            WorkerStatus::Created => &[],
+            WorkerStatus::Pending => &[],
+            WorkerStatus::Created => &[WorkerStatus::Pending],
             WorkerStatus::Registered => &[WorkerStatus::Created],
             WorkerStatus::Healthy => &[WorkerStatus::Registered],
             WorkerStatus::Draining => &[WorkerStatus::Healthy],
             WorkerStatus::Stopped => &[WorkerStatus::Draining],
             WorkerStatus::Error => &[
+                WorkerStatus::Pending,
                 WorkerStatus::Created,
                 WorkerStatus::Registered,
                 WorkerStatus::Healthy,
@@ -145,6 +155,7 @@ impl WorkerStatus {
     /// Convert to string representation for database storage
     pub fn as_str(&self) -> &'static str {
         match self {
+            WorkerStatus::Pending => "pending",
             WorkerStatus::Created => "created",
             WorkerStatus::Registered => "registered",
             WorkerStatus::Healthy => "healthy",
@@ -157,6 +168,7 @@ impl WorkerStatus {
     /// Backwards-compatible alias for legacy persisted values.
     pub fn legacy_alias(&self) -> &'static str {
         match self {
+            WorkerStatus::Pending => "starting",
             WorkerStatus::Created => "starting",
             WorkerStatus::Registered => "starting",
             WorkerStatus::Healthy => "serving",
@@ -178,6 +190,7 @@ impl FromStr for WorkerStatus {
 
     fn from_str(s: &str) -> Result<Self> {
         match s.to_lowercase().as_str() {
+            "pending" => Ok(WorkerStatus::Pending),
             "created" | "starting" => Ok(WorkerStatus::Created),
             "registered" => Ok(WorkerStatus::Registered),
             "healthy" | "serving" => Ok(WorkerStatus::Healthy),
@@ -185,7 +198,7 @@ impl FromStr for WorkerStatus {
             "stopped" => Ok(WorkerStatus::Stopped),
             "error" | "crashed" => Ok(WorkerStatus::Error),
             _ => Err(AosError::Validation(format!(
-                "Invalid worker status: {}. Must be one of: created, registered, healthy, draining, stopped, error",
+                "Invalid worker status: {}. Must be one of: pending, created, registered, healthy, draining, stopped, error",
                 s
             ))),
         }
@@ -195,6 +208,7 @@ impl FromStr for WorkerStatus {
 /// A worker status transition
 ///
 /// Validates that transitions follow the allowed state machine:
+/// - pending → created | error
 /// - created → registered | error
 /// - registered → healthy | error
 /// - healthy → draining | error
@@ -252,6 +266,7 @@ mod tests {
 
     #[test]
     fn test_worker_status_can_serve() {
+        assert!(!WorkerStatus::Pending.can_serve());
         assert!(!WorkerStatus::Created.can_serve());
         assert!(!WorkerStatus::Registered.can_serve());
         assert!(WorkerStatus::Healthy.can_serve());
@@ -262,6 +277,7 @@ mod tests {
 
     #[test]
     fn test_worker_status_is_terminal() {
+        assert!(!WorkerStatus::Pending.is_terminal());
         assert!(!WorkerStatus::Created.is_terminal());
         assert!(!WorkerStatus::Registered.is_terminal());
         assert!(!WorkerStatus::Healthy.is_terminal());
@@ -272,12 +288,23 @@ mod tests {
 
     #[test]
     fn test_worker_status_is_running() {
+        assert!(WorkerStatus::Pending.is_running());
         assert!(WorkerStatus::Created.is_running());
         assert!(WorkerStatus::Registered.is_running());
         assert!(WorkerStatus::Healthy.is_running());
         assert!(WorkerStatus::Draining.is_running());
         assert!(!WorkerStatus::Stopped.is_running());
         assert!(!WorkerStatus::Error.is_running());
+    }
+
+    #[test]
+    fn test_valid_transitions_from_pending() {
+        assert!(WorkerStatus::Pending.can_transition_to(WorkerStatus::Created));
+        assert!(WorkerStatus::Pending.can_transition_to(WorkerStatus::Error));
+        assert!(!WorkerStatus::Pending.can_transition_to(WorkerStatus::Registered));
+        assert!(!WorkerStatus::Pending.can_transition_to(WorkerStatus::Healthy));
+        assert!(!WorkerStatus::Pending.can_transition_to(WorkerStatus::Draining));
+        assert!(!WorkerStatus::Pending.can_transition_to(WorkerStatus::Stopped));
     }
 
     #[test]
@@ -320,6 +347,7 @@ mod tests {
 
     #[test]
     fn test_noop_transitions_always_valid() {
+        assert!(WorkerStatus::Pending.can_transition_to(WorkerStatus::Pending));
         assert!(WorkerStatus::Created.can_transition_to(WorkerStatus::Created));
         assert!(WorkerStatus::Healthy.can_transition_to(WorkerStatus::Healthy));
         assert!(WorkerStatus::Draining.can_transition_to(WorkerStatus::Draining));
@@ -329,6 +357,10 @@ mod tests {
 
     #[test]
     fn test_worker_status_from_str() {
+        assert_eq!(
+            WorkerStatus::from_str("pending").unwrap(),
+            WorkerStatus::Pending
+        );
         assert_eq!(
             WorkerStatus::from_str("created").unwrap(),
             WorkerStatus::Created
@@ -366,6 +398,7 @@ mod tests {
 
     #[test]
     fn test_worker_status_display() {
+        assert_eq!(WorkerStatus::Pending.to_string(), "pending");
         assert_eq!(WorkerStatus::Created.to_string(), "created");
         assert_eq!(WorkerStatus::Registered.to_string(), "registered");
         assert_eq!(WorkerStatus::Healthy.to_string(), "healthy");
