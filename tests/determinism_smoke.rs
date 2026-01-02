@@ -238,6 +238,7 @@ async fn run_trace_once(
         prefix_cache_hit: false,
         prefix_kv_bytes: 0,
         model_cache_identity_v2_digest_b3: None,
+        attestation: None,
     };
 
     let receipt = sink.finalize(finalization).await?;

@@ -245,6 +245,7 @@ async fn test_stop_controller_budget_max_persisted_to_receipt() -> Result<()> {
         prefix_cache_hit: false,
         prefix_kv_bytes: 0,
         model_cache_identity_v2_digest_b3: None,
+        attestation: None,
     };
 
     let receipt = sink.finalize(finalization).await?;
@@ -335,6 +336,7 @@ async fn test_stop_controller_completion_confident_persisted() -> Result<()> {
         prefix_cache_hit: false,
         prefix_kv_bytes: 0,
         model_cache_identity_v2_digest_b3: None,
+        attestation: None,
     };
 
     sink.finalize(finalization).await?;
@@ -417,6 +419,7 @@ async fn test_stop_controller_repetition_guard_persisted() -> Result<()> {
         prefix_cache_hit: false,
         prefix_kv_bytes: 0,
         model_cache_identity_v2_digest_b3: None,
+        attestation: None,
     };
 
     sink.finalize(finalization).await?;
@@ -496,6 +499,7 @@ async fn test_stop_controller_length_eos_persisted() -> Result<()> {
         prefix_cache_hit: false,
         prefix_kv_bytes: 0,
         model_cache_identity_v2_digest_b3: None,
+        attestation: None,
     };
 
     sink.finalize(finalization).await?;
@@ -582,6 +586,7 @@ async fn test_determinism_same_policy_same_receipt_digest() -> Result<()> {
         prefix_cache_hit: false,
         prefix_kv_bytes: 0,
         model_cache_identity_v2_digest_b3: None,
+        attestation: None,
     };
     let receipt1 = sink1.finalize(finalization1).await?;
 
@@ -622,6 +627,7 @@ async fn test_determinism_same_policy_same_receipt_digest() -> Result<()> {
         prefix_cache_hit: false,
         prefix_kv_bytes: 0,
         model_cache_identity_v2_digest_b3: None,
+        attestation: None,
     };
     let receipt2 = sink2.finalize(finalization2).await?;
 
@@ -793,6 +799,7 @@ async fn test_stop_policy_digest_committed_to_merkle_bundle() -> Result<()> {
         prefix_cache_hit: false,
         prefix_kv_bytes: 0,
         model_cache_identity_v2_digest_b3: None,
+        attestation: None,
     };
 
     let receipt = sink.finalize(finalization).await?;
@@ -869,6 +876,7 @@ async fn test_stop_policy_digest_committed_to_merkle_bundle() -> Result<()> {
         prefix_cache_hit: false,
         prefix_kv_bytes: 0,
         model_cache_identity_v2_digest_b3: None,
+        attestation: None,
     };
 
     sink2.finalize(finalization2).await?;
