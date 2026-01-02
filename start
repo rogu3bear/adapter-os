@@ -1,20 +1,16 @@
 #!/bin/bash
-# AdapterOS Unified Boot Script
-# Single entry point for starting all AdapterOS services.
+# AdapterOS Boot Script
 #
 # Usage:
-#   ./start              Start all services (API + UI)
+#   ./start              Start backend + worker
 #   ./start up           Same as above
 #   ./start down         Graceful shutdown
 #   ./start status       Show service status
-#   ./start backend      Start backend only (no UI)
 #   ./start preflight    Run system checks without starting
 #   ./start help         Show this help
 #
-# Behavior:
-#   - Freezes on port conflict (never auto-kills external processes)
-#   - Prompts [y/N] for AdapterOS processes (default: No)
-#   - Reports clear diagnostics for all edge cases
+# UI: Backend serves Leptos WASM from static/. For dev, run `trunk serve`
+#     in crates/adapteros-ui/ separately.
 
 set -e
 
@@ -46,7 +42,6 @@ fi
 
 # Configuration (can be overridden via environment)
 : "${AOS_SERVER_PORT:=8080}"
-: "${AOS_UI_PORT:=3200}"
 : "${AOS_VAR_DIR:=var}"
 : "${AOS_LOG_DIR:=$AOS_VAR_DIR/logs}"
 : "${SKIP_WORKER:=0}"
@@ -379,7 +374,7 @@ log_readyz_timeline() {
 }
 
 dump_env_summary() {
-    log_line INFO "env: AOS_SERVER_PORT=$AOS_SERVER_PORT AOS_UI_PORT=$AOS_UI_PORT AOS_VAR_DIR=$AOS_VAR_DIR AOS_LOG_DIR=$AOS_LOG_DIR SKIP_WORKER=$SKIP_WORKER"
+    log_line INFO "env: AOS_SERVER_PORT=$AOS_SERVER_PORT AOS_VAR_DIR=$AOS_VAR_DIR SKIP_WORKER=$SKIP_WORKER"
     local server_bin=""
     for candidate in target/release/adapteros-server target/debug/adapteros-server; do
         if [ -f "$candidate" ]; then
@@ -387,7 +382,7 @@ dump_env_summary() {
             break
         fi
     done
-    log_line INFO "paths: backend_bin=${server_bin:-missing} script_log=$SCRIPT_LOG backend_log=$AOS_LOG_DIR/backend.log ui_log=$AOS_LOG_DIR/ui.log"
+    log_line INFO "paths: backend_bin=${server_bin:-missing} script_log=$SCRIPT_LOG backend_log=$AOS_LOG_DIR/backend.log"
 }
 
 quarantine_artifact() {
@@ -404,7 +399,7 @@ quarantine_artifact() {
 }
 
 check_stale_artifacts() {
-    local pid_files=("$AOS_VAR_DIR/backend.pid" "$AOS_VAR_DIR/ui.pid" "$AOS_VAR_DIR/worker.pid")
+    local pid_files=("$AOS_VAR_DIR/backend.pid" "$AOS_VAR_DIR/worker.pid")
     for pf in "${pid_files[@]}"; do
         if [ -f "$pf" ]; then
             local pid
@@ -431,29 +426,22 @@ Usage:
   ./start [command]
 
 Commands:
-  up, start     Start all services (API + UI) [default]
-  down, stop    Graceful shutdown of all services
-  status        Show current service status
-  backend       Start backend API only (no UI)
+  up, start     Start backend + worker [default]
+  down, stop    Graceful shutdown
+  status        Show service status
   preflight     Run system checks without starting
-  help          Show this help message
+  help          Show this help
 
-Examples:
-  ./start                    # Start everything
-  ./start backend            # Start API only
-  ./start status             # Check what's running
-  ./start down               # Stop everything
+UI: Backend serves Leptos WASM from static/. For dev hot-reload,
+    run `trunk serve` in crates/adapteros-ui/ separately.
 
 Environment:
   AOS_SERVER_PORT   Backend API port (default: 8080)
-  AOS_UI_PORT       UI server port (default: 3200)
   AOS_VAR_DIR       Runtime data directory (default: var)
 
-Worker options (flags or env):
+Worker options:
   --worker-backend <mlx|metal|coreml>   (or AOS_MODEL_BACKEND)
-  --worker-manifest <path>              (or AOS_WORKER_MANIFEST)
   --worker-model <path>                 (or AOS_MODEL_PATH)
-  --worker-tokenizer <path>             (or AOS_TOKENIZER_PATH)
   --skip-worker                         Skip worker startup
 
 EOF
@@ -483,41 +471,13 @@ show_status() {
     fi
 
     if [ "$backend_status" = "running" ]; then
-        # Check if health endpoint responds
         if curl -sf "http://localhost:$AOS_SERVER_PORT/healthz" >/dev/null 2>&1; then
-            print_step "success" "Backend API     ${FG_GREEN}HEALTHY${FG_RESET}  (PID $backend_pid, port $AOS_SERVER_PORT)"
+            print_step "success" "Backend         ${FG_GREEN}HEALTHY${FG_RESET}  (PID $backend_pid, port $AOS_SERVER_PORT)"
         else
-            print_step "running" "Backend API     ${FG_YELLOW}STARTING${FG_RESET} (PID $backend_pid, port $AOS_SERVER_PORT)"
+            print_step "running" "Backend         ${FG_YELLOW}STARTING${FG_RESET} (PID $backend_pid, port $AOS_SERVER_PORT)"
         fi
     else
-        print_step "error" "Backend API     ${FG_RED}STOPPED${FG_RESET}"
-    fi
-
-    # Check UI
-    local ui_pid_file="$AOS_VAR_DIR/ui.pid"
-    local ui_status="stopped"
-    local ui_pid=""
-
-    if [ -f "$ui_pid_file" ]; then
-        ui_pid=$(cat "$ui_pid_file" 2>/dev/null)
-        if [ -n "$ui_pid" ] && kill -0 "$ui_pid" 2>/dev/null; then
-            ui_status="running"
-        fi
-    else
-        ui_pid=$(lsof -nP -i :"$AOS_UI_PORT" -sTCP:LISTEN -t 2>/dev/null | head -1)
-        if [ -n "$ui_pid" ]; then
-            ui_status="running"
-        fi
-    fi
-
-    if [ "$ui_status" = "running" ]; then
-        if curl -sf "http://localhost:$AOS_UI_PORT" >/dev/null 2>&1; then
-            print_step "success" "UI Server       ${FG_GREEN}HEALTHY${FG_RESET}  (PID $ui_pid, port $AOS_UI_PORT)"
-        else
-            print_step "running" "UI Server       ${FG_YELLOW}STARTING${FG_RESET} (PID $ui_pid, port $AOS_UI_PORT)"
-        fi
-    else
-        print_step "error" "UI Server       ${FG_RED}STOPPED${FG_RESET}"
+        print_step "error" "Backend         ${FG_RED}STOPPED${FG_RESET}"
     fi
 
     # Check worker
@@ -558,20 +518,15 @@ show_status() {
     echo ""
 
     # Show URLs if running
-    if [ "$backend_status" = "running" ] || [ "$ui_status" = "running" ]; then
-        echo -e "${FG_CYAN}Access URLs:${FG_RESET}"
-        if [ "$backend_status" = "running" ]; then
-            echo "  API:  http://localhost:$AOS_SERVER_PORT"
-        fi
-        if [ "$ui_status" = "running" ]; then
-            echo "  UI:   http://localhost:$AOS_UI_PORT"
-        fi
+    if [ "$backend_status" = "running" ]; then
+        echo -e "${FG_CYAN}Access:${FG_RESET}"
+        echo "  http://localhost:$AOS_SERVER_PORT  (API + UI)"
         echo ""
     fi
 }
 
 do_preflight() {
-    freeze_preflight "$AOS_SERVER_PORT" "$AOS_UI_PORT" "$AOS_VAR_DIR"
+    freeze_preflight "$AOS_SERVER_PORT" "$AOS_VAR_DIR"
 }
 
 # Start backend with progress animation
@@ -657,73 +612,6 @@ start_backend_animated() {
     fi
 }
 
-# Start UI with progress animation
-start_ui_animated() {
-    print_step "running" "Starting UI Server..."
-    log_line INFO "ui:start requested (port=$AOS_UI_PORT verbose=$VERBOSE trace=$TRACE)"
-
-    # Delegate to service-manager
-    if [ -x scripts/service-manager.sh ]; then
-        local tail_pid=""
-        if scripts/service-manager.sh start ui >/dev/null 2>&1; then
-            if [ $VERBOSE -eq 1 ] || [ $TRACE -eq 1 ]; then
-                touch "$AOS_LOG_DIR/ui.log"
-                tail -n 20 -F "$AOS_LOG_DIR/ui.log" &
-                tail_pid=$!
-            fi
-            # Wait for response
-            local waited=0
-            while [ $waited -lt 20 ]; do
-                if curl -sf "http://localhost:$AOS_UI_PORT" >/dev/null 2>&1; then
-                    local pid
-                    pid=$(cat "$AOS_VAR_DIR/ui.pid" 2>/dev/null)
-                    update_step "success" "UI Server       ${FG_GREEN}READY${FG_RESET}  (PID $pid, port $AOS_UI_PORT)"
-                    log_line INFO "ui:ready pid=$pid port=$AOS_UI_PORT"
-                    if [ -n "$tail_pid" ]; then kill "$tail_pid" 2>/dev/null; fi
-                    #region agent log
-                    append_debug_log \
-                        "start_ui_animated:ready" \
-                        "ui ready" \
-                        "H2" \
-                        "$(printf '{"pid":"%s","ui_port":"%s"}' "$pid" "${AOS_UI_PORT:-3200}")"
-                    #endregion agent log
-                    return 0
-                fi
-                sleep 1
-                ((waited++))
-            done
-            # Started but not responding yet
-            local pid
-            pid=$(cat "$AOS_VAR_DIR/ui.pid" 2>/dev/null)
-            update_step "success" "UI Server       ${FG_YELLOW}STARTED${FG_RESET} (PID $pid, port $AOS_UI_PORT)"
-            log_line WARN "ui:started_without_ready pid=${pid:-none} port=$AOS_UI_PORT"
-            if [ -n "$tail_pid" ]; then kill "$tail_pid" 2>/dev/null; fi
-            #region agent log
-            append_debug_log \
-                "start_ui_animated:started" \
-                "ui started without readiness" \
-                "H2" \
-                "$(printf '{"pid":"%s","ui_port":"%s"}' "$pid" "${AOS_UI_PORT:-3200}")"
-            #endregion agent log
-            return 0
-        else
-            update_step "error" "UI Server - failed to start"
-            #region agent log
-            append_debug_log \
-                "start_ui_animated:error" \
-                "ui start failed" \
-                "H2" \
-                "$(printf '{"ui_port":"%s"}' "${AOS_UI_PORT:-3200}")"
-            #endregion agent log
-            return 1
-        fi
-    else
-        update_step "error" "UI Server - service-manager.sh not found"
-        log_line ERROR "ui:start failed (service-manager missing)"
-        return 1
-    fi
-}
-
 start_backend() {
     print_banner
 
@@ -774,7 +662,7 @@ start_all() {
         "start_all:env" \
         "start_all entry" \
         "H4" \
-        "$(printf '{"AOS_SERVER_PORT":"%s","AOS_UI_PORT":"%s","AOS_MANIFEST_PATH":"%s","AOS_MODEL_BACKEND":"%s","SKIP_WORKER":"%s"}' "${AOS_SERVER_PORT:-8080}" "${AOS_UI_PORT:-3200}" "${AOS_MANIFEST_PATH:-}" "${AOS_MODEL_BACKEND:-}" "${SKIP_WORKER:-0}")"
+        "$(printf '{"AOS_SERVER_PORT":"%s","AOS_MANIFEST_PATH":"%s","AOS_MODEL_BACKEND":"%s","SKIP_WORKER":"%s"}' "${AOS_SERVER_PORT:-8080}" "${AOS_MANIFEST_PATH:-}" "${AOS_MODEL_BACKEND:-}" "${SKIP_WORKER:-0}")"
     #endregion agent log
 
     # Preflight with animation
@@ -787,11 +675,6 @@ start_all() {
     if ! freeze_check_port "$AOS_SERVER_PORT" "Backend API"; then
         preflight_failed=1
         log_line WARN "preflight:backend_port_busy port=$AOS_SERVER_PORT"
-    fi
-
-    if ! freeze_check_port "$AOS_UI_PORT" "UI Server"; then
-        preflight_failed=1
-        log_line WARN "preflight:ui_port_busy port=$AOS_UI_PORT"
     fi
 
     log_line INFO "preflight:complete status=$preflight_failed"
@@ -808,11 +691,9 @@ start_all() {
 
     # Start services
     local backend_ok=0
-    local ui_ok=0
     local worker_ok=0
 
     start_backend_animated && backend_ok=1
-    start_ui_animated && ui_ok=1
 
     # Seed model into database if AOS_MODEL_PATH is set
     if [ $backend_ok -eq 1 ] && [ -n "${AOS_MODEL_PATH:-}" ]; then
@@ -864,7 +745,7 @@ start_all() {
         echo "    - Manifest not found: set AOS_WORKER_MANIFEST"
         echo "    - Model not found: set AOS_MODEL_PATH"
         echo ""
-        echo -e "  To run without worker (UI-only mode): ${FG_CYAN}./start --skip-worker${FG_RESET}"
+        echo -e "  To skip worker: ${FG_CYAN}./start --skip-worker${FG_RESET}"
         echo ""
         return 1
     fi
@@ -930,30 +811,21 @@ start_all() {
         show_full_success=1
     fi
 
-    if [ $backend_ok -eq 1 ] && [ $ui_ok -eq 1 ] && [ $show_full_success -eq 1 ]; then
+    if [ $backend_ok -eq 1 ] && [ $show_full_success -eq 1 ]; then
         echo -e "${FG_GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${FG_RESET}"
         echo ""
         echo -e "  ${FG_GREEN}${CHECK_MARK} AdapterOS is ready!${FG_RESET}"
         echo ""
         echo "  API: http://localhost:$AOS_SERVER_PORT"
-        echo "  UI:  http://localhost:$AOS_UI_PORT"
+        echo "  UI:  http://localhost:$AOS_SERVER_PORT  (served from static/)"
         if [ $worker_ok -eq 1 ]; then
             echo "  Worker: ${FG_GREEN}Ready${FG_RESET} (socket: $AOS_VAR_DIR/run/worker.sock)"
         else
-            echo "  Worker: ${FG_YELLOW}Optional${FG_RESET} (not started)"
+            echo "  Worker: ${FG_YELLOW}Skipped${FG_RESET}"
         fi
         echo ""
         echo -e "${FG_GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${FG_RESET}"
-        log_line INFO "startup:complete backend=ok ui=ok worker=$worker_ok"
-    elif [ $backend_ok -eq 1 ]; then
-        echo -e "${FG_YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${FG_RESET}"
-        echo ""
-        echo -e "  ${FG_YELLOW}Backend started, UI failed${FG_RESET}"
-        echo ""
-        echo "  API: http://localhost:$AOS_SERVER_PORT"
-        echo ""
-        echo -e "${FG_YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${FG_RESET}"
-        log_line WARN "startup:partial backend=ok ui=fail worker=$worker_ok"
+        log_line INFO "startup:complete backend=ok worker=$worker_ok"
     else
         echo -e "${FG_RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${FG_RESET}"
         echo ""
@@ -962,7 +834,7 @@ start_all() {
         echo "  Check logs: var/logs/"
         echo ""
         echo -e "${FG_RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${FG_RESET}"
-        log_line ERROR "startup:failed backend=$backend_ok ui=$ui_ok worker=$worker_ok"
+        log_line ERROR "startup:failed backend=$backend_ok worker=$worker_ok"
         return 1
     fi
 
@@ -980,44 +852,15 @@ do_shutdown() {
     echo ""
 
     if [ -x scripts/service-manager.sh ]; then
-        # Get current PIDs before stopping
         local backend_pid=""
-        local ui_pid=""
-
         if [ -f "$AOS_VAR_DIR/backend.pid" ]; then
             backend_pid=$(cat "$AOS_VAR_DIR/backend.pid" 2>/dev/null)
         fi
-        if [ -f "$AOS_VAR_DIR/ui.pid" ]; then
-            ui_pid=$(cat "$AOS_VAR_DIR/ui.pid" 2>/dev/null)
-        fi
 
-        # Stop UI first
-        if [ -n "$ui_pid" ] && kill -0 "$ui_pid" 2>/dev/null; then
-            print_step "running" "Stopping UI Server (PID $ui_pid)..."
-            scripts/service-manager.sh stop ui >/dev/null 2>&1 || true
-
-            # Wait for stop
-            local waited=0
-            while kill -0 "$ui_pid" 2>/dev/null && [ $waited -lt 10 ]; do
-                sleep 1
-                ((waited++))
-            done
-
-            if ! kill -0 "$ui_pid" 2>/dev/null; then
-                update_step "success" "UI Server stopped"
-            else
-                update_step "error" "UI Server did not stop cleanly"
-            fi
-        else
-            print_step "pending" "UI Server       (not running)"
-        fi
-
-        # Stop backend
         if [ -n "$backend_pid" ] && kill -0 "$backend_pid" 2>/dev/null; then
-            print_step "running" "Stopping Backend API (PID $backend_pid)..."
+            print_step "running" "Stopping Backend (PID $backend_pid)..."
             scripts/service-manager.sh stop backend >/dev/null 2>&1 || true
 
-            # Wait for stop
             local waited=0
             while kill -0 "$backend_pid" 2>/dev/null && [ $waited -lt 15 ]; do
                 sleep 1
@@ -1025,12 +868,12 @@ do_shutdown() {
             done
 
             if ! kill -0 "$backend_pid" 2>/dev/null; then
-                update_step "success" "Backend API stopped"
+                update_step "success" "Backend stopped"
             else
-                update_step "error" "Backend API did not stop cleanly"
+                update_step "error" "Backend did not stop cleanly"
             fi
         else
-            print_step "pending" "Backend API     (not running)"
+            print_step "pending" "Backend         (not running)"
         fi
     else
         fg_error "service-manager.sh not found"

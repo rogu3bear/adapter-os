@@ -328,33 +328,14 @@ jobs:
           name: release-provenance
           path: target/release-bundle
 
-  api-types-drift:
-    name: API Types Drift Check
+  openapi-spec-drift:
+    name: OpenAPI Spec Drift Check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: dtolnay/rust-toolchain@stable
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 9
-
-      - name: Install dependencies
-        run: cd ui && pnpm install --frozen-lockfile
-
-      - name: Build Rust project
-        run: cargo build -p adapteros-server-api
-
       - name: Generate OpenAPI spec from Rust backend
         run: cargo run -p adapteros-server-api --bin export-openapi -- target/codegen/openapi.json
-
       - name: Check committed OpenAPI spec drift
         run: |
           if [ -f docs/api/openapi.json ]; then
@@ -368,50 +349,8 @@ jobs:
           else
             echo "::warning::docs/api/openapi.json missing; skipping drift check"
           fi
-
-      - name: Generate TypeScript types from OpenAPI spec
-        run: |
-          cd ui
-          # Generate types to temporary file for comparison
-          pnpm exec openapi-typescript ../target/codegen/openapi.json \
-            --output src/api/generated.check.ts \
-            --export-type \
-            --enum \
-            --alphabetize \
-            --empty-objects-unknown \
-            --path-params-as-types \
-            --default-non-nullable=false
-
-      - name: Check for drift in generated types
-        run: |
-          cd ui
-          # Compare generated types with committed version
-          if ! diff -u src/api/generated.ts src/api/generated.check.ts > /tmp/types-drift.diff; then
-            echo "::error::Generated TypeScript types are out of sync with OpenAPI spec!"
-            echo ""
-            echo "The following differences were found:"
-            cat /tmp/types-drift.diff
-            echo ""
-            echo "To fix this, run locally:"
-            echo "  cd ui && pnpm run gen:types"
-            echo "Or:"
-            echo "  ./scripts/generate-sdks.sh --typescript"
-            echo ""
-            echo "Then commit the updated src/api/generated.ts file."
-            exit 1
-          else
-            echo "✓ Generated types are in sync"
-          fi
-
-      - name: TypeScript type check
-        run: cd ui && pnpm exec tsc --noEmit
-
-      - name: Run transformer tests
-        run: cd ui && pnpm test src/api/__tests__/transformers.test.ts
-
       - name: Verify OpenAPI spec quality
         run: |
-          # Check that spec has expected structure
           if ! jq -e '.paths | length > 0' target/codegen/openapi.json > /dev/null; then
             echo "::error::OpenAPI spec has no paths defined"
             exit 1
@@ -423,28 +362,6 @@ jobs:
           echo "✓ OpenAPI spec structure is valid"
           echo "  Paths: $(jq '.paths | length' target/codegen/openapi.json)"
           echo "  Schemas: $(jq '.components.schemas | length' target/codegen/openapi.json)"
-
-  type-safety:
-    name: Type Safety Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      - name: Install pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 9
-      - name: Install dependencies
-        run: cd ui && pnpm install --frozen-lockfile
-      - name: Strict type check
-        run: cd ui && pnpm exec tsc --noEmit --strict
-      - name: Check for any types
-        run: |
-          if grep -r ":\s*any" ui/src/api/*.ts; then
-            echo "::warning::Found 'any' types in API layer"
-          fi
 
   fuzz:
     name: Fuzz Smoke
@@ -466,3 +383,65 @@ jobs:
         run: cargo fuzz run trace_encoding -- -max_total_time=60
       - name: Run receipt_verification fuzz (60s cap)
         run: cargo fuzz run receipt_verification -- -max_total_time=60
+
+  leptos-wasm-build:
+    name: Leptos WASM Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Install trunk
+        run: cargo install trunk --locked
+      - name: Build Leptos UI (WASM)
+        working-directory: crates/adapteros-ui
+        run: trunk build --release
+      - name: Verify WASM artifacts exist
+        run: |
+          if [ ! -f crates/adapteros-server/static/index.html ]; then
+            echo "::error::index.html not found in static output"
+            exit 1
+          fi
+          if ! ls crates/adapteros-server/static/adapteros-ui-*.wasm 2>/dev/null; then
+            echo "::error::WASM file not found in static output"
+            exit 1
+          fi
+          echo "✓ Leptos WASM build artifacts verified"
+          ls -la crates/adapteros-server/static/
+
+  leptos-wasm-check:
+    name: Leptos WASM Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Check WASM compilation
+        run: cargo check -p adapteros-ui --target wasm32-unknown-unknown
+
+  leptos-api-types-contract:
+    name: Leptos API Types Contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Verify adapteros-api-types WASM compatibility
+        run: cargo check -p adapteros-api-types --target wasm32-unknown-unknown
+      - name: Verify types are used consistently
+        run: |
+          # Check that UI uses the shared api-types crate
+          if ! grep -q 'adapteros-api-types' crates/adapteros-ui/Cargo.toml; then
+            echo "::error::adapteros-ui must depend on adapteros-api-types for type consistency"
+            exit 1
+          fi
+          echo "✓ Leptos UI uses shared API types"
+      - name: Check for type mismatches
+        run: |
+          # Build both server-api and ui to ensure types align
+          cargo check -p adapteros-server-api
+          cargo check -p adapteros-ui --target wasm32-unknown-unknown
+          echo "✓ Server and UI types compile successfully"

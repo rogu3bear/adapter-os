@@ -7,7 +7,7 @@ server:
   max_connections: 1000
   timeout_seconds: 30
   cors_allowed_origins:
-    - "http://localhost:3200"
+    - "http://localhost:8080"
     - "http://localhost:3300"
 
 services:
@@ -72,12 +72,12 @@ services:
 
   ui-frontend:
     name: "UI Frontend"
-    description: "React dashboard application"
-    command: "pnpm"
-    args: ["dev", "--host", "0.0.0.0", "--port", "3200"]
-    working_directory: "/Users/star/Dev/adapter-os/ui"
+    description: "Leptos WASM dashboard application"
+    command: "trunk"
+    args: ["serve", "--address", "0.0.0.0", "--port", "8080"]
+    working_directory: "crates/adapteros-ui"
     environment: {}
-    port: 3200
+    port: 8080
     category: "core"
     essential: false
     dependencies: []
@@ -88,7 +88,7 @@ services:
     health_check:
       enabled: true
       check_type: "http"
-      endpoint: "http://localhost:3200"
+      endpoint: "http://localhost:8080"
       interval_seconds: 30
       timeout_seconds: 10
       max_failures: 3

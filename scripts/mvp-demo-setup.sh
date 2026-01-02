@@ -95,11 +95,11 @@ check_dependencies() {
     fi
 
     # mlx (required for multi-backend)
-    if python3 -c "import mlx.core" &>/dev/null; then
-        log_success "mlx python package found"
+    if [ -d "/opt/homebrew/opt/mlx" ] || [ -d "/usr/local/opt/mlx" ] || pkg-config --modversion mlx &>/dev/null; then
+        log_success "MLX library found"
     else
-        log_warning "mlx python package not found - required for multi-backend feature"
-        log_warning "Install with: pip install mlx"
+        log_warning "MLX library not found - required for multi-backend feature"
+        log_warning "Install with: brew install mlx"
     fi
 
     # sqlite3

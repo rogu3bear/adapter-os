@@ -133,7 +133,7 @@ kill_orphaned_processes() {
     status_msg "Checking for orphaned AdapterOS processes..."
 
     # Find processes that look like AdapterOS but aren't managed
-    local orphaned_pids=$(ps aux | grep -E "(adapteros|pnpm.*dev|vite)" | grep -v grep | awk '{print $2}' || true)
+    local orphaned_pids=$(ps aux | grep -E "(adapteros)" | grep -v grep | awk '{print $2}' || true)
 
     if [ -n "$orphaned_pids" ]; then
         warning_msg "Found orphaned processes, cleaning up..."
@@ -158,16 +158,9 @@ clean_build_artifacts() {
     # Remove Metal artifacts
     rm -f metal/*.air metal/*.metallib 2>/dev/null || true
 
-    # Remove dist and node_modules
-    rm -rf dist node_modules 2>/dev/null || true
-    rm -rf crates/mplora-server/static 2>/dev/null || true
-
-    # Clean UI build artifacts
-    if [ -d "ui" ]; then
-        cd ui
-        rm -rf dist node_modules .vite 2>/dev/null || true
-        cd "$PROJECT_ROOT"
-    fi
+    # Remove dist artifacts
+    rm -rf dist 2>/dev/null || true
+    rm -rf crates/adapteros-server/static 2>/dev/null || true
 
     success_msg "Build artifacts cleaned"
 }
@@ -236,7 +229,7 @@ fresh_build() {
     echo -e "${CYAN}Phase 4: Final verification...${NC}"
 
     # Check for any remaining issues
-    if pgrep -f "adapteros-server\|pnpm.*dev\|vite" >/dev/null 2>&1; then
+    if pgrep -f "adapteros-server" >/dev/null 2>&1; then
         warning_msg "Some AdapterOS processes may still be running"
         ((errors++))
     fi

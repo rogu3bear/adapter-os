@@ -125,8 +125,7 @@ INCLUDE_GLOBS = [
     ("rust", "src/**/*.rs"),
     ("rust", "crates/**/src/**/*.rs"),
     ("rust", "xtask/**/src/**/*.rs"),
-    ("typescript", "ui/src/**/*.ts"),
-    ("typescript", "ui/src/**/*.tsx"),
+    ("rust", "crates/adapteros-ui/src/**/*.rs"),
     ("markdown", "docs/**/*.md"),
 ]
 
