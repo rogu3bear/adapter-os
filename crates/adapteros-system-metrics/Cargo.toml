@@ -30,7 +30,7 @@ thiserror.workspace = true
 chrono.workspace = true
 hkdf.workspace = true
 sha2.workspace = true
-adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true, default-features = false }
+adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true, features = ["mlx"] }
 
 # Note: Metal integration moved to macOS-specific dependencies below
 
