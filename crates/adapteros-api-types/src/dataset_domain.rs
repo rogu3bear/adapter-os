@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
-use utoipa::ToSchema;
 
 fn default_split() -> String {
     "train".to_string()
@@ -12,7 +11,8 @@ fn default_weight() -> f32 {
 }
 
 /// Canonical row schema shared with training workers and dataset services.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct CanonicalRow {
     pub row_id: String,
     #[serde(default = "default_split")]
@@ -26,7 +26,8 @@ pub struct CanonicalRow {
 }
 
 /// Manifest summarizing a dataset version after normalization.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct DatasetManifest {
     pub dataset_id: String,
     pub dataset_version_id: String,
@@ -38,7 +39,8 @@ pub struct DatasetManifest {
 }
 
 /// Descriptor for a created dataset version.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct DatasetVersionDescriptor {
     pub dataset_id: String,
     pub dataset_version_id: String,
@@ -48,7 +50,8 @@ pub struct DatasetVersionDescriptor {
 }
 
 /// Split-level statistics emitted in manifests.
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct SplitStats {
     pub rows: usize,
     pub avg_prompt_chars: f64,
@@ -56,7 +59,8 @@ pub struct SplitStats {
 }
 
 /// Normalization metadata captured during ingest.
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct NormalizationNotes {
     #[serde(default)]
     pub dialects_seen: Vec<String>,
@@ -67,7 +71,8 @@ pub struct NormalizationNotes {
 }
 
 /// Sampling options for deterministic row streaming.
-#[derive(Debug, Clone, Serialize, Deserialize, Default, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct SamplingConfig {
     /// Filter rows by split (e.g., train/eval)
     #[serde(skip_serializing_if = "Option::is_none")]

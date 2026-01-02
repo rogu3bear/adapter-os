@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
 
 /// Structured failure codes for smoke-test visibility and UI surfacing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum FailureCode {
     MigrationInvalid,

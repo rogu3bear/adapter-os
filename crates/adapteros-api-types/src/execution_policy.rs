@@ -12,9 +12,9 @@
 //! - PUT /v1/tenants/{tenant_id}/execution-policy
 //! - DELETE /v1/tenants/{tenant_id}/execution-policy
 
+#[cfg(feature = "server")]
 use adapteros_core::backend::BackendKind;
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
 
 use crate::schema_version;
 
@@ -22,7 +22,8 @@ use crate::schema_version;
 ///
 /// Controls which determinism modes are allowed for inference requests
 /// and how strict mode constraints are enforced.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct DeterminismPolicy {
     /// Allowed determinism modes for this tenant.
@@ -33,10 +34,12 @@ pub struct DeterminismPolicy {
 
     /// Optional allowlist of permitted backends for inference.
     /// When present, requests for other backends will be rejected.
+    #[cfg(feature = "server")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allowed_backends: Option<Vec<BackendKind>>,
 
     /// Optional denylist of backends; takes precedence over allowlist.
+    #[cfg(feature = "server")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub denied_backends: Option<Vec<BackendKind>>,
 
@@ -78,6 +81,7 @@ fn default_epsilon_threshold() -> f64 {
     1e-6
 }
 
+#[cfg(feature = "server")]
 impl Default for DeterminismPolicy {
     fn default() -> Self {
         Self {
@@ -96,13 +100,31 @@ impl Default for DeterminismPolicy {
     }
 }
 
+#[cfg(not(feature = "server"))]
+impl Default for DeterminismPolicy {
+    fn default() -> Self {
+        Self {
+            allowed_modes: vec![
+                "strict".to_string(),
+                "besteffort".to_string(),
+                "relaxed".to_string(),
+            ],
+            default_mode: default_determinism_mode(),
+            require_seed: false,
+            allow_fallback: true,
+            replay_mode: default_replay_mode(),
+        }
+    }
+}
+
 /// Routing policy configuration
 ///
 /// Minimal, deterministic constraints applied after router scoring but
 /// before kernels run. Designed to express per-tenant/workspace adapter
 /// allowlists/denylists and an optional per-token adapter cap without
 /// changing router math.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct RoutingPolicy {
     /// Restrict routing to specific stack IDs.
@@ -194,7 +216,8 @@ impl Default for RoutingPolicy {
 ///
 /// Controls whether and how routing decisions are verified against
 /// a golden baseline for drift detection.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct GoldenPolicy {
     /// Whether to fail inference when golden drift is detected.
@@ -229,7 +252,8 @@ impl Default for GoldenPolicy {
 ///
 /// Hierarchical policy containing determinism, routing, and golden verification
 /// configuration for a tenant. Loaded at inference time to enforce constraints.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct TenantExecutionPolicy {
     /// Unique policy ID (UUID)
@@ -302,7 +326,8 @@ impl TenantExecutionPolicy {
 }
 
 /// Response for execution policy endpoints
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct ExecutionPolicyResponse {
     #[serde(default = "schema_version")]
@@ -313,9 +338,9 @@ pub struct ExecutionPolicyResponse {
 }
 
 /// Request to create or update an execution policy
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
-#[derive(Default)]
 pub struct CreateExecutionPolicyRequest {
     /// Determinism policy configuration
     pub determinism: DeterminismPolicy,
@@ -338,7 +363,8 @@ pub struct CreateExecutionPolicyRequest {
 ///
 /// All fields are optional to support partial updates.
 /// Fields not provided will preserve existing values.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct UpdateExecutionPolicyRequest {
     /// Determinism policy configuration (replaces existing if provided)
@@ -365,7 +391,8 @@ pub struct UpdateExecutionPolicyRequest {
 ///
 /// Returned by the policy enforcement check, includes details about
 /// what was checked and whether it passed.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct PolicyEnforcementResult {
     /// Policy ID that was enforced

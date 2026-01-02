@@ -2,9 +2,19 @@
 //!
 //! This crate provides unified request/response types used across
 //! the control plane API, client libraries, and UI components.
+//!
+//! # Features
+//!
+//! - `server` (default): Enables axum IntoResponse, utoipa schemas, and server deps
+//! - `wasm`: WASM-compatible build with serde types only
 
 // Re-export API_SCHEMA_VERSION from core as the single source of truth
+#[cfg(feature = "server")]
 pub use adapteros_core::version::API_SCHEMA_VERSION;
+
+// For WASM builds, define a constant directly
+#[cfg(not(feature = "server"))]
+pub const API_SCHEMA_VERSION: &str = "0.11.0";
 
 /// Get the current API schema version as a String.
 /// Used as serde default for response types.
@@ -41,11 +51,13 @@ pub mod topology;
 pub mod training;
 pub mod workers;
 
-// Re-export commonly used types
+// Re-export commonly used types (server feature for full type access)
+#[cfg(feature = "server")]
 pub use adapteros_types::coreml::{
     CoreMLGating, CoreMLMode, CoreMLOpKind, CoreMLPlacementBinding, CoreMLPlacementShape,
     CoreMLPlacementSpec, CoreMLProjection, CoreMLTargetRef,
 };
+#[cfg(feature = "server")]
 pub use adapteros_types::repository::RepoTier;
 pub use adapters::*;
 pub use auth::*;
@@ -77,7 +89,8 @@ pub use training::*;
 pub use workers::*;
 
 /// Common error response structure
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct ErrorResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
@@ -145,6 +158,7 @@ impl ErrorResponse {
     }
 }
 
+#[cfg(feature = "server")]
 impl axum::response::IntoResponse for ErrorResponse {
     fn into_response(self) -> axum::response::Response {
         use axum::http::StatusCode;
@@ -246,7 +260,8 @@ impl axum::response::IntoResponse for ErrorResponse {
 }
 
 /// Health check response
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct HealthResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
@@ -257,7 +272,8 @@ pub struct HealthResponse {
 }
 
 /// Model runtime health summary
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct ModelRuntimeHealth {
     pub total_models: i32,
     pub loaded_count: i32,
@@ -266,7 +282,8 @@ pub struct ModelRuntimeHealth {
 }
 
 /// Pagination parameters
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct PaginationParams {
     #[serde(default = "default_page")]
     pub page: u32,
@@ -282,7 +299,8 @@ fn default_limit() -> u32 {
 }
 
 /// Paginated response wrapper
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct PaginatedResponse<T> {
     #[serde(default = "schema_version")]
     pub schema_version: String,

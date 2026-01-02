@@ -4,7 +4,6 @@
 //! resource summaries into a single contract for the UI.
 
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
 
 use crate::API_SCHEMA_VERSION;
 
@@ -13,7 +12,8 @@ fn schema_version() -> String {
 }
 
 /// Combined system status response for `/v1/system/status`.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct SystemStatusResponse {
     #[serde(default = "schema_version")]
@@ -39,7 +39,8 @@ pub struct SystemStatusResponse {
 }
 
 /// Integrity posture for the control plane.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct IntegrityStatus {
     pub mode: String,
@@ -50,7 +51,8 @@ pub struct IntegrityStatus {
 }
 
 /// Drift severity and optional summary.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct DriftStatus {
     pub level: DriftLevel,
@@ -59,7 +61,8 @@ pub struct DriftStatus {
 }
 
 /// Drift severity indicator.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum DriftLevel {
     Ok,
@@ -68,7 +71,8 @@ pub enum DriftLevel {
 }
 
 /// Readiness snapshot across critical dependencies.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct ReadinessStatus {
     pub overall: StatusIndicator,
@@ -76,7 +80,8 @@ pub struct ReadinessStatus {
 }
 
 /// Individual readiness checks.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct ReadinessChecks {
     pub db: ComponentCheck,
@@ -86,7 +91,8 @@ pub struct ReadinessChecks {
 }
 
 /// Component readiness with optional metadata.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct ComponentCheck {
     pub status: StatusIndicator,
@@ -99,7 +105,8 @@ pub struct ComponentCheck {
 }
 
 /// Canonical status indicator for checks and overall readiness.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum StatusIndicator {
     Ready,
@@ -108,7 +115,8 @@ pub enum StatusIndicator {
 }
 
 /// Inference readiness tri-state for operators.
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum InferenceReadyState {
     True,
@@ -118,7 +126,8 @@ pub enum InferenceReadyState {
 }
 
 /// Blockers preventing inference from running.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum InferenceBlocker {
     DatabaseUnavailable,
@@ -137,7 +146,8 @@ pub enum InferenceBlocker {
 ///
 /// Used to distinguish between real measured data, unavailable data, and stale data.
 /// This prevents the UI from displaying zeros or fabricated estimates as if they were real.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum DataAvailability {
     /// Real measured data from the system
@@ -150,7 +160,8 @@ pub enum DataAvailability {
 }
 
 /// Boot lifecycle summary.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct BootStatus {
     pub phase: String,
@@ -165,7 +176,8 @@ pub struct BootStatus {
 }
 
 /// Individual boot phase timing.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct BootPhaseTiming {
     pub phase: String,
@@ -173,7 +185,8 @@ pub struct BootPhaseTiming {
 }
 
 /// Degraded component reason.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct DegradedReason {
     pub component: String,
@@ -181,7 +194,8 @@ pub struct DegradedReason {
 }
 
 /// Boot failure information.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct BootFailure {
     pub code: String,
@@ -190,7 +204,8 @@ pub struct BootFailure {
 }
 
 /// Kernel/model summary.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct KernelStatus {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -204,7 +219,8 @@ pub struct KernelStatus {
 }
 
 /// Current model status (aggregated across tenants).
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct ModelStatusSummary {
     pub status: String,
@@ -215,7 +231,8 @@ pub struct ModelStatusSummary {
 }
 
 /// Latest plan pointer (best effort).
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct PlanStatusSummary {
     pub plan_id: String,
@@ -225,7 +242,8 @@ pub struct PlanStatusSummary {
 }
 
 /// Adapter inventory across the cluster.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct AdapterInventory {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -235,7 +253,8 @@ pub struct AdapterInventory {
 }
 
 /// Memory summary for UMA and ANE where available.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct KernelMemorySummary {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -250,7 +269,8 @@ pub struct KernelMemorySummary {
 ///
 /// When `availability` is `Unavailable`, all numeric fields will be `None`.
 /// The UI must display "Unavailable" rather than zeros in this case.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct AneMemorySummary {
     /// Whether ANE metrics are actually available
@@ -274,7 +294,8 @@ pub struct AneMemorySummary {
 ///
 /// When `availability` is `Unavailable`, all numeric fields will be `None`.
 /// The UI must display "Unavailable" rather than zeros in this case.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct UmaMemorySummary {
     /// Whether UMA metrics are actually available

@@ -1,12 +1,12 @@
 //! Tenant management types
 
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
 
 use crate::schema_version;
 
 /// Create tenant request
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct CreateTenantRequest {
     pub name: String,
@@ -14,7 +14,8 @@ pub struct CreateTenantRequest {
 }
 
 /// Tenant response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct TenantResponse {
     #[serde(default = "schema_version")]
@@ -39,7 +40,8 @@ pub struct TenantResponse {
 }
 
 /// Update tenant request
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct UpdateTenantRequest {
     pub name: Option<String>,
@@ -51,7 +53,8 @@ pub struct UpdateTenantRequest {
 }
 
 /// Tenant usage statistics
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct TenantUsageResponse {
     #[serde(default = "schema_version")]
@@ -69,14 +72,16 @@ pub struct TenantUsageResponse {
 }
 
 /// Set default stack request
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct SetDefaultStackRequest {
     pub stack_id: String,
 }
 
 /// Default stack response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct DefaultStackResponse {
     #[serde(default = "schema_version")]
@@ -86,14 +91,16 @@ pub struct DefaultStackResponse {
 }
 
 /// Assign policies to tenant request
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct AssignPoliciesRequest {
     pub policy_ids: Vec<String>,
 }
 
 /// Assign adapters to tenant request
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct AssignAdaptersRequest {
     pub adapter_ids: Vec<String>,

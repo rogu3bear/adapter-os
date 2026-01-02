@@ -2,12 +2,12 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use utoipa::ToSchema;
 
 use crate::schema_version;
 
 /// Create domain adapter request
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct CreateDomainAdapterRequest {
     pub name: String,
@@ -22,7 +22,8 @@ pub struct CreateDomainAdapterRequest {
 }
 
 /// Domain adapter response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct DomainAdapterResponse {
     #[serde(default = "schema_version")]
@@ -46,7 +47,8 @@ pub struct DomainAdapterResponse {
 }
 
 /// Epsilon statistics response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct EpsilonStatsResponse {
     #[serde(default = "schema_version")]
@@ -58,7 +60,8 @@ pub struct EpsilonStatsResponse {
 }
 
 /// Test domain adapter request
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct TestDomainAdapterRequest {
     pub adapter_id: String,
@@ -68,7 +71,8 @@ pub struct TestDomainAdapterRequest {
 }
 
 /// Test domain adapter response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct TestDomainAdapterResponse {
     #[serde(default = "schema_version")]
@@ -86,7 +90,8 @@ pub struct TestDomainAdapterResponse {
 }
 
 /// Domain adapter test response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct DomainAdapterTestResponse {
     #[serde(default = "schema_version")]
@@ -99,7 +104,8 @@ pub struct DomainAdapterTestResponse {
 }
 
 /// Domain adapter manifest response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct DomainAdapterManifestResponse {
     #[serde(default = "schema_version")]
@@ -119,7 +125,8 @@ pub struct DomainAdapterManifestResponse {
 }
 
 /// Load domain adapter request
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct LoadDomainAdapterRequest {
     pub adapter_id: String,
@@ -127,7 +134,8 @@ pub struct LoadDomainAdapterRequest {
 }
 
 /// Domain adapter execution response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct DomainAdapterExecutionResponse {
     #[serde(default = "schema_version")]

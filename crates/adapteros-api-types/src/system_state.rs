@@ -6,7 +6,6 @@
 //! All timestamps use RFC3339 format for consistency.
 
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
 
 use crate::API_SCHEMA_VERSION;
 
@@ -20,7 +19,8 @@ pub fn now_rfc3339() -> String {
 }
 
 /// RAG system status indicating whether embedding model is available
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(tag = "status", rename_all = "lowercase")]
 pub enum RagStatus {
     Enabled {
@@ -38,7 +38,8 @@ pub enum RagStatus {
 /// - Node hardware and service health
 /// - Tenants with their stacks and adapters
 /// - Memory pressure and top adapters by usage
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct SystemStateResponse {
     #[serde(default = "schema_version")]
@@ -59,7 +60,8 @@ pub struct SystemStateResponse {
 }
 
 /// Data origin for traceability
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct StateOrigin {
     /// Unique node identifier
@@ -71,7 +73,8 @@ pub struct StateOrigin {
 }
 
 /// Node-level state
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct NodeState {
     /// System uptime in seconds
@@ -89,7 +92,8 @@ pub struct NodeState {
 }
 
 /// Service health within a node
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct ServiceState {
     /// Service name (e.g., "api_server", "lifecycle_manager")
@@ -101,7 +105,8 @@ pub struct ServiceState {
 }
 
 /// Service health status enumeration
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum ServiceHealthStatus {
     Healthy,
@@ -111,7 +116,8 @@ pub enum ServiceHealthStatus {
 }
 
 /// Tenant-level state with nested stacks
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct TenantState {
     /// Tenant unique identifier
@@ -129,7 +135,8 @@ pub struct TenantState {
 }
 
 /// Stack summary with nested adapters
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct StackSummary {
     /// Stack unique identifier
@@ -146,7 +153,8 @@ pub struct StackSummary {
 }
 
 /// Adapter summary within a stack
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct AdapterSummary {
     /// Adapter unique identifier
@@ -169,7 +177,8 @@ pub struct AdapterSummary {
 /// Adapter lifecycle state
 ///
 /// Mirrors the internal AdapterState enum from adapteros-lora-lifecycle
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum AdapterLifecycleState {
     /// Not in memory, metadata only
@@ -209,7 +218,8 @@ impl From<&str> for AdapterLifecycleState {
 }
 
 /// Memory state summary
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct MemoryState {
     /// Total system memory in MB
@@ -230,7 +240,8 @@ pub struct MemoryState {
 }
 
 /// Memory pressure level
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum MemoryPressureLevel {
     Low,
@@ -263,7 +274,8 @@ impl From<&str> for MemoryPressureLevel {
 }
 
 /// ANE-specific memory state (Apple Silicon only)
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct AneMemoryState {
     /// Allocated ANE memory in MB
@@ -277,7 +289,8 @@ pub struct AneMemoryState {
 }
 
 /// Adapter memory summary for top-N display
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct AdapterMemorySummary {
     /// Adapter unique identifier
@@ -293,7 +306,8 @@ pub struct AdapterMemorySummary {
 }
 
 /// Query parameters for system state endpoint
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, utoipa::IntoParams)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema, utoipa::IntoParams))]
 #[serde(rename_all = "snake_case")]
 pub struct SystemStateQuery {
     /// Include adapter details in stack responses (default: true)

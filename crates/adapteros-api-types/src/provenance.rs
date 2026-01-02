@@ -5,12 +5,12 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use utoipa::ToSchema;
 
 use crate::schema_version;
 
 /// Complete provenance graph for a chat session
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct ChatProvenanceResponse {
     #[serde(default = "schema_version")]
@@ -38,7 +38,8 @@ pub struct ChatProvenanceResponse {
 }
 
 /// Summary of the chat session
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct SessionSummary {
     pub id: String,
@@ -54,7 +55,8 @@ pub struct SessionSummary {
 }
 
 /// Stack-level provenance information
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct StackProvenance {
     pub id: String,
@@ -70,7 +72,8 @@ pub struct StackProvenance {
 }
 
 /// Adapter with full provenance chain
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct AdapterProvenance {
     pub id: String,
@@ -86,7 +89,8 @@ pub struct AdapterProvenance {
 }
 
 /// Training job provenance
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct TrainingJobProvenance {
     pub id: String,
@@ -107,7 +111,8 @@ pub struct TrainingJobProvenance {
 }
 
 /// Dataset provenance
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct DatasetProvenance {
     pub id: String,
@@ -125,7 +130,8 @@ pub struct DatasetProvenance {
 }
 
 /// Base model information
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct BaseModelInfo {
     pub id: String,
@@ -135,7 +141,8 @@ pub struct BaseModelInfo {
 }
 
 /// Timeline event for provenance
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct ProvenanceEvent {
     pub event_type: ProvenanceEventType,
@@ -146,7 +153,8 @@ pub struct ProvenanceEvent {
 }
 
 /// Types of provenance events
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum ProvenanceEventType {
     DatasetCreated,
@@ -158,7 +166,8 @@ pub enum ProvenanceEventType {
 }
 
 /// Single provenance entry captured for a chat inference call
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct ChatProvenanceEntry {
     #[serde(skip_serializing_if = "Option::is_none")]

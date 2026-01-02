@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
 
 /// Canonical base model load status used across API, worker, and UI.
 ///
@@ -13,7 +12,8 @@ use utoipa::ToSchema;
 /// - unloading -> error (unload failure)
 /// - error -> loading (retry/ensure)
 /// - error -> no-model (reset/cleanup)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "kebab-case")]
 pub enum ModelLoadStatus {
     NoModel,

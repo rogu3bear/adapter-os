@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
 
 /// Rule for selecting an adapter stack during orchestration
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct OrchestrationRule {
     pub id: String,
@@ -14,7 +14,8 @@ pub struct OrchestrationRule {
 }
 
 /// Prompt orchestration configuration (single-node aware)
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct OrchestrationConfig {
     pub enabled: bool,

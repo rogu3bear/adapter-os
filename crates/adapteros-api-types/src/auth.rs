@@ -1,12 +1,12 @@
 //! Authentication related types
 
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
 
 use crate::schema_version;
 
 /// Login request
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct LoginRequest {
     pub username: Option<String>,
@@ -19,7 +19,8 @@ pub struct LoginRequest {
 }
 
 /// Login response with JWT token
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct LoginResponse {
     #[serde(default = "schema_version")]
@@ -36,7 +37,8 @@ pub struct LoginResponse {
 }
 
 /// Minimal tenant summary for tenant picker
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct TenantSummary {
     #[serde(default = "schema_version")]
@@ -48,7 +50,8 @@ pub struct TenantSummary {
 }
 
 /// Current user's tenant list response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct TenantListResponse {
     #[serde(default = "schema_version")]
@@ -57,7 +60,8 @@ pub struct TenantListResponse {
 }
 
 /// Switch tenant request
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct SwitchTenantRequest {
     pub tenant_id: String,
@@ -67,7 +71,8 @@ pub struct SwitchTenantRequest {
 pub type SwitchTenantResponse = LoginResponse;
 
 /// User information response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct UserInfoResponse {
     #[serde(default = "schema_version")]
@@ -91,7 +96,8 @@ pub struct UserInfoResponse {
 }
 
 /// MFA enrollment start response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct MfaEnrollStartResponse {
     /// Base32-encoded TOTP secret
@@ -101,7 +107,8 @@ pub struct MfaEnrollStartResponse {
 }
 
 /// MFA enrollment verification request
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct MfaEnrollVerifyRequest {
     /// First TOTP code to confirm the secret
@@ -109,7 +116,8 @@ pub struct MfaEnrollVerifyRequest {
 }
 
 /// MFA enrollment verification response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct MfaEnrollVerifyResponse {
     /// Plaintext backup codes (shown once)
@@ -117,7 +125,8 @@ pub struct MfaEnrollVerifyResponse {
 }
 
 /// Disable MFA request (requires TOTP or backup code)
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct MfaDisableRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -127,7 +136,8 @@ pub struct MfaDisableRequest {
 }
 
 /// MFA status response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct MfaStatusResponse {
     pub mfa_enabled: bool,
@@ -136,14 +146,16 @@ pub struct MfaStatusResponse {
 }
 
 /// Logout request (empty for now, but extensible)
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct LogoutRequest {
     // Future: could include session invalidation details
 }
 
 /// Session information for audit/management
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct SessionInfo {
     pub jti: String,
@@ -156,7 +168,8 @@ pub struct SessionInfo {
 }
 
 /// Token refresh response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct RefreshResponse {
     pub token: String,
@@ -164,7 +177,8 @@ pub struct RefreshResponse {
 }
 
 /// Authentication configuration (public subset)
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct AuthConfigResponse {
     pub dev_bypass_allowed: bool,
@@ -173,15 +187,77 @@ pub struct AuthConfigResponse {
     pub max_sessions_per_user: i32,
 }
 
-/// User role enum (must match DB)
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
+/// User role enum - simplified 3-role model
+///
+/// # Roles
+/// - **Admin**: Full access to everything including system settings and user management
+/// - **Operator**: Can run inference, training, manage adapters. Cannot change system settings or users.
+/// - **Viewer**: Read-only access. Can view dashboards, logs, but cannot modify anything.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
-pub enum UserRole {
+pub enum Role {
+    /// Full access to everything
+    #[serde(rename = "admin")]
     Admin,
-    Developer,
+    /// Can run inference, training, manage adapters. Cannot change system settings or users.
+    #[serde(rename = "operator")]
     Operator,
-    Sre,
-    Compliance,
-    Auditor,
+    /// Read-only access. Can view dashboards, logs, but cannot modify anything.
+    #[serde(rename = "viewer")]
     Viewer,
 }
+
+impl Role {
+    /// Check if this role has write (modify) access
+    pub fn can_write(&self) -> bool {
+        matches!(self, Role::Admin | Role::Operator)
+    }
+
+    /// Check if this role has admin access (full permissions)
+    pub fn can_admin(&self) -> bool {
+        matches!(self, Role::Admin)
+    }
+
+    /// Check if this role is viewer-only (read-only access)
+    pub fn is_viewer(&self) -> bool {
+        matches!(self, Role::Viewer)
+    }
+
+    /// Convert role to string representation
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Role::Admin => "admin",
+            Role::Operator => "operator",
+            Role::Viewer => "viewer",
+        }
+    }
+}
+
+impl std::fmt::Display for Role {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+impl std::str::FromStr for Role {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "admin" => Ok(Role::Admin),
+            "operator" => Ok(Role::Operator),
+            "viewer" => Ok(Role::Viewer),
+            // Backwards compatibility: map old roles to new ones
+            "developer" => Ok(Role::Admin),      // Developer had full access like Admin
+            "sre" => Ok(Role::Operator),         // SRE maps to Operator
+            "compliance" => Ok(Role::Viewer),    // Compliance was read-focused
+            "auditor" => Ok(Role::Viewer),       // Auditor was read-focused
+            _ => Err(format!("invalid role: '{}', valid roles are: admin, operator, viewer", s)),
+        }
+    }
+}
+
+/// Backwards compatibility alias
+#[deprecated(note = "Use Role instead")]
+pub type UserRole = Role;

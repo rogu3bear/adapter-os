@@ -11,10 +11,10 @@
 //! 【2025-01-29†prd-adapters†codebase_api_types】
 
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
 
 /// Request to create a codebase adapter
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct CreateCodebaseAdapterRequest {
     /// Unique adapter ID (must follow code.<repo_slug>.<commit> format)
     pub adapter_id: String,
@@ -49,7 +49,8 @@ pub struct CreateCodebaseAdapterRequest {
 }
 
 /// Response from creating a codebase adapter
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct CreateCodebaseAdapterResponse {
     /// The created adapter ID
     pub adapter_id: String,
@@ -69,14 +70,16 @@ pub struct CreateCodebaseAdapterResponse {
 }
 
 /// Request to bind a codebase adapter to a session
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct BindSessionRequest {
     /// Session ID to bind to (exclusive binding)
     pub session_id: String,
 }
 
 /// Response from binding a codebase adapter
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct BindSessionResponse {
     /// The adapter ID
     pub adapter_id: String,
@@ -89,7 +92,8 @@ pub struct BindSessionResponse {
 }
 
 /// Response from unbinding a codebase adapter
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct UnbindSessionResponse {
     /// The adapter ID
     pub adapter_id: String,
@@ -110,7 +114,8 @@ pub struct UnbindSessionResponse {
 }
 
 /// Request to create a new version of a codebase adapter
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct VersionCodebaseAdapterRequest {
     /// Version bump type: "patch", "minor", or "major"
     #[serde(default = "default_bump_type")]
@@ -126,7 +131,8 @@ fn default_bump_type() -> String {
 }
 
 /// Response from creating a new version
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct VersionCodebaseAdapterResponse {
     /// The new version adapter ID
     pub new_adapter_id: String,
@@ -145,7 +151,8 @@ pub struct VersionCodebaseAdapterResponse {
 }
 
 /// Request to verify deployment readiness
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct VerifyDeploymentRequest {
     /// Repository path to check (overrides stored path)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -165,7 +172,8 @@ pub struct VerifyDeploymentRequest {
 }
 
 /// Individual verification check result
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct VerificationCheck {
     /// Name of the check
     pub name: String,
@@ -179,7 +187,8 @@ pub struct VerificationCheck {
 }
 
 /// Response from deployment verification
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct VerifyDeploymentResponse {
     /// The adapter ID
     pub adapter_id: String,
@@ -195,7 +204,8 @@ pub struct VerifyDeploymentResponse {
 }
 
 /// Codebase adapter detail response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct CodebaseAdapterResponse {
     /// Adapter ID
     pub adapter_id: String,

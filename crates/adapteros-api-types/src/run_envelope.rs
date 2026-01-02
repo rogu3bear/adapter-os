@@ -1,11 +1,11 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
 
 use crate::schema_version;
 
 /// Canonical execution context threaded through a run.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct RunEnvelope {
     /// Stable run identifier (UUID/ULID/string).
@@ -43,12 +43,13 @@ pub struct RunEnvelope {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub boot_trace_id: Option<String>,
     /// Envelope creation timestamp (RFC3339).
-    #[schema(value_type = String)]
+    #[cfg_attr(feature = "server", schema(value_type = String))]
     pub created_at: DateTime<Utc>,
 }
 
 /// Initiating actor for a run envelope.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct RunActor {
     /// Subject identifier (user id, dev-bypass, or anonymous).

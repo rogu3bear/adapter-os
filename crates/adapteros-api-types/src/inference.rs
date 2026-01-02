@@ -1,15 +1,17 @@
 //! Inference types
 
+#[cfg(feature = "server")]
 use adapteros_core::{backend::BackendKind, B3Hash};
+#[cfg(feature = "server")]
 use adapteros_types::{
     fusion::FusionInterval,
     inference::{InferRequest as RootInferRequest, RunReceipt as RootRunReceipt},
 };
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
 
 use crate::{schema_version, RunEnvelope};
 
+#[cfg(feature = "server")]
 pub use adapteros_types::inference::{StopReasonCode, STOP_Q15_DENOM};
 
 // =============================================================================
@@ -35,7 +37,8 @@ fn default_repetition_window() -> u16 {
 ///
 /// Configures thresholds and parameters for the stop controller.
 /// The policy is hashed (BLAKE3) and committed to the receipt for audit.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct StopPolicySpec {
     /// Hard cap on output tokens (overrides request max_tokens if lower)
@@ -84,6 +87,7 @@ impl StopPolicySpec {
     }
 
     /// Compute BLAKE3 digest of this policy specification for audit commitment
+    #[cfg(feature = "server")]
     pub fn digest(&self) -> B3Hash {
         let bytes = self.canonical_bytes();
         B3Hash::hash(&bytes)
@@ -101,16 +105,19 @@ impl StopPolicySpec {
     }
 
     /// Get completion threshold as f32 probability (0.0 to 1.0)
+    #[cfg(feature = "server")]
     pub fn completion_threshold_f32(&self) -> f32 {
         self.completion_threshold_q15 as f32 / STOP_Q15_DENOM
     }
 }
 
 /// Inference request
+#[cfg(feature = "server")]
 pub type InferRequest = RootInferRequest<BackendKind, FusionInterval, StopPolicySpec>;
 
 /// Inference response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct InferResponse {
     #[serde(default = "schema_version")]
@@ -127,6 +134,7 @@ pub struct InferResponse {
     /// Adapters used for this inference (also available in trace)
     pub adapters_used: Vec<String>,
     /// Verifiable run receipt for audit/replay
+    #[cfg(feature = "server")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub run_receipt: Option<RunReceipt>,
     /// Deterministic receipt for audit/replay metadata.
@@ -192,6 +200,7 @@ pub struct InferResponse {
 
     // Stop Controller Fields (PRD: Hard Deterministic Stop Controller)
     /// Stop reason code explaining why generation terminated
+    #[cfg(feature = "server")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_reason_code: Option<StopReasonCode>,
     /// Token index at which the stop decision was made
@@ -203,7 +212,8 @@ pub struct InferResponse {
 }
 
 /// Deterministic inference receipt (metadata only).
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct DeterministicReceipt {
     /// Router seed (audit only; routing is deterministic by algorithm).
@@ -222,12 +232,14 @@ pub struct DeterministicReceipt {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backend_used: Option<String>,
     /// BLAKE3 digest of (prompt + system + params), hex encoded.
-    #[schema(value_type = String)]
+    #[cfg(feature = "server")]
+    #[cfg_attr(feature = "server", schema(value_type = String))]
     pub prompt_system_params_digest_b3: B3Hash,
 }
 
 /// Sampling parameters applied for inference execution (receipt).
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct ReceiptSamplingParams {
     /// Maximum tokens to generate.
@@ -246,7 +258,8 @@ pub struct ReceiptSamplingParams {
 }
 
 /// Character range for precise text location
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct CharRange {
     /// Start character offset
@@ -256,7 +269,8 @@ pub struct CharRange {
 }
 
 /// Bounding box for visual citations (e.g., PDF coordinates)
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct BoundingBox {
     /// X coordinate
@@ -270,7 +284,8 @@ pub struct BoundingBox {
 }
 
 /// Citation metadata for a response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct Citation {
     /// Adapter that supplied the knowledge
@@ -306,7 +321,8 @@ pub struct Citation {
 }
 
 /// Replay guarantee level for an inference
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum ReplayGuarantee {
     /// Exact replay possible (strict mode, seeded, no fallback/backend drift, no truncation)
@@ -318,7 +334,8 @@ pub enum ReplayGuarantee {
 }
 
 /// Inference trace for observability
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct InferenceTrace {
     pub adapters_used: Vec<String>,
@@ -335,21 +352,25 @@ pub struct InferenceTrace {
 }
 
 /// Fusion interval boundary with fused tensor hash evidence
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct FusionIntervalTrace {
     pub interval_id: String,
     pub start_token: usize,
     pub end_token: usize,
-    #[schema(value_type = String)]
+    #[cfg(feature = "server")]
+    #[cfg_attr(feature = "server", schema(value_type = String))]
     pub fused_weight_hash: B3Hash,
 }
 
 /// Verifiable run receipt (hash chain over per-token decisions)
+#[cfg(feature = "server")]
 pub type RunReceipt = RootRunReceipt<B3Hash>;
 
 /// Candidate adapter entry for router trace
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct RouterCandidate {
     pub adapter_idx: u16,
@@ -358,7 +379,8 @@ pub struct RouterCandidate {
 }
 
 /// Routing model type for trace display
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum RouterModelType {
     Dense,
@@ -371,7 +393,8 @@ impl RouterModelType {
 }
 
 /// Decision hash material for audit (mirrors router DecisionHash)
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct RouterDecisionHash {
     pub input_hash: String,
@@ -385,7 +408,8 @@ pub struct RouterDecisionHash {
 }
 
 /// Chained router decision entry (per token)
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct RouterDecisionChainEntry {
     pub step: usize,
@@ -399,19 +423,21 @@ pub struct RouterDecisionChainEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub previous_hash: Option<String>,
     pub entry_hash: String,
+    #[cfg(feature = "server")]
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         alias = "policy_mask_digest"
     )]
-    #[schema(value_type = String)]
+    #[cfg_attr(feature = "server", schema(value_type = String))]
     pub policy_mask_digest_b3: Option<B3Hash>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy_overrides_applied: Option<PolicyOverrideFlags>,
 }
 
 /// Router decision at a specific position (canonical schema)
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct RouterDecision {
     pub step: usize,
@@ -425,12 +451,13 @@ pub struct RouterDecision {
     pub interval_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allowed_mask: Option<Vec<bool>>,
+    #[cfg(feature = "server")]
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         alias = "policy_mask_digest"
     )]
-    #[schema(value_type = String)]
+    #[cfg_attr(feature = "server", schema(value_type = String))]
     pub policy_mask_digest_b3: Option<B3Hash>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy_overrides_applied: Option<PolicyOverrideFlags>,
@@ -440,7 +467,8 @@ pub struct RouterDecision {
 }
 
 /// Flags describing which policy overrides affected routing.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct PolicyOverrideFlags {
     pub allow_list: bool,
@@ -449,7 +477,8 @@ pub struct PolicyOverrideFlags {
 }
 
 /// KV cache usage statistics for receipt generation
-#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct KvUsageStats {
     /// Tenant's allocated KV cache quota in bytes
     pub tenant_kv_quota_bytes: u64,

@@ -1,12 +1,12 @@
 // !(Dashboard configuration types for per-user widget customization
 
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
 
 use crate::schema_version;
 
 /// Dashboard widget configuration for a single widget
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct DashboardWidgetConfig {
     pub id: String,
@@ -19,7 +19,8 @@ pub struct DashboardWidgetConfig {
 }
 
 /// Request to get dashboard configuration for the current user
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct GetDashboardConfigRequest {
     // Currently empty - uses authenticated user from JWT
@@ -27,7 +28,8 @@ pub struct GetDashboardConfigRequest {
 }
 
 /// Response containing all widget configurations for a user
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct GetDashboardConfigResponse {
     #[serde(default = "schema_version")]
@@ -36,7 +38,8 @@ pub struct GetDashboardConfigResponse {
 }
 
 /// Single widget configuration update
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct WidgetConfigUpdate {
     pub widget_id: String,
@@ -45,14 +48,16 @@ pub struct WidgetConfigUpdate {
 }
 
 /// Request to update dashboard widget configurations
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct UpdateDashboardConfigRequest {
     pub widgets: Vec<WidgetConfigUpdate>,
 }
 
 /// Response after updating dashboard configuration
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct UpdateDashboardConfigResponse {
     #[serde(default = "schema_version")]
@@ -62,14 +67,16 @@ pub struct UpdateDashboardConfigResponse {
 }
 
 /// Request to reset dashboard to role defaults
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct ResetDashboardConfigRequest {
     // Currently empty - uses authenticated user from JWT
 }
 
 /// Response after resetting dashboard configuration
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct ResetDashboardConfigResponse {
     #[serde(default = "schema_version")]

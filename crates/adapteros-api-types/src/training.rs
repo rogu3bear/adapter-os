@@ -37,7 +37,9 @@
 //!
 //! For real-time learning rate, query the job's `learning_rate` field instead.
 
+#[cfg(feature = "server")]
 use adapteros_core::B3Hash;
+#[cfg(feature = "server")]
 use adapteros_types::{
     coreml::CoreMLPlacementSpec,
     training::{
@@ -47,7 +49,6 @@ use adapteros_types::{
     },
 };
 use serde::{Deserialize, Serialize};
-use utoipa::{IntoParams, ToSchema};
 
 use crate::schema_version;
 
@@ -62,7 +63,8 @@ pub const DEPRECATED_FIELD_SUNSET_VERSION: &str = "2.0.0";
 // ===== Core Enums =====
 
 /// Training job status
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum TrainingStatus {
     Pending,
@@ -126,7 +128,8 @@ impl std::fmt::Display for TrainingStatus {
 }
 
 /// Dataset trust state
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum TrustState {
     Allowed,
@@ -165,7 +168,8 @@ impl std::fmt::Display for TrustState {
 }
 
 /// Dataset source type
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum DatasetSourceType {
     CodeRepo,
@@ -203,7 +207,8 @@ fn default_dataset_weight() -> f32 {
 }
 
 /// Dataset version selector with optional sampling weight (API surface).
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct DatasetVersionSelection {
     pub dataset_version_id: String,
@@ -212,7 +217,8 @@ pub struct DatasetVersionSelection {
 }
 
 /// Trust snapshot for a dataset version captured at training time.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct DatasetVersionTrustSnapshot {
     pub dataset_version_id: String,
@@ -220,6 +226,7 @@ pub struct DatasetVersionTrustSnapshot {
     pub trust_at_training_time: Option<String>,
 }
 
+#[cfg(feature = "server")]
 impl From<CoreDatasetVersionSelection> for DatasetVersionSelection {
     fn from(core: CoreDatasetVersionSelection) -> Self {
         Self {
@@ -230,7 +237,8 @@ impl From<CoreDatasetVersionSelection> for DatasetVersionSelection {
 }
 
 /// Dataset validation status
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, ToSchema)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum DatasetValidationStatus {
     Pending,
@@ -271,7 +279,9 @@ impl std::fmt::Display for DatasetValidationStatus {
 // ===== Request/Response Types =====
 
 /// Training configuration request
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[cfg(feature = "server")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct TrainingConfigRequest {
     pub rank: u32,
@@ -311,7 +321,9 @@ pub struct TrainingConfigRequest {
 }
 
 /// Start training request
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[cfg(feature = "server")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct StartTrainingRequest {
     pub adapter_name: String,
@@ -386,7 +398,8 @@ pub struct StartTrainingRequest {
 }
 
 /// Post-training actions configuration
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct PostActionsRequest {
     /// Package adapter after training (default: true)
@@ -403,7 +416,8 @@ pub struct PostActionsRequest {
 }
 
 /// Training job response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct TrainingJobResponse {
     #[serde(default = "schema_version")]
@@ -435,6 +449,7 @@ pub struct TrainingJobResponse {
     pub dataset_version_trust: Option<Vec<DatasetVersionTrustSnapshot>>,
     #[serde(default)]
     pub synthetic_mode: bool,
+    #[cfg(feature = "server")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data_lineage_mode: Option<DataLineageMode>,
     /// Base model ID used for training
@@ -465,6 +480,7 @@ pub struct TrainingJobResponse {
     ///
     /// # OpenAPI
     /// Uses proper enum schema with values: `micro`, `standard`, `max`.
+    #[cfg(feature = "server")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lora_tier: Option<LoraTier>,
     /// Logical scope for adapter visibility (e.g., project, tenant)
@@ -585,7 +601,7 @@ pub struct TrainingJobResponse {
         note = "Use aos_path instead. Will be removed in v2.0.0."
     )]
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[schema(deprecated)]
+    #[cfg_attr(feature = "server", schema(deprecated))]
     pub artifact_path: Option<String>,
     /// Alias of `package_hash_b3` for clients expecting an "artifact hash" surface.
     ///
@@ -601,7 +617,7 @@ pub struct TrainingJobResponse {
         note = "Use package_hash_b3 instead. Will be removed in v2.0.0."
     )]
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[schema(deprecated)]
+    #[cfg_attr(feature = "server", schema(deprecated))]
     pub artifact_hash_b3: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aos_path: Option<String>,
@@ -628,6 +644,7 @@ pub struct TrainingJobResponse {
     pub hyperparameters: Option<String>,
 }
 
+#[cfg(feature = "server")]
 #[allow(deprecated)] // artifact_path and artifact_hash_b3 are deprecated aliases
 impl From<TrainingJob> for TrainingJobResponse {
     fn from(job: TrainingJob) -> Self {
@@ -912,7 +929,8 @@ mod tests {
 }
 
 /// Training template response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct TrainingTemplateResponse {
     #[serde(default = "schema_version")]
@@ -929,6 +947,7 @@ pub struct TrainingTemplateResponse {
     pub batch_size: u32,
 }
 
+#[cfg(feature = "server")]
 impl From<TrainingConfigRequest> for TrainingConfig {
     fn from(req: TrainingConfigRequest) -> Self {
         Self {
@@ -960,6 +979,7 @@ impl From<TrainingConfigRequest> for TrainingConfig {
     }
 }
 
+#[cfg(feature = "server")]
 impl From<TrainingTemplate> for TrainingTemplateResponse {
     fn from(template: TrainingTemplate) -> Self {
         Self {
@@ -979,7 +999,8 @@ impl From<TrainingTemplate> for TrainingTemplateResponse {
 }
 
 /// Training metrics response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct TrainingMetricsResponse {
     #[serde(default = "schema_version")]
@@ -1015,7 +1036,8 @@ pub struct TrainingMetricsResponse {
 /// Note: `learning_rate` is optional because per-step LR is not currently stored
 /// in the training_metrics table. It's available at job level via TrainingProgress.
 /// `tokens_processed` is populated when available from the "tokens_processed" metric.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct TrainingMetricEntry {
     /// Metric step (training iteration)
@@ -1035,7 +1057,8 @@ pub struct TrainingMetricEntry {
 }
 
 /// Training metrics list response for time-series metrics endpoint
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct TrainingMetricsListResponse {
     #[serde(default = "schema_version")]
@@ -1049,7 +1072,8 @@ pub struct TrainingMetricsListResponse {
 // ===== Dataset Types =====
 
 /// Upload dataset request
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct UploadDatasetRequest {
     pub name: String,
@@ -1058,7 +1082,8 @@ pub struct UploadDatasetRequest {
 }
 
 /// Upload dataset response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct UploadDatasetResponse {
     #[serde(default = "schema_version")]
@@ -1084,7 +1109,8 @@ pub struct UploadDatasetResponse {
 }
 
 /// Dataset response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct DatasetResponse {
     #[serde(default = "schema_version")]
@@ -1117,7 +1143,8 @@ pub struct DatasetResponse {
 }
 
 /// Summary of a dataset version (used for dataset detail views and selectors)
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct DatasetVersionSummary {
     pub dataset_version_id: String,
@@ -1138,7 +1165,8 @@ pub struct DatasetVersionSummary {
 }
 
 /// Dataset versions list response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct DatasetVersionsResponse {
     #[serde(default = "schema_version")]
@@ -1148,7 +1176,8 @@ pub struct DatasetVersionsResponse {
 }
 
 /// Dataset statistics response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct DatasetStatisticsResponse {
     #[serde(default = "schema_version")]
@@ -1164,7 +1193,8 @@ pub struct DatasetStatisticsResponse {
 }
 
 /// Dataset file response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct DatasetFileResponse {
     #[serde(default = "schema_version")]
@@ -1179,14 +1209,16 @@ pub struct DatasetFileResponse {
 }
 
 /// Dataset validation request
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct ValidateDatasetRequest {
     pub check_format: Option<bool>,
 }
 
 /// Dataset validation response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct ValidateDatasetResponse {
     #[serde(default = "schema_version")]
@@ -1210,7 +1242,8 @@ pub struct ValidateDatasetResponse {
 /// - Offset calculation: `offset = (page - 1) * page_size`
 ///
 /// Example: `page=2, page_size=20` returns items 21-40.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, IntoParams, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema, utoipa::IntoParams))]
 pub struct TrainingListParams {
     /// Filter by status (pending, running, completed, failed, cancelled)
     pub status: Option<String>,
@@ -1229,7 +1262,8 @@ pub struct TrainingListParams {
 }
 
 /// Training job list response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct TrainingJobListResponse {
     #[serde(default = "schema_version")]
@@ -1260,7 +1294,8 @@ impl Default for TrainingJobListResponse {
 ///
 /// Returns the "recipe" for starting a chat from a completed training job.
 /// Used by any UI flow to quickly get the payload needed to create a chat session.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct ChatBootstrapResponse {
     /// Whether the training job is ready for chat (completed with stack)
     pub ready: bool,
@@ -1295,7 +1330,8 @@ pub struct ChatBootstrapResponse {
 /// Request for POST /v1/chats/from_training_job
 ///
 /// Creates a chat session bound to a training job's stack in one call.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct CreateChatFromJobRequest {
     /// Training job ID to create chat from
     pub training_job_id: String,
@@ -1306,7 +1342,8 @@ pub struct CreateChatFromJobRequest {
 }
 
 /// Response for POST /v1/chats/from_training_job
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct CreateChatFromJobResponse {
     /// Created chat session ID
     pub session_id: String,
@@ -1337,7 +1374,8 @@ pub struct CreateChatFromJobResponse {
 /// Controls how an adapter can be attached to inference stacks:
 /// - `Free`: Adapter can be attached without specific dataset context
 /// - `RequiresDataset`: Adapter requires a specific dataset version context for inference
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, ToSchema, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum AttachMode {
     /// Adapter can be attached without specific dataset context
@@ -1375,7 +1413,8 @@ impl std::fmt::Display for AttachMode {
 ///
 /// Publishing makes an adapter version available for use in inference stacks
 /// and configures its attach mode behavior.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct PublishAdapterVersionRequest {
     /// Display name for the published adapter (optional, defaults to repo name + version)
@@ -1397,7 +1436,8 @@ pub struct PublishAdapterVersionRequest {
 }
 
 /// Response from publishing an adapter version
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct PublishAdapterVersionResponse {
     #[serde(default = "schema_version")]
@@ -1425,7 +1465,8 @@ pub struct PublishAdapterVersionResponse {
 }
 
 /// Request to archive an adapter version
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct ArchiveAdapterVersionRequest {
     /// Reason for archiving (optional, for audit trail)
@@ -1434,7 +1475,8 @@ pub struct ArchiveAdapterVersionRequest {
 }
 
 /// Response from archive/unarchive operations
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct ArchiveAdapterVersionResponse {
     /// The adapter version ID
@@ -1452,7 +1494,8 @@ pub struct ArchiveAdapterVersionResponse {
 // ============================================================================
 
 /// Request to start training from an existing adapter version
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct StartTrainingFromVersionRequest {
     /// Optional training config ID to use (overrides version's config)
@@ -1469,7 +1512,8 @@ pub struct StartTrainingFromVersionRequest {
 }
 
 /// Response from starting training from a version
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct StartTrainingResponse {
     /// The created training job ID
@@ -1491,7 +1535,8 @@ pub struct StartTrainingResponse {
 ///
 /// Returns the current training queue status including counts by status
 /// and estimated wait times.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct TrainingQueueResponse {
     #[serde(default = "schema_version")]
@@ -1524,7 +1569,8 @@ pub struct TrainingQueueResponse {
 }
 
 /// Summary of a job in the training queue
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct TrainingQueueJobSummary {
     /// Job ID
