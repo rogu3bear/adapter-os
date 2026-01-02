@@ -1,7 +1,18 @@
 //! Background task spawning for AdapterOS control plane.
 //!
 //! This module contains the background task spawning logic for the boot sequence.
-//! It spawns 11 different background tasks that run throughout the server lifecycle:
+//! It spawns background tasks that run throughout the server lifecycle.
+//!
+//! ## Dev Mode Optimization
+//!
+//! When dev bypass is enabled (`AOS_DEV_NO_AUTH=1` or `security.dev_bypass=true`),
+//! only essential tasks are spawned for faster startup:
+//!
+//! - Status writer (UI needs it)
+//! - WAL checkpoint (database health)
+//! - TTL cleanup (prevents DB bloat)
+//!
+//! ## Production Mode Tasks (all 11 tasks)
 //!
 //! 1. Status writer task (5s interval)
 //! 2. KV isolation scanner task (configurable interval, default 900s)
@@ -42,9 +53,14 @@ use tracing::{debug, error, info, warn};
 
 /// Spawns all background tasks for the AdapterOS control plane.
 ///
-/// This function spawns 11 background tasks that run throughout the server lifecycle.
+/// This function spawns background tasks that run throughout the server lifecycle.
 /// Tasks are spawned using the `BackgroundTaskSpawner` which integrates with the
 /// shutdown coordinator and task tracking system.
+///
+/// In dev mode (`is_dev_bypass_enabled()`), only essential tasks are spawned:
+/// - Status writer (UI needs it)
+/// - WAL checkpoint (database health)
+/// - TTL cleanup (prevents DB bloat)
 ///
 /// # Arguments
 ///
@@ -75,6 +91,14 @@ pub async fn spawn_all_background_tasks(
     metrics_registry: Arc<MetricsRegistry>,
     server_config: Arc<std::sync::RwLock<adapteros_server_api::config::Config>>,
 ) -> Result<ShutdownCoordinator> {
+    // Check if we're in dev mode - skip non-essential tasks for faster startup
+    let dev_mode = adapteros_server_api::is_dev_bypass_enabled();
+    if dev_mode {
+        info!(
+            "Dev mode enabled - spawning only essential background tasks (status writer, WAL checkpoint, TTL cleanup)"
+        );
+    }
+
     // Spawn status writer background task (using BackgroundTaskSpawner)
     {
         let state_clone = state.clone();
@@ -123,7 +147,8 @@ pub async fn spawn_all_background_tasks(
     }
 
     // Spawn KV isolation scan background task (using BackgroundTaskSpawner)
-    {
+    // SKIPPED in dev mode - production monitoring only
+    if !dev_mode {
         let state_clone = state.clone();
         let base_config = kv_isolation::kv_isolation_config_from_env();
         let interval_secs = std::env::var("AOS_KV_ISOLATION_SCAN_SECS")
@@ -187,7 +212,8 @@ pub async fn spawn_all_background_tasks(
     }
 
     // Spawn KV metrics alert monitor (drift/fallback/error/degraded)
-    {
+    // SKIPPED in dev mode - production alerting only
+    if !dev_mode {
         let metrics_registry = Arc::clone(&metrics_registry);
         let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator)
             .with_task_tracker(Arc::clone(&background_tasks));
@@ -265,7 +291,8 @@ pub async fn spawn_all_background_tasks(
     }
 
     // Spawn log cleanup background task
-    {
+    // SKIPPED in dev mode - production maintenance only
+    if !dev_mode {
         let (log_dir_opt, retention_days) = {
             let cfg = server_config.read().map_err(|e| {
                 error!(error = %e, "Config lock poisoned during log cleanup setup");
@@ -342,6 +369,7 @@ pub async fn spawn_all_background_tasks(
     }
 
     // Spawn TTL cleanup background task
+    // KEPT in dev mode - prevents DB bloat
     {
         let db_clone = db.clone();
         let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator)
@@ -475,7 +503,8 @@ pub async fn spawn_all_background_tasks(
     }
 
     // Spawn upload session cleanup background task
-    {
+    // SKIPPED in dev mode - production maintenance only
+    if !dev_mode {
         let upload_manager = Arc::clone(&state.upload_session_manager);
         let interval_secs = std::env::var("AOS_UPLOAD_SESSION_CLEANUP_SECS")
             .ok()
@@ -529,7 +558,8 @@ pub async fn spawn_all_background_tasks(
     }
 
     // Spawn security cleanup background task
-    {
+    // SKIPPED in dev mode - production maintenance only
+    if !dev_mode {
         let db_clone = db.clone();
         let interval_secs = std::env::var("AOS_SECURITY_CLEANUP_SECS")
             .ok()
@@ -605,7 +635,8 @@ pub async fn spawn_all_background_tasks(
     }
 
     // Spawn telemetry bundle GC background task
-    {
+    // SKIPPED in dev mode - production maintenance only
+    if !dev_mode {
         let telemetry_store = Arc::clone(&state.telemetry_bundle_store);
         let interval_secs = std::env::var("AOS_TELEMETRY_BUNDLE_GC_SECS")
             .ok()
@@ -676,6 +707,7 @@ pub async fn spawn_all_background_tasks(
     }
 
     // Spawn WAL checkpoint background task
+    // KEPT in dev mode - database health
     {
         let db_clone = db.clone();
         let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator)
@@ -723,7 +755,8 @@ pub async fn spawn_all_background_tasks(
     }
 
     // Spawn DB index health monitor + maintenance automation
-    {
+    // SKIPPED in dev mode - production monitoring only
+    if !dev_mode {
         let state_clone = state.clone();
         let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator)
             .with_task_tracker(Arc::clone(&background_tasks));
@@ -743,7 +776,8 @@ pub async fn spawn_all_background_tasks(
     }
 
     // Spawn heartbeat recovery background task
-    {
+    // SKIPPED in dev mode - production monitoring only
+    if !dev_mode {
         let db_clone = db.clone();
         let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator)
             .with_task_tracker(Arc::clone(&background_tasks));

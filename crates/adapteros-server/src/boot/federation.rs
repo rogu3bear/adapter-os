@@ -6,6 +6,16 @@
 //! - Federation manager for federated policy synchronization
 //! - Federation daemon for background sweeps
 //!
+//! ## Dev Mode Optimization
+//!
+//! When dev bypass is enabled (`AOS_DEV_NO_AUTH=1` or `security.dev_bypass=true`),
+//! federation is initialized minimally without starting background tasks:
+//! - Creates the required components (for type compatibility)
+//! - Skips starting the policy watcher background task
+//! - Skips starting the federation daemon sweeps
+//!
+//! This significantly speeds up boot in development.
+//!
 //! # Architecture
 //!
 //! The federation system consists of three main components:
@@ -91,6 +101,12 @@ pub async fn initialize_federation(
     shutdown_coordinator: &mut ShutdownCoordinator,
     background_tasks: Arc<BackgroundTaskTracker>,
 ) -> Result<FederationContext> {
+    // Check if we're in dev mode - skip background tasks for faster startup
+    let dev_mode = adapteros_server_api::is_dev_bypass_enabled();
+    if dev_mode {
+        info!("Dev mode enabled - initializing federation minimally (no background tasks)");
+    }
+
     // Initialize policy hash watcher (continuous monitoring)
     // Create telemetry writer and policy watcher first (needed by federation daemon)
     let (policy_watcher, telemetry) = {
@@ -123,20 +139,22 @@ pub async fn initialize_federation(
             None, // cpid - will be set per-tenant
         ));
 
-        // Load baseline hashes from database
-        if let Err(e) = policy_watcher.load_cache().await {
-            warn!(error = %e, "Failed to load policy hash cache");
+        // Load baseline hashes from database (skip in dev mode)
+        if !dev_mode {
+            if let Err(e) = policy_watcher.load_cache().await {
+                warn!(error = %e, "Failed to load policy hash cache");
+            }
+
+            // Start background watcher (60 second interval) - only in production
+            let policy_hashes = Arc::new(RwLock::new(std::collections::HashMap::new()));
+            let watcher_handle = policy_watcher
+                .clone()
+                .start_background_watcher(Duration::from_secs(60), policy_hashes.clone());
+            shutdown_coordinator.set_policy_watcher_handle(watcher_handle);
+            background_tasks.record_spawned("Policy hash watcher", false);
+
+            info!("Policy hash watcher started (60s interval)");
         }
-
-        // Start background watcher (60 second interval)
-        let policy_hashes = Arc::new(RwLock::new(std::collections::HashMap::new()));
-        let watcher_handle = policy_watcher
-            .clone()
-            .start_background_watcher(Duration::from_secs(60), policy_hashes.clone());
-        shutdown_coordinator.set_policy_watcher_handle(watcher_handle);
-        background_tasks.record_spawned("Policy hash watcher", false);
-
-        info!("Policy hash watcher started (60s interval)");
 
         (policy_watcher, telemetry)
     };
@@ -162,7 +180,7 @@ pub async fn initialize_federation(
         quorum_min_peers: 2,
     };
 
-    // Create and start daemon
+    // Create daemon (needed for type compatibility)
     let federation_daemon = Arc::new(adapteros_orchestrator::FederationDaemon::new(
         federation_manager,
         policy_watcher.clone(),
@@ -171,11 +189,14 @@ pub async fn initialize_federation(
         federation_config,
     ));
 
-    let federation_shutdown_rx = shutdown_coordinator.subscribe_shutdown();
-    let federation_handle = federation_daemon.clone().start(federation_shutdown_rx);
-    shutdown_coordinator.set_federation_handle(federation_handle);
-    background_tasks.record_spawned("Federation daemon", false);
-    info!("Federation daemon started (300s interval)");
+    // Start daemon only in production mode
+    if !dev_mode {
+        let federation_shutdown_rx = shutdown_coordinator.subscribe_shutdown();
+        let federation_handle = federation_daemon.clone().start(federation_shutdown_rx);
+        shutdown_coordinator.set_federation_handle(federation_handle);
+        background_tasks.record_spawned("Federation daemon", false);
+        info!("Federation daemon started (300s interval)");
+    }
 
     Ok(FederationContext {
         policy_watcher,

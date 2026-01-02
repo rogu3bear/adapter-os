@@ -94,7 +94,9 @@ impl BaseModelState {
     ) -> Result<()> {
         let lifecycle = match status {
             WorkerStatus::Healthy => LifecycleState::Active,
-            WorkerStatus::Registered | WorkerStatus::Created => LifecycleState::Loading,
+            WorkerStatus::Pending | WorkerStatus::Registered | WorkerStatus::Created => {
+                LifecycleState::Loading
+            }
             WorkerStatus::Draining => LifecycleState::Unloading,
             WorkerStatus::Stopped => LifecycleState::Unloaded,
             WorkerStatus::Error => LifecycleState::Error,
