@@ -326,3 +326,9 @@ training_data/
 ui-test-screenshots/
 .venv-coreml/
 rust_out
+
+# Temporary mermaid diagrams (architecture exploration)
+/*.mmd
+
+# Temporary debug binaries
+src/bin/test_*.rs
