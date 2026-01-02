@@ -76,6 +76,33 @@ fn generate_seeded_data(seed: u64, size: usize) -> Vec<f32> {
     data
 }
 
+fn should_run_mltensor_tests() -> bool {
+    if std::env::var_os("AOS_COREML_SKIP_MLTENSOR_TESTS").is_some() {
+        println!("Skipping - AOS_COREML_SKIP_MLTENSOR_TESTS set");
+        return false;
+    }
+
+    if !MLTensor::is_available() {
+        println!("Skipping - MLTensor not available (requires macOS 15+)");
+        return false;
+    }
+
+    true
+}
+
+fn should_run_swift_bridge_tests() -> bool {
+    if !should_run_mltensor_tests() {
+        return false;
+    }
+
+    if !unsafe { ffi::swift_coreml_supports_mltensor() } {
+        println!("Skipping Swift/ObjC++ comparison - Swift bridge not available");
+        return false;
+    }
+
+    true
+}
+
 // =============================================================================
 // Basic Operation Determinism Tests
 // =============================================================================
@@ -83,8 +110,7 @@ fn generate_seeded_data(seed: u64, size: usize) -> Vec<f32> {
 #[test]
 #[cfg(target_os = "macos")]
 fn test_softmax_determinism() {
-    if !MLTensor::is_available() {
-        println!("Skipping - MLTensor not available (requires macOS 15+)");
+    if !should_run_mltensor_tests() {
         return;
     }
 
@@ -110,8 +136,7 @@ fn test_softmax_determinism() {
 #[test]
 #[cfg(target_os = "macos")]
 fn test_add_determinism() {
-    if !MLTensor::is_available() {
-        println!("Skipping - MLTensor not available (requires macOS 15+)");
+    if !should_run_mltensor_tests() {
         return;
     }
 
@@ -139,8 +164,7 @@ fn test_add_determinism() {
 #[test]
 #[cfg(target_os = "macos")]
 fn test_scale_determinism() {
-    if !MLTensor::is_available() {
-        println!("Skipping - MLTensor not available (requires macOS 15+)");
+    if !should_run_mltensor_tests() {
         return;
     }
 
@@ -167,8 +191,7 @@ fn test_scale_determinism() {
 #[test]
 #[cfg(target_os = "macos")]
 fn test_matmul_determinism() {
-    if !MLTensor::is_available() {
-        println!("Skipping - MLTensor not available (requires macOS 15+)");
+    if !should_run_mltensor_tests() {
         return;
     }
 
@@ -205,8 +228,7 @@ fn test_matmul_determinism() {
 #[test]
 #[cfg(target_os = "macos")]
 fn test_hkdf_seeded_operations() {
-    if !MLTensor::is_available() {
-        println!("Skipping - MLTensor not available (requires macOS 15+)");
+    if !should_run_mltensor_tests() {
         return;
     }
 
@@ -290,8 +312,7 @@ fn test_same_seed_produces_same_data() {
 #[test]
 #[cfg(target_os = "macos")]
 fn test_chained_operations_determinism() {
-    if !MLTensor::is_available() {
-        println!("Skipping - MLTensor not available (requires macOS 15+)");
+    if !should_run_mltensor_tests() {
         return;
     }
 
@@ -352,14 +373,7 @@ fn test_chained_operations_determinism() {
 #[test]
 #[cfg(target_os = "macos")]
 fn test_swift_objcpp_softmax_equivalence() {
-    if !MLTensor::is_available() {
-        println!("Skipping - MLTensor not available (requires macOS 15+)");
-        return;
-    }
-
-    // Skip if Swift bridge not available
-    if !unsafe { ffi::swift_coreml_supports_mltensor() } {
-        println!("Skipping Swift/ObjC++ comparison - Swift bridge not available");
+    if !should_run_swift_bridge_tests() {
         return;
     }
 
@@ -420,13 +434,7 @@ fn test_swift_objcpp_softmax_equivalence() {
 #[test]
 #[cfg(target_os = "macos")]
 fn test_swift_objcpp_add_equivalence() {
-    if !MLTensor::is_available() {
-        println!("Skipping - MLTensor not available (requires macOS 15+)");
-        return;
-    }
-
-    if !unsafe { ffi::swift_coreml_supports_mltensor() } {
-        println!("Skipping Swift/ObjC++ comparison - Swift bridge not available");
+    if !should_run_swift_bridge_tests() {
         return;
     }
 
@@ -492,13 +500,7 @@ fn test_swift_objcpp_add_equivalence() {
 #[test]
 #[cfg(target_os = "macos")]
 fn test_swift_objcpp_scale_equivalence() {
-    if !MLTensor::is_available() {
-        println!("Skipping - MLTensor not available (requires macOS 15+)");
-        return;
-    }
-
-    if !unsafe { ffi::swift_coreml_supports_mltensor() } {
-        println!("Skipping Swift/ObjC++ comparison - Swift bridge not available");
+    if !should_run_swift_bridge_tests() {
         return;
     }
 
@@ -558,13 +560,7 @@ fn test_swift_objcpp_scale_equivalence() {
 #[test]
 #[cfg(target_os = "macos")]
 fn test_swift_objcpp_matmul_equivalence() {
-    if !MLTensor::is_available() {
-        println!("Skipping - MLTensor not available (requires macOS 15+)");
-        return;
-    }
-
-    if !unsafe { ffi::swift_coreml_supports_mltensor() } {
-        println!("Skipping Swift/ObjC++ comparison - Swift bridge not available");
+    if !should_run_swift_bridge_tests() {
         return;
     }
 
@@ -635,8 +631,7 @@ fn test_swift_objcpp_matmul_equivalence() {
 #[test]
 #[cfg(target_os = "macos")]
 fn test_large_tensor_matmul_determinism() {
-    if !MLTensor::is_available() {
-        println!("Skipping - MLTensor not available (requires macOS 15+)");
+    if !should_run_mltensor_tests() {
         return;
     }
 
@@ -667,8 +662,7 @@ fn test_large_tensor_matmul_determinism() {
 #[test]
 #[cfg(target_os = "macos")]
 fn test_large_tensor_softmax_determinism() {
-    if !MLTensor::is_available() {
-        println!("Skipping - MLTensor not available (requires macOS 15+)");
+    if !should_run_mltensor_tests() {
         return;
     }
 
@@ -719,8 +713,7 @@ fn test_large_tensor_softmax_determinism() {
 #[test]
 #[cfg(target_os = "macos")]
 fn test_bridge_type_consistency() {
-    if !MLTensor::is_available() {
-        println!("Skipping - MLTensor not available (requires macOS 15+)");
+    if !should_run_mltensor_tests() {
         return;
     }
 
@@ -741,8 +734,7 @@ fn test_bridge_type_consistency() {
 #[test]
 #[cfg(target_os = "macos")]
 fn test_bridge_type_after_operations() {
-    if !MLTensor::is_available() {
-        println!("Skipping - MLTensor not available (requires macOS 15+)");
+    if !should_run_mltensor_tests() {
         return;
     }
 
@@ -778,8 +770,7 @@ fn test_bridge_type_after_operations() {
 #[test]
 #[cfg(target_os = "macos")]
 fn test_softmax_numerical_stability() {
-    if !MLTensor::is_available() {
-        println!("Skipping - MLTensor not available (requires macOS 15+)");
+    if !should_run_mltensor_tests() {
         return;
     }
 
@@ -819,8 +810,7 @@ fn test_softmax_numerical_stability() {
 #[test]
 #[cfg(target_os = "macos")]
 fn test_matmul_precision() {
-    if !MLTensor::is_available() {
-        println!("Skipping - MLTensor not available (requires macOS 15+)");
+    if !should_run_mltensor_tests() {
         return;
     }
 

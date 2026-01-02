@@ -514,4 +514,50 @@ extern "C" {
         results_out: *mut *mut std::ffi::c_void,
         compute_units: i32,
     ) -> i32;
+
+    // ========== Normalization Operations ==========
+
+    /// Layer Normalization: (x - mean) / sqrt(var + eps) * weight + bias
+    ///
+    /// Normalizes the input tensor along the last dimension.
+    /// Critical for transformer model inference.
+    ///
+    /// # Arguments
+    /// * `handle` - Input tensor handle
+    /// * `weight` - Scale weights (gamma), must match last dimension
+    /// * `weight_len` - Length of weight array
+    /// * `bias` - Bias (beta), must match last dimension
+    /// * `bias_len` - Length of bias array
+    /// * `eps` - Small constant for numerical stability (typically 1e-5)
+    ///
+    /// # Returns
+    /// New tensor with layer normalization applied, or null on error
+    pub fn swift_coreml_tensor_layernorm(
+        handle: *mut std::ffi::c_void,
+        weight: *const f32,
+        weight_len: usize,
+        bias: *const f32,
+        bias_len: usize,
+        eps: f32,
+    ) -> *mut std::ffi::c_void;
+
+    /// RMS Normalization: x * rsqrt(mean(x^2) + eps) * weight
+    ///
+    /// Root Mean Square layer normalization used in LLaMA-style models.
+    /// More efficient than LayerNorm as it skips mean subtraction.
+    ///
+    /// # Arguments
+    /// * `handle` - Input tensor handle
+    /// * `weight` - Scale weights (gamma), must match last dimension
+    /// * `weight_len` - Length of weight array
+    /// * `eps` - Small constant for numerical stability (typically 1e-5)
+    ///
+    /// # Returns
+    /// New tensor with RMS normalization applied, or null on error
+    pub fn swift_coreml_tensor_rms_norm(
+        handle: *mut std::ffi::c_void,
+        weight: *const f32,
+        weight_len: usize,
+        eps: f32,
+    ) -> *mut std::ffi::c_void;
 }
