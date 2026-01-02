@@ -275,7 +275,7 @@ pub async fn run(
             adapteros_lora_worker::BackendChoice::Metal
         }
         BackendType::MLX => {
-            output.verbose("Using MLX backend (Python/MLX)");
+            output.verbose("Using MLX backend (C++ FFI)");
 
             #[cfg(not(feature = "multi-backend"))]
             {
@@ -295,25 +295,32 @@ pub async fn run(
                     output.verbose("MLX path variables detected (MLX_LIB_DIR/MLX_PATH)");
                 }
 
-                let mlx_available = std::process::Command::new("python3")
-                    .args(&["-c", "import mlx.core; print('ok')"])
-                    .output()
-                    .map(|out| String::from_utf8_lossy(&out.stdout).contains("ok"))
-                    .unwrap_or(false);
+                let mut mlx_available = adapteros_lora_mlx_ffi::mlx_runtime_is_initialized();
+                if !mlx_available {
+                    match adapteros_lora_mlx_ffi::mlx_runtime_init() {
+                        Ok(()) => mlx_available = true,
+                        Err(e) => {
+                            output.error(format!(
+                                "MLX runtime init failed: {}",
+                                e
+                            ));
+                        }
+                    }
+                }
 
                 if !mlx_available {
-                    output.error("MLX not found. Install the C++ MLX library (real backend) before using --backend mlx.");
+                    output.error("MLX not available. Install the C++ MLX library before using --backend mlx.");
                     output.info("  Homebrew: brew install mlx");
                     output.info(
                         "  Or set MLX_PATH/MLX_INCLUDE_DIR/MLX_LIB_DIR to your installation.",
                     );
-                    output.info(
-                        "  Docs: MLX_INSTALLATION_GUIDE.md or run scripts/build-mlx.sh --help",
-                    );
+                    output.info("  Docs: docs/MLX_GUIDE.md or docs/MLX_TROUBLESHOOTING.md");
+                    output.info("  Script: scripts/build-mlx.sh --help");
                     return Err(anyhow::anyhow!("MLX not installed"));
                 }
 
-                output.verbose("MLX detected");
+                let mlx_version = adapteros_lora_mlx_ffi::mlx_version();
+                output.verbose(format!("MLX detected (version: {})", mlx_version));
                 adapteros_lora_worker::BackendChoice::Mlx {
                     model_path: model_path.clone(),
                 }

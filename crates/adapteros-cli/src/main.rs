@@ -61,7 +61,7 @@ use output::{OutputMode, OutputWriter};
 pub enum BackendType {
     /// Metal backend (macOS GPU)
     Metal,
-    /// MLX backend (Python/MLX)
+    /// MLX backend (C++ FFI)
     #[clap(name = "mlx")]
     MLX,
     /// CoreML backend (macOS Neural Engine)

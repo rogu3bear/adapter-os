@@ -386,7 +386,7 @@ pub fn install_mlx_library() -> FixableIssue {
     FixableIssue::new(
         "MLX Library".to_string(),
         "MLX library not installed".to_string(),
-        "Install MLX library: pip install mlx (optional)".to_string(),
+        "Install MLX library: brew install mlx (optional)".to_string(),
         FixSafety::Unsafe,
         |_output| {
             // This should never be called due to Unsafe safety level
