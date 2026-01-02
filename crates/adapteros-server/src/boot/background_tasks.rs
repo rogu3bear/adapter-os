@@ -12,32 +12,27 @@
 //! - WAL checkpoint (database health)
 //! - TTL cleanup (prevents DB bloat)
 //!
-//! ## Production Mode Tasks (all 11 tasks)
+//! ## Production Mode Tasks (8 tasks)
 //!
 //! 1. Status writer task (5s interval)
-//! 2. KV isolation scanner task (configurable interval, default 900s)
-//! 3. KV metrics alert monitor task (5s interval)
-//! 4. Log cleanup task (24h interval if configured)
-//! 5. TTL/expiration cleanup task (5m interval with circuit breaker)
-//! 6. WAL checkpoint task (5m interval)
-//! 7. DB index health monitor task
-//! 8. Heartbeat recovery task (5m interval with circuit breaker)
-//! 9. Upload session cleanup task (1h interval)
-//! 10. Security cleanup task (1h interval)
-//! 11. Telemetry bundle GC task (24h interval)
+//! 2. KV metrics alert monitor task (5s interval)
+//! 3. Log cleanup task (24h interval if configured)
+//! 4. TTL/expiration cleanup task (5m interval with circuit breaker)
+//! 5. WAL checkpoint task (5m interval)
+//! 6. Upload session cleanup task (1h interval)
+//! 7. Security cleanup task (1h interval)
+//! 8. Telemetry bundle GC task (24h interval)
 //!
 //! Each task uses the `BackgroundTaskSpawner` to integrate with the shutdown coordinator
 //! and task tracking system.
 
 use crate::boot::BackgroundTaskSpawner;
-use crate::db_index_monitor;
 use crate::logging;
 use crate::shutdown::ShutdownCoordinator;
 use crate::status_writer;
 use adapteros_db::kv_metrics;
 use adapteros_db::Db;
 use adapteros_server_api::boot_state::{BootStateManager, FailureReason};
-use adapteros_server_api::kv_isolation;
 use adapteros_server_api::security::{
     cleanup_expired_ip_rules, cleanup_expired_revocations, cleanup_expired_sessions,
 };
@@ -125,71 +120,6 @@ pub async fn spawn_all_background_tasks(
                 }
             },
             "5s interval",
-        ) {
-            if strict_mode {
-                boot_state
-                    .fail(FailureReason::with_component(
-                        "BOOT_BACKGROUND_TASK_FAILED",
-                        format!("{} failed to spawn: {}", &err.task_name, &err.message),
-                        err.task_name.clone(),
-                    ))
-                    .await;
-                return Err(anyhow::anyhow!(err.to_string()));
-            }
-
-            warn!(
-                task = %err.task_name,
-                error = %err.message,
-                "Critical background task failed to spawn; boot will continue in degraded state"
-            );
-        }
-        shutdown_coordinator = spawner.into_coordinator();
-    }
-
-    // Spawn KV isolation scan background task (using BackgroundTaskSpawner)
-    // SKIPPED in dev mode - production monitoring only
-    if !dev_mode {
-        let state_clone = state.clone();
-        let base_config = kv_isolation::kv_isolation_config_from_env();
-        let interval_secs = std::env::var("AOS_KV_ISOLATION_SCAN_SECS")
-            .ok()
-            .and_then(|v| v.parse::<u64>().ok())
-            .unwrap_or(900);
-
-        let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator)
-            .with_task_tracker(Arc::clone(&background_tasks));
-        let mut shutdown_rx = spawner.coordinator().subscribe_shutdown();
-        if let Err(err) = spawner.spawn_with_details(
-            "KV isolation scan",
-            async move {
-                let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
-                interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
-
-                loop {
-                    tokio::select! {
-                        biased;
-                        _ = shutdown_rx.recv() => {
-                            info!("KV isolation scan received shutdown signal, exiting gracefully");
-                            break;
-                        }
-                        _ = interval.tick() => {
-                            if let Err(e) = kv_isolation::run_kv_isolation_scan(
-                                &state_clone,
-                                base_config.clone(),
-                                "scheduled",
-                            )
-                            .await
-                            {
-                                warn!(error = %e, "KV isolation scan failed");
-                            }
-                        }
-                    }
-                }
-            },
-            &format!(
-                "{}s interval, read-only, deterministic ordering",
-                interval_secs
-            ),
         ) {
             if strict_mode {
                 boot_state
@@ -750,118 +680,6 @@ pub async fn spawn_all_background_tasks(
             .is_ok()
         {
             info!("WAL checkpoint task started (5 minute interval)");
-        }
-        shutdown_coordinator = spawner.into_coordinator();
-    }
-
-    // Spawn DB index health monitor + maintenance automation
-    // SKIPPED in dev mode - production monitoring only
-    if !dev_mode {
-        let state_clone = state.clone();
-        let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator)
-            .with_task_tracker(Arc::clone(&background_tasks));
-        if spawner
-            .spawn_optional(
-                "DB index monitor",
-                async move {
-                    db_index_monitor::run_db_index_monitor(state_clone).await;
-                },
-                "Index health monitoring disabled",
-            )
-            .is_ok()
-        {
-            info!("DB index monitor started");
-        }
-        shutdown_coordinator = spawner.into_coordinator();
-    }
-
-    // Spawn heartbeat recovery background task
-    // SKIPPED in dev mode - production monitoring only
-    if !dev_mode {
-        let db_clone = db.clone();
-        let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator)
-            .with_task_tracker(Arc::clone(&background_tasks));
-        let mut shutdown_rx = spawner.coordinator().subscribe_shutdown();
-        if spawner
-            .spawn_optional(
-                "Heartbeat recovery",
-                async move {
-                    let mut interval = tokio::time::interval(Duration::from_secs(300)); // 5 minutes
-                    let mut consecutive_errors = 0u32;
-                    const MAX_CONSECUTIVE_ERRORS: u32 = 5;
-                    const CIRCUIT_BREAKER_PAUSE_SECS: u64 = 1800; // 30 minutes
-
-                    loop {
-                        // Check for shutdown before starting any work
-                        tokio::select! {
-                            biased;
-                            _ = shutdown_rx.recv() => {
-                                info!("Heartbeat recovery received shutdown signal, exiting gracefully");
-                                break;
-                            }
-                            _ = interval.tick() => {
-                                // Continue with recovery work
-                            }
-                        }
-
-                        // Circuit breaker: pause if too many consecutive errors
-                        if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
-                            error!(
-                                consecutive_errors,
-                                pause_duration_secs = CIRCUIT_BREAKER_PAUSE_SECS,
-                                "Heartbeat recovery circuit breaker triggered, pausing task"
-                            );
-                            // Check shutdown during circuit breaker pause
-                            tokio::select! {
-                                biased;
-                                _ = shutdown_rx.recv() => {
-                                    info!("Heartbeat recovery received shutdown signal during circuit breaker pause, exiting");
-                                    break;
-                                }
-                                _ = tokio::time::sleep(Duration::from_secs(CIRCUIT_BREAKER_PAUSE_SECS)) => {}
-                            }
-                            consecutive_errors = 0;
-                            continue;
-                        }
-
-                        // Recover adapters that haven't sent heartbeat in 5 minutes
-                        match db_clone.recover_stale_adapters(300).await {
-                            Ok(recovered) => {
-                                if !recovered.is_empty() {
-                                    info!(
-                                        count = recovered.len(),
-                                        "Recovered stale adapters via heartbeat check"
-                                    );
-                                }
-                                consecutive_errors = 0; // Reset on success
-                            }
-                            Err(e) => {
-                                consecutive_errors += 1;
-                                let backoff_secs = 2u64.pow(consecutive_errors.min(6)); // Cap at 64 seconds
-                                warn!(
-                                    error = %e,
-                                    consecutive_errors,
-                                    backoff_secs,
-                                    "Failed to recover stale adapters, applying exponential backoff"
-                                );
-                                // Check shutdown during backoff
-                                tokio::select! {
-                                    biased;
-                                    _ = shutdown_rx.recv() => {
-                                        info!("Heartbeat recovery received shutdown signal during backoff, exiting");
-                                        break;
-                                    }
-                                    _ = tokio::time::sleep(Duration::from_secs(backoff_secs)) => {}
-                                }
-                            }
-                        }
-                    }
-                },
-                "Stale adapters may not be recovered automatically",
-            )
-            .is_ok()
-        {
-            info!("Heartbeat recovery task started (5 minute interval, 300s timeout, circuit breaker enabled)");
         }
         shutdown_coordinator = spawner.into_coordinator();
     }

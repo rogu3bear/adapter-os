@@ -1383,92 +1383,6 @@ impl Db {
         Ok(())
     }
 
-    /// Recover stale adapters based on heartbeat timeout
-    ///
-    /// Finds adapters that haven't sent a heartbeat within threshold_seconds
-    /// and resets their state to unloaded. This is called periodically from
-    /// a background task in the server to detect crashed/frozen adapters.
-    ///
-    /// Per Agent G Stability Reinforcement Plan Phase 2: Heartbeat Mechanism
-    ///
-    /// **CRITICAL FIX:** Wraps all recovery operations in a single transaction
-    /// to ensure atomicity.
-    pub async fn recover_stale_adapters(&self, threshold_seconds: i64) -> Result<Vec<String>> {
-        use chrono::Utc;
-        use tracing::{info, warn};
-
-        let cutoff_timestamp = Utc::now().timestamp() - threshold_seconds;
-
-        // CRITICAL: Begin transaction for atomic recovery
-        let mut tx = self.begin_write_tx().await?;
-
-        // Find adapters with stale heartbeats
-        let stale_adapters: Vec<(String, String, Option<i64>)> = sqlx::query_as(
-            r#"
-            SELECT adapter_id, name, last_heartbeat
-            FROM adapters
-            WHERE last_heartbeat IS NOT NULL
-              AND last_heartbeat < ?
-              AND load_state != 'unloaded'
-            "#,
-        )
-        .bind(cutoff_timestamp)
-        .fetch_all(&mut *tx)
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to query stale adapters: {}", e)))?;
-
-        let mut recovered_ids = Vec::new();
-
-        if !stale_adapters.is_empty() {
-            warn!(
-                "Found {} adapters with stale heartbeats (threshold: {}s)",
-                stale_adapters.len(),
-                threshold_seconds
-            );
-
-            for (adapter_id, name, last_heartbeat) in stale_adapters {
-                let seconds_since = last_heartbeat
-                    .map(|ts| Utc::now().timestamp() - ts)
-                    .unwrap_or(-1);
-
-                info!(
-                    "Recovering stale adapter: {} ({}) - last heartbeat: {}s ago",
-                    name, adapter_id, seconds_since
-                );
-
-                // Reset state to unloaded and clear heartbeat (within transaction)
-                sqlx::query(
-                    r#"
-                    UPDATE adapters
-                    SET load_state = 'cold',
-                        current_state = 'unloaded',
-                        last_heartbeat = NULL,
-                        updated_at = datetime('now')
-                    WHERE adapter_id = ?
-                    "#,
-                )
-                .bind(&adapter_id)
-                .execute(&mut *tx)
-                .await
-                .map_err(|e| AosError::Database(format!("Failed to reset stale adapter: {}", e)))?;
-
-                recovered_ids.push(adapter_id);
-            }
-
-            info!(
-                "✓ Recovered {} stale adapters based on heartbeat timeout",
-                recovered_ids.len()
-            );
-        }
-
-        // CRITICAL: Commit transaction atomically
-        tx.commit().await.map_err(|e| {
-            AosError::Database(format!("Failed to commit recovery transaction: {}", e))
-        })?;
-
-        Ok(recovered_ids)
-    }
-
     /// Seed database with development data
     pub async fn seed_dev_data(&self) -> Result<()> {
         use argon2::{
@@ -2729,10 +2643,6 @@ pub mod workspaces;
 
 // System statistics module
 pub mod system_stats;
-
-// SQLite index health/maintenance introspection
-pub mod index_health;
-pub mod index_maintenance;
 
 // Federation module
 pub mod federation;
