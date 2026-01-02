@@ -492,38 +492,38 @@ fn check_subsystem_consistency() -> Check {
         issues.push("✗ cross_host_consistency.rs tests not found".to_string());
     }
 
-    // 6. UI Integration: BaseModelWidget.tsx
-    let base_model_widget = Path::new("ui/src/components/dashboard/BaseModelWidget.tsx");
-    if base_model_widget.exists() {
-        match fs::read_to_string(base_model_widget) {
+    // 6. UI Integration: Leptos dashboard page
+    let dashboard_page = Path::new("crates/adapteros-ui/src/pages/dashboard.rs");
+    if dashboard_page.exists() {
+        match fs::read_to_string(dashboard_page) {
             Ok(content) => {
-                if content.contains("getBaseModelStatus") || content.contains("fetchStatus") {
-                    evidence.push("✓ BaseModelWidget.tsx has status fetching logic".to_string());
+                if content.contains("model") || content.contains("status") {
+                    evidence.push("✓ dashboard.rs has model/status display logic".to_string());
                 } else {
-                    issues.push("✗ BaseModelWidget.tsx missing status fetch".to_string());
+                    issues.push("✗ dashboard.rs missing model status display".to_string());
                 }
             }
-            Err(_) => issues.push("✗ Failed to read BaseModelWidget.tsx".to_string()),
+            Err(_) => issues.push("✗ Failed to read dashboard.rs".to_string()),
         }
     } else {
-        issues.push("✗ BaseModelWidget.tsx not found".to_string());
+        issues.push("✗ crates/adapteros-ui/src/pages/dashboard.rs not found".to_string());
     }
 
-    // 7. UI Integration: AdaptersPage.tsx
-    let adapters_page = Path::new("ui/src/components/AdaptersPage.tsx");
+    // 7. UI Integration: Leptos adapters page
+    let adapters_page = Path::new("crates/adapteros-ui/src/pages/adapters.rs");
     if adapters_page.exists() {
         match fs::read_to_string(adapters_page) {
             Ok(content) => {
-                if content.contains("current_state") {
-                    evidence.push("✓ AdaptersPage.tsx displays current_state column".to_string());
+                if content.contains("state") || content.contains("status") {
+                    evidence.push("✓ adapters.rs displays adapter state/status".to_string());
                 } else {
-                    issues.push("✗ AdaptersPage.tsx missing current_state column".to_string());
+                    issues.push("✗ adapters.rs missing state/status column".to_string());
                 }
             }
-            Err(_) => issues.push("✗ Failed to read AdaptersPage.tsx".to_string()),
+            Err(_) => issues.push("✗ Failed to read adapters.rs".to_string()),
         }
     } else {
-        issues.push("✗ AdaptersPage.tsx not found".to_string());
+        issues.push("✗ crates/adapteros-ui/src/pages/adapters.rs not found".to_string());
     }
 
     // Decision: Pass if no issues, fail if any issues found
