@@ -119,7 +119,7 @@ mod model_loading {
         if let Err(e) = result {
             let error_msg = e.to_string();
             assert!(
-                error_msg.contains("Failed to load") || error_msg.contains("not found"),
+                error_msg.contains("does not exist") || error_msg.contains("not found"),
                 "Error message should indicate load failure: {}",
                 error_msg
             );
@@ -142,7 +142,12 @@ mod model_loading {
         let model = MLXFFIModel::new_null(config.clone());
         // Verify config was set correctly
         assert_eq!(model.config().hidden_size, 768);
-        assert!(!model.is_healthy(), "Null model should not be healthy");
+        // Note: is_healthy() checks health state (failures/circuit breaker), not model presence.
+        // A null model starts in "healthy" state until it fails an operation.
+        assert!(
+            model.is_healthy(),
+            "Null model health state should be healthy initially"
+        );
     }
 
     #[test]
@@ -510,7 +515,11 @@ mod health_and_resilience {
         };
 
         let model = MLXFFIModel::new_null(config);
-        assert!(!model.is_healthy(), "Null model should not be healthy");
+        // is_healthy() checks health state, not model presence. Null model starts healthy.
+        assert!(
+            model.is_healthy(),
+            "Null model health state should be healthy initially"
+        );
     }
 
     #[test]

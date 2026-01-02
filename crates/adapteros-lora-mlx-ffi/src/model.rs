@@ -1,7 +1,7 @@
-//! Pure Rust model implementation using mlx-lm
+//! Deprecated pure Rust model implementation using mlx-lm.
 //!
 //! This module provides a transformer model implementation using mlx-rs and mlx-lm.
-//! It replaces the C++ FFI-based model when the `mlx-rs-backend` feature is enabled.
+//! It is kept for reference only; production uses the C++ FFI backend.
 
 use adapteros_core::{AosError, Result};
 use std::path::Path;
@@ -311,7 +311,7 @@ impl MlxRsModel {
         let batch_size = 1i32;
         let seq_len = token_ids.size() as i32;
         let hidden_size = self.config.hidden_size as i32;
-        embedded.reshape(&[batch_size, seq_len, hidden_size])
+        Ok(embedded.reshape(&[batch_size, seq_len, hidden_size])?)
     }
 
     /// Single transformer layer forward pass
@@ -335,7 +335,7 @@ impl MlxRsModel {
         let mlp_out = self.mlp_forward(layer_idx, &normed)?;
 
         // Residual connection
-        x.add(&mlp_out)
+        Ok(x.add(&mlp_out)?)
     }
 
     /// Apply rotary position embeddings to query or key tensors
@@ -359,7 +359,7 @@ impl MlxRsModel {
         let rotated_x2 = x1.mul(&sin)?.add(&x2.mul(&cos)?)?;
 
         // Concatenate back
-        MlxArray::concat_axis(&[&rotated_x1, &rotated_x2], -1)
+        Ok(MlxArray::concat_axis(&[&rotated_x1, &rotated_x2], -1)?)
     }
 
     /// RMSNorm implementation
@@ -384,7 +384,7 @@ impl MlxRsModel {
 
         // Normalize and scale
         let normalized = x.mul(&rsqrt)?;
-        normalized.mul(weight)
+        Ok(normalized.mul(weight)?)
     }
 
     /// Create causal attention mask
@@ -397,7 +397,7 @@ impl MlxRsModel {
                 mask_data[(i * seq_len + j) as usize] = f32::NEG_INFINITY;
             }
         }
-        MlxArray::from_slice_f32(&mask_data, &[1, 1, seq_len, seq_len])
+        Ok(MlxArray::from_slice_f32(&mask_data, &[1, 1, seq_len, seq_len])?)
     }
 
     /// Repeat KV heads for GQA (Grouped Query Attention)
@@ -412,7 +412,7 @@ impl MlxRsModel {
         // shape: [batch, num_kv_heads, seq, head_dim]
         let expanded = x.expand_dims(3)?; // [batch, num_kv_heads, seq, 1, head_dim]
         let tiled = expanded.tile(&[1, 1, 1, n_rep as i32, 1])?; // [batch, num_kv_heads, seq, n_rep, head_dim]
-        tiled.reshape(&[shape[0], shape[1] * n_rep as i32, shape[2], shape[3]])
+        Ok(tiled.reshape(&[shape[0], shape[1] * n_rep as i32, shape[2], shape[3]])?)
     }
 
     /// Self-attention with causal masking and GQA support
@@ -487,7 +487,7 @@ impl MlxRsModel {
         let attn_out = attn_out.reshape(&[batch_size, seq_len, hidden_size])?;
 
         // Output projection
-        attn_out.matmul(&o_proj.transpose()?)
+        Ok(attn_out.matmul(&o_proj.transpose()?)?)
     }
 
     /// MLP forward pass (SwiGLU)
@@ -509,7 +509,7 @@ impl MlxRsModel {
         let hidden = gate.mul(&up)?;
 
         // output = hidden @ down_proj.T
-        hidden.matmul(&down_proj.transpose()?)
+        Ok(hidden.matmul(&down_proj.transpose()?)?)
     }
 
     /// Final layer norm
@@ -520,7 +520,7 @@ impl MlxRsModel {
     /// LM head forward pass
     fn lm_head_forward(&self, x: MlxArray) -> Result<MlxArray> {
         let lm_head = self.lm_head.as_ref().unwrap_or(&self.embed_tokens);
-        x.matmul(&lm_head.transpose()?)
+        Ok(x.matmul(&lm_head.transpose()?)?)
     }
 
     /// Get a weight tensor by name

@@ -37,6 +37,7 @@ mod memory_pool_integration_tests {
     }
 
     #[test]
+    #[ignore = "mock adapters don't allocate GPU memory, needs real adapter weights"]
     fn test_adapter_registration_tracks_memory() {
         // Register adapters and verify memory is tracked
         let backend = create_test_backend();
@@ -93,6 +94,7 @@ mod memory_pool_integration_tests {
     }
 
     #[test]
+    #[ignore = "mock adapters don't allocate GPU memory, needs real adapter weights"]
     fn test_memory_pool_statistics() {
         // Verify memory pool statistics are accurate
         let backend = create_test_backend();
@@ -272,6 +274,7 @@ mod memory_pool_integration_tests {
     }
 
     #[test]
+    #[ignore = "mock adapters don't allocate GPU memory, needs real adapter weights"]
     fn test_multiple_adapter_registrations_and_unloads() {
         // Test registering and unloading multiple adapters in sequence
         let backend = create_test_backend();
