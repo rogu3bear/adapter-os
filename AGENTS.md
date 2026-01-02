@@ -40,6 +40,13 @@ make fmt-check
 make clippy
 ```
 
+## UI Visuals Priority (Current Focus)
+
+- Goal: get the Leptos UI visible and iterate on visuals; avoid backend/CI edits unless explicitly requested.
+- Dev mode for full access: use `make dev-no-auth` or `AOS_DEV_NO_AUTH=1 ./start` to view all pages without RBAC gates.
+- Do not change role/RBAC logic to unblock UI; treat auth as non-blocking for visual work.
+- Prefer one-off commands or throwaway local scripts instead of committing new tooling.
+
 ## Determinism Rules
 
 - Seed derivation: HKDF-SHA256 with BLAKE3 global seed (`crates/adapteros-core/src/seed.rs`).

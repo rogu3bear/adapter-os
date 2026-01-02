@@ -33,26 +33,21 @@ The backend selection system is implemented in `/Users/mln-dev/Dev/adapter-os/cr
 
 ### Key Design Principles
 
-1. **CoreML-first priority**: ANE provides deterministic execution with 50% power savings, **except for live codebase adapters which require MLX/Metal**
-2. **Graceful fallbacks**: Automatic degradation when preferred backends are unavailable
-3. **Deterministic selection**: Same inputs always produce the same backend choice
-4. **Model caching**: Backends share a per-worker model cache to deduplicate loaded models
+1. **MLX-first priority**: Native macOS inference with unified memory and HKDF-seeded determinism
+2. **CoreML as acceleration layer**: ANE provides power-efficient acceleration (50% savings) for specific operations
+3. **Graceful fallbacks**: Automatic degradation when preferred backends are unavailable
+4. **Deterministic selection**: Same inputs always produce the same backend choice
+5. **Model caching**: Backends share a per-worker model cache to deduplicate loaded models
 
-### Codebase Adapter Backend Override
-
-When a session is bound to a **live codebase adapter**, the backend selection bypasses the CoreML-first rule:
+### Backend Selection Logic
 
 ```rust
-// Backend selection with codebase adapter check
-if session.has_live_codebase_adapter() {
-    // CoreML cannot hot-swap; force MLX or Metal
-    return select_non_coreml_backend(capabilities);
-}
-// Normal CoreML-first selection
-return auto_select_backend(capabilities);
+// Backend selection follows MLX-first priority
+// CoreML is used as an acceleration layer, not a standalone backend
+return auto_select_backend(capabilities);  // Returns: MLX → CoreML → Metal → CPU
 ```
 
-**Rationale**: Live codebase adapters receive incremental updates during the session. CoreML packages are compiled and immutable, so they cannot reflect these updates. MLX and Metal backends support per-request adapter loading.
+**Rationale**: MLX is the primary backend for all inference and training. CoreML provides ANE acceleration for specific operations but is not a standalone backend due to its compiled/immutable package format.
 
 ---
 

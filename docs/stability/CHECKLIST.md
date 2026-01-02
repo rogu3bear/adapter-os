@@ -38,7 +38,7 @@ cargo clippy --all-features -- -D warnings
 
 Gate: No clippy warnings allowed. The `clippy.toml` at the repo root configures test/example suppression.
 
-### 3. Unit and Integration Tests (Rust + UI)
+### 3. Unit and Integration Tests (Rust + Leptos UI)
 
 ```bash
 # Full suite (run by make test)
@@ -52,7 +52,7 @@ This runs:
 - Rust unit tests (`cargo test --lib --bins --examples`)
 - Rust integration tests (`cargo test --tests`)
 - Miri checks on aos_worker
-- UI lint and Vitest tests
+- Leptos UI unit tests
 
 Gate: All non-ignored tests must pass. Tests marked `#[ignore]` are excluded by default.
 
@@ -85,7 +85,7 @@ Runs all blocking gates in sequence:
 make stability-check
 # Runs:
 #   1. ./scripts/check_inference_bypass.sh
-#   2. make test  (full suite: fmt, clippy, Rust tests, UI tests, Miri)
+#   2. make test  (full suite: fmt, clippy, Rust tests, Leptos UI tests, Miri)
 #   3. make determinism-check
 ```
 

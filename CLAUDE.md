@@ -24,7 +24,7 @@ AOS_DEV_NO_AUTH=1 cargo run -p adapteros-server -- --config configs/cp.toml
 
 # Or set in config file: security.dev_bypass = true (debug builds only)
 
-# Unified boot (backend + UI with health waits)
+# Boot (backend + worker, serves UI from static/)
 ./start
 
 # Build Metal shaders
@@ -37,14 +37,15 @@ Defined at workspace level in root `Cargo.toml` and propagate to crates:
 
 ```bash
 # Backend flags (macOS only)
---features coreml-backend    # CoreML + ANE (production primary)
---features metal-backend     # Metal GPU (fallback)
---features mlx-backend       # MLX FFI stubs
---features mlx               # Real MLX library (requires C++ FFI)
+--features coreml-backend    # CoreML ANE acceleration layer
+--features metal-backend     # Metal GPU kernels
+--features mlx               # MLX C++ FFI (Homebrew MLX)
+--features mlx-backend       # Legacy stub alias (deprecated)
+--features mlx-rs-backend    # Deprecated/unsupported (do not use)
 
 # Combined profiles
---features production-macos  # CoreML + Metal + MLX (full production)
---features multi-backend     # MLX development backends
+--features production-macos  # Full Apple Silicon stack (MLX + CoreML + Metal)
+--features multi-backend     # MLX primary backend (C++ FFI)
 
 # Testing flags
 --features extended-tests    # Extended test suite
@@ -91,54 +92,61 @@ cargo test -p adapteros-lora-router --test determinism
 ./aosctl stack list              # List adapter stacks
 ./aosctl policy list             # List policy packs
 ./aosctl explain <error-code>    # Explain an error code
+
+# Train adapter on markdown documentation (end-to-end pipeline)
+./aosctl train-docs --docs-dir ./my-docs --dry-run              # Preview what will be trained
+./aosctl train-docs --docs-dir ./my-docs --register \
+  --tenant-id <tenant> --base-model-id Qwen2.5-7B-Instruct      # Train and register
+./aosctl train-docs --training-strategy qa --epochs 5           # Custom training params
 ```
 
-## UI (React Frontend)
+## UI (Leptos WASM)
 
-Located in `ui/`. React 18 + Vite + Tailwind v4 + TypeScript (strict mode).
+Located in `crates/adapteros-ui/`. Leptos 0.7 + Tailwind CSS + WASM (Client-Side Rendering).
 
 ```bash
-cd ui
-pnpm install          # Install dependencies
-pnpm dev              # Dev server (port 3200, proxies /api to :8080)
-pnpm build            # Production build → ../crates/adapteros-server/static/
-pnpm test             # Vitest unit tests
-pnpm test:e2e         # Cypress E2E tests
-pnpm lint             # ESLint
-pnpm format           # Biome formatter
+# Install trunk (WASM bundler)
+cargo install trunk
+
+# Development build
+cd crates/adapteros-ui
+trunk serve                    # Dev server with hot reload
+
+# Production build (outputs to ../adapteros-server/static/)
+trunk build --release
+
+# Check WASM compilation
+cargo check -p adapteros-ui --target wasm32-unknown-unknown
+
+# Run unit tests (native, not WASM)
+cargo test -p adapteros-ui --lib
 ```
 
-### API Type Generation
+### Leptos UI Structure
 
-Types are generated from OpenAPI spec to ensure frontend/backend sync:
+- `src/api/` - Typed API client, error handling, SSE streaming
+- `src/components/` - Leptos components (Button, Card, Table, etc.)
+- `src/pages/` - Route pages (Dashboard, Adapters, Chat, etc.)
+- `src/hooks/` - Custom hooks (use_api_resource, use_polling, etc.)
+- `src/contexts/` - Context providers (AuthProvider)
 
-```bash
-pnpm run gen:types    # Generate from OpenAPI → src/api/generated.ts
-pnpm run check:drift  # CI check: fails if generated types differ
+### Shared API Types
+
+The Leptos UI uses `adapteros-api-types` crate with the `wasm` feature for type-safe API communication:
+
+```toml
+# In Cargo.toml
+adapteros-api-types = { path = "../adapteros-api-types", features = ["wasm"] }
 ```
 
-The generation flow:
-1. `cargo run -p adapteros-server-api --bin export-openapi` exports OpenAPI spec
-2. `openapi-typescript` generates TypeScript types to `src/api/generated.ts`
+This ensures compile-time type consistency between the Rust server and WASM client.
 
-### UI Structure
+### Build Configuration
 
-- `src/api/` - API client, generated types, domain-specific type files
-- `src/api/services/` - Domain-specific API methods (adapters, chat, training, etc.)
-- `src/components/` - React components (uses Radix UI primitives)
-- `src/hooks/` - Custom React hooks
-- `src/pages/` - Route pages
-- `src/contexts/` - React contexts
-- `src/stores/` - State stores
-
-### Build Modes
-
-```bash
-pnpm dev              # Default: full UI
-pnpm dev:demo         # Demo mode
-VITE_BUILD_MODE=minimal pnpm dev    # Minimal build
-VITE_BUILD_MODE=service-panel pnpm dev  # Service panel (port 3300)
-```
+The `Trunk.toml` configures the WASM build:
+- Output directory: `../adapteros-server/static/`
+- Tailwind CSS processing
+- WASM optimization settings
 
 ## Architecture
 
@@ -146,9 +154,9 @@ VITE_BUILD_MODE=service-panel pnpm dev  # Service panel (port 3300)
 - **adapteros-core**: Shared types, error handling, seed derivation (HKDF-SHA256)
 - **adapteros-lora-router**: K-sparse adapter routing with Q15 quantized gates
 - **adapteros-lora-worker**: Inference engine with policy enforcement
-- **adapteros-lora-kernel-mtl**: Metal GPU kernels
-- **adapteros-lora-kernel-coreml**: CoreML/ANE acceleration (primary backend)
-- **adapteros-lora-mlx-ffi**: MLX FFI backend (development/training)
+- **adapteros-lora-kernel-mtl**: Metal GPU kernels (low-level compute)
+- **adapteros-lora-kernel-coreml**: CoreML ANE acceleration layer
+- **adapteros-lora-mlx-ffi**: MLX FFI backend (primary inference/training)
 
 ### Server/API Layer
 - **adapteros-server**: Control plane API server (Axum-based)
@@ -162,10 +170,10 @@ VITE_BUILD_MODE=service-panel pnpm dev  # Service panel (port 3300)
 - **adapteros-crypto**: Ed25519 signing, BLAKE3 hashing
 - **adapteros-config**: Deterministic configuration with precedence
 
-### Backend Priority
-1. **CoreML** (primary): ANE acceleration for production
-2. **MLX** (secondary): GPU inference and training
-3. **Metal** (fallback): Legacy/incomplete
+### Backend Architecture
+1. **MLX** (primary): Native macOS inference and training with unified memory
+2. **CoreML** (ANE layer): Provides ANE-accelerated ops that MLX calls into
+3. **Metal** (kernels): Low-level GPU compute primitives used by MLX
 
 ### Intentional Complexity
 
@@ -223,9 +231,11 @@ cargo clippy --workspace -- -D warnings
 ## Key Directories
 
 - `crates/`: All Rust workspace crates (~70 crates)
-- `ui/`: React frontend
-- `migrations/`: SQLite migrations (signatures in `signatures.json`)
+  - `crates/adapteros-ui/`: Leptos WASM frontend
+  - `crates/adapteros-api-types/`: Shared API types (server + WASM)
+  - `crates/adapteros-server/`: Control plane server (serves UI from `static/`)
+- `migrations/`: SQLite migrations
 - `metal/`: Metal shader sources
 - `configs/`: Runtime configuration
 - `tests/`: Workspace-level integration tests
-- `scripts/`: Build, test, and utility scripts
+- `scripts/`: Build and utility scripts

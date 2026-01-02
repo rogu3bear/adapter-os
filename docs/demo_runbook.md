@@ -16,8 +16,8 @@
 
 **dev-up**
 ```bash
-# IMPORTANT: keep the seeded DB (ui/dev-server.mjs wipes it unless you set AOS_E2E_RESET_DB=0)
-AOS_E2E_RESET_DB=0 VITE_ENABLE_DEV_BYPASS=true pnpm --dir ui dev
+# Start the backend server (serves UI from static/)
+./start
 ```
 
 **smoke-demo**
@@ -50,13 +50,12 @@ make cli
    - stack: `stack-test` (“stack.test”)
 
 ### 2) Start the dev stack (Terminal A)
-1. Start UI + backend together:
+1. Start backend (serves UI from static/):
    ```bash
-   AOS_E2E_RESET_DB=0 VITE_ENABLE_DEV_BYPASS=true pnpm --dir ui dev
+   ./start
    ```
-2. Wait until both are up:
-   - UI should open (or be reachable) at `http://localhost:3200/`
-   - API should be reachable at `http://127.0.0.1:8080/api/`
+2. Wait until ready:
+   - UI and API should be reachable at `http://127.0.0.1:8080/`
 
 ### 3) Smoke check (Terminal B)
 Run:
@@ -74,23 +73,23 @@ Expected: a table of checks with passes (health, meta, auth responding).
   - Expect Swagger UI to load (interactive API docs).
 
 ### B) UI login (only if you see the login screen)
-- `http://localhost:3200/login`
+- `http://127.0.0.1:8080/login`
   - Expect a login form.
   - Use `test@example.com` / `password`.
-  - If you see a dev-bypass option, it’s safe to use for demos.
+  - If you see a dev-bypass option, it's safe to use for demos.
 
 ### C) Confirm seeded org + stack
-- `http://localhost:3200/admin/tenants`
-  - Expect an “Organizations” table with `tenant-test` / “Test Tenant”.
-- `http://localhost:3200/admin/stacks`
-  - Expect an “Adapter Stacks” table with `stack-test` / “stack.test”.
+- `http://127.0.0.1:8080/admin/tenants`
+  - Expect an "Organizations" table with `tenant-test` / "Test Tenant".
+- `http://127.0.0.1:8080/admin/stacks`
+  - Expect an "Adapter Stacks" table with `stack-test` / "stack.test".
 
 ### D) Confirm seeded adapter
-- `http://localhost:3200/adapters`
-  - Expect an adapter list containing `adapter-test` / “Test Adapter”.
+- `http://127.0.0.1:8080/adapters`
+  - Expect an adapter list containing `adapter-test` / "Test Adapter".
 
 ### E) Live inference demo (primary path)
-- `http://localhost:3200/inference`
+- `http://127.0.0.1:8080/inference`
   1. Confirm you’re on the “Inference” page (prompt box + Run button).
   2. Select:
      - Stack: `stack-test` (if there’s a stack selector)
@@ -109,7 +108,7 @@ Expected: a table of checks with passes (health, meta, auth responding).
 
 This path avoids the worker entirely and still lets you demo traces + evidence in the UI.
 
-**Precondition**: you started dev-up with `VITE_ENABLE_DEV_BYPASS=true` (it enables `/api/testkit/*`).
+**Precondition**: backend is running with dev bypass enabled (enables `/api/testkit/*`).
 
 1. Create a small deterministic trace fixture (Terminal B):
    ```bash
@@ -124,10 +123,10 @@ This path avoids the worker entirely and still lets you demo traces + evidence i
      -d '{"tenant_id":"tenant-test","inference_id":"trace-fixture"}'
    ```
 3. Open these pages (Browser):
-   - `http://localhost:3200/telemetry/viewer/trace-fixture`
+   - `http://127.0.0.1:8080/telemetry/viewer/trace-fixture`
      - Expect a trace viewer that loads and shows token decisions (3 tokens).
-   - `http://localhost:3200/security/evidence`
-     - Expect an evidence table with a “Fixture Document” entry tied to `trace-fixture`.
+   - `http://127.0.0.1:8080/security/evidence`
+     - Expect an evidence table with a "Fixture Document" entry tied to `trace-fixture`.
 
 If you need a “model output” line to say out loud, use the stub output (Terminal B):
 ```bash
@@ -141,24 +140,23 @@ Expected: JSON with `"text":"Echo: demo"` and a `run_receipt` block.
 
 1) **UI keeps redirecting to login / looks unauthorized**
 - Do: re-run seed, then hard refresh the browser.
-- If still stuck: go to `http://localhost:3200/login` and log in with `test@example.com` / `password`.
+- If still stuck: go to `http://127.0.0.1:8080/login` and log in with `test@example.com` / `password`.
 
 2) **DB looks empty / seeded tenant not present**
-- Most common cause: you started dev-up without `AOS_E2E_RESET_DB=0` and the DB was wiped.
-- Do: stop dev-up (`Ctrl+C`), then run `reset` + `seed` again, then restart dev-up with `AOS_E2E_RESET_DB=0`.
+- Most common cause: DB was wiped.
+- Do: stop the server (`Ctrl+C`), then run `reset` + `seed` again, then restart.
 
-3) **Port 8080 or 3200 already in use**
+3) **Port 8080 already in use**
 - Do:
   ```bash
   lsof -ti:8080 | xargs kill -9 2>/dev/null || true
-  lsof -ti:3200 | xargs kill -9 2>/dev/null || true
   ```
-  Then rerun dev-up.
+  Then rerun `./start`.
 
-4) **`/readyz` returns 503 ("booting…", "maintenance", or "draining")**
-- Do: wait 10–30 seconds and refresh `http://127.0.0.1:8080/readyz`.
-- If it stays 503: check the running server logs in the dev-up terminal.
+4) **`/readyz` returns 503 ("booting...", "maintenance", or "draining")**
+- Do: wait 10-30 seconds and refresh `http://127.0.0.1:8080/readyz`.
+- If it stays 503: check the running server logs.
 
 5) **Inference errors/timeouts**
 - Do: immediately switch to the fallback path (trace + evidence fixtures).
-- Optional sanity check: `http://localhost:3200/system/workers` should show whether any workers are connected.
+- Optional sanity check: `http://127.0.0.1:8080/system/workers` should show whether any workers are connected.

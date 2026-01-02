@@ -121,38 +121,9 @@ AOS_PANEL_PORT=3501
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `AOS_SERVER_PORT` | 8080 | Backend API server |
-| `AOS_UI_PORT` | 3200 | Vite UI dev server |
+| `AOS_UI_PORT` | 3200 | Leptos UI dev server (trunk) |
 | `AOS_PANEL_PORT` | 3301 | Service panel API |
 
-**Test overrides** (for CI/E2E):
-```bash
-# Cypress
-CYPRESS_BASE_URL=http://localhost:$AOS_UI_PORT
-CYPRESS_API_BASE_URL=http://localhost:$AOS_SERVER_PORT
-
-# Playwright
-PLAYWRIGHT_BASE_URL=http://localhost:$AOS_UI_PORT
-PLAYWRIGHT_API_BASE_URL=http://localhost:$AOS_SERVER_PORT
-```
-
-**Example multi-developer workflow**:
-```bash
-# Developer B with +100 offset
-# In .env.local:
-AOS_SERVER_PORT=8180
-AOS_UI_PORT=3300
-AOS_PANEL_PORT=3401
-
-# Running Cypress tests:
-CYPRESS_BASE_URL=http://localhost:3300 \
-CYPRESS_API_BASE_URL=http://localhost:8180 \
-pnpm cypress:open
-
-# Running Playwright tests:
-PLAYWRIGHT_BASE_URL=http://localhost:3300 \
-PLAYWRIGHT_API_BASE_URL=http://localhost:8180 \
-pnpm playwright test
-```
 
 ## Contributing Guidelines
 

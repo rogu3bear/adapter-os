@@ -112,7 +112,7 @@ graph TB
 - macOS with Apple Silicon (M1/M2/M3/M4)
 - Rust nightly (see `rust-toolchain.toml`)
 - Xcode Command Line Tools
-- pnpm 9+ (for UI development)
+- Trunk (for Leptos UI): `cargo install trunk`
 
 ### Quick Start
 
@@ -464,7 +464,7 @@ Upload → Validation → Storage (BLAKE3) → Registry → Loading
 - **Database**: SQLite at `var/aos-cp.sqlite3`
 - **Default Model**: Qwen2.5-7B (4-bit quantized)
 - **Rust**: Nightly (see `rust-toolchain.toml`)
-- **UI**: React 18 + TypeScript + Vite + TanStack Query
+- **UI**: Leptos 0.7 + Tailwind CSS + WASM (Client-Side Rendering)
 
 ---
 

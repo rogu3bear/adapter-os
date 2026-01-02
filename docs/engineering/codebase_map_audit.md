@@ -38,7 +38,7 @@ This table is representative, not exhaustive. See the inventory for the full lis
 
 | Layer | Role | Primary crates |
 | --- | --- | --- |
-| Clients | User entry points | `adapteros-cli`, `adapteros-tui`, `ui/` |
+| Clients | User entry points | `adapteros-cli`, `adapteros-tui`, `adapteros-ui` |
 | Control plane | HTTP API, auth, policy hooks, orchestration | `adapteros-server`, `adapteros-server-api`, `adapteros-orchestrator`, `adapteros-service-supervisor` |
 | Worker + routing | Inference/training execution and adapter routing | `adapteros-lora-worker`, `adapteros-lora-router`, `adapteros-lora-lifecycle`, `adapteros-lora-plan` |
 | Backends | Kernel implementations | `adapteros-lora-kernel-coreml`, `adapteros-lora-kernel-mtl`, `adapteros-lora-mlx-ffi`, `adapteros-lora-kernel-api` |
@@ -60,7 +60,7 @@ Legend:
 ```mermaid
 flowchart TB
     subgraph Clients
-        UI[ui/ (React)]
+        UI[adapteros-ui (Leptos)]
         CLI[adapteros-cli]
         TUI[adapteros-tui]
     end

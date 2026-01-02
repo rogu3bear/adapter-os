@@ -292,7 +292,7 @@ AOS_DATABASE_URL=sqlite:var/aos-cp.sqlite3
 - Need GPU-accelerated computation
 
 **Requirements:**
-- MLX library installed: `pip install mlx` (optional for testing)
+- MLX library installed: `brew install mlx` (optional for MLX backend)
 - Model in MLX format with `config.json`, `tokenizer.json`, weights
 
 #### Production Profile (Secure Serving)
@@ -866,7 +866,7 @@ ls -la var/models/Qwen2.5-7B-Instruct-4bit/
 **Solution:**
 ```bash
 # Install MLX library (optional, not required for all uses)
-pip install mlx
+brew install mlx
 
 # Or use different backend
 export AOS_MODEL_BACKEND=metal
