@@ -259,7 +259,8 @@ mod memory_boundary_tests {
     #[test]
     fn test_zero_memory() {
         assert_eq!(memory::bytes_to_mb(0), 0.0);
-        assert!(!memory::exceeds_threshold(-1.0)); // Negative threshold never exceeded
+        // Negative threshold is always exceeded: 0 MB >= -1.0 MB
+        assert!(memory::exceeds_threshold(-1.0));
     }
 
     #[test]

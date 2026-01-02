@@ -321,7 +321,7 @@ impl UnifiedSafeTensorsLoader {
             .ok_or_else(|| AosError::NotFound(format!("Tensor metadata not found: {}", name)))?;
 
         let shape_i32: Vec<i32> = meta.shape.iter().map(|&s| s as i32).collect();
-        MlxArray::from_slice_f32(&f32_data, &shape_i32)
+        Ok(MlxArray::from_slice_f32(&f32_data, &shape_i32)?)
     }
 
     /// List tensor names

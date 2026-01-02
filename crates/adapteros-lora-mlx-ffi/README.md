@@ -13,49 +13,38 @@ This crate provides production-ready FFI bindings for MLX (Apple's machine learn
 ```
 AdapterOS Worker
     │
-    ├──> Metal Backend (Production Inference)
-    │    └──> adapteros-lora-kernel-mtl
-    │
-    └──> MLX Backend (Training & Experimentation)
-         ├──> adapteros-lora-mlx-ffi (C++ FFI - stub)
-         └──> adapteros-lora-mlx (C++ FFI - future)
+    └──> MLX Backend (PRIMARY - Inference & Training)
+         ├──> CoreML (ANE acceleration for specific layers)
+         └──> Metal Kernels (GPU compute primitives)
 ```
+
+MLX is the primary backend for all inference and training workloads on Apple Silicon.
+CoreML provides Neural Engine acceleration for specific operations. Metal provides
+low-level GPU compute primitives.
 
 ## Current Implementation
 
-### Stub Components
+### Core Components (C++ FFI)
 
-- **`MLXFFIModel`**: Model wrapper with forward pass stubs
-- **`MLXFFIBackend`**: FusedKernels implementation (placeholder)
-- **`LoRAAdapter`**: LoRA adapter management
-- **`MLXFFITensor`**: Tensor operations (stub)
+- **`MLXFFIModel`**: Model wrapper with forward pass + hidden states
+- **`MLXFFIBackend`**: Kernel backend integration
+- **`LoRAAdapter`**: Adapter management + hot-swap cache
+- **`MLXFFITensor`**: Tensor ops backed by MLX arrays
+- **KV cache + memory tracking**: Deterministic execution + GC hints
 
 ### Build Configuration
 
-The `build.rs` script generates stub bindings and placeholder implementations:
-
-```rust
-// Using stub implementation for now
-generate_stub_bindings();
-```
+`build.rs` auto-detects MLX headers/libs. With `--features mlx`, it compiles the
+real wrapper (`src/mlx_cpp_wrapper_real.cpp`). If MLX is missing or
+`MLX_FORCE_STUB=1` is set, it falls back to the stub wrapper
+(`src/mlx_cpp_wrapper.cpp`).
 
 ## Production Deployment
 
-### Option 1: Wait for MLX C++ API (Recommended)
-
-MLX is primarily a Python framework. When Apple releases a stable C++ API:
-
-1. Replace stub implementation in `src/mlx_cpp_wrapper.cpp`
-2. Link against MLX C++ library
-3. Enable in `build.rs` by removing stub guard
-
-### Option 2: Alternative Backends (Current Recommendation)
-
-For production training and inference, use Metal backend:
-
-1. Use `adapteros-lora-kernel-mtl` for GPU acceleration
-2. Enable with `--features metal-backend`
-3. Full production support on Apple Silicon
+1. Install MLX: `brew install mlx`
+2. Build real MLX: `cargo build -p adapteros-lora-mlx-ffi --features mlx --release`
+3. Optional: set `MLX_PATH`/`MLX_INCLUDE_DIR`/`MLX_LIB_DIR` for custom installs
+4. Verify: build output shows `MLX FFI build: REAL` or check `mlx_version()`
 
 ## Development
 
@@ -83,12 +72,10 @@ cargo test --package adapteros-lora-mlx-ffi
 
 ## Future Work
 
-- [ ] Complete C++ wrapper when MLX C++ API is stable
-- [ ] Implement forward pass with hidden states
-- [ ] Add LoRA training loop
-- [ ] Integrate gradient checkpointing
-- [ ] Add multi-adapter training
-- [ ] Performance benchmarking vs Metal backend
+- [ ] Expand operator coverage and error reporting
+- [ ] Extend LoRA training + gradient checkpointing
+- [ ] Tighten model loading/quantization paths
+- [ ] Continue benchmarking vs Metal/CoreML
 
 ## References
 
@@ -105,5 +92,4 @@ cargo test --package adapteros-lora-mlx-ffi
 - [BENCHMARK_RESULTS.md](../../BENCHMARK_RESULTS.md) - MLX FFI benchmark results
 - [benches/mlx_integration_benchmark.rs](./benches/mlx_integration_benchmark.rs) - MLX FFI benchmarks
 - [tests/INDEX.md](./tests/INDEX.md) - Test documentation index
-
 

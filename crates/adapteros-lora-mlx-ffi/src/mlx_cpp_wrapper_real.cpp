@@ -1542,6 +1542,148 @@ extern "C" void mlx_synchronize(void) {
     }
 }
 
+// ============================================================================
+// Tensor operations (required by Rust tensor module)
+// ============================================================================
+
+extern "C" mlx_array_t* mlx_add(mlx_array_t* a, mlx_array_t* b) {
+    if (!a || !b) return nullptr;
+    try {
+        auto wrapper_a = reinterpret_cast<MLXArrayWrapper*>(a);
+        auto wrapper_b = reinterpret_cast<MLXArrayWrapper*>(b);
+        mx::array result = mx::add(wrapper_a->arr, wrapper_b->arr);
+        return reinterpret_cast<mlx_array_t*>(new MLXArrayWrapper(result));
+    } catch (const std::exception& e) {
+        g_last_error = e.what();
+        return nullptr;
+    }
+}
+
+extern "C" mlx_array_t* mlx_array_copy(mlx_array_t* array) {
+    if (!array) return nullptr;
+    try {
+        auto wrapper = reinterpret_cast<MLXArrayWrapper*>(array);
+        // MLX arrays use reference counting; create copy via multiply by 1
+        mx::array copy = mx::multiply(wrapper->arr, mx::array(1.0f));
+        mx::synchronize();  // Force materialization
+        return reinterpret_cast<mlx_array_t*>(new MLXArrayWrapper(copy));
+    } catch (const std::exception& e) {
+        g_last_error = e.what();
+        return nullptr;
+    }
+}
+
+extern "C" int mlx_array_dtype(mlx_array_t* array) {
+    if (!array) return -1;
+    try {
+        auto wrapper = reinterpret_cast<MLXArrayWrapper*>(array);
+        mx::Dtype dtype = wrapper->arr.dtype();
+        // Map MLX dtypes to Rust TensorDtype enum codes
+        // TensorDtype { Float32 = 0, Int32 = 2, UInt32 = 3 }
+        if (dtype == mx::float32) return 0;  // Float32
+        if (dtype == mx::int32) return 2;    // Int32
+        if (dtype == mx::uint32) return 3;   // UInt32
+        // Return Float32 as default for other types
+        return 0;
+    } catch (const std::exception& e) {
+        g_last_error = e.what();
+        return -1;
+    }
+}
+
+extern "C" mlx_array_t* mlx_array_from_data(const float* data, int size) {
+    if (!data || size <= 0) return nullptr;
+    try {
+        std::vector<float> vec(data, data + size);
+        mx::array arr = mx::array(vec.begin(), make_shape(size), mx::float32);
+        return reinterpret_cast<mlx_array_t*>(new MLXArrayWrapper(arr));
+    } catch (const std::exception& e) {
+        g_last_error = e.what();
+        return nullptr;
+    }
+}
+
+extern "C" int mlx_array_ndim(mlx_array_t* array) {
+    if (!array) return 0;
+    try {
+        auto wrapper = reinterpret_cast<MLXArrayWrapper*>(array);
+        return static_cast<int>(wrapper->arr.ndim());
+    } catch (const std::exception& e) {
+        g_last_error = e.what();
+        return 0;
+    }
+}
+
+extern "C" mlx_array_t* mlx_array_reshape(mlx_array_t* array, const int* shape, int ndim) {
+    if (!array || !shape || ndim <= 0) return nullptr;
+    try {
+        auto wrapper = reinterpret_cast<MLXArrayWrapper*>(array);
+        mx::Shape new_shape;
+        for (int i = 0; i < ndim; ++i) {
+            new_shape.push_back(static_cast<int32_t>(shape[i]));
+        }
+        mx::array result = mx::reshape(wrapper->arr, new_shape);
+        return reinterpret_cast<mlx_array_t*>(new MLXArrayWrapper(result));
+    } catch (const std::exception& e) {
+        g_last_error = e.what();
+        return nullptr;
+    }
+}
+
+extern "C" int mlx_array_shape(mlx_array_t* array, int* out_shape, int max_dims) {
+    if (!array || !out_shape || max_dims <= 0) return 0;
+    try {
+        auto wrapper = reinterpret_cast<MLXArrayWrapper*>(array);
+        const auto& shape = wrapper->arr.shape();
+        int ndim = std::min(static_cast<int>(shape.size()), max_dims);
+        for (int i = 0; i < ndim; ++i) {
+            out_shape[i] = static_cast<int>(shape[i]);
+        }
+        return ndim;
+    } catch (const std::exception& e) {
+        g_last_error = e.what();
+        return 0;
+    }
+}
+
+extern "C" mlx_array_t* mlx_array_transpose(mlx_array_t* array) {
+    if (!array) return nullptr;
+    try {
+        auto wrapper = reinterpret_cast<MLXArrayWrapper*>(array);
+        mx::array result = mx::transpose(wrapper->arr);
+        return reinterpret_cast<mlx_array_t*>(new MLXArrayWrapper(result));
+    } catch (const std::exception& e) {
+        g_last_error = e.what();
+        return nullptr;
+    }
+}
+
+extern "C" mlx_array_t* mlx_multiply(mlx_array_t* a, mlx_array_t* b) {
+    if (!a || !b) return nullptr;
+    try {
+        auto wrapper_a = reinterpret_cast<MLXArrayWrapper*>(a);
+        auto wrapper_b = reinterpret_cast<MLXArrayWrapper*>(b);
+        mx::array result = mx::multiply(wrapper_a->arr, wrapper_b->arr);
+        return reinterpret_cast<mlx_array_t*>(new MLXArrayWrapper(result));
+    } catch (const std::exception& e) {
+        g_last_error = e.what();
+        return nullptr;
+    }
+}
+
+extern "C" mlx_array_t* mlx_matmul(mlx_array_t* a, mlx_array_t* b) {
+    if (!a || !b) return nullptr;
+    try {
+        auto wrapper_a = reinterpret_cast<MLXArrayWrapper*>(a);
+        auto wrapper_b = reinterpret_cast<MLXArrayWrapper*>(b);
+        mx::array result = mx::matmul(wrapper_a->arr, wrapper_b->arr);
+        return reinterpret_cast<mlx_array_t*>(new MLXArrayWrapper(result));
+    } catch (const std::exception& e) {
+        g_last_error = e.what();
+        return nullptr;
+    }
+}
+
 #else
 // If MLX_REAL is not defined, fall back to stub
 #warning "Compiling without real MLX support - using stub implementation"

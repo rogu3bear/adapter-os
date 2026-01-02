@@ -85,14 +85,14 @@ fn validate_request(request: &LiquidBlendRequest<'_>) -> Result<LiquidPrecision>
 fn tensor_to_mlx(tensor: &LiquidTensor<'_>) -> Result<MlxArray> {
     match tensor.data {
         LiquidSlice::F32(data) => {
-            MlxArray::from_slice_f32(data, &[tensor.rows as i32, tensor.cols as i32])
+            Ok(MlxArray::from_slice_f32(data, &[tensor.rows as i32, tensor.cols as i32])?)
         }
         LiquidSlice::BFloat16(data) => {
             let mut tmp = Vec::with_capacity(data.len());
             for &bits in data {
                 tmp.push(f32::from_bits((bits as u32) << 16));
             }
-            MlxArray::from_slice_f32(&tmp, &[tensor.rows as i32, tensor.cols as i32])
+            Ok(MlxArray::from_slice_f32(&tmp, &[tensor.rows as i32, tensor.cols as i32])?)
         }
     }
 }

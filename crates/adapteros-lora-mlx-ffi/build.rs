@@ -21,11 +21,24 @@ fn main() {
     println!("cargo:rerun-if-env-changed=MLX_FORCE_STUB");
     println!("cargo:rerun-if-env-changed=PKG_CONFIG_PATH");
 
-    // Check if real MLX feature is enabled (new name `mlx`, keep legacy alias)
+    // Check if mlx-rs-backend is enabled (pure Rust, deprecated/unsupported)
+    let mlx_rs_backend = env::var("CARGO_FEATURE_MLX_RS_BACKEND").is_ok();
+
+    // Check if C++ MLX feature is enabled
     let real_mlx_enabled =
         env::var("CARGO_FEATURE_MLX").is_ok() || env::var("CARGO_FEATURE_REAL_MLX").is_ok();
 
-    // Use consistent wrapper for both lib and test builds
+    // If using pure Rust mlx-rs backend, still compile C++ stub for FFI compatibility
+    // but the actual ML operations go through mlx-rs
+    if mlx_rs_backend {
+        println!("cargo:warning=Using mlx-rs backend (deprecated; mlx-rs-backend enabled)");
+        compile_stub_wrapper();
+        println!("cargo:rustc-link-lib=static=mlx_wrapper_stub");
+        println!("cargo:rustc-cfg=mlx_stub");
+        return;
+    }
+
+    // C++ FFI path
     if real_mlx_enabled {
         match find_mlx_with_version() {
             Some((include_dir, lib_dir, version)) => {
@@ -426,9 +439,8 @@ fn compile_real_wrapper(include_dir: &Path, lib_dir: &Path) {
         // C++17 standard compatibility flags
         build.flag_if_supported("-std=c++17");
         build.flag_if_supported("-fno-strict-aliasing"); // Safety with C bindings
-                                                         // NOTE: -ffast-math is explicitly PROHIBITED per AGENTS.md invariant
-                                                         // "No `-ffast-math` compiler flags - Breaks determinism"
-                                                         // This flag enables unsafe FP optimizations that violate IEEE 754 semantics
+                                                         // NOTE: fast-math flags are explicitly prohibited per AGENTS.md invariant.
+                                                         // They enable unsafe FP optimizations that violate IEEE 754 semantics
                                                          // and cause non-deterministic inference results across runs.
     }
 

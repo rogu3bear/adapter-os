@@ -1,7 +1,7 @@
 //! MLX FFI integration for AdapterOS
 //!
 //! This crate provides C FFI bindings for MLX's C++ API, avoiding PyO3 dependency issues.
-//! It implements the same interface as the PyO3-based MLX crate but uses direct C++ calls.
+//! The C++ FFI path is the primary/production backend; the mlx-rs backend is deprecated.
 
 #![allow(unexpected_cfgs)]
 #![allow(deprecated)]
@@ -14,14 +14,14 @@
 use adapteros_core::{AosError, B3Hash, Result};
 use std::path::{Path, PathBuf};
 
-// Pure Rust mlx-rs array abstraction (new backend)
+// Pure Rust mlx-rs array abstraction (deprecated backend)
 pub mod array;
 
-// Pure Rust model implementation using mlx-rs (new backend)
+// Pure Rust model implementation using mlx-rs (deprecated backend)
 #[cfg(feature = "mlx-rs-backend")]
 pub mod model;
 
-// Legacy C++ FFI modules (deprecated - will be removed)
+// C++ FFI modules (primary backend)
 pub mod attention;
 pub mod backend;
 pub mod embedding;
@@ -1211,8 +1211,8 @@ unsafe impl Send for MLXFFIModel {}
 /// counting for shared array data.
 unsafe impl Sync for MLXFFIModel {}
 
-// FFI declarations for MLX operations
-#[cfg_attr(test, allow(dead_code))]
+// FFI declarations for MLX operations (primary C++ FFI, unused with mlx-rs-backend)
+#[allow(dead_code)] // Many functions unused when mlx-rs-backend is active
 #[cfg_attr(all(feature = "mlx", not(mlx_stub)), link(name = "mlx_wrapper"))]
 #[cfg_attr(any(mlx_stub, not(feature = "mlx")), link(name = "mlx_wrapper_stub"))]
 extern "C" {
@@ -1602,16 +1602,41 @@ impl MlxBackendCapabilities {
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
+// When mlx-rs-backend is enabled, use pure Rust initialization from SSoT
+#[cfg(feature = "mlx-rs-backend")]
 static MLX_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
-/// Internal implementation for MLX runtime initialization
+#[cfg(not(feature = "mlx-rs-backend"))]
+static MLX_INITIALIZED: AtomicBool = AtomicBool::new(false);
+
+/// Initialize MLX runtime safely (idempotent - safe to call multiple times)
 ///
-/// # Arguments
-/// * `device` - Optional device type. None uses default device selection, Some uses specific device
+/// When `mlx-rs-backend` feature is enabled, uses pure Rust mlx-rs initialization.
+/// Otherwise, uses C FFI initialization.
 ///
 /// # Returns
 /// * `Ok(())` - Runtime initialized successfully (or already initialized)
 /// * `Err(...)` - Initialization failed
+#[cfg(feature = "mlx-rs-backend")]
+pub fn mlx_runtime_init() -> Result<()> {
+    if MLX_INITIALIZED.load(Ordering::SeqCst) {
+        return Ok(());
+    }
+
+    // Use the SSoT crate's runtime initialization
+    adapteros_mlx::runtime_init().map_err(|e| AosError::Mlx(e.to_string()))?;
+    MLX_INITIALIZED.store(true, Ordering::SeqCst);
+    tracing::info!("MLX runtime initialized via mlx-rs backend");
+    Ok(())
+}
+
+#[cfg(not(feature = "mlx-rs-backend"))]
+pub fn mlx_runtime_init() -> Result<()> {
+    mlx_runtime_init_internal(None)
+}
+
+/// Internal implementation for MLX runtime initialization (C FFI path)
+#[cfg(not(feature = "mlx-rs-backend"))]
 fn mlx_runtime_init_internal(device: Option<MlxDeviceType>) -> Result<()> {
     // Check if already initialized (idempotent)
     if MLX_INITIALIZED.load(Ordering::SeqCst) {
@@ -1650,26 +1675,6 @@ fn mlx_runtime_init_internal(device: Option<MlxDeviceType>) -> Result<()> {
     }
 }
 
-/// Initialize MLX runtime safely (idempotent - safe to call multiple times)
-///
-/// This function should be called once before using any MLX operations.
-/// Multiple calls are safe and will be ignored after the first successful init.
-///
-/// # Returns
-/// * `Ok(())` - Runtime initialized successfully (or already initialized)
-/// * `Err(...)` - Initialization failed
-///
-/// # Example
-/// ```ignore
-/// use adapteros_lora_mlx_ffi::mlx_runtime_init;
-///
-/// mlx_runtime_init()?; // Initialize once
-/// mlx_runtime_init()?; // Safe to call again (no-op)
-/// ```
-pub fn mlx_runtime_init() -> Result<()> {
-    mlx_runtime_init_internal(None)
-}
-
 /// Initialize MLX runtime with specific device type
 ///
 /// # Arguments
@@ -1678,11 +1683,24 @@ pub fn mlx_runtime_init() -> Result<()> {
 /// # Returns
 /// * `Ok(())` - Runtime initialized successfully
 /// * `Err(...)` - Initialization failed
+#[cfg(feature = "mlx-rs-backend")]
+pub fn mlx_runtime_init_with_device(_device: MlxDeviceType) -> Result<()> {
+    // mlx-rs doesn't support device selection, use default init
+    mlx_runtime_init()
+}
+
+#[cfg(not(feature = "mlx-rs-backend"))]
 pub fn mlx_runtime_init_with_device(device: MlxDeviceType) -> Result<()> {
     mlx_runtime_init_internal(Some(device))
 }
 
 /// Check if MLX runtime is initialized
+#[cfg(feature = "mlx-rs-backend")]
+pub fn mlx_runtime_is_initialized() -> bool {
+    MLX_INITIALIZED.load(Ordering::SeqCst) || adapteros_mlx::runtime_is_initialized()
+}
+
+#[cfg(not(feature = "mlx-rs-backend"))]
 pub fn mlx_runtime_is_initialized() -> bool {
     MLX_INITIALIZED.load(Ordering::SeqCst)
 }
@@ -1690,6 +1708,17 @@ pub fn mlx_runtime_is_initialized() -> bool {
 /// Shutdown MLX runtime and release resources (idempotent)
 ///
 /// Safe to call multiple times or when not initialized.
+#[cfg(feature = "mlx-rs-backend")]
+pub fn mlx_runtime_shutdown() {
+    if MLX_INITIALIZED
+        .compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst)
+        .is_ok()
+    {
+        tracing::info!("MLX runtime shut down (mlx-rs backend)");
+    }
+}
+
+#[cfg(not(feature = "mlx-rs-backend"))]
 pub fn mlx_runtime_shutdown() {
     if MLX_INITIALIZED
         .compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst)

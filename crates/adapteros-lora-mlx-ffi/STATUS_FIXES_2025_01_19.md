@@ -110,7 +110,7 @@ cargo test  # Should work - uses safe stubs
 ### Test Real MLX Mode (Requires MLX Installation):
 ```bash
 # Install MLX (if on macOS with Apple Silicon)
-pip install mlx
+brew install mlx
 
 # Build with real MLX
 cargo build --features mlx
@@ -140,8 +140,8 @@ These fixes establish the foundation for MLX functionality:
 
 To use `--features mlx`, you need:
 
-1. **MLX Python package:** `pip install mlx`
-2. **MLX C++ headers:** Usually installed with MLX Python package
+1. **MLX C++ library:** `brew install mlx`
+2. **MLX C++ headers:** Installed with Homebrew MLX
 3. **Environment:** macOS with Apple Silicon (M1/M2/M3/M4)
 
 ## ⚠️ Important Notes

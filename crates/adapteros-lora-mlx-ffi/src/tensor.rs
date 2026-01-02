@@ -1,8 +1,8 @@
 //! MLX FFI tensor operations
 //!
 //! This module provides tensor operations for MLX.
-//! When the `mlx-rs-backend` feature is enabled, it uses pure Rust mlx-rs.
-//! Otherwise, it uses the legacy C++ FFI implementation.
+//! When the `mlx-rs-backend` feature is enabled (deprecated), it uses pure Rust mlx-rs.
+//! Otherwise, it uses the C++ FFI implementation (primary).
 
 use adapteros_core::{AosError, Result};
 
@@ -73,7 +73,7 @@ mod mlx_rs_impl {
             if self.dtype != TensorDtype::Float32 {
                 return Err(AosError::Mlx("Tensor is not Float32 type".to_string()));
             }
-            self.inner.to_vec_f32()
+            Ok(self.inner.to_vec_f32()?)
         }
 
         /// Get tensor shape
@@ -197,8 +197,8 @@ mod mlx_rs_impl {
         }
 
         /// Evaluate the tensor (force computation)
-        pub fn eval(&self) -> Result<()> {
-            self.inner.eval()
+        pub fn evaluate(&self) -> Result<()> {
+            Ok(self.inner.evaluate()?)
         }
     }
 }
@@ -252,8 +252,34 @@ mod ffi_impl {
                     )));
                 }
 
+                // Reshape the 1D array to the desired shape if needed
+                let final_array = if shape.len() > 1 || (shape.len() == 1 && shape[0] != data.len())
+                {
+                    let shape_i32: Vec<i32> = shape.iter().map(|&x| x as i32).collect();
+                    let reshaped =
+                        mlx_array_reshape(array, shape_i32.as_ptr(), shape_i32.len() as i32);
+                    mlx_array_free(array); // Free the original 1D array
+                    if reshaped.is_null() {
+                        let error_msg = mlx_get_last_error();
+                        let error_str = if error_msg.is_null() {
+                            "Unknown MLX error".to_string()
+                        } else {
+                            std::ffi::CStr::from_ptr(error_msg)
+                                .to_string_lossy()
+                                .to_string()
+                        };
+                        return Err(AosError::Mlx(format!(
+                            "Failed to reshape MLX array: {}",
+                            error_str
+                        )));
+                    }
+                    reshaped
+                } else {
+                    array
+                };
+
                 Ok(Self {
-                    inner: array,
+                    inner: final_array,
                     shape,
                     dtype: TensorDtype::Float32,
                 })
@@ -280,8 +306,34 @@ mod ffi_impl {
                     )));
                 }
 
+                // Reshape the 1D array to the desired shape if needed
+                let final_array = if shape.len() > 1 || (shape.len() == 1 && shape[0] != data.len())
+                {
+                    let shape_i32: Vec<i32> = shape.iter().map(|&x| x as i32).collect();
+                    let reshaped =
+                        mlx_array_reshape(array, shape_i32.as_ptr(), shape_i32.len() as i32);
+                    mlx_array_free(array); // Free the original 1D array
+                    if reshaped.is_null() {
+                        let error_msg = mlx_get_last_error();
+                        let error_str = if error_msg.is_null() {
+                            "Unknown MLX error".to_string()
+                        } else {
+                            std::ffi::CStr::from_ptr(error_msg)
+                                .to_string_lossy()
+                                .to_string()
+                        };
+                        return Err(AosError::Mlx(format!(
+                            "Failed to reshape MLX array: {}",
+                            error_str
+                        )));
+                    }
+                    reshaped
+                } else {
+                    array
+                };
+
                 Ok(Self {
-                    inner: array,
+                    inner: final_array,
                     shape,
                     dtype: TensorDtype::Int32,
                 })
