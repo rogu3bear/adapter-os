@@ -194,6 +194,23 @@ pub fn set_dev_bypass_from_config(_enabled: bool) {
     // No-op in release builds - bypass is never allowed
 }
 
+/// Check if dev bypass mode is enabled.
+///
+/// Returns true if running in dev mode with `AOS_DEV_NO_AUTH=1` or
+/// `security.dev_bypass=true` in config (debug builds only).
+///
+/// Use this to skip non-essential boot phases and background tasks
+/// for faster development iteration.
+#[cfg(debug_assertions)]
+pub fn is_dev_bypass_enabled() -> bool {
+    dev_bypass_status().active
+}
+
+#[cfg(not(debug_assertions))]
+pub fn is_dev_bypass_enabled() -> bool {
+    false
+}
+
 /// Access token claims (used across the API as `Claims`)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AccessClaims {

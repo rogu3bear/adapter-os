@@ -54,7 +54,7 @@ pub mod uds_client;
 pub mod validation;
 pub mod worker_health;
 
-pub use auth::{set_dev_bypass_from_config, Claims};
+pub use auth::{is_dev_bypass_enabled, set_dev_bypass_from_config, Claims};
 pub use event_bus::EventBus;
 pub use load_coordinator::{LoadCoordinator, LoadCoordinatorMetrics};
 pub use plugin_registry::PluginRegistry;
