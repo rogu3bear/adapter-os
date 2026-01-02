@@ -1,0 +1,77 @@
+[package]
+name = "adapteros-ui"
+version = "0.1.0"
+edition = "2021"
+description = "Leptos-based web UI for AdapterOS control plane"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+# Hydration for client-side interactivity
+hydrate = ["leptos/hydrate"]
+# Server-side rendering (for future SSR support)
+ssr = ["leptos/ssr", "leptos_router/ssr", "leptos_meta/ssr"]
+
+[dependencies]
+# Leptos ecosystem (0.7+ has CSR as default, no explicit csr feature)
+leptos = { version = "0.7" }
+leptos_router = { version = "0.7" }
+leptos_meta = { version = "0.7" }
+
+# Shared types (WASM-compatible)
+adapteros-api-types = { path = "../adapteros-api-types", default-features = false, features = ["wasm"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde-wasm-bindgen = "0.6"
+
+# HTTP client for WASM
+gloo-net = "0.6"
+gloo-timers = { version = "0.3", features = ["futures"] }
+
+# Async
+futures = "0.3"
+wasm-bindgen-futures = "0.4"
+
+# Web APIs
+web-sys = { version = "0.3", features = [
+    "console",
+    "Document",
+    "Element",
+    "EventSource",
+    "EventSourceInit",
+    "File",
+    "FileList",
+    "FormData",
+    "Headers",
+    "HtmlDocument",
+    "HtmlElement",
+    "HtmlInputElement",
+    "Location",
+    "MediaQueryList",
+    "MessageEvent",
+    "Request",
+    "RequestInit",
+    "RequestMode",
+    "Response",
+    "Storage",
+    "Window",
+] }
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+
+# Utilities
+chrono = { version = "0.4", features = ["serde", "wasmbind"] }
+uuid = { version = "1.0", features = ["v4", "serde", "js"] }
+thiserror = "1.0"
+
+# Console logging for WASM
+console_error_panic_hook = "0.1"
+tracing = "0.1"
+tracing-wasm = "0.2"
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"

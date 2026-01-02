@@ -1,0 +1,739 @@
+//! Trace Viewer Component
+//!
+//! Visualizes inference traces with timeline, token-level breakdown,
+//! and latency metrics for debugging and analysis.
+
+use leptos::prelude::*;
+
+use crate::api::client::{
+    ApiClient, InferenceTraceDetailResponse, InferenceTraceResponse, TimingBreakdown,
+    TokenDecision, TraceReceiptSummary,
+};
+
+/// State for the trace viewer
+#[derive(Clone, Debug)]
+pub enum TraceViewState {
+    /// Initial state, no trace selected
+    Empty,
+    /// Loading trace data
+    Loading,
+    /// Loaded trace summary list
+    List(Vec<InferenceTraceResponse>),
+    /// Loaded detailed trace
+    Detail(InferenceTraceDetailResponse),
+    /// Error loading trace
+    Error(String),
+}
+
+/// Trace viewer component for visualizing inference traces
+#[component]
+pub fn TraceViewer(
+    #[prop(optional)] request_id: Option<String>,
+    #[prop(optional)] trace_id: Option<String>,
+    #[prop(optional)] compact: bool,
+) -> impl IntoView {
+    let (state, set_state) = signal(TraceViewState::Empty);
+    let (selected_trace_id, set_selected_trace_id) = signal::<Option<String>>(trace_id.clone());
+    let (expanded_tokens, set_expanded_tokens) = signal(false);
+
+    // Clone for initial load check
+    let initial_trace_id = trace_id.clone();
+    let initial_request_id = request_id.clone();
+
+    // Load traces on mount or when request_id/trace_id changes
+    let api = ApiClient::new();
+
+    // Effect to load trace list or detail
+    Effect::new(move |_prev| {
+        let api = api.clone();
+        let request_id = initial_request_id.clone();
+        let has_initial_trace = initial_trace_id.is_some();
+        let selected = selected_trace_id.get();
+
+        wasm_bindgen_futures::spawn_local(async move {
+            if let Some(tid) = selected {
+                // Load detailed trace
+                set_state.set(TraceViewState::Loading);
+                match api.get_inference_trace_detail(&tid).await {
+                    Ok(detail) => set_state.set(TraceViewState::Detail(detail)),
+                    Err(e) => set_state.set(TraceViewState::Error(e.to_string())),
+                }
+            } else if request_id.is_some() || has_initial_trace {
+                // Load trace list
+                set_state.set(TraceViewState::Loading);
+                match api.list_inference_traces(request_id.as_deref(), Some(20)).await {
+                    Ok(traces) => set_state.set(TraceViewState::List(traces)),
+                    Err(e) => set_state.set(TraceViewState::Error(e.to_string())),
+                }
+            }
+        });
+    });
+
+    let container_class = if compact {
+        "bg-card border border-border rounded-lg p-3 text-sm"
+    } else {
+        "bg-card border border-border rounded-lg p-6"
+    };
+
+    view! {
+        <div class=container_class>
+            {move || match state.get() {
+                TraceViewState::Empty => view! {
+                    <div class="text-muted-foreground text-center py-8">
+                        <svg class="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+                        </svg>
+                        <p>"No trace data available"</p>
+                        <p class="text-xs mt-1">"Run an inference to generate traces"</p>
+                    </div>
+                }.into_any(),
+
+                TraceViewState::Loading => view! {
+                    <div class="flex items-center justify-center py-8">
+                        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                        <span class="ml-3 text-muted-foreground">"Loading trace data..."</span>
+                    </div>
+                }.into_any(),
+
+                TraceViewState::List(traces) => view! {
+                    <TraceList
+                        traces=traces
+                        on_select=move |id| set_selected_trace_id.set(Some(id))
+                        compact=compact
+                    />
+                }.into_any(),
+
+                TraceViewState::Detail(detail) => view! {
+                    <TraceDetail
+                        trace=detail.clone()
+                        expanded_tokens=expanded_tokens
+                        set_expanded_tokens=set_expanded_tokens
+                        on_back=move || set_selected_trace_id.set(None)
+                        compact=compact
+                    />
+                }.into_any(),
+
+                TraceViewState::Error(err) => view! {
+                    <div class="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
+                        <div class="flex items-center gap-2 text-destructive">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                            </svg>
+                            <span class="font-medium">"Error loading trace"</span>
+                        </div>
+                        <p class="text-sm text-muted-foreground mt-2">{err}</p>
+                    </div>
+                }.into_any(),
+            }}
+        </div>
+    }
+}
+
+/// List of traces for selection
+#[component]
+fn TraceList(
+    traces: Vec<InferenceTraceResponse>,
+    on_select: impl Fn(String) + 'static + Clone,
+    #[prop(optional)] compact: bool,
+) -> impl IntoView {
+    let heading_class = if compact { "text-sm font-semibold mb-2" } else { "text-lg font-semibold mb-4" };
+
+    view! {
+        <div>
+            <h3 class=heading_class>"Recent Traces"</h3>
+            <div class="space-y-2">
+                {traces.into_iter().map(|trace| {
+                    let on_select = on_select.clone();
+                    let trace_id = trace.trace_id.clone();
+                    view! {
+                        <TraceListItem
+                            trace=trace
+                            on_click=move || on_select(trace_id.clone())
+                            compact=compact
+                        />
+                    }
+                }).collect::<Vec<_>>()}
+            </div>
+        </div>
+    }
+}
+
+/// Single trace list item
+#[component]
+fn TraceListItem(
+    trace: InferenceTraceResponse,
+    on_click: impl Fn() + 'static,
+    #[prop(optional)] compact: bool,
+) -> impl IntoView {
+    let item_class = if compact {
+        "flex items-center justify-between p-2 rounded-md hover:bg-accent cursor-pointer transition-colors"
+    } else {
+        "flex items-center justify-between p-3 rounded-lg border border-border hover:bg-accent cursor-pointer transition-colors"
+    };
+
+    let status_class = match trace.finish_reason.as_deref() {
+        Some("stop") | Some("end_turn") => "bg-green-500/20 text-green-500",
+        Some("length") => "bg-yellow-500/20 text-yellow-500",
+        Some("error") => "bg-red-500/20 text-red-500",
+        _ => "bg-muted text-muted-foreground",
+    };
+
+    let trace_id_short = trace.trace_id.chars().take(8).collect::<String>();
+    let finish_reason_display = trace.finish_reason.clone().unwrap_or_else(|| "unknown".to_string());
+
+    view! {
+        <div class=item_class on:click=move |_| on_click()>
+            <div class="flex items-center gap-3">
+                <div class="flex flex-col">
+                    <span class="font-mono text-xs text-muted-foreground">
+                        {trace_id_short}"..."
+                    </span>
+                    <span class="text-xs text-muted-foreground">{trace.created_at}</span>
+                </div>
+            </div>
+            <div class="flex items-center gap-4">
+                <div class="text-right">
+                    <div class="text-sm font-medium">{trace.latency_ms}"ms"</div>
+                    <div class="text-xs text-muted-foreground">{trace.token_count}" tokens"</div>
+                </div>
+                <span class={format!("px-2 py-0.5 rounded text-xs font-medium {}", status_class)}>
+                    {finish_reason_display}
+                </span>
+            </div>
+        </div>
+    }
+}
+
+/// Detailed trace view with timeline
+#[component]
+fn TraceDetail(
+    trace: InferenceTraceDetailResponse,
+    expanded_tokens: ReadSignal<bool>,
+    set_expanded_tokens: WriteSignal<bool>,
+    on_back: impl Fn() + 'static,
+    #[prop(optional)] compact: bool,
+) -> impl IntoView {
+    let heading_class = if compact { "text-sm font-semibold" } else { "text-lg font-semibold" };
+
+    view! {
+        <div class="space-y-4">
+            // Header with back button
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <button
+                        class="p-1 rounded hover:bg-accent transition-colors"
+                        on:click=move |_| on_back()
+                    >
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+                        </svg>
+                    </button>
+                    <div>
+                        <h3 class=heading_class>"Trace Details"</h3>
+                        <span class="font-mono text-xs text-muted-foreground">{trace.trace_id.clone()}</span>
+                    </div>
+                </div>
+                <div class="text-right text-sm text-muted-foreground">
+                    {trace.created_at.clone()}
+                </div>
+            </div>
+
+            // Latency metrics
+            <LatencyMetrics breakdown=trace.timing_breakdown.clone() compact=compact/>
+
+            // Timeline visualization
+            <TimelineVisualization breakdown=trace.timing_breakdown.clone() compact=compact/>
+
+            // Adapters used
+            <AdaptersList adapters=trace.adapters_used.clone() compact=compact/>
+
+            // Token decisions (expandable)
+            {if !trace.token_decisions.is_empty() {
+                Some(view! {
+                    <TokenDecisions
+                        decisions=trace.token_decisions.clone()
+                        expanded=expanded_tokens
+                        set_expanded=set_expanded_tokens
+                        compact=compact
+                    />
+                })
+            } else {
+                None
+            }}
+
+            // Receipt verification
+            {trace.receipt.clone().map(|r| view! {
+                <ReceiptVerification receipt=r compact=compact/>
+            })}
+        </div>
+    }
+}
+
+/// Latency metrics display
+#[component]
+fn LatencyMetrics(breakdown: TimingBreakdown, #[prop(optional)] compact: bool) -> impl IntoView {
+    let grid_class = if compact {
+        "grid grid-cols-4 gap-2"
+    } else {
+        "grid grid-cols-4 gap-4"
+    };
+
+    let card_class = if compact {
+        "bg-muted/50 rounded p-2 text-center"
+    } else {
+        "bg-muted/50 rounded-lg p-3 text-center"
+    };
+
+    view! {
+        <div class=grid_class>
+            <div class=card_class>
+                <div class="text-2xl font-bold text-primary">{breakdown.total_ms}</div>
+                <div class="text-xs text-muted-foreground">"Total (ms)"</div>
+            </div>
+            <div class=card_class>
+                <div class="text-xl font-semibold">{breakdown.routing_ms}</div>
+                <div class="text-xs text-muted-foreground">"Routing"</div>
+            </div>
+            <div class=card_class>
+                <div class="text-xl font-semibold">{breakdown.inference_ms}</div>
+                <div class="text-xs text-muted-foreground">"Inference"</div>
+            </div>
+            <div class=card_class>
+                <div class="text-xl font-semibold">{breakdown.policy_ms}</div>
+                <div class="text-xs text-muted-foreground">"Policy"</div>
+            </div>
+        </div>
+    }
+}
+
+/// Timeline visualization of trace phases
+#[component]
+fn TimelineVisualization(breakdown: TimingBreakdown, #[prop(optional)] compact: bool) -> impl IntoView {
+    let total = breakdown.total_ms.max(1) as f64;
+    let routing_pct = (breakdown.routing_ms as f64 / total * 100.0) as u32;
+    let inference_pct = (breakdown.inference_ms as f64 / total * 100.0) as u32;
+    let policy_pct = (breakdown.policy_ms as f64 / total * 100.0) as u32;
+    let other_pct = 100_u32.saturating_sub(routing_pct + inference_pct + policy_pct);
+
+    let bar_height = if compact { "h-4" } else { "h-6" };
+
+    view! {
+        <div class="space-y-2">
+            <div class="flex items-center justify-between text-xs text-muted-foreground">
+                <span>"0ms"</span>
+                <span>{breakdown.total_ms}"ms"</span>
+            </div>
+            <div class={format!("flex rounded-full overflow-hidden {}", bar_height)}>
+                <div
+                    class="bg-blue-500 transition-all"
+                    style=format!("width: {}%", routing_pct)
+                    title=format!("Routing: {}ms", breakdown.routing_ms)
+                ></div>
+                <div
+                    class="bg-green-500 transition-all"
+                    style=format!("width: {}%", inference_pct)
+                    title=format!("Inference: {}ms", breakdown.inference_ms)
+                ></div>
+                <div
+                    class="bg-purple-500 transition-all"
+                    style=format!("width: {}%", policy_pct)
+                    title=format!("Policy: {}ms", breakdown.policy_ms)
+                ></div>
+                {if other_pct > 0 {
+                    Some(view! {
+                        <div
+                            class="bg-muted transition-all"
+                            style=format!("width: {}%", other_pct)
+                            title="Other"
+                        ></div>
+                    })
+                } else {
+                    None
+                }}
+            </div>
+            <div class="flex items-center justify-center gap-4 text-xs">
+                <div class="flex items-center gap-1">
+                    <div class="w-3 h-3 rounded bg-blue-500"></div>
+                    <span>"Routing"</span>
+                </div>
+                <div class="flex items-center gap-1">
+                    <div class="w-3 h-3 rounded bg-green-500"></div>
+                    <span>"Inference"</span>
+                </div>
+                <div class="flex items-center gap-1">
+                    <div class="w-3 h-3 rounded bg-purple-500"></div>
+                    <span>"Policy"</span>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+/// List of adapters used
+#[component]
+fn AdaptersList(adapters: Vec<String>, #[prop(optional)] compact: bool) -> impl IntoView {
+    let label_class = if compact { "text-xs" } else { "text-sm" };
+
+    view! {
+        <div>
+            <h4 class={format!("{} font-medium mb-2", label_class)}>"Adapters Used"</h4>
+            <div class="flex flex-wrap gap-2">
+                {adapters.into_iter().map(|adapter| {
+                    view! {
+                        <span class="px-2 py-1 bg-primary/10 text-primary rounded text-xs font-mono">
+                            {adapter}
+                        </span>
+                    }
+                }).collect::<Vec<_>>()}
+            </div>
+        </div>
+    }
+}
+
+/// Token-level routing decisions
+#[component]
+fn TokenDecisions(
+    decisions: Vec<TokenDecision>,
+    expanded: ReadSignal<bool>,
+    set_expanded: WriteSignal<bool>,
+    #[prop(optional)] compact: bool,
+) -> impl IntoView {
+    let label_class = if compact { "text-xs" } else { "text-sm" };
+    let max_display = if compact { 5 } else { 10 };
+    let decision_count = decisions.len();
+
+    view! {
+        <div class="border border-border rounded-lg p-3">
+            <button
+                class="w-full flex items-center justify-between"
+                on:click=move |_| set_expanded.update(|e| *e = !*e)
+            >
+                <h4 class={format!("{} font-medium", label_class)}>
+                    "Token Routing Decisions ("{decision_count}")"
+                </h4>
+                <svg
+                    class={move || format!("w-4 h-4 transition-transform {}", if expanded.get() { "rotate-180" } else { "" })}
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                >
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                </svg>
+            </button>
+
+            {move || if expanded.get() {
+                let display_decisions: Vec<_> = decisions.iter().take(max_display).cloned().collect();
+                let remaining = decisions.len().saturating_sub(max_display);
+
+                Some(view! {
+                    <div class="mt-3 space-y-2">
+                        {display_decisions.into_iter().map(|d| {
+                            view! {
+                                <TokenDecisionRow decision=d compact=compact/>
+                            }
+                        }).collect::<Vec<_>>()}
+                        {if remaining > 0 {
+                            Some(view! {
+                                <div class="text-xs text-muted-foreground text-center py-2">
+                                    "... and "{remaining}" more tokens"
+                                </div>
+                            })
+                        } else {
+                            None
+                        }}
+                    </div>
+                })
+            } else {
+                None
+            }}
+        </div>
+    }
+}
+
+/// Single token decision row
+#[component]
+fn TokenDecisionRow(decision: TokenDecision, #[prop(optional)] compact: bool) -> impl IntoView {
+    let row_class = if compact {
+        "flex items-center gap-2 p-1 bg-muted/30 rounded text-xs"
+    } else {
+        "flex items-center gap-3 p-2 bg-muted/30 rounded"
+    };
+
+    // Format gates as percentages (Q15 -> percentage)
+    let adapter_gates: Vec<(String, String)> = decision
+        .adapter_ids
+        .iter()
+        .zip(decision.gates_q15.iter())
+        .map(|(id, g)| {
+            let id_short = id.chars().take(8).collect::<String>();
+            let gate_pct = format!("{:.1}%", (*g as f64 / 327.67));
+            (id_short, gate_pct)
+        })
+        .collect();
+
+    // Entropy indicator color
+    let entropy_color = if decision.entropy < 0.5 {
+        "text-green-500"
+    } else if decision.entropy < 1.0 {
+        "text-yellow-500"
+    } else {
+        "text-red-500"
+    };
+
+    let entropy_display = format!("{:.2}", decision.entropy);
+
+    view! {
+        <div class=row_class>
+            <span class="font-mono text-muted-foreground w-8">{"#"}{decision.token_index}</span>
+            <div class="flex-1 flex items-center gap-2">
+                <span class="text-xs">"Adapters:"</span>
+                {adapter_gates.into_iter().map(|(id_short, gate_pct)| {
+                    let display = format!("{} ({})", id_short, gate_pct);
+                    view! {
+                        <span class="px-1.5 py-0.5 bg-primary/10 rounded text-xs">
+                            {display}
+                        </span>
+                    }
+                }).collect::<Vec<_>>()}
+            </div>
+            <div class={format!("text-xs {}", entropy_color)} title="Routing entropy">
+                "H="{entropy_display}
+            </div>
+        </div>
+    }
+}
+
+/// Receipt verification display
+#[component]
+fn ReceiptVerification(receipt: TraceReceiptSummary, #[prop(optional)] compact: bool) -> impl IntoView {
+    let container_class = if compact {
+        "border border-border rounded p-2"
+    } else {
+        "border border-border rounded-lg p-4"
+    };
+
+    let verified_class = if receipt.verified {
+        "bg-green-500/10 border-green-500/20 text-green-500"
+    } else {
+        "bg-yellow-500/10 border-yellow-500/20 text-yellow-500"
+    };
+
+    let verified_text = if receipt.verified { "Verified" } else { "Unverified" };
+    let receipt_short = format!("{}...", receipt.receipt_digest.chars().take(16).collect::<String>());
+    let output_short = format!("{}...", receipt.output_digest.chars().take(16).collect::<String>());
+
+    view! {
+        <div class=container_class>
+            <div class="flex items-center justify-between mb-3">
+                <h4 class="text-sm font-medium">"Inference Receipt"</h4>
+                <span class={format!("px-2 py-0.5 rounded text-xs font-medium border {}", verified_class)}>
+                    {verified_text}
+                </span>
+            </div>
+            <div class="grid grid-cols-2 gap-2 text-xs">
+                <div>
+                    <span class="text-muted-foreground">"Prompt tokens: "</span>
+                    <span class="font-mono">{receipt.logical_prompt_tokens}</span>
+                </div>
+                <div>
+                    <span class="text-muted-foreground">"Output tokens: "</span>
+                    <span class="font-mono">{receipt.logical_output_tokens}</span>
+                </div>
+                <div class="col-span-2">
+                    <span class="text-muted-foreground">"Receipt digest: "</span>
+                    <span class="font-mono text-xs break-all">{receipt_short}</span>
+                </div>
+                <div class="col-span-2">
+                    <span class="text-muted-foreground">"Output hash: "</span>
+                    <span class="font-mono text-xs break-all">{output_short}</span>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+/// Compact trace button for embedding in chat messages
+#[component]
+pub fn TraceButton(
+    trace_id: String,
+    latency_ms: u64,
+    #[prop(optional)] on_click: Option<Callback<String>>,
+) -> impl IntoView {
+    let tid = trace_id.clone();
+    let trace_id_short = trace_id.chars().take(8).collect::<String>();
+
+    view! {
+        <button
+            class="inline-flex items-center gap-1.5 px-2 py-1 bg-muted/50 hover:bg-muted rounded text-xs transition-colors"
+            on:click=move |_| {
+                if let Some(ref cb) = on_click {
+                    cb.run(tid.clone());
+                }
+            }
+        >
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+            </svg>
+            <span class="font-mono">{trace_id_short}</span>
+            <span class="text-muted-foreground">{latency_ms}"ms"</span>
+        </button>
+    }
+}
+
+/// Trace panel for showing in a modal or side panel
+#[component]
+pub fn TracePanel(
+    trace_id: String,
+    #[prop(optional)] on_close: Option<Callback<()>>,
+) -> impl IntoView {
+    view! {
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+            <div class="bg-card border border-border rounded-xl shadow-xl w-full max-w-2xl max-h-[80vh] overflow-auto">
+                <div class="sticky top-0 bg-card border-b border-border p-4 flex items-center justify-between">
+                    <h2 class="text-lg font-semibold">"Trace Viewer"</h2>
+                    <button
+                        class="p-2 rounded-lg hover:bg-muted transition-colors"
+                        on:click=move |_| {
+                            if let Some(ref cb) = on_close {
+                                cb.run(());
+                            }
+                        }
+                    >
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="p-4">
+                    <TraceViewerInner trace_id=trace_id.clone() compact=false/>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+/// Internal trace viewer that takes a required trace_id
+#[component]
+fn TraceViewerInner(
+    trace_id: String,
+    #[prop(optional)] compact: bool,
+) -> impl IntoView {
+    let (state, set_state) = signal(TraceViewState::Loading);
+    let (expanded_tokens, set_expanded_tokens) = signal(false);
+
+    // Load trace on mount
+    let api = ApiClient::new();
+    let tid = trace_id.clone();
+
+    Effect::new(move |_prev| {
+        let api = api.clone();
+        let trace_id = tid.clone();
+
+        wasm_bindgen_futures::spawn_local(async move {
+            match api.get_inference_trace_detail(&trace_id).await {
+                Ok(detail) => set_state.set(TraceViewState::Detail(detail)),
+                Err(e) => set_state.set(TraceViewState::Error(e.to_string())),
+            }
+        });
+    });
+
+    let container_class = if compact {
+        "bg-card border border-border rounded-lg p-3 text-sm"
+    } else {
+        "bg-card border border-border rounded-lg p-6"
+    };
+
+    view! {
+        <div class=container_class>
+            {move || match state.get() {
+                TraceViewState::Empty | TraceViewState::Loading => view! {
+                    <div class="flex items-center justify-center py-8">
+                        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                        <span class="ml-3 text-muted-foreground">"Loading trace data..."</span>
+                    </div>
+                }.into_any(),
+
+                TraceViewState::List(_) => view! {
+                    <div class="text-muted-foreground text-center py-8">
+                        <p>"Unexpected state"</p>
+                    </div>
+                }.into_any(),
+
+                TraceViewState::Detail(detail) => view! {
+                    <TraceDetailStandalone
+                        trace=detail.clone()
+                        expanded_tokens=expanded_tokens
+                        set_expanded_tokens=set_expanded_tokens
+                        compact=compact
+                    />
+                }.into_any(),
+
+                TraceViewState::Error(err) => view! {
+                    <div class="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
+                        <div class="flex items-center gap-2 text-destructive">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                            </svg>
+                            <span class="font-medium">"Error loading trace"</span>
+                        </div>
+                        <p class="text-sm text-muted-foreground mt-2">{err}</p>
+                    </div>
+                }.into_any(),
+            }}
+        </div>
+    }
+}
+
+/// Trace detail without back button (for modal use)
+#[component]
+fn TraceDetailStandalone(
+    trace: InferenceTraceDetailResponse,
+    expanded_tokens: ReadSignal<bool>,
+    set_expanded_tokens: WriteSignal<bool>,
+    #[prop(optional)] compact: bool,
+) -> impl IntoView {
+    let heading_class = if compact { "text-sm font-semibold" } else { "text-lg font-semibold" };
+
+    view! {
+        <div class="space-y-4">
+            // Header
+            <div class="flex items-center justify-between">
+                <div>
+                    <h3 class=heading_class>"Trace Details"</h3>
+                    <span class="font-mono text-xs text-muted-foreground">{trace.trace_id.clone()}</span>
+                </div>
+                <div class="text-right text-sm text-muted-foreground">
+                    {trace.created_at.clone()}
+                </div>
+            </div>
+
+            // Latency metrics
+            <LatencyMetrics breakdown=trace.timing_breakdown.clone() compact=compact/>
+
+            // Timeline visualization
+            <TimelineVisualization breakdown=trace.timing_breakdown.clone() compact=compact/>
+
+            // Adapters used
+            <AdaptersList adapters=trace.adapters_used.clone() compact=compact/>
+
+            // Token decisions (expandable)
+            {if !trace.token_decisions.is_empty() {
+                Some(view! {
+                    <TokenDecisions
+                        decisions=trace.token_decisions.clone()
+                        expanded=expanded_tokens
+                        set_expanded=set_expanded_tokens
+                        compact=compact
+                    />
+                })
+            } else {
+                None
+            }}
+
+            // Receipt verification
+            {trace.receipt.clone().map(|r| view! {
+                <ReceiptVerification receipt=r compact=compact/>
+            })}
+        </div>
+    }
+}
