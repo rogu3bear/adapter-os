@@ -401,12 +401,10 @@ async fn test_role_hierarchy() {
         .await
         .expect("Failed to initialize test harness");
 
-    // Create users with all 5 roles
+    // Create users with all 3 roles
     let roles = vec![
         ("admin-role@example.com", Role::Admin),
         ("operator-role@example.com", Role::Operator),
-        ("sre-role@example.com", Role::SRE),
-        ("compliance-role@example.com", Role::Compliance),
         ("viewer-role@example.com", Role::Viewer),
     ];
 
@@ -440,11 +438,6 @@ async fn test_role_hierarchy() {
     assert!(
         role_names.contains(&"operator"),
         "Should have operator role"
-    );
-    assert!(role_names.contains(&"sre"), "Should have sre role");
-    assert!(
-        role_names.contains(&"compliance"),
-        "Should have compliance role"
     );
     assert!(role_names.contains(&"viewer"), "Should have viewer role");
 
