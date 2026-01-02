@@ -3,23 +3,27 @@
 
 [build]
 # Disable debug info for smaller, reproducible binaries
-# Note: Removed -Wl,-no_uuid flag as it causes LC_UUID linker errors on macOS Sequoia
+# Note: macOS-specific link args moved to target-specific sections
 rustflags = [
     "-Cdebuginfo=0",
-    "-C", "link-arg=-fmodules-cache-path=target/clang-cache",
 ]
 
 # Target-specific configuration
 [target.aarch64-apple-darwin]
 rustflags = [
     "-Cdebuginfo=0",
+    "-C", "link-arg=-fmodules-cache-path=target/clang-cache",
 ]
 
 [target.x86_64-apple-darwin]
 rustflags = [
     "-Cdebuginfo=0",
-  "-C", "link-arg=-fmodules-cache-path=target/clang-cache",
+    "-C", "link-arg=-fmodules-cache-path=target/clang-cache",
 ]
+
+[target.wasm32-unknown-unknown]
+# Minimal flags for WASM builds - no link-args that are macOS-specific
+rustflags = []
 
 [env]
 CLANG_MODULE_CACHE_PATH = "target/clang-cache"
