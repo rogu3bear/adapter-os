@@ -1,5 +1,6 @@
 //! Health check and system status handlers
 
+use crate::auth::is_dev_bypass_enabled;
 use crate::boot_state::BootState;
 use crate::state::{AppState, BackgroundTaskSnapshot};
 use crate::supervisor_client;
@@ -77,6 +78,25 @@ pub async fn health(State(state): State<AppState>) -> impl IntoResponse {
     )
 }
 
+/// Readiness mode indicates how strictly checks are enforced.
+///
+/// This helps the frontend understand the semantics of the readiness response
+/// and behave appropriately (e.g., show informational UI vs panic screen).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+#[serde(tag = "mode", rename_all = "snake_case")]
+pub enum ReadinessMode {
+    /// Full readiness checks enforced - all checks must pass for ready=true
+    #[default]
+    Strict,
+    /// Some checks are relaxed (e.g., skip-worker mode) - listed checks are informational
+    Relaxed {
+        /// List of check names that are relaxed (e.g., ["worker", "models"])
+        relaxed_checks: Vec<String>,
+    },
+    /// Dev bypass active - all checks are informational, system returns 200 regardless
+    DevBypass,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ReadyzCheck {
     pub ok: bool,
@@ -104,6 +124,12 @@ pub struct ReadyzResponse {
     pub last_error_code: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub phases: Vec<crate::boot_state::PhaseStatus>,
+    /// Indicates how strictly checks are enforced.
+    /// - `strict`: All checks must pass for ready=true
+    /// - `relaxed`: Some checks are informational only
+    /// - `dev_bypass`: All checks informational, always returns 200
+    #[serde(default)]
+    pub readiness_mode: ReadinessMode,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Default)]
@@ -154,13 +180,27 @@ pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
         latency_ms: None,
     };
 
+    // Determine readiness mode based on configuration
+    let readiness_mode = if is_dev_bypass_enabled() {
+        ReadinessMode::DevBypass
+    } else {
+        // TODO: Add support for relaxed mode based on config (e.g., skip-worker)
+        ReadinessMode::Strict
+    };
+
     // Check boot state - only return ready if in Ready state
     let Some(ref boot_state) = state.boot_state else {
         ready = false;
         worker_check.ok = false;
         worker_check.hint = Some("boot state manager not configured".to_string());
 
-        let status_code = StatusCode::SERVICE_UNAVAILABLE;
+        // In dev bypass mode, return 200 regardless of check results
+        let status_code = if matches!(readiness_mode, ReadinessMode::DevBypass) {
+            StatusCode::OK
+        } else {
+            StatusCode::SERVICE_UNAVAILABLE
+        };
+
         return (
             status_code,
             Json(ReadyzResponse {
@@ -174,6 +214,7 @@ pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
                 boot_trace_id: String::new(),
                 last_error_code: None,
                 phases: Vec::new(),
+                readiness_mode,
             }),
         );
     };
@@ -383,7 +424,8 @@ pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
     // Final readiness is the conjunction of the individual checks.
     ready = db_check.ok && worker_check.ok && models_seeded_check.ok;
 
-    let status_code = if ready {
+    // In dev bypass mode, always return 200 regardless of check results
+    let status_code = if matches!(readiness_mode, ReadinessMode::DevBypass) || ready {
         StatusCode::OK
     } else {
         StatusCode::SERVICE_UNAVAILABLE
@@ -447,6 +489,7 @@ pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
             boot_trace_id: boot_state.boot_trace_id(),
             last_error_code: boot_state.last_error_code(),
             phases: boot_state.phase_statuses(),
+            readiness_mode,
         }),
     )
 }

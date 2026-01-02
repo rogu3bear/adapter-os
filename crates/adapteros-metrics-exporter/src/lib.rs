@@ -1,10 +1,6 @@
 //! Prometheus/OpenMetrics exporter for AdapterOS control plane
 
-use adapteros_db::{
-    index_health::{DbstatIndexSummary, SqlitePageStats, TenantIndexCoverage},
-    models::Worker,
-    Db,
-};
+use adapteros_db::{models::Worker, Db};
 use anyhow::Result;
 use prometheus::{
     Counter, CounterVec, Encoder, Gauge, GaugeVec, HistogramOpts, HistogramVec, Opts, Registry,
@@ -42,6 +38,7 @@ impl Default for MetricsSnapshot {
 }
 
 /// Metrics exporter with Prometheus-compatible OpenMetrics format
+#[allow(dead_code)] // Some fields are registered with Prometheus but not actively populated
 pub struct MetricsExporter {
     registry: Registry,
     // Request metrics
@@ -727,90 +724,6 @@ impl MetricsExporter {
             .as_secs_f64()
     }
 
-    pub fn set_sqlite_page_stats(&self, stats: &SqlitePageStats) {
-        self.db_page_size_bytes.set(stats.page_size_bytes as f64);
-        self.db_page_count.set(stats.page_count as f64);
-        self.db_freelist_count.set(stats.freelist_count as f64);
-        self.db_freelist_ratio.set(stats.freelist_ratio);
-        self.db_size_estimate_bytes
-            .set(stats.db_size_estimate_bytes as f64);
-        self.db_freelist_bytes.set(stats.freelist_bytes as f64);
-    }
-
-    pub fn set_tenant_index_coverage(&self, coverage: &[TenantIndexCoverage]) {
-        for c in coverage {
-            self.db_tenant_index_table_exists
-                .with_label_values(&[&c.table])
-                .set(if c.table_exists { 1.0 } else { 0.0 });
-            self.db_tenant_index_has_tenant_id_column
-                .with_label_values(&[&c.table])
-                .set(if c.has_tenant_id_column { 1.0 } else { 0.0 });
-            self.db_tenant_index_leading_present
-                .with_label_values(&[&c.table])
-                .set(if c.has_leading_tenant_id_index {
-                    1.0
-                } else {
-                    0.0
-                });
-        }
-    }
-
-    pub fn set_dbstat_index_summary(&self, summary: Option<&DbstatIndexSummary>) {
-        match summary {
-            Some(s) => {
-                self.db_dbstat_available.set(1.0);
-                self.db_index_bytes.set(s.total_index_bytes as f64);
-                self.db_index_unused_bytes
-                    .set(s.total_index_unused_bytes as f64);
-                self.db_index_unused_ratio.set(s.total_index_unused_ratio);
-
-                let new_top: HashSet<String> =
-                    s.top_indexes.iter().map(|idx| idx.name.clone()).collect();
-
-                let mut tracked = self
-                    .dbstat_tracked_top_indexes
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner());
-
-                let to_remove: Vec<String> = tracked.difference(&new_top).cloned().collect();
-                for idx in to_remove {
-                    let _ = self.db_dbstat_top_index_bytes.remove_label_values(&[&idx]);
-                    let _ = self
-                        .db_dbstat_top_index_unused_ratio
-                        .remove_label_values(&[&idx]);
-                    tracked.remove(&idx);
-                }
-
-                for idx in &s.top_indexes {
-                    self.db_dbstat_top_index_bytes
-                        .with_label_values(&[&idx.name])
-                        .set(idx.bytes as f64);
-                    self.db_dbstat_top_index_unused_ratio
-                        .with_label_values(&[&idx.name])
-                        .set(idx.unused_ratio);
-                    tracked.insert(idx.name.clone());
-                }
-            }
-            None => {
-                self.db_dbstat_available.set(0.0);
-                self.db_index_bytes.set(0.0);
-                self.db_index_unused_bytes.set(0.0);
-                self.db_index_unused_ratio.set(0.0);
-
-                let mut tracked = self
-                    .dbstat_tracked_top_indexes
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner());
-                for idx in tracked.drain() {
-                    let _ = self.db_dbstat_top_index_bytes.remove_label_values(&[&idx]);
-                    let _ = self
-                        .db_dbstat_top_index_unused_ratio
-                        .remove_label_values(&[&idx]);
-                }
-            }
-        }
-    }
-
     pub fn record_index_probe_success(&self, probe: &str, used_index: bool, duration_secs: f64) {
         self.db_index_probe_success
             .with_label_values(&[probe])
@@ -976,22 +889,6 @@ mod tests {
         let exporter = MetricsExporter::new(vec![0.001, 0.01, 0.1, 1.0])
             .expect("Test metrics exporter creation should succeed");
 
-        exporter.set_sqlite_page_stats(&SqlitePageStats {
-            page_size_bytes: 4096,
-            page_count: 100,
-            freelist_count: 10,
-            db_size_estimate_bytes: 4096 * 100,
-            freelist_bytes: 4096 * 10,
-            freelist_ratio: 0.1,
-        });
-
-        exporter.set_tenant_index_coverage(&[TenantIndexCoverage {
-            table: "adapters".to_string(),
-            table_exists: true,
-            has_tenant_id_column: true,
-            has_leading_tenant_id_index: true,
-        }]);
-
         exporter.record_index_probe_success("adapters_by_tenant", true, 0.002);
         exporter.record_index_maintenance("optimize", true, 0.01);
         exporter.set_index_health_status(0);
@@ -1002,7 +899,6 @@ mod tests {
             .expect("Test metrics render should succeed");
         let output_str = String::from_utf8(output).expect("Test UTF-8 conversion should succeed");
 
-        assert!(output_str.contains("adapteros_db_page_size_bytes"));
         assert!(output_str.contains("adapteros_db_index_probe_duration_seconds"));
         assert!(output_str.contains("adapteros_db_index_maintenance_total"));
         assert!(output_str.contains("adapteros_db_index_health_status"));
