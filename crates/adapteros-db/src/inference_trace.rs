@@ -72,6 +72,8 @@ pub struct TraceFinalization<'a> {
     // Model Cache Identity (PRD-06: ModelCacheIdentity v2)
     /// BLAKE3-256 digest of ModelCacheIdentityV2 canonical bytes
     pub model_cache_identity_v2_digest_b3: Option<B3Hash>,
+    /// Optional attestation payload (e.g., determinism report)
+    pub attestation: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone)]
@@ -520,7 +522,7 @@ impl TraceSink for SqlTraceSink {
                 stop_policy_digest_b3,
                 model_cache_identity_v2_digest_b3,
                 created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, datetime('now'))
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
             "#,
         )
         .bind(&self.start.trace_id)
@@ -532,6 +534,8 @@ impl TraceSink for SqlTraceSink {
         .bind(finalization.billed_input_tokens as i64)
         .bind(finalization.logical_output_tokens as i64)
         .bind(finalization.billed_output_tokens as i64)
+        .bind(Option::<Vec<u8>>::None)
+        .bind(finalization.attestation.as_deref())
         .bind(&finalization.stop_reason_code)
         .bind(finalization.stop_reason_token_index.map(|i| i as i64))
         .bind(stop_policy_digest_bytes.as_ref().map(|b| &b[..]))
@@ -550,7 +554,7 @@ impl TraceSink for SqlTraceSink {
             output_digest,
             receipt_digest,
             signature: None,
-            attestation: None,
+            attestation: finalization.attestation.clone(),
             logical_prompt_tokens: finalization.logical_prompt_tokens,
             prefix_cached_token_count: finalization.prefix_cached_token_count,
             billed_input_tokens: finalization.billed_input_tokens,

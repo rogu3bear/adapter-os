@@ -290,6 +290,42 @@ impl Db {
         Ok(())
     }
 
+    /// Pre-register a worker with 'pending' status before socket bind.
+    /// Prevents `/readyz` race where worker process started but socket not yet bound.
+    pub async fn pre_register_worker(
+        &self,
+        worker_id: &str,
+        tenant_id: &str,
+        node_id: &str,
+        plan_id: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO workers (id, tenant_id, node_id, plan_id, status, started_at) \
+             VALUES (?, ?, ?, ?, 'pending', datetime('now'))",
+        )
+        .bind(worker_id)
+        .bind(tenant_id)
+        .bind(node_id)
+        .bind(plan_id)
+        .execute(self.pool())
+        .await
+        .map_err(|e| {
+            AosError::Database(format!(
+                "Failed to pre-register worker {}: {}",
+                worker_id, e
+            ))
+        })?;
+
+        debug!(
+            worker_id = %worker_id,
+            tenant_id = %tenant_id,
+            node_id = %node_id,
+            "Pre-registered worker with pending status"
+        );
+
+        Ok(())
+    }
+
     /// Update worker heartbeat and optionally status
     pub async fn update_worker_heartbeat(&self, id: &str, status: Option<&str>) -> Result<()> {
         if let Some(st) = status {
