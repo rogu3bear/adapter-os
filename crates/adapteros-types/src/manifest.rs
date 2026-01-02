@@ -3,7 +3,8 @@
 use serde::{Deserialize, Serialize};
 
 /// Persisted manifest metadata stored in the control plane.
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(sqlx::FromRow))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct Manifest {
     /// Unique manifest identifier

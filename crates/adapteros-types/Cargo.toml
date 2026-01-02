@@ -8,14 +8,19 @@ repository.workspace = true
 description = "Core type definitions for AdapterOS (no framework dependencies)"
 
 [features]
-default = []
+default = ["server"]
+# Server feature enables sqlx and other server-only deps
+server = ["dep:sqlx"]
+# OpenAPI schema generation
 utoipa = ["dep:utoipa"]
+# WASM-compatible build (excludes server deps)
+wasm = []
 
 [dependencies]
 # Serialization (required for API boundaries)
 serde = { workspace = true }
 serde_json = { workspace = true }
-sqlx = { workspace = true, features = ["sqlite"] }
+sqlx = { workspace = true, features = ["sqlite"], optional = true }
 schemars = { workspace = true }
 utoipa = { workspace = true, optional = true }
 

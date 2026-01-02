@@ -5,9 +5,10 @@ use serde::{Deserialize, Serialize};
 use std::{fmt, str::FromStr};
 
 /// Routing determinism mode (UI toggle)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(sqlx::Type))]
 #[serde(rename_all = "snake_case")]
-#[sqlx(type_name = "TEXT", rename_all = "snake_case")]
+#[cfg_attr(feature = "server", sqlx(type_name = "TEXT", rename_all = "snake_case"))]
 pub enum RoutingDeterminismMode {
     /// Deterministic routing with stable tie-breaking
     Deterministic,

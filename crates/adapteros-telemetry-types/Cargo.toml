@@ -7,15 +7,20 @@ license.workspace = true
 repository.workspace = true
 description = "Shared telemetry metric types for AdapterOS"
 
+[features]
+default = ["server"]
+# Server feature enables adapteros-core dependency
+server = ["dep:adapteros-core"]
+# OpenAPI schema generation
+utoipa = ["dep:utoipa", "adapteros-core/utoipa"]
+# WASM-compatible build
+wasm = ["adapteros-types/wasm"]
+
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
-adapteros-core = { path = "../adapteros-core" }
-adapteros-types = { path = "../adapteros-types" }
-
-[features]
-default = []
-utoipa = ["dep:utoipa", "adapteros-core/utoipa"]
+adapteros-core = { path = "../adapteros-core", optional = true }
+adapteros-types = { path = "../adapteros-types", default-features = false }
 
 [dependencies.utoipa]
 version = "5.4"

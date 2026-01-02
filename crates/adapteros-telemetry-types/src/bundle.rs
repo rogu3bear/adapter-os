@@ -3,7 +3,13 @@
 //! This module provides the canonical BundleMetadata type used across
 //! the telemetry system for bundle storage, verification, and retention.
 
+#[cfg(feature = "server")]
 use adapteros_core::B3Hash;
+
+// For WASM builds, use the simple type alias from adapteros-types
+#[cfg(not(feature = "server"))]
+pub use adapteros_types::routing::B3Hash;
+
 use serde::{Deserialize, Serialize};
 use std::time::SystemTime;
 
