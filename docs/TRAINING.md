@@ -26,7 +26,7 @@ Complete guide to training custom LoRA adapters in AdapterOS, covering the entir
 
 AdapterOS converts training data into production-ready LoRA adapters packaged as `.aos` archives. The system supports:
 
-- **Multiple Backends**: CoreML/ANE (default), Metal, MLX, CPU
+- **Multiple Backends**: MLX (primary), CoreML/ANE (acceleration), Metal (kernels)
 - **Multi-format Datasets**: JSONL, JSON, plain text
 - **Full Provenance Tracking**: Dataset lineage, training evidence, and audit trails
 - **Version Control**: Repository-based adapter versioning with promotion workflows
@@ -473,12 +473,19 @@ From the user interface perspective, codebase adapter binding happens at session
 
 AdapterOS supports multiple training backends with automatic selection:
 
-#### 1. CoreML with ANE (Primary)
+#### 1. MLX (Primary)
+
+- **Platform**: macOS with Apple Silicon
+- **Best for**: All inference and training workloads
+- **Feature flag**: `multi-backend` (default)
+- **Selection priority**: 1 (highest)
+
+#### 2. CoreML with ANE (Acceleration Layer)
 
 - **Platform**: macOS 13+, Apple Silicon with ANE
-- **Best for**: Production training, power efficiency
-- **Feature flag**: `coreml-backend` (default on macOS)
-- **Selection priority**: 1 (highest)
+- **Best for**: ANE-accelerated ops, power efficiency
+- **Feature flag**: `coreml-backend`
+- **Selection priority**: 2 (acceleration layer for MLX)
 
 **CoreML Training Architecture:**
 - LoRA-only training (base model weights never loaded/mutated)
@@ -486,20 +493,12 @@ AdapterOS supports multiple training backends with automatic selection:
 - CPU-side gradients and optimizer updates
 - Existing Rust gradient path (clipping, deterministic noise, NaN scrubbing)
 
-#### 2. Metal GPU
+#### 3. Metal GPU (Kernels)
 
 - **Platform**: macOS with Metal-capable GPU
-- **Best for**: Deterministic GPU computation (legacy fallback)
+- **Best for**: Low-level GPU compute primitives
 - **Feature flag**: `metal-backend`
-- **Selection priority**: 2
-
-#### 3. MLX Backend
-
-- **Platform**: Apple Silicon with MLX C++ runtime
-- **Best for**: Real MLX inference/training integration
-- **Feature flags**: `multi-backend` + `mlx`
-- **Selection priority**: 3
-- **Note**: Stub-only without `mlx` feature
+- **Selection priority**: 3 (used by MLX internally)
 
 #### 4. CPU
 
@@ -1517,16 +1516,12 @@ cargo test -p adapteros-orchestrator training
 # Integration tests
 cargo test -p adapteros-server-api training
 cargo test -p adapteros-server-api lineage
-
-# E2E tests
-cd ui && pnpm cypress run --spec "e2e/cypress/e2e/ui/training*.cy.ts"
 ```
 
 **Conformance tests:**
 - Training lineage: `crates/adapteros-server-api/tests/training_lineage_conformance.rs`
 - Orchestrator parity: `crates/adapteros-orchestrator/tests/training_lineage_conformance.rs`
 - Adapter health: `crates/adapteros-server-api/tests/adapter_health_conformance.rs`
-- UI guardrails: `ui/e2e/cypress/e2e/ui/training-lineage-trust.cy.ts`
 
 ---
 

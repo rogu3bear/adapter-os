@@ -59,7 +59,7 @@ AdapterOS provides a multi-tenant ML inference platform with the following compo
 - **Control Plane** (port 8080): HTTP API with SQLite, JWT auth, policy enforcement
 - **Worker Processes**: LoRA inference/training over Unix Domain Sockets (UDS)
 - **K-Sparse Router**: Multi-adapter mixing with Q15 quantization
-- **Multi-Backend**: CoreML/ANE (primary), Metal, MLX
+- **Multi-Backend**: MLX (primary), CoreML/ANE (acceleration), Metal (kernels)
 
 ### API Characteristics
 

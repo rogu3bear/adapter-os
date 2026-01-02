@@ -33,15 +33,15 @@ AdapterOS is an ML inference platform with an offline-capable, UMA-optimized orc
 - **Zero network egress** during serving
 - **Deterministic replay** for compliance and debugging
 - **Hot-swap adapters** without service interruption
-- **Multi-backend support**: CoreML/ANE (primary), Metal, MLX
+- **Multi-backend support**: MLX (primary), CoreML/ANE (acceleration layer), Metal (kernels)
 
 ### Backend Execution Modes
 
 AdapterOS supports two backend execution modes with different adapter handling:
 
-- **CoreML/ANE (Primary)**: Uses **frozen CoreML packages** exported from adapters. Packages are deterministic, pre-fused, and verified via BLAKE3 hash metadata. Adapters must be frozen before CoreML export to ensure weight immutability. Best for production deployments.
+- **MLX (Primary)**: Native macOS inference and training with unified memory. Supports **hot-swap adapters** with live replacement during inference. Uses atomic pointer updates for zero-downtime updates and rollbacks. HKDF-seeded determinism for reproducible results.
 
-- **MLX/Metal (Dynamic)**: Supports **hot-swap adapters** with live replacement during inference. Uses atomic pointer updates for zero-downtime updates and rollbacks. Required for live codebase adapters that receive incremental updates.
+- **CoreML/ANE (Acceleration Layer)**: Provides ANE-accelerated ops for specific layers (e.g., K-sparse gate routing). Uses **frozen CoreML packages** for deterministic execution. Power-efficient (50% savings) when offloading to Neural Engine.
 
 The backend selection is deterministic based on capabilities and configuration. See [BACKEND_SELECTION.md](BACKEND_SELECTION.md) for details.
 
@@ -50,7 +50,7 @@ The backend selection is deterministic based on capabilities and configuration. 
 ```mermaid
 graph TB
     subgraph "Client Layer"
-        UI[Web UI<br/>React + TypeScript]
+        UI[Web UI<br/>Leptos + WASM]
         CLI[CLI Tool<br/>aosctl]
     end
 
@@ -70,7 +70,7 @@ graph TB
     end
 
     subgraph "Execution Kernels"
-        CoreML[CoreML/ANE<br/>Primary Backend]
+        CoreML[CoreML/ANE<br/>Acceleration Layer]
         Metal[Metal Kernels<br/>GPU Compute]
         MLX[MLX Backend<br/>Apple ML Framework]
     end
@@ -114,7 +114,7 @@ graph TB
 
 | Layer | Technologies |
 |-------|-------------|
-| **Frontend** | React 18, TypeScript, Vite, TanStack Query, Tailwind CSS |
+| **Frontend** | Leptos 0.7, Tailwind CSS, WASM (Client-Side Rendering), Trunk |
 | **Backend** | Rust (nightly), Axum, SQLite with WAL mode |
 | **ML Frameworks** | CoreML, Metal Performance Shaders, MLX |
 | **Security** | JWT (HMAC-SHA256 or Ed25519), Argon2id password hashing |
@@ -1140,7 +1140,7 @@ sequenceDiagram
 - `batch_size` - Batch size (default: 4)
 
 **Location:**
-- Frontend: `ui/src/components/TrainingWizard.tsx`
+- Frontend: `crates/adapteros-ui/src/pages/training.rs`
 - Backend: `crates/adapteros-server-api/src/handlers.rs:10599-10756`
 - Orchestrator: `crates/adapteros-orchestrator/src/training.rs`
 
@@ -1200,7 +1200,7 @@ sequenceDiagram
 - `adapters` - Explicit adapter IDs (optional, router auto-selects if empty)
 
 **Location:**
-- Frontend: `ui/src/components/InferencePlayground.tsx`
+- Frontend: `crates/adapteros-ui/src/pages/inference.rs`
 - Backend: `crates/adapteros-server-api/src/handlers.rs:4736+`
 - Worker: `crates/adapteros-lora-worker/src/inference_pipeline.rs`
 

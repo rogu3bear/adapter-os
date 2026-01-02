@@ -151,7 +151,7 @@ make dev
 - **macOS 13.0+** with Apple Silicon (M1/M2/M3/M4)
 - **Rust (nightly toolchain)**: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh` (see `rust-toolchain.toml` for exact channel)
 - **pnpm 8+**: Required for UI development (`npm install -g pnpm`)
-- **MLX**: `pip install mlx` (Optional - for MLX backend development only)
+- **MLX**: `brew install mlx` (Required for MLX backend; `pip install mlx-lm` only for model conversion)
 
 ### Build
 
@@ -178,7 +178,7 @@ cargo build --release
 
 Use `make fresh-build` before rebuilding to prevent port conflicts and build errors.
 
-**Note**: CoreML backend is the primary production backend (ANE acceleration), MLX backend is secondary for production inference and training workloads. Metal backend is an incomplete fallback (model loading issues) for legacy scenarios only.
+**Note**: MLX is the primary backend for inference and training on Apple Silicon. CoreML provides ANE-accelerated operations for specific layers. Metal provides low-level GPU kernels.
 
 ### Database Initialization
 
@@ -350,7 +350,7 @@ See [docs/LIFECYCLE.md](docs/LIFECYCLE.md) for detailed state machine documentat
 ## 📊 Current Status (alpha-v0.11-unstable-pre-release)
 
 ### ✅ **Implemented Features**
-- **Multi-Backend Support**: CoreML (ANE, primary), MLX (GPU, secondary), Metal (incomplete fallback) backends
+- **Multi-Backend Support**: MLX (primary inference/training), CoreML (ANE acceleration layer), Metal (GPU kernels)
 - **K-Sparse LoRA Routing**: Dynamic adapter selection with Q15 quantization
 - **Deterministic Execution**: HKDF seeding, reproducible results
 - **Policy Enforcement**: 25 canonical policy packs with runtime validation

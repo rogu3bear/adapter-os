@@ -9,11 +9,10 @@ Get AdapterOS up and running in under 10 minutes. This guide covers both backend
 ### System Requirements
 - **macOS 13.0+** with Apple Silicon (M1/M2/M3/M4)
 - **Rust 1.75+**: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
-- **MLX**: `pip install mlx` (for model operations)
+- **MLX**: `brew install mlx` (required for MLX backend; `pip install mlx-lm` for model conversion)
 
 ### Additional Tools
-- **pnpm** (for web UI): `npm install -g pnpm`
-- **Node.js 20+**: For React UI development
+- **Trunk** (for Leptos UI): `cargo install trunk`
 
 ## Quick Start: Backend
 
@@ -102,16 +101,15 @@ make dev
 ### Development Mode (Hot Reload)
 
 ```bash
-# Terminal 1: UI dev server
-cd ui
-pnpm install
-pnpm dev
+# Terminal 1: UI dev server (Leptos + Trunk)
+cd crates/adapteros-ui
+trunk serve
 
 # Terminal 2: Backend server
 cargo run --release --bin adapteros-server -- --config configs/cp.toml
 ```
 
-Visit http://127.0.0.1:3200 (UI) and http://127.0.0.1:8080 (API)
+Visit http://127.0.0.1:8080 (UI served from static/) and http://127.0.0.1:8080/api (API)
 
 ### Production Build (Single Binary)
 
@@ -215,7 +213,7 @@ Build the UI first:
 ```bash
 make ui
 # Or manually:
-cd ui && pnpm install && pnpm build
+cd crates/adapteros-ui && trunk build --release
 ```
 
 ### "Connection refused"

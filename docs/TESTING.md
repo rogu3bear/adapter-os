@@ -24,7 +24,6 @@ AdapterOS has a comprehensive test suite covering multiple layers:
 - **Integration Tests**: API handlers, database interactions, multi-component workflows
 - **E2E Tests**: Full system workflows (adapter lifecycle, training, inference)
 - **Determinism Tests**: Router and inference reproducibility
-- **UI Tests**: Frontend components and API integration
 
 ### Test Organization
 
@@ -33,8 +32,6 @@ AdapterOS has a comprehensive test suite covering multiple layers:
 | `tests/` | Root-level E2E and integration tests |
 | `crates/*/tests/` | Crate-specific integration tests |
 | `crates/*/src/lib.rs` | Inline unit tests (via `#[cfg(test)]` modules) |
-| `ui/src/__tests__/` | React component tests (Vitest) |
-| `ui/e2e/cypress/` | UI E2E tests (Cypress) |
 
 ---
 
@@ -82,19 +79,6 @@ make e2e-worker-test
 
 # MLX-specific tests (if MLX features enabled)
 make test-mlx
-```
-
-### UI Tests
-
-```bash
-cd ui/
-
-# Run Vitest unit tests
-pnpm test
-
-# Run Cypress E2E tests
-pnpm cypress:open         # Interactive mode
-pnpm cypress:run          # Headless mode
 ```
 
 ---
@@ -347,53 +331,6 @@ fn test_router_determinism() {
 
 ---
 
-## UI Testing
-
-### Vitest Component Tests
-
-Located in `ui/src/__tests__/` and `ui/src/**/__tests__/`
-
-```bash
-cd ui/
-
-# Run all tests
-pnpm test
-
-# Watch mode
-pnpm test:watch
-
-# Coverage
-pnpm test:coverage
-
-# Specific test file
-pnpm test ChatInterface.test.tsx
-```
-
-### Cypress E2E Tests
-
-Located in `ui/e2e/cypress/e2e/`
-
-```bash
-cd ui/
-
-# Interactive mode (opens Cypress UI)
-pnpm cypress:open
-
-# Headless mode (CI)
-pnpm cypress:run
-
-# Specific test
-pnpm cypress:run --spec "e2e/ui/training.cy.ts"
-```
-
-### UI Test Categories
-
-| Category | Path | Purpose |
-|----------|------|---------|
-| API Tests | `e2e/cypress/e2e/api/` | Backend API contract verification |
-| UI Tests | `e2e/cypress/e2e/ui/` | User interaction workflows |
-| Component Tests | `src/__tests__/` | React component unit tests |
-
 ---
 
 ## Test Patterns
@@ -552,22 +489,6 @@ set +a
 ls -lh models/
 ```
 
-### UI Test Failures
-
-```bash
-cd ui/
-
-# Clear cache
-pnpm clean
-rm -rf node_modules/.vite
-
-# Reinstall dependencies
-pnpm install
-
-# Verify backend is running
-curl http://localhost:8080/health
-```
-
 ---
 
 ## File Locations
@@ -577,8 +498,6 @@ curl http://localhost:8080/health
 | E2E Tests | `tests/e2e_*.rs` |
 | Integration Tests | `crates/*/tests/*.rs` |
 | Test Fixtures | `crates/adapteros-server-api/tests/common/mod.rs` |
-| UI Component Tests | `ui/src/__tests__/` |
-| UI E2E Tests | `ui/e2e/cypress/e2e/` |
 | Test Data | `test_data/` |
 | Benchmark Tests | `tests/benchmark/` |
 

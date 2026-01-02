@@ -7,7 +7,7 @@ AdapterOS currently uses short-lived JWT access tokens plus refresh/session cook
 - `crates/adapteros-server-api/src/middleware/mod.rs` (auth/dual/optional auth, tenant guard, CSRF)
 - `crates/adapteros-server-api/src/auth_common.rs` (token TTLs, cookie attributes, dev login gating)
 - `crates/adapteros-server-api/src/security/mod.rs` (tenant isolation, lockouts, revocation baseline)
-- UI client: `ui/src/api/client.ts` (in-memory bearer token, cookie-based refresh with `credentials: 'include'`)
+- UI client: `crates/adapteros-ui/src/api/` (in-memory bearer token, cookie-based refresh)
 
 ## Architecture
 
@@ -72,7 +72,7 @@ JWT tokens contain the following claims:
 
 ### API Client
 
-The frontend API client (`ui/src/api/client.ts`) currently:
+The frontend API client (`crates/adapteros-ui/src/api/`) currently:
 
 1. Keeps the bearer token in memory (not localStorage); refreshed tokens update the in-memory value.
 2. Uses `credentials: 'include'` so auth/refresh/CSRF cookies are sent; unsafe requests with cookies must set `X-CSRF-Token` to the cookie value.
@@ -199,7 +199,7 @@ Current responses include (see middleware + `auth_enhanced` handlers):
 2. **403 Forbidden**: Permission denied (no recovery)
 3. **429 Too Many Requests**: Rate limit exceeded (wait)
 
-**Citation**: `ui/src/api/client.ts` L278-298
+**Citation**: `crates/adapteros-ui/src/api/`
 
 ## API Endpoints
 
@@ -230,7 +230,7 @@ Current responses include (see middleware + `auth_enhanced` handlers):
 ## Development Workflow
 
 1. Start the control plane (debug build) with config keys set; use `AOS_DEV_NO_AUTH=1` only for debugging.
-2. UI dev server: `cd ui && pnpm dev` (uses `/api` by default, sends cookies).
+2. UI dev server: `cd crates/adapteros-ui && trunk serve` (uses `/api` by default, sends cookies).
 3. Authenticate by:
    - Standard login: `curl -X POST http://localhost:8080/v1/auth/login ...` (returns bearer + cookies).
    - Dev bypass (only when compiled + enabled as above): `curl -X POST http://localhost:8080/v1/auth/dev-bypass`.
@@ -252,7 +252,7 @@ Current responses include (see middleware + `auth_enhanced` handlers):
 - **Error Handling**: `crates/adapteros-server-api/src/errors.rs`
 - **API Handlers**: `crates/adapteros-server-api/src/handlers.rs`
 - **Routes**: `crates/adapteros-server-api/src/routes.rs`
-- **Frontend Client**: `ui/src/api/client.ts`
+- **Frontend Client**: `crates/adapteros-ui/src/api/`
 
 ### Design Documents
 

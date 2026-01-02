@@ -1284,7 +1284,7 @@ Warning: MLX bridge restart count exceeded (3)
 | **Use Case** | Production | Power-efficient | Production inference, training | MoE models |
 | **Policy Attestation** | `deterministic: true` | `deterministic: ane_available` | `deterministic: false` | `deterministic: false` |
 | **Performance** | Highest | Good | Good | Good (10-20% overhead) |
-| **Setup** | Automatic on macOS | Automatic | Requires Python/MLX | Requires Python/mlx-lm |
+| **Setup** | Automatic on macOS | Automatic | Requires Homebrew MLX | Requires Python/mlx-lm |
 | **LoRA Support** | Full | Full | Full | Limited |
 | **Adapter Hot-Swap** | Limited | Limited | Full | Limited |
 | **Model Format** | .metallib | .mlmodelc | .safetensors | .safetensors |
