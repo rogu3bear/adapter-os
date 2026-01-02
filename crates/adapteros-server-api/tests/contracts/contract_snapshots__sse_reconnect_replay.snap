@@ -1,0 +1,19 @@
+---
+source: crates/adapteros-server-api/tests/contract_snapshots.rs
+assertion_line: 432
+expression: "json!({ \"last_event_id\": last_event_id, \"has_gap\": replay.has_gap, \"dropped_count\": replay.dropped_count, \"events\": replay_events })"
+---
+{
+  "dropped_count": 0,
+  "events": [
+    {
+      "data": "{\"cpu\":0.84}",
+      "event_type": "metrics",
+      "id": 1,
+      "retry_ms": 3000,
+      "timestamp_ms": "<timestamp>"
+    }
+  ],
+  "has_gap": false,
+  "last_event_id": 0
+}

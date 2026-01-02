@@ -1315,12 +1315,12 @@ async fn test_tenant_token_revoke_permission_admin_only() -> Result<()> {
     let admin_id = create_test_user(&db, "admin@aos.local", Role::Admin, "tenant-a").await?;
     let operator_id =
         create_test_user(&db, "operator@aos.local", Role::Operator, "tenant-a").await?;
-    let sre_id = create_test_user(&db, "sre@aos.local", Role::SRE, "tenant-a").await?;
+    let viewer_id = create_test_user(&db, "viewer@aos.local", Role::Viewer, "tenant-a").await?;
 
     let admin_claims = create_test_claims(&admin_id, "admin@aos.local", "admin", "tenant-a");
     let operator_claims =
         create_test_claims(&operator_id, "operator@aos.local", "operator", "tenant-a");
-    let sre_claims = create_test_claims(&sre_id, "sre@aos.local", "sre", "tenant-a");
+    let viewer_claims = create_test_claims(&viewer_id, "viewer@aos.local", "viewer", "tenant-a");
 
     // Admin should have TenantTokenRevoke permission
     assert!(
@@ -1334,10 +1334,10 @@ async fn test_tenant_token_revoke_permission_admin_only() -> Result<()> {
         "Operator should NOT have TenantTokenRevoke permission"
     );
 
-    // SRE should NOT have TenantTokenRevoke permission
+    // Viewer should NOT have TenantTokenRevoke permission
     assert!(
-        require_permission(&sre_claims, Permission::TenantTokenRevoke).is_err(),
-        "SRE should NOT have TenantTokenRevoke permission"
+        require_permission(&viewer_claims, Permission::TenantTokenRevoke).is_err(),
+        "Viewer should NOT have TenantTokenRevoke permission"
     );
 
     Ok(())

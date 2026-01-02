@@ -1,0 +1,35 @@
+---
+source: crates/adapteros-server-api/tests/contract_snapshots.rs
+assertion_line: 485
+expression: "json!({ \"token_chunk\": serde_json::to_value(&token_chunk).expect(\"token chunk json\"), \"done_chunk\": serde_json::to_value(&done_chunk).expect(\"done chunk json\"), \"done_sse_data\": done_payload })"
+---
+{
+  "done_chunk": {
+    "choices": [
+      {
+        "delta": {},
+        "finish_reason": "stop",
+        "index": 0
+      }
+    ],
+    "created": 1735689601,
+    "id": "chatcmpl-test",
+    "model": "adapteros-test",
+    "object": "chat.completion.chunk"
+  },
+  "done_sse_data": "{\"id\":\"chatcmpl-test\",\"object\":\"chat.completion.chunk\",\"created\":1735689601,\"model\":\"adapteros-test\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]",
+  "token_chunk": {
+    "choices": [
+      {
+        "delta": {
+          "content": "Hello"
+        },
+        "index": 0
+      }
+    ],
+    "created": 1735689600,
+    "id": "chatcmpl-test",
+    "model": "adapteros-test",
+    "object": "chat.completion.chunk"
+  }
+}

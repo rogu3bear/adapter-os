@@ -1,7 +1,7 @@
 //! Type Validation Integration Tests
 //!
 //! Validates:
-//! 1. Rust and TypeScript types serialize/deserialize correctly
+//! 1. Rust API types serialize/deserialize correctly
 //! 2. Tier type conversions work (string ↔ i32)
 //! 3. Optional fields are properly handled
 //! 4. Enums serialize as expected
@@ -513,39 +513,3 @@ mod validation_on_deserialization {
     }
 }
 
-#[cfg(test)]
-mod typescript_compatibility {
-    /// Test: TypeScript type matches Rust struct
-    ///
-    /// TypeScript interface in ui/src/api/types.ts should match
-    /// Rust struct in crates/adapteros-server-api/src/types.rs
-    #[test]
-    fn test_typescript_rust_type_compatibility() {
-        println!("TypeScript ↔ Rust Type Compatibility:");
-        println!("  Adapter interface matches AdapterResponse struct");
-        println!("  InferenceResult matches InferResponse struct");
-        println!("  TrainingJob matches TrainingJobResponse struct");
-    }
-
-    /// Test: TypeScript optional fields match Rust Option
-    ///
-    /// TypeScript: field?: type
-    /// Rust: field: Option<T>
-    #[test]
-    fn test_typescript_optional_fields() {
-        println!("TypeScript Optional Fields:");
-        println!("  TS: description?: string");
-        println!("  Rust: description: Option<String>");
-    }
-
-    /// Test: TypeScript enums match Rust enums
-    ///
-    /// TypeScript: enum Role { Admin = 'admin', ... }
-    /// Rust: #[derive(Serialize)] enum Role { Admin, ... }
-    #[test]
-    fn test_typescript_enum_compatibility() {
-        println!("TypeScript Enum Compatibility:");
-        println!("  TS Role enum values");
-        println!("  Match Rust Role enum serialization");
-    }
-}

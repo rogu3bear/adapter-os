@@ -196,7 +196,7 @@ pub async fn get_federation_audit(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<FederationAuditResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Admin, Role::Compliance, Role::Operator])?;
+    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
 
     // Fetch federation bundle signatures
     let pool = state.db.pool();
@@ -305,7 +305,7 @@ pub async fn get_compliance_audit(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<ComplianceAuditResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Admin, Role::Compliance, Role::Operator])?;
+    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
 
     // Fetch policy violations from telemetry bundles
     let pool = state.db.pool();

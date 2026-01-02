@@ -32,7 +32,7 @@ async fn create_test_tenant(db: &Db, tenant_id: &str) -> Result<()> {
 }
 
 /// Test helper to create a test worker in the database
-/// Valid status values: 'created', 'registered', 'healthy', 'draining', 'stopped', 'error'
+/// Valid status values: 'pending', 'created', 'registered', 'healthy', 'draining', 'stopped', 'error'
 async fn create_test_worker(db: &Db, worker_id: &str, tenant_id: &str, status: &str) -> Result<()> {
     // Ensure tenant exists
     create_test_tenant(db, tenant_id).await?;
@@ -368,7 +368,7 @@ async fn test_count_active_workers_includes_operational_states() {
         .count_active_workers()
         .await
         .expect("Failed to count workers");
-    // count_active_workers counts: 'created', 'registered', 'healthy', 'draining' (not 'error' or 'stopped')
+    // count_active_workers counts: 'pending', 'created', 'registered', 'healthy', 'draining' (not 'error' or 'stopped')
     assert_eq!(
         count, 2,
         "Should count healthy and draining workers (not error or stopped)"

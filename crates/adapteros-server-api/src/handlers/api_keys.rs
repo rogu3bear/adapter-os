@@ -120,7 +120,7 @@ pub async fn create_api_key(
 ) -> Result<Json<CreateApiKeyResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(
         &claims,
-        &[Role::Admin, Role::Operator, Role::SRE, Role::Compliance],
+        &[Role::Admin, Role::Operator],
     )?;
     validate_tenant_isolation(&claims, &claims.tenant_id)?;
 
@@ -189,13 +189,7 @@ pub async fn list_api_keys(
 ) -> Result<Json<ApiKeyListResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(
         &claims,
-        &[
-            Role::Admin,
-            Role::Operator,
-            Role::SRE,
-            Role::Compliance,
-            Role::Viewer,
-        ],
+        &[Role::Admin, Role::Operator, Role::Viewer],
     )?;
     validate_tenant_isolation(&claims, &claims.tenant_id)?;
 
@@ -246,7 +240,7 @@ pub async fn revoke_api_key(
 ) -> Result<Json<RevokeApiKeyResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(
         &claims,
-        &[Role::Admin, Role::Operator, Role::SRE, Role::Compliance],
+        &[Role::Admin, Role::Operator],
     )?;
     validate_tenant_isolation(&claims, &claims.tenant_id)?;
 

@@ -513,69 +513,6 @@ mod cli_integration {
 }
 
 #[cfg(test)]
-mod ui_integration {
-    /// Test: UI methods call documented endpoints
-    ///
-    /// Validates ui/src/api/client.ts:
-    /// - All fetch() calls target existing endpoints
-    /// - Request bodies match API schema
-    /// - Response handling matches API docs
-    #[test]
-    fn test_ui_api_calls() {
-        let ui_api_calls = vec![
-            ("getAdapters()", "GET /v1/adapters"),
-            ("getAdapter(id)", "GET /v1/adapters/:id"),
-            ("registerAdapter(data)", "POST /v1/adapters/register"),
-            ("infer(prompt)", "POST /v1/infer"),
-            ("streamInfer(prompt)", "POST /v1/infer/stream"),
-            ("listTrainingJobs()", "GET /v1/training/jobs"),
-            ("startTraining(config)", "POST /v1/training/start"),
-        ];
-
-        println!("UI API Calls:");
-        for (ui_method, api_endpoint) in ui_api_calls {
-            println!("  {} -> {}", ui_method, api_endpoint);
-        }
-    }
-
-    /// Test: UI handles streaming responses correctly
-    ///
-    /// Validates SSE (Server-Sent Events) handling:
-    /// - /v1/infer/stream returns event stream
-    /// - Each chunk has proper format
-    /// - Final [DONE] marker terminates stream
-    #[test]
-    fn test_ui_streaming_responses() {
-        println!("Streaming Response Handling:");
-        println!("  - EventSource setup for SSE");
-        println!("  - Parse data: JSON format");
-        println!("  - Handle [DONE] marker");
-        println!("  - Error handling on disconnect");
-    }
-
-    /// Test: UI type definitions match API responses
-    ///
-    /// TypeScript interfaces should match Rust structs:
-    /// - AdapterResponse
-    /// - InferResponse
-    /// - TrainingJobResponse
-    #[test]
-    fn test_ui_type_compatibility() {
-        let ui_types = vec![
-            ("Adapter", "AdapterResponse"),
-            ("InferenceResult", "InferResponse"),
-            ("TrainingJob", "TrainingJobResponse"),
-            ("RoutingDecision", "RoutingDecision"),
-        ];
-
-        println!("TypeScript Type Mappings:");
-        for (ts_type, rust_struct) in ui_types {
-            println!("  {} <- {}", ts_type, rust_struct);
-        }
-    }
-}
-
-#[cfg(test)]
 mod endpoint_documentation {
     /// Test: All endpoints have OpenAPI documentation
     ///
@@ -656,7 +593,7 @@ mod consistency_matrix {
         println!("  Handler:      handlers::list_adapters");
         println!("  Permission:   AdapterList");
         println!("  CLI Command:  aosctl adapters list");
-        println!("  UI Method:    getAdapters()");
+        println!("  UI Route:     /adapters");
         println!("  DB Table:     adapters");
         println!("  Response:     AdapterResponse[]");
     }

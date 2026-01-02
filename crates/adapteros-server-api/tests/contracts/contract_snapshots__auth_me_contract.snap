@@ -1,0 +1,42 @@
+---
+source: crates/adapteros-server-api/tests/contract_snapshots.rs
+assertion_line: 372
+expression: "json!({ \"status\": auth_me_status.as_u16(), \"body\": auth_me_body })"
+---
+{
+  "body": {
+    "created_at": "<timestamp>",
+    "display_name": "Default Viewer",
+    "email": "<redacted>",
+    "mfa_enabled": false,
+    "permissions": [
+      "AdapterList",
+      "AdapterView",
+      "TrainingView",
+      "TrainingViewLogs",
+      "TenantView",
+      "PolicyView",
+      "MetricsView",
+      "NodeView",
+      "WorkerView",
+      "GitView",
+      "CodeView",
+      "AdapterStackView",
+      "FederationView",
+      "PlanView",
+      "TelemetryView",
+      "ContactView",
+      "DatasetList",
+      "DatasetView",
+      "WorkspaceView",
+      "NotificationView",
+      "DashboardView",
+      "ActivityView"
+    ],
+    "role": "viewer",
+    "schema_version": "0.11.0",
+    "tenant_id": "default",
+    "user_id": "<redacted>"
+  },
+  "status": 200
+}
