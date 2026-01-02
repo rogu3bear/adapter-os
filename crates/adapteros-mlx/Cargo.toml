@@ -1,0 +1,40 @@
+[package]
+name = "adapteros-mlx"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "AdapterOS MLX abstraction layer - Single Source of Truth for MLX operations"
+
+# =============================================================================
+# MLX SSoT - REAL INFERENCE ONLY
+# =============================================================================
+# This crate is the Single Source of Truth for all MLX operations.
+# It ALWAYS uses real mlx-rs - no stubs, no demo mode.
+#
+# Requires: Apple Silicon (M1/M2/M3/M4)
+# =============================================================================
+
+[features]
+default = []
+# Enable CoreML ANE acceleration for deterministic Neural Engine operations
+# Only available on macOS with Apple Silicon
+coreml-ane = ["dep:adapteros-lora-kernel-coreml"]
+
+[dependencies]
+# Internal
+adapteros-core = { path = "../adapteros-core" }
+
+# MLX - Real inference, always enabled
+mlx-rs = "0.25"
+
+# Common
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+
+# CoreML ANE acceleration (macOS only, optional)
+[target.'cfg(target_os = "macos")'.dependencies]
+adapteros-lora-kernel-coreml = { path = "../adapteros-lora-kernel-coreml", optional = true }
