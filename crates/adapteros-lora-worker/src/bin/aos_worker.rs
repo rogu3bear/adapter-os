@@ -899,21 +899,40 @@ fn error_to_exit_code(err: &AosError) -> i32 {
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    // Run the actual worker logic and map errors to exit codes
-    match run_worker().await {
-        Ok(()) => std::process::exit(EXIT_SUCCESS),
-        Err(e) => {
-            let exit_code = error_to_exit_code(&e);
-            error!(
-                error = %e,
-                exit_code = exit_code,
-                "Worker exiting with error"
-            );
-            std::process::exit(exit_code);
+fn main() -> Result<()> {
+    // CRITICAL: Initialize MLX BEFORE tokio runtime starts
+    // This ensures the MLX C library's Metal device is initialized before any
+    // other Metal operations that might come from tokio or other async code.
+    #[cfg(feature = "mlx")]
+    {
+        // Try to initialize MLX early, but don't fail the worker if it doesn't work
+        // The backend selection logic will handle unavailability gracefully
+        match adapteros_lora_mlx_ffi::mlx_runtime_init() {
+            Ok(()) => eprintln!("MLX runtime initialized early (before tokio)"),
+            Err(e) => eprintln!("MLX early init failed (will use fallback backend): {}", e),
         }
     }
+
+    // Now start the tokio runtime
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("Failed to build tokio runtime")
+        .block_on(async {
+            // Run the actual worker logic and map errors to exit codes
+            match run_worker().await {
+                Ok(()) => std::process::exit(EXIT_SUCCESS),
+                Err(e) => {
+                    let exit_code = error_to_exit_code(&e);
+                    error!(
+                        error = %e,
+                        exit_code = exit_code,
+                        "Worker exiting with error"
+                    );
+                    std::process::exit(exit_code);
+                }
+            }
+        })
 }
 
 async fn run_worker() -> Result<()> {

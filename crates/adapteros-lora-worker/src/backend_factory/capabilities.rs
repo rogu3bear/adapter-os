@@ -111,7 +111,26 @@ pub struct BackendCapabilities {
 pub fn detect_capabilities() -> BackendCapabilities {
     let mut caps = BackendCapabilities::default();
 
-    // Detect Metal availability
+    // IMPORTANT: Detect MLX availability FIRST before other Metal usage
+    // MLX runtime should initialize its Metal device before other Metal usage
+    // to avoid resource conflicts
+    #[cfg(feature = "multi-backend")]
+    {
+        #[cfg(feature = "mlx")]
+        {
+            // Real MLX available - check if runtime can be initialized
+            use adapteros_lora_mlx_ffi::{mlx_runtime_init, mlx_runtime_is_initialized};
+            caps.has_mlx = mlx_runtime_is_initialized() || mlx_runtime_init().is_ok();
+        }
+        #[cfg(not(feature = "mlx"))]
+        {
+            // Only stub available - be honest about it
+            caps.has_mlx = false;
+            debug!("MLX backend not available: 'mlx' feature not enabled (stub mode only)");
+        }
+    }
+
+    // Detect Metal availability (after MLX to avoid device conflicts)
     #[cfg(target_os = "macos")]
     {
         caps.has_metal = detect_metal_device(&mut caps);
@@ -129,23 +148,6 @@ pub fn detect_capabilities() -> BackendCapabilities {
         // CoreML feature not enabled, but we can still check if ANE would be available
         caps.has_coreml = false;
         caps.has_ane = is_apple_silicon();
-    }
-
-    // Detect MLX availability - only report true if real MLX is available
-    #[cfg(feature = "multi-backend")]
-    {
-        #[cfg(feature = "mlx")]
-        {
-            // Real MLX available - check if runtime can be initialized
-            use adapteros_lora_mlx_ffi::{mlx_runtime_init, mlx_runtime_is_initialized};
-            caps.has_mlx = mlx_runtime_is_initialized() || mlx_runtime_init().is_ok();
-        }
-        #[cfg(not(feature = "mlx"))]
-        {
-            // Only stub available - be honest about it
-            caps.has_mlx = false;
-            debug!("MLX backend not available: 'mlx' feature not enabled (stub mode only)");
-        }
     }
 
     // Detect MLX bridge availability (Python + mlx-lm)
