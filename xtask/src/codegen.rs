@@ -220,17 +220,9 @@ fn check_dependencies(config: &CodegenConfig) -> Result<()> {
             .output()
             .context("pnpm not found. Install with: npm install -g pnpm")?;
 
-        println!("  Checking openapi-typescript in UI project...");
-        let pkg_json = config.workspace_root.join("ui/package.json");
-        if pkg_json.exists() {
-            let content = fs::read_to_string(&pkg_json)?;
-            if !content.contains("openapi-typescript") {
-                bail!(
-                    "openapi-typescript not in ui/package.json. \
-                     Add via: cd ui && pnpm add -D openapi-typescript"
-                );
-            }
-        }
+        // Note: TypeScript generation is skipped for Leptos UI (crates/adapteros-ui)
+        // The Leptos UI uses adapteros-api-types crate for type-safe API communication
+        println!("  TypeScript generation skipped (Leptos UI uses Rust types)");
     }
 
     Ok(())
@@ -293,53 +285,16 @@ async fn build_server_and_export_openapi(config: &CodegenConfig) -> Result<PathB
 }
 
 /// Generate TypeScript types from OpenAPI spec using openapi-typescript
-async fn generate_typescript_types(config: &CodegenConfig, spec_path: &Path) -> Result<PathBuf> {
-    let ts_output = config.workspace_root.join("ui/src/api/types.generated.ts");
+/// Note: This is a no-op for Leptos UI which uses Rust types via adapteros-api-types
+async fn generate_typescript_types(_config: &CodegenConfig, spec_path: &Path) -> Result<PathBuf> {
+    // Leptos UI uses adapteros-api-types crate for type-safe API communication
+    // TypeScript generation is not needed for WASM-based Rust UI
+    println!("  TypeScript generation skipped (Leptos UI uses Rust types)");
+    println!("  OpenAPI spec available at: {}", spec_path.display());
+    println!("  For API types, see: crates/adapteros-api-types/");
 
-    println!("  Converting OpenAPI spec to TypeScript...");
-    println!("    Input: {}", spec_path.display());
-    println!("    Output: {}", ts_output.display());
-
-    // Navigate to UI directory and run openapi-typescript
-    let output = Command::new("pnpm")
-        .arg("exec")
-        .arg("openapi-typescript")
-        .arg(spec_path.to_string_lossy().as_ref())
-        .arg("--output")
-        .arg(&ts_output)
-        .arg("--transform")
-        .arg("./scripts/openapi-transform.js") // Custom transform if exists
-        .current_dir(config.workspace_root.join("ui"))
-        .output()
-        .context("Failed to run openapi-typescript")?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        // openapi-typescript exits with non-zero on some warnings, so we check file creation
-        if !ts_output.exists() {
-            bail!("TypeScript generation failed:\n{}", stderr);
-        }
-        println!("  (Warnings, but types generated)");
-    }
-
-    // Verify output file was created
-    if !ts_output.exists() {
-        bail!("Generated TypeScript file not found at {}", ts_output.display());
-    }
-
-    // Format generated file with prettier if available
-    let prettier_output = Command::new("pnpm")
-        .args(&["exec", "prettier", "--write", ts_output.to_str().unwrap()])
-        .current_dir(config.workspace_root.join("ui"))
-        .output();
-
-    if let Ok(out) = prettier_output {
-        if !out.status.success() && config.verbose {
-            println!("  Warning: Prettier formatting failed");
-        }
-    }
-
-    Ok(ts_output)
+    // Return the spec path as a stub - no TS file is generated
+    Ok(spec_path.to_path_buf())
 }
 
 /// Validate that generated TypeScript types match Rust API definitions
@@ -373,23 +328,17 @@ async fn validate_type_consistency(config: &CodegenConfig, spec_path: &Path) -> 
         bail!("No API endpoints found in spec");
     }
 
-    // Validate TS types if generated
-    let ts_path = config.workspace_root.join("ui/src/api/types.generated.ts");
-    if ts_path.exists() {
-        println!("  Validating generated TypeScript types...");
+    // Validate Leptos UI API types crate
+    let api_types_lib = config.workspace_root.join("crates/adapteros-api-types/src/lib.rs");
+    if api_types_lib.exists() {
+        println!("  Validating Rust API types (adapteros-api-types)...");
 
-        let ts_content = fs::read_to_string(&ts_path)
-            .context("Failed to read generated TS types")?;
+        let content = fs::read_to_string(&api_types_lib)
+            .context("Failed to read API types lib.rs")?;
 
-        // Basic validation: check for common type exports
-        let has_exports = ts_content.contains("export type") || ts_content.contains("export interface");
-        if !has_exports {
-            bail!("Generated TypeScript has no exported types");
-        }
-
-        let export_count = ts_content.matches("export type ").count()
-            + ts_content.matches("export interface ").count();
-        println!("  Found {} TypeScript type definitions", export_count);
+        // Check for pub mod declarations
+        let mod_count = content.matches("pub mod ").count();
+        println!("  Found {} public API type modules", mod_count);
     }
 
     // Check for schema completeness

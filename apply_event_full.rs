@@ -244,7 +244,7 @@ pub async fn assign_tenant_policies(
     Path(tenant_id): Path<String>,
     Json(req): Json<AssignPoliciesRequest>,
 ) -> Result<Json<AssignPoliciesResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Admin, Role::Compliance])?;
+    require_any_role(&claims, &[Role::Admin])?;
 
     // Create tenant-policy associations using Db trait method
     for policy_id in &req.policy_ids {
