@@ -186,12 +186,10 @@ impl fmt::Display for Permission {
 
 /// Check if a role has a specific permission
 ///
-/// # Permission Matrix
+/// # Permission Matrix (Simplified 3-Role Model)
 ///
 /// **Admin** - Full access to all operations
-/// **Operator** - Adapters, training, inference (not delete/tenant/policy)
-/// **SRE** - Infrastructure, metrics, diagnostics (not manage nodes/adapters)
-/// **Compliance** - Policies, audit trails (view only + validate)
+/// **Operator** - Runtime operations: adapters, training, inference (not delete/tenant/policy management)
 /// **Viewer** - Strict read-only access
 ///
 /// # Example
@@ -201,15 +199,13 @@ impl fmt::Display for Permission {
 ///
 /// assert!(has_permission(&Role::Admin, Permission::AdapterDelete));
 /// assert!(!has_permission(&Role::Viewer, Permission::AdapterDelete));
-/// assert!(has_permission(&Role::Compliance, Permission::PolicyValidate));
+/// assert!(has_permission(&Role::Operator, Permission::TrainingStart));
 /// ```
 pub fn has_permission(role: &Role, permission: Permission) -> bool {
     match (role, permission) {
-        // Admin has all permissions
+        // ========== ADMIN ROLE ==========
+        // Full access to all operations
         (Role::Admin, _) => true,
-
-        // Developer has all permissions (full access for development)
-        (Role::Developer, _) => true,
 
         // ========== VIEWER ROLE ==========
         // Strict read-only access - no write operations
@@ -235,10 +231,12 @@ pub fn has_permission(role: &Role, permission: Permission) -> bool {
         (Role::Viewer, Permission::NotificationView) => true,
         (Role::Viewer, Permission::DashboardView) => true,
         (Role::Viewer, Permission::ActivityView) => true,
+        (Role::Viewer, Permission::AuditView) => true,
         (Role::Viewer, _) => false, // All write operations blocked
 
         // ========== OPERATOR ROLE ==========
         // Runtime operations: adapters, training, inference
+        // Cannot: delete, manage tenants, manage policies, manage nodes
         (Role::Operator, Permission::AdapterList) => true,
         (Role::Operator, Permission::AdapterView) => true,
         (Role::Operator, Permission::AdapterRegister) => true,
@@ -255,21 +253,32 @@ pub fn has_permission(role: &Role, permission: Permission) -> bool {
         (Role::Operator, Permission::WorkerSpawn) => true,
         (Role::Operator, Permission::WorkerManage) => true,
         (Role::Operator, Permission::TenantView) => true,
-        (Role::Operator, Permission::TenantManage) => false, // Cannot manage tenants
-        (Role::Operator, Permission::TenantTokenRevoke) => false, // Cannot bulk-revoke tokens (Admin only) - PRD-03
+        (Role::Operator, Permission::TenantManage) => false, // Cannot manage tenants (Admin only)
+        (Role::Operator, Permission::TenantTokenRevoke) => false, // Cannot bulk-revoke tokens (Admin only)
         (Role::Operator, Permission::PolicyView) => true,
-        (Role::Operator, Permission::PolicyApply) => false, // Cannot apply policies
-        (Role::Operator, Permission::PolicySign) => false,  // Cannot sign policies
+        (Role::Operator, Permission::PolicyValidate) => true,
+        (Role::Operator, Permission::PolicyApply) => false,  // Cannot apply policies (Admin only)
+        (Role::Operator, Permission::PolicySign) => false,   // Cannot sign policies (Admin only)
+        (Role::Operator, Permission::NodeView) => true,
+        (Role::Operator, Permission::NodeManage) => false,   // Cannot manage nodes (Admin only)
         (Role::Operator, Permission::GitView) => true,
         (Role::Operator, Permission::GitManage) => true,
         (Role::Operator, Permission::CodeView) => true,
         (Role::Operator, Permission::CodeScan) => true,
+        (Role::Operator, Permission::AuditView) => true,
         (Role::Operator, Permission::AdapterStackView) => true,
         (Role::Operator, Permission::AdapterStackManage) => true,
+        (Role::Operator, Permission::MonitoringManage) => true,
+        (Role::Operator, Permission::ReplayManage) => true,
+        (Role::Operator, Permission::FederationView) => true,
+        (Role::Operator, Permission::FederationManage) => false, // Cannot manage federation (Admin only)
+        (Role::Operator, Permission::PlanView) => true,
+        (Role::Operator, Permission::PlanManage) => true,
+        (Role::Operator, Permission::PromotionManage) => true,
+        (Role::Operator, Permission::TelemetryView) => true,
+        (Role::Operator, Permission::TelemetryManage) => true,
         (Role::Operator, Permission::ContactView) => true,
         (Role::Operator, Permission::ContactManage) => true,
-        (Role::Operator, Permission::PlanView) => true,
-        (Role::Operator, Permission::TelemetryView) => true,
         (Role::Operator, Permission::DatasetList) => true,
         (Role::Operator, Permission::DatasetView) => true,
         (Role::Operator, Permission::DatasetUpload) => true,
@@ -285,89 +294,6 @@ pub fn has_permission(role: &Role, permission: Permission) -> bool {
         (Role::Operator, Permission::DashboardManage) => true,
         (Role::Operator, Permission::ActivityView) => true,
         (Role::Operator, Permission::ActivityCreate) => true,
-        (Role::Operator, _) => false,
-
-        // ========== SRE ROLE ==========
-        // Infrastructure, monitoring, troubleshooting
-        (Role::SRE, Permission::NodeView) => true,
-        (Role::SRE, Permission::NodeManage) => false, // Cannot register/delete nodes (Admin only)
-        (Role::SRE, Permission::MetricsView) => true,
-        (Role::SRE, Permission::AdapterList) => true,
-        (Role::SRE, Permission::AdapterView) => true,
-        (Role::SRE, Permission::AdapterLoad) => true, // Can load for troubleshooting
-        (Role::SRE, Permission::AdapterUnload) => true, // Can unload for troubleshooting
-        (Role::SRE, Permission::AdapterRegister) => false, // Cannot register new adapters
-        (Role::SRE, Permission::AdapterDelete) => false, // Cannot delete adapters
-        (Role::SRE, Permission::InferenceExecute) => true, // Can test inference
-        (Role::SRE, Permission::WorkerView) => true,
-        (Role::SRE, Permission::WorkerManage) => false, // Cannot spawn/manage workers
-        (Role::SRE, Permission::TrainingView) => true,
-        (Role::SRE, Permission::TrainingViewLogs) => true,
-        (Role::SRE, Permission::TrainingStart) => false,
-        (Role::SRE, Permission::TrainingCancel) => false,
-        (Role::SRE, Permission::PolicyView) => true,
-        (Role::SRE, Permission::TenantView) => true,
-        (Role::SRE, Permission::TenantManage) => false,
-        (Role::SRE, Permission::TenantTokenRevoke) => false, // Cannot bulk-revoke tokens (Admin only) - PRD-03
-        (Role::SRE, Permission::GitView) => true,
-        (Role::SRE, Permission::CodeView) => true,
-        (Role::SRE, Permission::AuditView) => true, // Can view audit logs for troubleshooting
-        (Role::SRE, Permission::AdapterStackView) => true,
-        (Role::SRE, Permission::MonitoringManage) => true, // Can manage monitoring rules and alerts
-        (Role::SRE, Permission::PlanView) => true,
-        (Role::SRE, Permission::TelemetryView) => true,
-        (Role::SRE, Permission::ReplayManage) => true, // Can create/verify replay sessions for debugging
-        (Role::SRE, Permission::FederationView) => true,
-        (Role::SRE, Permission::DatasetList) => true,
-        (Role::SRE, Permission::DatasetView) => true,
-        (Role::SRE, Permission::WorkspaceView) => true,
-        (Role::SRE, Permission::NotificationView) => true,
-        (Role::SRE, Permission::NotificationManage) => true,
-        (Role::SRE, Permission::DashboardView) => true,
-        (Role::SRE, Permission::DashboardManage) => true,
-        (Role::SRE, Permission::ActivityView) => true,
-        (Role::SRE, _) => false,
-
-        // ========== COMPLIANCE ROLE ==========
-        // Policy oversight and audit trails
-        (Role::Compliance, Permission::PolicyView) => true,
-        (Role::Compliance, Permission::PolicyValidate) => true, // Can validate compliance
-        (Role::Compliance, Permission::PolicyApply) => false,   // Cannot apply (Admin only)
-        (Role::Compliance, Permission::PolicySign) => false,    // Cannot sign (Admin only)
-        (Role::Compliance, Permission::MetricsView) => true,
-        (Role::Compliance, Permission::AdapterList) => true,
-        (Role::Compliance, Permission::AdapterView) => true,
-        (Role::Compliance, Permission::AdapterRegister) => false,
-        (Role::Compliance, Permission::AdapterDelete) => false,
-        (Role::Compliance, Permission::AdapterLoad) => false,
-        (Role::Compliance, Permission::AdapterUnload) => false,
-        (Role::Compliance, Permission::TrainingView) => true,
-        (Role::Compliance, Permission::TrainingViewLogs) => true,
-        (Role::Compliance, Permission::TrainingStart) => false,
-        (Role::Compliance, Permission::TrainingCancel) => false,
-        (Role::Compliance, Permission::InferenceExecute) => false,
-        (Role::Compliance, Permission::TenantView) => true,
-        (Role::Compliance, Permission::NodeView) => true,
-        (Role::Compliance, Permission::WorkerView) => true,
-        (Role::Compliance, Permission::GitView) => true,
-        (Role::Compliance, Permission::CodeView) => true,
-        (Role::Compliance, Permission::AuditView) => true, // Primary use case
-        (Role::Compliance, Permission::AdapterStackView) => true,
-        (Role::Compliance, Permission::PlanView) => true,
-        (Role::Compliance, Permission::FederationView) => true,
-        (Role::Compliance, Permission::TelemetryView) => true,
-        (Role::Compliance, Permission::ReplayManage) => true, // Can verify replay sessions for compliance
-        (Role::Compliance, Permission::ContactView) => true,
-        (Role::Compliance, Permission::DatasetList) => true,
-        (Role::Compliance, Permission::DatasetView) => true,
-        (Role::Compliance, Permission::DatasetValidate) => true, // Can validate datasets
-        (Role::Compliance, Permission::WorkspaceView) => true,
-        (Role::Compliance, Permission::NotificationView) => true,
-        (Role::Compliance, Permission::NotificationManage) => true,
-        (Role::Compliance, Permission::DashboardView) => true,
-        (Role::Compliance, Permission::DashboardManage) => true,
-        (Role::Compliance, Permission::ActivityView) => true,
-        (Role::Compliance, _) => false,
     }
 }
 
@@ -392,10 +318,10 @@ pub fn require_permission(claims: &Claims, permission: Permission) -> Result<(),
         warn!(
             user_id = %claims.sub,
             role = %claims.role,
-            "Invalid role in JWT claims - valid roles are: admin, developer, operator, sre, compliance, viewer"
+            "Invalid role in JWT claims - valid roles are: admin, operator, viewer"
         );
         ApiError::bad_request("invalid role in authentication token").with_details(format!(
-            "role '{}' is not valid, expected one of: admin, developer, operator, sre, compliance, viewer",
+            "role '{}' is not valid, expected one of: admin, operator, viewer",
             claims.role
         ))
     })?;
@@ -444,10 +370,10 @@ pub fn require_any_permission(claims: &Claims, permissions: &[Permission]) -> Re
         warn!(
             user_id = %claims.sub,
             role = %claims.role,
-            "Invalid role in JWT claims - valid roles are: admin, developer, operator, sre, compliance, viewer"
+            "Invalid role in JWT claims - valid roles are: admin, operator, viewer"
         );
         ApiError::bad_request("invalid role in authentication token").with_details(format!(
-            "role '{}' is not valid, expected one of: admin, developer, operator, sre, compliance, viewer",
+            "role '{}' is not valid, expected one of: admin, operator, viewer",
             claims.role
         ))
     })?;
@@ -475,16 +401,16 @@ pub fn require_any_role(claims: &Claims, roles: &[Role]) -> Result<(), ApiError>
         warn!(
             user_id = %claims.sub,
             role = %claims.role,
-            "Invalid role in JWT claims - valid roles are: admin, developer, operator, sre, compliance, viewer"
+            "Invalid role in JWT claims - valid roles are: admin, operator, viewer"
         );
         ApiError::bad_request("invalid role in authentication token").with_details(format!(
-            "role '{}' is not valid, expected one of: admin, developer, operator, sre, compliance, viewer",
+            "role '{}' is not valid, expected one of: admin, operator, viewer",
             claims.role
         ))
     })?;
 
-    // Admin and Developer bypass all role checks
-    if user_role == Role::Admin || user_role == Role::Developer || roles.contains(&user_role) {
+    // Admin bypasses all role checks
+    if user_role == Role::Admin || roles.contains(&user_role) {
         return Ok(());
     }
 
@@ -502,22 +428,30 @@ mod tests {
 
     #[test]
     fn test_admin_has_all_permissions() {
+        // Admin has full access to everything
         assert!(has_permission(&Role::Admin, Permission::AdapterDelete));
         assert!(has_permission(&Role::Admin, Permission::TenantManage));
         assert!(has_permission(&Role::Admin, Permission::PolicySign));
+        assert!(has_permission(&Role::Admin, Permission::NodeManage));
+        assert!(has_permission(&Role::Admin, Permission::FederationManage));
     }
 
     #[test]
     fn test_viewer_read_only() {
         // Can view
         assert!(has_permission(&Role::Viewer, Permission::AdapterView));
+        assert!(has_permission(&Role::Viewer, Permission::AdapterList));
         assert!(has_permission(&Role::Viewer, Permission::MetricsView));
+        assert!(has_permission(&Role::Viewer, Permission::AuditView));
+        assert!(has_permission(&Role::Viewer, Permission::PolicyView));
 
         // Cannot write
         assert!(!has_permission(&Role::Viewer, Permission::AdapterRegister));
         assert!(!has_permission(&Role::Viewer, Permission::AdapterDelete));
         assert!(!has_permission(&Role::Viewer, Permission::TrainingStart));
         assert!(!has_permission(&Role::Viewer, Permission::InferenceExecute));
+        assert!(!has_permission(&Role::Viewer, Permission::TenantManage));
+        assert!(!has_permission(&Role::Viewer, Permission::PolicySign));
     }
 
     #[test]
@@ -525,6 +459,7 @@ mod tests {
         // Can manage adapters (except delete)
         assert!(has_permission(&Role::Operator, Permission::AdapterRegister));
         assert!(has_permission(&Role::Operator, Permission::AdapterLoad));
+        assert!(has_permission(&Role::Operator, Permission::AdapterUnload));
         assert!(!has_permission(&Role::Operator, Permission::AdapterDelete));
 
         // Can manage training
@@ -532,56 +467,51 @@ mod tests {
         assert!(has_permission(&Role::Operator, Permission::TrainingCancel));
 
         // Can execute inference
-        assert!(has_permission(
-            &Role::Operator,
-            Permission::InferenceExecute
-        ));
+        assert!(has_permission(&Role::Operator, Permission::InferenceExecute));
 
-        // Cannot manage tenants or sign policies
+        // Can view audit logs
+        assert!(has_permission(&Role::Operator, Permission::AuditView));
+
+        // Cannot manage tenants, nodes, or sign policies (Admin only)
         assert!(!has_permission(&Role::Operator, Permission::TenantManage));
         assert!(!has_permission(&Role::Operator, Permission::PolicySign));
+        assert!(!has_permission(&Role::Operator, Permission::PolicyApply));
+        assert!(!has_permission(&Role::Operator, Permission::NodeManage));
+        assert!(!has_permission(&Role::Operator, Permission::FederationManage));
+        assert!(!has_permission(&Role::Operator, Permission::DatasetDelete));
     }
 
     #[test]
-    fn test_sre_permissions() {
-        // Can view and troubleshoot
-        assert!(has_permission(&Role::SRE, Permission::MetricsView));
-        assert!(has_permission(&Role::SRE, Permission::AdapterLoad));
-        assert!(has_permission(&Role::SRE, Permission::AdapterUnload));
-        assert!(has_permission(&Role::SRE, Permission::InferenceExecute));
+    fn test_role_hierarchy() {
+        // Admin > Operator > Viewer
+        // Admin can do everything Operator can
+        assert!(has_permission(&Role::Admin, Permission::TrainingStart));
+        assert!(has_permission(&Role::Operator, Permission::TrainingStart));
+        assert!(!has_permission(&Role::Viewer, Permission::TrainingStart));
 
-        // Cannot register/delete
-        assert!(!has_permission(&Role::SRE, Permission::AdapterRegister));
-        assert!(!has_permission(&Role::SRE, Permission::AdapterDelete));
-        assert!(!has_permission(&Role::SRE, Permission::NodeManage));
+        // Only Admin can do admin-only things
+        assert!(has_permission(&Role::Admin, Permission::TenantManage));
+        assert!(!has_permission(&Role::Operator, Permission::TenantManage));
+        assert!(!has_permission(&Role::Viewer, Permission::TenantManage));
+
+        // Everyone can view
+        assert!(has_permission(&Role::Admin, Permission::AdapterView));
+        assert!(has_permission(&Role::Operator, Permission::AdapterView));
+        assert!(has_permission(&Role::Viewer, Permission::AdapterView));
     }
 
     #[test]
-    fn test_compliance_permissions() {
-        // Can view and validate policies
-        assert!(has_permission(&Role::Compliance, Permission::PolicyView));
-        assert!(has_permission(
-            &Role::Compliance,
-            Permission::PolicyValidate
-        ));
-        assert!(has_permission(&Role::Compliance, Permission::AuditView));
+    fn test_role_helper_methods() {
+        assert!(Role::Admin.can_admin());
+        assert!(Role::Admin.can_write());
+        assert!(!Role::Admin.is_viewer());
 
-        // Cannot apply or sign policies
-        assert!(!has_permission(&Role::Compliance, Permission::PolicyApply));
-        assert!(!has_permission(&Role::Compliance, Permission::PolicySign));
+        assert!(!Role::Operator.can_admin());
+        assert!(Role::Operator.can_write());
+        assert!(!Role::Operator.is_viewer());
 
-        // Cannot manage adapters or training
-        assert!(!has_permission(
-            &Role::Compliance,
-            Permission::AdapterRegister
-        ));
-        assert!(!has_permission(
-            &Role::Compliance,
-            Permission::TrainingStart
-        ));
-        assert!(!has_permission(
-            &Role::Compliance,
-            Permission::InferenceExecute
-        ));
+        assert!(!Role::Viewer.can_admin());
+        assert!(!Role::Viewer.can_write());
+        assert!(Role::Viewer.is_viewer());
     }
 }

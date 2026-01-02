@@ -274,7 +274,7 @@ pub async fn cp_promote(
     Extension(claims): Extension<Claims>,
     Json(req): Json<PromoteCPRequest>,
 ) -> Result<Json<PromotionResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator, Role::Compliance])?;
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
     // Load plan from database
     let plan = state
@@ -999,7 +999,7 @@ pub async fn cp_rollback(
     Extension(claims): Extension<Claims>,
     Json(req): Json<RollbackCPRequest>,
 ) -> Result<Json<RollbackResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator, Role::Compliance, Role::Admin])?;
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
     // Get current active CP pointer
     let current_cp = state
@@ -1157,7 +1157,7 @@ pub async fn cp_dry_run_promote(
     Extension(claims): Extension<Claims>,
     Json(req): Json<DryRunPromotionRequest>,
 ) -> Result<Json<DryRunPromotionResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator, Role::Compliance, Role::Admin])?;
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
     // Stub - would validate all gates and return what would be promoted
     Ok(Json(DryRunPromotionResponse {
@@ -3624,7 +3624,7 @@ pub async fn get_federation_audit(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<FederationAuditResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Admin, Role::Compliance, Role::Operator])?;
+    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
 
     // Fetch federation bundle signatures
     let pool = state.db.pool();
@@ -3733,7 +3733,7 @@ pub async fn get_compliance_audit(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<ComplianceAuditResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Admin, Role::Compliance, Role::Operator])?;
+    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
 
     // Fetch policy violations from telemetry bundles
     let pool = state.db.pool();

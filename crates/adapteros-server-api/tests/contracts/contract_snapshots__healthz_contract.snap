@@ -1,0 +1,14 @@
+---
+source: crates/adapteros-server-api/tests/contract_snapshots.rs
+assertion_line: 255
+expression: "json!({ \"status\": health_status.as_u16(), \"body\": health_body })"
+---
+{
+  "body": {
+    "models": null,
+    "schema_version": "0.11.0",
+    "status": "healthy",
+    "version": "0.1.0"
+  },
+  "status": 200
+}

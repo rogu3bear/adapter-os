@@ -343,15 +343,12 @@ mod inference_permission {
     /// - Role::Admin -> Permission::InferenceExecute
     /// - Role::Operator -> Permission::InferenceExecute
     /// - Role::Viewer -> DENIED
-    /// - Role::Compliance -> DENIED
     #[test]
     fn test_rbac_mapping_inference_permission() {
         let role_mappings = vec![
             ("Admin", true),
             ("Operator", true),
-            ("SRE", true),
             ("Viewer", false),
-            ("Compliance", false),
         ];
 
         println!("RBAC Mapping for InferenceExecute:");

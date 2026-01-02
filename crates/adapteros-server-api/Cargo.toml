@@ -93,7 +93,7 @@ safetensors = { workspace = true }
 flate2 = "1.0"
 tar = "0.4"
 zip = "0.6"
-adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true }
+adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true, features = ["mlx"] }
 adapteros-lora-rag = { path = "../adapteros-lora-rag" }
 adapteros-config = { path = "../adapteros-config" }
 adapteros-config-types = { path = "../adapteros-config-types" }

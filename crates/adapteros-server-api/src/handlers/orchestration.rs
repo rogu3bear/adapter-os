@@ -44,7 +44,7 @@ pub async fn get_orchestration_config(
 ) -> Result<Json<OrchestrationConfig>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(
         &claims,
-        &[Role::Admin, Role::Operator, Role::Viewer, Role::SRE],
+        &[Role::Admin, Role::Operator, Role::Viewer],
     )?;
 
     // Single-node deterministic config; future versions may hydrate from DB
@@ -103,7 +103,7 @@ pub async fn analyze_orchestration_prompt(
 ) -> Result<Json<Value>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(
         &claims,
-        &[Role::Admin, Role::Operator, Role::Viewer, Role::SRE],
+        &[Role::Admin, Role::Operator, Role::Viewer],
     )?;
 
     warn!(
@@ -142,7 +142,7 @@ pub async fn get_orchestration_metrics(
 ) -> Result<Json<Value>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(
         &claims,
-        &[Role::Admin, Role::Operator, Role::Viewer, Role::SRE],
+        &[Role::Admin, Role::Operator, Role::Viewer],
     )?;
 
     warn!(

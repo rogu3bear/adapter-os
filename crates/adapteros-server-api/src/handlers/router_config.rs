@@ -98,7 +98,7 @@ pub async fn get_router_config(
 ) -> Result<Json<RouterConfigView>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(
         &claims,
-        &[Role::Admin, Role::Operator, Role::Viewer, Role::SRE],
+        &[Role::Admin, Role::Operator, Role::Viewer],
     )?;
     validate_tenant_isolation(&claims, &tenant_id)?;
 

@@ -440,7 +440,7 @@ pub async fn get_base_model_status(
         // Verify user has one of the required roles
         require_any_role(
             claims_inner,
-            &[Role::Operator, Role::Admin, Role::Compliance],
+            &[Role::Operator, Role::Admin, Role::Viewer],
         )
         .is_ok()
     } else {

@@ -25,7 +25,7 @@ expression: "json!({ \"status\": infer_status.as_u16(), \"body\": infer_body })"
       "prefix_kv_key_b3": null,
       "receipt_digest": "<redacted>",
       "run_head_hash": "<redacted>",
-      "trace_id": "trace-e2e"
+      "trace_id": "<redacted>"
     },
     "schema_version": "1.0",
     "text": "Echo: contract snapshot",

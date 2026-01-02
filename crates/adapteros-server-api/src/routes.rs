@@ -562,7 +562,7 @@ use utoipa_swagger_ui::SwaggerUi;
         adapteros_api_types::auth::SessionInfo,
         adapteros_api_types::auth::RefreshResponse,
         adapteros_api_types::auth::AuthConfigResponse,
-        adapteros_api_types::auth::UserRole,
+        adapteros_api_types::auth::Role,
         // Workspace types
         handlers::workspaces::WorkspaceResponse,
         handlers::workspaces::CreateWorkspaceRequest,

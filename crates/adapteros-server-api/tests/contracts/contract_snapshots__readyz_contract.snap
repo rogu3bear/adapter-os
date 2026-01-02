@@ -1,0 +1,27 @@
+---
+source: crates/adapteros-server-api/tests/contract_snapshots.rs
+assertion_line: 309
+expression: "json!({ \"status\": ready_status.as_u16(), \"body\": ready_body })"
+---
+{
+  "body": {
+    "boot_trace_id": "<redacted>",
+    "checks": {
+      "db": {
+        "ok": true
+      },
+      "models_seeded": {
+        "ok": true
+      },
+      "worker": {
+        "hint": "boot state manager not configured",
+        "ok": false
+      }
+    },
+    "readiness_mode": {
+      "mode": "dev_bypass"
+    },
+    "ready": false
+  },
+  "status": 200
+}

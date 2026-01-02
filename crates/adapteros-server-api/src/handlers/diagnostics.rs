@@ -42,7 +42,7 @@ pub async fn get_determinism_status(
 ) -> Result<Json<DeterminismStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(
         &claims,
-        &[Role::Admin, Role::Operator, Role::Viewer, Role::SRE],
+        &[Role::Admin, Role::Operator, Role::Viewer],
     )?;
 
     debug!("Querying determinism check status");
@@ -129,7 +129,7 @@ pub async fn get_quarantine_status(
 ) -> Result<Json<QuarantineStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(
         &claims,
-        &[Role::Admin, Role::Operator, Role::Viewer, Role::SRE],
+        &[Role::Admin, Role::Operator, Role::Viewer],
     )?;
 
     debug!("Querying quarantine status");

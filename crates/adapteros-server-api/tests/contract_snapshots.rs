@@ -1,10 +1,16 @@
 use adapteros_db::sqlx;
+use adapteros_server_api::auth::{
+    generate_token_ed25519_with_admin_tenants_mfa, generate_token_with_admin_tenants_mfa,
+};
+use adapteros_server_api::handlers::streaming_infer::{Delta, StreamingChoice, StreamingChunk};
+use adapteros_server_api::sse::{SseEventManager, SseStreamType};
 use adapteros_server_api::{create_app, AppState};
 use axum::{
     body::{to_bytes, Body},
-    http::{Method, Request, StatusCode},
+    http::{HeaderMap, Method, Request, StatusCode},
 };
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 use tower::ServiceExt;
 
 mod common;
@@ -15,6 +21,18 @@ fn snapshot_settings() -> insta::Settings {
     settings.set_snapshot_path("contracts");
     settings.set_sort_maps(true);
     settings
+}
+
+fn header_subset(headers: &HeaderMap, keys: &[&str]) -> BTreeMap<String, String> {
+    let mut subset = BTreeMap::new();
+    for key in keys {
+        if let Some(value) = headers.get(*key) {
+            if let Ok(value_str) = value.to_str() {
+                subset.insert((*key).to_string(), value_str.to_string());
+            }
+        }
+    }
+    subset
 }
 
 fn redact_pii(value: &mut Value) {
@@ -39,6 +57,8 @@ fn redact_pii(value: &mut Value) {
                         | "entry_hash"
                         | "created_by"
                         | "request_id"
+                        | "trace_id"
+                        | "boot_trace_id"
                 ) || k.ends_with("_hash")
                     || k.ends_with("_digest")
                 {
@@ -46,7 +66,7 @@ fn redact_pii(value: &mut Value) {
                     continue;
                 }
 
-                if k.ends_with("_at") || k == "timestamp" {
+                if k.ends_with("_at") || k == "timestamp" || k == "timestamp_ms" {
                     *val = Value::String("<timestamp>".to_string());
                     continue;
                 }
@@ -100,6 +120,27 @@ async fn json_request(
     };
 
     (status, json)
+}
+
+async fn head_request(
+    app: &axum::Router,
+    path: &str,
+    token: Option<&str>,
+) -> (StatusCode, HeaderMap) {
+    let mut builder = Request::builder().method(Method::HEAD).uri(path);
+    if let Some(t) = token {
+        builder = builder.header("authorization", format!("Bearer {}", t));
+    }
+
+    let response = app
+        .clone()
+        .oneshot(builder.body(Body::empty()).expect("request build"))
+        .await
+        .expect("router response");
+
+    let status = response.status();
+    let headers = response.headers().clone();
+    (status, headers)
 }
 
 struct ContractHarness {
@@ -202,12 +243,74 @@ impl ContractHarness {
     async fn get(&self, path: &str, token: Option<&str>) -> (StatusCode, Value) {
         json_request(&self.app, Method::GET, path, None, token).await
     }
+
+    async fn head(&self, path: &str, token: Option<&str>) -> (StatusCode, HeaderMap) {
+        head_request(&self.app, path, token).await
+    }
+
+    fn issue_token(
+        &self,
+        user_id: &str,
+        email: &str,
+        role: &str,
+        tenant_id: &str,
+        admin_tenants: &[String],
+    ) -> String {
+        let ttl_seconds = 3600;
+        if self.state.use_ed25519 {
+            generate_token_ed25519_with_admin_tenants_mfa(
+                user_id,
+                email,
+                role,
+                tenant_id,
+                admin_tenants,
+                &self.state.ed25519_keypair,
+                ttl_seconds,
+                None,
+                Some(self.state.jwt_primary_kid.as_str()),
+            )
+            .expect("issue ed25519 token")
+        } else {
+            generate_token_with_admin_tenants_mfa(
+                user_id,
+                email,
+                role,
+                tenant_id,
+                admin_tenants,
+                self.state.jwt_secret.as_slice(),
+                ttl_seconds,
+                None,
+                Some(self.state.jwt_primary_kid.as_str()),
+            )
+            .expect("issue hmac token")
+        }
+    }
 }
 
 #[tokio::test]
 async fn api_contract_snapshots() {
     let harness = ContractHarness::new().await;
     let settings = snapshot_settings();
+
+    // Healthz contract
+    let (health_status, mut health_body) = harness.get("/healthz", None).await;
+    redact_pii(&mut health_body);
+    settings.bind(|| {
+        insta::assert_json_snapshot!(
+            "healthz_contract",
+            json!({ "status": health_status.as_u16(), "body": health_body })
+        );
+    });
+
+    // Readyz contract
+    let (ready_status, mut ready_body) = harness.get("/readyz", None).await;
+    redact_pii(&mut ready_body);
+    settings.bind(|| {
+        insta::assert_json_snapshot!(
+            "readyz_contract",
+            json!({ "status": ready_status.as_u16(), "body": ready_body })
+        );
+    });
 
     // Login success
     let (login_status, mut login_body) = harness
@@ -238,6 +341,154 @@ async fn api_contract_snapshots() {
         insta::assert_json_snapshot!(
             "auth_login_success",
             json!({ "status": login_status.as_u16(), "body": login_body })
+        );
+    });
+
+    // Notifications stream handshake (HEAD preflight)
+    let (stream_status, stream_headers) = harness
+        .head("/v1/stream/notifications", Some(&token))
+        .await;
+    let headers = header_subset(&stream_headers, &["content-type", "cache-control", "connection"]);
+    settings.bind(|| {
+        insta::assert_json_snapshot!(
+            "notifications_stream_handshake",
+            json!({ "status": stream_status.as_u16(), "headers": headers })
+        );
+    });
+
+    // Auth me contract
+    let viewer_claims = common::test_viewer_claims();
+    let viewer_token = harness.issue_token(
+        &viewer_claims.sub,
+        &viewer_claims.email,
+        &viewer_claims.role,
+        &viewer_claims.tenant_id,
+        &viewer_claims.admin_tenants,
+    );
+    let (auth_me_status, mut auth_me_body) =
+        harness.get("/v1/auth/me", Some(&viewer_token)).await;
+    redact_pii(&mut auth_me_body);
+    settings.bind(|| {
+        insta::assert_json_snapshot!(
+            "auth_me_contract",
+            json!({ "status": auth_me_status.as_u16(), "body": auth_me_body })
+        );
+    });
+
+    // Auth me unauthorized
+    let (auth_me_unauth_status, mut auth_me_unauth_body) =
+        harness.get("/v1/auth/me", None).await;
+    redact_pii(&mut auth_me_unauth_body);
+    settings.bind(|| {
+        insta::assert_json_snapshot!(
+            "auth_me_unauthorized",
+            json!({ "status": auth_me_unauth_status.as_u16(), "body": auth_me_unauth_body })
+        );
+    });
+
+    // Protected endpoint forbidden (RBAC)
+    let (tenant_forbidden_status, mut tenant_forbidden_body) =
+        harness.get("/v1/tenants", Some(&viewer_token)).await;
+    redact_pii(&mut tenant_forbidden_body);
+    settings.bind(|| {
+        insta::assert_json_snapshot!(
+            "tenants_forbidden_contract",
+            json!({ "status": tenant_forbidden_status.as_u16(), "body": tenant_forbidden_body })
+        );
+    });
+
+    // SSE reconnect replay contract
+    let manager = harness.state.sse_manager.clone();
+    let _ = manager
+        .create_event(
+            SseStreamType::SystemMetrics,
+            "metrics",
+            json!({ "cpu": 0.42 }).to_string(),
+        )
+        .await;
+    let _ = manager
+        .create_event(
+            SseStreamType::SystemMetrics,
+            "metrics",
+            json!({ "cpu": 0.84 }).to_string(),
+        )
+        .await;
+    let mut replay_headers = HeaderMap::new();
+    replay_headers.insert("Last-Event-ID", "0".parse().expect("header"));
+    let last_event_id =
+        SseEventManager::parse_last_event_id(&replay_headers).expect("last event id");
+    let replay = manager
+        .get_replay_with_analysis(SseStreamType::SystemMetrics, last_event_id)
+        .await;
+    let mut replay_events: Vec<Value> = replay
+        .events
+        .iter()
+        .map(|event| serde_json::to_value(event).expect("replay event json"))
+        .collect();
+    for event in &mut replay_events {
+        redact_pii(event);
+    }
+    settings.bind(|| {
+        insta::assert_json_snapshot!(
+            "sse_reconnect_replay",
+            json!({
+                "last_event_id": last_event_id,
+                "has_gap": replay.has_gap,
+                "dropped_count": replay.dropped_count,
+                "events": replay_events
+            })
+        );
+    });
+
+    // Streaming inference chunk shapes
+    let token_chunk = StreamingChunk {
+        id: "chatcmpl-test".to_string(),
+        object: "chat.completion.chunk".to_string(),
+        created: 1735689600,
+        model: "adapteros-test".to_string(),
+        system_fingerprint: None,
+        choices: vec![StreamingChoice {
+            index: 0,
+            delta: Delta {
+                role: None,
+                content: Some("Hello".to_string()),
+            },
+            finish_reason: None,
+            stop_reason_code: None,
+            stop_reason_token_index: None,
+            stop_policy_digest_b3: None,
+        }],
+    };
+    let done_chunk = StreamingChunk {
+        id: "chatcmpl-test".to_string(),
+        object: "chat.completion.chunk".to_string(),
+        created: 1735689601,
+        model: "adapteros-test".to_string(),
+        system_fingerprint: None,
+        choices: vec![StreamingChoice {
+            index: 0,
+            delta: Delta {
+                role: None,
+                content: None,
+            },
+            finish_reason: Some("stop".to_string()),
+            stop_reason_code: None,
+            stop_reason_token_index: None,
+            stop_policy_digest_b3: None,
+        }],
+    };
+    let done_payload = format!(
+        "{}\n\ndata: [DONE]",
+        serde_json::to_string(&done_chunk).expect("done chunk json")
+    );
+    settings.bind(|| {
+        insta::assert_json_snapshot!(
+            "streaming_infer_chunk_shapes",
+            json!({
+                "token_chunk": serde_json::to_value(&token_chunk).expect("token chunk json"),
+                "done_chunk": serde_json::to_value(&done_chunk).expect("done chunk json"),
+                "done_sse_data": done_payload
+            })
         );
     });
 

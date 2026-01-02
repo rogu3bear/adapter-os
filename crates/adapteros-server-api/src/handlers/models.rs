@@ -1746,7 +1746,7 @@ pub async fn get_all_models_status(
 ) -> Result<Json<AllModelsStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
     use tracing::error;
 
-    require_any_role(&claims, &[Role::Operator, Role::Admin, Role::Compliance])?;
+    require_any_role(&claims, &[Role::Operator, Role::Admin, Role::Viewer])?;
 
     // Get all base model statuses
     let statuses = state.db.list_base_model_statuses().await.map_err(|e| {

@@ -1,0 +1,13 @@
+---
+source: crates/adapteros-server-api/tests/contract_snapshots.rs
+assertion_line: 383
+expression: "json!({ \"status\": auth_me_unauth_status.as_u16(), \"body\": auth_me_unauth_body })"
+---
+{
+  "body": {
+    "code": "TOKEN_MISSING",
+    "error": "Auth token is missing from the request",
+    "schema_version": "0.11.0"
+  },
+  "status": 401
+}
