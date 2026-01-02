@@ -8,11 +8,11 @@
 // 3. Consistency validation and repair
 // 4. Update methods handle strict mode correctly
 
+use adapteros_core::Result;
 use adapteros_db::{
     adapters::{AdapterRegistrationBuilder, AtomicDualWriteConfig},
     Db, StorageMode,
 };
-use adapteros_core::Result;
 
 #[cfg(test)]
 mod atomic_dual_write_tests {
@@ -29,8 +29,12 @@ mod atomic_dual_write_tests {
     }
 
     /// Helper to create test adapter registration params
-    fn test_adapter_params(adapter_id: &str) -> Result<adapteros_db::adapters::AdapterRegistrationParams> {
+    fn test_adapter_params(
+        adapter_id: &str,
+        tenant_id: &str,
+    ) -> Result<adapteros_db::adapters::AdapterRegistrationParams> {
         AdapterRegistrationBuilder::new()
+            .tenant_id(tenant_id)
             .adapter_id(adapter_id)
             .name(format!("Test Adapter {}", adapter_id))
             .hash_b3(format!("b3:{}", adapter_id))
@@ -62,9 +66,12 @@ mod atomic_dual_write_tests {
 
     #[tokio::test]
     async fn test_atomic_dual_write_config_from_env() {
+        let previous = std::env::var_os("AOS_ATOMIC_DUAL_WRITE_STRICT");
+        std::env::remove_var("AOS_ATOMIC_DUAL_WRITE_STRICT");
+
         // Test default (no env var)
         let config = AtomicDualWriteConfig::from_env();
-        assert!(!config.is_strict());
+        assert!(config.is_strict());
 
         // Test with env var set to true
         std::env::set_var("AOS_ATOMIC_DUAL_WRITE_STRICT", "true");
@@ -83,15 +90,23 @@ mod atomic_dual_write_tests {
         let config = AtomicDualWriteConfig::from_env();
         assert!(!config.is_strict());
         std::env::remove_var("AOS_ATOMIC_DUAL_WRITE_STRICT");
+
+        if let Some(value) = previous {
+            std::env::set_var("AOS_ATOMIC_DUAL_WRITE_STRICT", value);
+        } else {
+            std::env::remove_var("AOS_ATOMIC_DUAL_WRITE_STRICT");
+        }
     }
 
     #[tokio::test]
     async fn test_best_effort_mode_sql_only() -> Result<()> {
         // Test that best-effort mode works with SQL-only (no KV backend)
-        let db = Db::new_in_memory().await?
+        let db = Db::new_in_memory()
+            .await?
             .with_atomic_dual_write_config(AtomicDualWriteConfig::best_effort());
 
-        let params = test_adapter_params("test-adapter-1")?;
+        let tenant_id = db.create_tenant("Test Tenant", false).await?;
+        let params = test_adapter_params("test-adapter-1", &tenant_id)?;
         let id = db.register_adapter_extended(params).await?;
 
         // Verify adapter was created in SQL
@@ -105,10 +120,12 @@ mod atomic_dual_write_tests {
     #[tokio::test]
     async fn test_strict_mode_sql_only() -> Result<()> {
         // Test that strict mode works with SQL-only (no KV backend to fail)
-        let db = Db::new_in_memory().await?
+        let db = Db::new_in_memory()
+            .await?
             .with_atomic_dual_write_config(AtomicDualWriteConfig::strict_atomic());
 
-        let params = test_adapter_params("test-adapter-2")?;
+        let tenant_id = db.create_tenant("Test Tenant", false).await?;
+        let params = test_adapter_params("test-adapter-2", &tenant_id)?;
         let id = db.register_adapter_extended(params).await?;
 
         // Verify adapter was created in SQL
@@ -227,7 +244,8 @@ mod atomic_dual_write_tests {
     #[tokio::test]
     async fn test_db_config_persistence() -> Result<()> {
         // Test that atomic dual-write config persists through cloning
-        let db = Db::new_in_memory().await?
+        let db = Db::new_in_memory()
+            .await?
             .with_atomic_dual_write_config(AtomicDualWriteConfig::strict_atomic());
 
         assert!(db.atomic_dual_write_config().is_strict());
@@ -245,7 +263,8 @@ mod atomic_dual_write_tests {
         let db = Db::new_in_memory().await?;
 
         // Create adapter in SQL
-        let params = test_adapter_params("test-adapter-3")?;
+        let tenant_id = db.create_tenant("Test Tenant", false).await?;
+        let params = test_adapter_params("test-adapter-3", &tenant_id)?;
         db.register_adapter_extended(params).await?;
 
         // Call ensure_consistency - should return Ok(true) when no KV backend
@@ -261,12 +280,12 @@ mod atomic_dual_write_tests {
         let db = Db::new_in_memory().await?;
 
         // Initialize tenant
-        db.register_tenant("test-tenant", 1000, 1000).await?;
+        let tenant_id = db.create_tenant("test-tenant", false).await?;
 
         // Create some adapters
         for i in 1..=3 {
             let params = AdapterRegistrationBuilder::new()
-                .tenant_id("test-tenant")
+                .tenant_id(&tenant_id)
                 .adapter_id(&format!("adapter-{}", i))
                 .name(format!("Test Adapter {}", i))
                 .hash_b3(format!("b3:{}", i))
@@ -276,7 +295,8 @@ mod atomic_dual_write_tests {
         }
 
         // Validate consistency - should succeed with no inconsistencies
-        let (consistent, inconsistent, errors) = db.validate_tenant_consistency("test-tenant").await?;
+        let (consistent, inconsistent, errors) =
+            db.validate_tenant_consistency(&tenant_id, false).await?;
         assert_eq!(consistent, 3);
         assert_eq!(inconsistent, 0);
         assert_eq!(errors, 0);

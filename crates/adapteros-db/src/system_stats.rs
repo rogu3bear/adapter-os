@@ -26,9 +26,12 @@ impl Db {
     }
 
     /// Count active workers (non-terminal lifecycle states)
+    ///
+    /// Includes 'pending' status to prevent race conditions where worker process
+    /// has started but socket isn't bound yet (see WorkerStatus::Pending).
     pub async fn count_active_workers(&self) -> Result<i64> {
         let count = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM workers WHERE status IN ('created','registered','healthy','draining')",
+            "SELECT COUNT(*) FROM workers WHERE status IN ('pending','created','registered','healthy','draining')",
         )
         .fetch_one(self.pool())
         .await

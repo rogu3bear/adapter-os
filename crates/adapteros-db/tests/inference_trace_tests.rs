@@ -100,6 +100,7 @@ async fn trace_persistence_and_receipt_verification() -> anyhow::Result<()> {
             prefix_cache_hit: false,
             prefix_kv_bytes: 0,
             model_cache_identity_v2_digest_b3: None,
+            attestation: None,
         })
         .await?;
 
@@ -179,6 +180,7 @@ async fn trace_persistence_and_receipt_verification() -> anyhow::Result<()> {
             prefix_cache_hit: false,
             prefix_kv_bytes: 0,
             model_cache_identity_v2_digest_b3: None,
+            attestation: None,
         })
         .await?;
     assert_eq!(

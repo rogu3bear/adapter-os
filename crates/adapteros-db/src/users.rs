@@ -6,31 +6,45 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+/// User role enum - simplified 3-role model
+///
+/// # Roles
+/// - **Admin**: Full access to everything including system settings and user management
+/// - **Operator**: Can run inference, training, manage adapters. Cannot change system settings or users.
+/// - **Viewer**: Read-only access. Can view dashboards, logs, but cannot modify anything.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
     #[serde(rename = "admin")]
     Admin,
-    #[serde(rename = "developer")]
-    Developer,
     #[serde(rename = "operator")]
     Operator,
-    #[serde(rename = "sre")]
-    SRE,
-    #[serde(rename = "compliance")]
-    Compliance,
     #[serde(rename = "viewer")]
     Viewer,
+}
+
+impl Role {
+    /// Check if this role has write (modify) access
+    pub fn can_write(&self) -> bool {
+        matches!(self, Role::Admin | Role::Operator)
+    }
+
+    /// Check if this role has admin access (full permissions)
+    pub fn can_admin(&self) -> bool {
+        matches!(self, Role::Admin)
+    }
+
+    /// Check if this role is viewer-only (read-only access)
+    pub fn is_viewer(&self) -> bool {
+        matches!(self, Role::Viewer)
+    }
 }
 
 impl std::fmt::Display for Role {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Role::Admin => write!(f, "admin"),
-            Role::Developer => write!(f, "developer"),
             Role::Operator => write!(f, "operator"),
-            Role::SRE => write!(f, "sre"),
-            Role::Compliance => write!(f, "compliance"),
             Role::Viewer => write!(f, "viewer"),
         }
     }
@@ -43,12 +57,14 @@ impl std::str::FromStr for Role {
         // Case-insensitive parsing for defense-in-depth
         match s.to_lowercase().as_str() {
             "admin" => Ok(Role::Admin),
-            "developer" => Ok(Role::Developer),
             "operator" => Ok(Role::Operator),
-            "sre" => Ok(Role::SRE),
-            "compliance" => Ok(Role::Compliance),
             "viewer" => Ok(Role::Viewer),
-            _ => Err(AosError::Parse(format!("invalid role: {}", s))),
+            // Backwards compatibility: map old roles to new ones
+            "developer" => Ok(Role::Admin),      // Developer had full access like Admin
+            "sre" => Ok(Role::Operator),         // SRE maps to Operator
+            "compliance" => Ok(Role::Viewer),    // Compliance was read-focused
+            "auditor" => Ok(Role::Viewer),       // Auditor was read-focused
+            _ => Err(AosError::Parse(format!("invalid role: '{}', valid roles are: admin, operator, viewer", s))),
         }
     }
 }
@@ -125,10 +141,7 @@ fn default_tenant_id() -> String {
 fn to_kv_role(role: &Role) -> KvRole {
     match role {
         Role::Admin => KvRole::Admin,
-        Role::Developer => KvRole::Developer,
         Role::Operator => KvRole::Operator,
-        Role::SRE => KvRole::SRE,
-        Role::Compliance => KvRole::Compliance,
         Role::Viewer => KvRole::Viewer,
     }
 }
