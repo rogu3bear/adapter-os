@@ -87,7 +87,7 @@ run_batch "server" "crates/adapteros-server crates/adapteros-server-api crates/a
 run_batch "policy" "crates/adapteros-policy crates/adapteros-manifest crates/adapteros-aos"
 run_batch "infra" "crates/adapteros-memory crates/adapteros-telemetry crates/adapteros-profiler crates/adapteros-deterministic-exec"
 run_batch "tools" "crates/adapteros-cli crates/adapteros-orchestrator crates/adapteros-ingest-docs"
-run_batch "ui" "ui/src ui/components ui/pages"
+run_batch "ui" "crates/adapteros-ui/src"
 run_batch "tests" "tests"
 
 echo ""

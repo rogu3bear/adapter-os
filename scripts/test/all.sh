@@ -40,10 +40,8 @@ run_cmd() {
 
 info "AdapterOS test runner (suite: ${SUITE})"
 
-require_cmd "pnpm" "Install pnpm 9+ (see package.json 'packageManager')."
 require_cmd "cargo" "Install Rust toolchain (rustup recommended)."
 
-info "pnpm version: $(pnpm -v)"
 info "cargo version: $(cargo -V)"
 if command -v rustc >/dev/null 2>&1; then
   info "rustc version: $(rustc -V)"
@@ -122,14 +120,10 @@ run_rust_suite() {
 }
 
 run_ui_suite() {
-  run_cmd "Install UI dependencies" "pnpm --dir ui install --frozen-lockfile || pnpm --dir ui install"
-  run_cmd "UI lint" "pnpm --dir ui lint"
-  run_cmd "UI unit/integration tests" "CI=1 pnpm --dir ui exec vitest run"
+  run_cmd "Leptos UI unit tests" "cargo test -p adapteros-ui --lib"
 }
 
-run_e2e_suite() {
-  run_cmd "UI end-to-end tests" "CI=1 pnpm --dir ui test:e2e"
-}
+
 
 case "$SUITE" in
   all)
@@ -142,10 +136,7 @@ case "$SUITE" in
   ui)
     run_ui_suite
     ;;
-  e2e)
-    run_e2e_suite
-    ;;
   *)
-    fail "Unknown suite '$SUITE'. Use: all | rust | ui | e2e"
+    fail "Unknown suite '$SUITE'. Use: all | rust | ui"
     ;;
 esac

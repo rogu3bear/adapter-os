@@ -596,95 +596,29 @@ stop_backend() {
 }
 
 # =============================================================================
-# Service: UI
+# Service: UI (Leptos WASM - served from static/)
 # =============================================================================
 
 start_ui() {
     ensure_dirs
 
-    if is_running "$UI_PID_FILE"; then
-        local pid=$(get_pid "$UI_PID_FILE")
-        warning_msg "UI is already running (PID: $pid)"
-        return 0
-    fi
-
-    status_msg "Starting Web UI..."
-
-    if ! ensure_port_free "$UI_PORT" "Web UI"; then
-        error_msg "UI port $UI_PORT is busy; unable to start."
-        return 1
-    fi
-
-    # Check if pnpm is available
-    if ! command -v pnpm &> /dev/null; then
-        error_msg "pnpm not found. Install with: npm install -g pnpm"
-        return 1
-    fi
-
-    # Check if UI directory exists
-    if [ ! -d "$PROJECT_ROOT/ui" ]; then
-        error_msg "UI directory not found: $PROJECT_ROOT/ui"
-        return 1
-    fi
-
-    # Install dependencies if needed
-    if [ ! -d "$PROJECT_ROOT/ui/node_modules" ]; then
-        status_msg "Installing UI dependencies..."
-        cd "$PROJECT_ROOT/ui"
-        pnpm install --silent
-        cd "$PROJECT_ROOT"
-    fi
-
-# Start UI dev server
-    cd "$PROJECT_ROOT/ui"
-
-    # Set the port for Vite
-    export VITE_PORT="$UI_PORT"
-    export PORT="$UI_PORT"
-    # Tell the UI dev server to skip spawning its own backend (we managed it)
-    export AOS_UI_SKIP_BACKEND=1
-
-    nohup pnpm dev --port "$UI_PORT" > "$UI_LOG" 2>&1 &
-    local pid=$!
-
-    cd "$PROJECT_ROOT"
-
-    echo "$pid" > "$UI_PID_FILE"
-
-    # Give it a moment to start
-    sleep 3
-
-    if kill -0 "$pid" 2>/dev/null; then
-        success_msg "UI started (PID: $pid, Port: $UI_PORT)"
-        return 0
-    else
-        error_msg "UI failed to start. Check logs: $UI_LOG"
-        rm -f "$UI_PID_FILE"
-        return 1
-    fi
+    # The Leptos UI is built to static/ and served by the backend server.
+    # This function is a no-op but kept for backwards compatibility.
+    status_msg "UI is served by the backend from static/ (Leptos WASM build)"
+    status_msg "Build UI with: cd crates/adapteros-ui && trunk build --release"
+    return 0
 }
 
 restart_ui() {
-    local mode="${1:-graceful}"
-    status_msg "Restarting Web UI (mode: ${mode})..."
-    stop_ui "$mode"
-    start_ui
+    # No-op: Leptos UI is served from static/ by the backend
+    status_msg "UI is served by the backend from static/ (Leptos WASM build)"
+    return 0
 }
 
 stop_ui() {
-    local mode="${1:-graceful}"
-
-    if ! is_running "$UI_PID_FILE"; then
-        status_msg "UI is not running"
-        return 0
-    fi
-
-    local pid=$(get_pid "$UI_PID_FILE")
-    stop_process "$pid" "UI" "$UI_TIMEOUT" "$mode"
-    rm -f "$UI_PID_FILE"
-
-    # Also kill any orphaned node processes from the UI
-    pkill -f "vite.*$UI_PORT" 2>/dev/null || true
+    # No-op: Leptos UI is served from static/ by the backend
+    status_msg "UI is served by the backend (no separate process)"
+    return 0
 }
 
 # =============================================================================

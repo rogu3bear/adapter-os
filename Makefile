@@ -1,4 +1,4 @@
-.PHONY: help build prepare test test-rust test-ui test-e2e test-ignored test-hw clean fmt fmt-check clippy metal ui ui-dev menu-bar menu-bar-dev menu-bar-install infra-check dev dev-no-auth build-mlx test-mlx bench-mlx verify-mlx-env cli setup-git-hooks lint-fix mvp-demo stability-check stability-ci ignored-tests-audit ignored-tests-check sbom sbom-check
+.PHONY: help build prepare test test-rust test-ui test-ignored test-hw clean fmt fmt-check clippy metal ui ui-dev menu-bar menu-bar-dev menu-bar-install infra-check dev dev-no-auth build-mlx test-mlx bench-mlx verify-mlx-env cli setup-git-hooks lint-fix mvp-demo stability-check stability-ci ignored-tests-audit ignored-tests-check sbom sbom-check
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -43,17 +43,15 @@ mvp-demo: ## One-command MVP demo setup (deps, model, build, db, demo data)
 check-system: ## Check system readiness before launch (preflight checks)
 	@./scripts/check-system.sh
 
-test: ## Run formatter, lint, Rust, and UI test suites
+test: ## Run formatter, lint, Rust, and Leptos UI test suites
 	bash scripts/test/all.sh all
 
 test-rust: ## Run formatter, lint, Rust unit/integration tests only
 	bash scripts/test/all.sh rust
 
-test-ui: ## Run UI lint + unit/integration tests only
+test-ui: ## Run Leptos UI tests only
 	bash scripts/test/all.sh ui
 
-test-e2e: ## Run UI end-to-end tests (optional, starts dev stack)
-	bash scripts/test/all.sh e2e
 
 IGNORED_EXCLUDE ?=
 IGNORED_EXCLUDE_ARGS := $(foreach ex,$(IGNORED_EXCLUDE),--exclude $(ex))
@@ -127,11 +125,11 @@ clippy: ## Run clippy (with smart test/example suppression via clippy.toml)
 metal: ## Build Metal shaders
 	cd metal && bash build.sh
 
-ui: ## Build Web UI (production)
-	pnpm build
+ui: ## Build Leptos UI (production)
+	cd crates/adapteros-ui && trunk build --release
 
-ui-dev: ## Start Web UI dev server
-	pnpm dev
+ui-dev: ## Start Leptos UI dev server
+	cd crates/adapteros-ui && trunk serve
 
 codegraph-viewer: ## Build CodeGraph Viewer (Tauri desktop app)
 	cd crates/mplora-codegraph-viewer/frontend && pnpm install && pnpm build
@@ -199,7 +197,7 @@ stability-check: ## Must-pass stabilization gate (see docs/stability/CHECKLIST.m
 	@echo "=== Stability Gate ==="
 	@echo "Step 1/3: Inference bypass guard..."
 	./scripts/check_inference_bypass.sh
-	@echo "Step 2/3: Full test suite (fmt, clippy, Rust tests, UI tests)..."
+	@echo "Step 2/3: Full test suite (fmt, clippy, Rust tests, Leptos UI tests)..."
 	@$(MAKE) test
 	@echo "Step 3/3: Determinism checks..."
 	@$(MAKE) determinism-check
@@ -242,28 +240,11 @@ openapi-docs: ## Generate OpenAPI documentation
 validate-openapi: ## Validate OpenAPI documentation
 	./scripts/validate_openapi_docs.sh
 
-gen-types: ## Generate TypeScript types from OpenAPI spec
-	@echo "🔧 Generating TypeScript types from OpenAPI spec..."
-	./scripts/generate-sdks.sh --typescript
-	@echo "✅ TypeScript types generated at ui/src/api/generated.ts"
-
-gen-sdk-python: ## Generate Python SDK from OpenAPI spec
-	@echo "🔧 Generating Python SDK from OpenAPI spec..."
-	./scripts/generate-sdks.sh --python
-	@echo "✅ Python SDK generated at sdk/python/"
-
-gen-sdks: ## Generate all SDKs (TypeScript types + Python SDK)
-	@echo "🔧 Generating all SDKs from OpenAPI spec..."
-	./scripts/generate-sdks.sh --all
-	@echo "✅ All SDKs generated!"
-
-check-types-drift: ## Check if TypeScript types are in sync with OpenAPI spec
-	@./scripts/generate-sdks.sh --check-drift
-
 TEST_TIMEOUT_FLAG ?=
 determinism-check: ## Run determinism tests
 	cargo test --test determinism_core_suite -- --test-threads=8 $(TEST_TIMEOUT_FLAG)
 	cargo test -p adapteros-lora-router --test determinism
+	bash scripts/check_fast_math_flags.sh
 
 # For faster runs: PROFILE=release make determinism-check
 ifeq ($(PROFILE),release)
@@ -271,8 +252,6 @@ ifeq ($(PROFILE),release)
 	cargo test --release -p adapteros-lora-router --test determinism
 endif
 
-e2e: ## Start stack, seed, run Cypress headless, then tear down
-	@bash -c 'set -euo pipefail; trap "scripts/e2e/down.sh" EXIT; scripts/e2e/up.sh; scripts/e2e/seed.sh; pnpm --dir ui install --frozen-lockfile || pnpm --dir ui install; pnpm --dir ui exec cypress run --config-file ../cypress.config.ts'
 
 KV_VERIFY_DB ?= ./var/aos-cp.sqlite3
 KV_VERIFY_KV ?= ./var/aos-kv.redb

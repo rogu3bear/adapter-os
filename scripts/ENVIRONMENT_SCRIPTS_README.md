@@ -147,10 +147,10 @@ Your environment is configured! Next steps:
 1. Start the backend server:
    cargo run --release -p adapteros-server-api
 
-2. In another terminal, start the UI:
-   cd ui && pnpm install && pnpm dev
+2. Build the UI (Leptos WASM, served by backend):
+   cd crates/adapteros-ui && trunk build --release
 
-3. Access the UI at http://localhost:3200
+3. Access the UI at http://localhost:8080
 
 ✅ Setup complete. Happy coding!
 ```
@@ -175,7 +175,7 @@ Your environment is configured! Next steps:
 4. **Server configuration:** Port available, settings valid
 5. **Database:** URL valid, directory accessible
 6. **Security:** JWT mode valid, credentials present
-7. **Tools:** Rust, Cargo, Node.js, pnpm available
+7. **Tools:** Rust, Cargo, trunk (WASM bundler) available
 8. **Directories:** Required directories exist
 9. **Production checks:** Additional requirements if production mode
 
@@ -216,8 +216,8 @@ Your environment is configured! Next steps:
 [CHECK] Node.js is available
 [PASS] Node.js: v20.14.0
 
-[CHECK] pnpm is available
-[PASS] pnpm: 9.6.0
+[CHECK] trunk is available
+[PASS] trunk: 0.21.0
 
 ═══════════════════════════════════════════════════════════════════════════════
 VALIDATION SUMMARY
@@ -400,7 +400,7 @@ Database:
 cargo run --release -p adapteros-server-api
 
 # Step 3: Access UI (in another terminal)
-cd ui && pnpm dev
+cd crates/adapteros-ui && trunk serve
 ```
 
 ### Switching Between Use Cases

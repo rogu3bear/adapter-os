@@ -223,7 +223,6 @@ main() {
   capture_text_file "$root_dir/configs/cp.toml" "$bundle_dir/config/cp.toml"
   capture_text_file "$root_dir/.env.example" "$bundle_dir/config/.env.example"
   capture_text_file "$root_dir/.envrc.example" "$bundle_dir/config/.envrc.example"
-  capture_text_file "$root_dir/ui/.env.example" "$bundle_dir/config/ui.env.example"
 
   # ---- Migrations + SQLite schema/status (no DB data copied) ----
   capture_command "$bundle_dir/db/repo_migrations.txt" bash -c "cd \"$root_dir\" && ls -1 migrations/[0-9][0-9][0-9][0-9]_*.sql 2>/dev/null | sort | tail -n 50"

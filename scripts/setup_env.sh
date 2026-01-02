@@ -369,14 +369,14 @@ if [ "$PROFILE_TYPE" = "dev" ]; then
     echo "1. Start the backend server:"
     echo "   cargo run --release -p adapteros-server-api"
     echo ""
-    echo "2. In another terminal, start the UI:"
-    echo "   cd ui && pnpm install && pnpm dev"
+    echo "2. Build and serve the UI (Leptos WASM):"
+    echo "   cd crates/adapteros-ui && trunk build --release"
     echo ""
-    echo "3. Access the UI at http://localhost:${AOS_UI_PORT:-3200}"
+    echo "3. Access the UI at http://localhost:${AOS_SERVER_PORT:-8080}"
 
 elif [ "$PROFILE_TYPE" = "training" ]; then
     echo "1. Verify MLX is available:"
-    echo "   pip install mlx"
+    echo "   brew install mlx"
     echo ""
     echo "2. Start the server:"
     echo "   cargo run --release -p adapteros-server-api"
