@@ -1,12 +1,12 @@
 //! Settings management types
 
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
 
 use crate::schema_version;
 
 /// System settings categories
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct SystemSettings {
     #[serde(default = "schema_version")]
@@ -18,7 +18,8 @@ pub struct SystemSettings {
 }
 
 /// General system settings
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct GeneralSettings {
     pub system_name: String,
@@ -27,7 +28,8 @@ pub struct GeneralSettings {
 }
 
 /// Server settings
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct ServerSettings {
     pub http_port: u16,
@@ -37,7 +39,8 @@ pub struct ServerSettings {
 }
 
 /// Security settings
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct SecuritySettings {
     pub jwt_mode: String,
@@ -48,7 +51,8 @@ pub struct SecuritySettings {
 }
 
 /// Performance settings
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct PerformanceSettings {
     pub max_adapters: u32,
@@ -58,7 +62,8 @@ pub struct PerformanceSettings {
 }
 
 /// Update settings request
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct UpdateSettingsRequest {
     pub general: Option<GeneralSettings>,
@@ -68,7 +73,8 @@ pub struct UpdateSettingsRequest {
 }
 
 /// Settings update response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct SettingsUpdateResponse {
     #[serde(default = "schema_version")]

@@ -1,8 +1,8 @@
 //! Telemetry types
 
+#[cfg(feature = "server")]
 use adapteros_telemetry::unified_events::TelemetryEvent;
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
 
 use crate::schema_version;
 
@@ -10,7 +10,8 @@ use crate::schema_version;
 pub use adapteros_telemetry_types::BundleMetadata;
 
 /// API telemetry event (DTO for public API)
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct ApiTelemetryEvent {
     pub event_type: String,
@@ -21,6 +22,7 @@ pub struct ApiTelemetryEvent {
 }
 
 /// Conversion from canonical TelemetryEvent to API DTO
+#[cfg(feature = "server")]
 impl From<TelemetryEvent> for ApiTelemetryEvent {
     fn from(ev: TelemetryEvent) -> Self {
         ApiTelemetryEvent {
@@ -34,7 +36,8 @@ impl From<TelemetryEvent> for ApiTelemetryEvent {
 }
 
 /// Telemetry bundle response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct TelemetryBundleResponse {
     #[serde(default = "schema_version")]
@@ -47,7 +50,8 @@ pub struct TelemetryBundleResponse {
 }
 
 /// Export telemetry bundle request
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct ExportTelemetryBundleRequest {
     pub bundle_id: String,
@@ -55,7 +59,8 @@ pub struct ExportTelemetryBundleRequest {
 }
 
 /// Verify bundle signature request
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct VerifyBundleSignatureRequest {
     pub bundle_id: String,
@@ -63,7 +68,8 @@ pub struct VerifyBundleSignatureRequest {
 }
 
 /// Bundle verification response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct BundleVerificationResponse {
     #[serde(default = "schema_version")]

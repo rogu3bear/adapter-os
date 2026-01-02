@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use utoipa::ToSchema;
 
 /// Cluster definition within the semantic topology.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct ClusterDefinition {
     pub id: String,
     pub description: String,
@@ -13,7 +13,8 @@ pub struct ClusterDefinition {
 }
 
 /// Adapter-level topology metadata.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct AdapterTopology {
     pub adapter_id: String,
     pub name: String,
@@ -22,14 +23,16 @@ pub struct AdapterTopology {
 }
 
 /// Edge in the adjacency matrix from one cluster to the next.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct AdjacencyEdge {
     pub to_cluster_id: String,
     pub probability: f64,
 }
 
 /// Node prediction returned alongside the topology graph when context is provided.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct PredictedPathNode {
     /// Node identifier (adapter or cluster)
     pub id: String,
@@ -48,7 +51,8 @@ pub struct PredictedPathNode {
 }
 
 /// Complete topology graph returned by the API.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct TopologyGraph {
     pub clusters_version: String,
     pub clusters: Vec<ClusterDefinition>,

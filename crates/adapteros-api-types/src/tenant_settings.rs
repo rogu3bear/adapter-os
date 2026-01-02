@@ -5,7 +5,6 @@
 //! - PUT /v1/tenants/{tenant_id}/settings
 
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
 
 use crate::schema_version;
 
@@ -13,7 +12,8 @@ use crate::schema_version;
 ///
 /// Controls how codebase adapters are served during inference, particularly
 /// regarding CoreML fusion requirements.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct CodebaseServingPolicy {
     /// CoreML fusion policy: "strict" or "mlx_fallback"
@@ -75,7 +75,8 @@ impl CodebaseServingPolicy {
 ///
 /// These settings control how the inference engine handles determinism modes,
 /// backend fallback, and pinned adapter enforcement.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct DeterminismPolicyKnobs {
     /// Allowed determinism modes for this tenant: ["strict", "besteffort", "relaxed"]
@@ -110,7 +111,8 @@ impl Default for DeterminismPolicyKnobs {
 ///
 /// Contains the tenant's settings for controlling default stack/adapter behavior.
 /// All boolean fields default to false (disabled) for backwards compatibility.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct TenantSettingsResponse {
     #[serde(default = "schema_version")]
@@ -143,9 +145,9 @@ pub struct TenantSettingsResponse {
 ///
 /// All fields are optional to support partial updates.
 /// Fields not provided will preserve existing values.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
-#[derive(Default)]
 pub struct UpdateTenantSettingsRequest {
     /// When true, new chat sessions inherit stack_id from tenants.default_stack_id
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -1,15 +1,17 @@
 //! Adapter management types
 
+#[cfg(feature = "server")]
 use adapteros_types::{coreml::CoreMLMode, repository::RepoTier, training::LoraTier};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use utoipa::ToSchema;
 
 use crate::schema_version;
+#[cfg(feature = "server")]
 use crate::training::DatasetVersionTrustSnapshot;
 
 /// Register adapter request
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct RegisterAdapterRequest {
     pub adapter_id: String,
@@ -46,7 +48,8 @@ pub struct RegisterAdapterRequest {
 ///
 /// Note: In the database, `current_state` maps to `runtime_state` in the API
 /// to provide clearer semantics.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct AdapterResponse {
     #[serde(default = "schema_version")]
@@ -74,6 +77,7 @@ pub struct AdapterResponse {
     ///
     /// # OpenAPI
     /// Uses proper enum schema with values: `micro`, `standard`, `max`.
+    #[cfg(feature = "server")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lora_tier: Option<LoraTier>,
     /// Runtime strength multiplier (scales LoRA application without changing alpha)
@@ -156,7 +160,8 @@ pub struct AdapterResponse {
 }
 
 /// Adapter statistics
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct AdapterStats {
     pub total_activations: i64,
@@ -166,7 +171,8 @@ pub struct AdapterStats {
 }
 
 /// Adapter activation response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct AdapterActivationResponse {
     #[serde(default = "schema_version")]
@@ -180,7 +186,8 @@ pub struct AdapterActivationResponse {
 }
 
 /// Adapter state transition response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct AdapterStateResponse {
     #[serde(default = "schema_version")]
@@ -192,7 +199,8 @@ pub struct AdapterStateResponse {
 }
 
 /// Adapter manifest for download
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct AdapterManifest {
     pub adapter_id: String,
@@ -218,7 +226,8 @@ pub struct AdapterManifest {
 }
 
 /// Adapter repository response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct AdapterRepositoryResponse {
     pub id: String,
@@ -230,11 +239,15 @@ pub struct AdapterRepositoryResponse {
     pub created_by: Option<String>,
     pub created_at: String,
     pub description: Option<String>,
+    #[cfg(feature = "server")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub training_policy: Option<AdapterRepositoryPolicyResponse>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+/// Adapter repository policy request (server only - uses adapteros_types)
+#[cfg(feature = "server")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct AdapterRepositoryPolicyRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -253,7 +266,10 @@ pub struct AdapterRepositoryPolicyRequest {
     pub auto_rollback_on_trust_regress: Option<bool>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+/// Adapter repository policy response (server only - uses adapteros_types)
+#[cfg(feature = "server")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct AdapterRepositoryPolicyResponse {
     pub repo_id: String,
@@ -270,8 +286,10 @@ pub struct AdapterRepositoryPolicyResponse {
     pub created_at: String,
 }
 
-/// Adapter version response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+/// Adapter version response (server only - uses DatasetVersionTrustSnapshot)
+#[cfg(feature = "server")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct AdapterVersionResponse {
     pub id: String,
@@ -308,7 +326,8 @@ pub struct AdapterVersionResponse {
 }
 
 /// Create repository request
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct CreateRepositoryRequest {
     pub tenant_id: String,
@@ -319,14 +338,16 @@ pub struct CreateRepositoryRequest {
 }
 
 /// Create repository response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct CreateRepositoryResponse {
     pub repo_id: String,
 }
 
 /// Create draft version request
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct CreateDraftVersionRequest {
     pub repo_id: String,
@@ -337,21 +358,24 @@ pub struct CreateDraftVersionRequest {
 }
 
 /// Create draft version response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct CreateDraftVersionResponse {
     pub version_id: String,
 }
 
 /// Promote version request
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct PromoteVersionRequest {
     pub repo_id: String,
 }
 
 /// Rollback version request
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct RollbackVersionRequest {
     pub branch: String,
@@ -359,21 +383,24 @@ pub struct RollbackVersionRequest {
 }
 
 /// Tag version request
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct TagVersionRequest {
     pub tag_name: String,
 }
 
 /// Resolve version request
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct ResolveVersionRequest {
     pub selector: String,
 }
 
 /// Resolve version response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct ResolveVersionResponse {
     pub version_id: Option<String>,
@@ -388,7 +415,8 @@ pub struct ResolveVersionResponse {
 /// | degraded | High drift for tier, trust warning, or minor warnings             |
 /// | unsafe   | Trust blocked or regressed datasets                               |
 /// | corrupt  | Storage hash mismatch or missing artifacts                        |
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct AdapterHealthResponse {
     #[serde(default = "schema_version")]
@@ -430,7 +458,8 @@ pub struct AdapterHealthResponse {
 }
 
 /// Canonical adapter health states (roll-up)
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum AdapterHealthFlag {
     Healthy,
@@ -440,7 +469,8 @@ pub enum AdapterHealthFlag {
 }
 
 /// Domains/categories for health sub-codes.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum AdapterHealthDomain {
     Drift,
@@ -450,7 +480,8 @@ pub enum AdapterHealthDomain {
 }
 
 /// A single health sub-code with domain context.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct AdapterHealthSubcode {
     /// Category of the signal (drift/trust/storage/etc)
@@ -466,7 +497,8 @@ pub struct AdapterHealthSubcode {
 }
 
 /// Drift summary, including thresholds and current score.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct AdapterDriftSummary {
     pub current: f64,
@@ -477,7 +509,8 @@ pub struct AdapterDriftSummary {
 }
 
 /// Dataset linkage + trust state used for health rollup.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct AdapterDatasetHealth {
     pub dataset_version_id: String,
@@ -487,7 +520,8 @@ pub struct AdapterDatasetHealth {
 }
 
 /// Storage/reconciler status for adapter artifacts.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct AdapterStorageHealth {
     pub reconciler_status: String,
@@ -498,7 +532,8 @@ pub struct AdapterStorageHealth {
 }
 
 /// Backend/CoreML info for debugging surfaced on the adapter detail view.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct AdapterBackendHealth {
     #[serde(skip_serializing_if = "Option::is_none")]

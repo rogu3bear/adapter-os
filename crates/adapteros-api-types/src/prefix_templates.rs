@@ -5,12 +5,13 @@
 //!
 //! See PRD: PrefixKvCache v1
 
+#[cfg(feature = "server")]
 use adapteros_core::B3Hash;
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
 
 /// Prefix template mode indicating the context in which the prefix applies
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum PrefixMode {
     /// Global system boilerplate (applies to all requests)
@@ -56,7 +57,8 @@ impl std::fmt::Display for PrefixMode {
 }
 
 /// A prefix template configuration
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct PrefixTemplate {
     /// Unique identifier for this template
     pub id: String,
@@ -67,7 +69,8 @@ pub struct PrefixTemplate {
     /// The actual prefix text to be tokenized and cached
     pub template_text: String,
     /// BLAKE3 hash of template_text
-    #[schema(value_type = String)]
+    #[cfg(feature = "server")]
+    #[cfg_attr(feature = "server", schema(value_type = String))]
     pub template_hash_b3: B3Hash,
     /// Priority for template selection (higher = matched first)
     #[serde(default)]
@@ -82,7 +85,8 @@ fn default_enabled() -> bool {
 }
 
 /// Request to create a new prefix template
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct CreatePrefixTemplateRequest {
     /// Tenant that owns this template
     pub tenant_id: String,
@@ -99,7 +103,8 @@ pub struct CreatePrefixTemplateRequest {
 }
 
 /// Request to update an existing prefix template
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct UpdatePrefixTemplateRequest {
     /// Updated mode (optional)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -116,20 +121,23 @@ pub struct UpdatePrefixTemplateRequest {
 }
 
 /// Response for prefix template operations
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct PrefixTemplateResponse {
     pub template: PrefixTemplate,
 }
 
 /// Response listing prefix templates
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct ListPrefixTemplatesResponse {
     pub templates: Vec<PrefixTemplate>,
     pub total: u64,
 }
 
 /// Query parameters for listing prefix templates
-#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct ListPrefixTemplatesQuery {
     /// Filter by mode
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -154,7 +162,8 @@ fn default_limit() -> u32 {
 }
 
 /// Prefix KV cache statistics for observability
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct PrefixKvCacheStats {
     /// Total number of cached prefix entries
     pub entry_count: u64,
@@ -193,7 +202,7 @@ impl PrefixKvCacheStats {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "server"))]
 mod tests {
     use super::*;
 

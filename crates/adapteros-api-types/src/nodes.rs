@@ -1,12 +1,12 @@
 //! Node management types
 
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
 
 use crate::schema_version;
 
 /// Register node request
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct RegisterNodeRequest {
     pub hostname: String,
@@ -14,7 +14,8 @@ pub struct RegisterNodeRequest {
 }
 
 /// Node response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct NodeResponse {
     #[serde(default = "schema_version")]
@@ -27,7 +28,8 @@ pub struct NodeResponse {
 }
 
 /// Node ping response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct NodePingResponse {
     #[serde(default = "schema_version")]
@@ -38,7 +40,8 @@ pub struct NodePingResponse {
 }
 
 /// Worker info for node details
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct WorkerInfo {
     pub id: String,
@@ -48,7 +51,8 @@ pub struct WorkerInfo {
 }
 
 /// Node details response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct NodeDetailsResponse {
     #[serde(default = "schema_version")]

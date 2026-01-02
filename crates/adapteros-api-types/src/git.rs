@@ -1,12 +1,12 @@
 //! Git integration types
 
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
 
 use crate::schema_version;
 
 /// Git status response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct GitStatusResponse {
     #[serde(default = "schema_version")]
@@ -18,7 +18,8 @@ pub struct GitStatusResponse {
 }
 
 /// Start git session request
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct StartGitSessionRequest {
     pub repository_path: String,
@@ -26,7 +27,8 @@ pub struct StartGitSessionRequest {
 }
 
 /// Git session response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct GitSessionResponse {
     #[serde(default = "schema_version")]
@@ -38,7 +40,8 @@ pub struct GitSessionResponse {
 }
 
 /// Git branch information
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct GitBranchInfo {
     pub name: String,
@@ -49,7 +52,8 @@ pub struct GitBranchInfo {
 }
 
 /// File change event
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct FileChangeEvent {
     pub file_path: String,
