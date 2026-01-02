@@ -19,6 +19,15 @@
 pub const ROUTER_GATE_Q15_DENOM: f32 = 32767.0;
 pub const ROUTER_GATE_Q15_MAX: i16 = 32767;
 
+const _: () = {
+    if ROUTER_GATE_Q15_DENOM != 32767.0 {
+        panic!("ROUTER_GATE_Q15_DENOM must remain 32767.0 for determinism");
+    }
+    if ROUTER_GATE_Q15_MAX != i16::MAX {
+        panic!("ROUTER_GATE_Q15_MAX must remain i16::MAX for determinism");
+    }
+};
+
 #[inline]
 pub(crate) fn quantize_gate(gate: f32) -> i16 {
     let scaled = (gate * ROUTER_GATE_Q15_DENOM).round() as i32;

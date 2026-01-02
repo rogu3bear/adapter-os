@@ -23,7 +23,7 @@ multi-backend = ["dep:adapteros-lora-mlx-ffi"]
 adapteros-core = { path = "../adapteros-core" }
 adapteros-db = { path = "../adapteros-db" }
 adapteros-lora-rag = { path = "../adapteros-lora-rag" }
-adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true }
+adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true, features = ["mlx"] }
 tokenizers = { workspace = true }
 pulldown-cmark = "0.9"
 lopdf = "0.32"
