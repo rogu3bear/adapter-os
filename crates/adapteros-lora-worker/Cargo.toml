@@ -21,7 +21,7 @@ telemetry-sysinfo = ["dep:sysinfo"]
 # multi-backend: Enables MLX FFI backend
 #   - Adds adapteros-lora-mlx-ffi as dependency
 #   - For research/training workloads
-#   - Can use mlx-rs-backend feature on the dependency for pure Rust
+#   - mlx-rs-backend is deprecated and unsupported (kept for reference only)
 #
 # remote-llm: Enables remote LLM backend for external API services
 #   - Adds reqwest HTTP client dependency
@@ -29,7 +29,7 @@ telemetry-sysinfo = ["dep:sysinfo"]
 #   - SECURITY: Only enable if egress is intentionally permitted
 #
 coreml-backend = ["dep:adapteros-lora-kernel-coreml"]
-multi-backend = ["dep:adapteros-lora-mlx-ffi", "mlx"]
+multi-backend = ["dep:adapteros-lora-mlx-ffi"]
 remote-llm = ["dep:reqwest"]
 
 # mlx-bridge: Enables MLX subprocess bridge backend (Python subprocess)
@@ -40,8 +40,8 @@ mlx-bridge = ["multi-backend"]
 
 # Alias for clarity
 mlx-backend = ["multi-backend"]
-mlx = []               # Enable real MLX backend (requires MLX runtime)
-real-mlx = ["mlx"]     # Legacy alias (deprecated)
+mlx = ["multi-backend"]  # Enable real MLX backend (includes multi-backend for FFI)
+real-mlx = ["mlx"]       # Legacy alias (deprecated)
 loom = []
 
 # Residency testing features
@@ -60,6 +60,7 @@ adapteros-lora-router = { path = "../adapteros-lora-router" }
 adapteros-lora-rag = { path = "../adapteros-lora-rag" }
 adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
 adapteros-lora-kernel-coreml = { path = "../adapteros-lora-kernel-coreml", optional = true }
+# Use C++ FFI for real MLX inference (primary/only supported path)
 adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true, features = ["mlx"] }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
 adapteros-profiler = { path = "../adapteros-profiler" }
@@ -134,7 +135,7 @@ tempfile = { workspace = true }
 proptest = "1.0"
 serial_test = "3.0"
 sysinfo = { version = "0.30" }
-adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi" }
+adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", features = ["mlx"] }
 
 [[bench]]
 name = "hotswap"
@@ -144,5 +145,5 @@ harness = false
 adapteros-lora-kernel-mtl = { path = "../adapteros-lora-kernel-mtl" }
 nix = { workspace = true }
 mach = "0.3"
-metal = "0.27"
+metal = { workspace = true }
 libc = "0.2"

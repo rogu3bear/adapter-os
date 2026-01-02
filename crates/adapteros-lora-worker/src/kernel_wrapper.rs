@@ -333,7 +333,14 @@ impl FusedKernels for KernelWrapper {
     ) -> Result<adapteros_lora_kernel_api::attestation::DeterminismReport> {
         match self {
             KernelWrapper::Direct(k) => k.inner.attest_determinism(),
-            KernelWrapper::Coordinated(k) => k.primary.attest_determinism(),
+            KernelWrapper::Coordinated(k) => match k.active_backend {
+                ActiveBackend::Primary => k.primary.attest_determinism(),
+                ActiveBackend::Fallback => k
+                    .fallback
+                    .as_ref()
+                    .map(|fb| fb.attest_determinism())
+                    .unwrap_or_else(|| k.primary.attest_determinism()),
+            },
         }
     }
 

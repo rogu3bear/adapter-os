@@ -92,6 +92,24 @@ use tokio::sync::watch;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
+const DETERMINISM_ATTESTATION_SCHEMA_VERSION: u8 = 1;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct DeterminismAttestationPayload {
+    schema_version: u8,
+    report: adapteros_lora_kernel_api::attestation::DeterminismReport,
+}
+
+fn encode_determinism_attestation(
+    report: &adapteros_lora_kernel_api::attestation::DeterminismReport,
+) -> Result<Vec<u8>> {
+    let payload = DeterminismAttestationPayload {
+        schema_version: DETERMINISM_ATTESTATION_SCHEMA_VERSION,
+        report: report.clone(),
+    };
+    Ok(serde_json::to_vec(&payload)?)
+}
+
 pub mod active_learning;
 pub mod adapter_hotswap;
 pub mod anomaly_detection;
@@ -649,7 +667,14 @@ impl FusedKernels for KernelWrapper {
     ) -> Result<adapteros_lora_kernel_api::attestation::DeterminismReport> {
         match self {
             KernelWrapper::Direct(k) => k.inner.attest_determinism(),
-            KernelWrapper::Coordinated(k) => k.primary.attest_determinism(),
+            KernelWrapper::Coordinated(k) => match k.active_backend {
+                ActiveBackend::Primary => k.primary.attest_determinism(),
+                ActiveBackend::Fallback => k
+                    .fallback
+                    .as_ref()
+                    .map(|fb| fb.attest_determinism())
+                    .unwrap_or_else(|| k.primary.attest_determinism()),
+            },
         }
     }
 
@@ -3377,14 +3402,21 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         // Decode to text
         let generated_text = self.tokenizer.decode(&generated_tokens)?;
 
-        let (backend_used, fallback_triggered) = {
+        let include_attestation = trace_sink.is_some();
+        let (backend_used, fallback_triggered, determinism_attestation) = {
             let kernels = self.kernels.lock().await;
-            (
-                kernels
-                    .last_backend_used()
-                    .unwrap_or_else(|| kernels.device_name().to_string()),
-                kernels.fallback_triggered(),
-            )
+            let backend_used = kernels
+                .last_backend_used()
+                .unwrap_or_else(|| kernels.device_name().to_string());
+            let fallback_triggered = kernels.fallback_triggered();
+            let attestation = if include_attestation {
+                Some(encode_determinism_attestation(
+                    &kernels.attest_determinism()?,
+                )?)
+            } else {
+                None
+            };
+            (backend_used, fallback_triggered, attestation)
         };
         let backend_version = adapteros_core::version::VERSION.to_string();
         let (coreml_runtime, fallback_backend) =
@@ -3424,6 +3456,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                     prefix_kv_bytes: 0,
                     // PRD-06: Model cache identity v2 digest
                     model_cache_identity_v2_digest_b3: Some(model_cache_identity_v2_digest),
+                    attestation: determinism_attestation.clone(),
                 })
                 .await
             {
