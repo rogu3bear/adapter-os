@@ -1,0 +1,29 @@
+# Trunk configuration for building the Leptos WASM app
+
+[build]
+# Output directory - build directly to server's static folder
+dist = "../adapteros-server/static"
+# Public URL base
+public_url = "/"
+
+[watch]
+# Watch for changes
+watch = ["src", "index.html", "tailwind.css"]
+# Ignore patterns
+ignore = ["target", "dist"]
+
+[[hooks]]
+stage = "pre_build"
+command = "sh"
+command_arguments = ["-c", "mkdir -p dist && pnpm exec tailwindcss -i tailwind.css -o dist/tailwind.css --minify"]
+
+[serve]
+# Development server port
+port = 3200
+# Proxy API requests to backend
+proxy = [
+    { path = "/api", address = "http://localhost:8080" },
+    { path = "/v1", address = "http://localhost:8080" },
+    { path = "/healthz", address = "http://localhost:8080" },
+    { path = "/readyz", address = "http://localhost:8080" },
+]
