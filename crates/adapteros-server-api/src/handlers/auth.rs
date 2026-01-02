@@ -1,49 +1,14 @@
 //! Authentication handlers
 //!
-//! Provides login, logout, and user information endpoints.
-//!
-//! 【2025-01-20†rectification†auth_handlers_expanded】
+//! Provides user information endpoint. Login is handled via dev bypass in dev mode.
 
 use crate::auth::{dev_no_auth_enabled, Claims};
 use crate::auth_common::{build_user_info, AuthContext};
-use crate::ip_extraction::ClientIp;
 use crate::state::AppState;
 use crate::types::*;
-use axum::{
-    extract::State,
-    http::{HeaderMap, StatusCode},
-    response::Json,
-    Extension,
-};
+use axum::{extract::State, http::StatusCode, response::Json, Extension};
 use chrono::Utc;
 use tracing::error;
-use utoipa;
-
-/// Login endpoint
-#[utoipa::path(
-    post,
-    path = "/v1/auth/login",
-    request_body = LoginRequest,
-    responses(
-        (status = 200, description = "Login successful", body = LoginResponse),
-        (status = 401, description = "Invalid credentials", body = ErrorResponse)
-    ),
-    tag = "auth"
-)]
-pub async fn auth_login(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Extension(client_ip): Extension<ClientIp>,
-    Json(request): Json<LoginRequest>,
-) -> Result<(HeaderMap, Json<LoginResponse>), (StatusCode, Json<ErrorResponse>)> {
-    crate::handlers::auth_enhanced::login_handler(
-        State(state),
-        headers,
-        Extension(client_ip),
-        Json(request),
-    )
-    .await
-}
 
 /// Get current user info
 #[utoipa::path(
@@ -96,8 +61,6 @@ pub async fn auth_me(
             )
         })?
         .ok_or_else(|| {
-            // User was authenticated via JWT but no longer exists in database
-            // This is an auth issue (401), not a server error (500)
             tracing::warn!(user_id = %claims.sub, "Authenticated user no longer exists in database");
             (
                 StatusCode::UNAUTHORIZED,

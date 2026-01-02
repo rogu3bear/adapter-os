@@ -209,12 +209,12 @@ pub use policies::{
     verify_policy_signature,
 };
 
-// Re-export auth handlers (including utoipa path types)
-pub use auth::{__path_auth_login, auth_login, auth_me};
+// Re-export auth handlers
+pub use auth::auth_me;
 pub use auth_enhanced::{
-    __path_mfa_disable_handler, __path_mfa_start_handler, __path_mfa_status_handler,
-    __path_mfa_verify_handler, mfa_disable_handler, mfa_start_handler, mfa_status_handler,
-    mfa_verify_handler,
+    bootstrap_admin_handler, list_sessions_handler, list_user_tenants_handler, login_handler,
+    logout_handler, mfa_disable_handler, mfa_start_handler, mfa_status_handler, mfa_verify_handler,
+    refresh_token_handler, revoke_session_handler, switch_tenant_handler,
 };
 
 // Re-export training handlers
