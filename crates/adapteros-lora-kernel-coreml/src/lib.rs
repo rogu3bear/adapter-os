@@ -674,6 +674,119 @@ impl MLTensor {
         }
     }
 
+    /// Layer Normalization: (x - mean) / sqrt(var + eps) * weight + bias
+    ///
+    /// Normalizes the input tensor along the last dimension using standard
+    /// layer normalization. Critical for transformer model inference.
+    ///
+    /// # Arguments
+    /// * `weight` - Scale weights (gamma), must match last dimension of tensor
+    /// * `bias` - Bias (beta), must match last dimension of tensor
+    /// * `eps` - Small constant for numerical stability (typically 1e-5)
+    ///
+    /// # Errors
+    /// Returns `AosError::Kernel` if:
+    /// - Operation fails
+    /// - Weight/bias length doesn't match tensor's last dimension
+    pub fn layernorm(&self, weight: &[f32], bias: &[f32], eps: f32) -> Result<Self> {
+        #[cfg(target_os = "macos")]
+        {
+            match self.bridge_type {
+                TensorBridgeType::Swift => {
+                    let result = unsafe {
+                        ffi::swift_coreml_tensor_layernorm(
+                            self.swift_handle,
+                            weight.as_ptr(),
+                            weight.len(),
+                            bias.as_ptr(),
+                            bias.len(),
+                            eps,
+                        )
+                    };
+                    if result.is_null() {
+                        return Err(AosError::Kernel(
+                            "Layer normalization failed".to_string(),
+                        ));
+                    }
+                    // LayerNorm preserves shape, copy from input
+                    Ok(Self {
+                        swift_handle: result,
+                        objc_handle: self.objc_handle,
+                        bridge_type: TensorBridgeType::Swift,
+                    })
+                }
+                TensorBridgeType::ObjCpp => {
+                    // ObjC++ bridge doesn't have layernorm, return error
+                    Err(AosError::Kernel(
+                        "Layer normalization not available on ObjC++ bridge".to_string(),
+                    ))
+                }
+            }
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (weight, bias, eps);
+            Err(AosError::Kernel(
+                "MLTensor only available on macOS".to_string(),
+            ))
+        }
+    }
+
+    /// RMS Normalization: x * rsqrt(mean(x^2) + eps) * weight
+    ///
+    /// Root Mean Square layer normalization used in LLaMA-style models.
+    /// More efficient than LayerNorm as it skips mean subtraction.
+    ///
+    /// # Arguments
+    /// * `weight` - Scale weights (gamma), must match last dimension of tensor
+    /// * `eps` - Small constant for numerical stability (typically 1e-5)
+    ///
+    /// # Errors
+    /// Returns `AosError::Kernel` if:
+    /// - Operation fails
+    /// - Weight length doesn't match tensor's last dimension
+    pub fn rms_norm(&self, weight: &[f32], eps: f32) -> Result<Self> {
+        #[cfg(target_os = "macos")]
+        {
+            match self.bridge_type {
+                TensorBridgeType::Swift => {
+                    let result = unsafe {
+                        ffi::swift_coreml_tensor_rms_norm(
+                            self.swift_handle,
+                            weight.as_ptr(),
+                            weight.len(),
+                            eps,
+                        )
+                    };
+                    if result.is_null() {
+                        return Err(AosError::Kernel("RMS normalization failed".to_string()));
+                    }
+                    // RMSNorm preserves shape, copy from input
+                    Ok(Self {
+                        swift_handle: result,
+                        objc_handle: self.objc_handle,
+                        bridge_type: TensorBridgeType::Swift,
+                    })
+                }
+                TensorBridgeType::ObjCpp => {
+                    // ObjC++ bridge doesn't have rms_norm, return error
+                    Err(AosError::Kernel(
+                        "RMS normalization not available on ObjC++ bridge".to_string(),
+                    ))
+                }
+            }
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (weight, eps);
+            Err(AosError::Kernel(
+                "MLTensor only available on macOS".to_string(),
+            ))
+        }
+    }
+
     /// Materialize tensor to Vec<f32>
     ///
     /// # Errors

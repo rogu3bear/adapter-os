@@ -972,6 +972,209 @@ public func swiftCoreMLBatchMatmul(
     return successCount
 }
 
+// MARK: - Normalization Operations
+
+/// Layer Normalization: (x - mean) / sqrt(var + eps) * weight + bias
+///
+/// Normalizes the input tensor along the last dimension using the standard
+/// layer normalization formula. Critical for transformer models.
+///
+/// - Parameters:
+///   - handle: Input tensor handle
+///   - weight: Pointer to scale weights (gamma)
+///   - weightLen: Length of weight array (must match last dimension)
+///   - bias: Pointer to bias (beta)
+///   - biasLen: Length of bias array (must match last dimension)
+///   - eps: Small constant for numerical stability (typically 1e-5)
+///
+/// - Returns: Normalized tensor, or nil on error
+///
+/// - Memory: Caller owns the returned tensor and must free it
+/// - Thread Safety: Safe to call from any thread
+@_cdecl("swift_coreml_tensor_layernorm")
+public func swiftCoreMLTensorLayernorm(
+    handle: UnsafeMutableRawPointer?,
+    weight: UnsafePointer<Float>,
+    weightLen: Int,
+    bias: UnsafePointer<Float>,
+    biasLen: Int,
+    eps: Float
+) -> UnsafeMutableRawPointer? {
+    guard #available(macOS 15.0, *) else {
+        return nil
+    }
+
+    guard let handle = handle else {
+        return nil
+    }
+
+    return autoreleasepool {
+        let wrapper = Unmanaged<TensorWrapper>.fromOpaque(handle).takeUnretainedValue()
+        let shape = wrapper.shape
+
+        guard !shape.isEmpty else {
+            #if DEBUG
+            print("[CoreMLBridge] ERROR: Empty shape for layernorm")
+            #endif
+            return nil
+        }
+
+        let lastDim = shape.last!
+
+        guard weightLen == lastDim && biasLen == lastDim else {
+            #if DEBUG
+            print("[CoreMLBridge] ERROR: Weight/bias length mismatch - expected \(lastDim), got weight=\(weightLen), bias=\(biasLen)")
+            #endif
+            return nil
+        }
+
+        // Get weight and bias arrays
+        let weightArray = Array(UnsafeBufferPointer(start: weight, count: weightLen))
+        let biasArray = Array(UnsafeBufferPointer(start: bias, count: biasLen))
+
+        // Compute layer norm using cached scalars
+        guard let inputScalars = wrapper.cachedScalars else {
+            #if DEBUG
+            print("[CoreMLBridge] ERROR: No cached scalars for layernorm")
+            #endif
+            return nil
+        }
+
+        // Layer norm: (x - mean) / sqrt(var + eps) * weight + bias
+        // Applied along the last dimension
+        let numVectors = inputScalars.count / lastDim
+
+        var outputScalars = [Float](repeating: 0, count: inputScalars.count)
+
+        for v in 0..<numVectors {
+            let startIdx = v * lastDim
+
+            // Compute mean
+            var mean: Float = 0
+            for i in 0..<lastDim {
+                mean += inputScalars[startIdx + i]
+            }
+            mean /= Float(lastDim)
+
+            // Compute variance
+            var variance: Float = 0
+            for i in 0..<lastDim {
+                let diff = inputScalars[startIdx + i] - mean
+                variance += diff * diff
+            }
+            variance /= Float(lastDim)
+
+            // Normalize: (x - mean) / sqrt(var + eps) * weight + bias
+            let invStd = 1.0 / sqrt(variance + eps)
+            for i in 0..<lastDim {
+                let normalized = (inputScalars[startIdx + i] - mean) * invStd
+                outputScalars[startIdx + i] = normalized * weightArray[i] + biasArray[i]
+            }
+        }
+
+        // Create MLTensor from result
+        let resultTensor = MLTensor(shape: shape, scalars: outputScalars)
+        let resultWrapper = TensorWrapper(resultTensor, scalars: outputScalars)
+        let retained = Unmanaged.passRetained(resultWrapper).toOpaque()
+        return UnsafeMutableRawPointer(retained)
+    }
+}
+
+/// RMS Normalization: x * rsqrt(mean(x^2) + eps) * weight
+///
+/// Root Mean Square layer normalization used in LLaMA-style models.
+/// More efficient than LayerNorm as it skips mean subtraction.
+///
+/// - Parameters:
+///   - handle: Input tensor handle
+///   - weight: Pointer to scale weights (gamma)
+///   - weightLen: Length of weight array (must match last dimension)
+///   - eps: Small constant for numerical stability (typically 1e-5)
+///
+/// - Returns: Normalized tensor, or nil on error
+///
+/// - Memory: Caller owns the returned tensor and must free it
+/// - Thread Safety: Safe to call from any thread
+@_cdecl("swift_coreml_tensor_rms_norm")
+public func swiftCoreMLTensorRmsNorm(
+    handle: UnsafeMutableRawPointer?,
+    weight: UnsafePointer<Float>,
+    weightLen: Int,
+    eps: Float
+) -> UnsafeMutableRawPointer? {
+    guard #available(macOS 15.0, *) else {
+        return nil
+    }
+
+    guard let handle = handle else {
+        return nil
+    }
+
+    return autoreleasepool {
+        let wrapper = Unmanaged<TensorWrapper>.fromOpaque(handle).takeUnretainedValue()
+        let shape = wrapper.shape
+
+        guard !shape.isEmpty else {
+            #if DEBUG
+            print("[CoreMLBridge] ERROR: Empty shape for rms_norm")
+            #endif
+            return nil
+        }
+
+        let lastDim = shape.last!
+
+        guard weightLen == lastDim else {
+            #if DEBUG
+            print("[CoreMLBridge] ERROR: Weight length mismatch - expected \(lastDim), got \(weightLen)")
+            #endif
+            return nil
+        }
+
+        // Get weight array
+        let weightArray = Array(UnsafeBufferPointer(start: weight, count: weightLen))
+
+        // Compute RMS norm using cached scalars
+        guard let inputScalars = wrapper.cachedScalars else {
+            #if DEBUG
+            print("[CoreMLBridge] ERROR: No cached scalars for rms_norm")
+            #endif
+            return nil
+        }
+
+        // RMS norm: x * rsqrt(mean(x^2) + eps) * weight
+        // Applied along the last dimension
+        let numVectors = inputScalars.count / lastDim
+
+        var outputScalars = [Float](repeating: 0, count: inputScalars.count)
+
+        for v in 0..<numVectors {
+            let startIdx = v * lastDim
+
+            // Compute mean of squares
+            var meanSquare: Float = 0
+            for i in 0..<lastDim {
+                let val = inputScalars[startIdx + i]
+                meanSquare += val * val
+            }
+            meanSquare /= Float(lastDim)
+
+            // rsqrt(mean(x^2) + eps)
+            let rmsInv = 1.0 / sqrt(meanSquare + eps)
+
+            // Apply normalization and scale
+            for i in 0..<lastDim {
+                outputScalars[startIdx + i] = inputScalars[startIdx + i] * rmsInv * weightArray[i]
+            }
+        }
+
+        // Create MLTensor from result
+        let resultTensor = MLTensor(shape: shape, scalars: outputScalars)
+        let resultWrapper = TensorWrapper(resultTensor, scalars: outputScalars)
+        let retained = Unmanaged.passRetained(resultWrapper).toOpaque()
+        return UnsafeMutableRawPointer(retained)
+    }
+}
+
 // MARK: - System Information
 
 /// Get detailed system information for debugging.

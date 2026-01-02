@@ -214,8 +214,8 @@ AdapterOS provides a production-ready export script at `scripts/export_coreml_pr
 **Prerequisites:**
 ```bash
 # Create dedicated venv for CoreML conversion
-python3.11 -m venv ui/.venv-coreml
-source ui/.venv-coreml/bin/activate
+python3.11 -m venv .venv-coreml
+source .venv-coreml/bin/activate
 
 # Install specific versions (tested and working)
 pip install torch==2.4.0 coremltools==7.2 transformers numpy==1.26.4

@@ -1,8 +1,8 @@
-# CoreML LoRA Backend for AdapterOS
+# CoreML ANE Acceleration Layer for AdapterOS
 
 **Copyright:** © 2025 JKCA / James KC Auchterlonie. All rights reserved.
 
-This crate provides Apple Neural Engine (ANE) acceleration for LoRA inference via CoreML on Apple Silicon devices.
+This crate provides Apple Neural Engine (ANE) acceleration as an **acceleration layer** for the MLX primary backend. CoreML enables specific operations (like K-sparse gate routing) to run on the Neural Engine for power efficiency, while MLX handles the main inference/training workload.
 
 ## Quick Start
 
