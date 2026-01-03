@@ -29,6 +29,7 @@ pub mod hooks;
 pub mod pages;
 pub mod signals;
 pub mod sse;
+pub mod theme;
 
 use leptos::prelude::*;
 use leptos_meta::*;

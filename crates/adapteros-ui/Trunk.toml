@@ -11,15 +11,10 @@ cargo = "/Users/mln-dev/.cargo/bin/cargo"
 no_wasm_opt = true
 
 [watch]
-# Watch for changes
-watch = ["src", "index.html", "tailwind.css"]
+# Watch for changes (stylers generates CSS at cargo build time)
+watch = ["src", "index.html", "dist/base.css"]
 # Ignore patterns
-ignore = ["target", "dist"]
-
-[[hooks]]
-stage = "pre_build"
-command = "sh"
-command_arguments = ["-c", "mkdir -p dist && pnpm exec tailwindcss -i tailwind.css -o dist/tailwind.css --minify"]
+ignore = ["target"]
 
 [serve]
 # Development server port
