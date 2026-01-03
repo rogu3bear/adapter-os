@@ -68,6 +68,7 @@ pub mod redaction;
 pub mod retry_policy;
 pub mod seed;
 pub mod seed_guard;
+pub mod seed_override;
 pub mod singleflight;
 pub mod stack;
 pub mod status;

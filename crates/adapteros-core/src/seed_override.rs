@@ -57,7 +57,7 @@ pub const SEED_OVERRIDE_ENV_VAR_SHORT: &str = "AOS_SEED_OVERRIDE";
 /// Global seed override storage.
 static GLOBAL_SEED_OVERRIDE: OnceLock<Option<B3Hash>> = OnceLock::new();
 
-/// Thread-local seed context for propagation across async boundaries.
+// Thread-local seed context for propagation across async boundaries.
 thread_local! {
     static THREAD_SEED_CONTEXT: RefCell<Option<SeedContext>> = const { RefCell::new(None) };
 }
@@ -125,7 +125,7 @@ impl SeedContext {
     }
 
     /// Derive a seed for a specific label using this context.
-    pub fn derive(&mut self, label: &str) -> Result<[u8; 32]> {
+    pub fn derive(&mut self, _label: &str) -> Result<[u8; 32]> {
         let nonce = self.next_nonce();
         derive_request_seed(
             &self.global_seed,
@@ -143,7 +143,6 @@ impl SeedContext {
         let nonce = self.next_nonce();
         let manifest = self
             .manifest_hash
-            .clone()
             .unwrap_or_else(|| B3Hash::hash(format!("no_manifest:{}", self.tenant_id).as_bytes()));
         derive_seed_typed(&self.global_seed, label, &manifest, self.worker_id, nonce)
     }
@@ -250,7 +249,7 @@ pub fn init_global_seed_override(config: Option<&SeedOverrideConfig>) -> Result<
         }
         None
     });
-    Ok(result.clone())
+    Ok(*result)
 }
 
 /// Get the current global seed override, if set.
@@ -286,6 +285,73 @@ pub fn clear_thread_seed_context() {
     THREAD_SEED_CONTEXT.with(|cell| *cell.borrow_mut() = None);
 }
 
+// =============================================================================
+// Thread-Local State Isolation (for middleware)
+// =============================================================================
+
+/// Information about leaked thread-local state (for diagnostics).
+#[derive(Debug, Clone)]
+pub struct LeakedStateInfo {
+    /// Tenant ID from the leaked context
+    pub tenant_id: Option<String>,
+    /// Request ID from the leaked context
+    pub request_id: Option<String>,
+    /// Nonce counter value (indicates how much state was accumulated)
+    pub nonce_counter: Option<u64>,
+}
+
+/// Check if the thread-local seed context is clean (None).
+///
+/// Returns true if no seed context is set, false otherwise.
+/// Use this to detect leaked state from previous requests.
+pub fn is_thread_local_clean() -> bool {
+    THREAD_SEED_CONTEXT.with(|cell| cell.borrow().is_none())
+}
+
+/// Get information about leaked thread-local state for diagnostics.
+///
+/// Returns Some(info) if there's a leaked context, None if clean.
+pub fn get_leaked_state_info() -> Option<LeakedStateInfo> {
+    THREAD_SEED_CONTEXT.with(|cell| {
+        cell.borrow().as_ref().map(|ctx| LeakedStateInfo {
+            tenant_id: Some(ctx.tenant_id.clone()),
+            request_id: ctx.request_id.clone(),
+            nonce_counter: Some(ctx.nonce_counter),
+        })
+    })
+}
+
+/// Assert that thread-local seed state is clean.
+///
+/// In debug builds, panics if state is not clean (catches determinism bugs).
+/// In release builds, this is a no-op for performance.
+#[inline]
+pub fn assert_thread_local_clean() {
+    #[cfg(debug_assertions)]
+    {
+        if !is_thread_local_clean() {
+            if let Some(info) = get_leaked_state_info() {
+                panic!(
+                    "DETERMINISM BUG: Thread-local seed state leaked from previous request! \
+                     tenant_id={:?}, request_id={:?}, nonce_counter={:?}",
+                    info.tenant_id, info.request_id, info.nonce_counter
+                );
+            } else {
+                panic!("DETERMINISM BUG: Thread-local seed state is not clean!");
+            }
+        }
+    }
+}
+
+/// Reset all thread-local seed state.
+///
+/// This clears the thread-local seed context, ensuring a clean slate
+/// for the next request. Alias for `clear_thread_seed_context()`.
+#[inline]
+pub fn reset_thread_local_state() {
+    clear_thread_seed_context();
+}
+
 /// Execute a function with a specific seed context.
 ///
 /// The context is set for the duration of the function and restored after.
@@ -303,7 +369,7 @@ where
 ///
 /// Returns the override if set, otherwise returns the provided default.
 pub fn get_effective_global_seed(default_hash: &B3Hash) -> B3Hash {
-    get_global_seed_override().unwrap_or_else(|| default_hash.clone())
+    get_global_seed_override().unwrap_or(*default_hash)
 }
 
 /// Derive a seed using the thread-local context if available.
@@ -390,8 +456,7 @@ mod tests {
     #[test]
     fn test_seed_context_nonce_increment() {
         let global = B3Hash::hash(b"test-global");
-        let mut ctx =
-            SeedContext::new(global, None, SeedMode::BestEffort, 1, "tenant".to_string());
+        let mut ctx = SeedContext::new(global, None, SeedMode::BestEffort, 1, "tenant".to_string());
 
         assert_eq!(ctx.next_nonce(), 0);
         assert_eq!(ctx.next_nonce(), 1);
@@ -401,8 +466,7 @@ mod tests {
     #[test]
     fn test_seed_context_derive_typed() {
         let global = B3Hash::hash(b"test-global");
-        let mut ctx =
-            SeedContext::new(global, None, SeedMode::BestEffort, 1, "tenant".to_string());
+        let mut ctx = SeedContext::new(global, None, SeedMode::BestEffort, 1, "tenant".to_string());
 
         let seed1 = ctx.derive_typed(SeedLabel::Router);
         let seed2 = ctx.derive_typed(SeedLabel::Router);

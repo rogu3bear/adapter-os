@@ -96,6 +96,14 @@ impl BootPhase {
         matches!(self, BootPhase::Draining | BootPhase::Stopping)
     }
 
+    /// Returns true if this phase indicates the server is shutting down.
+    ///
+    /// This is an alias for `is_draining()` for backward compatibility
+    /// with code that used the old `BootState::is_shutting_down()` method.
+    pub fn is_shutting_down(&self) -> bool {
+        self.is_draining()
+    }
+
     /// Returns true if this phase is terminal (no further transitions allowed).
     pub fn is_terminal(&self) -> bool {
         matches!(self, BootPhase::Stopping | BootPhase::Failed)

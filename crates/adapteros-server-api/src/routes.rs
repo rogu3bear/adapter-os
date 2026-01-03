@@ -2404,6 +2404,9 @@ pub fn build(state: AppState) -> Router {
             crate::middleware::trace_context::trace_context_middleware,
         )) // W3C Trace Context propagation
         .layer(axum::middleware::from_fn(request_id::request_id_middleware)) // Request ID tracking
+        .layer(axum::middleware::from_fn(
+            crate::middleware::seed_isolation::seed_isolation_middleware,
+        )) // Thread-local seed isolation for determinism
         .layer(axum::middleware::from_fn(client_ip_middleware)) // Extract client IP
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),

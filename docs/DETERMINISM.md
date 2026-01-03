@@ -17,6 +17,7 @@ AdapterOS guarantees reproducible execution through HKDF-seeded randomness, glob
 - **RAG ordering contract**: Score DESC, doc_id ASC for consistent retrieval
 - **Replay support**: Full reconstruction of past inferences with evidence tracking
 - **Seed isolation**: HKDF domain separation prevents RNG reuse
+- **Thread-local isolation**: Request boundaries reset TLS state (debug builds panic on leakage)
 - **Auditability**: Complete evidence chain for all decisions
 
 ---
@@ -155,6 +156,61 @@ clear_seed_registry();
 ```
 
 **Best Practice:** Always clear the seed registry between requests to prevent false positives from intentional reuse across request boundaries.
+
+### Thread-Local Seed Isolation
+
+**Source:** `crates/adapteros-core/src/seed_override.rs`, `crates/adapteros-server-api/src/middleware/seed_isolation.rs`
+
+Thread-local seed state must be isolated at request boundaries to prevent cross-request contamination. The seed isolation middleware enforces this rule automatically.
+
+#### The Isolation Rule
+
+**Every request MUST start with clean thread-local seed state.** Residual state from a previous request can corrupt determinism by:
+
+- Carrying over nonce counters, causing different seed derivations
+- Leaking tenant context across request boundaries
+- Making replay non-deterministic if prior state affects seed derivation
+
+#### Middleware Enforcement
+
+The `seed_isolation_middleware` enforces isolation at the Axum layer:
+
+```rust
+pub async fn seed_isolation_middleware(req: Request, next: Next) -> Response {
+    // In debug builds: panics if state is dirty (catches bugs early)
+    assert_thread_local_clean();
+
+    // Reset all thread-local seed state
+    reset_thread_local_state();
+
+    let response = next.run(req).await;
+
+    // Clean up after request (belt and suspenders)
+    reset_thread_local_state();
+
+    response
+}
+```
+
+#### Debug Assertions
+
+In debug builds, `assert_thread_local_clean()` panics if thread-local state is not clean:
+
+```
+DETERMINISM BUG: Thread-local seed state leaked across request boundary.
+Leaked context: tenant=leaked-tenant, request_id=Some("req-123"), nonce=5
+```
+
+This fails fast to catch determinism bugs during development. In release builds, the assertion is a no-op for zero overhead.
+
+#### Functions
+
+| Function | Purpose |
+|----------|---------|
+| `reset_thread_local_state()` | Reset all TLS seed state (called at request entry) |
+| `is_thread_local_clean()` | Check if TLS state is clean (for diagnostics) |
+| `assert_thread_local_clean()` | Panic in debug if state is dirty |
+| `get_leaked_state_info()` | Get details about leaked state (for logging) |
 
 ---
 
@@ -904,6 +960,30 @@ clear_seed_registry();
 ```
 
 **Cause:** Seed registry prevents accidental reuse within a request. Clear between requests to reset.
+
+### Issue: Thread-Local State Leakage (Debug Panic)
+
+**Symptoms:** Debug build panics with "DETERMINISM BUG: Thread-local seed state leaked"
+
+**Cause:** A previous request's seed context wasn't cleaned up, leaking state to the next request on the same thread.
+
+**Checklist:**
+1. Check that `seed_isolation_middleware` is in the middleware stack
+2. Ensure handlers use `SeedContextGuard` (RAII) instead of manual `set_thread_seed_context()`
+3. Look for early returns or panics that bypass cleanup
+4. Check for `tokio::spawn()` without proper context propagation
+
+**Solution:**
+```rust
+// Use RAII guard instead of manual set/clear
+let ctx = SeedContext::new(...);
+let _guard = SeedContextGuard::new(ctx); // Restored on drop
+
+// NOT this:
+set_thread_seed_context(ctx);
+// ... code that might return early ...
+clear_thread_seed_context(); // May never run!
+```
 
 ---
 
