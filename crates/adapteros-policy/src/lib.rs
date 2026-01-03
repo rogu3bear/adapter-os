@@ -76,9 +76,11 @@ pub use mplora::{MploraConfig, MploraPolicy};
 pub use numeric::validate_numeric_units;
 pub use packs::{
     AdapterNameValidation, DeterminismConfig, DeterminismPolicy, EpsilonBounds, NamingConfig,
-    NamingPolicy, NamingViolation, NamingViolationType, RngSeedingMethod, StackNameValidation,
-    TieBreakRule, ToolchainRequirements,
+    NamingPolicy, NamingViolation, NamingViolationType, RefusalConfig, RefusalPolicy,
+    RngSeedingMethod, SafetyScores, StackNameValidation, TieBreakRule, ToolchainRequirements,
 };
+// Note: packs::refusal::RefusalReason is a different type than refusal::RefusalReason
+// The former is used for policy enforcement, the latter for HTTP response serialization
 pub use patch_policy::{
     CodePolicy, ComprehensiveValidation, FilePatch, LintValidation, PatchPolicyEngine,
     SecurityValidation, SecurityViolation, TestValidation,
@@ -111,6 +113,7 @@ pub use unified_enforcement::{
 pub struct PolicyEngine {
     policies: Policies,
     pack_manager: PolicyPackManager,
+    refusal_policy: packs::RefusalPolicy,
 }
 
 impl PolicyEngine {
@@ -119,6 +122,7 @@ impl PolicyEngine {
         Self {
             policies,
             pack_manager: PolicyPackManager::new(),
+            refusal_policy: packs::RefusalPolicy::new(packs::RefusalConfig::default()),
         }
     }
 
@@ -386,6 +390,48 @@ impl PolicyEngine {
     /// Get performance policy
     pub fn performance_policy(&self) -> &PerformancePolicy {
         &self.policies.performance
+    }
+
+    /// Validate input content for policy violations before inference
+    ///
+    /// This method enforces content safety policies on the input prompt,
+    /// checking for self-harm indicators, high-stakes domain detection,
+    /// and other safety concerns. If any violation is detected, a
+    /// PolicyViolation error is returned with appropriate guidance.
+    ///
+    /// # Arguments
+    /// * `content` - The input prompt/content to validate
+    ///
+    /// # Returns
+    /// * `Ok(())` if content passes all safety checks
+    /// * `Err(AosError::PolicyViolation)` if content violates safety policies
+    pub fn validate_input_content(&self, content: &str) -> Result<()> {
+        // Check for self-harm indicators (critical safety check)
+        if self.refusal_policy.check_self_harm(content) {
+            return Err(AosError::PolicyViolation(
+                "Content flagged for safety review: self-harm indicators detected. \
+                If you're in crisis, please call 988 (Suicide & Crisis Lifeline), \
+                text HOME to 741741 (Crisis Text Line), or call SAMHSA at 1-800-662-4357."
+                    .to_string(),
+            ));
+        }
+
+        // Detect high-stakes domain and log warning for elevated thresholds
+        let domain = self.refusal_policy.detect_high_stakes_domain(content);
+        match domain {
+            packs::refusal::HighStakesDomain::Medical
+            | packs::refusal::HighStakesDomain::Legal
+            | packs::refusal::HighStakesDomain::Financial => {
+                // Log that high-stakes domain was detected (thresholds will be enforced on output)
+                warn!(
+                    domain = ?domain,
+                    "High-stakes domain detected in input, elevated confidence thresholds will apply"
+                );
+            }
+            packs::refusal::HighStakesDomain::None => {}
+        }
+
+        Ok(())
     }
 
     /// Evaluate canonical policy packs for an inference request and return a decision chain digest.

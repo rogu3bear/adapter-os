@@ -60,6 +60,7 @@ use uuid::Uuid;
 
 use crate::adapters_kv::{AdapterKvOps, AdapterKvRepository};
 use crate::kv_metrics::global_kv_metrics;
+use crate::write_ack::{WriteAck, WriteAckStore, WriteStatus};
 use adapteros_storage::repos::AdapterRepository;
 
 /// Standard adapter SELECT fields for all queries
@@ -3628,6 +3629,10 @@ impl Db {
                     .map_err(|e| AosError::database(e.to_string()))?;
 
                     // KV write - if this fails, we can rollback SQL (not committed yet)
+                    // Initialize WriteAck for tracking this dual-write operation
+                    let mut write_ack = WriteAck::new("adapter", &id);
+                    write_ack.sql_status = WriteStatus::Ok; // SQL insert succeeded (in transaction)
+
                     if let Some(repo) = self.get_adapter_kv_repo(&params.tenant_id) {
                         match repo.register_adapter_kv_with_id(&id, params.clone()).await {
                             Ok(_) => {
@@ -3636,15 +3641,37 @@ impl Db {
                                     .await
                                     .map_err(|e| AosError::database(e.to_string()))?;
                                 dual_write_completed = true;
+                                write_ack.kv_status = WriteStatus::Ok;
+                                write_ack.complete();
                                 debug!(adapter_id = %id, tenant_id = %params.tenant_id, mode = "dual-write-strict", "Adapter registered atomically in both SQL and KV backends");
+
+                                // Record successful dual-write ack
+                                if let Err(ack_err) = self.store_ack(&write_ack).await {
+                                    warn!(
+                                        error = %ack_err,
+                                        adapter_id = %id,
+                                        operation_id = %write_ack.operation_id,
+                                        "Failed to store WriteAck for successful dual-write"
+                                    );
+                                }
                             }
                             Err(e) => {
                                 // KV failed, rollback SQL (not committed yet, so this works atomically)
+                                write_ack.kv_status = WriteStatus::Failed {
+                                    error: e.to_string(),
+                                };
+                                write_ack.sql_status = WriteStatus::Pending; // Rolled back
+                                write_ack.mark_degraded(
+                                    "KV write failed, SQL rolled back in strict mode",
+                                );
+                                write_ack.complete();
+
                                 error!(
                                     error = %e,
                                     adapter_id = %id,
                                     tenant_id = %params.tenant_id,
                                     mode = "dual-write-strict",
+                                    operation_id = %write_ack.operation_id,
                                     "KV write failed in strict atomic mode - rolling back uncommitted SQL transaction"
                                 );
                                 if let Err(rollback_err) = tx.rollback().await {
@@ -3654,6 +3681,17 @@ impl Db {
                                         "Transaction rollback failed after KV write failure - connection may be in inconsistent state"
                                     );
                                 }
+
+                                // Record failed dual-write ack for audit trail
+                                if let Err(ack_err) = self.store_ack(&write_ack).await {
+                                    warn!(
+                                        error = %ack_err,
+                                        adapter_id = %id,
+                                        operation_id = %write_ack.operation_id,
+                                        "Failed to store WriteAck for failed dual-write"
+                                    );
+                                }
+
                                 return Err(AosError::database(format!(
                                     "KV write failed in strict mode for adapter_id={id}: {e}"
                                 )));
@@ -3713,14 +3751,55 @@ impl Db {
                     .map_err(|e| AosError::database(e.to_string()))?;
 
                     // KV write (non-strict dual-write mode) - best effort, log on failure
+                    // Initialize WriteAck for tracking this dual-write operation
+                    let mut write_ack = WriteAck::new("adapter", &id);
+                    write_ack.sql_status = WriteStatus::Ok; // SQL insert succeeded
+
                     if let Some(repo) = self.get_adapter_kv_repo(&params.tenant_id) {
                         if let Err(e) = repo.register_adapter_kv_with_id(&id, params.clone()).await
                         {
-                            warn!(error = %e, adapter_id = %id, mode = "dual-write", "Failed to write adapter to KV backend");
+                            write_ack.kv_status = WriteStatus::Failed {
+                                error: e.to_string(),
+                            };
+                            write_ack.mark_degraded("KV write failed in best-effort mode");
+                            write_ack.complete();
+                            warn!(
+                                error = %e,
+                                adapter_id = %id,
+                                mode = "dual-write",
+                                operation_id = %write_ack.operation_id,
+                                "Failed to write adapter to KV backend"
+                            );
+
+                            // Record degraded dual-write ack for repair queue
+                            if let Err(ack_err) = self.store_ack(&write_ack).await {
+                                warn!(
+                                    error = %ack_err,
+                                    adapter_id = %id,
+                                    operation_id = %write_ack.operation_id,
+                                    "Failed to store WriteAck for degraded dual-write"
+                                );
+                            }
                         } else {
                             dual_write_completed = true;
+                            write_ack.kv_status = WriteStatus::Ok;
+                            write_ack.complete();
                             debug!(adapter_id = %id, tenant_id = %params.tenant_id, mode = "dual-write", "Adapter registered in both SQL and KV backends");
+
+                            // Record successful dual-write ack
+                            if let Err(ack_err) = self.store_ack(&write_ack).await {
+                                warn!(
+                                    error = %ack_err,
+                                    adapter_id = %id,
+                                    operation_id = %write_ack.operation_id,
+                                    "Failed to store WriteAck for successful dual-write"
+                                );
+                            }
                         }
+                    } else {
+                        // KV repo not available - mark as unavailable
+                        write_ack.kv_status = WriteStatus::Unavailable;
+                        write_ack.complete();
                     }
                 }
             } else if !self.storage_mode().write_to_kv() {

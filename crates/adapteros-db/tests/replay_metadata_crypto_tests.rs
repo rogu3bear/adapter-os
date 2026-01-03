@@ -52,6 +52,7 @@ async fn stores_ciphertext_and_recovers_plaintext() {
         execution_policy_version: None,
         stop_policy_json: None,
         policy_mask_digest_b3: None,
+        utf8_healing: None,
     };
 
     let id = db

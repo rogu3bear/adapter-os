@@ -267,6 +267,208 @@ pub trait WriteAckStore: Send + Sync {
 }
 
 // =============================================================================
+// WriteStatus string conversion for database storage
+// =============================================================================
+
+impl WriteStatus {
+    /// Convert to database string representation
+    pub fn to_db_string(&self) -> &'static str {
+        match self {
+            WriteStatus::Ok => "ok",
+            WriteStatus::Failed { .. } => "failed",
+            WriteStatus::Pending => "pending",
+            WriteStatus::Unavailable => "unavailable",
+        }
+    }
+
+    /// Get error message if status is Failed
+    pub fn error_message(&self) -> Option<&str> {
+        match self {
+            WriteStatus::Failed { error } => Some(error),
+            _ => None,
+        }
+    }
+
+    /// Parse from database string representation
+    pub fn from_db_string(status: &str, error: Option<String>) -> Self {
+        match status {
+            "ok" => WriteStatus::Ok,
+            "failed" => WriteStatus::Failed {
+                error: error.unwrap_or_default(),
+            },
+            "pending" => WriteStatus::Pending,
+            "unavailable" => WriteStatus::Unavailable,
+            _ => WriteStatus::Pending, // Default to pending for unknown values
+        }
+    }
+}
+
+// =============================================================================
+// WriteAckStore implementation for Db
+// =============================================================================
+
+use crate::Db;
+
+#[async_trait::async_trait]
+impl WriteAckStore for Db {
+    /// Store a WriteAck record to the write_acks table
+    async fn store_ack(&self, ack: &WriteAck) -> Result<()> {
+        let pool = self.pool_opt().ok_or_else(|| {
+            AosError::Database("SQL pool unavailable for WriteAck storage".to_string())
+        })?;
+
+        let content_hash_hex = ack.content_hash.as_ref().map(|h| h.to_hex());
+
+        sqlx::query(
+            r#"
+            INSERT INTO write_acks (
+                operation_id, entity_type, entity_id,
+                sql_status, sql_error, kv_status, kv_error,
+                degraded, degraded_reason, content_hash,
+                created_at, completed_at
+            ) VALUES (
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+            )
+            ON CONFLICT (operation_id) DO UPDATE SET
+                sql_status = excluded.sql_status,
+                sql_error = excluded.sql_error,
+                kv_status = excluded.kv_status,
+                kv_error = excluded.kv_error,
+                degraded = excluded.degraded,
+                degraded_reason = excluded.degraded_reason,
+                completed_at = excluded.completed_at
+            "#,
+        )
+        .bind(ack.operation_id.to_string())
+        .bind(&ack.entity_type)
+        .bind(&ack.entity_id)
+        .bind(ack.sql_status.to_db_string())
+        .bind(ack.sql_status.error_message())
+        .bind(ack.kv_status.to_db_string())
+        .bind(ack.kv_status.error_message())
+        .bind(ack.degraded as i32)
+        .bind(&ack.degraded_reason)
+        .bind(content_hash_hex)
+        .bind(ack.created_at.to_rfc3339())
+        .bind(ack.completed_at.map(|dt| dt.to_rfc3339()))
+        .execute(pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to store WriteAck: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Retrieve a WriteAck by operation ID
+    async fn get_ack(&self, operation_id: Uuid) -> Result<Option<WriteAck>> {
+        let pool = self.pool_opt().ok_or_else(|| {
+            AosError::Database("SQL pool unavailable for WriteAck retrieval".to_string())
+        })?;
+
+        let row: Option<WriteAckRow> = sqlx::query_as(
+            r#"
+            SELECT operation_id, entity_type, entity_id,
+                   sql_status, sql_error, kv_status, kv_error,
+                   degraded, degraded_reason, content_hash,
+                   created_at, completed_at
+            FROM write_acks
+            WHERE operation_id = $1
+            "#,
+        )
+        .bind(operation_id.to_string())
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to retrieve WriteAck: {}", e)))?;
+
+        Ok(row.map(WriteAck::from))
+    }
+
+    /// List degraded WriteAcks for repair queue
+    async fn list_degraded(&self, limit: usize) -> Result<Vec<WriteAck>> {
+        let pool = self.pool_opt().ok_or_else(|| {
+            AosError::Database("SQL pool unavailable for WriteAck listing".to_string())
+        })?;
+
+        let rows: Vec<WriteAckRow> = sqlx::query_as(
+            r#"
+            SELECT operation_id, entity_type, entity_id,
+                   sql_status, sql_error, kv_status, kv_error,
+                   degraded, degraded_reason, content_hash,
+                   created_at, completed_at
+            FROM write_acks
+            WHERE degraded = 1
+            ORDER BY created_at ASC
+            LIMIT $1
+            "#,
+        )
+        .bind(limit as i64)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to list degraded WriteAcks: {}", e)))?;
+
+        Ok(rows.into_iter().map(WriteAck::from).collect())
+    }
+
+    /// Delete a WriteAck after successful repair
+    async fn delete_ack(&self, operation_id: Uuid) -> Result<()> {
+        let pool = self.pool_opt().ok_or_else(|| {
+            AosError::Database("SQL pool unavailable for WriteAck deletion".to_string())
+        })?;
+
+        sqlx::query("DELETE FROM write_acks WHERE operation_id = $1")
+            .bind(operation_id.to_string())
+            .execute(pool)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to delete WriteAck: {}", e)))?;
+
+        Ok(())
+    }
+}
+
+// =============================================================================
+// WriteAckRow - Database row representation
+// =============================================================================
+
+/// Database row representation for WriteAck
+#[derive(Debug, sqlx::FromRow)]
+struct WriteAckRow {
+    operation_id: String,
+    entity_type: String,
+    entity_id: String,
+    sql_status: String,
+    sql_error: Option<String>,
+    kv_status: String,
+    kv_error: Option<String>,
+    degraded: i32,
+    degraded_reason: Option<String>,
+    content_hash: Option<String>,
+    created_at: String,
+    completed_at: Option<String>,
+}
+
+impl From<WriteAckRow> for WriteAck {
+    fn from(row: WriteAckRow) -> Self {
+        WriteAck {
+            operation_id: Uuid::parse_str(&row.operation_id).unwrap_or_else(|_| Uuid::nil()),
+            entity_type: row.entity_type,
+            entity_id: row.entity_id,
+            sql_status: WriteStatus::from_db_string(&row.sql_status, row.sql_error),
+            kv_status: WriteStatus::from_db_string(&row.kv_status, row.kv_error),
+            degraded: row.degraded != 0,
+            degraded_reason: row.degraded_reason,
+            content_hash: row.content_hash.and_then(|h| B3Hash::from_hex(&h).ok()),
+            created_at: chrono::DateTime::parse_from_rfc3339(&row.created_at)
+                .map(|dt| dt.with_timezone(&Utc))
+                .unwrap_or_else(|_| Utc::now()),
+            completed_at: row.completed_at.and_then(|dt| {
+                chrono::DateTime::parse_from_rfc3339(&dt)
+                    .map(|dt| dt.with_timezone(&Utc))
+                    .ok()
+            }),
+        }
+    }
+}
+
+// =============================================================================
 // Tests
 // =============================================================================
 

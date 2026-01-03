@@ -75,13 +75,10 @@ pub struct BootArtifacts {
 ///
 /// Boot artifacts needed to bind and serve the server.
 ///
-/// # Environment Variable Precedence
+/// # Note on Port Resolution
 ///
-/// Server port is resolved in this order (first wins):
-/// 1. `AOS_SERVER_PORT` (canonical)
-/// 2. `ADAPTEROS_SERVER_PORT` (legacy alias)
-/// 3. `API_PORT` (legacy alias for demo safety)
-/// 4. Config file value
+/// Server port (including legacy aliases) is resolved during Phase 1 in
+/// `config.rs`. This function reads the already-resolved `cfg.server.port`.
 pub async fn finalize_boot(
     state: AppState,
     config: Arc<RwLock<Config>>,
@@ -93,9 +90,14 @@ pub async fn finalize_boot(
     // =========================================================================
     info!(target: "boot", phase = 11, name = "adapters", "═══ BOOT PHASE 11/12: Adapter Loading ═══");
 
-    // Transition through required states before loading adapters
-    boot_state.load_policies().await;
+    // Transition through required boot states in order.
+    // Note: load_policies() already called in migrations.rs after seeding.
+    // The state machine requires strict ordering:
+    // LoadingPolicies → StartingBackend → LoadingBaseModels → LoadingAdapters → WorkerDiscovery
+    boot_state.start_backend().await;
+    boot_state.load_base_models().await;
     boot_state.load_adapters().await;
+    boot_state.worker_discovery().await;
 
     // Clone in_flight_requests counter for shutdown handler before moving state
     let in_flight_requests = Arc::clone(&state.in_flight_requests);
@@ -128,27 +130,19 @@ pub async fn finalize_boot(
     // =========================================================================
     // Server Binding Configuration Resolution
     // =========================================================================
+    // Note: Port resolution (including legacy aliases AOS_SERVER_PORT,
+    // ADAPTEROS_SERVER_PORT, API_PORT) is handled in config.rs during Phase 1.
+    // Here we just read the already-resolved config values.
     let bind_config = {
         let cfg = config
             .read()
             .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?;
 
-        // Environment variables take precedence over config file.
-        //
-        // Canonical: AOS_SERVER_PORT
-        // Legacy aliases (demo safety): ADAPTEROS_SERVER_PORT, API_PORT
-        let server_port = std::env::var("AOS_SERVER_PORT")
-            .or_else(|_| std::env::var("ADAPTEROS_SERVER_PORT"))
-            .or_else(|_| std::env::var("API_PORT"))
-            .ok()
-            .and_then(|p| p.parse::<u16>().ok())
-            .unwrap_or(cfg.server.port);
-
         BindConfig {
             production_mode: cfg.server.production_mode,
             uds_socket: cfg.server.uds_socket.clone(),
             bind: cfg.server.bind.clone(),
-            port: server_port,
+            port: cfg.server.port,
             drain_timeout: Duration::from_secs(cfg.server.drain_timeout_secs),
         }
     };
