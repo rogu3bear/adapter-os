@@ -108,11 +108,21 @@ pub async fn initialize_config(cli: &Cli) -> Result<ConfigContext> {
             .write()
             .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?;
 
-        if let Ok(raw) = std::env::var("AOS_SERVER_PORT") {
-            match raw.parse::<u16>() {
-                Ok(port) => cfg.server.port = port,
-                Err(_) => eprintln!("WARNING: Invalid AOS_SERVER_PORT={raw}; ignoring"),
-            }
+        // Server port resolution with legacy alias support.
+        // Precedence: AOS_SERVER_PORT > ADAPTEROS_SERVER_PORT > API_PORT > config file
+        if let Some(port) = std::env::var("AOS_SERVER_PORT")
+            .or_else(|_| std::env::var("ADAPTEROS_SERVER_PORT"))
+            .or_else(|_| std::env::var("API_PORT"))
+            .ok()
+            .and_then(|raw| {
+                raw.parse::<u16>()
+                    .map_err(|_| {
+                        eprintln!("WARNING: Invalid port value '{raw}'; using config file default");
+                    })
+                    .ok()
+            })
+        {
+            cfg.server.port = port;
         }
 
         if let Ok(bind) = std::env::var("AOS_SERVER_HOST") {

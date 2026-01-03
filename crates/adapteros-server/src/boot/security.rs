@@ -141,10 +141,8 @@ pub fn log_effective_config(config: &Arc<RwLock<Config>>) -> Result<()> {
             .unwrap_or(false)
     };
 
-    let api_port = std::env::var("AOS_SERVER_PORT")
-        .ok()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(cfg.server.port);
+    // Port already resolved (including legacy aliases) in config.rs Phase 1
+    let api_port = cfg.server.port;
     let ui_port = parse_env_u16("AOS_UI_PORT");
     let panel_port = parse_env_u16("AOS_PANEL_PORT");
 
