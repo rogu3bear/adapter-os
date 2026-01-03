@@ -28,7 +28,7 @@ members = [
     "crates/adapteros-types",
     "crates/adapteros-lora-kernel-mtl",  # Metal kernels - re-enabled for MVP
     "crates/adapteros-system-metrics",
-    "crates/adapteros-mlx",           # MLX SSoT - Single Source of Truth for MLX ops
+    "crates/adapteros-mlx",           # mlx-rs abstraction (experimental fallback)
     "crates/adapteros-lora-mlx-ffi",  # MLX backend - legacy FFI layer
     "crates/adapteros-autograd",  # Rust autograd system
     "crates/adapteros-lora-plan",
@@ -73,6 +73,7 @@ members = [
     "crates/adapteros-base-llm",
     "crates/adapteros-testing",
     "crates/adapteros-verification",
+    "crates/adapteros-e2e",
     # "crates/adapteros-codegraph-viewer/src-tauri",  # Temporarily disabled due to SQLite conflict
     "crates/sign-migrations",  # Migration signing tool
     "crates/adapteros-plugin-advanced-metrics",  # Advanced metrics plugin
@@ -425,7 +426,7 @@ adapteros-registry = { path = "crates/adapteros-registry" }
 adapteros-artifacts = { path = "crates/adapteros-artifacts" }
 adapteros-lora-kernel-api = { path = "crates/adapteros-lora-kernel-api" }
 adapteros-lora-kernel-mtl = { path = "crates/adapteros-lora-kernel-mtl" }  # macOS only - needed for KV quota tests
-adapteros-mlx = { path = "crates/adapteros-mlx" }  # MLX SSoT
+adapteros-mlx = { path = "crates/adapteros-mlx" }  # mlx-rs abstraction (experimental fallback)
 adapteros-lora-mlx-ffi = { path = "crates/adapteros-lora-mlx-ffi" }  # Legacy FFI layer
 # adapteros-lora-kernel-prof = { path = "crates/adapteros-lora-kernel-prof" }  # macOS only
 # adapteros-system-metrics = { path = "crates/adapteros-system-metrics" }  # Requires DATABASE_URL

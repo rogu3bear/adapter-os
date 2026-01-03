@@ -22,7 +22,7 @@ pub enum BackendKind {
     #[serde(alias = "core-ml", alias = "ane")]
     CoreML,
     /// MLX FFI backend (macOS/Linux, research/training)
-    #[serde(alias = "mlx")]
+    #[serde(alias = "mlx", alias = "mlx-ffi", alias = "mlx_ffi")]
     Mlx,
     /// MLX subprocess bridge (Python mlx-lm for MoE models)
     #[serde(alias = "mlx-bridge", alias = "mlx_bridge", alias = "subprocess")]
@@ -146,7 +146,7 @@ impl FromStr for BackendKind {
         let kind = match normalized.as_str() {
             "auto" | "autodev" | "default" => BackendKind::Auto,
             "coreml" | "ane" => BackendKind::CoreML,
-            "mlx" => BackendKind::Mlx,
+            "mlx" | "mlxffi" => BackendKind::Mlx,
             "mlxbridge" | "subprocess" => BackendKind::MlxBridge,
             "metal" => BackendKind::Metal,
             "cpu" | "cpuonly" => BackendKind::CPU,

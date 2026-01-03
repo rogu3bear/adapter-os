@@ -415,6 +415,7 @@ impl<K: FusedKernels + crate::StrictnessControl + Send + Sync + 'static> Worker<
                 false,
             ),
             run_receipt: None,
+            token_usage: None,
             refusal: if !validation_result.is_valid {
                 Some(RefusalResponse {
                     status: "failed".to_string(),

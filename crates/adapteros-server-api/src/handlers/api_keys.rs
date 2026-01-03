@@ -118,10 +118,7 @@ pub async fn create_api_key(
     Extension(claims): Extension<Claims>,
     Json(req): Json<CreateApiKeyRequest>,
 ) -> Result<Json<CreateApiKeyResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(
-        &claims,
-        &[Role::Admin, Role::Operator],
-    )?;
+    require_any_role(&claims, &[Role::Admin, Role::Operator])?;
     validate_tenant_isolation(&claims, &claims.tenant_id)?;
 
     let scopes = parse_scopes(&req.scopes).map_err(|e| {
@@ -187,10 +184,7 @@ pub async fn list_api_keys(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<ApiKeyListResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(
-        &claims,
-        &[Role::Admin, Role::Operator, Role::Viewer],
-    )?;
+    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
     validate_tenant_isolation(&claims, &claims.tenant_id)?;
 
     let rows = state
@@ -238,10 +232,7 @@ pub async fn revoke_api_key(
     Path(id): Path<String>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<RevokeApiKeyResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(
-        &claims,
-        &[Role::Admin, Role::Operator],
-    )?;
+    require_any_role(&claims, &[Role::Admin, Role::Operator])?;
     validate_tenant_isolation(&claims, &claims.tenant_id)?;
 
     state

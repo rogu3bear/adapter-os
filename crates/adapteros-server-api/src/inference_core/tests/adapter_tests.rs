@@ -7,9 +7,12 @@ use crate::inference_core::{
 use crate::state::{ApiConfig, AppState, GeneralConfig, MetricsConfig};
 use crate::telemetry::MetricsRegistry;
 use crate::types::{InferenceError, InferenceRequestInternal};
+use adapteros_api_types::workers::WorkerCapabilities;
+use adapteros_core::version::API_SCHEMA_VERSION;
 use adapteros_core::{determinism_mode::DeterminismMode, BackendKind, SeedMode};
 use adapteros_db::chat_sessions::CreateChatSessionParams;
 use adapteros_db::traits::CreateStackRequest;
+use adapteros_db::workers::WorkerRegistrationParams;
 use adapteros_db::Db;
 use adapteros_metrics_exporter::MetricsExporter;
 use adapteros_telemetry::MetricsCollector;
@@ -115,6 +118,79 @@ async fn insert_stack(db: &Db, tenant: &str, adapter_ids: &[&str]) -> String {
     db.insert_stack(&req).await.expect("insert stack")
 }
 
+async fn seed_worker_fks(
+    db: &Db,
+    tenant_id: &str,
+    manifest_hash: &str,
+    node_id: &str,
+    plan_id: &str,
+) {
+    adapteros_db::sqlx::query(
+        "INSERT OR IGNORE INTO nodes (id, hostname, agent_endpoint, status) VALUES (?, ?, ?, 'active')",
+    )
+    .bind(node_id)
+    .bind("test-node")
+    .bind("http://localhost:0")
+    .execute(db.pool())
+    .await
+    .expect("create node");
+
+    adapteros_db::sqlx::query(
+        "INSERT OR IGNORE INTO manifests (id, tenant_id, hash_b3, body_json) VALUES (?, ?, ?, ?)",
+    )
+    .bind("test-manifest-capability")
+    .bind(tenant_id)
+    .bind(manifest_hash)
+    .bind("{}")
+    .execute(db.pool())
+    .await
+    .expect("create manifest");
+
+    adapteros_db::sqlx::query(
+        "INSERT OR IGNORE INTO plans (id, tenant_id, plan_id_b3, manifest_hash_b3, kernel_hashes_json, layout_hash_b3) VALUES (?, ?, ?, ?, ?, ?)",
+    )
+    .bind(plan_id)
+    .bind(tenant_id)
+    .bind("plan-b3:capability-test")
+    .bind(manifest_hash)
+    .bind("[]")
+    .bind("layout-b3:test")
+    .execute(db.pool())
+    .await
+    .expect("create plan");
+}
+
+async fn register_worker_with_caps(
+    db: &Db,
+    tenant_id: &str,
+    worker_id: &str,
+    node_id: &str,
+    plan_id: &str,
+    manifest_hash: &str,
+    backend: &str,
+    caps: &WorkerCapabilities,
+) {
+    let params = WorkerRegistrationParams {
+        worker_id: worker_id.to_string(),
+        tenant_id: tenant_id.to_string(),
+        node_id: node_id.to_string(),
+        plan_id: plan_id.to_string(),
+        uds_path: format!("var/run/{}/worker.sock", worker_id),
+        pid: 1234,
+        manifest_hash: manifest_hash.to_string(),
+        backend: Some(backend.to_string()),
+        model_hash_b3: None,
+        capabilities_json: Some(serde_json::to_string(caps).expect("serialize capabilities")),
+        schema_version: API_SCHEMA_VERSION.to_string(),
+        api_version: API_SCHEMA_VERSION.to_string(),
+    };
+
+    db.register_worker(params).await.expect("register worker");
+    db.transition_worker_status(worker_id, "healthy", "test", None)
+        .await
+        .expect("transition worker");
+}
+
 #[tokio::test]
 async fn test_resolve_effective_adapters_adapters_only() {
     let state = build_test_state(false).await;
@@ -151,6 +227,69 @@ async fn test_resolve_effective_adapters_stack_only() {
     );
     assert_eq!(req.stack_id, Some(stack_id.clone()));
     assert!(req.stack_version.is_some());
+}
+
+#[tokio::test]
+async fn test_step_mode_filters_bulk_only_bridge_worker() {
+    let state = build_test_state(false).await;
+    let core = InferenceCore::new(&state);
+
+    let tenant_id = "tenant-1";
+    let manifest_hash = "test-manifest-hash";
+    let node_id = "node-capabilities";
+    let plan_id = "plan-capabilities";
+
+    seed_worker_fks(&state.db, tenant_id, manifest_hash, node_id, plan_id).await;
+
+    let bridge_caps = WorkerCapabilities {
+        backend_kind: "bridge".to_string(),
+        implementation: Some("mlx_subprocess".to_string()),
+        supports_step: false,
+        supports_bulk: true,
+        supports_logits: false,
+        supports_streaming: false,
+    };
+    let mlx_caps = WorkerCapabilities {
+        backend_kind: "mlx".to_string(),
+        implementation: None,
+        supports_step: true,
+        supports_bulk: false,
+        supports_logits: true,
+        supports_streaming: true,
+    };
+
+    register_worker_with_caps(
+        &state.db,
+        tenant_id,
+        "worker-bridge-bulk",
+        node_id,
+        plan_id,
+        manifest_hash,
+        "bridge",
+        &bridge_caps,
+    )
+    .await;
+    register_worker_with_caps(
+        &state.db,
+        tenant_id,
+        "worker-mlx-step",
+        node_id,
+        plan_id,
+        manifest_hash,
+        "mlx",
+        &mlx_caps,
+    )
+    .await;
+
+    let mut request = InferenceRequestInternal::new(tenant_id.to_string(), "hi".to_string());
+    request.require_step = true;
+
+    let selected = core
+        .select_worker_for_request(&request)
+        .await
+        .expect("select worker");
+
+    assert_eq!(selected.id, "worker-mlx-step");
 }
 
 #[tokio::test]

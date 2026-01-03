@@ -137,13 +137,19 @@ use crate::types::{
     new_run_envelope, set_policy_mask, set_router_seed, set_worker_context, ChunkReference,
     InferenceError, InferenceRequestInternal, InferenceResult, PlacementReplay,
     PlacementTraceEntry, RagEvidence, ReplayContext, RouterCandidateRecord, RouterDecisionRecord,
-    SamplingParams, WorkerInferRequest, MAX_REPLAY_TEXT_SIZE, SAMPLING_ALGORITHM_VERSION,
+    SamplingParams, TokenUsage, WorkerInferRequest, MAX_REPLAY_TEXT_SIZE,
+    SAMPLING_ALGORITHM_VERSION,
 };
-use crate::uds_client::UdsClient;
+use crate::uds_client::{UdsClient, WorkerStreamEvent, WorkerStreamToken};
+use crate::worker_capabilities::{
+    capability_reasons, parse_worker_capabilities, RequiredModes, WorkerCapabilityExclusion,
+};
 use adapteros_api_types::inference::ReplayGuarantee;
 use adapteros_api_types::{RunActor, RunEnvelope};
 use adapteros_config::PlacementConfig;
-use adapteros_core::{identity::IdentityEnvelope, B3Hash, GuardLogLevel, SeedScopeGuard};
+use adapteros_core::{
+    identity::IdentityEnvelope, B3Hash, BackendKind, GuardLogLevel, SeedScopeGuard,
+};
 use adapteros_db::workers::WorkerWithBinding;
 use adapteros_db::{chat_sessions::ChatSession, CreateReplayMetadataParams};
 use adapteros_policy::hooks::{HookContext, PolicyHook};
@@ -153,10 +159,12 @@ use adapteros_telemetry::{
     RoutingTelemetryEvent,
 };
 use adapteros_types::adapters::metadata::RoutingDeterminismMode;
+use futures_util::StreamExt;
 use hex;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::Duration;
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, info_span, warn};
 
@@ -196,6 +204,7 @@ impl<'a> InferenceCore<'a> {
         mut request: InferenceRequestInternal,
         replay_context: Option<ReplayContext>,
         cancellation_token: Option<CancellationToken>,
+        stream_tx: Option<mpsc::Sender<WorkerStreamToken>>,
     ) -> Result<InferenceResult, InferenceError> {
         let start_time = std::time::Instant::now();
         let is_replay = replay_context.is_some();
@@ -406,6 +415,21 @@ impl<'a> InferenceCore<'a> {
             );
         }
 
+        let is_prod_mode = self
+            .state
+            .runtime_mode
+            .map(|mode| mode.is_prod())
+            .unwrap_or(config.server.production_mode);
+        if is_prod_mode {
+            request.require_step = true;
+            if execution_profile.profile.backend_profile == BackendKind::MlxBridge {
+                return Err(InferenceError::ValidationError(
+                    "Bulk MLX bridge backend is disabled in production; step loop is required"
+                        .to_string(),
+                ));
+            }
+        }
+
         let manifest_hash = self
             .state
             .manifest_hash
@@ -441,6 +465,10 @@ impl<'a> InferenceCore<'a> {
                 .effective_determinism_mode
                 .as_str()
                 .to_string(),
+        );
+        request.require_determinism = matches!(
+            resolved_policy.effective_determinism_mode,
+            adapteros_core::determinism_mode::DeterminismMode::Strict
         );
 
         // Extract values for use later in the function
@@ -494,15 +522,15 @@ impl<'a> InferenceCore<'a> {
         let (uds_path, selected_worker) = if let Some(ref ctx) = replay_context {
             let path = self
                 .resolve_worker_path_for_replay(
-                    &request.cpid,
+                    &request,
                     &ctx.required_manifest_hash,
                     &ctx.required_backend,
                 )
                 .await?;
-            let worker = self.select_worker_for_tenant(&request.cpid).await.ok();
+            let worker = self.select_worker_for_request(&request).await.ok();
             (path, worker)
         } else {
-            let worker = self.select_worker_for_tenant(&request.cpid).await?;
+            let worker = self.select_worker_for_request(&request).await?;
             (PathBuf::from(&worker.uds_path), Some(worker))
         };
         let selected_worker_id = selected_worker.as_ref().map(|w| w.id.clone());
@@ -724,6 +752,10 @@ impl<'a> InferenceCore<'a> {
         }
 
         // 4. Call worker via UDS
+        // Capture pre-UDS latency: time from request receipt to UDS call start
+        let pre_uds_latency = start_time.elapsed();
+        let pre_uds_latency_us = pre_uds_latency.as_micros() as u64;
+
         // Longer timeout for replay to account for cold worker startup
         let timeout_secs = if is_replay { 120 } else { 60 };
         let uds_client = UdsClient::new(Duration::from_secs(timeout_secs));
@@ -766,31 +798,7 @@ impl<'a> InferenceCore<'a> {
             request.worker_auth_token.clone()
         };
 
-        // Wrap the UDS call in routing context to ensure task-local guard is set
-        let worker_call = crate::uds_client::run_with_routing_context(async {
-            uds_client
-                .infer(
-                    &uds_path,
-                    worker_request,
-                    worker_auth_token.as_deref(),
-                    cancellation_token.clone(),
-                )
-                .await
-        });
-
-        let worker_response = if let Some(token) = cancellation_token.as_ref() {
-            tokio::select! {
-                _ = token.cancelled() => {
-                    return Err(InferenceError::ClientClosed(
-                        "Request cancelled while waiting for worker".to_string()
-                    ));
-                }
-                res = worker_call => res
-            }
-        } else {
-            worker_call.await
-        }
-        .map_err(|e| match e {
+        let map_uds_error = |e| match e {
             crate::uds_client::UdsClientError::WorkerNotAvailable(msg) => {
                 InferenceError::WorkerNotAvailable(msg)
             }
@@ -817,7 +825,62 @@ impl<'a> InferenceCore<'a> {
                 InferenceError::ClientClosed(msg)
             }
             other => InferenceError::WorkerError(other.to_string()),
-        })?;
+        };
+
+        let worker_response = if let Some(stream_tx) = stream_tx.clone() {
+            // Wrap the UDS call in routing context to ensure task-local guard is set
+            let worker_call = crate::uds_client::run_with_routing_context(async {
+                uds_client
+                    .infer_stream(
+                        &uds_path,
+                        worker_request,
+                        worker_auth_token.as_deref(),
+                        cancellation_token.clone(),
+                    )
+                    .await
+            });
+
+            let mut stream = worker_call.await.map_err(map_uds_error)?;
+
+            let mut response: Option<crate::types::WorkerInferResponse> = None;
+            while let Some(event) = stream.next().await {
+                let event = event.map_err(map_uds_error)?;
+                match event {
+                    WorkerStreamEvent::Token(token) => {
+                        if stream_tx.send(token).await.is_err() {
+                            return Err(InferenceError::ClientClosed(
+                                "Client disconnected during streaming".to_string(),
+                            ));
+                        }
+                    }
+                    WorkerStreamEvent::Complete(resp) => {
+                        response = Some(*resp);
+                        break;
+                    }
+                    WorkerStreamEvent::Error(message) => {
+                        return Err(InferenceError::WorkerError(message));
+                    }
+                }
+            }
+
+            response.ok_or_else(|| {
+                InferenceError::WorkerError("No response received from worker".to_string())
+            })?
+        } else {
+            // Wrap the UDS call in routing context to ensure task-local guard is set
+            let worker_call = crate::uds_client::run_with_routing_context(async {
+                uds_client
+                    .infer(
+                        &uds_path,
+                        worker_request,
+                        worker_auth_token.as_deref(),
+                        cancellation_token.clone(),
+                    )
+                    .await
+            });
+
+            worker_call.await.map_err(map_uds_error)?
+        };
 
         // Stage 9: Policy Hooks (OnAfterInference)
         // ┌─────────────────────────────────────────────────────────────────┐
@@ -907,6 +970,29 @@ impl<'a> InferenceCore<'a> {
         // 7. Log inference completion
         let latency_ms = start_time.elapsed().as_millis() as u64;
         let response_text = worker_response.text.clone().unwrap_or_default();
+        let token_usage = Self::resolve_token_usage(&worker_response);
+        let tokens_generated = token_usage
+            .as_ref()
+            .map(|usage| usage.completion_tokens as usize)
+            .or(if worker_response.trace.token_count > 0 {
+                Some(worker_response.trace.token_count)
+            } else {
+                None
+            })
+            .unwrap_or(0);
+        let tokens_generated_event = if token_usage.is_some() || worker_response.trace.token_count > 0
+        {
+            Some(tokens_generated as u64)
+        } else {
+            None
+        };
+        let tokens_generated_meta = if token_usage.is_some() || worker_response.trace.token_count > 0
+        {
+            Some(tokens_generated)
+        } else {
+            None
+        };
+        let run_receipt = worker_response.run_receipt.clone();
         let prompt_truncated = augmented_prompt.len() > MAX_REPLAY_TEXT_SIZE;
         let response_truncated = response_text.len() > MAX_REPLAY_TEXT_SIZE;
         let backend_used = worker_response
@@ -1009,6 +1095,7 @@ impl<'a> InferenceCore<'a> {
                 &request,
                 &augmented_prompt,
                 &response_text,
+                tokens_generated_meta,
                 backend_used.as_deref(),
                 backend_version.as_deref(),
                 coreml_package_hash.as_deref(),
@@ -1157,6 +1244,7 @@ impl<'a> InferenceCore<'a> {
             output_tokens: None,
             success: true,
             error: None,
+            server_handler_latency_us: Some(pre_uds_latency_us),
         };
 
         if let Ok(event) = build_inference_metrics_event(identity.clone(), metrics_payload) {
@@ -1243,7 +1331,7 @@ impl<'a> InferenceCore<'a> {
                     worker_response.text.clone()
                 },
                 latency_ms: latency_ms as f64,
-                tokens_generated: None, // Not tracked in current worker response
+                tokens_generated: tokens_generated_event,
                 tokens_per_sec: None,   // Not tracked
                 tenant_id: Some(request.cpid.clone()),
                 model: request.model.clone(),
@@ -1269,7 +1357,9 @@ impl<'a> InferenceCore<'a> {
         // 12. Build and return result
         Ok(InferenceResult {
             text: worker_response.text.unwrap_or_default(),
-            tokens_generated: 0, // Not tracked in current worker response
+            tokens_generated,
+            run_receipt,
+            token_usage,
             finish_reason: worker_response.status,
             adapters_used: worker_response.trace.router_summary.adapters_used,
             router_decisions,
@@ -1321,6 +1411,33 @@ impl<'a> InferenceCore<'a> {
         result
     }
 
+    pub(crate) fn resolve_token_usage(
+        worker_response: &crate::types::WorkerInferResponse,
+    ) -> Option<TokenUsage> {
+        worker_response
+            .run_receipt
+            .as_ref()
+            .map(|receipt| TokenUsage {
+                prompt_tokens: receipt.logical_prompt_tokens,
+                completion_tokens: receipt.logical_output_tokens,
+                billed_input_tokens: receipt.billed_input_tokens,
+                billed_output_tokens: receipt.billed_output_tokens,
+            })
+            .or_else(|| worker_response.token_usage.clone())
+    }
+
+    /// Execute inference through the unified pipeline with token streaming.
+    pub async fn route_and_infer_stream(
+        &self,
+        request: InferenceRequestInternal,
+        replay_context: Option<ReplayContext>,
+        cancellation_token: Option<CancellationToken>,
+        stream_tx: mpsc::Sender<WorkerStreamToken>,
+    ) -> Result<InferenceResult, InferenceError> {
+        self.route_and_infer(request, replay_context, cancellation_token, Some(stream_tx))
+            .await
+    }
+
     /// Execute inference replay through the unified pipeline
     ///
     /// This is a convenience wrapper for `route_and_infer` with replay context.
@@ -1342,7 +1459,7 @@ impl<'a> InferenceCore<'a> {
         replay_context: ReplayContext,
         cancellation_token: Option<CancellationToken>,
     ) -> Result<InferenceResult, InferenceError> {
-        self.route_and_infer(request, Some(replay_context), cancellation_token)
+        self.route_and_infer(request, Some(replay_context), cancellation_token, None)
             .await
     }
 
@@ -1677,9 +1794,43 @@ impl<'a> InferenceCore<'a> {
     /// - Logs attempt number, delay, and remaining budget on each retry
     /// - In dev mode: returns WorkerDegraded after retries (allows graceful degradation)
     /// - In prod/staging mode: returns NoCompatibleWorker (hard failure)
+    pub(crate) async fn select_worker_for_request(
+        &self,
+        request: &InferenceRequestInternal,
+    ) -> Result<WorkerWithBinding, InferenceError> {
+        let required_modes = RequiredModes::from_request(request);
+        let require_backend = if request.allow_fallback {
+            None
+        } else {
+            match request.backend_profile {
+                Some(BackendKind::Auto) | None => None,
+                Some(kind) => Some(kind),
+            }
+        };
+
+        self.select_worker_for_tenant_with_requirements(
+            &request.cpid,
+            Some(required_modes),
+            request.require_determinism,
+            require_backend,
+        )
+        .await
+    }
+
     pub(crate) async fn select_worker_for_tenant(
         &self,
         tenant_id: &str,
+    ) -> Result<WorkerWithBinding, InferenceError> {
+        self.select_worker_for_tenant_with_requirements(tenant_id, None, false, None)
+            .await
+    }
+
+    async fn select_worker_for_tenant_with_requirements(
+        &self,
+        tenant_id: &str,
+        required_modes: Option<RequiredModes>,
+        require_determinism: bool,
+        require_backend: Option<BackendKind>,
     ) -> Result<WorkerWithBinding, InferenceError> {
         use std::time::{Duration, Instant};
 
@@ -1693,6 +1844,7 @@ impl<'a> InferenceCore<'a> {
                 tenant_id: tenant_id.to_string(),
                 available_count: 0,
                 reason: "Manifest hash not configured on control plane".to_string(),
+                details: None,
             }
         })?;
 
@@ -1714,13 +1866,25 @@ impl<'a> InferenceCore<'a> {
                     InferenceError::WorkerError(format!("Failed to list compatible workers: {}", e))
                 })?;
 
+            let candidate_count = workers.len();
+            let (filtered_workers, exclusions) = if let Some(ref required_modes) = required_modes {
+                self.filter_workers_by_capabilities(
+                    workers,
+                    required_modes,
+                    require_backend,
+                    require_determinism,
+                )
+            } else {
+                (workers, Vec::new())
+            };
+
             if let Some(worker) = self
                 .state
                 .health_monitor
                 .as_ref()
-                .and_then(|hm| hm.get_best_worker_with_binding(&workers))
+                .and_then(|hm| hm.get_best_worker_with_binding(&filtered_workers))
                 .cloned()
-                .or_else(|| workers.first().cloned())
+                .or_else(|| filtered_workers.first().cloned())
             {
                 if attempt > 1 {
                     info!(
@@ -1742,12 +1906,37 @@ impl<'a> InferenceCore<'a> {
             }
 
             // No worker found - determine reason and decide whether to retry
-            let (available_count, reason) = self
-                .diagnose_worker_unavailability(required_manifest, tenant_id)
-                .await;
+            let mut exclusion_details = None;
+            let (available_count, reason, retryable) =
+                if required_modes.is_some() && !exclusions.is_empty() {
+                    warn!(
+                        tenant_id = %tenant_id,
+                        required_modes = ?required_modes.as_ref(),
+                        require_backend = ?require_backend.map(|b| b.as_str()),
+                        require_determinism = require_determinism,
+                        excluded_workers = ?exclusions,
+                        "All compatible workers excluded by capability requirements"
+                    );
+                    exclusion_details = Some(serde_json::json!({
+                        "required_modes": required_modes.as_ref(),
+                        "require_backend": require_backend.map(|b| b.as_str()),
+                        "require_determinism": require_determinism,
+                        "excluded_workers": exclusions,
+                    }));
+                    (
+                        candidate_count,
+                        "Workers excluded by capability requirements".to_string(),
+                        false,
+                    )
+                } else {
+                    let (count, reason) = self
+                        .diagnose_worker_unavailability(required_manifest, tenant_id)
+                        .await;
+                    (count, reason, true)
+                };
 
             // Check if we should retry
-            let should_retry = attempt < MAX_ATTEMPTS && !remaining.is_zero();
+            let should_retry = retryable && attempt < MAX_ATTEMPTS && !remaining.is_zero();
 
             if should_retry {
                 warn!(
@@ -1798,10 +1987,57 @@ impl<'a> InferenceCore<'a> {
                         tenant_id: tenant_id.to_string(),
                         available_count,
                         reason,
+                        details: exclusion_details,
                     });
                 }
             }
         }
+    }
+
+    fn filter_workers_by_capabilities(
+        &self,
+        workers: Vec<WorkerWithBinding>,
+        required_modes: &RequiredModes,
+        require_backend: Option<BackendKind>,
+        require_determinism: bool,
+    ) -> (Vec<WorkerWithBinding>, Vec<WorkerCapabilityExclusion>) {
+        let mut compatible = Vec::new();
+        let mut exclusions = Vec::new();
+
+        for worker in workers {
+            let caps = parse_worker_capabilities(
+                worker.capabilities_json.as_deref(),
+                worker.backend.as_deref(),
+                &[],
+            );
+            let reasons = capability_reasons(
+                caps.as_ref(),
+                required_modes,
+                require_backend,
+                require_determinism,
+            );
+
+            if reasons.is_empty() {
+                compatible.push(worker);
+            } else {
+                let worker_id = worker.id.clone();
+                info!(
+                    worker_id = %worker_id,
+                    tenant_id = %worker.tenant_id,
+                    backend = %worker.backend.as_deref().unwrap_or("unknown"),
+                    reasons = ?reasons,
+                    "Worker excluded by capability requirements"
+                );
+                exclusions.push(WorkerCapabilityExclusion {
+                    worker_id,
+                    backend: worker.backend.clone(),
+                    reasons,
+                    capabilities: caps,
+                });
+            }
+        }
+
+        (compatible, exclusions)
     }
 
     /// Diagnose why no compatible worker is available
@@ -1872,6 +2108,7 @@ impl<'a> InferenceCore<'a> {
     /// 3. Falls back to env override or default socket for dev mode
     ///
     /// This ensures workers only serve requests they're compatible with.
+    #[allow(dead_code)]
     pub(crate) async fn resolve_worker_path(
         &self,
         tenant_id: &str,
@@ -1886,8 +2123,9 @@ impl<'a> InferenceCore<'a> {
     /// - Current loaded manifest_hash must match required
     /// - Current backend must match required
     ///
-    /// If the current AppState matches the requirements, we use standard worker
-    /// resolution. If not, we return `InferenceError::NoCompatibleWorker`.
+    /// If the current AppState matches the requirements, we resolve a worker
+    /// using the request's capability requirements. If not, we return
+    /// `InferenceError::NoCompatibleWorker`.
     ///
     /// # Design Note
     ///
@@ -1897,7 +2135,7 @@ impl<'a> InferenceCore<'a> {
     /// 3. If AppState matches, all workers in this process can serve the replay
     async fn resolve_worker_path_for_replay(
         &self,
-        tenant_id: &str,
+        request: &InferenceRequestInternal,
         required_manifest_hash: &str,
         required_backend: &str,
     ) -> Result<PathBuf, InferenceError> {
@@ -1939,21 +2177,23 @@ impl<'a> InferenceCore<'a> {
 
             return Err(InferenceError::NoCompatibleWorker {
                 required_hash: required_manifest_hash.to_string(),
-                tenant_id: tenant_id.to_string(),
+                tenant_id: request.cpid.clone(),
                 available_count: 0,
                 reason,
+                details: None,
             });
         }
 
         debug!(
-            tenant_id = %tenant_id,
+            tenant_id = %request.cpid,
             manifest_hash = %required_manifest_hash,
             backend = %required_backend,
             "Current system state matches replay requirements, using standard worker resolution"
         );
 
-        // Current state matches - use standard worker resolution
-        self.resolve_worker_path(tenant_id).await
+        // Current state matches - use standard worker resolution with request requirements
+        let worker = self.select_worker_for_request(request).await?;
+        Ok(PathBuf::from(&worker.uds_path))
     }
 
     /// Retrieve RAG context and augment the prompt
@@ -2619,6 +2859,7 @@ impl<'a> InferenceCore<'a> {
         request: &InferenceRequestInternal,
         prompt_text: &str,
         response_text: &str,
+        tokens_generated: Option<usize>,
         backend_used: Option<&str>,
         backend_version: Option<&str>,
         coreml_package_hash: Option<&str>,
@@ -2774,8 +3015,7 @@ impl<'a> InferenceCore<'a> {
             "available"
         };
 
-        // Estimate tokens (rough: ~4 chars per token)
-        let tokens_generated = Some((response_text.len() / 4).max(1) as i32);
+        let tokens_generated = tokens_generated.map(|value| value as i32);
 
         // Serialize stop_policy if present
         let stop_policy_json = request

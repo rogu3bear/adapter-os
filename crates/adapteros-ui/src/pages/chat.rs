@@ -4,7 +4,7 @@
 //! using Server-Sent Events (SSE) for inference responses.
 
 use crate::api::api_base_url;
-use crate::components::{Button, Card, Shell, Spinner, Textarea, TraceButton, TracePanel};
+use crate::components::{Button, Card, Spinner, Textarea, TraceButton, TracePanel};
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 use serde::{Deserialize, Serialize};
@@ -30,9 +30,7 @@ struct StreamingInferRequest {
 #[serde(tag = "event")]
 enum InferenceEvent {
     /// Inference token
-    Token {
-        text: String,
-    },
+    Token { text: String },
     /// Inference complete
     Done {
         #[serde(default)]
@@ -43,9 +41,7 @@ enum InferenceEvent {
         trace_id: Option<String>,
     },
     /// Error occurred
-    Error {
-        message: String,
-    },
+    Error { message: String },
     /// Catch-all for other events (Loading, Ready, etc.)
     #[serde(other)]
     Other,
@@ -82,22 +78,20 @@ pub fn Chat() -> impl IntoView {
     };
 
     view! {
-        <Shell>
-            <div class="space-y-6">
-                <div class="flex items-center justify-between">
-                    <h1 class="text-3xl font-bold tracking-tight">"Chat"</h1>
-                    <Button on_click=Callback::new(create_session)>
-                        "New Session"
-                    </Button>
-                </div>
-
-                <Card>
-                    <div class="py-8 text-center">
-                        <p class="text-muted-foreground">"Select or create a chat session to get started"</p>
-                    </div>
-                </Card>
+        <div class="p-6 space-y-6">
+            <div class="flex items-center justify-between">
+                <h1 class="text-3xl font-bold tracking-tight">"Chat"</h1>
+                <Button on_click=Callback::new(create_session)>
+                    "New Session"
+                </Button>
             </div>
-        </Shell>
+
+            <Card>
+                <div class="py-8 text-center">
+                    <p class="text-muted-foreground">"Select or create a chat session to get started"</p>
+                </div>
+            </Card>
+        </div>
     }
 }
 
@@ -203,10 +197,9 @@ pub fn ChatSession() -> impl IntoView {
     });
 
     view! {
-        <Shell>
-            <div class="flex h-[calc(100vh-8rem)] flex-col">
-                // Header
-                <div class="flex items-center justify-between border-b pb-4">
+        <div class="p-6 flex h-[calc(100vh-8rem)] flex-col">
+            // Header
+            <div class="flex items-center justify-between border-b pb-4">
                     <h1 class="text-xl font-semibold">"Chat Session"</h1>
                     <div class="flex items-center gap-2">
                         {move || {
@@ -356,8 +349,7 @@ pub fn ChatSession() -> impl IntoView {
                         </Button>
                     </form>
                 </div>
-            </div>
-        </Shell>
+        </div>
     }
 }
 
@@ -446,9 +438,7 @@ async fn stream_inference(
     }
 
     // Get the response body as a ReadableStream
-    let body_stream = response
-        .body()
-        .ok_or("No response body")?;
+    let body_stream = response.body().ok_or("No response body")?;
 
     // Get the reader from the stream
     let reader = body_stream
@@ -549,8 +539,8 @@ fn parse_sse_event_with_info(event_data: &str) -> ParsedSseEvent {
     let mut data_line: Option<&str> = None;
 
     for line in event_data.lines() {
-        if line.starts_with("data: ") {
-            data_line = Some(&line[6..]);
+        if let Some(stripped) = line.strip_prefix("data: ") {
+            data_line = Some(stripped);
         }
     }
 
@@ -570,14 +560,21 @@ fn parse_sse_event_with_info(event_data: &str) -> ParsedSseEvent {
             InferenceEvent::Token { text } => {
                 result.token = Some(text);
             }
-            InferenceEvent::Done { total_tokens, latency_ms, trace_id } => {
+            InferenceEvent::Done {
+                total_tokens,
+                latency_ms,
+                trace_id,
+            } => {
                 result.trace_id = trace_id;
                 result.latency_ms = Some(latency_ms);
                 result.token_count = Some(total_tokens as u32);
             }
             InferenceEvent::Error { message } => {
                 // Log error but don't return it as content
-                web_sys::console::error_1(&JsValue::from_str(&format!("Stream error: {}", message)));
+                web_sys::console::error_1(&JsValue::from_str(&format!(
+                    "Stream error: {}",
+                    message
+                )));
             }
             InferenceEvent::Other => {
                 // Ignore Loading, Ready, and other unhandled events

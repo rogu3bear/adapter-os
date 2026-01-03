@@ -210,7 +210,7 @@ impl Default for EgressConfig {
             serve_requires_pf: true,
             allow_tcp: false,
             allow_udp: false,
-            uds_paths: vec![PathBuf::from("/var/run/aos")],
+            uds_paths: vec![PathBuf::from("./var/run/aos")],
             media_import: MediaImportConfig {
                 require_signature: true,
                 require_sbom: true,
@@ -498,7 +498,7 @@ mod tests {
         let config = EgressConfig::default();
         let policy = EgressPolicy::new(config);
 
-        let allowed_path = PathBuf::from("/var/run/aos/test.sock");
+        let allowed_path = PathBuf::from("./var/run/aos/test.sock");
         assert!(policy.validate_uds_paths(&allowed_path).is_ok());
 
         let disallowed_path = PathBuf::from("/tmp/test.sock");
@@ -589,7 +589,7 @@ mod tests {
 
         // UDS should always be allowed
         assert!(policy
-            .check_network_egress("uds", "/var/run/aos/test.sock", Some(RuntimeMode::Prod))
+            .check_network_egress("uds", "./var/run/aos/test.sock", Some(RuntimeMode::Prod))
             .is_ok());
 
         // TCP should be blocked in prod mode (default config has allow_tcp=false)

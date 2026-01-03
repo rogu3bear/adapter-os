@@ -59,9 +59,7 @@ impl ApiClient {
 
         // Persist to localStorage
         #[cfg(target_arch = "wasm32")]
-        if let Some(storage) = web_sys::window()
-            .and_then(|w| w.local_storage().ok().flatten())
-        {
+        if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
             match &token {
                 Some(t) => {
                     let _ = storage.set_item("auth_token", t);
@@ -75,7 +73,11 @@ impl ApiClient {
 
     /// Check if client has an auth token
     pub fn is_authenticated(&self) -> bool {
-        self.auth_token.read().ok().map(|t| t.is_some()).unwrap_or(false)
+        self.auth_token
+            .read()
+            .ok()
+            .map(|t| t.is_some())
+            .unwrap_or(false)
     }
 
     /// Build a request with common headers
@@ -111,21 +113,13 @@ impl ApiClient {
         path: &str,
         body: &B,
     ) -> ApiResult<T> {
-        let response = self
-            .request("POST", path)
-            .json(body)?
-            .send()
-            .await?;
+        let response = self.request("POST", path).json(body)?.send().await?;
         self.handle_response(response).await
     }
 
     /// Perform a POST request without response body
     pub async fn post_no_response<B: Serialize>(&self, path: &str, body: &B) -> ApiResult<()> {
-        let response = self
-            .request("POST", path)
-            .json(body)?
-            .send()
-            .await?;
+        let response = self.request("POST", path).json(body)?.send().await?;
 
         if response.ok() {
             Ok(())
@@ -142,11 +136,7 @@ impl ApiClient {
         path: &str,
         body: &B,
     ) -> ApiResult<T> {
-        let response = self
-            .request("PUT", path)
-            .json(body)?
-            .send()
-            .await?;
+        let response = self.request("PUT", path).json(body)?.send().await?;
         self.handle_response(response).await
     }
 
@@ -210,11 +200,8 @@ impl ApiClient {
             password: &'a str,
         }
 
-        self.post(
-            "/v1/auth/login",
-            &LoginRequest { username, password },
-        )
-        .await
+        self.post("/v1/auth/login", &LoginRequest { username, password })
+            .await
     }
 
     /// Get current user info
@@ -301,18 +288,27 @@ impl ApiClient {
     // --- Training ---
 
     /// List training jobs
-    pub async fn list_training_jobs(&self) -> ApiResult<adapteros_api_types::TrainingJobListResponse> {
+    pub async fn list_training_jobs(
+        &self,
+    ) -> ApiResult<adapteros_api_types::TrainingJobListResponse> {
         self.get("/v1/training/jobs").await
     }
 
     /// Get training job details
-    pub async fn get_training_job(&self, id: &str) -> ApiResult<adapteros_api_types::TrainingJobResponse> {
+    pub async fn get_training_job(
+        &self,
+        id: &str,
+    ) -> ApiResult<adapteros_api_types::TrainingJobResponse> {
         self.get(&format!("/v1/training/jobs/{}", id)).await
     }
 
     /// Cancel a training job
     pub async fn cancel_training_job(&self, id: &str) -> ApiResult<()> {
-        self.post_no_response(&format!("/v1/training/jobs/{}/cancel", id), &serde_json::json!({})).await
+        self.post_no_response(
+            &format!("/v1/training/jobs/{}/cancel", id),
+            &serde_json::json!({}),
+        )
+        .await
     }
 
     /// Create a new training job
@@ -325,7 +321,8 @@ impl ApiClient {
 
     /// Get training logs for a job
     pub async fn get_training_logs(&self, job_id: &str) -> ApiResult<Vec<String>> {
-        self.get(&format!("/v1/training/jobs/{}/logs", job_id)).await
+        self.get(&format!("/v1/training/jobs/{}/logs", job_id))
+            .await
     }
 
     // --- Models ---
@@ -364,12 +361,17 @@ impl ApiClient {
 
     /// Activate an adapter stack
     pub async fn activate_stack(&self, id: &str) -> ApiResult<serde_json::Value> {
-        self.post(&format!("/v1/adapter-stacks/{}/activate", id), &serde_json::json!({})).await
+        self.post(
+            &format!("/v1/adapter-stacks/{}/activate", id),
+            &serde_json::json!({}),
+        )
+        .await
     }
 
     /// Deactivate the current adapter stack
     pub async fn deactivate_stack(&self) -> ApiResult<serde_json::Value> {
-        self.post("/v1/adapter-stacks/deactivate", &serde_json::json!({})).await
+        self.post("/v1/adapter-stacks/deactivate", &serde_json::json!({}))
+            .await
     }
 
     /// Delete an adapter stack
@@ -378,8 +380,13 @@ impl ApiClient {
     }
 
     /// Update an adapter stack
-    pub async fn update_stack(&self, id: &str, request: &UpdateStackRequest) -> ApiResult<StackResponse> {
-        self.put(&format!("/v1/adapter-stacks/{}", id), request).await
+    pub async fn update_stack(
+        &self,
+        id: &str,
+        request: &UpdateStackRequest,
+    ) -> ApiResult<StackResponse> {
+        self.put(&format!("/v1/adapter-stacks/{}", id), request)
+            .await
     }
 
     // --- Policies ---
@@ -412,14 +419,19 @@ impl ApiClient {
     // --- Dashboard ---
 
     /// Get dashboard widget configuration
-    pub async fn dashboard_config(&self) -> ApiResult<adapteros_api_types::GetDashboardConfigResponse> {
+    pub async fn dashboard_config(
+        &self,
+    ) -> ApiResult<adapteros_api_types::GetDashboardConfigResponse> {
         self.get("/v1/dashboard/config").await
     }
 
     // --- Inference ---
 
     /// Send an inference request (non-streaming)
-    pub async fn infer(&self, request: &InferenceRequest) -> ApiResult<adapteros_api_types::InferResponse> {
+    pub async fn infer(
+        &self,
+        request: &InferenceRequest,
+    ) -> ApiResult<adapteros_api_types::InferResponse> {
         self.post("/v1/infer", request).await
     }
 
@@ -431,8 +443,13 @@ impl ApiClient {
     // --- Collections ---
 
     /// List collections with pagination
-    pub async fn list_collections(&self, page: u32, limit: u32) -> ApiResult<CollectionListResponse> {
-        self.get(&format!("/v1/collections?page={}&limit={}", page, limit)).await
+    pub async fn list_collections(
+        &self,
+        page: u32,
+        limit: u32,
+    ) -> ApiResult<CollectionListResponse> {
+        self.get(&format!("/v1/collections?page={}&limit={}", page, limit))
+            .await
     }
 
     /// Get collection details with documents
@@ -441,7 +458,10 @@ impl ApiClient {
     }
 
     /// Create a new collection
-    pub async fn create_collection(&self, request: &CreateCollectionRequest) -> ApiResult<CollectionResponse> {
+    pub async fn create_collection(
+        &self,
+        request: &CreateCollectionRequest,
+    ) -> ApiResult<CollectionResponse> {
         self.post("/v1/collections", request).await
     }
 
@@ -451,16 +471,32 @@ impl ApiClient {
     }
 
     /// Add a document to a collection
-    pub async fn add_document_to_collection(&self, collection_id: &str, document_id: &str) -> ApiResult<()> {
+    pub async fn add_document_to_collection(
+        &self,
+        collection_id: &str,
+        document_id: &str,
+    ) -> ApiResult<()> {
         let request = AddDocumentRequest {
             document_id: document_id.to_string(),
         };
-        self.post_no_response(&format!("/v1/collections/{}/documents", collection_id), &request).await
+        self.post_no_response(
+            &format!("/v1/collections/{}/documents", collection_id),
+            &request,
+        )
+        .await
     }
 
     /// Remove a document from a collection
-    pub async fn remove_document_from_collection(&self, collection_id: &str, document_id: &str) -> ApiResult<()> {
-        self.delete(&format!("/v1/collections/{}/documents/{}", collection_id, document_id)).await
+    pub async fn remove_document_from_collection(
+        &self,
+        collection_id: &str,
+        document_id: &str,
+    ) -> ApiResult<()> {
+        self.delete(&format!(
+            "/v1/collections/{}/documents/{}",
+            collection_id, document_id
+        ))
+        .await
     }
 
     // --- Repositories ---
@@ -476,7 +512,10 @@ impl ApiClient {
     }
 
     /// Register a new repository
-    pub async fn register_repository(&self, request: &RegisterRepositoryRequest) -> ApiResult<RepositoryResponse> {
+    pub async fn register_repository(
+        &self,
+        request: &RegisterRepositoryRequest,
+    ) -> ApiResult<RepositoryResponse> {
         self.post("/v1/repositories", request).await
     }
 
@@ -487,17 +526,27 @@ impl ApiClient {
 
     /// Trigger a sync/scan for a repository
     pub async fn sync_repository(&self, id: &str) -> ApiResult<ScanStatusResponse> {
-        self.post(&format!("/v1/repositories/{}/sync", id), &serde_json::json!({})).await
+        self.post(
+            &format!("/v1/repositories/{}/sync", id),
+            &serde_json::json!({}),
+        )
+        .await
     }
 
     /// Get sync status for a repository
     pub async fn get_sync_status(&self, id: &str) -> ApiResult<ScanStatusResponse> {
-        self.get(&format!("/v1/repositories/{}/sync/status", id)).await
+        self.get(&format!("/v1/repositories/{}/sync/status", id))
+            .await
     }
 
     /// Publish an adapter from a repository
-    pub async fn publish_repository_adapter(&self, id: &str, request: &PublishAdapterRequest) -> ApiResult<PublishAdapterResponse> {
-        self.post(&format!("/v1/repositories/{}/publish", id), request).await
+    pub async fn publish_repository_adapter(
+        &self,
+        id: &str,
+        request: &PublishAdapterRequest,
+    ) -> ApiResult<PublishAdapterResponse> {
+        self.post(&format!("/v1/repositories/{}/publish", id), request)
+            .await
     }
 
     // --- Audit ---
@@ -563,7 +612,10 @@ impl ApiClient {
     // --- Documents ---
 
     /// List documents with optional filtering
-    pub async fn list_documents(&self, params: Option<&DocumentListParams>) -> ApiResult<DocumentListResponse> {
+    pub async fn list_documents(
+        &self,
+        params: Option<&DocumentListParams>,
+    ) -> ApiResult<DocumentListResponse> {
         let path = match params {
             Some(p) => {
                 let mut query_parts = Vec::new();
@@ -604,12 +656,20 @@ impl ApiClient {
 
     /// Trigger document processing/reprocessing
     pub async fn process_document(&self, id: &str) -> ApiResult<ProcessDocumentResponse> {
-        self.post(&format!("/v1/documents/{}/process", id), &serde_json::json!({})).await
+        self.post(
+            &format!("/v1/documents/{}/process", id),
+            &serde_json::json!({}),
+        )
+        .await
     }
 
     /// Retry failed document processing
     pub async fn retry_document(&self, id: &str) -> ApiResult<DocumentResponse> {
-        self.post(&format!("/v1/documents/{}/retry", id), &serde_json::json!({})).await
+        self.post(
+            &format!("/v1/documents/{}/retry", id),
+            &serde_json::json!({}),
+        )
+        .await
     }
 
     /// List failed documents
@@ -785,7 +845,7 @@ pub struct SeedModelRequest {
     pub model_path: String,
     /// Format: "mlx", "safetensors", "pytorch", "gguf"
     pub format: String,
-    /// Backend: "mlx", "mlx-ffi", "metal"
+    /// Backend: "mlx", "metal", "coreml"
     pub backend: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<Vec<String>>,
@@ -1293,7 +1353,10 @@ impl ApiClient {
     pub async fn search_traces(&self, query: &TraceSearchQuery) -> ApiResult<Vec<String>> {
         let mut params = Vec::new();
         if let Some(ref span_name) = query.span_name {
-            params.push(format!("span_name={}", js_sys::encode_uri_component(span_name)));
+            params.push(format!(
+                "span_name={}",
+                js_sys::encode_uri_component(span_name)
+            ));
         }
         if let Some(ref status) = query.status {
             params.push(format!("status={}", status));
@@ -1347,7 +1410,8 @@ impl ApiClient {
         &self,
         trace_id: &str,
     ) -> ApiResult<InferenceTraceDetailResponse> {
-        self.get(&format!("/v1/traces/inference/{}", trace_id)).await
+        self.get(&format!("/v1/traces/inference/{}", trace_id))
+            .await
     }
 }
 

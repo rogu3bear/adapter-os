@@ -69,6 +69,7 @@ pub struct SseConnection {
     failure_count: Rc<RefCell<u32>>,
     event_source: Rc<RefCell<Option<EventSource>>>,
     config: CircuitBreakerConfig,
+    #[allow(clippy::type_complexity)]
     closures: Rc<RefCell<Vec<Closure<dyn FnMut(MessageEvent)>>>>,
 }
 
@@ -115,8 +116,9 @@ impl SseConnection {
         self.state.set(SseState::Connecting);
 
         let url = self.full_url();
-        let event_source = EventSource::new(&url)
-            .map_err(|e| crate::api::ApiError::Network(format!("Failed to create EventSource: {:?}", e)))?;
+        let event_source = EventSource::new(&url).map_err(|e| {
+            crate::api::ApiError::Network(format!("Failed to create EventSource: {:?}", e))
+        })?;
 
         let state = self.state;
         let failure_count = self.failure_count.clone();

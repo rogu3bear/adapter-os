@@ -686,7 +686,7 @@ pub enum Commands {
         #[arg(short, long, default_value = "/var/run/aos/aos.sock")]
         socket: PathBuf,
 
-        /// Backend selection: metal (default), mlx (C++ FFI, requires --features mlx-ffi-backend), or coreml
+        /// Backend selection: metal (default), mlx (auto-selected implementation; requires --features multi-backend), or coreml
         #[arg(short, long, default_value = "metal")]
         backend: BackendType,
 
@@ -730,7 +730,7 @@ pub enum Commands {
   # Audit with JSON output
   aosctl audit-determinism --format json
 
-  # Audit MLX backend (requires --features mlx-ffi-backend)
+  # Audit MLX backend (requires --features multi-backend)
   aosctl audit-determinism --backend mlx --model-path ${AOS_MODEL_CACHE_DIR}/${AOS_BASE_MODEL_ID}
 "#)]
     AuditDeterminism {

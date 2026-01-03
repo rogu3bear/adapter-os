@@ -6,7 +6,7 @@
 //!
 //! Run with: cargo test -p adapteros-mlx --test ane_determinism -- --test-threads=1
 
-use adapteros_mlx::{Array, LayerNorm, RMSNorm, AneConfig};
+use adapteros_mlx::{AneConfig, Array, LayerNorm, RMSNorm};
 
 /// Helper to compare two f32 vectors for exact equality
 fn assert_exact_equal(a: &[f32], b: &[f32], context: &str) {
@@ -130,7 +130,10 @@ fn test_ane_attestation() {
 
     // AneAccelerator::try_new returns None when ANE isn't implemented yet
     // But we can verify the config itself
-    assert!(config.require_determinism, "Production config should require determinism");
+    assert!(
+        config.require_determinism,
+        "Production config should require determinism"
+    );
     assert!(config.enabled, "Production config should have ANE enabled");
 }
 

@@ -27,6 +27,8 @@ pub struct StopDecision {
     pub reason: StopReasonCode,
     /// The token index at which the stop was triggered
     pub token_index: u32,
+    /// Tokens to trim from the already-emitted output (excludes current token)
+    pub trim_tokens: usize,
 }
 
 /// Deterministic stop controller for autoregressive generation.
@@ -37,7 +39,8 @@ pub struct StopDecision {
 /// 1. BUDGET_MAX - Hard cap on generated tokens
 /// 2. COMPLETION_CONFIDENT - EOS probability exceeds threshold
 /// 3. REPETITION_GUARD - N-gram repetition detected
-/// 4. LENGTH - EOS token encountered
+/// 4. STOP_SEQUENCE - Explicit stop sequence matched
+/// 5. LENGTH - EOS token encountered
 ///
 /// # Example
 ///
@@ -63,19 +66,42 @@ pub struct StopController {
     generated_count: u32,
     /// Sliding window of recent tokens for repetition detection
     token_history: VecDeque<u32>,
+    /// Tokenized stop sequences to detect at the end of the stream
+    stop_sequences_tokens: Vec<Vec<u32>>,
+    /// Maximum stop sequence length (tokens)
+    max_stop_sequence_len: usize,
+    /// Sliding window size for history (max repetition window vs stop sequence length)
+    history_window: usize,
 }
 
 impl StopController {
     /// Create a new StopController with the given policy
     pub fn new(policy: StopPolicySpec) -> Self {
+        Self::new_with_stop_sequences(policy, Vec::new())
+    }
+
+    /// Create a new StopController with tokenized stop sequences
+    pub fn new_with_stop_sequences(
+        policy: StopPolicySpec,
+        stop_sequences_tokens: Vec<Vec<u32>>,
+    ) -> Self {
         let policy_digest = policy.digest();
-        let window_size = policy.repetition_window as usize;
+        let repetition_window = policy.repetition_window as usize;
+        let max_stop_sequence_len = stop_sequences_tokens
+            .iter()
+            .map(|seq| seq.len())
+            .max()
+            .unwrap_or(0);
+        let history_window = repetition_window.max(max_stop_sequence_len);
 
         Self {
             policy,
             policy_digest,
             generated_count: 0,
-            token_history: VecDeque::with_capacity(window_size),
+            token_history: VecDeque::with_capacity(history_window),
+            stop_sequences_tokens,
+            max_stop_sequence_len,
+            history_window,
         }
     }
 
@@ -83,6 +109,16 @@ impl StopController {
     pub fn from_policy_or_default(policy: Option<StopPolicySpec>, max_tokens: u32) -> Self {
         let policy = policy.unwrap_or_else(|| StopPolicySpec::new(max_tokens));
         Self::new(policy)
+    }
+
+    /// Create a StopController with tokenized stop sequences, falling back to defaults
+    pub fn from_policy_or_default_with_stop_sequences(
+        policy: Option<StopPolicySpec>,
+        max_tokens: u32,
+        stop_sequences_tokens: Vec<Vec<u32>>,
+    ) -> Self {
+        let policy = policy.unwrap_or_else(|| StopPolicySpec::new(max_tokens));
+        Self::new_with_stop_sequences(policy, stop_sequences_tokens)
     }
 
     /// Get the BLAKE3 digest of the policy specification
@@ -147,6 +183,7 @@ impl StopController {
             return Some(StopDecision {
                 reason,
                 token_index,
+                trim_tokens: 0,
             });
         }
 
@@ -160,6 +197,7 @@ impl StopController {
             return Some(StopDecision {
                 reason,
                 token_index,
+                trim_tokens: 0,
             });
         }
 
@@ -174,16 +212,28 @@ impl StopController {
             return Some(StopDecision {
                 reason,
                 token_index,
+                trim_tokens: 0,
             });
         }
 
-        // 4. LENGTH - EOS token encountered
+        // 4. STOP_SEQUENCE - explicit stop sequences matched
+        if let Some(trim_tokens) = self.check_stop_sequences() {
+            debug!(token_index, "Stop: STOP_SEQUENCE");
+            return Some(StopDecision {
+                reason: StopReasonCode::StopSequence,
+                token_index,
+                trim_tokens,
+            });
+        }
+
+        // 5. LENGTH - EOS token encountered
         let effective_eos = self.policy.eos_token_id.unwrap_or(eos_token_id);
         if token == effective_eos {
             debug!(token_index, eos_token = effective_eos, "Stop: LENGTH (EOS)");
             return Some(StopDecision {
                 reason: StopReasonCode::Length,
                 token_index,
+                trim_tokens: 0,
             });
         }
 
@@ -256,15 +306,28 @@ impl StopController {
     fn check_repetition_guard(&self) -> Option<StopReasonCode> {
         let ngram_size = self.policy.repetition_ngram as usize;
 
+        let window_size = self.policy.repetition_window as usize;
+        let history_len = self.token_history.len();
+        if history_len < ngram_size * 2 {
+            return None;
+        }
+
+        let window_start = history_len.saturating_sub(window_size);
+        let window: Vec<u32> = self
+            .token_history
+            .iter()
+            .skip(window_start)
+            .copied()
+            .collect();
+
         // Need at least 2 * ngram_size tokens to detect a repeated n-gram
-        if self.token_history.len() < ngram_size * 2 {
+        if window.len() < ngram_size * 2 {
             return None;
         }
 
         // Get the last n-gram (the one we're checking for repetition)
-        let history_len = self.token_history.len();
-        let last_ngram: Vec<u32> = self
-            .token_history
+        let history_len = window.len();
+        let last_ngram: Vec<u32> = window
             .iter()
             .skip(history_len - ngram_size)
             .copied()
@@ -273,8 +336,7 @@ impl StopController {
         // Check if this n-gram appears earlier in the window
         // We check all positions except the last one (which is the n-gram itself)
         for start_pos in 0..=(history_len - ngram_size * 2) {
-            let candidate: Vec<u32> = self
-                .token_history
+            let candidate: Vec<u32> = window
                 .iter()
                 .skip(start_pos)
                 .take(ngram_size)
@@ -295,14 +357,39 @@ impl StopController {
         None
     }
 
+    /// Check if any explicit stop sequence matches the tail of token history.
+    fn check_stop_sequences(&self) -> Option<usize> {
+        if self.stop_sequences_tokens.is_empty() || self.max_stop_sequence_len == 0 {
+            return None;
+        }
+
+        let history_len = self.token_history.len();
+        for sequence in &self.stop_sequences_tokens {
+            let seq_len = sequence.len();
+            if seq_len == 0 || history_len < seq_len {
+                continue;
+            }
+            let start = history_len - seq_len;
+            let matches = self
+                .token_history
+                .iter()
+                .skip(start)
+                .zip(sequence.iter())
+                .all(|(a, b)| *a == *b);
+            if matches {
+                return Some(seq_len.saturating_sub(1));
+            }
+        }
+
+        None
+    }
+
     /// Update the token history sliding window
     fn update_history(&mut self, token: u32) {
-        let window_size = self.policy.repetition_window as usize;
-
         self.token_history.push_back(token);
 
         // Maintain window size
-        while self.token_history.len() > window_size {
+        while self.token_history.len() > self.history_window {
             self.token_history.pop_front();
         }
     }
@@ -325,6 +412,7 @@ mod tests {
             completion_threshold_q15: 24576, // ~0.75
             repetition_ngram: 3,
             repetition_window: 32,
+            stop_sequences: Vec::new(),
         }
     }
 
@@ -360,6 +448,7 @@ mod tests {
             StopReasonCode::BudgetMax,
             StopReasonCode::CompletionConfident,
             StopReasonCode::RepetitionGuard,
+            StopReasonCode::StopSequence,
         ];
         for reason in reasons {
             // Verify serialization works
@@ -425,6 +514,7 @@ mod tests {
             completion_threshold_q15: 32767, // Very high threshold (won't trigger)
             repetition_ngram: 3,
             repetition_window: 32,
+            stop_sequences: Vec::new(),
         };
         let mut controller = StopController::new(policy.clone());
         let logits = vec![0.0; 1000];
@@ -474,6 +564,7 @@ mod tests {
             completion_threshold_q15: 32767, // Won't trigger
             repetition_ngram: 3,
             repetition_window: 32,
+            stop_sequences: Vec::new(),
         };
         let mut controller = StopController::new(policy);
         let logits = vec![0.0; 100];

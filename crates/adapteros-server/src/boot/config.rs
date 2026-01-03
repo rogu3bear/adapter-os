@@ -18,10 +18,11 @@ use adapteros_server_api::config::Config;
 use anyhow::Result;
 use serde_json::json;
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 use tracing::{error, info, warn};
 
 use crate::cli::{normalize_jwt_mode, Cli};
-use crate::{logging, otel};
+use crate::{logging, otel, telemetry_flush};
 
 /// Context containing all configuration and boot state needed for subsequent phases.
 pub struct ConfigContext {
@@ -69,8 +70,7 @@ pub async fn initialize_config(cli: &Cli) -> Result<ConfigContext> {
     boot_state.start_phase("config_load");
 
     // Ensure runtime directory is writable before any other boot steps
-    let preferred_var_dir =
-        std::env::var("AOS_VAR_DIR").unwrap_or_else(|_| "/var/lib/aos".to_string());
+    let preferred_var_dir = std::env::var("AOS_VAR_DIR").unwrap_or_else(|_| "./var".to_string());
     let runtime_dir = match ensure_runtime_dir(&preferred_var_dir, None) {
         Ok(dir) => dir,
         Err(e) => {
@@ -303,6 +303,8 @@ pub async fn initialize_config(cli: &Cli) -> Result<ConfigContext> {
                     crash_path = %crash_path.display(),
                     "PANIC CAPTURED"
                 );
+
+                telemetry_flush::capture_panic(&location, &message, Duration::from_millis(750));
 
                 default_hook(panic_info);
             }));

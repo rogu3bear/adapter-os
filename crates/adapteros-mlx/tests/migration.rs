@@ -5,8 +5,8 @@
 //!
 //! Run with: cargo test -p adapteros-mlx --test migration -- --test-threads=1
 
-use adapteros_mlx::{Array, Dtype, Device, LayerNorm, RMSNorm, MultiHeadAttention, MLP};
 use adapteros_mlx::layers::mlp::Activation;
+use adapteros_mlx::{Array, Device, Dtype, LayerNorm, MultiHeadAttention, RMSNorm, MLP};
 
 // =============================================================================
 // Array Creation and Properties

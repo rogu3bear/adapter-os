@@ -3,11 +3,11 @@
 //! Global shell layout with top bar, bottom taskbar, and main workspace.
 //! Designed like a Windows taskbar + modern control plane aesthetic.
 
+use crate::components::chat_dock::{ChatDockPanel, MobileChatOverlay, NarrowChatDock};
+use crate::components::status::{StatusColor, StatusIndicator};
+use crate::signals::{use_auth, use_chat, DockState};
 use leptos::prelude::*;
 use leptos_router::hooks::use_location;
-use crate::signals::{use_auth, use_chat, DockState};
-use crate::components::status::{StatusIndicator, StatusColor};
-use crate::components::chat_dock::{ChatDockPanel, NarrowChatDock, MobileChatOverlay};
 
 // ============================================================================
 // Shell - Main Application Frame
@@ -16,7 +16,9 @@ use crate::components::chat_dock::{ChatDockPanel, NarrowChatDock, MobileChatOver
 /// Application shell with top bar, bottom taskbar, and main workspace
 #[component]
 pub fn Shell(children: Children) -> impl IntoView {
+    web_sys::console::log_1(&"[Shell] Rendering...".into());
     let (chat_state, _chat_action) = use_chat();
+    web_sys::console::log_1(&"[Shell] Got chat context".into());
 
     view! {
         <div class="flex flex-col h-screen overflow-hidden bg-background">
@@ -65,16 +67,24 @@ pub fn TopBar() -> impl IntoView {
     // Environment detection (dev/prod)
     let env_badge = {
         #[cfg(debug_assertions)]
-        { "DEV" }
+        {
+            "DEV"
+        }
         #[cfg(not(debug_assertions))]
-        { "PROD" }
+        {
+            "PROD"
+        }
     };
 
     let env_badge_class = {
         #[cfg(debug_assertions)]
-        { "bg-amber-500/20 text-amber-400 border-amber-500/30" }
+        {
+            "bg-amber-500/20 text-amber-400 border-amber-500/30"
+        }
         #[cfg(not(debug_assertions))]
-        { "bg-emerald-500/20 text-emerald-400 border-emerald-500/30" }
+        {
+            "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
+        }
     };
 
     view! {
@@ -419,16 +429,22 @@ fn StartMenu(on_close: impl Fn() + Clone + 'static) -> impl IntoView {
 
     // Module categories
     let modules = vec![
-        ("Core", vec![
-            ("Dashboard", "/", "Overview and metrics"),
-            ("Adapters", "/adapters", "Manage LoRA adapters"),
-            ("Chat", "/chat", "Interactive inference"),
-        ]),
-        ("Operations", vec![
-            ("Training", "/training", "Training jobs"),
-            ("System", "/system", "System status"),
-            ("Settings", "/settings", "Configuration"),
-        ]),
+        (
+            "Core",
+            vec![
+                ("Dashboard", "/", "Overview and metrics"),
+                ("Adapters", "/adapters", "Manage LoRA adapters"),
+                ("Chat", "/chat", "Interactive inference"),
+            ],
+        ),
+        (
+            "Operations",
+            vec![
+                ("Training", "/training", "Training jobs"),
+                ("System", "/system", "System status"),
+                ("Settings", "/settings", "Configuration"),
+            ],
+        ),
     ];
 
     view! {
@@ -496,12 +512,21 @@ fn SystemTray() -> impl IntoView {
     // Current time (updates every second)
     let (time, set_time) = signal(get_current_time());
 
-    // Update time every second
+    // Track whether we've created the interval to prevent duplicates
+    let interval_created = StoredValue::new(false);
+
+    // Update time every second - Effect runs once on mount
+    // The interval is intentionally leaked (mem::forget) since this component
+    // lives for the lifetime of the app and Interval doesn't implement Send+Sync
     Effect::new(move || {
-        let interval = gloo_timers::callback::Interval::new(1000, move || {
-            set_time.set(get_current_time());
-        });
-        std::mem::forget(interval);
+        if !interval_created.get_value() {
+            interval_created.set_value(true);
+            let interval = gloo_timers::callback::Interval::new(1000, move || {
+                set_time.set(get_current_time());
+            });
+            // Leak the interval - it lives for app lifetime anyway
+            std::mem::forget(interval);
+        }
     });
 
     view! {
@@ -530,7 +555,6 @@ fn SystemTray() -> impl IntoView {
         </div>
     }
 }
-
 
 /// Get current time formatted as HH:MM
 fn get_current_time() -> String {

@@ -636,7 +636,7 @@ fn parse_duration(value: &str) -> std::result::Result<u64, String> {
 }
 
 /// Parse a byte size string into bytes
-fn parse_byte_size(value: &str) -> std::result::Result<u64, String> {
+pub fn parse_byte_size(value: &str) -> std::result::Result<u64, String> {
     let value = value.trim();
     if value.is_empty() {
         return Err("Byte size cannot be empty".to_string());
@@ -725,6 +725,25 @@ pub fn default_schema() -> ConfigSchema {
             )
             .category("MODEL")
             .config_key("model.cache.max.mb")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_PIN_BASE_MODEL")
+            .config_type(ConfigType::Bool)
+            .default_value("false")
+            .description("Pin the base model in the worker cache for its lifetime")
+            .category("MODEL")
+            .config_key("model.cache.pin_base_model")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_PIN_BUDGET_BYTES")
+            .config_type(ConfigType::ByteSize)
+            .description("Memory budget in bytes for base model pinning")
+            .category("MODEL")
+            .config_key("model.cache.pin_budget_bytes")
             .build(),
     );
 

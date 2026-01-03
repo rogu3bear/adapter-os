@@ -4,8 +4,8 @@
 
 use crate::api::ApiClient;
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonVariant, Card, Input, Shell, Spinner, Table,
-    TableBody, TableCell, TableHead, TableHeader, TableRow,
+    Badge, BadgeVariant, Button, ButtonVariant, Card, Input, Spinner, Table, TableBody, TableCell,
+    TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, use_polling, LoadingState};
 use adapteros_api_types::TrainingJobResponse;
@@ -25,18 +25,17 @@ pub fn Training() -> impl IntoView {
     let create_dialog_open = RwSignal::new(false);
 
     // Fetch training jobs
-    let (jobs, refetch_jobs) = use_api_resource(move |client: Arc<ApiClient>| async move {
-        client.list_training_jobs().await
-    });
+    let (jobs, refetch_jobs) =
+        use_api_resource(
+            move |client: Arc<ApiClient>| async move { client.list_training_jobs().await },
+        );
 
     // Store refetch in a signal for sharing
     let refetch_signal = StoredValue::new(refetch_jobs);
 
     // Polling for live updates (every 5 seconds when jobs are running)
-    use_polling(5000, move || {
-        async move {
-            refetch_signal.with_value(|f| f());
-        }
+    use_polling(5000, move || async move {
+        refetch_signal.with_value(|f| f());
     });
 
     let on_job_select = move |job_id: String| {
@@ -62,8 +61,7 @@ pub fn Training() -> impl IntoView {
     };
 
     view! {
-        <Shell>
-            <div class="flex h-full">
+        <div class="p-6 flex h-full">
                 // Left panel: Job list
                 <div class=left_panel_class>
                     <div class="flex items-center justify-between">
@@ -127,14 +125,13 @@ pub fn Training() -> impl IntoView {
                         }
                     })
                 }}
-            </div>
 
             // Create job dialog
             <CreateJobDialog
                 open=create_dialog_open
                 on_created=on_job_created
             />
-        </Shell>
+        </div>
     }
 }
 
@@ -300,10 +297,8 @@ fn TrainingJobDetail(
     let refetch_signal = StoredValue::new(refetch);
 
     // Poll for updates on running jobs
-    use_polling(3000, move || {
-        async move {
-            refetch_signal.with_value(|f| f());
-        }
+    use_polling(3000, move || async move {
+        refetch_signal.with_value(|f| f());
     });
 
     // Cancel job handler
@@ -588,7 +583,10 @@ fn LogViewer(job_id: String) -> impl IntoView {
 
 /// Create job dialog
 #[component]
-fn CreateJobDialog(open: RwSignal<bool>, on_created: impl Fn() + Clone + Send + Sync + 'static) -> impl IntoView {
+fn CreateJobDialog(
+    open: RwSignal<bool>,
+    on_created: impl Fn() + Clone + Send + Sync + 'static,
+) -> impl IntoView {
     // Form state
     let adapter_name = RwSignal::new(String::new());
     let epochs = RwSignal::new("10".to_string());
@@ -643,19 +641,27 @@ fn CreateJobDialog(open: RwSignal<bool>, on_created: impl Fn() + Clone + Send + 
                                             match status.status.as_str() {
                                                 "indexed" => {
                                                     // Step 3: Create dataset from document
-                                                    upload_status.set("Creating dataset...".to_string());
-                                                    match client.create_dataset_from_documents(
-                                                        vec![doc_id.clone()],
-                                                        Some(file_name.clone()),
-                                                    ).await {
+                                                    upload_status
+                                                        .set("Creating dataset...".to_string());
+                                                    match client
+                                                        .create_dataset_from_documents(
+                                                            vec![doc_id.clone()],
+                                                            Some(file_name.clone()),
+                                                        )
+                                                        .await
+                                                    {
                                                         Ok(ds) => {
                                                             dataset_id.set(ds.id);
-                                                            upload_status.set("Dataset ready!".to_string());
+                                                            upload_status
+                                                                .set("Dataset ready!".to_string());
                                                             uploading.set(false);
                                                             return;
                                                         }
                                                         Err(e) => {
-                                                            error.set(Some(format!("Failed to create dataset: {}", e)));
+                                                            error.set(Some(format!(
+                                                                "Failed to create dataset: {}",
+                                                                e
+                                                            )));
                                                             uploading.set(false);
                                                             upload_status.set(String::new());
                                                             return;
@@ -681,7 +687,10 @@ fn CreateJobDialog(open: RwSignal<bool>, on_created: impl Fn() + Clone + Send + 
                                             }
                                         }
                                         Err(e) => {
-                                            error.set(Some(format!("Failed to check status: {}", e)));
+                                            error.set(Some(format!(
+                                                "Failed to check status: {}",
+                                                e
+                                            )));
                                             uploading.set(false);
                                             upload_status.set(String::new());
                                             return;
@@ -996,11 +1005,7 @@ fn format_date(date_str: &str) -> String {
     // Simple formatting - just show date and time
     // In a real app, use a proper date library
     if date_str.len() >= 16 {
-        format!(
-            "{} {}",
-            &date_str[0..10],
-            &date_str[11..16]
-        )
+        format!("{} {}", &date_str[0..10], &date_str[11..16])
     } else {
         date_str.to_string()
     }

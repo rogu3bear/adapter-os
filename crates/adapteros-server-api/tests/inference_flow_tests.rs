@@ -12,7 +12,9 @@ use adapteros_server_api::handlers::routing_decisions::{
     get_routing_decisions, get_session_router_view, RoutingDecisionsQuery,
 };
 use adapteros_server_api::middleware::request_id::RequestId;
-use adapteros_server_api::types::{InferResponse, RouterSummary, WorkerInferResponse, WorkerTrace};
+use adapteros_server_api::types::{
+    InferResponse, RouterSummary, TokenUsage, WorkerInferResponse, WorkerTrace,
+};
 use axum::{extract::State, http::StatusCode, Extension, Json};
 use chrono::Utc;
 use tempfile::TempDir;
@@ -152,10 +154,18 @@ async fn ready_model_happy_path_inference_and_routing() {
             router_summary: RouterSummary {
                 adapters_used: vec![adapter_id.to_string()],
             },
+            token_count: 5,
             router_decisions: None,
             router_decision_chain: None,
             model_type: None,
         },
+        run_receipt: None,
+        token_usage: Some(TokenUsage {
+            prompt_tokens: 4,
+            completion_tokens: 5,
+            billed_input_tokens: 4,
+            billed_output_tokens: 5,
+        }),
         backend_used: Some(backend_name.to_string()),
         backend_version: Some("v-test".to_string()),
         fallback_triggered: false,

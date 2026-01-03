@@ -15,7 +15,8 @@
 //! - set_health_monitor
 
 use crate::{
-    adapter_hotswap, CoremlVerificationSnapshot, HealthMonitor, HotSwapManager, KvCache, Worker,
+    adapter_hotswap, inference_management::InferenceCancelRegistry, CoremlVerificationSnapshot,
+    HealthMonitor, HotSwapManager, KvCache, Worker,
 };
 use adapteros_core::{B3Hash, Result};
 use adapteros_lora_kernel_api::FusedKernels;
@@ -116,5 +117,10 @@ impl<K: FusedKernels + crate::StrictnessControl + Send + Sync + 'static> Worker<
     /// Replace the health monitor (for heartbeat alignment after CP registration)
     pub fn set_health_monitor(&mut self, monitor: Arc<HealthMonitor>) {
         self.health_monitor = monitor;
+    }
+
+    /// Get cloned reference to inference cancellation registry
+    pub fn inference_cancel_registry(&self) -> Arc<InferenceCancelRegistry> {
+        self.inference_cancellations.clone()
     }
 }

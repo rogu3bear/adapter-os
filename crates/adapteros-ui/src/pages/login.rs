@@ -8,7 +8,6 @@ use std::sync::Arc;
 /// Login page
 #[component]
 pub fn Login() -> impl IntoView {
-
     let username = RwSignal::new(String::new());
     let password = RwSignal::new(String::new());
     let error = RwSignal::new(Option::<String>::None);

@@ -78,6 +78,155 @@ pub(crate) fn compute_model_directory_hash(model_path: &Path) -> Result<B3Hash> 
     Ok(B3Hash::from_bytes(*hasher.finalize().as_bytes()))
 }
 
+/// Estimate model size in bytes without loading the full weights into memory.
+pub(crate) fn estimate_model_size_bytes(model_path: &Path) -> Result<u64> {
+    if model_path.is_file() {
+        let meta = std::fs::metadata(model_path).map_err(|e| {
+            AosError::Io(format!(
+                "Failed to read model file metadata '{}': {}",
+                model_path.display(),
+                e
+            ))
+        })?;
+        return Ok(meta.len());
+    }
+
+    let single_model_path = model_path.join("model.safetensors");
+    if single_model_path.exists() {
+        let meta = std::fs::metadata(&single_model_path).map_err(|e| {
+            AosError::Io(format!(
+                "Failed to read model file metadata '{}': {}",
+                single_model_path.display(),
+                e
+            ))
+        })?;
+        return Ok(meta.len());
+    }
+
+    if let Some(shard_files) = parse_safetensors_index(model_path)? {
+        let mut total = 0u64;
+        for shard in shard_files {
+            let path = model_path.join(&shard);
+            if !path.exists() {
+                return Err(AosError::Config(format!(
+                    "Shard file '{}' referenced in index but not found",
+                    path.display()
+                )));
+            }
+            let meta = std::fs::metadata(&path).map_err(|e| {
+                AosError::Io(format!(
+                    "Failed to read shard metadata '{}': {}",
+                    path.display(),
+                    e
+                ))
+            })?;
+            total = total.saturating_add(meta.len());
+        }
+        return Ok(total);
+    }
+
+    let mut shard_paths: Vec<PathBuf> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(model_path) {
+        for entry in entries.flatten() {
+            let file_name = entry.file_name().to_string_lossy().to_string();
+            if file_name.starts_with("model-") && file_name.ends_with(".safetensors") {
+                shard_paths.push(entry.path());
+            }
+        }
+    }
+
+    if shard_paths.is_empty() {
+        return Err(AosError::Config(format!(
+            "No model files found in '{}'",
+            model_path.display()
+        )));
+    }
+
+    shard_paths.sort();
+    let mut total = 0u64;
+    for shard_path in shard_paths {
+        let meta = std::fs::metadata(&shard_path).map_err(|e| {
+            AosError::Io(format!(
+                "Failed to read shard metadata '{}': {}",
+                shard_path.display(),
+                e
+            ))
+        })?;
+        total = total.saturating_add(meta.len());
+    }
+    Ok(total)
+}
+
+#[allow(dead_code)]
+/// Estimate CoreML model size in bytes from a compiled package.
+pub(crate) fn estimate_coreml_model_size_bytes(model_path: &Path) -> Result<u64> {
+    if model_path.is_file() {
+        let meta = std::fs::metadata(model_path).map_err(|e| {
+            AosError::Io(format!(
+                "Failed to read CoreML model file metadata '{}': {}",
+                model_path.display(),
+                e
+            ))
+        })?;
+        return Ok(meta.len());
+    }
+
+    let weight_candidates = [
+        model_path.join("Data/com.apple.CoreML/weights/weight.bin"),
+        model_path.join("Data/model/weights.bin"),
+        model_path.join("Data/model/weight.bin"),
+    ];
+
+    for candidate in weight_candidates {
+        if let Ok(meta) = std::fs::metadata(&candidate) {
+            return Ok(meta.len());
+        }
+    }
+
+    let mut total: u64 = 0;
+    let mut stack = vec![model_path.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let entries = std::fs::read_dir(&dir).map_err(|e| {
+            AosError::Io(format!(
+                "Failed to read CoreML directory '{}': {}",
+                dir.display(),
+                e
+            ))
+        })?;
+        for entry in entries {
+            let entry = entry.map_err(|e| {
+                AosError::Io(format!(
+                    "Failed to read CoreML directory entry in '{}': {}",
+                    dir.display(),
+                    e
+                ))
+            })?;
+            let path = entry.path();
+            let meta = entry.metadata().map_err(|e| {
+                AosError::Io(format!(
+                    "Failed to stat CoreML path '{}': {}",
+                    path.display(),
+                    e
+                ))
+            })?;
+            if meta.is_dir() {
+                stack.push(path);
+            } else {
+                total = total.saturating_add(meta.len());
+            }
+        }
+    }
+
+    if total == 0 {
+        return Err(AosError::Config(format!(
+            "CoreML model package '{}' is empty",
+            model_path.display()
+        )));
+    }
+
+    Ok(total)
+}
+
 /// Verify model bytes against expected manifest hash
 ///
 /// # Deprecation Warning

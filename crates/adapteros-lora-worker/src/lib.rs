@@ -50,8 +50,12 @@ use crate::adapter_hotswap::adapter_id_to_u16;
 use crate::device_placement::{
     DeviceKind, LaneDescriptor, PlacementDecision, PlacementEngine, TelemetryCollector,
 };
+use crate::inference_management::{
+    InferenceCancelGuard, InferenceCancelRegistry, InferenceCancelToken,
+};
 use crate::memory::MemoryPressureLevel;
 use crate::request_pinner::RequestPinner;
+use crate::response_types::TokenUsage;
 use crate::router_bridge::decision_to_router_ring_with_active_ids_and_strengths;
 use adapteros_api_types::inference::{
     FusionIntervalTrace, RouterDecisionChainEntry, RouterDecisionHash, RouterModelType, RunReceipt,
@@ -60,6 +64,7 @@ use adapteros_api_types::RunEnvelope;
 use adapteros_config::{
     resolve_index_root, ModelConfig, PlacementConfig, PlacementMode, PlacementWeights,
 };
+use adapteros_core::constants::DEFAULT_ADAPTER_CACHE_SIZE;
 use adapteros_core::{
     determinism::{DeterminismContext, DeterminismSource},
     determinism_violation_event, emit_observability_event, AosError, B3Hash, BackendKind,
@@ -68,8 +73,8 @@ use adapteros_core::{
 };
 use adapteros_db::{Db, SqlTraceSink, TraceFinalization, TraceSink, TraceStart, TraceTokenInput};
 use adapteros_lora_kernel_api::{
-    blend_and_forward_reference, FusedKernels, IoBuffers, LiquidBlendRequest, LiquidBlendStats,
-    LiquidKernel, RouterRing,
+    attestation::DeterminismLevel, blend_and_forward_reference, FusedKernels, IoBuffers,
+    LiquidBlendRequest, LiquidBlendStats, LiquidKernel, RouterRing,
 };
 use adapteros_lora_rag::RagSystem;
 use adapteros_lora_router::{
@@ -78,7 +83,7 @@ use adapteros_lora_router::{
 };
 use adapteros_manifest::ManifestV3;
 use adapteros_policy::{PolicyEngine, RefusalResponse};
-use adapteros_telemetry::TelemetryWriter;
+use adapteros_telemetry::{CriticalComponentMetrics, TelemetryWriter};
 use adapteros_types::adapters::metadata::RoutingDeterminismMode;
 use adapteros_types::coreml::CoreMLMode;
 use base64::Engine;
@@ -87,7 +92,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
+use tokio::sync::mpsc;
 use tokio::sync::watch;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
@@ -112,6 +118,7 @@ fn encode_determinism_attestation(
 
 pub mod active_learning;
 pub mod adapter_hotswap;
+pub mod adapter_integrity;
 pub mod anomaly_detection;
 pub mod backend_coordinator;
 pub mod backend_factory;
@@ -134,6 +141,7 @@ pub mod framework_adapters;
 pub mod galaxy_loader;
 pub mod generation;
 pub mod health;
+mod inference_management;
 pub mod inference_metrics;
 pub mod inference_pipeline;
 pub mod kv_quota;
@@ -379,6 +387,58 @@ mod tests {
     fn preload_guard_allows_after_recovery() {
         let res = ensure_preload_allowed(MemoryPressureLevel::Critical, MemoryPressureLevel::Low);
         assert!(res.is_ok());
+    }
+
+    #[test]
+    fn baseline_backend_resolution_prefers_requested() {
+        let resolved = resolve_baseline_backend(Some(BackendKind::Metal), BackendKind::Mlx);
+        assert_eq!(resolved, BackendKind::Metal);
+
+        let resolved = resolve_baseline_backend(None, BackendKind::Mlx);
+        assert_eq!(resolved, BackendKind::Mlx);
+
+        let resolved = resolve_baseline_backend(Some(BackendKind::Auto), BackendKind::CoreML);
+        assert_eq!(resolved, BackendKind::CoreML);
+    }
+
+    #[test]
+    fn determinism_level_mapping_for_prod_backends() {
+        assert_eq!(
+            declared_determinism_level(BackendKind::Mlx),
+            DeterminismLevel::BitExact
+        );
+        assert_eq!(
+            declared_determinism_level(BackendKind::Metal),
+            DeterminismLevel::BitExact
+        );
+        assert_eq!(
+            declared_determinism_level(BackendKind::CoreML),
+            DeterminismLevel::BoundedTolerance
+        );
+        assert_eq!(
+            declared_determinism_level(BackendKind::MlxBridge),
+            DeterminismLevel::None
+        );
+    }
+
+    #[test]
+    fn determinism_downgrade_detection() {
+        assert!(is_determinism_downgrade(
+            DeterminismLevel::BitExact,
+            DeterminismLevel::None
+        ));
+        assert!(is_determinism_downgrade(
+            DeterminismLevel::BoundedTolerance,
+            DeterminismLevel::None
+        ));
+        assert!(!is_determinism_downgrade(
+            DeterminismLevel::BoundedTolerance,
+            DeterminismLevel::BitExact
+        ));
+        assert!(!is_determinism_downgrade(
+            DeterminismLevel::BitExact,
+            DeterminismLevel::BitExact
+        ));
     }
 }
 
@@ -925,22 +985,62 @@ pub struct InferenceRequest {
     /// Used to enforce allow/deny lists and max-adapter limits per token.
     #[serde(default)]
     pub routing_policy: Option<adapteros_api_types::RoutingPolicy>,
+    /// BLAKE3 digest of policy decisions applied during request processing
+    #[serde(default)]
+    pub policy_mask_digest_b3: Option<[u8; 32]>,
 
     /// Optional stop policy for deterministic stop control (PRD: Hard Deterministic Stop Controller)
     #[serde(default)]
     pub stop_policy: Option<adapteros_api_types::inference::StopPolicySpec>,
+    /// Enable UTF-8 token healing (default: true)
+    #[serde(default = "default_utf8_healing")]
+    pub utf8_healing: bool,
     /// Admin override flag to bypass cluster routing restrictions (debug only)
     #[serde(default)]
     pub admin_override: bool,
+
+    /// Arrival timestamp for queue timing measurement (set by UDS server)
+    /// This is NOT serialized - it's set internally when the request arrives
+    #[serde(skip)]
+    pub arrival_instant: Option<std::time::Instant>,
 }
 
 fn default_determinism_mode() -> String {
     "strict".to_string()
 }
 
+fn default_utf8_healing() -> bool {
+    true
+}
+
 /// Returns true when strict determinism protections should be enforced.
 fn strict_mode_enabled(strict_flag: bool, determinism_mode: &str) -> bool {
     strict_flag || determinism_mode.eq_ignore_ascii_case("strict")
+}
+
+fn resolve_baseline_backend(
+    requested_backend: Option<BackendKind>,
+    resolved_backend: BackendKind,
+) -> BackendKind {
+    match requested_backend {
+        Some(BackendKind::Auto) | None => resolved_backend,
+        Some(backend) => backend,
+    }
+}
+
+fn declared_determinism_level(backend: BackendKind) -> DeterminismLevel {
+    match backend {
+        BackendKind::Mlx => DeterminismLevel::BitExact,
+        BackendKind::CoreML => DeterminismLevel::BoundedTolerance,
+        BackendKind::MlxBridge => DeterminismLevel::None,
+        BackendKind::Metal => DeterminismLevel::BitExact,
+        BackendKind::CPU => DeterminismLevel::None,
+        BackendKind::Auto => DeterminismLevel::None,
+    }
+}
+
+fn is_determinism_downgrade(baseline: DeterminismLevel, candidate: DeterminismLevel) -> bool {
+    candidate < baseline
 }
 
 struct ValidatedPrompt {
@@ -1125,6 +1225,8 @@ pub struct InferenceResponse {
     pub trace: ResponseTrace,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run_receipt: Option<RunReceipt>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_usage: Option<TokenUsage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub refusal: Option<RefusalResponse>,
     /// Patch proposal if requested
@@ -1271,7 +1373,7 @@ pub struct EvidenceRef {
 }
 
 // Re-export RouterSummary and summarize_router_usage from refactored modules
-pub use response_types::RouterSummary;
+pub use response_types::{RouterSummary, StreamToken, WorkerStreamEvent};
 pub use routing_utilities::summarize_router_usage;
 // Import internal fusion helpers for use in lib.rs
 use routing_utilities::fusion_intervals_for_mode;
@@ -1381,6 +1483,7 @@ mod adapter_path_tests {
     }
 }
 
+use crate::adapter_integrity::{AdapterIntegrityVerifier, ExpectedAdapterMetadata};
 use crate::embeddings::EmbeddingModel;
 use crate::evidence::EvidenceRetriever;
 use crate::tokenizer::QwenTokenizer;
@@ -1440,8 +1543,12 @@ pub struct Worker<K: FusedKernels + StrictnessControl + Send + Sync + 'static> {
     shutdown_tx: watch::Sender<()>,
     /// Active training jobs with their cancellation tokens
     pub active_training_jobs: Arc<RwLock<HashMap<String, Arc<AtomicBool>>>>,
+    /// Active inference requests with cancellation tracking
+    inference_cancellations: Arc<InferenceCancelRegistry>,
     /// Worker ID for identity tracking (PRD-06)
     worker_id: u32,
+    /// Critical component metrics for Prometheus export
+    critical_metrics: Option<Arc<CriticalComponentMetrics>>,
 }
 
 impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
@@ -1459,6 +1566,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         coreml_package_hash: Option<String>,
         coreml_verification: Option<CoremlVerificationSnapshot>,
         quota_manager: Option<Arc<TenantKvQuotaManager>>,
+        adapter_cache_bytes: Option<u64>,
         worker_id: u32,
     ) -> Result<Self> {
         // Initialize determinism guards first
@@ -1595,18 +1703,28 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             info!(path = %moe_cache_path.display(), "Loaded MoE cache snapshot");
         }
 
+        let (shutdown_tx, _shutdown_rx) = watch::channel(());
+
         // Spawn persistence task (every 5 minutes)
         #[cfg(feature = "mlx-bridge")]
         let persistence_handle = {
             let persistence_cache = moe_prefix_cache.clone();
             let persistence_path = moe_cache_path.clone();
+            let mut shutdown_rx = shutdown_tx.subscribe();
             Some(tokio::spawn(async move {
                 let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
                 interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 loop {
-                    interval.tick().await;
-                    if let Err(e) = persistence_cache.save_snapshot(&persistence_path) {
-                        warn!(path = %persistence_path.display(), error = %e, "Failed to background save MoE cache");
+                    tokio::select! {
+                        _ = shutdown_rx.changed() => {
+                            info!("Persistence task received shutdown signal");
+                            break;
+                        }
+                        _ = interval.tick() => {
+                            if let Err(e) = persistence_cache.save_snapshot(&persistence_path) {
+                                warn!(path = %persistence_path.display(), error = %e, "Failed to background save MoE cache");
+                            }
+                        }
                     }
                 }
             }))
@@ -1622,6 +1740,20 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             adapter_names.clone(),
             Some(telemetry.clone()),
         );
+
+        let expected_metadata: HashMap<String, ExpectedAdapterMetadata> = manifest
+            .adapters
+            .iter()
+            .map(|adapter| {
+                (
+                    adapter.id.clone(),
+                    ExpectedAdapterMetadata {
+                        tier: Some(adapter.tier),
+                        scope: Some(adapter.scope.clone()),
+                    },
+                )
+            })
+            .collect();
 
         // Initialize lifecycle manager
         // Use centralized adapter path resolution (ENV > Default)
@@ -1680,13 +1812,41 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         // Create shared kernels Arc for both Worker and HotSwapManager
         let kernels_arc = Arc::new(tokio::sync::Mutex::new(kernels));
 
+        let integrity = Arc::new(AdapterIntegrityVerifier::new(
+            tenant_id.to_string(),
+            manifest.base.model_id.clone(),
+            expected_metadata,
+        ));
+
         let hotswap = Arc::new(HotSwapManager::new_with_kernels(
             kernels_arc.clone(),
             adapter_paths.repo_root.clone(),
             tenant_id.to_string(),
+            integrity,
             Some(Arc::new(telemetry.clone())),
             Some(memory_monitor.clone()),
         ));
+
+        let adapter_cache_budget_bytes = adapter_cache_bytes.unwrap_or(DEFAULT_ADAPTER_CACHE_SIZE);
+        if adapter_cache_budget_bytes == 0 {
+            return Err(AosError::Validation(
+                "Adapter cache budget bytes must be greater than zero".to_string(),
+            ));
+        }
+        hotswap.set_adapter_cache_budget_bytes(Some(adapter_cache_budget_bytes));
+
+        // Initialize critical component metrics (shared between hotswap and worker)
+        let critical_metrics = match CriticalComponentMetrics::new() {
+            Ok(metrics) => {
+                let metrics_arc = Arc::new(metrics);
+                hotswap.set_adapter_cache_metrics(metrics_arc.clone());
+                Some(metrics_arc)
+            }
+            Err(e) => {
+                warn!(error = %e, "Failed to initialize critical component metrics");
+                None
+            }
+        };
 
         hotswap.set_cache_identity(AdapterCacheIdentity {
             base_manifest_hash: Some(manifest.seeds.manifest_hash),
@@ -1697,11 +1857,15 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         });
 
         // Retirement task management
-        let (shutdown_tx, _shutdown_rx) = watch::channel(());
-        let retirement_handle = Some(hotswap.clone().start_retirement_task());
+        let retirement_handle = Some(
+            hotswap
+                .clone()
+                .start_retirement_task(shutdown_tx.subscribe()),
+        );
 
         // Initialize active training jobs tracking
         let active_training_jobs = Arc::new(RwLock::new(HashMap::new()));
+        let inference_cancellations = Arc::new(InferenceCancelRegistry::new());
 
         let trace_flush_every = std::env::var("AOS_TRACE_FLUSH_EVERY")
             .ok()
@@ -1749,7 +1913,9 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             persistence_handle,
             shutdown_tx,
             active_training_jobs,
+            inference_cancellations,
             worker_id,
+            critical_metrics,
         })
     }
 
@@ -2023,36 +2189,156 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
 
     /// Run inference with comprehensive safety mechanisms
     pub async fn infer(&mut self, request: InferenceRequest) -> Result<InferenceResponse> {
+        self.infer_with_stream(request, None).await
+    }
+
+    /// Run inference while emitting streaming token events.
+    pub async fn infer_stream(
+        &mut self,
+        request: InferenceRequest,
+        stream_tx: mpsc::Sender<WorkerStreamEvent>,
+    ) -> Result<()> {
+        match self
+            .infer_with_stream(request, Some(stream_tx.clone()))
+            .await
+        {
+            Ok(response) => {
+                let _ = stream_tx
+                    .send(WorkerStreamEvent::Complete(Box::new(response)))
+                    .await;
+                Ok(())
+            }
+            Err(e) => {
+                let _ = stream_tx
+                    .send(WorkerStreamEvent::Error(e.to_string()))
+                    .await;
+                Err(e)
+            }
+        }
+    }
+
+    async fn infer_with_stream(
+        &mut self,
+        request: InferenceRequest,
+        stream_tx: Option<mpsc::Sender<WorkerStreamEvent>>,
+    ) -> Result<InferenceResponse> {
         // Guardrail: Acquire resource permit (limits concurrency and checks quotas)
         let limiter = self.resource_limiter.clone();
         let _permit = limiter.acquire_request().await?;
 
         let start_time = Instant::now();
 
+        // Compute queue wait time (time from request arrival to inference start)
+        let queue_time_us = request
+            .arrival_instant
+            .map(|arrival| start_time.saturating_duration_since(arrival).as_micros() as u64)
+            .unwrap_or(0);
+
         // Record health metrics
         self.health_monitor.record_request();
 
         // Run inference with timeout (simplified to avoid borrow checker issues)
-        let result = self.infer_internal(request).await;
+        let result = self.infer_internal(request, stream_tx).await;
 
-        // Log telemetry
-        let duration = start_time.elapsed();
+        // Compute generation time (actual inference duration)
+        let generation_time = start_time.elapsed();
+        let generation_time_us = generation_time.as_micros() as u64;
+
+        // Convert times to seconds for Prometheus histograms
+        let queue_time_secs = queue_time_us as f64 / 1_000_000.0;
+        let generation_time_secs = generation_time.as_secs_f64();
+        let worker_id_str = self.worker_id.to_string();
+        let model_id = self.manifest.base.model_id.as_str();
+
+        // Record Prometheus histograms for queue wait and generation time
+        if let Some(metrics) = &self.critical_metrics {
+            metrics.record_worker_inference_timing(
+                &worker_id_str,
+                model_id,
+                queue_time_secs,
+                generation_time_secs,
+            );
+        }
+
+        // Log telemetry with queue/generation time breakdown
         if let Some(t) = &self.telemetry {
-            let _ = t.log("inference", InferenceEvent {
-                duration_ms: duration.as_millis() as u64,
-                success: result.is_ok(),
-                timeout_occurred: matches!(result, Err(AosError::Worker(ref msg)) if msg.contains("timeout")),
-                circuit_breaker_open: matches!(CircuitBreakerTrait::state(&self.circuit_breaker), CircuitState::Open { .. }),
-                memory_usage: self.health_monitor.get_memory_usage().unwrap_or(0),
-            }).ok();
+            let _ = t
+                .log(
+                    "inference",
+                    InferenceEvent {
+                        duration_ms: generation_time.as_millis() as u64,
+                        success: result.is_ok(),
+                        timeout_occurred: matches!(result, Err(AosError::Worker(ref msg)) if msg.contains("timeout")),
+                        circuit_breaker_open: matches!(CircuitBreakerTrait::state(&self.circuit_breaker), CircuitState::Open { .. }),
+                        memory_usage: self.health_monitor.get_memory_usage().unwrap_or(0),
+                        queue_time_us,
+                        generation_time_us,
+                    },
+                )
+                .ok();
         }
 
         result
     }
 
+    fn log_inference_cancelled(
+        &self,
+        request: &InferenceRequest,
+        reason: &str,
+        tokens_generated: usize,
+    ) {
+        if let Some(t) = &self.telemetry {
+            let _ = t.log(
+                "inference.cancelled",
+                serde_json::json!({
+                    "cpid": request.cpid,
+                    "request_id": request.request_id.as_ref(),
+                    "reason": reason,
+                    "tokens_generated": tokens_generated,
+                    "stack_id": request.stack_id,
+                    "stack_version": request.stack_version,
+                }),
+            );
+        }
+    }
+
+    fn check_inference_cancelled(
+        &self,
+        request: &InferenceRequest,
+        token: Option<&InferenceCancelToken>,
+        tokens_generated: usize,
+    ) -> Result<()> {
+        let Some(token) = token else {
+            return Ok(());
+        };
+
+        if !token.is_cancelled() {
+            return Ok(());
+        }
+
+        let reason = token
+            .reason()
+            .unwrap_or_else(|| "client_cancelled".to_string());
+        self.log_inference_cancelled(request, &reason, tokens_generated);
+        Err(AosError::Worker(format!("Inference cancelled: {}", reason)))
+    }
+
     /// Internal inference implementation with safety checks
-    async fn infer_internal(&mut self, request: InferenceRequest) -> Result<InferenceResponse> {
+    async fn infer_internal(
+        &mut self,
+        request: InferenceRequest,
+        stream_tx: Option<mpsc::Sender<WorkerStreamEvent>>,
+    ) -> Result<InferenceResponse> {
         let mut request = request;
+        let cancel_token = request
+            .request_id
+            .as_deref()
+            .map(|id| self.inference_cancellations.register(id));
+        let _cancel_guard = request
+            .request_id
+            .clone()
+            .map(|id| InferenceCancelGuard::new(self.inference_cancellations.clone(), id));
+        self.check_inference_cancelled(&request, cancel_token.as_deref(), 0)?;
         // Start profiler session
         let mut _profiler_session = self.profiler.start_inference();
 
@@ -2111,6 +2397,8 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         }
         request.backend_profile = Some(resolved_backend);
         let backend_label = resolved_backend.as_str().to_string();
+        let baseline_backend = resolve_baseline_backend(requested_backend, resolved_backend);
+        let baseline_level = declared_determinism_level(baseline_backend);
         let kernel_version_id = adapteros_core::version::VERSION.to_string();
 
         if strict_mode_active && kernel_version_id.is_empty() {
@@ -2126,6 +2414,22 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             return Err(AosError::DeterminismViolation(
                 "Strict determinism mode requires kernel_version_id".to_string(),
             ));
+        }
+
+        if strict_mode_active && baseline_level == DeterminismLevel::None {
+            emit_observability_event(&determinism_violation_event(
+                DeterminismViolationKind::Unknown,
+                None,
+                Some(self.manifest.base.model_hash.to_hex()),
+                None,
+                true,
+                Some(request.cpid.clone()),
+                request.request_id.clone(),
+            ));
+            return Err(AosError::DeterminismViolation(format!(
+                "Strict determinism mode requires a deterministic backend; requested {}",
+                baseline_backend.as_str()
+            )));
         }
 
         // Validate effective adapter gate (if provided)
@@ -2242,6 +2546,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                             model_type: None,
                         },
                         run_receipt: None,
+                        token_usage: None,
                         refusal: Some(RefusalResponse::insufficient_evidence(
                             self.manifest.policies.evidence.min_spans,
                             evidence.len(),
@@ -2279,12 +2584,30 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             }
         }
 
+        self.check_inference_cancelled(&request, cancel_token.as_deref(), 0)?;
+
         // Apply request-provided sampling parameters (PRD-02: replay support)
         // This enables deterministic replay when the same parameters are provided
         let routing_mode = request
             .routing_determinism_mode
             .unwrap_or(RoutingDeterminismMode::Deterministic);
         let seed_mode = request.seed_mode.unwrap_or(SeedMode::BestEffort);
+
+        if strict_mode_active && routing_mode == RoutingDeterminismMode::Adaptive {
+            emit_observability_event(&determinism_violation_event(
+                DeterminismViolationKind::Unknown,
+                None,
+                Some(self.manifest.base.model_hash.to_hex()),
+                None,
+                true,
+                Some(request.cpid.clone()),
+                request.request_id.clone(),
+            ));
+            return Err(AosError::DeterminismViolation(
+                "Strict determinism mode requires deterministic routing".to_string(),
+            ));
+        }
+
         let determinism_ctx: Option<DeterminismContext> = request.request_seed.map(|seed_bytes| {
             DeterminismContext::new_with_router_seed(
                 seed_bytes,
@@ -2397,11 +2720,37 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             free_token_text = free_tokens.iter().map(|t| t.text.as_str()).collect();
         }
 
+        if let Some(ref tx) = stream_tx {
+            if !free_token_text.is_empty() {
+                let event = WorkerStreamEvent::Token(StreamToken {
+                    text: free_token_text.clone(),
+                    token_id: None,
+                });
+                if tx.send(event).await.is_err() {
+                    return Err(AosError::Worker("Stream cancelled".to_string()));
+                }
+            }
+        }
+
         // If free tokens satisfied the entire request, return early!
         if !free_tokens.is_empty() && max_tokens_remaining == 0 {
+            self.check_inference_cancelled(&request, cancel_token.as_deref(), free_tokens.len())?;
+
             let (backend_used, fallback_triggered) = {
                 let kernels = self.kernels.lock().await;
                 (kernels.device_name().to_string(), false)
+            };
+            let logical_prompt_tokens: u32 = prompt_tokens.len().try_into().unwrap_or(u32::MAX);
+            let logical_output_tokens: u32 = free_tokens.len().try_into().unwrap_or(u32::MAX);
+            let prefix_cached_token_count: u32 = 0;
+            let billed_input_tokens =
+                logical_prompt_tokens.saturating_sub(prefix_cached_token_count);
+            let billed_output_tokens = logical_output_tokens;
+            let token_usage = TokenUsage {
+                prompt_tokens: logical_prompt_tokens,
+                completion_tokens: logical_output_tokens,
+                billed_input_tokens,
+                billed_output_tokens,
             };
 
             // Build trace for free token only response
@@ -2421,6 +2770,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 status: "ok".to_string(),
                 trace,
                 run_receipt: None,
+                token_usage: Some(token_usage),
                 refusal: None,
                 patch_proposal: None,
                 stack_id: request.stack_id.clone(),
@@ -2450,9 +2800,12 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
 
         // Snapshot current stack and pin adapters for this request
         let pinner = RequestPinner::new(self.hotswap.table().clone());
-        let pinned_request = pinner
-            .pin()
-            .map_err(|e| AosError::Worker(format!("Failed to pin adapters: {}", e)))?;
+        let pinned_request = if base_only_request {
+            pinner.pin_allow_empty()
+        } else {
+            pinner.pin()
+        }
+        .map_err(|e| AosError::Worker(format!("Failed to pin adapters: {}", e)))?;
         let stack_handle = pinned_request.stack().clone();
         let current_generation = pinned_request.generation();
 
@@ -2616,6 +2969,31 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             kernels.set_active_lane(backend_lane);
         }
 
+        if strict_mode_active {
+            let report = {
+                let kernels = self.kernels.lock().await;
+                kernels.attest_determinism()?
+            };
+            if is_determinism_downgrade(baseline_level, report.determinism_level) {
+                emit_observability_event(&determinism_violation_event(
+                    DeterminismViolationKind::Unknown,
+                    None,
+                    Some(self.manifest.base.model_hash.to_hex()),
+                    None,
+                    true,
+                    Some(request.cpid.clone()),
+                    request.request_id.clone(),
+                ));
+                return Err(AosError::DeterminismViolation(format!(
+                    "Strict determinism mode forbids downgrade from {} ({}) to {} ({})",
+                    baseline_backend.as_str(),
+                    baseline_level,
+                    resolved_backend.as_str(),
+                    report.determinism_level
+                )));
+            }
+        }
+
         // Build priors once from active adapter set
         let allowed_active_indices: Option<HashSet<usize>> =
             allowed_indices.as_ref().map(|allowed| {
@@ -2743,9 +3121,27 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         let mut run_receipt: Option<RunReceipt> = None;
 
         // Initialize stop controller (PRD: Hard Deterministic Stop Controller)
-        let mut stop_controller = StopController::from_policy_or_default(
+        let stop_sequences_tokens = match request.stop_policy.as_ref() {
+            Some(policy) => {
+                let mut sequences = Vec::new();
+                for sequence in &policy.stop_sequences {
+                    if sequence.is_empty() {
+                        continue;
+                    }
+                    let tokens = self.tokenizer.encode(sequence)?;
+                    if tokens.is_empty() {
+                        continue;
+                    }
+                    sequences.push(tokens);
+                }
+                sequences
+            }
+            None => Vec::new(),
+        };
+        let mut stop_controller = StopController::from_policy_or_default_with_stop_sequences(
             request.stop_policy.clone(),
             request.max_tokens as u32,
+            stop_sequences_tokens,
         );
         stop_controller.preload_tokens(&generated_tokens);
         let stop_policy_digest = *stop_controller.policy_digest();
@@ -2786,6 +3182,12 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 "Text-generation backend detected, using generate_text_complete() path"
             );
 
+            self.check_inference_cancelled(
+                &request,
+                cancel_token.as_deref(),
+                generated_tokens.len(),
+            )?;
+
             // For text-generation backends, we bypass the router-driven token loop
             // and use bulk generation instead. The backend doesn't support run_step()
             // with logits output, only full text generation.
@@ -2811,11 +3213,48 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                         routing_hash: None,
                     }
                 } else {
-                    let mut result = {
-                        let kernels = self.kernels.lock().await;
-                        let temperature = request.temperature.unwrap_or(0.7);
-                        let top_p = request.top_p.unwrap_or(0.9);
+                    let temperature = request.temperature.unwrap_or(0.7);
+                    let top_p = request.top_p.unwrap_or(0.9);
+                    let mut stream_cancelled = false;
 
+                    let mut result = if let Some(stream_tx) = stream_tx.clone() {
+                        let stream_tx = stream_tx;
+                        let stream_result = {
+                            let kernels = self.kernels.lock().await;
+                            kernels.generate_text_stream(
+                                &prompt_for_backend,
+                                max_tokens_remaining,
+                                temperature,
+                                top_p,
+                                &mut |token| {
+                                    let event = WorkerStreamEvent::Token(StreamToken {
+                                        text: token.text.clone(),
+                                        token_id: token.token_id.map(|id| id as u32),
+                                    });
+                                    if stream_tx.blocking_send(event).is_err() {
+                                        stream_cancelled = true;
+                                        return false;
+                                    }
+                                    true
+                                },
+                            )
+                        };
+
+                        match stream_result {
+                            Ok(result) => result,
+                            Err(e) => {
+                                warn!(error = %e, "Streaming text generation failed; falling back to complete");
+                                let kernels = self.kernels.lock().await;
+                                kernels.generate_text_complete(
+                                    &prompt_for_backend,
+                                    max_tokens_remaining,
+                                    temperature,
+                                    top_p,
+                                )?
+                            }
+                        }
+                    } else {
+                        let kernels = self.kernels.lock().await;
                         kernels.generate_text_complete(
                             &prompt_for_backend,
                             max_tokens_remaining,
@@ -2823,6 +3262,10 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                             top_p,
                         )?
                     };
+
+                    if stream_cancelled {
+                        return Err(AosError::Worker("Stream cancelled".to_string()));
+                    }
 
                     result.free_tokens_delivered = free_token_offset;
                     if !free_token_text.is_empty() {
@@ -2839,14 +3282,30 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                     result
                 };
 
-            let total_tokens_generated = generation_result
-                .tokens_generated
-                .saturating_add(generation_result.free_tokens_delivered);
-            generation_result.tokens_generated = total_tokens_generated;
+            let output_token_ids = self.tokenizer.encode(&generation_result.text)?;
+            let logical_prompt_tokens: u32 = prompt_tokens.len().try_into().unwrap_or(u32::MAX);
+            let logical_output_tokens: u32 = output_token_ids.len().try_into().unwrap_or(u32::MAX);
+            let prefix_cached_token_count: u32 = 0;
+            let billed_input_tokens =
+                logical_prompt_tokens.saturating_sub(prefix_cached_token_count);
+            let billed_output_tokens = logical_output_tokens;
+            let token_usage = TokenUsage {
+                prompt_tokens: logical_prompt_tokens,
+                completion_tokens: logical_output_tokens,
+                billed_input_tokens,
+                billed_output_tokens,
+            };
+            generation_result.tokens_generated = output_token_ids.len();
             if max_tokens_remaining == 0 {
                 stop_reason_code = Some(adapteros_api_types::inference::StopReasonCode::BudgetMax);
                 stop_reason_token_index = Some(generation_result.tokens_generated as u32);
             }
+
+            self.check_inference_cancelled(
+                &request,
+                cancel_token.as_deref(),
+                generation_result.tokens_generated as usize,
+            )?;
 
             // Update MoE prefix cache with newly observed routing data
             #[cfg(feature = "mlx-bridge")]
@@ -2921,6 +3380,73 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 }
             }
 
+            if let Some(sink) = trace_sink.as_mut() {
+                let model_cache_identity_v2_digest =
+                    self.compute_model_cache_identity_v2_digest(resolved_backend);
+                match sink
+                    .finalize(TraceFinalization {
+                        output_tokens: &output_token_ids,
+                        logical_prompt_tokens,
+                        prefix_cached_token_count,
+                        billed_input_tokens,
+                        logical_output_tokens,
+                        billed_output_tokens,
+                        stop_reason_code: stop_reason_code.map(|c| c.to_string()),
+                        stop_reason_token_index,
+                        stop_policy_digest_b3: Some(stop_policy_digest),
+                        tenant_kv_quota_bytes: 0,
+                        tenant_kv_bytes_used: 0,
+                        kv_evictions: 0,
+                        kv_residency_policy_id: None,
+                        kv_quota_enforced: false,
+                        prefix_kv_key_b3: None,
+                        prefix_cache_hit: false,
+                        prefix_kv_bytes: 0,
+                        model_cache_identity_v2_digest_b3: Some(model_cache_identity_v2_digest),
+                        attestation: None,
+                    })
+                    .await
+                {
+                    Ok(receipt) => {
+                        run_receipt = Some(RunReceipt {
+                            trace_id: receipt.trace_id.clone(),
+                            run_head_hash: receipt.run_head_hash,
+                            output_digest: receipt.output_digest,
+                            receipt_digest: receipt.receipt_digest,
+                            signature: receipt
+                                .signature
+                                .as_ref()
+                                .map(|s| base64::engine::general_purpose::STANDARD.encode(s)),
+                            attestation: receipt
+                                .attestation
+                                .as_ref()
+                                .map(|s| base64::engine::general_purpose::STANDARD.encode(s)),
+                            logical_prompt_tokens,
+                            prefix_cached_token_count,
+                            billed_input_tokens,
+                            logical_output_tokens,
+                            billed_output_tokens,
+                            stop_reason_code,
+                            stop_reason_token_index,
+                            stop_policy_digest_b3: Some(stop_policy_digest),
+                            tenant_kv_quota_bytes: 0,
+                            tenant_kv_bytes_used: 0,
+                            kv_evictions: 0,
+                            kv_residency_policy_id: None,
+                            kv_quota_enforced: false,
+                            prefix_kv_key_b3: None,
+                            prefix_cache_hit: false,
+                            prefix_kv_bytes: 0,
+                            model_cache_identity_v2_digest_b3: receipt
+                                .model_cache_identity_v2_digest_b3,
+                        });
+                    }
+                    Err(e) => {
+                        return Err(e);
+                    }
+                }
+            }
+
             info!(
                 tokens = generation_result.tokens_generated,
                 finish_reason = %generation_result.finish_reason,
@@ -2934,7 +3460,8 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 text: Some(generation_result.text),
                 status: "ok".to_string(),
                 trace,
-                run_receipt: None,
+                run_receipt,
+                token_usage: Some(token_usage),
                 refusal: None,
                 patch_proposal: None,
                 stack_id: request.stack_id.clone(),
@@ -2978,6 +3505,8 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             stop_reason_token_index = Some(generated_tokens.len() as u32);
         }
 
+        self.check_inference_cancelled(&request, cancel_token.as_deref(), generated_tokens.len())?;
+
         let reasoning_mode = request.reasoning_mode;
         let mut reasoning_buffer = String::new();
         let mut pending_reasoning_decision: Option<adapteros_lora_router::Decision> = None;
@@ -2986,6 +3515,11 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
 
         for step in 0..max_tokens_remaining {
             let step_with_free = free_token_offset + step;
+            self.check_inference_cancelled(
+                &request,
+                cancel_token.as_deref(),
+                generated_tokens.len(),
+            )?;
             // Prepare input for this step
             let input_ids_slice = if step == 0 {
                 &prompt_tokens_with_free[..]
@@ -3300,6 +3834,11 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 kernels.run_step(&router_ring, &mut io_buffers)?;
             }
             let kernel_duration = kernel_start.elapsed();
+            self.check_inference_cancelled(
+                &request,
+                cancel_token.as_deref(),
+                generated_tokens.len(),
+            )?;
 
             // Record latency for each active adapter (simplified: divide equally)
             if !decision.indices.is_empty() {
@@ -3324,18 +3863,42 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             ) {
                 stop_reason_code = Some(decision.reason);
                 stop_reason_token_index = Some(decision.token_index);
+                if decision.trim_tokens > 0 {
+                    let trim = decision.trim_tokens.min(generated_tokens.len());
+                    for _ in 0..trim {
+                        generated_tokens.pop();
+                    }
+                }
                 debug!(
                     step,
                     reason = %decision.reason,
                     token_index = decision.token_index,
                     "Stop controller triggered"
                 );
-                // For LENGTH stop (EOS token), don't include the EOS in output
-                // For other reasons, we've already decided to stop before appending
+                // For LENGTH stop (EOS token), don't include the EOS in output.
+                // For STOP_SEQUENCE, trim previously emitted tokens that form the sequence.
+                // For other reasons, we've already decided to stop before appending.
                 break;
             }
 
             generated_tokens.push(next_token);
+
+            if let Some(ref tx) = stream_tx {
+                match self.tokenizer.decode(&[next_token]) {
+                    Ok(token_text) => {
+                        let event = WorkerStreamEvent::Token(StreamToken {
+                            text: token_text,
+                            token_id: Some(next_token),
+                        });
+                        if tx.send(event).await.is_err() {
+                            return Err(AosError::Worker("Stream cancelled".to_string()));
+                        }
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "Failed to decode streaming token");
+                    }
+                }
+            }
 
             if reasoning_mode {
                 if let Ok(decoded) = self.tokenizer.decode(&[next_token]) {
@@ -3422,12 +3985,43 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         let (coreml_runtime, fallback_backend) =
             self.runtime_metadata_for_response(fallback_triggered);
 
+        if strict_mode_active && fallback_triggered {
+            let fallback_kind = self.available_backends.fallback;
+            let fallback_level = fallback_kind
+                .map(declared_determinism_level)
+                .unwrap_or(DeterminismLevel::None);
+            if is_determinism_downgrade(baseline_level, fallback_level) {
+                emit_observability_event(&determinism_violation_event(
+                    DeterminismViolationKind::Unknown,
+                    None,
+                    Some(self.manifest.base.model_hash.to_hex()),
+                    None,
+                    true,
+                    Some(request.cpid.clone()),
+                    request.request_id.clone(),
+                ));
+                return Err(AosError::DeterminismViolation(format!(
+                    "Strict determinism mode forbids fallback from {} ({}) to {} ({})",
+                    baseline_backend.as_str(),
+                    baseline_level,
+                    fallback_kind.map(|b| b.as_str()).unwrap_or("unknown"),
+                    fallback_level
+                )));
+            }
+        }
+
         let logical_prompt_tokens: u32 = prompt_tokens.len().try_into().unwrap_or(u32::MAX);
         let logical_output_tokens: u32 = generated_tokens.len().try_into().unwrap_or(u32::MAX);
         // TODO(PRD-01): replace with PrefixKvCache-derived reuse once available.
         let prefix_cached_token_count: u32 = 0;
         let billed_input_tokens = logical_prompt_tokens.saturating_sub(prefix_cached_token_count);
         let billed_output_tokens = logical_output_tokens;
+        let token_usage = TokenUsage {
+            prompt_tokens: logical_prompt_tokens,
+            completion_tokens: logical_output_tokens,
+            billed_input_tokens,
+            billed_output_tokens,
+        };
 
         // PRD-06: Compute model cache identity v2 digest
         let model_cache_identity_v2_digest =
@@ -3550,6 +4144,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 base_only_request,
             ),
             run_receipt,
+            token_usage: Some(token_usage),
             refusal: None,
             patch_proposal: None,
             stack_id: request.stack_id.clone(),
@@ -3634,25 +4229,77 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
 
         Ok(())
     }
+
+    /// Gracefully shutdown background tasks and emit final telemetry.
+    pub async fn shutdown(&mut self) -> Result<()> {
+        let _ = self.shutdown_tx.send(());
+        self.health_monitor.request_shutdown();
+
+        if let Err(e) = self.flush().await {
+            warn!(error = %e, "Failed to flush worker state during shutdown");
+        }
+
+        let task_timeout = Duration::from_secs(5);
+        if let Some(handle) = self.persistence_handle.take() {
+            Self::join_task_with_timeout("persistence", handle, task_timeout).await;
+        }
+        if let Some(handle) = self.retirement_handle.take() {
+            Self::join_task_with_timeout("retirement", handle, task_timeout).await;
+        }
+
+        if let Some(telemetry) = self.telemetry.as_ref() {
+            let active_training_jobs = self.active_training_jobs.read().len();
+            if let Err(e) = telemetry.log(
+                "worker.shutdown",
+                serde_json::json!({
+                    "tenant_id": self.tenant_namespace,
+                    "worker_id": self.worker_id,
+                    "active_training_jobs": active_training_jobs,
+                }),
+            ) {
+                warn!(error = %e, "Failed to emit worker shutdown telemetry");
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn join_task_with_timeout(
+        name: &str,
+        mut handle: tokio::task::JoinHandle<()>,
+        timeout: Duration,
+    ) {
+        tokio::select! {
+            res = &mut handle => {
+                if let Err(e) = res {
+                    warn!(task = name, error = %e, "Shutdown task failed");
+                }
+            }
+            _ = tokio::time::sleep(timeout) => {
+                warn!(
+                    task = name,
+                    timeout_ms = timeout.as_millis() as u64,
+                    "Shutdown task timed out; aborting"
+                );
+                handle.abort();
+                if let Err(e) = handle.await {
+                    warn!(task = name, error = %e, "Shutdown task abort failed");
+                }
+            }
+        }
+    }
 }
 
 impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Drop for Worker<K> {
     fn drop(&mut self) {
-        // Stop persistence task
+        let _ = self.shutdown_tx.send(());
+
         if let Some(handle) = self.persistence_handle.take() {
             handle.abort();
         }
 
-        // Try to flush cache on shutdown
-        if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            handle.block_on(async {
-                let _ = self.flush().await;
-            });
-        }
-
         if let Some(handle) = self.retirement_handle.take() {
-            let _ = self.shutdown_tx.send(());
-            let _ = tokio::runtime::Handle::current().block_on(handle);
+            handle.abort();
         }
     }
 }
@@ -3665,6 +4312,12 @@ pub struct InferenceEvent {
     pub timeout_occurred: bool,
     pub circuit_breaker_open: bool,
     pub memory_usage: u64,
+    /// Time spent waiting in queue before inference starts (microseconds)
+    #[serde(default)]
+    pub queue_time_us: u64,
+    /// Time spent in actual token generation (microseconds)
+    #[serde(default)]
+    pub generation_time_us: u64,
 }
 
 /// Initialize determinism guards for the worker

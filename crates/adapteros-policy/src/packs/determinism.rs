@@ -249,6 +249,13 @@ impl DeterminismPolicy {
             ));
         }
 
+        // Check determinism level is declared as deterministic
+        if !report.determinism_level.is_deterministic() {
+            return Err(AosError::PolicyViolation(
+                "Backend determinism level is non-deterministic".to_string(),
+            ));
+        }
+
         // Check backend type is allowed
         if !report.backend_type.is_deterministic_by_design() {
             return Err(AosError::PolicyViolation(format!(

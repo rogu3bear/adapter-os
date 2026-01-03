@@ -3,7 +3,7 @@
 //! Provides multi-head self-attention with optional ANE acceleration
 //! for softmax operations.
 
-use crate::{Array, Result, MlxError};
+use crate::{Array, MlxError, Result};
 
 /// Multi-Head Self-Attention Layer
 ///
@@ -49,9 +49,10 @@ impl MultiHeadAttention {
     /// Note: For actual use, you should load pretrained weights.
     pub fn new(hidden_dim: i32, n_heads: i32) -> Result<Self> {
         if hidden_dim % n_heads != 0 {
-            return Err(MlxError::ArrayOp(
-                format!("hidden_dim {} must be divisible by n_heads {}", hidden_dim, n_heads)
-            ));
+            return Err(MlxError::ArrayOp(format!(
+                "hidden_dim {} must be divisible by n_heads {}",
+                hidden_dim, n_heads
+            )));
         }
 
         let head_dim = hidden_dim / n_heads;
@@ -77,25 +78,21 @@ impl MultiHeadAttention {
     }
 
     /// Create MultiHeadAttention with custom weights
-    pub fn from_weights(
-        wq: Array,
-        wk: Array,
-        wv: Array,
-        wo: Array,
-        n_heads: i32,
-    ) -> Result<Self> {
+    pub fn from_weights(wq: Array, wk: Array, wv: Array, wo: Array, n_heads: i32) -> Result<Self> {
         let shape = wq.shape();
         if shape.len() != 2 || shape[0] != shape[1] {
-            return Err(MlxError::ArrayOp(
-                format!("Weight matrices must be square, got {:?}", shape)
-            ));
+            return Err(MlxError::ArrayOp(format!(
+                "Weight matrices must be square, got {:?}",
+                shape
+            )));
         }
 
         let hidden_dim = shape[0];
         if hidden_dim % n_heads != 0 {
-            return Err(MlxError::ArrayOp(
-                format!("hidden_dim {} must be divisible by n_heads {}", hidden_dim, n_heads)
-            ));
+            return Err(MlxError::ArrayOp(format!(
+                "hidden_dim {} must be divisible by n_heads {}",
+                hidden_dim, n_heads
+            )));
         }
 
         let head_dim = hidden_dim / n_heads;
@@ -130,9 +127,10 @@ impl MultiHeadAttention {
     ) -> Result<Array> {
         let shape = x.shape();
         if shape.len() != 3 {
-            return Err(MlxError::ArrayOp(
-                format!("Input must be 3D [batch, seq_len, hidden], got {:?}", shape)
-            ));
+            return Err(MlxError::ArrayOp(format!(
+                "Input must be 3D [batch, seq_len, hidden], got {:?}",
+                shape
+            )));
         }
 
         let batch = shape[0];

@@ -25,14 +25,15 @@ use std::sync::{
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc, Mutex};
 use tracing::{debug, error, info, warn};
 
 use crate::{
     backpressure::{BackpressureGate, BackpressureStats},
     health::HealthMonitor,
+    inference_management::InferenceCancelRegistry,
     CancelTrainingRequest, InferenceRequest, InferenceResponse, PatchProposalRequest, RequestType,
-    Worker,
+    Worker, WorkerStreamEvent,
 };
 use adapteros_db::Db;
 
@@ -88,6 +89,7 @@ fn trip_uds_accept_circuit_breaker(
 pub struct UdsServer<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> {
     socket_path: PathBuf,
     worker: Arc<Mutex<Worker<K>>>,
+    inference_cancellations: Arc<InferenceCancelRegistry>,
     api_key_db: Option<std::sync::Arc<Db>>,
     drain_flag: Arc<AtomicBool>,
     backpressure: Arc<BackpressureGate>,
@@ -109,12 +111,14 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
     pub fn new(
         socket_path: PathBuf,
         worker: Arc<Mutex<Worker<K>>>,
+        inference_cancellations: Arc<InferenceCancelRegistry>,
         api_key_db: Option<std::sync::Arc<Db>>,
         drain_flag: Arc<AtomicBool>,
     ) -> Self {
         Self {
             socket_path,
             worker,
+            inference_cancellations,
             api_key_db,
             drain_flag,
             backpressure: Arc::new(BackpressureGate::from_env()),
@@ -132,9 +136,11 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
     /// The jti_cache is a persistent cache for replay defense that survives restarts.
     ///
     /// NOTE: For key rotation support, use `new_with_key_ring` instead.
+    #[allow(clippy::too_many_arguments)]
     pub fn new_with_worker_auth(
         socket_path: PathBuf,
         worker: Arc<Mutex<Worker<K>>>,
+        inference_cancellations: Arc<InferenceCancelRegistry>,
         api_key_db: Option<std::sync::Arc<Db>>,
         drain_flag: Arc<AtomicBool>,
         worker_verifying_key: VerifyingKey,
@@ -149,6 +155,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
         Self {
             socket_path,
             worker,
+            inference_cancellations,
             api_key_db,
             drain_flag,
             backpressure: Arc::new(BackpressureGate::from_env()),
@@ -175,6 +182,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
     pub fn new_with_key_ring(
         socket_path: PathBuf,
         worker: Arc<Mutex<Worker<K>>>,
+        inference_cancellations: Arc<InferenceCancelRegistry>,
         api_key_db: Option<std::sync::Arc<Db>>,
         drain_flag: Arc<AtomicBool>,
         worker_key_ring: Arc<RwLock<WorkerKeyRing>>,
@@ -192,6 +200,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
         Self {
             socket_path,
             worker,
+            inference_cancellations,
             api_key_db,
             drain_flag,
             backpressure: Arc::new(BackpressureGate::from_env()),
@@ -294,6 +303,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                     consecutive_failures = 0;
 
                     let worker = Arc::clone(&self.worker);
+                    let inference_cancellations = Arc::clone(&self.inference_cancellations);
                     // UDS connection handling is a background task, not deterministic inference
                     let api_key_db = self.api_key_db.clone();
                     let backpressure = Arc::clone(&self.backpressure);
@@ -305,6 +315,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                         if let Err(e) = Self::handle_connection(
                             stream,
                             worker,
+                            inference_cancellations,
                             api_key_db,
                             backpressure,
                             worker_verifying_key,
@@ -479,11 +490,37 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
         Ok(())
     }
 
+    fn is_inference_path(path: &str) -> bool {
+        matches!(path, "/inference" | "/api/v1/infer" | "/inference/cancel")
+            || path.starts_with("/inference/cancel/")
+    }
+
+    async fn authenticate_inference_request(
+        headers: &std::collections::HashMap<String, String>,
+        api_key_db: Option<&Arc<Db>>,
+        worker_verifying_key: Option<&Arc<VerifyingKey>>,
+        worker_id: &str,
+        jti_cache: Option<&Arc<Mutex<JtiCacheStore>>>,
+        worker_key_ring: Option<&Arc<RwLock<WorkerKeyRing>>>,
+        required_tenant: Option<&str>,
+    ) -> Result<()> {
+        if let Some(key_ring) = worker_key_ring {
+            Self::validate_worker_token_with_ring(headers, key_ring, worker_id)
+        } else if let (Some(verifying_key), Some(cache)) = (worker_verifying_key, jti_cache) {
+            Self::validate_worker_token(headers, verifying_key, worker_id, cache).await
+        } else if let Some(db) = api_key_db {
+            Self::validate_api_key(headers, db, required_tenant).await
+        } else {
+            Ok(())
+        }
+    }
+
     /// Handle individual UDS connection
     #[allow(clippy::too_many_arguments)]
     async fn handle_connection(
         mut stream: UnixStream,
         worker: Arc<Mutex<Worker<K>>>,
+        inference_cancellations: Arc<InferenceCancelRegistry>,
         api_key_db: Option<std::sync::Arc<Db>>,
         backpressure: Arc<BackpressureGate>,
         worker_verifying_key: Option<Arc<VerifyingKey>>,
@@ -504,8 +541,10 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
         let path = request.path.clone();
 
         // Check if this path requires backpressure control (expensive operations only)
-        let needs_backpressure =
-            matches!(path.as_str(), "/inference" | "/patch_proposal" | "/embed");
+        let needs_backpressure = matches!(
+            path.as_str(),
+            "/inference" | "/api/v1/infer" | "/patch_proposal" | "/embed"
+        );
 
         // Acquire backpressure permit for expensive operations (fast-fail)
         // The permit is held until dropped at the end of this function
@@ -538,8 +577,18 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
             .map(|v| v == "true")
             .unwrap_or(false);
 
+        let wants_stream = Self::header_value(&request.headers, "Accept")
+            .map(|v| v.split(',').any(|part| part.trim() == "text/event-stream"))
+            .unwrap_or(false)
+            || Self::header_value(&request.headers, "X-Stream")
+                .map(|v| v.eq_ignore_ascii_case("true"))
+                .unwrap_or(false)
+            || Self::header_value(&request.headers, "X-Token-Stream")
+                .map(|v| v.eq_ignore_ascii_case("true"))
+                .unwrap_or(false);
+
         // Optional API key validation for non-inference paths (inference validates with tenant)
-        if request.path != "/inference" {
+        if !Self::is_inference_path(request.path.as_str()) {
             if let Some(db) = api_key_db.clone() {
                 if let Err(e) = Self::validate_api_key(&request.headers, &db, None).await {
                     warn!(error = %e, "API key validation failed");
@@ -551,30 +600,25 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
 
         // Route to appropriate handler
         match request.path.as_str() {
-            "/inference" => {
-                let inference_req: InferenceRequest =
-                    serde_json::from_str(&request.body).map_err(|e| {
+            "/inference" | "/api/v1/infer" => {
+                let mut inference_req: InferenceRequest = serde_json::from_str(&request.body)
+                    .map_err(|e| {
                         AosError::Worker(format!("Failed to parse inference request: {}", e))
                     })?;
 
-                // Authentication: Try key ring first, then single key, fall back to API key
-                let auth_result = if let Some(ref key_ring) = worker_key_ring {
-                    // Preferred: Use key ring for multi-key validation with rotation support
-                    Self::validate_worker_token_with_ring(&request.headers, key_ring, &worker_id)
-                } else if let (Some(ref verifying_key), Some(ref cache)) =
-                    (&worker_verifying_key, &jti_cache)
-                {
-                    // Legacy: validate Ed25519-signed JWT with single key
-                    Self::validate_worker_token(&request.headers, verifying_key, &worker_id, cache)
-                        .await
-                } else if let Some(db) = api_key_db.clone() {
-                    // Fallback: validate API key from database
-                    Self::validate_api_key(&request.headers, &db, Some(inference_req.cpid.as_str()))
-                        .await
-                } else {
-                    // No authentication configured - allow (for dev/testing)
-                    Ok(())
-                };
+                // Set arrival timestamp for queue/generation time tracking
+                inference_req.arrival_instant = Some(start);
+
+                let auth_result = Self::authenticate_inference_request(
+                    &request.headers,
+                    api_key_db.as_ref(),
+                    worker_verifying_key.as_ref(),
+                    &worker_id,
+                    jti_cache.as_ref(),
+                    worker_key_ring.as_ref(),
+                    Some(inference_req.cpid.as_str()),
+                )
+                .await;
 
                 if let Err(e) = auth_result {
                     warn!(error = %e, "Worker authentication failed");
@@ -586,13 +630,79 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                 if wants_signals {
                     warn!("Signal streaming requested but not yet implemented, using standard inference");
                 }
-                let mut worker_guard = worker.lock().await;
-                let response = worker_guard
-                    .infer(inference_req)
-                    .await
-                    .map_err(|e| AosError::Worker(format!("Inference failed: {}", e)))?;
 
-                Self::send_response(&mut stream, response).await?;
+                if wants_stream {
+                    Self::stream_response(&mut stream, worker.clone(), inference_req).await?;
+                } else {
+                    let mut worker_guard = worker.lock().await;
+                    let response = worker_guard
+                        .infer(inference_req)
+                        .await
+                        .map_err(|e| AosError::Worker(format!("Inference failed: {}", e)))?;
+
+                    Self::send_response(&mut stream, response).await?;
+                }
+            }
+            path if path.starts_with("/inference/cancel") => {
+                #[derive(serde::Deserialize)]
+                struct CancelInferenceRequest {
+                    #[serde(default)]
+                    reason: Option<String>,
+                    #[serde(default)]
+                    cpid: Option<String>,
+                }
+
+                let request_id = path
+                    .trim_start_matches("/inference/cancel")
+                    .trim_start_matches('/');
+                if request_id.is_empty() {
+                    Self::send_error(&mut stream, 400, "Missing request_id").await?;
+                    return Ok(());
+                }
+
+                let cancel_req: CancelInferenceRequest = if request.body.trim().is_empty() {
+                    CancelInferenceRequest {
+                        reason: None,
+                        cpid: None,
+                    }
+                } else {
+                    serde_json::from_str(&request.body).map_err(|e| {
+                        AosError::Worker(format!("Failed to parse inference cancel request: {}", e))
+                    })?
+                };
+
+                let auth_result = Self::authenticate_inference_request(
+                    &request.headers,
+                    api_key_db.as_ref(),
+                    worker_verifying_key.as_ref(),
+                    &worker_id,
+                    jti_cache.as_ref(),
+                    worker_key_ring.as_ref(),
+                    cancel_req.cpid.as_deref(),
+                )
+                .await;
+
+                if let Err(e) = auth_result {
+                    warn!(error = %e, "Worker authentication failed");
+                    Self::send_error(&mut stream, 401, "Unauthorized").await?;
+                    return Ok(());
+                }
+
+                let cancelled =
+                    inference_cancellations.cancel(request_id, cancel_req.reason.clone());
+                if !cancelled {
+                    warn!(
+                        request_id = %request_id,
+                        "Inference cancel requested for unknown request"
+                    );
+                }
+
+                let response = serde_json::json!({
+                    "status": if cancelled { "cancelled" } else { "not_found" },
+                    "request_id": request_id,
+                    "reason": cancel_req.reason,
+                });
+                Self::send_json_response(&mut stream, response).await?;
             }
             "/patch_proposal" => {
                 let patch_req: PatchProposalRequest =
@@ -634,7 +744,11 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                     placement: None,
                     routing_policy: None,
                     stop_policy: None,
+                    policy_mask_digest_b3: None,
+                    utf8_healing: true,
                     admin_override: false,
+                    // Set arrival timestamp for queue/generation time tracking
+                    arrival_instant: Some(start),
                 };
 
                 let mut worker_guard = worker.lock().await;
@@ -1233,6 +1347,16 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
         })
     }
 
+    fn header_value<'a>(
+        headers: &'a std::collections::HashMap<String, String>,
+        name: &str,
+    ) -> Option<&'a str> {
+        headers
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case(name))
+            .map(|(_, value)| value.as_str())
+    }
+
     /// Send HTTP response
     async fn send_response(stream: &mut UnixStream, response: InferenceResponse) -> Result<()> {
         let json_body = serde_json::to_string(&response)
@@ -1252,6 +1376,67 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
             .write_all(http_response.as_bytes())
             .await
             .map_err(|e| AosError::Worker(format!("Failed to send response: {}", e)))?;
+
+        Ok(())
+    }
+
+    async fn stream_response(
+        stream: &mut UnixStream,
+        worker: Arc<Mutex<Worker<K>>>,
+        inference_req: InferenceRequest,
+    ) -> Result<()> {
+        let http_response = "HTTP/1.1 200 OK\r\n\
+             Content-Type: text/event-stream\r\n\
+             Cache-Control: no-cache\r\n\
+             Connection: keep-alive\r\n\
+             \r\n";
+
+        stream
+            .write_all(http_response.as_bytes())
+            .await
+            .map_err(|e| AosError::Worker(format!("Failed to send SSE headers: {}", e)))?;
+
+        let (tx, mut rx) = mpsc::channel::<WorkerStreamEvent>(64);
+        let worker_clone = worker.clone();
+
+        tokio::spawn(async move {
+            let mut worker_guard = worker_clone.lock().await;
+            let _ = worker_guard.infer_stream(inference_req, tx).await;
+        });
+
+        while let Some(event) = rx.recv().await {
+            let payload = match &event {
+                WorkerStreamEvent::Token(token) => {
+                    let data = serde_json::json!({
+                        "text": token.text,
+                        "token_id": token.token_id,
+                    });
+                    format!("event: token\ndata: {}\n\n", data)
+                }
+                WorkerStreamEvent::Complete(response) => {
+                    let json = serde_json::to_string(response).unwrap_or_else(|e| {
+                        format!(r#"{{"error":"serialization failed: {}"}}"#, e)
+                    });
+                    format!("event: complete\ndata: {}\n\n", json)
+                }
+                WorkerStreamEvent::Error(ref message) => {
+                    let data = serde_json::json!({ "error": message });
+                    format!("event: error\ndata: {}\n\n", data)
+                }
+            };
+
+            if stream.write_all(payload.as_bytes()).await.is_err() {
+                break;
+            }
+            let _ = stream.flush().await;
+
+            if matches!(
+                &event,
+                WorkerStreamEvent::Complete(_) | WorkerStreamEvent::Error(_)
+            ) {
+                break;
+            }
+        }
 
         Ok(())
     }

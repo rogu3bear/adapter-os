@@ -7,7 +7,7 @@
 //! Run with: cargo test -p adapteros-mlx --test ane_integration -- --test-threads=1
 //! Run with ANE: cargo test -p adapteros-mlx --test ane_integration --features coreml-ane -- --test-threads=1
 
-use adapteros_mlx::{Array, AneAccelerator, AneConfig, is_ane_available};
+use adapteros_mlx::{is_ane_available, AneAccelerator, AneConfig, Array};
 
 /// Helper to compare two f32 vectors for approximate equality
 fn assert_approx_equal(a: &[f32], b: &[f32], tolerance: f32, context: &str) {
@@ -52,7 +52,10 @@ fn test_ane_availability_check() {
     // On non-macOS or without coreml-ane feature, should be false
     #[cfg(not(all(target_os = "macos", feature = "coreml-ane")))]
     {
-        assert!(!available, "ANE should not be available without coreml-ane feature");
+        assert!(
+            !available,
+            "ANE should not be available without coreml-ane feature"
+        );
     }
 }
 
@@ -64,7 +67,10 @@ fn test_ane_accelerator_creation_disabled() {
         ..Default::default()
     };
     let ane = AneAccelerator::try_new(config);
-    assert!(ane.is_none(), "Disabled config should not create accelerator");
+    assert!(
+        ane.is_none(),
+        "Disabled config should not create accelerator"
+    );
 }
 
 #[test]
@@ -121,7 +127,10 @@ fn test_ane_attestation_report() {
         let report = ane.attest();
 
         // Attestation should always report deterministic (both paths are)
-        assert!(report.deterministic, "Both ANE and MLX paths are deterministic");
+        assert!(
+            report.deterministic,
+            "Both ANE and MLX paths are deterministic"
+        );
 
         if report.ane_enabled {
             assert_eq!(report.compute_units, "CpuAndNeuralEngine");
@@ -205,7 +214,11 @@ fn test_ane_softmax_fallback() {
         // Softmax outputs should sum to 1 per row and be in [0, 1]
         for row in data.chunks(4) {
             let sum: f32 = row.iter().sum();
-            assert!((sum - 1.0).abs() < 1e-5, "Softmax row should sum to 1, got {}", sum);
+            assert!(
+                (sum - 1.0).abs() < 1e-5,
+                "Softmax row should sum to 1, got {}",
+                sum
+            );
             for v in row {
                 assert!(*v >= 0.0 && *v <= 1.0, "Softmax values should be in [0,1]");
             }
@@ -330,7 +343,9 @@ fn test_batch_threshold_method() {
 #[cfg(all(target_os = "macos", feature = "coreml-ane"))]
 fn test_ane_coreml_operations() {
     // This test only runs when ANE feature is enabled
-    use adapteros_lora_kernel_coreml::{has_neural_engine, get_mltensor_api_version, MltensorApiVersion};
+    use adapteros_lora_kernel_coreml::{
+        get_mltensor_api_version, has_neural_engine, MltensorApiVersion,
+    };
 
     println!("Neural Engine available: {}", has_neural_engine());
     println!("MLTensor API version: {:?}", get_mltensor_api_version());

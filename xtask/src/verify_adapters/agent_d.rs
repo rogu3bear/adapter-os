@@ -39,12 +39,20 @@ fn check_ui_build() -> Check {
     // Check if Leptos UI directory exists
     let ui_dir = Path::new("crates/adapteros-ui");
     if !ui_dir.exists() {
-        return Check::fail("UI Build", vec![], "crates/adapteros-ui/ directory not found");
+        return Check::fail(
+            "UI Build",
+            vec![],
+            "crates/adapteros-ui/ directory not found",
+        );
     }
 
     // Check for Trunk.toml
     if !Path::new("crates/adapteros-ui/Trunk.toml").exists() {
-        return Check::fail("UI Build", vec![], "crates/adapteros-ui/Trunk.toml not found");
+        return Check::fail(
+            "UI Build",
+            vec![],
+            "crates/adapteros-ui/Trunk.toml not found",
+        );
     }
 
     // Check if UI has been built

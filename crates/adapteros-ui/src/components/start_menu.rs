@@ -239,9 +239,7 @@ fn StartMenuGroup(
 
 /// Renders the menu content (groups)
 #[component]
-fn StartMenuContent(
-    #[prop(into)] on_navigate: Callback<&'static str>,
-) -> impl IntoView {
+fn StartMenuContent(#[prop(into)] on_navigate: Callback<&'static str>) -> impl IntoView {
     let menu_groups = get_menu_groups();
 
     view! {
@@ -293,10 +291,8 @@ pub fn StartMenu(
             }) as Box<dyn FnMut(_)>);
 
             let window = web_sys::window().expect("no global window exists");
-            let _ = window.add_event_listener_with_callback(
-                "keydown",
-                closure.as_ref().unchecked_ref(),
-            );
+            let _ = window
+                .add_event_listener_with_callback("keydown", closure.as_ref().unchecked_ref());
 
             // Keep closure alive
             closure.forget();

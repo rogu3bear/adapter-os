@@ -275,7 +275,7 @@ pub async fn run(
             adapteros_lora_worker::BackendChoice::Metal
         }
         BackendType::MLX => {
-            output.verbose("Using MLX backend (C++ FFI)");
+            output.verbose("Using MLX backend (auto-selected implementation)");
 
             #[cfg(not(feature = "multi-backend"))]
             {
@@ -300,27 +300,32 @@ pub async fn run(
                     match adapteros_lora_mlx_ffi::mlx_runtime_init() {
                         Ok(()) => mlx_available = true,
                         Err(e) => {
-                            output.error(format!(
-                                "MLX runtime init failed: {}",
-                                e
-                            ));
+                            output.error(format!("MLX runtime init failed: {}", e));
                         }
                     }
                 }
 
                 if !mlx_available {
-                    output.error("MLX not available. Install the C++ MLX library before using --backend mlx.");
+                    output.error(
+                        "MLX not available. Ensure MLX is installed or rebuild with mlx-rs fallback.",
+                    );
                     output.info("  Homebrew: brew install mlx");
                     output.info(
                         "  Or set MLX_PATH/MLX_INCLUDE_DIR/MLX_LIB_DIR to your installation.",
                     );
                     output.info("  Docs: docs/MLX_GUIDE.md or docs/MLX_TROUBLESHOOTING.md");
                     output.info("  Script: scripts/build-mlx.sh --help");
-                    return Err(anyhow::anyhow!("MLX not installed"));
+                    return Err(anyhow::anyhow!("MLX not available"));
                 }
 
+                let selected = adapteros_lora_mlx_ffi::mlx_selected_implementation()
+                    .map(|imp| imp.as_str().to_string())
+                    .unwrap_or_else(|| "unknown".to_string());
                 let mlx_version = adapteros_lora_mlx_ffi::mlx_version();
-                output.verbose(format!("MLX detected (version: {})", mlx_version));
+                output.verbose(format!(
+                    "MLX detected (impl: {}, version: {})",
+                    selected, mlx_version
+                ));
                 adapteros_lora_worker::BackendChoice::Mlx {
                     model_path: model_path.clone(),
                 }
@@ -455,6 +460,7 @@ pub async fn run(
         None,
         None,
         None, // No quota manager for CLI serve command
+        None,
         cli_worker_id,
     )
     .await?;

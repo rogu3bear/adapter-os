@@ -438,11 +438,7 @@ pub async fn get_base_model_status(
     // Check if user is authenticated
     let is_authenticated = if let Some(Extension(ref claims_inner)) = claims {
         // Verify user has one of the required roles
-        require_any_role(
-            claims_inner,
-            &[Role::Operator, Role::Admin, Role::Viewer],
-        )
-        .is_ok()
+        require_any_role(claims_inner, &[Role::Operator, Role::Admin, Role::Viewer]).is_ok()
     } else {
         false
     };
@@ -769,6 +765,7 @@ pub async fn worker_spawn(
         started_at: chrono::Utc::now().to_rfc3339(),
         last_seen_at: None,
         capabilities: Vec::new(),
+        capabilities_detail: None,
         backend: None,
         model_id: None,
         model_hash: None,
@@ -884,6 +881,7 @@ pub async fn list_workers(
             started_at: w.started_at,
             last_seen_at: w.last_seen_at,
             capabilities: runtime.capabilities,
+            capabilities_detail: runtime.capabilities_detail,
             backend: runtime.backend,
             model_id,
             model_hash,

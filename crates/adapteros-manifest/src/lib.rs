@@ -230,7 +230,7 @@ pub enum AdapterCategory {
     Ephemeral,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum AdapterScope {
     Global,
@@ -282,7 +282,7 @@ fn default_assurance_tier() -> AssuranceTier {
     AssuranceTier::Standard
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum AdapterTier {
     Persistent,
@@ -413,7 +413,7 @@ impl Default for Policies {
                 serve_requires_pf: true,
                 allow_tcp: false,
                 allow_udp: false,
-                uds_paths: vec!["/var/run/aos/<tenant>/*.sock".into()],
+                uds_paths: vec!["./var/run/aos/<tenant>/*.sock".into()],
             },
             determinism: DeterminismPolicy {
                 require_metallib_embed: true,
@@ -455,7 +455,7 @@ impl Default for Policies {
             },
             isolation: IsolationPolicy {
                 process_model: "per_tenant".into(),
-                uds_root: "/var/run/aos/<tenant>".into(),
+                uds_root: "./var/run/aos/<tenant>".into(),
                 forbid_shm: true,
             },
             performance: PerformancePolicy {
@@ -790,7 +790,7 @@ mod tests {
                     serve_requires_pf: true,
                     allow_tcp: false,
                     allow_udp: false,
-                    uds_paths: vec!["/var/run/aos/<tenant>/*.sock".into()],
+                    uds_paths: vec!["./var/run/aos/<tenant>/*.sock".into()],
                 },
                 determinism: DeterminismPolicy {
                     require_metallib_embed: true,
@@ -832,7 +832,7 @@ mod tests {
                 },
                 isolation: IsolationPolicy {
                     process_model: "per_tenant".into(),
-                    uds_root: "/var/run/aos/<tenant>".into(),
+                    uds_root: "./var/run/aos/<tenant>".into(),
                     forbid_shm: true,
                 },
                 performance: PerformancePolicy {

@@ -177,6 +177,10 @@ fn stub_attestation_reports_nondeterministic_without_ane() -> Result<()> {
         !report.deterministic,
         "stub backend should never claim determinism"
     );
+    assert_eq!(
+        report.determinism_level,
+        attestation::DeterminismLevel::None
+    );
     assert!(matches!(
         report.rng_seed_method,
         attestation::RngSeedingMethod::SystemEntropy

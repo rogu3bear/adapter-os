@@ -10,7 +10,9 @@
 #![allow(dead_code)]
 
 use adapteros_core::B3Hash;
-use adapteros_lora_kernel_api::attestation::{BackendType, FloatingPointMode, RngSeedingMethod};
+use adapteros_lora_kernel_api::attestation::{
+    BackendType, DeterminismLevel, FloatingPointMode, RngSeedingMethod,
+};
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
 use adapteros_lora_mlx_ffi::backend::{MLXFFIBackend, MLXResilienceConfig};
 use adapteros_lora_mlx_ffi::mock::create_mock_adapter;
@@ -172,6 +174,11 @@ fn test_mlx_determinism_attestation() {
             FloatingPointMode::Unknown,
             "Stub mode has unknown FP mode"
         );
+        assert_eq!(
+            attestation.determinism_level,
+            DeterminismLevel::None,
+            "Stub mode should report no determinism guarantees"
+        );
         assert!(
             !attestation.deterministic,
             "Stub mode should not be deterministic"
@@ -187,6 +194,11 @@ fn test_mlx_determinism_attestation() {
             attestation.floating_point_mode,
             FloatingPointMode::Deterministic,
             "Real MLX should be deterministic"
+        );
+        assert_eq!(
+            attestation.determinism_level,
+            DeterminismLevel::BitExact,
+            "Real MLX should report bit-exact determinism"
         );
         assert!(
             attestation.deterministic,

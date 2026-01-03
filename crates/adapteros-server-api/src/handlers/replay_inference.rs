@@ -698,6 +698,9 @@ pub async fn execute_replay(
         reasoning_mode: false,
         admin_override: false,
         stream: false,
+        require_step: false,
+        require_determinism: true,
+        allow_fallback: false,
         batch_item_id: None,
         rag_enabled: rag_doc_ids.is_some() && !req.skip_rag,
         rag_collection_id: None, // RAG context will be reconstructed from doc IDs if needed
@@ -821,16 +824,13 @@ pub async fn execute_replay(
     };
 
     // Handle result
-    // Note: tokens_generated is estimated from response text since WorkerInferResponse
-    // doesn't directly provide token count (would need tokenizer for accurate count)
     let (response_text, tokens_generated, match_status, error_message) = match inference_result {
         Ok(result) => {
             let replay_text = result.text;
             let original_text = metadata.response_text.as_deref().unwrap_or("");
             let status = compute_match_status(original_text, &replay_text);
-            // Rough estimate: ~4 chars per token for English text
-            let tokens = (replay_text.len() / 4).max(1) as i32;
-            (replay_text, tokens, status, None)
+            let tokens_generated = i32::try_from(result.tokens_generated).unwrap_or(i32::MAX);
+            (replay_text, tokens_generated, status, None)
         }
         Err(e) => {
             warn!(error = %e, "Replay inference failed");

@@ -68,7 +68,9 @@
 
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_lora_kernel_api::{
-    attestation::{BackendType, DeterminismReport, FloatingPointMode, RngSeedingMethod},
+    attestation::{
+        BackendType, DeterminismLevel, DeterminismReport, FloatingPointMode, RngSeedingMethod,
+    },
     FusedKernels, IoBuffers, MoEInfo, RouterRing, SequenceExpertRouting, TextGenerationKernel,
     TextGenerationResult, TextGenerationTiming, TextGenerationUsage, TextToken,
 };
@@ -1522,6 +1524,7 @@ impl FusedKernels for MLXSubprocessBridge {
             manifest: None,      // No kernel manifest for Python subprocess
             rng_seed_method: RngSeedingMethod::SystemEntropy,
             floating_point_mode: FloatingPointMode::FastMath,
+            determinism_level: DeterminismLevel::None,
             compiler_flags: vec![],
             deterministic: false, // Python subprocess has weaker determinism guarantees
         })
@@ -1594,6 +1597,19 @@ impl FusedKernels for MLXSubprocessBridge {
             expert_routing: result.expert_routing,
             free_tokens_delivered: 0,
             routing_hash,
+        })
+    }
+
+    fn generate_text_stream(
+        &self,
+        prompt: &str,
+        max_tokens: usize,
+        temperature: f32,
+        top_p: f32,
+        on_token: &mut dyn FnMut(TextToken) -> bool,
+    ) -> Result<TextGenerationResult> {
+        self.generate_stream(prompt, max_tokens, temperature, top_p, |token| {
+            on_token(token)
         })
     }
 

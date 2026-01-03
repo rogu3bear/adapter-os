@@ -3,8 +3,8 @@
 //! Standard components for handling async data loading states,
 //! ensuring consistent UI patterns and no infinite spinners.
 
-use crate::components::Spinner;
 use crate::api::ApiError;
+use crate::components::Spinner;
 use leptos::prelude::*;
 
 /// Error display component with retry functionality

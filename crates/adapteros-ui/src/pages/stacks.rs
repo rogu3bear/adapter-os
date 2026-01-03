@@ -3,13 +3,11 @@
 //! Provides UI for managing adapter stacks - compositions of adapters
 //! that can be activated together for inference.
 
-use crate::api::{
-    ApiClient, CreateStackRequest, StackResponse, UpdateStackRequest, WorkflowType,
-};
+use crate::api::{ApiClient, CreateStackRequest, StackResponse, UpdateStackRequest, WorkflowType};
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, EmptyState, ErrorDisplay,
-    Input, LoadingDisplay, PageHeader, RefreshButton, Select, Spinner, Table, TableBody,
-    TableCell, TableHead, TableHeader, TableRow, Textarea,
+    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, EmptyState, ErrorDisplay, Input,
+    LoadingDisplay, PageHeader, RefreshButton, Select, Spinner, Table, TableBody, TableCell,
+    TableHead, TableHeader, TableRow, Textarea,
 };
 use crate::hooks::{use_api, use_api_resource, LoadingState};
 use adapteros_api_types::AdapterResponse;
@@ -20,9 +18,8 @@ use std::sync::Arc;
 /// Stacks list page
 #[component]
 pub fn Stacks() -> impl IntoView {
-    let (stacks, refetch) = use_api_resource(|client: Arc<ApiClient>| async move {
-        client.list_stacks().await
-    });
+    let (stacks, refetch) =
+        use_api_resource(|client: Arc<ApiClient>| async move { client.list_stacks().await });
 
     let show_create_dialog = RwSignal::new(false);
     let refetch_trigger = RwSignal::new(0u32);
@@ -271,9 +268,8 @@ pub fn StackDetail() -> impl IntoView {
     });
 
     // Fetch adapters for the stack
-    let (adapters, _) = use_api_resource(|client: Arc<ApiClient>| async move {
-        client.list_adapters().await
-    });
+    let (adapters, _) =
+        use_api_resource(|client: Arc<ApiClient>| async move { client.list_adapters().await });
 
     let show_edit_dialog = RwSignal::new(false);
     let refetch_trigger = RwSignal::new(0u32);
@@ -610,9 +606,8 @@ fn CreateStackDialog(open: RwSignal<bool>, refetch_trigger: RwSignal<u32>) -> im
     let error = RwSignal::new(Option::<String>::None);
 
     // Fetch available adapters
-    let (adapters, _) = use_api_resource(|client: Arc<ApiClient>| async move {
-        client.list_adapters().await
-    });
+    let (adapters, _) =
+        use_api_resource(|client: Arc<ApiClient>| async move { client.list_adapters().await });
 
     let selected_adapter_ids = RwSignal::new(Vec::<String>::new());
 
@@ -858,9 +853,8 @@ fn EditStackDialog(
     let error = RwSignal::new(Option::<String>::None);
 
     // Fetch available adapters
-    let (adapters, _) = use_api_resource(|client: Arc<ApiClient>| async move {
-        client.list_adapters().await
-    });
+    let (adapters, _) =
+        use_api_resource(|client: Arc<ApiClient>| async move { client.list_adapters().await });
 
     let selected_adapter_ids = RwSignal::new(stack.adapter_ids.clone());
     let stack_id = stack.id.clone();
@@ -896,11 +890,7 @@ fn EditStackDialog(
 
                 let request = UpdateStackRequest {
                     name: Some(name_val),
-                    description: Some(if desc.is_empty() {
-                        String::new()
-                    } else {
-                        desc
-                    }),
+                    description: Some(if desc.is_empty() { String::new() } else { desc }),
                     adapter_ids: Some(adapter_ids),
                     workflow_type: workflow,
                     metadata: None,

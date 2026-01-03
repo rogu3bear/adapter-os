@@ -178,6 +178,7 @@ pub async fn run_with_config(
         let command = AdapterCommand::Swap {
             add_ids: add.to_vec(),
             remove_ids: remove.to_vec(),
+            expected_stack_hash: None,
         };
 
         let result = execute_command(&client, command, timeout_ms).await?;

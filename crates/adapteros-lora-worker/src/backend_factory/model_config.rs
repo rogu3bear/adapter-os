@@ -1,4 +1,5 @@
 use crate::model_key::ModelCacheIdentity;
+use adapteros_config::schema::{parse_bool, parse_byte_size};
 use adapteros_config::{reject_tmp_persistent_path, ConfigLoader, ModelConfig};
 use adapteros_core::{AosError, Result};
 use adapteros_lora_kernel_api::attestation::BackendType;
@@ -79,6 +80,88 @@ pub(crate) fn resolve_model_cache_budget_bytes() -> Result<u64> {
     Err(AosError::Config(
         "Model cache budget not configured. Set AOS_MODEL_CACHE_MAX_MB or model.cache.max.mb in the config TOML (MB).".to_string(),
     ))
+}
+
+/// Resolve base model pinning enabled flag (env overrides config).
+pub fn resolve_base_model_pin_enabled() -> Result<bool> {
+    if let Ok(raw) = std::env::var("AOS_PIN_BASE_MODEL") {
+        let parsed = parse_bool(&raw).map_err(|e| {
+            AosError::Config(format!("Invalid AOS_PIN_BASE_MODEL '{}': {}", raw, e))
+        })?;
+        return Ok(parsed);
+    }
+
+    let toml_path = resolve_config_toml_path()?;
+    let config = ConfigLoader::new()
+        .load(Vec::new(), toml_path.clone())
+        .map_err(|e| {
+            let scope = toml_path
+                .as_ref()
+                .map(|p| format!(" from {}", p))
+                .unwrap_or_default();
+            AosError::Config(format!(
+                "Failed to load configuration{} for base model pinning: {}",
+                scope, e
+            ))
+        })?;
+
+    if let Some(raw) = config.get("model.cache.pin_base_model") {
+        let parsed = parse_bool(raw).map_err(|e| {
+            AosError::Config(format!(
+                "Invalid model.cache.pin_base_model '{}': {}",
+                raw, e
+            ))
+        })?;
+        return Ok(parsed);
+    }
+
+    Ok(false)
+}
+
+/// Resolve base model pin budget in bytes (env overrides config).
+pub fn resolve_base_model_pin_budget_bytes() -> Result<Option<u64>> {
+    if let Ok(raw) = std::env::var("AOS_PIN_BUDGET_BYTES") {
+        let parsed = parse_byte_size(&raw).map_err(|e| {
+            AosError::Config(format!("Invalid AOS_PIN_BUDGET_BYTES '{}': {}", raw, e))
+        })?;
+        if parsed == 0 {
+            return Err(AosError::Config(
+                "AOS_PIN_BUDGET_BYTES must be greater than zero".to_string(),
+            ));
+        }
+        return Ok(Some(parsed));
+    }
+
+    let toml_path = resolve_config_toml_path()?;
+    let config = ConfigLoader::new()
+        .load(Vec::new(), toml_path.clone())
+        .map_err(|e| {
+            let scope = toml_path
+                .as_ref()
+                .map(|p| format!(" from {}", p))
+                .unwrap_or_default();
+            AosError::Config(format!(
+                "Failed to load configuration{} for base model pin budget: {}",
+                scope, e
+            ))
+        })?;
+
+    if let Some(raw) = config.get("model.cache.pin_budget_bytes") {
+        let parsed = parse_byte_size(raw).map_err(|e| {
+            AosError::Config(format!(
+                "Invalid model.cache.pin_budget_bytes '{}': {}",
+                raw, e
+            ))
+        })?;
+        if parsed == 0 {
+            return Err(AosError::Config(
+                "model.cache.pin_budget_bytes must be greater than zero".to_string(),
+            ));
+        }
+        return Ok(Some(parsed));
+    }
+
+    Ok(None)
 }
 
 /// Load and validate model configuration from config.json

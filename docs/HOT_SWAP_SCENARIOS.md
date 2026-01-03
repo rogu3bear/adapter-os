@@ -1299,16 +1299,20 @@ done
 use adapteros_lora_worker::adapter_hotswap::{
     HotSwapManager, AdapterCommand, AdapterCacheIdentity
 };
+use adapteros_lora_worker::adapter_integrity::AdapterIntegrityVerifier;
 use adapteros_core::B3Hash;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create hot-swap manager with CoreML backend
+    let integrity = Arc::new(AdapterIntegrityVerifier::disabled("tenant_001".to_string()));
     let manager = HotSwapManager::new_with_kernels(
         kernels,              // Arc<Mutex<CoreMLKernels>>
         PathBuf::from("/var/aos/adapters"),
         "tenant_001".to_string(),
+        integrity,
         Some(telemetry_writer),
         Some(memory_monitor)
     );
@@ -1334,6 +1338,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let swap_result = manager.execute(AdapterCommand::Swap {
         add_ids: vec!["sentiment-v2".to_string()],
         remove_ids: vec!["sentiment-v1".to_string()],
+        expected_stack_hash: None,
     }).await?;
 
     println!("Swap complete: stack hash {}", swap_result.stack_hash.unwrap().to_hex());

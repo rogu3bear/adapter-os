@@ -50,6 +50,8 @@ export AOS_MODEL_PATH=./var/models/Qwen2.5-7B-Instruct-4bit
 export AOS_WORKER_SOCKET=./var/run/worker.sock
 export AOS_MODEL_BACKEND=mlx
 export AOS_TOKENIZER_PATH=./var/models/Qwen2.5-7B-Instruct-4bit/tokenizer.json
+export AOS_PIN_BASE_MODEL=true
+export AOS_PIN_BUDGET_BYTES=16GB
 ```
 
 ## 🚀 Usage

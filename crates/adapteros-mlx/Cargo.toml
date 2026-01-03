@@ -4,13 +4,16 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "AdapterOS MLX abstraction layer - Single Source of Truth for MLX operations"
+description = "AdapterOS MLX abstraction layer using mlx-rs (experimental fallback path)"
 
 # =============================================================================
-# MLX SSoT - REAL INFERENCE ONLY
+# MLX-RS ABSTRACTION LAYER (EXPERIMENTAL FALLBACK)
 # =============================================================================
-# This crate is the Single Source of Truth for all MLX operations.
-# It ALWAYS uses real mlx-rs - no stubs, no demo mode.
+# This crate wraps mlx-rs for the experimental pure-Rust MLX path.
+# The primary/production backend is C++ FFI (adapteros-lora-mlx-ffi with `mlx` feature).
+#
+# This crate is ONLY used when `mlx-rs-backend` feature is enabled, which is
+# deprecated and unsupported in production. Use C++ FFI for production workloads.
 #
 # Requires: Apple Silicon (M1/M2/M3/M4)
 # =============================================================================

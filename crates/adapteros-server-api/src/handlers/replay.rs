@@ -547,6 +547,9 @@ pub async fn execute_replay_session(
         reasoning_mode: false,
         admin_override: false,
         stream: false,
+        require_step: false,
+        require_determinism: false,
+        allow_fallback: true,
         batch_item_id: None,
         rag_enabled: false, // Already handled RAG above
         rag_collection_id: None,
@@ -609,7 +612,8 @@ pub async fn execute_replay_session(
                 .await
         } else {
             // Fallback to standard inference (manifest enforcement not possible)
-            core.route_and_infer(inference_request, None, None).await
+            core.route_and_infer(inference_request, None, None, None)
+                .await
         };
 
     let result = result.map_err(|e| {

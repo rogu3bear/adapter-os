@@ -33,7 +33,7 @@ fn test_detect_model_format_backend_safetensors() {
 
     let (format, backend) = detect_model_format_backend(&model_dir);
     assert_eq!(format, "safetensors");
-    assert_eq!(backend, "mlx-ffi");
+    assert_eq!(backend, "mlx");
 }
 
 #[test]
@@ -64,7 +64,7 @@ fn test_detect_model_format_backend_unknown_extension() {
     let (format, backend) = detect_model_format_backend(&model_dir);
     // Default fallback
     assert_eq!(format, "safetensors");
-    assert_eq!(backend, "mlx-ffi");
+    assert_eq!(backend, "mlx");
 }
 
 #[test]
@@ -76,7 +76,7 @@ fn test_detect_model_format_backend_empty_directory() {
     let (format, backend) = detect_model_format_backend(&model_dir);
     // Default fallback for empty directory
     assert_eq!(format, "safetensors");
-    assert_eq!(backend, "mlx-ffi");
+    assert_eq!(backend, "mlx");
 }
 
 #[test]
@@ -87,7 +87,7 @@ fn test_detect_model_format_backend_nonexistent_directory() {
     let (format, backend) = detect_model_format_backend(&model_dir);
     // Default fallback for non-existent directory
     assert_eq!(format, "safetensors");
-    assert_eq!(backend, "mlx-ffi");
+    assert_eq!(backend, "mlx");
 }
 
 #[test]

@@ -345,11 +345,7 @@ mod inference_permission {
     /// - Role::Viewer -> DENIED
     #[test]
     fn test_rbac_mapping_inference_permission() {
-        let role_mappings = vec![
-            ("Admin", true),
-            ("Operator", true),
-            ("Viewer", false),
-        ];
+        let role_mappings = vec![("Admin", true), ("Operator", true), ("Viewer", false)];
 
         println!("RBAC Mapping for InferenceExecute:");
         for (role, has_permission) in role_mappings {

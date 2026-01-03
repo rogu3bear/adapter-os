@@ -45,6 +45,7 @@
 //! ```
 
 use crate::shutdown::ShutdownCoordinator;
+use crate::telemetry_flush;
 use adapteros_db::Db;
 use adapteros_server_api::config::Config;
 use adapteros_server_api::state::BackgroundTaskTracker;
@@ -131,6 +132,17 @@ pub async fn initialize_federation(
             )
             .map_err(|e| anyhow::anyhow!("Failed to create telemetry writer: {}", e))?,
         );
+        telemetry_flush::register(telemetry.clone());
+
+        let mut telemetry_shutdown_rx = shutdown_coordinator.subscribe_shutdown();
+        let telemetry_handle = tokio::spawn(async move {
+            let _ = telemetry_shutdown_rx.recv().await;
+            let _ = tokio::task::spawn_blocking(move || {
+                telemetry_flush::flush_on_shutdown(Duration::from_secs(5));
+            })
+            .await;
+        });
+        shutdown_coordinator.set_telemetry_handle(telemetry_handle);
 
         // Create policy hash watcher
         let policy_watcher = Arc::new(adapteros_policy::PolicyHashWatcher::new(

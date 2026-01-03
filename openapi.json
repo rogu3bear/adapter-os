@@ -1645,8 +1645,6 @@
         "tags": [
           "auth"
         ],
-        "summary": "Bootstrap initial admin user (one-time operation)",
-        "description": "Can only be called when no users exist in the database.\nCreates a single admin user for initial system access.",
         "operationId": "bootstrap_admin_handler",
         "requestBody": {
           "content": {
@@ -1659,21 +1657,8 @@
           "required": true
         },
         "responses": {
-          "200": {
-            "description": "Admin user created",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/BootstrapResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Bootstrap not allowed"
-          },
-          "500": {
-            "description": "Internal error"
+          "501": {
+            "description": "Auth disabled - use dev bypass"
           }
         }
       }
@@ -1708,8 +1693,7 @@
         "tags": [
           "auth"
         ],
-        "summary": "Login endpoint",
-        "operationId": "auth_login",
+        "operationId": "login_handler",
         "requestBody": {
           "content": {
             "application/json": {
@@ -1721,25 +1705,8 @@
           "required": true
         },
         "responses": {
-          "200": {
-            "description": "Login successful",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LoginResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Invalid credentials",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
+          "501": {
+            "description": "Auth disabled - use dev bypass"
           }
         }
       }
@@ -1749,31 +1716,12 @@
         "tags": [
           "auth"
         ],
-        "summary": "Logout handler - revokes current token",
         "operationId": "logout_handler",
         "responses": {
-          "200": {
-            "description": "Logout successful",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LogoutResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "500": {
-            "description": "Internal error"
+          "501": {
+            "description": "Auth disabled - use dev bypass"
           }
-        },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ]
+        }
       }
     },
     "/v1/auth/me": {
@@ -1805,34 +1753,10 @@
         "tags": [
           "auth"
         ],
-        "summary": "Disable MFA using TOTP or backup code.",
         "operationId": "mfa_disable_handler",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/MfaDisableRequest"
-              }
-            }
-          },
-          "required": true
-        },
         "responses": {
-          "204": {
-            "description": "MFA disabled"
-          },
-          "400": {
-            "description": "Invalid request or code",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized"
+          "501": {
+            "description": "Auth disabled - use dev bypass"
           }
         }
       }
@@ -1842,21 +1766,10 @@
         "tags": [
           "auth"
         ],
-        "summary": "Start MFA enrollment: generate secret and store encrypted pending secret.",
         "operationId": "mfa_start_handler",
         "responses": {
-          "200": {
-            "description": "MFA enrollment started",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MfaEnrollStartResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized"
+          "501": {
+            "description": "Auth disabled - use dev bypass"
           }
         }
       }
@@ -1866,21 +1779,10 @@
         "tags": [
           "auth"
         ],
-        "summary": "Get MFA status for current user",
         "operationId": "mfa_status_handler",
         "responses": {
-          "200": {
-            "description": "MFA status",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MfaStatusResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized"
+          "501": {
+            "description": "Auth disabled - use dev bypass"
           }
         }
       }
@@ -1890,41 +1792,10 @@
         "tags": [
           "auth"
         ],
-        "summary": "Verify MFA enrollment and return backup codes.",
         "operationId": "mfa_verify_handler",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/MfaEnrollVerifyRequest"
-              }
-            }
-          },
-          "required": true
-        },
         "responses": {
-          "200": {
-            "description": "MFA enabled",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MfaEnrollVerifyResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid MFA code",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized"
+          "501": {
+            "description": "Auth disabled - use dev bypass"
           }
         }
       }
@@ -1934,24 +1805,10 @@
         "tags": [
           "auth"
         ],
-        "summary": "Token refresh handler",
         "operationId": "refresh_token_handler",
         "responses": {
-          "200": {
-            "description": "Token refreshed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RefreshResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "500": {
-            "description": "Internal error"
+          "501": {
+            "description": "Auth disabled - use dev bypass"
           }
         }
       }
@@ -1961,65 +1818,23 @@
         "tags": [
           "auth"
         ],
-        "summary": "List active sessions for current user",
         "operationId": "list_sessions_handler",
         "responses": {
-          "200": {
-            "description": "Active sessions",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SessionsResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "500": {
-            "description": "Internal error"
+          "501": {
+            "description": "Auth disabled - use dev bypass"
           }
         }
       }
     },
-    "/v1/auth/sessions/{jti}": {
+    "/v1/auth/sessions/{session_id}": {
       "delete": {
         "tags": [
           "auth"
         ],
-        "summary": "Revoke a specific session",
         "operationId": "revoke_session_handler",
-        "parameters": [
-          {
-            "name": "jti",
-            "in": "path",
-            "description": "Session ID (JTI) to revoke",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
         "responses": {
-          "200": {
-            "description": "Session revoked",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LogoutResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "404": {
-            "description": "Session not found"
-          },
-          "500": {
-            "description": "Internal error"
+          "501": {
+            "description": "Auth disabled - use dev bypass"
           }
         }
       }
@@ -7385,7 +7200,7 @@
           "models"
         ],
         "summary": "List all models with statistics",
-        "description": "# Endpoint\nGET /v1/models\n\n# Authentication\nRequired\n\n# Permissions\nAll authenticated users\n\n# Response\nReturns a list of all models with associated statistics:\n- `models`: Array of model records with:\n  - `id`: Unique model identifier\n  - `name`: Model name\n  - `format`: Model format (mlx, safetensors, pytorch, gguf)\n  - `backend`: Backend type (mlx-ffi, metal)\n  - `size_bytes`: Total size of model files\n  - `import_status`: Import status (available, in_progress, failed)\n  - `model_path`: Filesystem path to model files\n  - `capabilities`: List of supported capabilities\n  - `adapter_count`: Number of adapters using this model\n  - `training_job_count`: Number of training jobs for this model\n  - `imported_at`: Import timestamp\n  - `updated_at`: Last update timestamp\n- `total`: Total number of models\n\n# Errors\n- `INTERNAL_ERROR` (500): Database query failure\n\n# Example\n```\nGET /v1/models\n```",
+        "description": "# Endpoint\nGET /v1/models\n\n# Authentication\nRequired\n\n# Permissions\nAll authenticated users\n\n# Response\nReturns a list of all models with associated statistics:\n- `models`: Array of model records with:\n  - `id`: Unique model identifier\n  - `name`: Model name\n  - `format`: Model format (mlx, safetensors, pytorch, gguf)\n  - `backend`: Backend type (mlx, metal, coreml)\n  - `size_bytes`: Total size of model files\n  - `import_status`: Import status (available, in_progress, failed)\n  - `model_path`: Filesystem path to model files\n  - `capabilities`: List of supported capabilities\n  - `adapter_count`: Number of adapters using this model\n  - `training_job_count`: Number of training jobs for this model\n  - `imported_at`: Import timestamp\n  - `updated_at`: Last update timestamp\n- `total`: Total number of models\n\n# Errors\n- `INTERNAL_ERROR` (500): Database query failure\n\n# Example\n```\nGET /v1/models\n```",
         "operationId": "list_models_with_stats",
         "responses": {
           "200": {
@@ -7410,7 +7225,7 @@
           "models"
         ],
         "summary": "Import a model from a path on disk",
-        "description": "# Endpoint\nPOST /v1/models/import\n\n# Authentication\nRequired\n\n# Permissions\nRequires one of: Admin, Operator\n\n# Request Body\n- `model_name`: Name for the imported model\n- `model_path`: Filesystem path to model directory\n- `format`: Model format (mlx, safetensors, pytorch, gguf)\n- `backend`: Backend to use (mlx-ffi, metal)\n- `capabilities`: Optional list of capabilities (chat, completion, embeddings)\n- `metadata`: Optional JSON metadata\n\n# Response\nReturns import status with:\n- `import_id`: Unique identifier for the imported model\n- `status`: Import status (available, in_progress, failed)\n- `message`: Human-readable status message\n- `progress`: Import progress percentage (0-100)\n\nThe import process:\n1. Validates path exists and format is supported\n2. Scans directory and computes BLAKE3 hashes for all files\n3. Detects model structure and configuration\n4. Registers model in database with metadata\n\n# Errors\n- `FORBIDDEN` (403): User lacks required role\n- `BAD_REQUEST` (400): Invalid path, unsupported format, or unsupported backend\n- `INTERNAL_ERROR` (500): Import failure, database error\n\n# Example\n```\nPOST /v1/models/import\n{\n  \"model_name\": \"qwen-7b\",\n  \"model_path\": \"/var/model-cache/models/qwen2.5-7b-instruct-bf16\",\n  \"format\": \"mlx\",\n  \"backend\": \"mlx-ffi\",\n  \"capabilities\": [\"chat\", \"completion\"]\n}\n```",
+        "description": "# Endpoint\nPOST /v1/models/import\n\n# Authentication\nRequired\n\n# Permissions\nRequires one of: Admin, Operator\n\n# Request Body\n- `model_name`: Name for the imported model\n- `model_path`: Filesystem path to model directory\n- `format`: Model format (mlx, safetensors, pytorch, gguf)\n- `backend`: Backend to use (mlx, metal, coreml)\n- `capabilities`: Optional list of capabilities (chat, completion, embeddings)\n- `metadata`: Optional JSON metadata\n\n# Response\nReturns import status with:\n- `import_id`: Unique identifier for the imported model\n- `status`: Import status (available, in_progress, failed)\n- `message`: Human-readable status message\n- `progress`: Import progress percentage (0-100)\n\nThe import process:\n1. Validates path exists and format is supported\n2. Scans directory and computes BLAKE3 hashes for all files\n3. Detects model structure and configuration\n4. Registers model in database with metadata\n\n# Errors\n- `FORBIDDEN` (403): User lacks required role\n- `BAD_REQUEST` (400): Invalid path, unsupported format, or unsupported backend\n- `INTERNAL_ERROR` (500): Import failure, database error\n\n# Example\n```\nPOST /v1/models/import\n{\n  \"model_name\": \"qwen-7b\",\n  \"model_path\": \"/var/model-cache/models/qwen2.5-7b-instruct-bf16\",\n  \"format\": \"mlx\",\n  \"backend\": \"mlx\",\n  \"capabilities\": [\"chat\", \"completion\"]\n}\n```",
         "operationId": "import_model",
         "requestBody": {
           "content": {
@@ -10771,7 +10586,7 @@
           {
             "name": "page",
             "in": "query",
-            "description": "Page number (1-indexed)",
+            "description": "Page number (1-indexed). Values less than 1 are normalized to 1.\nDefault: 1.",
             "required": false,
             "schema": {
               "type": [
@@ -10785,7 +10600,7 @@
           {
             "name": "page_size",
             "in": "query",
-            "description": "Number of items per page (default: 20, max: 100)",
+            "description": "Number of items per page. Clamped to range [1, 100].\nDefault: 20.",
             "required": false,
             "schema": {
               "type": [
@@ -12674,6 +12489,7 @@
       },
       "AdapterRepositoryPolicyResponse": {
         "type": "object",
+        "description": "Adapter repository policy response (server only - uses adapteros_types)",
         "required": [
           "repo_id",
           "coreml_allowed",
@@ -12797,12 +12613,26 @@
           "adapter_id": {
             "type": "string"
           },
+          "adapter_type": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Adapter classification: \"standard\" (portable), \"codebase\" (stream-scoped), \"core\" (baseline)"
+          },
           "assurance_tier": {
             "type": [
               "string",
               "null"
             ],
             "description": "Assurance tier for drift/determinism (low|standard|high)"
+          },
+          "base_adapter_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Base adapter ID for codebase adapters (the core adapter they extend as delta)"
           },
           "category": {
             "type": [
@@ -12817,6 +12647,13 @@
               "null"
             ],
             "description": "Git commit SHA"
+          },
+          "coreml_package_hash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "BLAKE3 hash of fused CoreML package for deployment verification"
           },
           "created_at": {
             "type": "string"
@@ -12943,8 +12780,15 @@
             "description": "Runtime strength multiplier (scales LoRA application without changing alpha)"
           },
           "lora_tier": {
-            "type": "string",
-            "description": "Marketing/operational tier for routing (micro/standard/max)"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LoraTier",
+                "description": "Marketing/operational tier for routing (micro/standard/max)\n\n# OpenAPI\nUses proper enum schema with values: `micro`, `standard`, `max`."
+              }
+            ]
           },
           "memory_bytes": {
             "type": [
@@ -13002,6 +12846,13 @@
               }
             ]
           },
+          "stream_session_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Exclusive session binding for codebase adapters"
+          },
           "tier": {
             "type": "string",
             "description": "Storage tier: 'persistent', 'warm', or 'ephemeral'"
@@ -13015,6 +12866,14 @@
           "version": {
             "type": "string",
             "description": "Adapter version from migration 0068 (semantic or monotonic)"
+          },
+          "versioning_threshold": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Activation threshold for auto-versioning (default: 100)"
           }
         }
       },
@@ -13371,7 +13230,7 @@
       },
       "AdapterVersionResponse": {
         "type": "object",
-        "description": "Adapter version response",
+        "description": "Adapter version response (server only - uses DatasetVersionTrustSnapshot)",
         "required": [
           "id",
           "repo_id",
@@ -14230,7 +14089,7 @@
       },
       "BackendKind": {
         "type": "string",
-        "description": "Canonical backend selector used across AdapterOS (inference + training).\n\nAll user- and config-facing backend strings must parse through this type so\nwe have a single source of truth (and error messages) for CoreML, MLX,\nMetal, CPU, and Auto detection. CoreML is treated as a first-class option\n(including ANE) and `Auto` preserves the current behavior of \"pick the best\navailable backend\" without changing defaults for existing callers.",
+        "description": "Canonical backend selector used across AdapterOS (inference + training).\n\nAll user- and config-facing backend strings must parse through this type so\nwe have a single source of truth (and error messages) for CoreML, MLX,\nMetal, CPU, and Auto detection. MLX is the primary backend for its\nflexibility and HKDF-seeded determinism, with CoreML as a high-performance\nfallback when ANE acceleration is preferred. `Auto` preserves the current\nbehavior of \"pick the best available backend\".",
         "enum": [
           "auto",
           "coreml",
@@ -15467,6 +15326,13 @@
           "last_activity_at"
         ],
         "properties": {
+          "archived_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Timestamp when session was archived (if applicable)"
+          },
           "codebase_adapter_id": {
             "type": [
               "string",
@@ -15534,6 +15400,13 @@
               "string",
               "null"
             ]
+          },
+          "status": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Session lifecycle status: active, archived, or deleted"
           },
           "tags_json": {
             "type": [
@@ -18688,6 +18561,10 @@
           "TENANT_ACCESS_DENIED",
           "KV_QUOTA_EXCEEDED",
           "WORKER_OVERLOADED",
+          "CPU_THROTTLED",
+          "FILE_DESCRIPTOR_EXHAUSTED",
+          "THREAD_POOL_SATURATED",
+          "GPU_UNAVAILABLE",
           "BOOT_DB_UNREACHABLE",
           "BOOT_MIGRATION_FAILED",
           "BOOT_SEED_FAILED",
@@ -18696,7 +18573,23 @@
           "BOOT_DEPENDENCY_TIMEOUT",
           "BOOT_BACKGROUND_TASK_FAILED",
           "BOOT_CONFIG_INVALID",
-          "BOOT_BOOTSTRAP_FAILED"
+          "BOOT_BOOTSTRAP_FAILED",
+          "MIGRATION_FILE_MISSING",
+          "MIGRATION_CHECKSUM_MISMATCH",
+          "MIGRATION_OUT_OF_ORDER",
+          "DOWN_MIGRATION_BLOCKED",
+          "SCHEMA_VERSION_AHEAD",
+          "CACHE_STALE",
+          "CACHE_KEY_NONDETERMINISTIC",
+          "CACHE_SERIALIZATION_ERROR",
+          "CACHE_INVALIDATION_FAILED",
+          "DNS_RESOLUTION_FAILED",
+          "TLS_CERTIFICATE_ERROR",
+          "PROXY_CONNECTION_FAILED",
+          "ENVIRONMENT_MISMATCH",
+          "RATE_LIMITER_NOT_CONFIGURED",
+          "INVALID_RATE_LIMIT_CONFIG",
+          "THUNDERING_HERD_REJECTED"
         ]
       },
       "FeatureVector": {
@@ -19984,43 +19877,11 @@
           "latency_ms"
         ],
         "properties": {
-          "active_experts": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "array",
-              "items": {
-                "type": "integer",
-                "format": "int32",
-                "minimum": 0
-              }
-            },
-            "description": "Flattened expert IDs per token for quick visualization"
-          },
           "adapters_used": {
             "type": "array",
             "items": {
               "type": "string"
             }
-          },
-          "expert_routing": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "array",
-              "items": {
-                "type": "array",
-                "items": {
-                  "type": "integer",
-                  "minimum": 0
-                }
-              }
-            },
-            "description": "Per-token expert routing data (layer_idx, expert_id) for MoE models"
           },
           "fusion_intervals": {
             "type": [
@@ -20044,18 +19905,7 @@
               },
               {
                 "$ref": "#/components/schemas/RouterModelType",
-                "description": "Model type for the trace (dense vs MoE)"
-              }
-            ]
-          },
-          "moe_info": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/MoEInfo",
-                "description": "MoE metadata for the underlying model (if applicable)"
+                "description": "Model type for the trace"
               }
             ]
           },
@@ -21036,35 +20886,16 @@
       },
       "LoginRequest": {
         "type": "object",
-        "description": "Login request",
         "required": [
           "email",
           "password"
         ],
         "properties": {
-          "device_id": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "email": {
             "type": "string"
           },
           "password": {
             "type": "string"
-          },
-          "totp_code": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "username": {
-            "type": [
-              "string",
-              "null"
-            ]
           }
         }
       },
@@ -21138,6 +20969,15 @@
             "minimum": 0
           }
         }
+      },
+      "LoraTier": {
+        "type": "string",
+        "description": "LoRA adapter tier for routing and UI badges.\n\n# OpenAPI\n\nThis enum is exposed in the OpenAPI schema with proper enum constraints\nrather than as a plain string type. Valid values: `micro`, `standard`, `max`.",
+        "enum": [
+          "micro",
+          "standard",
+          "max"
+        ]
       },
       "MaintenanceScope": {
         "type": "string",
@@ -21556,114 +21396,6 @@
           },
           "time_range": {
             "$ref": "#/components/schemas/TimeRange"
-          }
-        }
-      },
-      "MfaDisableRequest": {
-        "type": "object",
-        "description": "Disable MFA request (requires TOTP or backup code)",
-        "properties": {
-          "backup_code": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "totp_code": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
-      "MfaEnrollStartResponse": {
-        "type": "object",
-        "description": "MFA enrollment start response",
-        "required": [
-          "secret",
-          "otpauth_url"
-        ],
-        "properties": {
-          "otpauth_url": {
-            "type": "string",
-            "description": "otpauth URI (for QR rendering)"
-          },
-          "secret": {
-            "type": "string",
-            "description": "Base32-encoded TOTP secret"
-          }
-        }
-      },
-      "MfaEnrollVerifyRequest": {
-        "type": "object",
-        "description": "MFA enrollment verification request",
-        "required": [
-          "totp_code"
-        ],
-        "properties": {
-          "totp_code": {
-            "type": "string",
-            "description": "First TOTP code to confirm the secret"
-          }
-        }
-      },
-      "MfaEnrollVerifyResponse": {
-        "type": "object",
-        "description": "MFA enrollment verification response",
-        "required": [
-          "backup_codes"
-        ],
-        "properties": {
-          "backup_codes": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Plaintext backup codes (shown once)"
-          }
-        }
-      },
-      "MfaStatusResponse": {
-        "type": "object",
-        "description": "MFA status response",
-        "required": [
-          "mfa_enabled"
-        ],
-        "properties": {
-          "enrolled_at": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "mfa_enabled": {
-            "type": "boolean"
-          }
-        }
-      },
-      "MoEInfo": {
-        "type": "object",
-        "description": "MoE (Mixture of Experts) model information",
-        "required": [
-          "is_moe",
-          "num_experts",
-          "experts_per_token"
-        ],
-        "properties": {
-          "experts_per_token": {
-            "type": "integer",
-            "description": "Number of experts activated per token",
-            "minimum": 0
-          },
-          "is_moe": {
-            "type": "boolean",
-            "description": "Whether the underlying model is MoE"
-          },
-          "num_experts": {
-            "type": "integer",
-            "description": "Total number of experts available",
-            "minimum": 0
           }
         }
       },
@@ -23685,6 +23417,64 @@
           }
         }
       },
+      "ReadinessMode": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Full readiness checks enforced - all checks must pass for ready=true",
+            "required": [
+              "mode"
+            ],
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "strict"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Some checks are relaxed (e.g., skip-worker mode) - listed checks are informational",
+            "required": [
+              "relaxed_checks",
+              "mode"
+            ],
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "relaxed"
+                ]
+              },
+              "relaxed_checks": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "List of check names that are relaxed (e.g., [\"worker\", \"models\"])"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Dev bypass active - all checks are informational, system returns 200 regardless",
+            "required": [
+              "mode"
+            ],
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "dev_bypass"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Readiness mode indicates how strictly checks are enforced.\n\nThis helps the frontend understand the semantics of the readiness response\nand behave appropriately (e.g., show informational UI vs panic screen)."
+      },
       "ReadinessStatus": {
         "type": "object",
         "description": "Readiness snapshot across critical dependencies.",
@@ -23816,6 +23606,10 @@
               "$ref": "#/components/schemas/PhaseStatus"
             }
           },
+          "readiness_mode": {
+            "$ref": "#/components/schemas/ReadinessMode",
+            "description": "Indicates how strictly checks are enforced.\n- `strict`: All checks must pass for ready=true\n- `relaxed`: Some checks are informational only\n- `dev_bypass`: All checks informational, always returns 200"
+          },
           "ready": {
             "type": "boolean"
           }
@@ -23868,7 +23662,7 @@
       },
       "RefreshResponse": {
         "type": "object",
-        "description": "Response from token refresh endpoint",
+        "description": "Token refresh response",
         "required": [
           "token",
           "expires_at"
@@ -24560,6 +24354,15 @@
           }
         }
       },
+      "Role": {
+        "type": "string",
+        "description": "User role enum - simplified 3-role model\n\n# Roles\n- **Admin**: Full access to everything including system settings and user management\n- **Operator**: Can run inference, training, manage adapters. Cannot change system settings or users.\n- **Viewer**: Read-only access. Can view dashboards, logs, but cannot modify anything.",
+        "enum": [
+          "admin",
+          "operator",
+          "viewer"
+        ]
+      },
       "RollbackRequest": {
         "type": "object",
         "required": [
@@ -24725,18 +24528,6 @@
           "entropy_floor"
         ],
         "properties": {
-          "active_experts": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "integer",
-              "format": "int32",
-              "minimum": 0
-            },
-            "description": "Active experts used for this token when running an MoE model"
-          },
           "allowed_mask": {
             "type": [
               "array",
@@ -24776,7 +24567,7 @@
           },
           "model_type": {
             "$ref": "#/components/schemas/RouterModelType",
-            "description": "Model type for this decision (dense vs MoE)"
+            "description": "Model type for this decision"
           },
           "policy_mask_digest_b3": {
             "type": "string"
@@ -24935,8 +24726,7 @@
         "type": "string",
         "description": "Routing model type for trace display",
         "enum": [
-          "dense",
-          "moe"
+          "dense"
         ]
       },
       "RoutingDebugRequest": {
@@ -26222,7 +26012,7 @@
       },
       "SessionInfo": {
         "type": "object",
-        "description": "Information about an active session",
+        "description": "Session information for audit/management",
         "required": [
           "jti",
           "created_at",
@@ -26243,6 +26033,12 @@
           },
           "last_activity": {
             "type": "string"
+          },
+          "user_agent": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -26817,8 +26613,15 @@
             "description": "Programming language (for code adapters)"
           },
           "lora_tier": {
-            "type": "string",
-            "description": "Marketing/operational tier for routing and UI badges (micro/standard/max)"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LoraTier",
+                "description": "Marketing/operational tier for routing and UI badges (micro/standard/max)\n\n# OpenAPI\nUses proper enum schema with values: `micro`, `standard`, `max`."
+              }
+            ]
           },
           "post_actions": {
             "oneOf": [
@@ -28524,7 +28327,7 @@
               "string",
               "null"
             ],
-            "description": "Alias of `package_hash_b3` for clients expecting an \"artifact hash\" surface.\n\n**Deprecated since 1.0.0**: Use `package_hash_b3` instead.\n- **Removal timeline**: Will be removed in version 2.0.0.\n- **Migration**: Replace `artifact_hash_b3` references with `package_hash_b3`.\n- Both fields currently return the same value for backward compatibility.",
+            "description": "Alias of `package_hash_b3` for clients expecting an \"artifact hash\" surface.\n\n**Deprecated since 1.0.0**: Use `package_hash_b3` instead.\n- **Removal timeline**: Will be removed in version 2.0.0 (see [`DEPRECATED_FIELD_SUNSET_VERSION`]).\n- **Migration**: Replace `artifact_hash_b3` references with `package_hash_b3`.\n- Both fields currently return the same value for backward compatibility.\n\n# OpenAPI\nThis field is marked deprecated in the OpenAPI schema.",
             "deprecated": true
           },
           "artifact_path": {
@@ -28532,7 +28335,7 @@
               "string",
               "null"
             ],
-            "description": "Alias of `aos_path` for clients expecting an \"artifact path\" surface.\n\n**Deprecated since 1.0.0**: Use `aos_path` instead.\n- **Removal timeline**: Will be removed in version 2.0.0.\n- **Migration**: Replace `artifact_path` references with `aos_path`.\n- Both fields currently return the same value for backward compatibility.",
+            "description": "Alias of `aos_path` for clients expecting an \"artifact path\" surface.\n\n**Deprecated since 1.0.0**: Use `aos_path` instead.\n- **Removal timeline**: Will be removed in version 2.0.0 (see [`DEPRECATED_FIELD_SUNSET_VERSION`]).\n- **Migration**: Replace `artifact_path` references with `aos_path`.\n- Both fields currently return the same value for backward compatibility.\n\n# OpenAPI\nThis field is marked deprecated in the OpenAPI schema.",
             "deprecated": true
           },
           "backend": {
@@ -28675,7 +28478,7 @@
               "null"
             ],
             "format": "int32",
-            "description": "Current training epoch (0-indexed).\nNone if progress data is not yet available.",
+            "description": "Current training epoch (0-indexed).\nNone if progress data is not yet available.\n\n# Serialization Behavior\n- On serialization: Omitted when `None` (via `skip_serializing_if`)\n- On deserialization: Absent fields deserialize to `None` (via `#[serde(default)]`)",
             "minimum": 0
           },
           "current_loss": {
@@ -28684,7 +28487,7 @@
               "null"
             ],
             "format": "float",
-            "description": "Current training loss value.\nNone if progress data is not yet available."
+            "description": "Current training loss value.\nNone if progress data is not yet available.\n\n# Serialization Behavior\n- On serialization: Omitted when `None` (via `skip_serializing_if`)\n- On deserialization: Absent fields deserialize to `None` (via `#[serde(default)]`)"
           },
           "data_lineage_mode": {
             "oneOf": [
@@ -28823,8 +28626,15 @@
             "description": "Current learning rate"
           },
           "lora_tier": {
-            "type": "string",
-            "description": "Marketing/operational tier for routing and UI badges (micro/standard/max)"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LoraTier",
+                "description": "Marketing/operational tier for routing and UI badges (micro/standard/max)\n\n# OpenAPI\nUses proper enum schema with values: `micro`, `standard`, `max`."
+              }
+            ]
           },
           "manifest_base_model": {
             "type": [
@@ -28898,7 +28708,7 @@
               "null"
             ],
             "format": "float",
-            "description": "Training progress percentage (0.0-100.0).\nNone if progress data is not yet available (distinguishes from 0% progress)."
+            "description": "Training progress percentage (0.0-100.0).\nNone if progress data is not yet available (distinguishes from 0% progress).\n\n# Serialization Behavior\n- On serialization: Omitted when `None` (via `skip_serializing_if`)\n- On deserialization: Absent fields deserialize to `None` (via `#[serde(default)]`)"
           },
           "repo_id": {
             "type": [
@@ -28984,7 +28794,7 @@
               "null"
             ],
             "format": "float",
-            "description": "Tokens processed per second.\nNone if progress data is not yet available."
+            "description": "Tokens processed per second.\nNone if progress data is not yet available.\n\n# Serialization Behavior\n- On serialization: Omitted when `None` (via `skip_serializing_if`)\n- On deserialization: Absent fields deserialize to `None` (via `#[serde(default)]`)"
           },
           "tokens_processed": {
             "type": [
@@ -30143,19 +29953,6 @@
             "type": "string"
           }
         }
-      },
-      "UserRole": {
-        "type": "string",
-        "description": "User role enum (must match DB)",
-        "enum": [
-          "admin",
-          "developer",
-          "operator",
-          "sre",
-          "compliance",
-          "auditor",
-          "viewer"
-        ]
       },
       "ValidateDatasetRequest": {
         "type": "object",

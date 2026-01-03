@@ -777,7 +777,7 @@ pub async fn activate_stack(
 
             let hotswap = worker.hotswap().clone();
             hotswap
-                .swap(&add_ids, &remove_ids)
+                .swap_with_expected_hash(&add_ids, &remove_ids, Some(new_hash))
                 .await
                 .map_err(db_error)?;
 

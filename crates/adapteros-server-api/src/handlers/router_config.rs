@@ -96,10 +96,7 @@ pub async fn get_router_config(
     Extension(claims): Extension<Claims>,
     Path(tenant_id): Path<String>,
 ) -> Result<Json<RouterConfigView>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(
-        &claims,
-        &[Role::Admin, Role::Operator, Role::Viewer],
-    )?;
+    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
     validate_tenant_isolation(&claims, &tenant_id)?;
 
     // Execution policy (includes optional routing policy)

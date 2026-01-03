@@ -1,10 +1,19 @@
 //! CLI inference command over AdapterOS UDS
 
+use adapteros_client::UdsClient;
 use adapteros_lora_worker::memory::UmaPressureMonitor;
 use anyhow::Result;
-use reqwest::Client;
 use serde_json::Value;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+const INFER_API_PATH: &str = "/api/v1/infer";
+
+pub(crate) fn uds_infer_url_string(socket_path: &Path) -> String {
+    let socket_display = socket_path.display().to_string();
+    let socket_display = socket_display.trim();
+    format!("http+unix:///{}{}", socket_display, INFER_API_PATH)
+}
 
 /// Run a local inference against the worker UDS server
 #[allow(clippy::too_many_arguments)]
@@ -29,42 +38,27 @@ pub async fn run(
     }
 
     // Prepare request
-    let client = Client::builder()
-        .timeout(std::time::Duration::from_millis(timeout_ms))
-        .build()?;
-
+    let tenant_id = std::env::var("AOS_TENANT_ID").unwrap_or_else(|_| "default".to_string());
     let request_body = serde_json::to_string(&serde_json::json!({
-        "cpid": "cli-infer",
+        "cpid": tenant_id,
         "prompt": prompt,
         "max_tokens": max_tokens.unwrap_or(128),
         "require_evidence": require_evidence,
-        "request_type": "normal"
+        "request_type": "normal",
+        "determinism_mode": "best_effort",
+        "strict_mode": false
     }))?;
 
     // Unix socket URL
-    let url = format!(
-        "http+unix:///{} /api/v1/infer",
-        socket.display().to_string().replace(' ', "%20")
-    ); // escape if needed
-    let url =
-        reqwest::Url::parse(&url).map_err(|e| anyhow::anyhow!("Invalid socket URL: {}", e))?;
-
-    let response = client
-        .post(url)
-        .header("Content-Type", "application/json")
-        .body(request_body)
-        .send()
+    let url = uds_infer_url_string(&socket);
+    tracing::debug!(uds_url = %url, "Using UDS infer URL");
+    let uds_client = UdsClient::new(Duration::from_millis(timeout_ms));
+    let response_body = uds_client
+        .send_request(&socket, "POST", INFER_API_PATH, Some(&request_body))
         .await
         .map_err(|e| anyhow::anyhow!("Inference request failed: {}", e))?;
 
-    if !response.status().is_success() {
-        eprintln!("Server error: {}", response.status());
-        std::process::exit(1);
-    }
-
-    let json: Value = response
-        .json()
-        .await
+    let json: Value = serde_json::from_str(&response_body)
         .map_err(|e| anyhow::anyhow!("Failed to parse response: {}", e))?;
 
     if let Some(text) = json["text"].as_str() {
@@ -96,4 +90,31 @@ pub async fn run(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn uds_infer_url_has_expected_shape() {
+        let url = uds_infer_url_string(Path::new("./var/run/worker.sock"));
+        let parsed = reqwest::Url::parse(&url).expect("uds url should parse");
+        assert!(
+            !url.contains(' '),
+            "expected no literal spaces in url: {}",
+            url
+        );
+        assert!(
+            !parsed.as_str().contains("%20"),
+            "expected no percent-encoded spaces in url: {}",
+            parsed
+        );
+        assert!(
+            parsed.path().ends_with("/api/v1/infer"),
+            "expected infer path suffix, got: {}",
+            parsed
+        );
+    }
 }

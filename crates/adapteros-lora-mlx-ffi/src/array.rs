@@ -1,16 +1,16 @@
 //! MLX Array abstraction layer
 //!
-//! This module provides a unified array interface via the adapteros-mlx SSoT.
-//! The mlx-rs backend is deprecated/unsupported; C++ FFI is the primary path.
+//! This module provides a unified array interface. The mlx-rs backend is an
+//! experimental fallback; C++ FFI is the primary/production path.
 //!
-//! When the `mlx-rs-backend` feature is enabled (deprecated), this re-exports from `adapteros-mlx`.
+//! When the `mlx-rs-backend` feature is enabled (experimental), this re-exports from `adapteros-mlx`.
 //! When disabled, a stub implementation is provided for testing on non-MLX builds.
 
 #[cfg(not(feature = "mlx-rs-backend"))]
 use adapteros_core::{AosError, Result};
 
 // =========================================================================
-// mlx-rs backend implementation via adapteros-mlx SSoT
+// mlx-rs backend implementation via adapteros-mlx
 // =========================================================================
 
 #[cfg(feature = "mlx-rs-backend")]
@@ -579,7 +579,7 @@ mod tests {
     }
 }
 
-// Tests for mlx-rs backend via adapteros-mlx SSoT
+// Tests for mlx-rs backend via adapteros-mlx
 #[cfg(all(test, feature = "mlx-rs-backend"))]
 mod mlx_rs_tests {
     use super::*;

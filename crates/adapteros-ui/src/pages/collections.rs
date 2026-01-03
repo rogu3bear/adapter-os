@@ -6,8 +6,13 @@
 //! - Create collection form
 //! - Add/remove documents from collections
 
-use crate::api::{ApiClient, CollectionDetailResponse, CollectionResponse, CreateCollectionRequest};
-use crate::components::{Badge, BadgeVariant, Card, Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow};
+use crate::api::{
+    ApiClient, CollectionDetailResponse, CollectionResponse, CreateCollectionRequest,
+};
+use crate::components::{
+    Badge, BadgeVariant, Card, Spinner, Table, TableBody, TableCell, TableHead, TableHeader,
+    TableRow,
+};
 use crate::hooks::{use_api_resource, LoadingState};
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
@@ -426,7 +431,10 @@ pub fn CollectionDetail() -> impl IntoView {
             let refetch = refetch.clone();
 
             wasm_bindgen_futures::spawn_local(async move {
-                match client.remove_document_from_collection(&coll_id, &doc_id).await {
+                match client
+                    .remove_document_from_collection(&coll_id, &doc_id)
+                    .await
+                {
                     Ok(_) => {
                         refetch();
                     }
@@ -545,13 +553,19 @@ pub fn CollectionDetail() -> impl IntoView {
 
 /// Collection detail content component
 #[component]
-fn CollectionDetailContent<F>(collection: CollectionDetailResponse, remove_document: F) -> impl IntoView
+fn CollectionDetailContent<F>(
+    collection: CollectionDetailResponse,
+    remove_document: F,
+) -> impl IntoView
 where
     F: Fn(String) + Clone + Send + 'static,
 {
     // Clone values upfront to avoid move issues
     let name = collection.name.clone();
-    let description = collection.description.clone().unwrap_or_else(|| "No description".to_string());
+    let description = collection
+        .description
+        .clone()
+        .unwrap_or_else(|| "No description".to_string());
     let collection_id = collection.collection_id.clone();
     let collection_id_display = collection_id.clone();
     let collection_id_usage = collection_id.clone();

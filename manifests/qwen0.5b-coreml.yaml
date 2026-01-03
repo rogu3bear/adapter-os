@@ -35,7 +35,7 @@ policies:
     allow_tcp: false
     allow_udp: false
     uds_paths:
-      - "/var/run/aos/default"
+      - "./var/run/aos/default"
   determinism:
     require_metallib_embed: false
     require_kernel_hash_match: false
@@ -64,7 +64,7 @@ policies:
       - "score_desc"
   isolation:
     process_model: "per_tenant"
-    uds_root: "/var/run/aos/default"
+    uds_root: "./var/run/aos/default"
     forbid_shm: false
   performance:
     latency_p95_ms: 100

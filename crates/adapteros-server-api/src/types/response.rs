@@ -1,7 +1,8 @@
 //! Response types for API endpoints.
 
 use adapteros_api_types::{
-    InferResponse, ModelLoadStatus, TrainingJobResponse, TrainingTemplateResponse,
+    inference::RunReceipt, InferResponse, ModelLoadStatus, TrainingJobResponse,
+    TrainingTemplateResponse,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -566,6 +567,10 @@ pub struct WorkerInferResponse {
     pub text: Option<String>,
     pub status: String,
     pub trace: WorkerTrace,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_receipt: Option<RunReceipt>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_usage: Option<TokenUsage>,
     /// Backend used to execute the request (e.g., metal, coreml, mlx)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub backend_used: Option<String>,
@@ -629,6 +634,8 @@ pub struct WorkerInferResponse {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct WorkerTrace {
     pub router_summary: RouterSummary,
+    #[serde(default)]
+    pub token_count: usize,
     /// Detailed router decisions per step (optional)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub router_decisions: Option<Vec<adapteros_api_types::inference::RouterDecision>>,
@@ -645,6 +652,15 @@ pub struct WorkerTrace {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct RouterSummary {
     pub adapters_used: Vec<String>,
+}
+
+/// Token usage computed by the worker tokenizer.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct TokenUsage {
+    pub prompt_tokens: u32,
+    pub completion_tokens: u32,
+    pub billed_input_tokens: u32,
+    pub billed_output_tokens: u32,
 }
 
 /// Meta information response

@@ -20,7 +20,7 @@ pub enum TraceViewState {
     /// Loaded trace summary list
     List(Vec<InferenceTraceResponse>),
     /// Loaded detailed trace
-    Detail(InferenceTraceDetailResponse),
+    Detail(Box<InferenceTraceDetailResponse>),
     /// Error loading trace
     Error(String),
 }
@@ -55,13 +55,16 @@ pub fn TraceViewer(
                 // Load detailed trace
                 set_state.set(TraceViewState::Loading);
                 match api.get_inference_trace_detail(&tid).await {
-                    Ok(detail) => set_state.set(TraceViewState::Detail(detail)),
+                    Ok(detail) => set_state.set(TraceViewState::Detail(Box::new(detail))),
                     Err(e) => set_state.set(TraceViewState::Error(e.to_string())),
                 }
             } else if request_id.is_some() || has_initial_trace {
                 // Load trace list
                 set_state.set(TraceViewState::Loading);
-                match api.list_inference_traces(request_id.as_deref(), Some(20)).await {
+                match api
+                    .list_inference_traces(request_id.as_deref(), Some(20))
+                    .await
+                {
                     Ok(traces) => set_state.set(TraceViewState::List(traces)),
                     Err(e) => set_state.set(TraceViewState::Error(e.to_string())),
                 }
@@ -105,7 +108,7 @@ pub fn TraceViewer(
 
                 TraceViewState::Detail(detail) => view! {
                     <TraceDetail
-                        trace=detail.clone()
+                        trace=(*detail).clone()
                         expanded_tokens=expanded_tokens
                         set_expanded_tokens=set_expanded_tokens
                         on_back=move || set_selected_trace_id.set(None)
@@ -136,7 +139,11 @@ fn TraceList(
     on_select: impl Fn(String) + 'static + Clone,
     #[prop(optional)] compact: bool,
 ) -> impl IntoView {
-    let heading_class = if compact { "text-sm font-semibold mb-2" } else { "text-lg font-semibold mb-4" };
+    let heading_class = if compact {
+        "text-sm font-semibold mb-2"
+    } else {
+        "text-lg font-semibold mb-4"
+    };
 
     view! {
         <div>
@@ -179,7 +186,10 @@ fn TraceListItem(
     };
 
     let trace_id_short = trace.trace_id.chars().take(8).collect::<String>();
-    let finish_reason_display = trace.finish_reason.clone().unwrap_or_else(|| "unknown".to_string());
+    let finish_reason_display = trace
+        .finish_reason
+        .clone()
+        .unwrap_or_else(|| "unknown".to_string());
 
     view! {
         <div class=item_class on:click=move |_| on_click()>
@@ -213,7 +223,11 @@ fn TraceDetail(
     on_back: impl Fn() + 'static,
     #[prop(optional)] compact: bool,
 ) -> impl IntoView {
-    let heading_class = if compact { "text-sm font-semibold" } else { "text-lg font-semibold" };
+    let heading_class = if compact {
+        "text-sm font-semibold"
+    } else {
+        "text-lg font-semibold"
+    };
 
     view! {
         <div class="space-y-4">
@@ -308,7 +322,10 @@ fn LatencyMetrics(breakdown: TimingBreakdown, #[prop(optional)] compact: bool) -
 
 /// Timeline visualization of trace phases
 #[component]
-fn TimelineVisualization(breakdown: TimingBreakdown, #[prop(optional)] compact: bool) -> impl IntoView {
+fn TimelineVisualization(
+    breakdown: TimingBreakdown,
+    #[prop(optional)] compact: bool,
+) -> impl IntoView {
     let total = breakdown.total_ms.max(1) as f64;
     let routing_pct = (breakdown.routing_ms as f64 / total * 100.0) as u32;
     let inference_pct = (breakdown.inference_ms as f64 / total * 100.0) as u32;
@@ -505,7 +522,10 @@ fn TokenDecisionRow(decision: TokenDecision, #[prop(optional)] compact: bool) ->
 
 /// Receipt verification display
 #[component]
-fn ReceiptVerification(receipt: TraceReceiptSummary, #[prop(optional)] compact: bool) -> impl IntoView {
+fn ReceiptVerification(
+    receipt: TraceReceiptSummary,
+    #[prop(optional)] compact: bool,
+) -> impl IntoView {
     let container_class = if compact {
         "border border-border rounded p-2"
     } else {
@@ -518,9 +538,19 @@ fn ReceiptVerification(receipt: TraceReceiptSummary, #[prop(optional)] compact: 
         "bg-yellow-500/10 border-yellow-500/20 text-yellow-500"
     };
 
-    let verified_text = if receipt.verified { "Verified" } else { "Unverified" };
-    let receipt_short = format!("{}...", receipt.receipt_digest.chars().take(16).collect::<String>());
-    let output_short = format!("{}...", receipt.output_digest.chars().take(16).collect::<String>());
+    let verified_text = if receipt.verified {
+        "Verified"
+    } else {
+        "Unverified"
+    };
+    let receipt_short = format!(
+        "{}...",
+        receipt.receipt_digest.chars().take(16).collect::<String>()
+    );
+    let output_short = format!(
+        "{}...",
+        receipt.output_digest.chars().take(16).collect::<String>()
+    );
 
     view! {
         <div class=container_class>
@@ -614,10 +644,7 @@ pub fn TracePanel(
 
 /// Internal trace viewer that takes a required trace_id
 #[component]
-fn TraceViewerInner(
-    trace_id: String,
-    #[prop(optional)] compact: bool,
-) -> impl IntoView {
+fn TraceViewerInner(trace_id: String, #[prop(optional)] compact: bool) -> impl IntoView {
     let (state, set_state) = signal(TraceViewState::Loading);
     let (expanded_tokens, set_expanded_tokens) = signal(false);
 
@@ -631,7 +658,7 @@ fn TraceViewerInner(
 
         wasm_bindgen_futures::spawn_local(async move {
             match api.get_inference_trace_detail(&trace_id).await {
-                Ok(detail) => set_state.set(TraceViewState::Detail(detail)),
+                Ok(detail) => set_state.set(TraceViewState::Detail(Box::new(detail))),
                 Err(e) => set_state.set(TraceViewState::Error(e.to_string())),
             }
         });
@@ -661,7 +688,7 @@ fn TraceViewerInner(
 
                 TraceViewState::Detail(detail) => view! {
                     <TraceDetailStandalone
-                        trace=detail.clone()
+                        trace=(*detail).clone()
                         expanded_tokens=expanded_tokens
                         set_expanded_tokens=set_expanded_tokens
                         compact=compact
@@ -692,7 +719,11 @@ fn TraceDetailStandalone(
     set_expanded_tokens: WriteSignal<bool>,
     #[prop(optional)] compact: bool,
 ) -> impl IntoView {
-    let heading_class = if compact { "text-sm font-semibold" } else { "text-lg font-semibold" };
+    let heading_class = if compact {
+        "text-sm font-semibold"
+    } else {
+        "text-lg font-semibold"
+    };
 
     view! {
         <div class="space-y-4">

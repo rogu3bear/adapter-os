@@ -82,16 +82,16 @@ pub const DEFAULT_MANIFEST_CACHE_DIR: &str = "./var/manifest-cache";
 pub const DEFAULT_ADAPTERS_ROOT: &str = "./var/adapters";
 
 /// Production worker socket root.
-pub const DEFAULT_WORKER_SOCKET_PROD_ROOT: &str = "/var/run/aos";
+pub const DEFAULT_WORKER_SOCKET_PROD_ROOT: &str = "./var/run/aos";
 
 /// Development worker socket path.
 pub const DEFAULT_WORKER_SOCKET_DEV: &str = "./var/run/worker.sock";
 
 /// Control plane worker socket default (training cancel path).
-pub const DEFAULT_CP_WORKER_SOCKET: &str = "/var/run/adapteros.sock";
+pub const DEFAULT_CP_WORKER_SOCKET: &str = "./var/run/adapteros.sock";
 
 /// Default status file path consumed by the menu bar app.
-pub const DEFAULT_STATUS_PATH: &str = "/var/run/adapteros_status.json";
+pub const DEFAULT_STATUS_PATH: &str = "./var/run/adapteros_status.json";
 
 /// Default supervisor signing key path.
 pub const DEFAULT_SUPERVISOR_SIGNING_KEY_PATH: &str = "var/keys/supervisor_signing.key";

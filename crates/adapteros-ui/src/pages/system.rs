@@ -7,14 +7,14 @@
 
 use crate::api::{use_sse_json, ApiClient, SseState};
 use crate::components::{
-    Badge, BadgeVariant, Card, Shell, Spinner, StatusColor, StatusIndicator, Table, TableBody,
-    TableCell, TableHead, TableHeader, TableRow,
+    Badge, BadgeVariant, Card, Spinner, StatusColor, StatusIndicator, Table, TableBody, TableCell,
+    TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use adapteros_api_types::{
-    workers::WorkerStatusUpdate, ComponentCheck, DriftLevel, InferenceBlocker,
-    InferenceReadyState, NodeResponse, StatusIndicator as ApiStatusIndicator,
-    SystemMetricsResponse, SystemStatusResponse, WorkerResponse,
+    workers::WorkerStatusUpdate, ComponentCheck, DriftLevel, InferenceBlocker, InferenceReadyState,
+    NodeResponse, StatusIndicator as ApiStatusIndicator, SystemMetricsResponse,
+    SystemStatusResponse, WorkerResponse,
 };
 use leptos::prelude::*;
 use std::collections::HashMap;
@@ -37,24 +37,20 @@ pub enum WorkerStreamEvent {
 #[component]
 pub fn System() -> impl IntoView {
     // Fetch system status
-    let (status, refetch_status) = use_api_resource(|client: Arc<ApiClient>| async move {
-        client.system_status().await
-    });
+    let (status, refetch_status) =
+        use_api_resource(|client: Arc<ApiClient>| async move { client.system_status().await });
 
     // Fetch workers list (initial load, then updated via SSE)
-    let (workers, refetch_workers) = use_api_resource(|client: Arc<ApiClient>| async move {
-        client.list_workers().await
-    });
+    let (workers, refetch_workers) =
+        use_api_resource(|client: Arc<ApiClient>| async move { client.list_workers().await });
 
     // Fetch nodes list
-    let (nodes, refetch_nodes) = use_api_resource(|client: Arc<ApiClient>| async move {
-        client.list_nodes().await
-    });
+    let (nodes, refetch_nodes) =
+        use_api_resource(|client: Arc<ApiClient>| async move { client.list_nodes().await });
 
     // Fetch system metrics
-    let (metrics, refetch_metrics) = use_api_resource(|client: Arc<ApiClient>| async move {
-        client.system_metrics().await
-    });
+    let (metrics, refetch_metrics) =
+        use_api_resource(|client: Arc<ApiClient>| async move { client.system_metrics().await });
 
     // Store refetch functions in signals for sharing
     let refetch_status_signal = StoredValue::new(refetch_status);
@@ -71,9 +67,8 @@ pub fn System() -> impl IntoView {
     let last_sse_update = RwSignal::new(Option::<String>::None);
 
     // SSE connection for worker status stream
-    let (sse_status, _reconnect) = use_sse_json::<WorkerStreamEvent, _>(
-        "/v1/stream/workers",
-        move |event| {
+    let (sse_status, _reconnect) =
+        use_sse_json::<WorkerStreamEvent, _>("/v1/stream/workers", move |event| {
             match event {
                 WorkerStreamEvent::FullList { workers: _ } => {
                     // When we receive a full list, clear overrides and trigger refetch
@@ -95,8 +90,7 @@ pub fn System() -> impl IntoView {
                     // Heartbeat received, connection is healthy
                 }
             }
-        },
-    );
+        });
 
     // Set up polling interval for non-worker data (every 10 seconds)
     // Worker data is now primarily updated via SSE
@@ -114,9 +108,8 @@ pub fn System() -> impl IntoView {
     });
 
     view! {
-        <Shell>
-            <div class="space-y-6">
-                // Header with title and refresh button
+        <div class="p-6 space-y-6">
+            // Header with title and refresh button
                 <div class="flex items-center justify-between">
                     <div class="flex items-center gap-4">
                         <h1 class="text-3xl font-bold tracking-tight">"System"</h1>
@@ -185,8 +178,7 @@ pub fn System() -> impl IntoView {
                         }
                     }
                 }}
-            </div>
-        </Shell>
+        </div>
     }
 }
 
@@ -283,10 +275,7 @@ fn SystemContent(
     let is_ready = matches!(status.readiness.overall, ApiStatusIndicator::Ready);
     let db_status = matches!(status.readiness.checks.db.status, ApiStatusIndicator::Ready);
 
-    let inference_ready = match status.inference_ready {
-        InferenceReadyState::True => true,
-        _ => false,
-    };
+    let inference_ready = matches!(status.inference_ready, InferenceReadyState::True);
 
     // Apply SSE status overrides to workers for real-time updates
     let workers_with_overrides: Vec<WorkerResponse> = workers
@@ -470,9 +459,15 @@ fn WorkerRow(worker: WorkerResponse) -> impl IntoView {
         worker.id.clone()
     };
 
-    let backend = worker.backend.clone().unwrap_or_else(|| "Unknown".to_string());
+    let backend = worker
+        .backend
+        .clone()
+        .unwrap_or_else(|| "Unknown".to_string());
     let model = worker.model_id.clone().unwrap_or_else(|| "-".to_string());
-    let last_seen = worker.last_seen_at.clone().unwrap_or_else(|| "-".to_string());
+    let last_seen = worker
+        .last_seen_at
+        .clone()
+        .unwrap_or_else(|| "-".to_string());
 
     // Row class for visual highlighting of state changes
     let row_class = if is_unhealthy {

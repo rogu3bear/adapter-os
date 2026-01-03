@@ -2,7 +2,7 @@
 //!
 //! Provides the feed-forward network block used in transformers.
 
-use crate::{Array, Result, MlxError};
+use crate::{Array, MlxError, Result};
 
 /// Activation function type for MLP
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -98,9 +98,10 @@ impl MLP {
     ) -> Result<Self> {
         let up_shape = up_proj.shape();
         if up_shape.len() != 2 {
-            return Err(MlxError::ArrayOp(
-                format!("up_proj must be 2D, got {:?}", up_shape)
-            ));
+            return Err(MlxError::ArrayOp(format!(
+                "up_proj must be 2D, got {:?}",
+                up_shape
+            )));
         }
 
         let hidden_dim = up_shape[0];
@@ -108,19 +109,19 @@ impl MLP {
 
         let down_shape = down_proj.shape();
         if down_shape != vec![intermediate_dim, hidden_dim] {
-            return Err(MlxError::ArrayOp(
-                format!("down_proj shape {:?} doesn't match expected [{}, {}]",
-                    down_shape, intermediate_dim, hidden_dim)
-            ));
+            return Err(MlxError::ArrayOp(format!(
+                "down_proj shape {:?} doesn't match expected [{}, {}]",
+                down_shape, intermediate_dim, hidden_dim
+            )));
         }
 
         if let Some(ref gate) = gate_proj {
             let gate_shape = gate.shape();
             if gate_shape != vec![hidden_dim, intermediate_dim] {
-                return Err(MlxError::ArrayOp(
-                    format!("gate_proj shape {:?} doesn't match up_proj {:?}",
-                        gate_shape, up_shape)
-                ));
+                return Err(MlxError::ArrayOp(format!(
+                    "gate_proj shape {:?} doesn't match up_proj {:?}",
+                    gate_shape, up_shape
+                )));
             }
         }
 

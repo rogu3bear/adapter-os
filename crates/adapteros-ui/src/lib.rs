@@ -17,6 +17,12 @@
 //! - `hydrate` - Enable client-side hydration (for SSR + hydration mode)
 //! - `ssr` - Enable server-side rendering
 
+// Leptos view! macro patterns that trigger clippy but are idiomatic
+#![allow(clippy::unused_unit)]
+#![allow(clippy::unit_arg)]
+// Callback<T> is Copy but .clone() is often clearer in closures
+#![allow(clippy::clone_on_copy)]
+
 pub mod api;
 pub mod components;
 pub mod hooks;
@@ -31,11 +37,15 @@ use leptos_router::path;
 use components::{AuthProvider, ProtectedRoute, Shell};
 use signals::provide_chat_context;
 
-/// Main application component
+/// Main application component - full app with all routes
 #[component]
 pub fn App() -> impl IntoView {
+    web_sys::console::log_1(&"[App] Rendering App component...".into());
+
     // Provides context for meta tags
     provide_meta_context();
+
+    web_sys::console::log_1(&"[App] Meta context provided, creating view...".into());
 
     view! {
         <Title text="AdapterOS"/>
@@ -226,6 +236,7 @@ fn ChatProvider(children: Children) -> impl IntoView {
 }
 
 /// Mount point for the application
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
 pub fn mount() {
     // Set up panic hook for better error messages
     console_error_panic_hook::set_once();
@@ -233,6 +244,10 @@ pub fn mount() {
     // Initialize tracing for WASM
     tracing_wasm::set_as_global_default();
 
+    web_sys::console::log_1(&"[mount] Starting app mount...".into());
+
     // Mount the app to the document body
     leptos::mount::mount_to_body(App);
+
+    web_sys::console::log_1(&"[mount] App mounted successfully".into());
 }

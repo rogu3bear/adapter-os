@@ -51,6 +51,10 @@ cargo build -p adapteros-lora-mlx-ffi --features mlx 2>&1 | grep "MLX FFI build"
 # If you see stub, MLX headers weren't found or MLX_FORCE_STUB=1 is set
 ```
 
+If the FFI runtime fails to initialize and you compiled with `mlx-rs-backend`,
+the system can fall back to the Rust bindings. Use `AOS_MLX_IMPL=rs` to force
+the fallback for debugging.
+
 ### Runtime Health Check
 
 ```bash

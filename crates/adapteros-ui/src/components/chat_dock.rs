@@ -4,9 +4,7 @@
 //! Provides a command console for interacting with AdapterOS.
 
 use crate::components::{Button, ButtonSize, Spinner, Textarea};
-use crate::signals::{
-    use_chat, ChatTarget, ContextToggle, DockState,
-};
+use crate::signals::{use_chat, ChatTarget, ContextToggle, DockState};
 use leptos::prelude::*;
 
 /// Chat Dock component - persistent chat panel on the right side (wrapper)
@@ -513,6 +511,9 @@ fn ChatInput() -> impl IntoView {
     let (chat_state, chat_action) = use_chat();
     let message = RwSignal::new(String::new());
 
+    // Create derived signal for loading state (fixes reactive tracking warning)
+    let is_loading = Memo::new(move |_| chat_state.get().loading);
+
     let do_send = {
         let action = chat_action.clone();
         move || {
@@ -550,13 +551,15 @@ fn ChatInput() -> impl IntoView {
                     class="resize-none".to_string()
                 />
                 <div class="flex justify-end">
-                    <Button
-                        size=ButtonSize::Sm
-                        loading=chat_state.get().loading
-                        on_click=send_callback
-                    >
-                        "Send"
-                    </Button>
+                    {move || view! {
+                        <Button
+                            size=ButtonSize::Sm
+                            loading=is_loading.get()
+                            on_click=send_callback.clone()
+                        >
+                            "Send"
+                        </Button>
+                    }}
                 </div>
             </form>
         </div>

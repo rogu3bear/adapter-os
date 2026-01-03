@@ -120,8 +120,8 @@ impl Array {
 
     /// Create ones array
     pub fn ones(shape: &[i32]) -> Result<Self> {
-        let arr = mlx_rs::ops::ones::<f32>(shape)
-            .map_err(|e| MlxError::ArrayOp(format!("ones: {e}")))?;
+        let arr =
+            mlx_rs::ops::ones::<f32>(shape).map_err(|e| MlxError::ArrayOp(format!("ones: {e}")))?;
         Ok(Self { inner: arr })
     }
 
@@ -696,14 +696,26 @@ mod tests {
         // First row: [1,2,3,4] -> normalized
         // Check that values are approximately in [-2, 2] range (normalized)
         for val in &data {
-            assert!(val.abs() < 2.5, "Layernorm output out of expected range: {}", val);
+            assert!(
+                val.abs() < 2.5,
+                "Layernorm output out of expected range: {}",
+                val
+            );
         }
 
         // Check that mean of each row is approximately 0
         let row1_mean = (data[0] + data[1] + data[2] + data[3]) / 4.0;
         let row2_mean = (data[4] + data[5] + data[6] + data[7]) / 4.0;
-        assert!(row1_mean.abs() < 1e-5, "Row 1 mean should be ~0: {}", row1_mean);
-        assert!(row2_mean.abs() < 1e-5, "Row 2 mean should be ~0: {}", row2_mean);
+        assert!(
+            row1_mean.abs() < 1e-5,
+            "Row 1 mean should be ~0: {}",
+            row1_mean
+        );
+        assert!(
+            row2_mean.abs() < 1e-5,
+            "Row 2 mean should be ~0: {}",
+            row2_mean
+        );
     }
 
     #[test]
@@ -725,8 +737,12 @@ mod tests {
         // For [1,2,3,4], RMS = sqrt((1+4+9+16)/4) = sqrt(7.5) ≈ 2.739
         // First element should be ~1/2.739 ≈ 0.365
         let expected_first = 1.0 / (7.5_f32).sqrt();
-        assert!((data[0] - expected_first).abs() < 0.01,
-            "First element should be ~{}: got {}", expected_first, data[0]);
+        assert!(
+            (data[0] - expected_first).abs() < 0.01,
+            "First element should be ~{}: got {}",
+            expected_first,
+            data[0]
+        );
     }
 
     #[test]
@@ -742,6 +758,10 @@ mod tests {
         // With weight=2 and bias=1, output = normalized * 2 + 1
         // So mean of output should be ~1 (bias), not 0
         let mean = (data[0] + data[1] + data[2] + data[3]) / 4.0;
-        assert!((mean - 1.0).abs() < 1e-4, "Mean with bias=1 should be ~1: {}", mean);
+        assert!(
+            (mean - 1.0).abs() < 1e-4,
+            "Mean with bias=1 should be ~1: {}",
+            mean
+        );
     }
 }

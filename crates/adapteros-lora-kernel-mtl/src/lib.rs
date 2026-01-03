@@ -1545,6 +1545,7 @@ impl FusedKernels for MetalKernels {
             manifest,
             rng_seed_method,
             floating_point_mode,
+            determinism_level: attestation::DeterminismLevel::BitExact,
             compiler_flags,
             deterministic,
         })

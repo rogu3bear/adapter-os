@@ -81,6 +81,15 @@ pub enum InferenceErrorDetails {
     },
 }
 
+/// Token usage computed by the worker tokenizer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenUsage {
+    pub prompt_tokens: u32,
+    pub completion_tokens: u32,
+    pub billed_input_tokens: u32,
+    pub billed_output_tokens: u32,
+}
+
 /// Inference response
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InferenceResponse {
@@ -89,6 +98,8 @@ pub struct InferenceResponse {
     pub trace: ResponseTrace,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run_receipt: Option<RunReceipt>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_usage: Option<TokenUsage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub refusal: Option<RefusalResponse>,
     /// Patch proposal if requested
@@ -167,6 +178,21 @@ pub struct InferenceResponse {
     /// This field is `None` for successful responses or unstructured errors.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_details: Option<InferenceErrorDetails>,
+}
+
+/// Token payload for streaming inference.
+#[derive(Debug, Clone)]
+pub struct StreamToken {
+    pub text: String,
+    pub token_id: Option<u32>,
+}
+
+/// Streaming inference events emitted by the worker.
+#[derive(Debug, Clone)]
+pub enum WorkerStreamEvent {
+    Token(StreamToken),
+    Complete(Box<crate::InferenceResponse>),
+    Error(String),
 }
 
 /// Patch proposal response with patches and citations
@@ -260,4 +286,10 @@ pub struct InferenceEvent {
     pub timeout_occurred: bool,
     pub circuit_breaker_open: bool,
     pub memory_usage: u64,
+    /// Time spent waiting in queue before inference starts (microseconds)
+    #[serde(default)]
+    pub queue_time_us: u64,
+    /// Time spent in actual token generation (microseconds)
+    #[serde(default)]
+    pub generation_time_us: u64,
 }

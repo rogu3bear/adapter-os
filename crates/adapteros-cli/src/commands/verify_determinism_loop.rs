@@ -58,7 +58,7 @@ pub async fn run(output: &OutputWriter) -> Result<i32> {
         &mut checks,
     );
     check_file(
-        "migrations/0030_federation.sql",
+        "migrations/0038_federation.sql",
         "Federation database migration",
         &mut checks,
     );
@@ -85,7 +85,7 @@ pub async fn run(output: &OutputWriter) -> Result<i32> {
         &mut checks,
     );
     check_file(
-        "migrations/0029_policy_hashes.sql",
+        "migrations/0037_policy_hashes.sql",
         "Policy hash migration",
         &mut checks,
     );

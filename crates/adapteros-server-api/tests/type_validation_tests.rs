@@ -512,4 +512,3 @@ mod validation_on_deserialization {
         println!("  status: must be pending, running, completed, or failed");
     }
 }
-

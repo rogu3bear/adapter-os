@@ -432,6 +432,26 @@ impl FusedKernels for KernelWrapper {
         }
     }
 
+    fn generate_text_stream(
+        &self,
+        prompt: &str,
+        max_tokens: usize,
+        temperature: f32,
+        top_p: f32,
+        on_token: &mut dyn FnMut(adapteros_lora_kernel_api::TextToken) -> bool,
+    ) -> Result<adapteros_lora_kernel_api::TextGenerationResult> {
+        match self {
+            KernelWrapper::Direct(k) => {
+                k.inner
+                    .generate_text_stream(prompt, max_tokens, temperature, top_p, on_token)
+            }
+            KernelWrapper::Coordinated(k) => {
+                k.primary
+                    .generate_text_stream(prompt, max_tokens, temperature, top_p, on_token)
+            }
+        }
+    }
+
     fn is_moe(&self) -> bool {
         match self {
             KernelWrapper::Direct(k) => k.inner.is_moe(),

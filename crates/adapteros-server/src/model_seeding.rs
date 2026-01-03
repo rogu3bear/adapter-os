@@ -256,11 +256,11 @@ pub async fn seed_models_from_cache_if_empty(db: &Db) -> Result<()> {
 /// Scans the given path for model files and determines the format and backend:
 /// - `.mlpackage` -> format="mlpackage", backend="coreml"
 /// - `.gguf` -> format="gguf", backend="metal"
-/// - Default -> format="safetensors", backend="mlx-ffi"
+/// - Default -> format="safetensors", backend="mlx"
 pub fn detect_model_format_backend(path: &std::path::Path) -> (String, String) {
     // Default to safetensors + mlx backend, override if we detect a CoreML package.
     let mut format = "safetensors".to_string();
-    let mut backend = "mlx-ffi".to_string();
+    let mut backend = "mlx".to_string();
 
     if let Ok(entries) = std::fs::read_dir(path) {
         for entry in entries.flatten() {

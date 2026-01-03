@@ -12,7 +12,8 @@ use crate::ComputeUnits;
 use adapteros_core::{AosError, Result};
 use adapteros_lora_kernel_api::{
     attestation::{
-        BackendType, DeterminismReport, FloatingPointMode, KernelManifest, RngSeedingMethod,
+        BackendType, DeterminismLevel, DeterminismReport, FloatingPointMode, KernelManifest,
+        RngSeedingMethod,
     },
     BackendHealth, BackendMetrics, FusedKernels, IoBuffers, RouterRing,
 };
@@ -524,6 +525,7 @@ impl FusedKernels for HybridCoreMLBackend {
             // FixedSeed(0) indicates no randomness used in inference
             rng_seed_method: RngSeedingMethod::FixedSeed(0),
             floating_point_mode: FloatingPointMode::Deterministic,
+            determinism_level: DeterminismLevel::BoundedTolerance,
             compiler_flags: vec!["-O3".to_string(), "-fno-fast-math".to_string()],
             deterministic: true,
         })

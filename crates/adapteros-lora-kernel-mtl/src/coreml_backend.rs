@@ -608,6 +608,11 @@ impl FusedKernels for CoreMLBackend {
             manifest: None,
             rng_seed_method: attestation::RngSeedingMethod::HkdfSeeded,
             floating_point_mode: attestation::FloatingPointMode::Deterministic,
+            determinism_level: if self.ane_available {
+                attestation::DeterminismLevel::BoundedTolerance
+            } else {
+                attestation::DeterminismLevel::None
+            },
             compiler_flags: vec![],
             deterministic: self.ane_available,
         })

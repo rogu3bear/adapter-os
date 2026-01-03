@@ -84,15 +84,19 @@ fn validate_request(request: &LiquidBlendRequest<'_>) -> Result<LiquidPrecision>
 #[cfg(feature = "mlx-rs-backend")]
 fn tensor_to_mlx(tensor: &LiquidTensor<'_>) -> Result<MlxArray> {
     match tensor.data {
-        LiquidSlice::F32(data) => {
-            Ok(MlxArray::from_slice_f32(data, &[tensor.rows as i32, tensor.cols as i32])?)
-        }
+        LiquidSlice::F32(data) => Ok(MlxArray::from_slice_f32(
+            data,
+            &[tensor.rows as i32, tensor.cols as i32],
+        )?),
         LiquidSlice::BFloat16(data) => {
             let mut tmp = Vec::with_capacity(data.len());
             for &bits in data {
                 tmp.push(f32::from_bits((bits as u32) << 16));
             }
-            Ok(MlxArray::from_slice_f32(&tmp, &[tensor.rows as i32, tensor.cols as i32])?)
+            Ok(MlxArray::from_slice_f32(
+                &tmp,
+                &[tensor.rows as i32, tensor.cols as i32],
+            )?)
         }
     }
 }
@@ -110,8 +114,6 @@ pub fn blend_and_forward_mlx(mut request: LiquidBlendRequest<'_>) -> Result<Liqu
     {
         let mut precision = validate_request(&request)?;
         request.output.fill(0.0);
-
-        use adapteros_lora_kernel_api::LiquidPrecision;
 
         let start = Instant::now();
         let input = MlxArray::from_slice_f32(request.input, &[request.input.len() as i32, 1])?;

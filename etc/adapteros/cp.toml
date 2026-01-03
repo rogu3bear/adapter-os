@@ -188,10 +188,10 @@ enabled = true
 default_role = "admin"
 
 # MLX Backend Configuration
-# MLX backend uses C++ FFI (no Python required)
-# Enable with: cargo build --features mlx-ffi-backend
+# MLX backend uses C++ FFI by default (no Python required)
+# Enable with: cargo build --features multi-backend
 [mlx]
-# Enable MLX backend support (requires --features mlx-ffi-backend)
+# Enable MLX backend support (requires --features multi-backend)
 enabled = false
 # Default model path (can be overridden by AOS_MLX_FFI_MODEL env var)
 model_path = "./models/qwen2.5-7b-mlx"

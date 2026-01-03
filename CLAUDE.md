@@ -74,6 +74,9 @@ cargo test --workspace -- --ignored
 # Determinism verification
 cargo test --test determinism_core_suite -- --test-threads=8
 cargo test -p adapteros-lora-router --test determinism
+
+# Production gate tests (pre-deployment validation)
+cargo test -p adapteros-e2e --features prod-gate
 ```
 
 **Test organization**: Workspace-level integration tests are in `tests/` at the repo root. Per-crate unit tests are in each crate's `src/` or `tests/` directory.
@@ -98,6 +101,18 @@ cargo test -p adapteros-lora-router --test determinism
 ./aosctl train-docs --docs-dir ./my-docs --register \
   --tenant-id <tenant> --base-model-id Qwen2.5-7B-Instruct      # Train and register
 ./aosctl train-docs --training-strategy qa --epochs 5           # Custom training params
+
+# Model management
+./aosctl models seed                           # Seed models from model directory
+./aosctl models seed --model-path /path/to/models --force  # Force re-seed from custom path
+./aosctl models seed --db-path ./custom.sqlite3            # Use custom database
+./aosctl models list                           # List registered models
+./aosctl models list --json                    # Output in JSON format
+./aosctl models list --db-path ./custom.sqlite3            # Use custom database
+
+# Serve with additional options
+./aosctl serve --capture-events ./events/              # Capture telemetry events to directory
+./aosctl serve --insecure-skip-egress-check            # Skip PF egress preflight (dev only)
 ```
 
 ## UI (Leptos WASM)

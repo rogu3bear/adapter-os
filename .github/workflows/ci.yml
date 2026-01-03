@@ -197,6 +197,63 @@ jobs:
           fi
           echo "✓ No -ffast-math flags detected in build artifacts"
 
+  prod-gate:
+    name: Prod Gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run prod gate
+        run: cargo test -p adapteros-e2e --features prod-gate
+      - name: Upload prod gate report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prod-gate-report
+          path: target/prod-gate/report.json
+
+  mlx-impl-matrix:
+    name: MLX Impl Matrix (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: no-mlx
+            os: ubuntu-latest
+            features: ""
+          - name: mlx-ffi
+            os: ubuntu-latest
+            features: "mlx"
+          - name: mlx-rs-backend
+            os: macos-14
+            features: "mlx-rs-backend"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run MLX selection tests
+        run: |
+          if [ -n "${{ matrix.features }}" ]; then
+            cargo test -p adapteros-lora-mlx-ffi --features "${{ matrix.features }}"
+          else
+            cargo test -p adapteros-lora-mlx-ffi
+          fi
+
+  worker-gate:
+    name: Worker Gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run worker gate
+        run: cargo test -p adapteros-e2e --features worker-gate --test worker_gate
+      - name: Upload worker gate report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: worker-gate-report
+          path: target/worker-gate/report.json
+
   sqlx-offline:
     name: SQLx Offline Cache Check
     runs-on: ubuntu-latest

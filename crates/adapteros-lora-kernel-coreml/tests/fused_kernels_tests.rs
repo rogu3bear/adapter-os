@@ -290,6 +290,19 @@ fn test_attest_determinism() {
         ),
         "Floating point mode should be valid"
     );
+
+    // Determinism level should align with deterministic flag
+    if report.deterministic {
+        assert_eq!(
+            report.determinism_level,
+            attestation::DeterminismLevel::BoundedTolerance
+        );
+    } else {
+        assert_eq!(
+            report.determinism_level,
+            attestation::DeterminismLevel::None
+        );
+    }
 }
 
 #[test]

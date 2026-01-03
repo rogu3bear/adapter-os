@@ -882,6 +882,9 @@ pub struct WorkerWithBinding {
     pub started_at: String,
     pub last_seen_at: Option<String>,
     pub manifest_hash_b3: Option<String>,
+    pub backend: Option<String>,
+    pub model_hash_b3: Option<String>,
+    pub capabilities_json: Option<String>,
     pub schema_version: Option<String>,
     pub api_version: Option<String>,
     pub registered_at: Option<String>,
@@ -1150,8 +1153,8 @@ impl Db {
 
         let workers = sqlx::query_as::<_, WorkerWithBinding>(
             "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status,
-                    started_at, last_seen_at, manifest_hash_b3, schema_version,
-                    api_version, registered_at, health_status
+                    started_at, last_seen_at, manifest_hash_b3, backend, model_hash_b3,
+                    capabilities_json, schema_version, api_version, registered_at, health_status
              FROM workers
              WHERE manifest_hash_b3 = ?
                AND status = 'healthy'
@@ -1223,8 +1226,8 @@ impl Db {
 
         let workers = sqlx::query_as::<_, WorkerWithBinding>(
             "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status,
-                    started_at, last_seen_at, manifest_hash_b3, schema_version,
-                    api_version, registered_at, health_status
+                    started_at, last_seen_at, manifest_hash_b3, backend, model_hash_b3,
+                    capabilities_json, schema_version, api_version, registered_at, health_status
              FROM workers
              WHERE manifest_hash_b3 = ?
                AND tenant_id = ?
@@ -1299,8 +1302,8 @@ impl Db {
 
         let workers = sqlx::query_as::<_, WorkerWithBinding>(
             "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status,
-                    started_at, last_seen_at, manifest_hash_b3, schema_version,
-                    api_version, registered_at, health_status
+                    started_at, last_seen_at, manifest_hash_b3, backend, model_hash_b3,
+                    capabilities_json, schema_version, api_version, registered_at, health_status
              FROM workers
              WHERE status = 'healthy'
                AND (health_status IS NULL OR health_status IN ('healthy', 'unknown'))
@@ -1380,8 +1383,8 @@ impl Db {
     ) -> Result<Option<WorkerWithBinding>> {
         let worker = sqlx::query_as::<_, WorkerWithBinding>(
             "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status,
-                    started_at, last_seen_at, manifest_hash_b3, schema_version,
-                    api_version, registered_at, health_status
+                    started_at, last_seen_at, manifest_hash_b3, backend, model_hash_b3,
+                    capabilities_json, schema_version, api_version, registered_at, health_status
              FROM workers WHERE id = ?",
         )
         .bind(worker_id)

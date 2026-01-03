@@ -39,9 +39,32 @@ pub struct WorkerRegistrationRequest {
     /// Backend capabilities (e.g., ["coreml", "mlx"])
     #[serde(default)]
     pub capabilities: Vec<String>,
+    /// Structured worker capabilities (backend kind + supported modes)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub capabilities_detail: Option<WorkerCapabilities>,
     /// Whether worker is running in strict mode (fail-closed on errors)
     #[serde(default)]
     pub strict_mode: bool,
+}
+
+/// Structured backend capabilities for worker registration and routing
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct WorkerCapabilities {
+    /// Backend kind: mlx, metal, coreml, bridge
+    pub backend_kind: String,
+    /// Optional implementation detail (e.g., "mlx_subprocess")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub implementation: Option<String>,
+    /// Supports token-by-token inference (run_step)
+    pub supports_step: bool,
+    /// Supports bulk text generation (generate_text_complete)
+    pub supports_bulk: bool,
+    /// Supports returning logits (step path)
+    pub supports_logits: bool,
+    /// Supports streaming tokens via step loop
+    pub supports_streaming: bool,
 }
 
 /// Worker registration response
@@ -142,6 +165,9 @@ pub struct WorkerResponse {
     /// Backend capabilities advertised by the worker
     #[serde(default)]
     pub capabilities: Vec<String>,
+    /// Structured capabilities advertised by the worker
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub capabilities_detail: Option<WorkerCapabilities>,
     /// Backend selected by the worker (e.g., mlx, metal, coreml)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backend: Option<String>,

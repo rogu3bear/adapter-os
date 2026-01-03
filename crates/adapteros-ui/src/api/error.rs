@@ -65,7 +65,9 @@ impl ApiError {
             return Self::Structured {
                 error: err.error,
                 code: err.code.clone(),
-                failure_code: err.failure_code.or_else(|| FailureCode::parse_code(&err.code)),
+                failure_code: err
+                    .failure_code
+                    .or_else(|| FailureCode::parse_code(&err.code)),
                 details: err.details,
             };
         }
@@ -186,7 +188,13 @@ mod tests {
         let error = ApiError::from_response(503, body);
 
         assert!(matches!(error, ApiError::Structured { .. }));
-        if let ApiError::Structured { error, code, failure_code, .. } = &error {
+        if let ApiError::Structured {
+            error,
+            code,
+            failure_code,
+            ..
+        } = &error
+        {
             assert_eq!(error, "Worker is overloaded");
             assert_eq!(code, "WORKER_OVERLOADED");
             assert_eq!(*failure_code, Some(FailureCode::WorkerOverloaded));

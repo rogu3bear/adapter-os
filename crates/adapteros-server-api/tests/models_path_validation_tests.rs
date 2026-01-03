@@ -36,7 +36,7 @@ async fn load_model_returns_404_when_model_path_missing() {
     .bind("cfg_hash")
     .bind("tok_hash")
     .bind("tok_cfg_hash")
-    .bind("mlx-ffi")
+    .bind("mlx")
     .bind(missing_path)
     .bind(&claims.tenant_id)
     .execute(state.db.pool())

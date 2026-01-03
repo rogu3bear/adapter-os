@@ -57,6 +57,17 @@ impl ProcessHealthStatus {
     }
 }
 
+fn dev_no_auth_enabled() -> bool {
+    if !cfg!(debug_assertions) {
+        return false;
+    }
+
+    match std::env::var("AOS_DEV_NO_AUTH") {
+        Ok(raw) => matches!(raw.to_lowercase().as_str(), "true" | "1" | "yes" | "on"),
+        Err(_) => false,
+    }
+}
+
 /// Process health monitor
 pub struct HealthMonitor {
     config: HealthConfig,
@@ -416,15 +427,32 @@ impl HealthEvent {
 fn get_process_memory() -> Result<u64> {
     use std::process::Command;
 
-    let output = Command::new("ps")
+    let output = match Command::new("ps")
         .args(["-o", "rss=", "-p", &std::process::id().to_string()])
         .output()
-        .map_err(|e| AosError::Worker(format!("Failed to get memory info: {}", e)))?;
+    {
+        Ok(output) => output,
+        Err(e) => {
+            if dev_no_auth_enabled() {
+                return Ok(0);
+            }
+            return Err(AosError::Worker(format!(
+                "Failed to get memory info: {}",
+                e
+            )));
+        }
+    };
 
     let rss_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    let rss_kb: u64 = rss_str
-        .parse()
-        .map_err(|e| AosError::Worker(format!("Failed to parse memory: {}", e)))?;
+    let rss_kb: u64 = match rss_str.parse() {
+        Ok(value) => value,
+        Err(e) => {
+            if dev_no_auth_enabled() {
+                return Ok(0);
+            }
+            return Err(AosError::Worker(format!("Failed to parse memory: {}", e)));
+        }
+    };
 
     Ok(rss_kb * 1024) // Convert KB to bytes
 }

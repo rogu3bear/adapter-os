@@ -9,4 +9,5 @@ pub mod router_telemetry_consumer;
 pub mod security;
 pub mod shutdown;
 pub mod status_writer;
+pub mod telemetry_flush;
 pub mod topology_loader;

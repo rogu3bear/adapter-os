@@ -10,7 +10,7 @@ use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-const IS_REAL_MLX: bool = cfg!(feature = "mlx");
+const IS_REAL_MLX: bool = cfg!(feature = "mlx") && !cfg!(mlx_stub);
 
 fn backend_device_label() -> String {
     if IS_REAL_MLX {
@@ -177,7 +177,7 @@ impl MLXFFIBackend {
     /// Create new MLX FFI backend with loaded model and default resilience
     pub fn new(model: MLXFFIModel) -> Self {
         // Ensure MLX runtime is initialized
-        if let Err(e) = crate::mlx_runtime_init() {
+        if let Err(e) = crate::mlx_runtime_init_ffi() {
             tracing::warn!("MLX runtime initialization warning: {}", e);
             // Continue - may already be initialized
         }
@@ -197,8 +197,8 @@ impl MLXFFIBackend {
         manifest_hash: Option<B3Hash>,
     ) -> Self {
         // Ensure MLX runtime is initialized
-        if !crate::mlx_runtime_is_initialized() {
-            if let Err(e) = crate::mlx_runtime_init() {
+        if !crate::mlx_runtime_is_initialized_ffi() {
+            if let Err(e) = crate::mlx_runtime_init_ffi() {
                 tracing::warn!("MLX runtime init in backend: {}", e);
             }
         }
@@ -243,7 +243,7 @@ impl MLXFFIBackend {
         let seed = derive_seed(&manifest_hash, "mlx");
 
         // Set MLX random seed for determinism
-        crate::mlx_set_seed_from_bytes(&seed)?;
+        crate::mlx_set_seed_from_bytes_ffi(&seed)?;
 
         tracing::info!(
             manifest_hash = %manifest_hash.to_hex(),
@@ -295,7 +295,7 @@ impl MLXFFIBackend {
         let seed = derive_seed(&manifest_hash, "mlx");
 
         // Set MLX random seed for determinism
-        crate::mlx_set_seed_from_bytes(&seed)?;
+        crate::mlx_set_seed_from_bytes_ffi(&seed)?;
 
         tracing::info!(
             manifest_hash = %manifest_hash.to_hex(),
@@ -761,6 +761,11 @@ impl FusedKernels for MLXFFIBackend {
             manifest: None,                    // No Metal-style manifest
             rng_seed_method: rng_method,
             floating_point_mode: float_mode,
+            determinism_level: if seeded && !is_stub_active && IS_REAL_MLX {
+                DeterminismLevel::BitExact
+            } else {
+                DeterminismLevel::None
+            },
             compiler_flags: vec![],
             deterministic: seeded && !is_stub_active && IS_REAL_MLX,
         };

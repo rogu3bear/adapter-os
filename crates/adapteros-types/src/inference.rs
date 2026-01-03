@@ -25,6 +25,8 @@ pub enum StopReasonCode {
     CompletionConfident,
     /// N-gram repetition detected within sliding window
     RepetitionGuard,
+    /// Explicit stop sequence detected
+    StopSequence,
 }
 
 impl std::fmt::Display for StopReasonCode {
@@ -34,6 +36,7 @@ impl std::fmt::Display for StopReasonCode {
             Self::BudgetMax => write!(f, "BUDGET_MAX"),
             Self::CompletionConfident => write!(f, "COMPLETION_CONFIDENT"),
             Self::RepetitionGuard => write!(f, "REPETITION_GUARD"),
+            Self::StopSequence => write!(f, "STOP_SEQUENCE"),
         }
     }
 }
@@ -47,6 +50,7 @@ impl std::str::FromStr for StopReasonCode {
             "BUDGET_MAX" => Ok(Self::BudgetMax),
             "COMPLETION_CONFIDENT" => Ok(Self::CompletionConfident),
             "REPETITION_GUARD" => Ok(Self::RepetitionGuard),
+            "STOP_SEQUENCE" => Ok(Self::StopSequence),
             _ => Err(format!("Unknown stop reason code: {}", s)),
         }
     }

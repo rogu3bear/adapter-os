@@ -20,7 +20,7 @@
 //! use adapteros_server_api::inference_core::{InferenceCore, InferenceRequestInternal};
 //!
 //! let core = InferenceCore::new(&app_state);
-//! let result = core.route_and_infer(request, None, None).await?;
+//! let result = core.route_and_infer(request, None, None, None).await?;
 //! ```
 
 mod adapters;

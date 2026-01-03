@@ -257,10 +257,10 @@ pub fn has_permission(role: &Role, permission: Permission) -> bool {
         (Role::Operator, Permission::TenantTokenRevoke) => false, // Cannot bulk-revoke tokens (Admin only)
         (Role::Operator, Permission::PolicyView) => true,
         (Role::Operator, Permission::PolicyValidate) => true,
-        (Role::Operator, Permission::PolicyApply) => false,  // Cannot apply policies (Admin only)
-        (Role::Operator, Permission::PolicySign) => false,   // Cannot sign policies (Admin only)
+        (Role::Operator, Permission::PolicyApply) => false, // Cannot apply policies (Admin only)
+        (Role::Operator, Permission::PolicySign) => false,  // Cannot sign policies (Admin only)
         (Role::Operator, Permission::NodeView) => true,
-        (Role::Operator, Permission::NodeManage) => false,   // Cannot manage nodes (Admin only)
+        (Role::Operator, Permission::NodeManage) => false, // Cannot manage nodes (Admin only)
         (Role::Operator, Permission::GitView) => true,
         (Role::Operator, Permission::GitManage) => true,
         (Role::Operator, Permission::CodeView) => true,
@@ -467,7 +467,10 @@ mod tests {
         assert!(has_permission(&Role::Operator, Permission::TrainingCancel));
 
         // Can execute inference
-        assert!(has_permission(&Role::Operator, Permission::InferenceExecute));
+        assert!(has_permission(
+            &Role::Operator,
+            Permission::InferenceExecute
+        ));
 
         // Can view audit logs
         assert!(has_permission(&Role::Operator, Permission::AuditView));
@@ -477,7 +480,10 @@ mod tests {
         assert!(!has_permission(&Role::Operator, Permission::PolicySign));
         assert!(!has_permission(&Role::Operator, Permission::PolicyApply));
         assert!(!has_permission(&Role::Operator, Permission::NodeManage));
-        assert!(!has_permission(&Role::Operator, Permission::FederationManage));
+        assert!(!has_permission(
+            &Role::Operator,
+            Permission::FederationManage
+        ));
         assert!(!has_permission(&Role::Operator, Permission::DatasetDelete));
     }
 

@@ -742,9 +742,27 @@ impl InferencePipeline {
         let mut total_router_time_us = 0u64;
 
         // 3.5 Initialize stop controller
-        let mut stop_controller = StopController::from_policy_or_default(
+        let stop_sequences_tokens = match request.stop_policy.as_ref() {
+            Some(policy) => {
+                let mut sequences = Vec::new();
+                for sequence in &policy.stop_sequences {
+                    if sequence.is_empty() {
+                        continue;
+                    }
+                    let tokens = self.tokenizer.encode(sequence)?;
+                    if tokens.is_empty() {
+                        continue;
+                    }
+                    sequences.push(tokens);
+                }
+                sequences
+            }
+            None => Vec::new(),
+        };
+        let mut stop_controller = StopController::from_policy_or_default_with_stop_sequences(
             request.stop_policy.clone(),
             request.max_tokens as u32,
+            stop_sequences_tokens,
         );
         let stop_policy_digest = *stop_controller.policy_digest();
         let mut stop_reason_code = None;
@@ -1044,6 +1062,12 @@ impl InferencePipeline {
             ) {
                 stop_reason_code = Some(decision.reason);
                 stop_reason_token_index = Some(decision.token_index);
+                if decision.trim_tokens > 0 {
+                    let trim = decision.trim_tokens.min(generated_tokens.len());
+                    for _ in 0..trim {
+                        generated_tokens.pop();
+                    }
+                }
                 debug!(
                     step,
                     reason = %decision.reason,
@@ -1232,9 +1256,27 @@ impl InferencePipeline {
         let mut total_router_time_us = 0u64;
 
         // 3.5 Initialize stop controller (PRD: Hard Deterministic Stop Controller)
-        let mut stop_controller = StopController::from_policy_or_default(
+        let stop_sequences_tokens = match request.stop_policy.as_ref() {
+            Some(policy) => {
+                let mut sequences = Vec::new();
+                for sequence in &policy.stop_sequences {
+                    if sequence.is_empty() {
+                        continue;
+                    }
+                    let tokens = self.tokenizer.encode(sequence)?;
+                    if tokens.is_empty() {
+                        continue;
+                    }
+                    sequences.push(tokens);
+                }
+                sequences
+            }
+            None => Vec::new(),
+        };
+        let mut stop_controller = StopController::from_policy_or_default_with_stop_sequences(
             request.stop_policy.clone(),
             request.max_tokens as u32,
+            stop_sequences_tokens,
         );
         let stop_policy_digest = *stop_controller.policy_digest();
         let mut stop_reason_code = None;
@@ -1523,14 +1565,21 @@ impl InferencePipeline {
             ) {
                 stop_reason_code = Some(decision.reason);
                 stop_reason_token_index = Some(decision.token_index);
+                if decision.trim_tokens > 0 {
+                    let trim = decision.trim_tokens.min(generated_tokens.len());
+                    for _ in 0..trim {
+                        generated_tokens.pop();
+                    }
+                }
                 debug!(
                     step,
                     reason = %decision.reason,
                     token_index = decision.token_index,
                     "Stop controller triggered"
                 );
-                // For LENGTH stop (EOS token), don't include the EOS in output
-                // For other reasons, we've already decided to stop before appending
+                // For LENGTH stop (EOS token), don't include the EOS in output.
+                // For STOP_SEQUENCE, trim previously emitted tokens that form the sequence.
+                // For other reasons, we've already decided to stop before appending.
                 break;
             }
 
@@ -1910,7 +1959,10 @@ mod tests {
             placement: None,
             routing_policy: None,
             stop_policy: None,
+            policy_mask_digest_b3: None,
+            utf8_healing: true,
             admin_override: false,
+            arrival_instant: None,
         };
         assert_eq!(request.max_tokens, 100);
     }

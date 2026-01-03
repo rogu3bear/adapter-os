@@ -465,7 +465,7 @@ impl EffectiveConfig {
             let path = std::path::Path::new(&db_path);
             if !Self::is_absolute_or_url(path) {
                 errors.push(format!(
-                    "Production mode requires absolute path for database.url: got '{}'\nHint: Use absolute paths starting with / (e.g., /var/lib/adapteros/aos-cp.sqlite3)",
+                    "Production mode requires absolute path for database.url: got '{}'\nHint: Use absolute paths under AOS_VAR_DIR (e.g., /adapter-os/var/aos-cp.sqlite3)",
                     db_path
                 ));
             }
@@ -474,7 +474,7 @@ impl EffectiveConfig {
         // Check adapters_root
         if !Self::is_absolute_or_url(&self.paths.adapters_root) {
             errors.push(format!(
-                "Production mode requires absolute path for paths.adapters_root: got '{}'\nHint: Use absolute paths starting with / (e.g., /var/lib/adapteros/adapters)",
+                "Production mode requires absolute path for paths.adapters_root: got '{}'\nHint: Use absolute paths under AOS_VAR_DIR (e.g., /adapter-os/var/adapters)",
                 self.paths.adapters_root.display()
             ));
         }
@@ -482,7 +482,7 @@ impl EffectiveConfig {
         // Check datasets_root
         if !Self::is_absolute_or_url(&self.paths.datasets_root) {
             errors.push(format!(
-                "Production mode requires absolute path for paths.datasets_root: got '{}'\nHint: Use absolute paths starting with / (e.g., /var/lib/adapteros/datasets)",
+                "Production mode requires absolute path for paths.datasets_root: got '{}'\nHint: Use absolute paths under AOS_VAR_DIR (e.g., /adapter-os/var/datasets)",
                 self.paths.datasets_root.display()
             ));
         }
@@ -490,7 +490,7 @@ impl EffectiveConfig {
         // Check documents_root
         if !Self::is_absolute_or_url(&self.paths.documents_root) {
             errors.push(format!(
-                "Production mode requires absolute path for paths.documents_root: got '{}'\nHint: Use absolute paths starting with / (e.g., /var/lib/adapteros/documents)",
+                "Production mode requires absolute path for paths.documents_root: got '{}'\nHint: Use absolute paths under AOS_VAR_DIR (e.g., /adapter-os/var/documents)",
                 self.paths.documents_root.display()
             ));
         }
@@ -499,7 +499,7 @@ impl EffectiveConfig {
         if let Some(ref log_dir) = self.logging.log_dir {
             if !Self::is_absolute_or_url(log_dir) {
                 errors.push(format!(
-                    "Production mode requires absolute path for logging.log_dir: got '{}'\nHint: Use absolute paths starting with / (e.g., /var/log/adapteros)",
+                    "Production mode requires absolute path for logging.log_dir: got '{}'\nHint: Use absolute paths under AOS_VAR_DIR (e.g., /adapter-os/var/logs)",
                     log_dir.display()
                 ));
             }
@@ -599,7 +599,7 @@ impl EffectiveConfig {
     ///
     /// Handles URLs like:
     /// - "sqlite://var/aos-cp.sqlite3" -> Some("var/aos-cp.sqlite3")
-    /// - "sqlite:///var/lib/adapteros/aos-cp.sqlite3" -> Some("/var/lib/adapteros/aos-cp.sqlite3")
+    /// - "sqlite:///adapter-os/var/aos-cp.sqlite3" -> Some("/adapter-os/var/aos-cp.sqlite3")
     /// - "postgres://..." -> None (not a file path)
     fn extract_db_path(&self, url: &str) -> Option<String> {
         url.strip_prefix("sqlite://")
@@ -1164,21 +1164,21 @@ mod tests {
         prod_abs_values.insert("server.production.mode".to_string(), "true".to_string());
         prod_abs_values.insert(
             "database.url".to_string(),
-            "sqlite:///var/lib/adapteros/aos-cp.sqlite3".to_string(),
+            "sqlite:///adapter-os/var/aos-cp.sqlite3".to_string(),
         );
         prod_abs_values.insert(
             "adapters.dir".to_string(),
-            "/var/lib/adapteros/adapters/repo".to_string(),
+            "/adapter-os/var/adapters/repo".to_string(),
         );
         prod_abs_values.insert(
             "paths.datasets.root".to_string(),
-            "/var/lib/adapteros/datasets".to_string(),
+            "/adapter-os/var/datasets".to_string(),
         );
         prod_abs_values.insert(
             "paths.documents.root".to_string(),
-            "/var/lib/adapteros/documents".to_string(),
+            "/adapter-os/var/documents".to_string(),
         );
-        prod_abs_values.insert("log.file".to_string(), "/var/log/adapteros".to_string());
+        prod_abs_values.insert("log.file".to_string(), "/adapter-os/var/logs".to_string());
         prod_abs_values.insert("security.jwt.secret".to_string(), "prod-secret".to_string());
         prod_abs_values.insert("inference.backend.profile".to_string(), "metal".to_string());
 
@@ -1236,16 +1236,16 @@ mod tests {
         prod_mixed_values.insert("server.production.mode".to_string(), "true".to_string());
         prod_mixed_values.insert(
             "database.url".to_string(),
-            "sqlite:///var/lib/adapteros/aos-cp.sqlite3".to_string(),
+            "sqlite:///adapter-os/var/aos-cp.sqlite3".to_string(),
         );
         prod_mixed_values.insert("adapters.dir".to_string(), "var/adapters/repo".to_string()); // Relative
         prod_mixed_values.insert(
             "paths.datasets.root".to_string(),
-            "/var/lib/adapteros/datasets".to_string(),
+            "/adapter-os/var/datasets".to_string(),
         );
         prod_mixed_values.insert(
             "paths.documents.root".to_string(),
-            "/var/lib/adapteros/documents".to_string(),
+            "/adapter-os/var/documents".to_string(),
         );
 
         let prod_mixed_config = DeterministicConfig::new_for_test(prod_mixed_values);

@@ -704,9 +704,7 @@ impl MLTensor {
                         )
                     };
                     if result.is_null() {
-                        return Err(AosError::Kernel(
-                            "Layer normalization failed".to_string(),
-                        ));
+                        return Err(AosError::Kernel("Layer normalization failed".to_string()));
                     }
                     // LayerNorm preserves shape, copy from input
                     Ok(Self {
@@ -2239,6 +2237,11 @@ impl FusedKernels for CoreMLBackend {
             manifest: None,
             rng_seed_method,
             floating_point_mode,
+            determinism_level: if deterministic {
+                attestation::DeterminismLevel::BoundedTolerance
+            } else {
+                attestation::DeterminismLevel::None
+            },
             compiler_flags: vec![],
             deterministic,
         })

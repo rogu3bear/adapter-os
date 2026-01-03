@@ -99,6 +99,17 @@ pub struct InferenceMeasurement {
     /// e.g., "LENGTH", "BUDGET_MAX", "COMPLETION_CONFIDENT", "REPETITION_GUARD"
     pub stop_reason: Option<String>,
 
+    /// Time spent waiting in queue before inference starts (microseconds)
+    /// Measures the gap between request arrival and actual inference execution
+    pub queue_time_us: u64,
+
+    /// Time spent in actual token generation (microseconds)
+    /// Excludes queue wait time; pure inference duration
+    pub generation_time_us: u64,
+
+    /// Worker ID that processed this request
+    pub worker_id: Option<String>,
+
     /// Timestamp
     pub timestamp: Instant,
 }
@@ -152,6 +163,37 @@ impl InferenceMetricsCollector {
         adapters: Vec<String>,
         stop_reason: Option<String>,
     ) {
+        self.record_inference_with_timing(
+            request_id,
+            latency,
+            tokens,
+            success,
+            adapters,
+            stop_reason,
+            0,
+            0,
+            None,
+        )
+        .await;
+    }
+
+    /// Record an inference operation with full timing breakdown
+    ///
+    /// This is the comprehensive recording method that captures queue wait time
+    /// and generation time separately for performance analysis.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn record_inference_with_timing(
+        &self,
+        request_id: String,
+        latency: Duration,
+        tokens: u64,
+        success: bool,
+        adapters: Vec<String>,
+        stop_reason: Option<String>,
+        queue_time_us: u64,
+        generation_time_us: u64,
+        worker_id: Option<String>,
+    ) {
         let measurement = InferenceMeasurement {
             request_id,
             latency_ms: latency.as_millis() as u64,
@@ -159,6 +201,9 @@ impl InferenceMetricsCollector {
             success,
             adapters: adapters.clone(),
             stop_reason: stop_reason.clone(),
+            queue_time_us,
+            generation_time_us,
+            worker_id,
             timestamp: Instant::now(),
         };
 

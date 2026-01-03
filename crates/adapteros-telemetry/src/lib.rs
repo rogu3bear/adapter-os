@@ -4,13 +4,14 @@ use ::tracing::{error, info, warn};
 use adapteros_core::identity::IdentityEnvelope;
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_crypto::{generate_signing_key, load_signing_key, sign_bundle, Keypair};
-use crossbeam::channel::{unbounded, Receiver, Sender};
+use crossbeam::channel::{bounded, unbounded, Receiver, RecvTimeoutError, Sender};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
 
 pub mod alerting;
 pub mod bundle;
@@ -111,11 +112,17 @@ pub use unified_events::{
 };
 pub use writer::RouterDecisionWriter;
 
+enum TelemetryCommand {
+    Event(Box<UnifiedTelemetryEvent>),
+    Flush(Sender<Result<()>>),
+    Shutdown(Sender<Result<()>>),
+}
+
 /// Telemetry writer with background thread
 #[derive(Clone)]
 pub struct TelemetryWriter {
-    sender: Sender<UnifiedTelemetryEvent>,
-    _handle: Arc<thread::JoinHandle<()>>,
+    sender: Sender<TelemetryCommand>,
+    handle: Arc<Mutex<Option<thread::JoinHandle<()>>>>,
 }
 
 impl TelemetryWriter {
@@ -143,14 +150,14 @@ impl TelemetryWriter {
 
         Ok(Self {
             sender,
-            _handle: Arc::new(handle),
+            handle: Arc::new(Mutex::new(Some(handle))),
         })
     }
 
     /// Log an event using the unified event schema
     pub fn log_event(&self, event: UnifiedTelemetryEvent) -> Result<()> {
         self.sender
-            .send(event)
+            .send(TelemetryCommand::Event(Box::new(event)))
             .map_err(|_| AosError::Io("Failed to send telemetry event".to_string()))?;
         Ok(())
     }
@@ -176,29 +183,100 @@ impl TelemetryWriter {
     /// Flushes all pending events and waits for the writer thread to complete.
     /// This ensures no telemetry data is lost during shutdown.
     pub fn shutdown(self) -> Result<()> {
+        self.shutdown_with_timeout(Duration::from_secs(5))
+    }
+
+    /// Gracefully shutdown the telemetry writer with a timeout.
+    ///
+    /// Flushes pending events, asks the writer thread to stop, and joins with a timeout
+    /// to avoid hanging the shutdown path.
+    pub fn shutdown_with_timeout(self, timeout: Duration) -> Result<()> {
         info!("Initiating telemetry writer shutdown");
 
-        // Send a shutdown signal by dropping the sender
-        // This will cause the receiver to return None, signaling shutdown
+        let (ack_tx, ack_rx) = bounded(1);
+        let mut shutdown_result = Ok(());
+
+        if let Err(e) = self.sender.send(TelemetryCommand::Shutdown(ack_tx)) {
+            warn!(error = %e, "Telemetry shutdown signal failed to send");
+            shutdown_result = Err(AosError::Io(
+                "Failed to send telemetry shutdown command".to_string(),
+            ));
+        } else {
+            match ack_rx.recv_timeout(timeout) {
+                Ok(result) => {
+                    if let Err(e) = result {
+                        warn!(error = %e, "Telemetry shutdown flush failed");
+                        shutdown_result = Err(e);
+                    }
+                }
+                Err(RecvTimeoutError::Timeout) => {
+                    warn!(
+                        timeout_ms = timeout.as_millis() as u64,
+                        "Telemetry shutdown timed out waiting for flush"
+                    );
+                    shutdown_result = Err(AosError::Telemetry(format!(
+                        "Telemetry shutdown timeout after {:?}",
+                        timeout
+                    )));
+                }
+                Err(RecvTimeoutError::Disconnected) => {
+                    warn!("Telemetry shutdown response channel disconnected");
+                    shutdown_result = Err(AosError::Io(
+                        "Telemetry shutdown response channel closed".to_string(),
+                    ));
+                }
+            }
+        }
+
         drop(self.sender);
 
-        // Wait for the writer thread to complete
-        // Clone the Arc to get access to the JoinHandle
-        let handle = Arc::try_unwrap(self._handle).map_err(|_| {
-            AosError::Internal("Telemetry writer thread still has references".to_string())
-        })?;
-
-        match handle.join() {
-            Ok(_) => {
+        let handle = self.handle.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if let Some(handle) = handle {
+            if let Err(e) = join_handle_with_timeout(handle, timeout) {
+                warn!(error = %e, "Telemetry writer thread did not shut down cleanly");
+                if shutdown_result.is_ok() {
+                    shutdown_result = Err(e);
+                }
+            } else {
                 info!("Telemetry writer thread shutdown complete");
-                Ok(())
             }
-            Err(e) => {
-                error!("Telemetry writer thread panicked during shutdown: {:?}", e);
-                Err(AosError::Internal(
-                    "Telemetry writer thread panicked".to_string(),
-                ))
-            }
+        } else {
+            info!("Telemetry writer thread already shut down");
+        }
+
+        shutdown_result
+    }
+
+    /// Flush buffered telemetry to disk.
+    ///
+    /// Blocks until the writer thread confirms the flush.
+    pub fn flush(&self) -> Result<()> {
+        let (ack_tx, ack_rx) = bounded(1);
+        self.sender
+            .send(TelemetryCommand::Flush(ack_tx))
+            .map_err(|_| AosError::Io("Failed to send telemetry flush command".to_string()))?;
+        ack_rx
+            .recv()
+            .map_err(|_| AosError::Io("Telemetry flush response channel closed".to_string()))?
+    }
+
+    /// Flush buffered telemetry with a timeout.
+    ///
+    /// Returns an error if the flush does not complete within the timeout.
+    pub fn flush_with_timeout(&self, timeout: Duration) -> Result<()> {
+        let (ack_tx, ack_rx) = bounded(1);
+        self.sender
+            .send(TelemetryCommand::Flush(ack_tx))
+            .map_err(|_| AosError::Io("Failed to send telemetry flush command".to_string()))?;
+        match ack_rx.recv_timeout(timeout) {
+            Ok(result) => result,
+            Err(RecvTimeoutError::Timeout) => Err(AosError::Telemetry(format!(
+                "Telemetry flush timeout after {:?}",
+                timeout
+            ))),
+            Err(RecvTimeoutError::Disconnected) => Err(AosError::Io(
+                "Telemetry flush response channel closed".to_string(),
+            )),
         }
     }
 
@@ -444,8 +522,30 @@ impl TelemetryWriter {
 
 // Legacy TelemetryEvent struct removed - use UnifiedTelemetryEvent instead
 
+fn join_handle_with_timeout(handle: thread::JoinHandle<()>, timeout: Duration) -> Result<()> {
+    let (done_tx, done_rx) = bounded(1);
+    thread::spawn(move || {
+        let result = handle.join();
+        let _ = done_tx.send(result);
+    });
+
+    match done_rx.recv_timeout(timeout) {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(_)) => Err(AosError::Internal(
+            "Telemetry writer thread panicked during shutdown".to_string(),
+        )),
+        Err(RecvTimeoutError::Timeout) => Err(AosError::Telemetry(format!(
+            "Telemetry writer thread shutdown timeout after {:?}",
+            timeout
+        ))),
+        Err(RecvTimeoutError::Disconnected) => Err(AosError::Telemetry(
+            "Telemetry writer shutdown join channel closed".to_string(),
+        )),
+    }
+}
+
 fn run_writer(
-    receiver: Receiver<UnifiedTelemetryEvent>,
+    receiver: Receiver<TelemetryCommand>,
     output_dir: PathBuf,
     max_events: usize,
     max_bytes: usize,
@@ -459,10 +559,35 @@ fn run_writer(
     let mut event_hashes = Vec::new();
     let mut skipped_events = 0;
 
-    let bundle_path = output_dir.join(format!("bundle_{:06}.ndjson", bundle_idx));
+    let mut bundle_path = output_dir.join(format!("bundle_{:06}.ndjson", bundle_idx));
     let mut writer = BufWriter::new(File::create(&bundle_path)?);
+    let mut shutdown_requested = false;
 
-    for event in receiver {
+    for command in receiver {
+        let event = match command {
+            TelemetryCommand::Event(event) => *event,
+            TelemetryCommand::Flush(reply) => {
+                let result = writer
+                    .flush()
+                    .map_err(|e| AosError::Io(format!("Bundle writer flush failed: {}", e)));
+                if let Err(ref e) = result {
+                    error!(error = %e, "Failed to flush telemetry bundle");
+                }
+                let _ = reply.send(result);
+                continue;
+            }
+            TelemetryCommand::Shutdown(reply) => {
+                shutdown_requested = true;
+                let result = writer
+                    .flush()
+                    .map_err(|e| AosError::Io(format!("Bundle writer flush failed: {}", e)));
+                if let Err(ref e) = result {
+                    error!(error = %e, "Failed to flush telemetry bundle on shutdown");
+                }
+                let _ = reply.send(result);
+                break;
+            }
+        };
         // Validate identity envelope
         if let Err(e) = event.identity.validate() {
             warn!(error = %e, "Invalid identity in telemetry event, skipping");
@@ -541,15 +666,28 @@ fn run_writer(
             event_hashes.clear();
             skipped_events = 0;
 
-            let bundle_path = output_dir.join(format!("bundle_{:06}.ndjson", bundle_idx));
+            bundle_path = output_dir.join(format!("bundle_{:06}.ndjson", bundle_idx));
             writer = BufWriter::new(File::create(&bundle_path)?);
         }
     }
 
-    // Flush final bundle
-    if let Err(e) = writer.flush() {
-        error!(error = %e, "Failed to flush final bundle");
-        return Err(AosError::Io(format!("Final bundle flush failed: {}", e)));
+    // Flush final bundle (unless already flushed during shutdown)
+    if !shutdown_requested {
+        if let Err(e) = writer.flush() {
+            error!(error = %e, "Failed to flush final bundle");
+            return Err(AosError::Io(format!("Final bundle flush failed: {}", e)));
+        }
+    }
+
+    drop(writer);
+
+    if event_count > 0 {
+        if let Err(e) = finalize_bundle(&bundle_path, &event_hashes, &signing_keypair) {
+            error!(error = %e, "Failed to finalize telemetry bundle");
+            if !shutdown_requested {
+                return Err(e);
+            }
+        }
     }
 
     if skipped_events > 0 {

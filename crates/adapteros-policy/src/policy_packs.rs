@@ -494,7 +494,7 @@ impl PolicyPackManager {
                 "serve_requires_pf": true,
                 "allow_tcp": false,
                 "allow_udp": false,
-                "uds_paths": ["/var/run/aos/<tenant>/*.sock"],
+                "uds_paths": ["./var/run/aos/<tenant>/*.sock"],
                 "media_import": {"require_signature": true, "require_sbom": true}
             }),
             PolicyPackId::Determinism => serde_json::json!({
@@ -539,7 +539,7 @@ impl PolicyPackManager {
             }),
             PolicyPackId::Isolation => serde_json::json!({
                 "process_model": "per_tenant",
-                "uds_root": "/var/run/aos/<tenant>",
+                "uds_root": "./var/run/aos/<tenant>",
                 "forbid_shm": true,
                 "keys": {"backend": "secure_enclave", "require_hardware": true}
             }),
@@ -605,14 +605,14 @@ impl PolicyPackManager {
             PolicyPackId::FullPack => serde_json::json!({
                 "schema": "adapteros.policy.v1",
                 "packs": {
-                    "egress": {"mode": "deny_all", "serve_requires_pf": true, "allow_tcp": false, "allow_udp": false, "uds_paths": ["/var/run/aos/<tenant>/*.sock"], "media_import": {"require_signature": true, "require_sbom": true}},
+                    "egress": {"mode": "deny_all", "serve_requires_pf": true, "allow_tcp": false, "allow_udp": false, "uds_paths": ["./var/run/aos/<tenant>/*.sock"], "media_import": {"require_signature": true, "require_sbom": true}},
                     "determinism": {"require_metallib_embed": true, "require_kernel_hash_match": true, "rng": "hkdf_seeded", "retrieval_tie_break": ["score_desc", "doc_id_asc"]},
                     "router": {"k_sparse": 4, "gate_quant": "q15", "entropy_floor": 0.02, "sample_tokens_full": 128, "allowed_clusters": [], "denied_clusters": [], "max_reasoning_depth": 10, "cluster_fallback": "stay_on_current"},
                     "evidence": {"require_open_book": true, "min_spans": 1, "prefer_latest_revision": true, "warn_on_superseded": true},
                     "refusal": {"abstain_threshold": 0.55, "missing_fields_templates": {"torque_spec": ["aircraft_effectivity", "component_pn"]}},
                     "numeric": {"canonical_units": {"torque": "in_lbf", "pressure": "psi"}, "max_rounding_error": 0.5, "require_units_in_trace": true},
                     "rag": {"index_scope": "per_tenant", "doc_tags_required": ["doc_id", "rev", "effectivity", "source_type"], "embedding_model_hash": "b3:...", "topk": 5, "order": ["score_desc", "doc_id_asc"]},
-                    "isolation": {"process_model": "per_tenant", "uds_root": "/var/run/aos/<tenant>", "forbid_shm": true, "keys": {"backend": "secure_enclave", "require_hardware": true}},
+                    "isolation": {"process_model": "per_tenant", "uds_root": "./var/run/aos/<tenant>", "forbid_shm": true, "keys": {"backend": "secure_enclave", "require_hardware": true}},
                     "telemetry": {"schema_hash": "b3:...", "sampling": {"token": 0.05, "router": 1.0, "inference": 1.0}, "router_full_tokens": 128, "bundle": {"max_events": 500000, "max_bytes": 268435456}},
                     "retention": {"keep_bundles_per_cpid": 12, "keep_incident_bundles": true, "keep_promotion_bundles": true, "evict_strategy": "oldest_first_safe"},
                     "performance": {"latency_p95_ms": 24, "router_overhead_pct_max": 8, "throughput_tokens_per_s_min": 40},
@@ -984,7 +984,7 @@ impl EgressValidator {
                 "serve_requires_pf": true,
                 "allow_tcp": false,
                 "allow_udp": false,
-                "uds_paths": ["/var/run/aos/<tenant>/*.sock"],
+                "uds_paths": ["./var/run/aos/<tenant>/*.sock"],
                 "media_import": {"require_signature": true, "require_sbom": true}
             }),
         }
@@ -1575,7 +1575,7 @@ impl IsolationValidator {
         Self {
             config: serde_json::json!({
                 "process_model": "per_tenant",
-                "uds_root": "/var/run/aos/<tenant>",
+                "uds_root": "./var/run/aos/<tenant>",
                 "forbid_shm": true,
                 "keys": {"backend": "secure_enclave", "require_hardware": true}
             }),
@@ -2369,14 +2369,14 @@ impl FullPackValidator {
             config: serde_json::json!({
                 "schema": "adapteros.policy.v1",
                 "packs": {
-                    "egress": {"mode": "deny_all", "serve_requires_pf": true, "allow_tcp": false, "allow_udp": false, "uds_paths": ["/var/run/aos/<tenant>/*.sock"], "media_import": {"require_signature": true, "require_sbom": true}},
+                    "egress": {"mode": "deny_all", "serve_requires_pf": true, "allow_tcp": false, "allow_udp": false, "uds_paths": ["./var/run/aos/<tenant>/*.sock"], "media_import": {"require_signature": true, "require_sbom": true}},
                     "determinism": {"require_metallib_embed": true, "require_kernel_hash_match": true, "rng": "hkdf_seeded", "retrieval_tie_break": ["score_desc", "doc_id_asc"]},
                     "router": {"k_sparse": 4, "gate_quant": "q15", "entropy_floor": 0.02, "sample_tokens_full": 128},
                     "evidence": {"require_open_book": true, "min_spans": 1, "prefer_latest_revision": true, "warn_on_superseded": true},
                     "refusal": {"abstain_threshold": 0.55, "missing_fields_templates": {"torque_spec": ["aircraft_effectivity", "component_pn"]}},
                     "numeric": {"canonical_units": {"torque": "in_lbf", "pressure": "psi"}, "max_rounding_error": 0.5, "require_units_in_trace": true},
                     "rag": {"index_scope": "per_tenant", "doc_tags_required": ["doc_id", "rev", "effectivity", "source_type"], "embedding_model_hash": "b3:...", "topk": 5, "order": ["score_desc", "doc_id_asc"]},
-                    "isolation": {"process_model": "per_tenant", "uds_root": "/var/run/aos/<tenant>", "forbid_shm": true, "keys": {"backend": "secure_enclave", "require_hardware": true}},
+                    "isolation": {"process_model": "per_tenant", "uds_root": "./var/run/aos/<tenant>", "forbid_shm": true, "keys": {"backend": "secure_enclave", "require_hardware": true}},
                     "telemetry": {"schema_hash": "b3:...", "sampling": {"token": 0.05, "router": 1.0, "inference": 1.0}, "router_full_tokens": 128, "bundle": {"max_events": 500000, "max_bytes": 268435456}},
                     "retention": {"keep_bundles_per_cpid": 12, "keep_incident_bundles": true, "keep_promotion_bundles": true, "evict_strategy": "oldest_first_safe"},
                     "performance": {"latency_p95_ms": 24, "router_overhead_pct_max": 8, "throughput_tokens_per_s_min": 40},

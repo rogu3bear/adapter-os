@@ -74,7 +74,7 @@ where
         refetch_init();
     });
 
-    (state.into(), refetch)
+    (state, refetch)
 }
 
 /// Simple polling hook

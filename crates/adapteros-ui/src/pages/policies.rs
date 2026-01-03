@@ -4,8 +4,8 @@
 
 use crate::api::client::{ApiClient, PolicyPackResponse};
 use crate::components::{
-    Button, ButtonVariant, Card, Shell, Spinner, Table,
-    TableBody, TableCell, TableHead, TableHeader, TableRow,
+    Button, ButtonVariant, Card, Spinner, Table, TableBody, TableCell, TableHead, TableHeader,
+    TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use leptos::prelude::*;
@@ -18,9 +18,8 @@ pub fn Policies() -> impl IntoView {
     let selected_cpid = RwSignal::new(None::<String>);
 
     // Fetch policies
-    let (policies, refetch_policies) = use_api_resource(move |client: Arc<ApiClient>| async move {
-        client.list_policies().await
-    });
+    let (policies, refetch_policies) =
+        use_api_resource(move |client: Arc<ApiClient>| async move { client.list_policies().await });
 
     // Store refetch in a signal for sharing
     let refetch_signal = StoredValue::new(refetch_policies);
@@ -43,8 +42,7 @@ pub fn Policies() -> impl IntoView {
     };
 
     view! {
-        <Shell>
-            <div class="flex h-full">
+        <div class="p-6 flex h-full">
                 // Left panel: Policy list
                 <div class=left_panel_class>
                     <div class="flex items-center justify-between">
@@ -110,8 +108,7 @@ pub fn Policies() -> impl IntoView {
                         }
                     })
                 }}
-            </div>
-        </Shell>
+        </div>
     }
 }
 
@@ -197,10 +194,7 @@ fn PolicyList(
 
 /// Policy detail panel
 #[component]
-fn PolicyDetail(
-    cpid: String,
-    on_close: impl Fn() + Copy + 'static,
-) -> impl IntoView {
+fn PolicyDetail(cpid: String, on_close: impl Fn() + Copy + 'static) -> impl IntoView {
     let cpid_for_fetch = cpid.clone();
 
     // Fetch policy details

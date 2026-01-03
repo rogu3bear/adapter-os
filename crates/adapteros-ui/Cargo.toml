@@ -15,8 +15,8 @@ hydrate = ["leptos/hydrate"]
 ssr = ["leptos/ssr", "leptos_router/ssr", "leptos_meta/ssr"]
 
 [dependencies]
-# Leptos ecosystem (0.7+ has CSR as default, no explicit csr feature)
-leptos = { version = "0.7" }
+# Leptos ecosystem - CSR mode for client-side rendering
+leptos = { version = "0.7", features = ["csr"] }
 leptos_router = { version = "0.7" }
 leptos_meta = { version = "0.7" }
 
