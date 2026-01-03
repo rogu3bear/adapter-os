@@ -165,7 +165,20 @@ jobs:
             --test coreml_stub_inference \
             -- --nocapture
 
+      - name: Check CoreML model availability
+        id: coreml-models
+        run: |
+          MODEL_PATH_512="var/model-cache/models/qwen2.5-7b-instruct-fp16-512.mlpackage"
+          if [ -d "$MODEL_PATH_512" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "CoreML models available, running perf smoke"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::CoreML models not available at $MODEL_PATH_512, skipping perf smoke"
+          fi
+
       - name: CoreML perf smoke (tok/s ≥40, p95 <30ms)
+        if: steps.coreml-models.outputs.available == 'true'
         run: |
           CONFIG_PATH="var/model-cache/models/qwen2.5-7b-instruct-bf16/config.json"
           # seq_len 512
@@ -220,6 +233,41 @@ if p95 > 30.0:
     raise SystemExit(f"p95_ms_per_token {p95:.2f} exceeds 30ms target (seq_len=4096)")
 print(f"CoreML perf OK (4096): {tokps:.2f} tok/s, p95/token {p95:.2f} ms")
           PY
+
+  # CoreML workspace integration test
+  test-macos-coreml-workspace:
+    name: CoreML Workspace Integration
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-coreml-workspace-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build workspace with coreml-backend
+        run: |
+          cargo build --workspace \
+            --features coreml-backend \
+            --exclude adapteros-lora-mlx-ffi
+
+      - name: Test workspace with coreml-backend
+        run: |
+          cargo test --workspace \
+            --features coreml-backend \
+            --exclude adapteros-lora-mlx-ffi \
+            -- --nocapture
 
   # macOS builds - All backends
   macos-all-backends:
