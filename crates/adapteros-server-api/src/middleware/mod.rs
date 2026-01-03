@@ -197,6 +197,7 @@ pub mod error_code_enforcement;
 pub mod observability;
 pub mod policy_enforcement;
 pub mod request_id;
+pub mod seed_isolation;
 pub mod trace_context;
 pub mod versioning;
 

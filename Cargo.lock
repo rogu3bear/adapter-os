@@ -1593,6 +1593,7 @@ dependencies = [
  "sha1",
  "sha2",
  "sqlx",
+ "subtle",
  "sysinfo 0.31.4",
  "tar",
  "tempfile",
