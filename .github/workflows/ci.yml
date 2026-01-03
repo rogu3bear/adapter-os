@@ -96,6 +96,41 @@ jobs:
       - name: Run tests
         run: cargo test --workspace --all-targets
 
+  test-macos-production:
+    name: Test Suite (macOS, production-macos)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Guard legacy AOS flag in CI
+        run: |
+          case "${AOS_ALLOW_LEGACY_AOS:-0}" in
+            1|true|TRUE|yes|YES)
+              echo "::error::AOS_ALLOW_LEGACY_AOS must remain disabled in CI tests"
+              exit 1
+              ;;
+            *)
+              echo "Legacy AOS flag is not enabled (expected)"
+              ;;
+          esac
+      - name: Run tests with production-macos features
+        run: |
+          cargo test --workspace --all-targets \
+            --features production-macos \
+            --exclude adapteros-lora-mlx-ffi
+
+  hardware-residency:
+    name: Hardware Residency Tests
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run hardware residency tests
+        run: |
+          cargo test --workspace \
+            --features hardware-residency \
+            -- --ignored --nocapture
+
   kv-primary:
     name: KV Primary Mode
     runs-on: ubuntu-latest
@@ -238,6 +273,22 @@ jobs:
           else
             cargo test -p adapteros-lora-mlx-ffi
           fi
+
+  macos-mlx-ffi:
+    name: MLX FFI (macOS)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install MLX dependencies
+        run: |
+          brew install mlx
+      - name: Build MLX FFI
+        run: |
+          cargo build -p adapteros-lora-mlx-ffi --features mlx
+      - name: Test MLX FFI
+        run: |
+          cargo test -p adapteros-lora-mlx-ffi --features mlx -- --nocapture
 
   worker-gate:
     name: Worker Gate
