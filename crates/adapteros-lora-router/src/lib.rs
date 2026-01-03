@@ -42,7 +42,9 @@ pub use policy_mask::filter_decision_by_policy;
 pub use scoring::{create_scorer, EntropyFloorScorer, ScoringFunction, WeightedScorer};
 
 pub(crate) use quantization::quantize_gate;
-pub use quantization::{ROUTER_GATE_Q15_DENOM, ROUTER_GATE_Q15_MAX};
+pub use quantization::{
+    GateQuantFormat, Q15_FORMAT_NAME, ROUTER_GATE_Q15_DENOM, ROUTER_GATE_Q15_MAX,
+};
 pub use router::{AbstainContext, Router};
 pub use types::{
     AdapterInfo, Decision, DecisionCandidate, DecisionHash, RouterAbstainReason,

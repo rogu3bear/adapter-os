@@ -2762,6 +2762,7 @@ impl<'a> InferenceCore<'a> {
             execution_policy_version: None,
             stop_policy_json,
             policy_mask_digest_b3: request.policy_mask_digest_b3.as_ref().map(hex::encode),
+            utf8_healing: request.utf8_healing,
         }
     }
 
@@ -3061,6 +3062,7 @@ impl<'a> InferenceCore<'a> {
             execution_policy_version: execution_policy_version.map(|v| v as i32),
             stop_policy_json,
             policy_mask_digest_b3: request.policy_mask_digest_b3.as_ref().map(hex::encode),
+            utf8_healing: request.utf8_healing,
         };
 
         // Store to database (best effort - don't fail inference on capture error)

@@ -172,6 +172,7 @@ mod tests {
             execution_policy_version: None,
             stop_policy_json: None,
             policy_mask_digest_b3: None,
+            utf8_healing: None,
             created_at: "now".to_string(),
         };
 
@@ -267,6 +268,7 @@ mod tests {
             execution_policy_version: None,
             stop_policy_json: None,
             policy_mask_digest_b3: None,
+            utf8_healing: None,
             created_at: "now".to_string(),
         };
 
@@ -340,6 +342,7 @@ mod tests {
             execution_policy_version: None,
             stop_policy_json: None,
             policy_mask_digest_b3: None,
+            utf8_healing: None,
             created_at: "now".to_string(),
         };
 

@@ -96,6 +96,9 @@ pub mod lifecycle_rules;
 // Migration validation utilities
 pub mod migration_validation;
 
+// Dual-write acknowledgment tracking
+pub mod write_ack;
+
 // Re-export commonly used types
 pub use adapter_repositories::{
     AdapterRepository, AdapterRepositoryPolicy, AdapterVersion, AdapterVersionRuntimeState,
@@ -127,6 +130,9 @@ pub use kv_metrics::{
     KvMetrics, KvMetricsSnapshot, KvOperationTimer, KvOperationType, KV_ALERT_METRIC_DEGRADATIONS,
     KV_ALERT_METRIC_DRIFT, KV_ALERT_METRIC_ERRORS, KV_ALERT_METRIC_FALLBACKS,
 };
+
+// Re-export dual-write ack types
+pub use write_ack::{WriteAck, WriteAckStore, WriteStatus};
 
 const MIN_FREE_SPACE_BYTES: u64 = 100 * 1024 * 1024;
 

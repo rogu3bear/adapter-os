@@ -11,6 +11,8 @@ use crate::validation::*;
 use sqlx::Row;
 // System metrics integration
 use adapteros_system_metrics;
+// Invariant constants
+use adapteros_core::Q15_GATE_DENOMINATOR;
 use chrono::Utc;
 use serde_json::json;
 use std::collections::HashMap;
@@ -3219,7 +3221,7 @@ pub async fn get_routing_history(
             let adapter_scores: Vec<AdapterScore> = candidates
                 .iter()
                 .map(|c| {
-                    let gate_float = (c.gate_q15 as f32) / 32767.0;
+                    let gate_float = (c.gate_q15 as f32) / Q15_GATE_DENOMINATOR;
                     let adapter_id = format!("adapter-{}", c.adapter_idx);
                     let is_selected = selected_adapters.contains(&adapter_id);
                     AdapterScore {

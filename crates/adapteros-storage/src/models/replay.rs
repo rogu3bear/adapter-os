@@ -43,6 +43,8 @@ pub struct ReplayMetadataKv {
     pub execution_policy_version: Option<i32>,
     pub stop_policy_json: Option<String>,
     pub policy_mask_digest_b3: Option<String>,
+    /// Whether UTF-8 token healing was enabled for this inference
+    pub utf8_healing: Option<bool>,
     pub created_at: String,
 }
 

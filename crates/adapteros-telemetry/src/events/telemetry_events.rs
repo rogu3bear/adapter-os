@@ -1366,3 +1366,154 @@ impl KvQuotaEvent {
         }
     }
 }
+
+// =============================================================================
+// Backend Selection Events
+// =============================================================================
+
+/// Event emitted when a backend is selected for inference.
+///
+/// This event captures the backend selection decision, including any
+/// fallback/downgrade that occurred. It enables:
+/// 1. Auditing which backend was used for each inference
+/// 2. Tracking silent downgrades (GPU → CPU)
+/// 3. Alerting on unexpected fallbacks
+/// 4. Performance regression detection
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackendSelectionEvent {
+    /// Timestamp (microseconds since epoch)
+    pub timestamp_us: u64,
+    /// Request ID for correlation
+    pub request_id: Option<String>,
+    /// Session ID for correlation
+    pub session_id: Option<String>,
+    /// Backend that was originally requested
+    pub requested_backend: String,
+    /// Backend that was actually selected
+    pub selected_backend: String,
+    /// Whether a downgrade occurred (e.g., GPU → CPU)
+    pub was_downgrade: bool,
+    /// Reason for downgrade (if applicable)
+    pub downgrade_reason: Option<String>,
+    /// Whether the downgrade was permitted by policy
+    pub policy_permitted: bool,
+    /// Estimated performance impact (e.g., "100x slower")
+    pub latency_impact_estimate: Option<String>,
+    /// Hardware capabilities snapshot at selection time
+    pub capabilities_snapshot: BackendCapabilitiesSnapshot,
+    /// Tenant ID for scoping
+    pub tenant_id: Option<String>,
+    /// Worker ID for cross-worker analysis
+    pub worker_id: Option<u32>,
+}
+
+/// Snapshot of backend capabilities at selection time.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct BackendCapabilitiesSnapshot {
+    /// Metal GPU available
+    pub has_metal: bool,
+    /// Metal device name
+    pub metal_device_name: Option<String>,
+    /// Apple Neural Engine available
+    pub has_ane: bool,
+    /// CoreML available
+    pub has_coreml: bool,
+    /// MLX available
+    pub has_mlx: bool,
+    /// GPU memory in bytes
+    pub gpu_memory_bytes: Option<u64>,
+}
+
+impl BackendSelectionEvent {
+    /// Create a new backend selection event with no downgrade.
+    pub fn new(requested: impl Into<String>, selected: impl Into<String>) -> Self {
+        let requested_str = requested.into();
+        let selected_str = selected.into();
+        let was_downgrade = requested_str != selected_str;
+
+        Self {
+            timestamp_us: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_micros() as u64,
+            request_id: None,
+            session_id: None,
+            requested_backend: requested_str,
+            selected_backend: selected_str,
+            was_downgrade,
+            downgrade_reason: None,
+            policy_permitted: true,
+            latency_impact_estimate: None,
+            capabilities_snapshot: BackendCapabilitiesSnapshot::default(),
+            tenant_id: None,
+            worker_id: None,
+        }
+    }
+
+    /// Create a downgrade event with reason.
+    pub fn downgrade(
+        requested: impl Into<String>,
+        selected: impl Into<String>,
+        reason: impl Into<String>,
+    ) -> Self {
+        Self {
+            timestamp_us: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_micros() as u64,
+            request_id: None,
+            session_id: None,
+            requested_backend: requested.into(),
+            selected_backend: selected.into(),
+            was_downgrade: true,
+            downgrade_reason: Some(reason.into()),
+            policy_permitted: true,
+            latency_impact_estimate: None,
+            capabilities_snapshot: BackendCapabilitiesSnapshot::default(),
+            tenant_id: None,
+            worker_id: None,
+        }
+    }
+
+    /// Set the request ID for correlation.
+    pub fn with_request_id(mut self, request_id: impl Into<String>) -> Self {
+        self.request_id = Some(request_id.into());
+        self
+    }
+
+    /// Set the session ID for correlation.
+    pub fn with_session_id(mut self, session_id: impl Into<String>) -> Self {
+        self.session_id = Some(session_id.into());
+        self
+    }
+
+    /// Set the tenant ID.
+    pub fn with_tenant_id(mut self, tenant_id: impl Into<String>) -> Self {
+        self.tenant_id = Some(tenant_id.into());
+        self
+    }
+
+    /// Set the worker ID.
+    pub fn with_worker_id(mut self, worker_id: u32) -> Self {
+        self.worker_id = Some(worker_id);
+        self
+    }
+
+    /// Set the capabilities snapshot.
+    pub fn with_capabilities(mut self, caps: BackendCapabilitiesSnapshot) -> Self {
+        self.capabilities_snapshot = caps;
+        self
+    }
+
+    /// Set the latency impact estimate.
+    pub fn with_latency_impact(mut self, impact: impl Into<String>) -> Self {
+        self.latency_impact_estimate = Some(impact.into());
+        self
+    }
+
+    /// Mark as policy-blocked.
+    pub fn policy_blocked(mut self) -> Self {
+        self.policy_permitted = false;
+        self
+    }
+}

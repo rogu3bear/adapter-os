@@ -16,7 +16,7 @@ compile_error!(
 );
 
 use crate::export::validate_coreml_fusion;
-use adapteros_core::{AosError, B3Hash, Result};
+use adapteros_core::{AosError, B3Hash, Result, Q15_GATE_DENOMINATOR};
 use adapteros_lora_kernel_api::{
     attestation, BackendHealth, BackendMetrics, FusedKernels, GpuBufferFingerprint, IoBuffers,
     RouterRing,
@@ -1094,7 +1094,7 @@ unsafe impl Sync for CoreMLBackend {}
 impl CoreMLBackend {
     #[inline]
     fn gate_q15_to_f32(gate: i16) -> f32 {
-        gate as f32 / 32767.0
+        gate as f32 / Q15_GATE_DENOMINATOR
     }
 
     #[cfg(any(test, debug_assertions, feature = "coreml-stub"))]

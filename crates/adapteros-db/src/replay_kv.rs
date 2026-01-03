@@ -91,6 +91,7 @@ impl Db {
             execution_policy_version: params.execution_policy_version,
             stop_policy_json: params.stop_policy_json.clone(),
             policy_mask_digest_b3: params.policy_mask_digest_b3.clone(),
+            utf8_healing: params.utf8_healing,
             created_at: Utc::now().to_rfc3339(),
         }
     }
@@ -137,6 +138,7 @@ impl Db {
             execution_policy_version: meta.execution_policy_version,
             stop_policy_json: meta.stop_policy_json,
             policy_mask_digest_b3: meta.policy_mask_digest_b3,
+            utf8_healing: meta.utf8_healing,
             created_at: meta.created_at,
         })
     }

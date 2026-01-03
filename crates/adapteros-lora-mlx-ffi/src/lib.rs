@@ -125,12 +125,50 @@ pub fn mlx_set_seed_from_bytes(seed: &[u8]) -> Result<()> {
     }
 }
 
+/// Set MLX's global random seed using a TypedSeed with version validation.
+///
+/// This is the preferred method for setting MLX seeds across FFI boundaries.
+/// It validates:
+/// 1. The seed's checksum integrity (detects corruption)
+/// 2. The seed's algorithm version (detects schema drift)
+///
+/// In strict determinism mode, version mismatches cause immediate failure.
+/// In best-effort mode, version mismatches log a warning but proceed.
+///
+/// # Arguments
+/// * `typed_seed` - A TypedSeed containing version metadata and checksum
+///
+/// # Errors
+/// Returns `AosError::DeterminismViolation` if:
+/// - Checksum validation fails (always)
+/// - Version mismatch detected and strict mode enabled
+///
+/// # Example
+/// ```ignore
+/// use adapteros_core::seed::{derive_typed_seed, B3Hash};
+/// use adapteros_lora_mlx_ffi::mlx_set_typed_seed;
+///
+/// let global = B3Hash::hash(b"model-manifest");
+/// let typed_seed = derive_typed_seed(&global, "mlx-dropout");
+/// mlx_set_typed_seed(&typed_seed)?;
+/// ```
+pub fn mlx_set_typed_seed(typed_seed: &adapteros_core::TypedSeed) -> Result<()> {
+    // Validate seed with current determinism config (strict/best-effort mode)
+    typed_seed.validate_with_config()?;
+
+    tracing::debug!(
+        seed_version = typed_seed.version,
+        seed_checksum = %typed_seed.checksum.to_short_hex(),
+        "Setting MLX seed with TypedSeed (version-validated)"
+    );
+
+    // Pass validated raw bytes to the backend
+    mlx_set_seed_from_bytes(typed_seed.as_bytes())
+}
+
 pub(crate) fn mlx_set_seed_from_bytes_ffi(seed: &[u8]) -> Result<()> {
-    if seed.is_empty() {
-        return Err(AosError::Internal(
-            "Seed buffer cannot be empty".to_string(),
-        ));
-    }
+    // INVARIANT: Validate seed meets HKDF requirements (32 bytes)
+    adapteros_core::validate_seed_bytes(seed)?;
 
     ffi_error::clear_ffi_error();
 
@@ -140,18 +178,17 @@ pub(crate) fn mlx_set_seed_from_bytes_ffi(seed: &[u8]) -> Result<()> {
 
     // Check if there was an error during seed setting
     if let Some(error_str) = ffi_error::get_and_clear_ffi_error() {
-        // Ignore specific expected "error" that's not really an error
-        if error_str != "Invalid seed: pointer is null or length is 0" {
-            return Err(AosError::Mlx(format!(
-                "Failed to set MLX seed: {}",
-                error_str
-            )));
-        }
+        // FFI errors are always propagated - no string matching
+        return Err(AosError::Mlx(format!(
+            "Failed to set MLX seed: {}",
+            error_str
+        )));
     }
 
     tracing::debug!(
         seed_len = seed.len(),
-        "MLX backend seeded for deterministic dropout/sampling"
+        seed_checksum = %format!("{:02x}{:02x}{:02x}{:02x}", seed[0], seed[1], seed[2], seed[3]),
+        "MLX FFI backend seeded for deterministic dropout/sampling"
     );
 
     Ok(())
@@ -179,11 +216,16 @@ fn seed_rs_sampler(seed: &[u8]) -> Result<()> {
 
 #[cfg(feature = "mlx-rs-backend")]
 pub(crate) fn mlx_set_seed_from_bytes_rs(seed: &[u8]) -> Result<()> {
-    if seed.is_empty() {
-        return Err(AosError::Internal(
-            "Seed buffer cannot be empty".to_string(),
-        ));
-    }
+    // INVARIANT: Validate seed (soft check - warns if < 32 bytes since we truncate to u64)
+    adapteros_core::validate_seed_bytes_soft(seed, "mlx-rs-backend")?;
+
+    // Debug assertion for strict validation in tests
+    debug_assert_eq!(
+        seed.len(),
+        adapteros_core::invariants::HKDF_OUTPUT_LENGTH,
+        "mlx-rs seed should be full HKDF output (32 bytes), got {}",
+        seed.len()
+    );
 
     let mut seed_bytes = [0u8; 8];
     let copy_len = seed_bytes.len().min(seed.len());
@@ -195,6 +237,7 @@ pub(crate) fn mlx_set_seed_from_bytes_rs(seed: &[u8]) -> Result<()> {
 
     tracing::debug!(
         seed_len = seed.len(),
+        seed_u64 = seed_value,
         "MLX (mlx-rs) backend seeded for deterministic dropout/sampling"
     );
 

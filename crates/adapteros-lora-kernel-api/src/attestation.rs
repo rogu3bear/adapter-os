@@ -104,6 +104,14 @@ impl fmt::Display for DeterminismLevel {
     }
 }
 
+impl Default for DeterminismLevel {
+    /// Defaults to `None` for backward compatibility with serialized data
+    /// that predates the `determinism_level` field.
+    fn default() -> Self {
+        DeterminismLevel::None
+    }
+}
+
 /// Kernel manifest metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KernelManifest {
@@ -130,7 +138,9 @@ pub struct DeterminismReport {
     pub rng_seed_method: RngSeedingMethod,
     /// Floating-point execution mode
     pub floating_point_mode: FloatingPointMode,
-    /// Determinism strength classification
+    /// Determinism strength classification.
+    /// Defaults to `None` for backward compatibility with older serialized reports.
+    #[serde(default)]
     pub determinism_level: DeterminismLevel,
     /// Compiler flags used to build kernels
     pub compiler_flags: Vec<String>,
@@ -337,5 +347,31 @@ mod tests {
     fn test_determinism_level_ordering() {
         assert!(DeterminismLevel::BitExact > DeterminismLevel::BoundedTolerance);
         assert!(DeterminismLevel::BoundedTolerance > DeterminismLevel::None);
+    }
+
+    #[test]
+    fn test_determinism_level_default() {
+        assert_eq!(DeterminismLevel::default(), DeterminismLevel::None);
+    }
+
+    #[test]
+    fn test_determinism_report_deserialize_missing_level_field() {
+        // Simulate a serialized report from an older version without determinism_level
+        let json = r#"{
+            "backend_type": "Metal",
+            "metallib_hash": null,
+            "manifest": null,
+            "rng_seed_method": "HkdfSeeded",
+            "floating_point_mode": "Deterministic",
+            "compiler_flags": [],
+            "deterministic": true
+        }"#;
+
+        let report: DeterminismReport =
+            serde_json::from_str(json).expect("Should deserialize with missing determinism_level");
+
+        // Field should default to None for backward compatibility
+        assert_eq!(report.determinism_level, DeterminismLevel::None);
+        assert!(report.deterministic);
     }
 }
