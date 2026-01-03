@@ -70,7 +70,8 @@ pub use invariants::{
 pub use metrics::{initialize_metrics, MetricsContext};
 pub use runtime::{initialize_runtime, RuntimeContext};
 pub use security::{
-    initialize_security, log_effective_config, run_preflight_checks, SecurityContext,
+    initialize_security, log_effective_config, run_preflight_checks,
+    validate_production_security_env, SecurityContext, SecurityEnvValidation,
 };
 pub use server::{
     bind_and_serve, bind_error_exit_code, precheck_tcp_port, BindError, BindMode, ServerBindConfig,
