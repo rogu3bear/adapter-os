@@ -52,9 +52,15 @@ async fn boot_state_does_not_reset_when_db_is_attached_mid_boot() {
     );
     assert_eq!(
         boot_state.current_state(),
-        BootState::InitializingDb,
+        BootState::DbConnecting,
         "state should not regress when attaching DB"
     );
+
+    boot_state.migrating().await;
+    assert_eq!(boot_state.current_state(), BootState::Migrating);
+
+    boot_state.seeding().await;
+    assert_eq!(boot_state.current_state(), BootState::Seeding);
 
     boot_state.load_policies().await;
     assert_eq!(boot_state.current_state(), BootState::LoadingPolicies);
@@ -67,6 +73,9 @@ async fn boot_state_does_not_reset_when_db_is_attached_mid_boot() {
 
     boot_state.load_adapters().await;
     assert_eq!(boot_state.current_state(), BootState::LoadingAdapters);
+
+    boot_state.worker_discovery().await;
+    assert_eq!(boot_state.current_state(), BootState::WorkerDiscovery);
 
     boot_state.ready().await;
     assert!(
