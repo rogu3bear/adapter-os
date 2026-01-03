@@ -51,6 +51,7 @@ pub mod telemetry;
 pub mod telemetry_ext;
 pub mod types;
 pub mod uds_client;
+pub mod uds_metrics;
 pub mod validation;
 pub mod worker_capabilities;
 pub mod worker_health;

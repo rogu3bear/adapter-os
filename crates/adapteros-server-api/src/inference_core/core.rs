@@ -141,6 +141,7 @@ use crate::types::{
     SAMPLING_ALGORITHM_VERSION,
 };
 use crate::uds_client::{UdsClient, WorkerStreamEvent, WorkerStreamToken};
+use crate::uds_metrics::record_uds_timings;
 use crate::worker_capabilities::{
     capability_reasons, parse_worker_capabilities, RequiredModes, WorkerCapabilityExclusion,
 };
@@ -868,9 +869,10 @@ impl<'a> InferenceCore<'a> {
             })?
         } else {
             // Wrap the UDS call in routing context to ensure task-local guard is set
+            // Use infer_with_phase_timings to capture UDS latency metrics (PRD-11)
             let worker_call = crate::uds_client::run_with_routing_context(async {
                 uds_client
-                    .infer(
+                    .infer_with_phase_timings(
                         &uds_path,
                         worker_request,
                         worker_auth_token.as_deref(),
@@ -879,7 +881,19 @@ impl<'a> InferenceCore<'a> {
                     .await
             });
 
-            worker_call.await.map_err(map_uds_error)?
+            let (response, uds_timings) = worker_call.await.map_err(map_uds_error)?;
+
+            // Record UDS phase timings to metrics registry (PRD-11)
+            record_uds_timings(
+                &self.state.metrics_registry,
+                &uds_timings,
+                Some("/inference"),
+                selected_worker_id.as_deref(),
+                true, // success
+            )
+            .await;
+
+            response
         };
 
         // Stage 9: Policy Hooks (OnAfterInference)
