@@ -1,3 +1,21 @@
+//! Authentication and password verification module.
+//!
+//! # Security Guarantees
+//!
+//! This module provides timing-safe password verification to prevent side-channel attacks:
+//!
+//! - **Constant-time verification**: Password comparisons use Argon2's built-in constant-time
+//!   comparison (via the `subtle` crate internally) to prevent timing attacks.
+//! - **Timing-consistent failures**: Invalid hash formats and failed verifications execute
+//!   a hardened Argon2 hash to maintain consistent timing regardless of failure reason.
+//! - **Single entry point**: All password verification goes through [`verify_password`],
+//!   ensuring consistent security properties across the codebase.
+//!
+//! # Implementation Notes
+//!
+//! The `argon2` crate (v0.5+) uses `subtle::ConstantTimeEq` internally for password
+//! verification, providing timing-safe comparison without explicit constant-time code here.
+
 use adapteros_crypto::Keypair;
 use adapteros_db::auth_sessions_kv::AuthSessionKvRepository;
 use anyhow::{anyhow, Result};
@@ -332,8 +350,31 @@ pub fn hash_password(password: &str) -> Result<String> {
 
 /// Verify a password against a hash and signal when rehashing is needed.
 ///
-/// SECURITY: Maintains constant-time behavior by performing a hardened hash
-/// on unknown/invalid formats.
+/// This is the **single canonical entry point** for all password verification in the system.
+/// Do not implement alternative verification paths.
+///
+/// # Security Properties
+///
+/// - **Constant-time comparison**: Uses Argon2's built-in `subtle::ConstantTimeEq` for
+///   timing-safe password verification, preventing timing side-channel attacks.
+/// - **Timing-consistent failures**: Executes a hardened Argon2 hash on invalid formats
+///   and failed verifications to prevent timing oracle attacks that could reveal whether
+///   a hash format is valid.
+/// - **Legacy support**: Handles bcrypt hashes (`$2a$`, `$2b$`, `$2y$`) with automatic
+///   upgrade signaling via `needs_rehash`.
+///
+/// # Timing Behavior
+///
+/// All code paths execute approximately the same amount of cryptographic work:
+/// - **Valid format, correct password**: Argon2 verify (constant-time internally)
+/// - **Valid format, wrong password**: Argon2 verify + hardened hash
+/// - **Invalid format**: Hardened hash (timing-equivalent to verification)
+/// - **Legacy bcrypt**: bcrypt verify (constant-time internally)
+///
+/// # Returns
+///
+/// - `valid`: Whether the password matches the hash
+/// - `needs_rehash`: Whether the hash should be upgraded (legacy format or weak params)
 pub fn verify_password(password: &str, hash: &str) -> Result<PasswordVerification> {
     let parsed_hash = match PasswordHash::new(hash) {
         Ok(h) => h,

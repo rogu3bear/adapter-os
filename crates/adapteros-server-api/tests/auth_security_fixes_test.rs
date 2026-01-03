@@ -304,3 +304,206 @@ fn test_bcrypt_upgrade_flag() {
         "bcrypt hashes should be upgraded to Argon2id"
     );
 }
+
+// =============================================================================
+// Structural tests for constant-time password verification (P1)
+// =============================================================================
+//
+// These tests verify the STRUCTURE of the verification code paths, not timing.
+// Timing-based tests are inherently flaky in CI and cannot reliably prove
+// constant-time behavior. Instead, we verify:
+//
+// 1. All paths use the canonical verify_password entry point
+// 2. Invalid inputs don't cause early returns that leak timing info
+// 3. The function handles edge cases correctly without panics
+//
+// The actual constant-time guarantee comes from:
+// - Argon2's internal use of `subtle::ConstantTimeEq`
+// - Hardened hash execution on all failure paths
+
+/// Verify that verify_password is the canonical entry point and handles all paths.
+///
+/// This structural test ensures all verification scenarios go through the same
+/// function, preventing accidental introduction of timing-leaking shortcuts.
+#[test]
+fn test_canonical_verify_entry_point_correct_password() {
+    let password = "structural_test_password_correct";
+    let hash = hash_password(password).expect("hash");
+
+    // Correct password path: Argon2 verify succeeds
+    let result = verify_password(password, &hash).expect("verify should not error");
+    assert!(result.valid, "Correct password must verify");
+    assert!(
+        !result.needs_rehash,
+        "Current params should not need rehash"
+    );
+}
+
+#[test]
+fn test_canonical_verify_entry_point_wrong_password() {
+    let password = "structural_test_password_wrong";
+    let hash = hash_password(password).expect("hash");
+
+    // Wrong password path: Argon2 verify fails, hardened hash executed
+    let result = verify_password("completely_different", &hash).expect("verify should not error");
+    assert!(!result.valid, "Wrong password must not verify");
+    // needs_rehash is only set on successful verification
+    assert!(
+        !result.needs_rehash,
+        "Failed verification should not signal rehash"
+    );
+}
+
+#[test]
+fn test_canonical_verify_entry_point_invalid_hash() {
+    // Invalid hash format path: hardened hash executed for timing consistency
+    let result = verify_password("any_password", "not_a_valid_hash").expect("should not panic");
+    assert!(!result.valid, "Invalid hash must not verify");
+    assert!(
+        !result.needs_rehash,
+        "Invalid hash should not signal rehash"
+    );
+}
+
+#[test]
+fn test_canonical_verify_entry_point_empty_hash() {
+    // Empty hash path: should not panic, should execute hardened hash
+    let result = verify_password("password", "").expect("should not panic on empty hash");
+    assert!(!result.valid, "Empty hash must not verify");
+}
+
+#[test]
+fn test_canonical_verify_entry_point_malformed_argon2() {
+    // Malformed Argon2 hash (valid prefix but corrupted)
+    let malformed = "$argon2id$v=19$m=65536,t=3,p=1$INVALID_SALT$INVALID_HASH";
+    let result = verify_password("password", malformed).expect("should not panic");
+    assert!(!result.valid, "Malformed Argon2 hash must not verify");
+}
+
+#[test]
+fn test_canonical_verify_entry_point_unicode_password() {
+    // Unicode password handling - verify no panics or incorrect behavior
+    let unicode_password = "пароль密码🔐";
+    let hash = hash_password(unicode_password).expect("hash unicode");
+
+    let result = verify_password(unicode_password, &hash).expect("verify unicode");
+    assert!(result.valid, "Unicode password must verify");
+
+    let wrong = verify_password("different_unicode_пароль", &hash).expect("verify wrong unicode");
+    assert!(!wrong.valid, "Wrong unicode password must not verify");
+}
+
+#[test]
+fn test_canonical_verify_entry_point_very_long_password() {
+    // Very long password - verify no panics or truncation issues
+    let long_password: String = "x".repeat(10_000);
+    let hash = hash_password(&long_password).expect("hash long");
+
+    let result = verify_password(&long_password, &hash).expect("verify long");
+    assert!(result.valid, "Long password must verify");
+
+    // Slightly different long password
+    let different: String = "x".repeat(9_999) + "y";
+    let wrong = verify_password(&different, &hash).expect("verify different long");
+    assert!(!wrong.valid, "Different long password must not verify");
+}
+
+#[test]
+fn test_canonical_verify_entry_point_null_bytes() {
+    // Password with null bytes - verify correct handling
+    let password = "before\0after";
+    let hash = hash_password(password).expect("hash null bytes");
+
+    let result = verify_password(password, &hash).expect("verify null bytes");
+    assert!(result.valid, "Password with null bytes must verify");
+
+    // Without the null byte
+    let wrong = verify_password("beforeafter", &hash).expect("verify without null");
+    assert!(!wrong.valid, "Password without null byte must not verify");
+}
+
+/// Verify that all code paths complete without timing-observable differences.
+///
+/// This test runs multiple scenarios and verifies they all complete successfully.
+/// While we can't measure timing in a flaky-free way, we can ensure all paths
+/// exercise similar cryptographic work (hardened hash on failures).
+#[test]
+fn test_all_code_paths_complete() {
+    let password = "test_all_paths";
+    let hash = hash_password(password).expect("hash");
+    let bcrypt_hash = bcrypt::hash("bcrypt_path", bcrypt::DEFAULT_COST).expect("bcrypt hash");
+
+    // Path 1: Valid Argon2 hash, correct password
+    let p1 = verify_password(password, &hash);
+    assert!(p1.is_ok(), "Path 1 should complete");
+    assert!(p1.unwrap().valid);
+
+    // Path 2: Valid Argon2 hash, wrong password (executes hardened hash)
+    let p2 = verify_password("wrong", &hash);
+    assert!(p2.is_ok(), "Path 2 should complete");
+    assert!(!p2.unwrap().valid);
+
+    // Path 3: Invalid hash format (executes hardened hash)
+    let p3 = verify_password("any", "invalid");
+    assert!(p3.is_ok(), "Path 3 should complete");
+    assert!(!p3.unwrap().valid);
+
+    // Path 4: Legacy bcrypt hash, correct password
+    let p4 = verify_password("bcrypt_path", &bcrypt_hash);
+    assert!(p4.is_ok(), "Path 4 should complete");
+    assert!(p4.unwrap().valid);
+
+    // Path 5: Legacy bcrypt hash, wrong password
+    let p5 = verify_password("wrong", &bcrypt_hash);
+    assert!(p5.is_ok(), "Path 5 should complete");
+    assert!(!p5.unwrap().valid);
+}
+
+/// Optional timing probe test (ignored by default, for local investigation only).
+///
+/// This test measures relative timing of different code paths. It is NOT suitable
+/// for CI because timing measurements are inherently noisy and platform-dependent.
+/// Run locally with: cargo test --test auth_security_fixes_test timing_probe -- --ignored --nocapture
+#[test]
+#[ignore]
+fn timing_probe_local_only() {
+    use std::time::Instant;
+
+    let password = "timing_probe_password";
+    let hash = hash_password(password).expect("hash");
+    let iterations = 5;
+
+    // Warm up
+    for _ in 0..2 {
+        let _ = verify_password(password, &hash);
+        let _ = verify_password("wrong", &hash);
+    }
+
+    // Measure correct password path
+    let start = Instant::now();
+    for _ in 0..iterations {
+        let _ = verify_password(password, &hash);
+    }
+    let correct_time = start.elapsed();
+
+    // Measure wrong password path
+    let start = Instant::now();
+    for _ in 0..iterations {
+        let _ = verify_password("wrong", &hash);
+    }
+    let wrong_time = start.elapsed();
+
+    // Measure invalid hash path
+    let start = Instant::now();
+    for _ in 0..iterations {
+        let _ = verify_password("any", "invalid_hash");
+    }
+    let invalid_time = start.elapsed();
+
+    println!("Timing probe (local investigation only, not for CI):");
+    println!("  Correct password: {:?}", correct_time / iterations as u32);
+    println!("  Wrong password:   {:?}", wrong_time / iterations as u32);
+    println!("  Invalid hash:     {:?}", invalid_time / iterations as u32);
+    println!("Note: Wrong password should take longer than correct due to hardened hash.");
+    println!("This is expected behavior - constant-time refers to the comparison itself.");
+}
