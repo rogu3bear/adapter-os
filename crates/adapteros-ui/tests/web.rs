@@ -1,0 +1,169 @@
+//! Browser-based integration tests for the Leptos UI
+//!
+//! Run with: wasm-pack test --headless --chrome
+
+#![cfg(target_arch = "wasm32")]
+
+use adapteros_ui::api::{api_base_url, ApiClient, ApiError};
+use adapteros_ui::sse::parse_sse_event_with_info;
+use wasm_bindgen_test::*;
+
+wasm_bindgen_test_configure!(run_in_browser);
+
+// ============================================================================
+// API Base URL Tests
+// ============================================================================
+
+#[wasm_bindgen_test]
+fn test_api_base_url_uses_origin() {
+    // In browser context, should use window.location.origin
+    let url = api_base_url();
+    assert!(!url.is_empty());
+    // Should start with http or https
+    assert!(url.starts_with("http"));
+}
+
+// ============================================================================
+// API Client Tests
+// ============================================================================
+
+#[wasm_bindgen_test]
+fn test_api_client_creation() {
+    let client = ApiClient::new();
+    assert!(!client.is_authenticated());
+}
+
+#[wasm_bindgen_test]
+fn test_api_client_not_authenticated_by_default() {
+    let client = ApiClient::new();
+    assert!(!client.is_authenticated());
+}
+
+// ============================================================================
+// SSE Streaming Tests
+// ============================================================================
+
+#[wasm_bindgen_test]
+fn test_sse_parse_token_event_adapteros_format() {
+    let event = r#"data: {"event":"Token","text":"Hello"}"#;
+    let parsed = parse_sse_event_with_info(event);
+    assert_eq!(parsed.token, Some("Hello".to_string()));
+    assert!(parsed.finish_reason.is_none());
+}
+
+#[wasm_bindgen_test]
+fn test_sse_parse_token_event_openai_format() {
+    let event = r#"data: {"choices": [{"delta": {"content": "Hello"}}]}"#;
+    let parsed = parse_sse_event_with_info(event);
+    assert_eq!(parsed.token, Some("Hello".to_string()));
+    assert!(parsed.finish_reason.is_none());
+}
+
+#[wasm_bindgen_test]
+fn test_sse_parse_done_event_adapteros_format() {
+    let event =
+        r#"data: {"event":"Done","total_tokens":42,"latency_ms":123,"trace_id":"trace-123"}"#;
+    let parsed = parse_sse_event_with_info(event);
+    assert!(parsed.token.is_none());
+    assert_eq!(parsed.trace_id, Some("trace-123".to_string()));
+    assert_eq!(parsed.latency_ms, Some(123));
+    assert_eq!(parsed.token_count, Some(42));
+}
+
+#[wasm_bindgen_test]
+fn test_sse_parse_done_event_openai_format_with_finish_reason() {
+    let event = r#"data: {"choices": [{"delta": {}, "finish_reason": "stop"}]}"#;
+    let parsed = parse_sse_event_with_info(event);
+    assert!(parsed.token.is_none());
+    assert_eq!(parsed.finish_reason, Some("stop".to_string()));
+}
+
+#[wasm_bindgen_test]
+fn test_sse_parse_done_marker() {
+    let event = "data: [DONE]";
+    let parsed = parse_sse_event_with_info(event);
+    assert!(parsed.token.is_none());
+    assert!(parsed.finish_reason.is_none());
+}
+
+#[wasm_bindgen_test]
+fn test_sse_accumulates_tokens() {
+    // Simulate token accumulation
+    let mut content = String::new();
+
+    let events = vec![
+        r#"data: {"choices": [{"delta": {"content": "Hello"}}]}"#,
+        r#"data: {"choices": [{"delta": {"content": " "}}]}"#,
+        r#"data: {"choices": [{"delta": {"content": "World"}}]}"#,
+    ];
+
+    for event in events {
+        let parsed = parse_sse_event_with_info(event);
+        if let Some(token) = parsed.token {
+            content.push_str(&token);
+        }
+    }
+
+    assert_eq!(content, "Hello World");
+}
+
+// ============================================================================
+// Error Handling Tests
+// ============================================================================
+
+#[wasm_bindgen_test]
+fn test_api_error_aborted_is_aborted() {
+    let error = ApiError::Aborted;
+    assert!(error.is_aborted());
+}
+
+#[wasm_bindgen_test]
+fn test_api_error_network_is_not_aborted() {
+    let error = ApiError::Network("connection failed".to_string());
+    assert!(!error.is_aborted());
+}
+
+#[wasm_bindgen_test]
+fn test_api_error_network_is_retryable() {
+    let error = ApiError::Network("connection failed".to_string());
+    assert!(error.is_retryable());
+}
+
+#[wasm_bindgen_test]
+fn test_api_error_unauthorized_requires_auth() {
+    let error = ApiError::Unauthorized;
+    assert!(error.requires_auth());
+}
+
+#[wasm_bindgen_test]
+fn test_api_error_http_not_retryable() {
+    let error = ApiError::Http {
+        status: 400,
+        message: "Bad request".to_string(),
+    };
+    assert!(!error.is_retryable());
+}
+
+#[wasm_bindgen_test]
+fn test_api_error_server_is_retryable() {
+    let error = ApiError::Server("Internal error".to_string());
+    assert!(error.is_retryable());
+}
+
+#[wasm_bindgen_test]
+fn test_api_error_structured_has_code() {
+    let error = ApiError::Structured {
+        error: "Test error".to_string(),
+        code: "TEST_ERROR".to_string(),
+        failure_code: None,
+        details: None,
+    };
+    assert_eq!(error.code(), Some("TEST_ERROR"));
+}
+
+#[wasm_bindgen_test]
+fn test_api_error_display() {
+    let error = ApiError::Network("timeout".to_string());
+    let display = error.to_string();
+    assert!(display.contains("timeout"));
+}

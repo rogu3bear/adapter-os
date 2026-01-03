@@ -11,6 +11,10 @@ pub type ApiResult<T> = Result<T, ApiError>;
 /// API error types
 #[derive(Debug, Error, Clone)]
 pub enum ApiError {
+    /// Request was aborted (user cancelled)
+    #[error("Request aborted")]
+    Aborted,
+
     /// Network error (connection failed, timeout, etc.)
     #[error("Network error: {0}")]
     Network(String),
@@ -97,6 +101,11 @@ impl ApiError {
             self,
             Self::Network(_) | Self::RateLimited { .. } | Self::Server(_)
         )
+    }
+
+    /// Check if this error indicates the request was aborted
+    pub fn is_aborted(&self) -> bool {
+        matches!(self, Self::Aborted)
     }
 
     /// Get the error code if available
