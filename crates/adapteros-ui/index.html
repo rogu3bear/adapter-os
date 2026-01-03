@@ -9,13 +9,107 @@
     <!-- Component styles -->
     <link data-trunk rel="css" href="dist/components.css">
     <link data-trunk rel="rust" data-wasm-opt="z">
+    <style>
+        /* PRD-UI-000: White screen triage styles */
+        #aos-boot-probe {
+            position: fixed;
+            bottom: 8px;
+            right: 8px;
+            padding: 4px 8px;
+            font-family: ui-monospace, monospace;
+            font-size: 10px;
+            background: #1a1a2e;
+            color: #4ade80;
+            border-radius: 4px;
+            z-index: 99999;
+            opacity: 0.8;
+        }
+        #aos-boot-probe.error { background: #7f1d1d; color: #fca5a5; }
+        #aos-boot-probe.hidden { display: none; }
+        #aos-panic-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(127, 29, 29, 0.95);
+            color: #fecaca;
+            font-family: ui-monospace, monospace;
+            font-size: 14px;
+            padding: 2rem;
+            z-index: 100000;
+            overflow: auto;
+        }
+        #aos-panic-overlay.visible { display: block; }
+        #aos-panic-overlay h1 { color: #fca5a5; font-size: 1.5rem; margin-bottom: 1rem; }
+        #aos-panic-overlay pre {
+            background: #450a0a;
+            padding: 1rem;
+            border-radius: 8px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        #aos-panic-overlay button {
+            margin-top: 1rem;
+            padding: 0.5rem 1rem;
+            background: #dc2626;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 0.5rem;
+        }
+    </style>
 </head>
 <body>
+    <!-- PRD-UI-000: Render probe -->
+    <div id="aos-boot-probe">HTML: OK | WASM: loading...</div>
+    <!-- PRD-UI-000: Panic overlay -->
+    <div id="aos-panic-overlay">
+        <h1>AdapterOS UI Panic</h1>
+        <p>The UI encountered a fatal error:</p>
+        <pre id="aos-panic-message">Unknown error</pre>
+        <button onclick="location.reload()">Reload Page</button>
+        <button onclick="document.getElementById('aos-panic-overlay').classList.remove('visible')">Dismiss</button>
+    </div>
     <noscript>
         <div style="padding: 2rem; text-align: center;">
             <h1>JavaScript Required</h1>
             <p>AdapterOS requires JavaScript to run. Please enable JavaScript in your browser.</p>
         </div>
     </noscript>
+    <script>
+        window.aosBoot = { htmlLoaded: true, wasmLoaded: false, appMounted: false, errors: [] };
+        window.addEventListener('error', function(e) {
+            window.aosBoot.errors.push(e.message || 'Unknown error');
+            var probe = document.getElementById('aos-boot-probe');
+            if (probe) { probe.textContent = 'ERROR: ' + (e.message || 'Unknown'); probe.classList.add('error'); }
+        });
+        window.addEventListener('unhandledrejection', function(e) {
+            var msg = e.reason ? (e.reason.message || String(e.reason)) : 'Promise rejected';
+            window.aosBoot.errors.push(msg);
+            var probe = document.getElementById('aos-boot-probe');
+            if (probe) { probe.textContent = 'WASM ERROR: ' + msg; probe.classList.add('error'); }
+        });
+        window.aosSignalMounted = function() {
+            window.aosBoot.appMounted = true;
+            var probe = document.getElementById('aos-boot-probe');
+            if (probe) {
+                probe.textContent = 'HTML: OK | WASM: OK | App: mounted';
+                setTimeout(function() { if (!probe.classList.contains('error')) probe.classList.add('hidden'); }, 3000);
+            }
+        };
+        window.aosSignalWasmLoaded = function() {
+            window.aosBoot.wasmLoaded = true;
+            var probe = document.getElementById('aos-boot-probe');
+            if (probe && !probe.classList.contains('error')) probe.textContent = 'HTML: OK | WASM: OK | App: mounting...';
+        };
+        window.aosShowPanic = function(message) {
+            var overlay = document.getElementById('aos-panic-overlay');
+            var msgEl = document.getElementById('aos-panic-message');
+            if (overlay && msgEl) { msgEl.textContent = message; overlay.classList.add('visible'); }
+            var probe = document.getElementById('aos-boot-probe');
+            if (probe) { probe.textContent = 'PANIC'; probe.classList.add('error'); }
+        };
+    </script>
 </body>
 </html>

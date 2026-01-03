@@ -43,10 +43,7 @@ use signals::provide_chat_context;
 #[component]
 pub fn App() -> impl IntoView {
     web_sys::console::log_1(&"[App] Rendering App component...".into());
-
-    // Provides context for meta tags
     provide_meta_context();
-
     web_sys::console::log_1(&"[App] Meta context provided, creating view...".into());
 
     view! {
@@ -58,171 +55,30 @@ pub fn App() -> impl IntoView {
             <ChatProvider>
                 <Router>
                     <Routes fallback=|| view! { <pages::NotFound/> }>
-                        // Public routes (no shell)
                         <Route path=path!("/login") view=pages::Login/>
-
-                        // Protected routes (with shell layout)
-                        <Route path=path!("/") view=|| view! {
-                            <ProtectedRoute>
-                                <Shell>
-                                    <pages::Dashboard/>
-                                </Shell>
-                            </ProtectedRoute>
-                        }/>
-                        <Route path=path!("/dashboard") view=|| view! {
-                            <ProtectedRoute>
-                                <Shell>
-                                    <pages::Dashboard/>
-                                </Shell>
-                            </ProtectedRoute>
-                        }/>
-                        <Route path=path!("/adapters") view=|| view! {
-                            <ProtectedRoute>
-                                <Shell>
-                                    <pages::Adapters/>
-                                </Shell>
-                            </ProtectedRoute>
-                        }/>
-                        <Route path=path!("/adapters/:id") view=|| view! {
-                            <ProtectedRoute>
-                                <Shell>
-                                    <pages::AdapterDetail/>
-                                </Shell>
-                            </ProtectedRoute>
-                        }/>
-                        <Route path=path!("/chat") view=|| view! {
-                            <ProtectedRoute>
-                                <Shell>
-                                    <pages::Chat/>
-                                </Shell>
-                            </ProtectedRoute>
-                        }/>
-                        <Route path=path!("/chat/:session_id") view=|| view! {
-                            <ProtectedRoute>
-                                <Shell>
-                                    <pages::ChatSession/>
-                                </Shell>
-                            </ProtectedRoute>
-                        }/>
-                        <Route path=path!("/training") view=|| view! {
-                            <ProtectedRoute>
-                                <Shell>
-                                    <pages::Training/>
-                                </Shell>
-                            </ProtectedRoute>
-                        }/>
-                        <Route path=path!("/system") view=|| view! {
-                            <ProtectedRoute>
-                                <Shell>
-                                    <pages::System/>
-                                </Shell>
-                            </ProtectedRoute>
-                        }/>
-                        <Route path=path!("/settings") view=|| view! {
-                            <ProtectedRoute>
-                                <Shell>
-                                    <pages::Settings/>
-                                </Shell>
-                            </ProtectedRoute>
-                        }/>
-                        <Route path=path!("/models") view=|| view! {
-                            <ProtectedRoute>
-                                <Shell>
-                                    <pages::Models/>
-                                </Shell>
-                            </ProtectedRoute>
-                        }/>
-                        <Route path=path!("/policies") view=|| view! {
-                            <ProtectedRoute>
-                                <Shell>
-                                    <pages::Policies/>
-                                </Shell>
-                            </ProtectedRoute>
-                        }/>
-                        <Route path=path!("/stacks") view=|| view! {
-                            <ProtectedRoute>
-                                <Shell>
-                                    <pages::Stacks/>
-                                </Shell>
-                            </ProtectedRoute>
-                        }/>
-                        <Route path=path!("/stacks/:id") view=|| view! {
-                            <ProtectedRoute>
-                                <Shell>
-                                    <pages::StackDetail/>
-                                </Shell>
-                            </ProtectedRoute>
-                        }/>
-                        <Route path=path!("/collections") view=|| view! {
-                            <ProtectedRoute>
-                                <Shell>
-                                    <pages::Collections/>
-                                </Shell>
-                            </ProtectedRoute>
-                        }/>
-                        <Route path=path!("/collections/:id") view=|| view! {
-                            <ProtectedRoute>
-                                <Shell>
-                                    <pages::CollectionDetail/>
-                                </Shell>
-                            </ProtectedRoute>
-                        }/>
-                        <Route path=path!("/documents") view=|| view! {
-                            <ProtectedRoute>
-                                <Shell>
-                                    <pages::Documents/>
-                                </Shell>
-                            </ProtectedRoute>
-                        }/>
-                        <Route path=path!("/documents/:id") view=|| view! {
-                            <ProtectedRoute>
-                                <Shell>
-                                    <pages::DocumentDetail/>
-                                </Shell>
-                            </ProtectedRoute>
-                        }/>
-                        <Route path=path!("/admin") view=|| view! {
-                            <ProtectedRoute>
-                                <Shell>
-                                    <pages::Admin/>
-                                </Shell>
-                            </ProtectedRoute>
-                        }/>
-                        <Route path=path!("/audit") view=|| view! {
-                            <ProtectedRoute>
-                                <Shell>
-                                    <pages::Audit/>
-                                </Shell>
-                            </ProtectedRoute>
-                        }/>
-                        <Route path=path!("/workers") view=|| view! {
-                            <ProtectedRoute>
-                                <Shell>
-                                    <pages::Workers/>
-                                </Shell>
-                            </ProtectedRoute>
-                        }/>
-                        <Route path=path!("/workers/:id") view=|| view! {
-                            <ProtectedRoute>
-                                <Shell>
-                                    <pages::WorkerDetail/>
-                                </Shell>
-                            </ProtectedRoute>
-                        }/>
-                        <Route path=path!("/repositories") view=|| view! {
-                            <ProtectedRoute>
-                                <Shell>
-                                    <pages::Repositories/>
-                                </Shell>
-                            </ProtectedRoute>
-                        }/>
-                        <Route path=path!("/repositories/:id") view=|| view! {
-                            <ProtectedRoute>
-                                <Shell>
-                                    <pages::RepositoryDetail/>
-                                </Shell>
-                            </ProtectedRoute>
-                        }/>
+                        <Route path=path!("/") view=|| view! { <ProtectedRoute><Shell><pages::Dashboard/></Shell></ProtectedRoute> }/>
+                        <Route path=path!("/dashboard") view=|| view! { <ProtectedRoute><Shell><pages::Dashboard/></Shell></ProtectedRoute> }/>
+                        <Route path=path!("/adapters") view=|| view! { <ProtectedRoute><Shell><pages::Adapters/></Shell></ProtectedRoute> }/>
+                        <Route path=path!("/adapters/:id") view=|| view! { <ProtectedRoute><Shell><pages::AdapterDetail/></Shell></ProtectedRoute> }/>
+                        <Route path=path!("/chat") view=|| view! { <ProtectedRoute><Shell><pages::Chat/></Shell></ProtectedRoute> }/>
+                        <Route path=path!("/chat/:session_id") view=|| view! { <ProtectedRoute><Shell><pages::ChatSession/></Shell></ProtectedRoute> }/>
+                        <Route path=path!("/training") view=|| view! { <ProtectedRoute><Shell><pages::Training/></Shell></ProtectedRoute> }/>
+                        <Route path=path!("/system") view=|| view! { <ProtectedRoute><Shell><pages::System/></Shell></ProtectedRoute> }/>
+                        <Route path=path!("/settings") view=|| view! { <ProtectedRoute><Shell><pages::Settings/></Shell></ProtectedRoute> }/>
+                        <Route path=path!("/models") view=|| view! { <ProtectedRoute><Shell><pages::Models/></Shell></ProtectedRoute> }/>
+                        <Route path=path!("/policies") view=|| view! { <ProtectedRoute><Shell><pages::Policies/></Shell></ProtectedRoute> }/>
+                        <Route path=path!("/stacks") view=|| view! { <ProtectedRoute><Shell><pages::Stacks/></Shell></ProtectedRoute> }/>
+                        <Route path=path!("/stacks/:id") view=|| view! { <ProtectedRoute><Shell><pages::StackDetail/></Shell></ProtectedRoute> }/>
+                        <Route path=path!("/collections") view=|| view! { <ProtectedRoute><Shell><pages::Collections/></Shell></ProtectedRoute> }/>
+                        <Route path=path!("/collections/:id") view=|| view! { <ProtectedRoute><Shell><pages::CollectionDetail/></Shell></ProtectedRoute> }/>
+                        <Route path=path!("/documents") view=|| view! { <ProtectedRoute><Shell><pages::Documents/></Shell></ProtectedRoute> }/>
+                        <Route path=path!("/documents/:id") view=|| view! { <ProtectedRoute><Shell><pages::DocumentDetail/></Shell></ProtectedRoute> }/>
+                        <Route path=path!("/admin") view=|| view! { <ProtectedRoute><Shell><pages::Admin/></Shell></ProtectedRoute> }/>
+                        <Route path=path!("/audit") view=|| view! { <ProtectedRoute><Shell><pages::Audit/></Shell></ProtectedRoute> }/>
+                        <Route path=path!("/workers") view=|| view! { <ProtectedRoute><Shell><pages::Workers/></Shell></ProtectedRoute> }/>
+                        <Route path=path!("/workers/:id") view=|| view! { <ProtectedRoute><Shell><pages::WorkerDetail/></Shell></ProtectedRoute> }/>
+                        <Route path=path!("/repositories") view=|| view! { <ProtectedRoute><Shell><pages::Repositories/></Shell></ProtectedRoute> }/>
+                        <Route path=path!("/repositories/:id") view=|| view! { <ProtectedRoute><Shell><pages::RepositoryDetail/></Shell></ProtectedRoute> }/>
                     </Routes>
                 </Router>
             </ChatProvider>
@@ -230,26 +86,62 @@ pub fn App() -> impl IntoView {
     }
 }
 
-/// Chat context provider component
 #[component]
 fn ChatProvider(children: Children) -> impl IntoView {
     provide_chat_context();
     children()
 }
 
-/// Mount point for the application
+// PRD-UI-000: JS interop for boot diagnostics
+#[wasm_bindgen::prelude::wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_name = "aosSignalWasmLoaded")]
+    fn signal_wasm_loaded();
+    #[wasm_bindgen(js_name = "aosSignalMounted")]
+    fn signal_mounted();
+    #[wasm_bindgen(js_name = "aosShowPanic")]
+    fn show_panic(message: &str);
+}
+
+/// PRD-UI-000: Custom panic hook that displays errors in the DOM
+fn set_dom_panic_hook() {
+    use std::panic;
+    use std::sync::Once;
+    static SET_HOOK: Once = Once::new();
+    SET_HOOK.call_once(|| {
+        let previous_hook = panic::take_hook();
+        panic::set_hook(Box::new(move |info| {
+            previous_hook(info);
+            let message = if let Some(s) = info.payload().downcast_ref::<&str>() {
+                s.to_string()
+            } else if let Some(s) = info.payload().downcast_ref::<String>() {
+                s.clone()
+            } else {
+                "Unknown panic".to_string()
+            };
+            let location = if let Some(loc) = info.location() {
+                format!(
+                    "\n\nLocation: {}:{}:{}",
+                    loc.file(),
+                    loc.line(),
+                    loc.column()
+                )
+            } else {
+                String::new()
+            };
+            show_panic(&format!("{}{}", message, location));
+        }));
+    });
+}
+
 #[wasm_bindgen::prelude::wasm_bindgen(start)]
 pub fn mount() {
-    // Set up panic hook for better error messages
     console_error_panic_hook::set_once();
-
-    // Initialize tracing for WASM
+    set_dom_panic_hook();
+    signal_wasm_loaded();
     tracing_wasm::set_as_global_default();
-
     web_sys::console::log_1(&"[mount] Starting app mount...".into());
-
-    // Mount the app to the document body
     leptos::mount::mount_to_body(App);
-
+    signal_mounted();
     web_sys::console::log_1(&"[mount] App mounted successfully".into());
 }
