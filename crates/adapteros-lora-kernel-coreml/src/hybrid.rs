@@ -9,7 +9,7 @@
 
 use crate::matmul::{axpy, matvec_accelerate};
 use crate::ComputeUnits;
-use adapteros_core::{AosError, Result};
+use adapteros_core::{AosError, Result, Q15_GATE_DENOMINATOR};
 use adapteros_lora_kernel_api::{
     attestation::{
         BackendType, DeterminismLevel, DeterminismReport, FloatingPointMode, KernelManifest,
@@ -360,7 +360,7 @@ impl HybridCoreMLBackend {
                 let delta = matvec_accelerate(&lora.lora_b, &a_out, self.vocab_size, lora.rank)?;
 
                 // Scale by gate and LoRA scale
-                let gate_f32 = gate_q15 as f32 / 32767.0;
+                let gate_f32 = gate_q15 as f32 / Q15_GATE_DENOMINATOR;
                 let combined_scale = gate_f32 * lora.scale;
 
                 // logits += combined_scale * delta

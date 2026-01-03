@@ -558,6 +558,19 @@ impl ScoringExplanation {
 #[derive(Debug, Clone)]
 pub struct AdapterInfo {
     pub id: String,
+    /// Stable ID for deterministic tie-breaking across filter/selection operations.
+    ///
+    /// This ID is assigned at registration time and never changes. Unlike array
+    /// indices which shift when adapters are filtered or reordered, stable_id
+    /// provides a consistent tie-break key for reproducible routing decisions.
+    ///
+    /// # Determinism Invariant
+    /// When two adapters have equal scores, the one with lower stable_id is chosen.
+    /// This ensures identical selection across:
+    /// - Policy mask filtering
+    /// - Top-k selection
+    /// - Adapter hot-swap/reload
+    pub stable_id: u64,
     pub framework: Option<String>,
     pub languages: Vec<usize>, // Language indices
     pub tier: String,
@@ -609,6 +622,7 @@ impl Default for AdapterInfo {
     fn default() -> Self {
         Self {
             id: String::new(),
+            stable_id: 0,
             framework: None,
             languages: Vec::new(),
             tier: "default".to_string(),

@@ -930,3 +930,114 @@ mod uds_exporter_tests {
     // Note: Prometheus format generation tests are in the uds_exporter module's internal tests
     // since format_prometheus_metrics is a private method. We test the public API here instead.
 }
+
+#[cfg(test)]
+mod telemetry_writer_shutdown_tests {
+    use super::*;
+    use adapteros_core::identity::IdentityEnvelope;
+    use adapteros_telemetry::unified_events::{EventType, LogLevel, TelemetryEventBuilder};
+    use adapteros_telemetry::TelemetryWriter;
+    use std::time::Duration;
+
+    fn make_test_event() -> adapteros_telemetry::unified_events::UnifiedTelemetryEvent {
+        let identity = IdentityEnvelope::system();
+        TelemetryEventBuilder::new(
+            EventType::Audit,
+            LogLevel::Info,
+            "test event".to_string(),
+            identity,
+        )
+        .build()
+        .expect("build event")
+    }
+
+    #[test]
+    fn test_telemetry_writer_shutdown_graceful() {
+        let temp_dir = new_test_tempdir();
+        let output_dir = temp_dir.path().join("telemetry");
+
+        let writer =
+            TelemetryWriter::new(&output_dir, 100, 1024 * 1024).expect("create telemetry writer");
+
+        // Write a few events
+        for _ in 0..3 {
+            writer.log_event(make_test_event()).expect("log event");
+        }
+
+        // Graceful shutdown should succeed
+        writer.shutdown().expect("shutdown should succeed");
+
+        // Verify bundles were written
+        assert!(
+            output_dir.exists(),
+            "output dir should exist after shutdown"
+        );
+    }
+
+    #[test]
+    fn test_telemetry_writer_shutdown_with_timeout() {
+        let temp_dir = new_test_tempdir();
+        let output_dir = temp_dir.path().join("telemetry_timeout");
+
+        let writer =
+            TelemetryWriter::new(&output_dir, 100, 1024 * 1024).expect("create telemetry writer");
+
+        // Write events
+        writer.log_event(make_test_event()).expect("log event");
+
+        // Shutdown with explicit timeout
+        let result = writer.shutdown_with_timeout(Duration::from_secs(10));
+        assert!(result.is_ok(), "shutdown with timeout should succeed");
+    }
+
+    #[test]
+    fn test_telemetry_writer_flush() {
+        let temp_dir = new_test_tempdir();
+        let output_dir = temp_dir.path().join("telemetry_flush");
+
+        let writer =
+            TelemetryWriter::new(&output_dir, 100, 1024 * 1024).expect("create telemetry writer");
+
+        // Write events
+        for _ in 0..5 {
+            writer.log_event(make_test_event()).expect("log event");
+        }
+
+        // Flush should succeed
+        writer.flush().expect("flush should succeed");
+
+        // Shutdown after flush
+        writer.shutdown().expect("shutdown should succeed");
+    }
+
+    #[test]
+    fn test_telemetry_writer_flush_with_timeout() {
+        let temp_dir = new_test_tempdir();
+        let output_dir = temp_dir.path().join("telemetry_flush_timeout");
+
+        let writer =
+            TelemetryWriter::new(&output_dir, 100, 1024 * 1024).expect("create telemetry writer");
+
+        // Write events
+        writer.log_event(make_test_event()).expect("log event");
+
+        // Flush with timeout should succeed
+        let result = writer.flush_with_timeout(Duration::from_secs(5));
+        assert!(result.is_ok(), "flush with timeout should succeed");
+
+        // Cleanup
+        writer.shutdown().expect("shutdown should succeed");
+    }
+
+    #[test]
+    fn test_telemetry_writer_empty_shutdown() {
+        let temp_dir = new_test_tempdir();
+        let output_dir = temp_dir.path().join("telemetry_empty");
+
+        let writer =
+            TelemetryWriter::new(&output_dir, 100, 1024 * 1024).expect("create telemetry writer");
+
+        // Shutdown without writing any events should succeed
+        writer.shutdown().expect("empty shutdown should succeed");
+    }
+}

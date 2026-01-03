@@ -118,6 +118,227 @@ lazy_static::lazy_static! {
 }
 
 // =============================================================================
+// TypedSeed - Versioned seed with integrity checks
+// =============================================================================
+
+/// A versioned seed with integrity validation for cross-boundary determinism.
+///
+/// TypedSeed ensures that seeds are validated at every FFI and context boundary,
+/// preventing "seed contract broke" scenarios where a backend accepts a seed from
+/// the wrong derivation scheme.
+///
+/// # Invariants
+///
+/// 1. **Version must match**: The `version` field must equal `HKDF_ALGORITHM_VERSION`
+///    when used for inference. Mismatches indicate schema drift.
+/// 2. **Checksum must validate**: The `checksum` field must equal `BLAKE3(bytes)`
+///    to detect corruption or tampering.
+/// 3. **Fail closed**: In strict determinism mode, version/checksum mismatches
+///    cause immediate failure rather than silent drift.
+///
+/// # Example
+///
+/// ```ignore
+/// use adapteros_core::seed::{TypedSeed, derive_typed_seed, HKDF_ALGORITHM_VERSION};
+///
+/// let global = B3Hash::hash(b"model-manifest");
+/// let typed_seed = derive_typed_seed(&global, "mlx");
+///
+/// // Validate before use
+/// assert!(typed_seed.validate().is_ok());
+/// assert_eq!(typed_seed.version, HKDF_ALGORITHM_VERSION);
+///
+/// // Use raw bytes for FFI
+/// let seed_bytes = typed_seed.bytes();
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TypedSeed {
+    /// HKDF algorithm version used to derive this seed.
+    /// Must match `HKDF_ALGORITHM_VERSION` for the current schema.
+    pub version: u32,
+    /// The 32-byte derived seed value.
+    bytes: [u8; HKDF_OUTPUT_LENGTH],
+    /// BLAKE3 checksum of `bytes` for integrity validation.
+    pub checksum: B3Hash,
+}
+
+impl TypedSeed {
+    /// Create a new TypedSeed from raw bytes with the current algorithm version.
+    ///
+    /// The checksum is computed automatically from the bytes.
+    pub fn new(bytes: [u8; HKDF_OUTPUT_LENGTH]) -> Self {
+        let checksum = B3Hash::hash(&bytes);
+        Self {
+            version: HKDF_ALGORITHM_VERSION,
+            bytes,
+            checksum,
+        }
+    }
+
+    /// Create a TypedSeed with a specific version (for testing/migration).
+    pub fn with_version(bytes: [u8; HKDF_OUTPUT_LENGTH], version: u32) -> Self {
+        let checksum = B3Hash::hash(&bytes);
+        Self {
+            version,
+            bytes,
+            checksum,
+        }
+    }
+
+    /// Get the raw seed bytes.
+    pub fn bytes(&self) -> &[u8; HKDF_OUTPUT_LENGTH] {
+        &self.bytes
+    }
+
+    /// Get the raw seed bytes as a slice.
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    /// Validate the seed's integrity (checksum matches bytes).
+    ///
+    /// # Returns
+    /// `Ok(())` if checksum is valid, `Err` with details otherwise.
+    pub fn validate_checksum(&self) -> Result<()> {
+        let computed = B3Hash::hash(&self.bytes);
+        if computed != self.checksum {
+            return Err(AosError::DeterminismViolation(format!(
+                "TypedSeed checksum mismatch: expected {}, computed {}",
+                self.checksum.to_short_hex(),
+                computed.to_short_hex()
+            )));
+        }
+        Ok(())
+    }
+
+    /// Check if this seed's version matches the expected version.
+    ///
+    /// # Arguments
+    /// * `expected` - The expected HKDF algorithm version
+    ///
+    /// # Returns
+    /// `true` if versions match, `false` otherwise.
+    pub fn version_matches(&self, expected: u32) -> bool {
+        self.version == expected
+    }
+
+    /// Validate the seed for use with the current algorithm version.
+    ///
+    /// Checks both version compatibility and checksum integrity.
+    /// In strict mode, this will fail if version doesn't match current.
+    ///
+    /// # Returns
+    /// `Ok(())` if seed is valid for current schema, `Err` with details otherwise.
+    pub fn validate(&self) -> Result<()> {
+        // First check checksum integrity
+        self.validate_checksum()?;
+
+        // Then check version compatibility
+        if !self.version_matches(HKDF_ALGORITHM_VERSION) {
+            return Err(AosError::DeterminismViolation(format!(
+                "TypedSeed version mismatch: seed version {} != current algorithm version {}. \
+                 This seed was derived with an incompatible HKDF scheme.",
+                self.version, HKDF_ALGORITHM_VERSION
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// Validate the seed, respecting the current determinism configuration.
+    ///
+    /// In strict mode, both version and checksum must be valid.
+    /// In best-effort mode, logs a warning for version mismatch but allows use.
+    ///
+    /// # Returns
+    /// `Ok(())` if seed passes validation for current mode, `Err` otherwise.
+    pub fn validate_with_config(&self) -> Result<()> {
+        let config = get_determinism_config();
+
+        // Checksum is always validated
+        self.validate_checksum()?;
+
+        // Version check depends on strict mode
+        if !self.version_matches(HKDF_ALGORITHM_VERSION) {
+            if config.strict_mode {
+                return Err(AosError::DeterminismViolation(format!(
+                    "TypedSeed version mismatch in strict mode: seed v{} != algorithm v{}",
+                    self.version, HKDF_ALGORITHM_VERSION
+                )));
+            } else {
+                tracing::warn!(
+                    seed_version = self.version,
+                    algorithm_version = HKDF_ALGORITHM_VERSION,
+                    "TypedSeed version mismatch (allowing in best-effort mode)"
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Convert to a compact hex representation for logging/debugging.
+    pub fn to_debug_string(&self) -> String {
+        format!(
+            "TypedSeed(v{}, bytes={}, checksum={})",
+            self.version,
+            hex::encode(&self.bytes[..8]),
+            self.checksum.to_short_hex()
+        )
+    }
+}
+
+impl std::fmt::Display for TypedSeed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "TypedSeed(v{}, {}...)",
+            self.version,
+            hex::encode(&self.bytes[..4])
+        )
+    }
+}
+
+/// Derive a typed seed with version tracking and checksum validation.
+///
+/// This is the preferred method for seed derivation when the seed will be
+/// passed across FFI boundaries or stored for replay.
+///
+/// # Arguments
+/// * `global` - The global seed (BLAKE3 hash of manifest/inputs)
+/// * `label` - Domain separation label (e.g., "mlx", "router", "sampling")
+///
+/// # Returns
+/// A `TypedSeed` with the current algorithm version and computed checksum.
+pub fn derive_typed_seed(global: &B3Hash, label: &str) -> TypedSeed {
+    let bytes = derive_seed(global, label);
+    TypedSeed::new(bytes)
+}
+
+/// Derive a typed seed with full entropy isolation.
+///
+/// Combines manifest hash, adapter directory hash, worker ID, label, and nonce
+/// for complete isolation between execution contexts.
+pub fn derive_typed_seed_full(
+    global: &B3Hash,
+    manifest_hash: &B3Hash,
+    adapter_dir_hash: &B3Hash,
+    worker_id: u32,
+    label: &str,
+    nonce: u64,
+) -> TypedSeed {
+    let bytes = derive_seed_full(
+        global,
+        manifest_hash,
+        adapter_dir_hash,
+        worker_id,
+        label,
+        nonce,
+    );
+    TypedSeed::new(bytes)
+}
+
+// =============================================================================
 // DeterminismConfig - Global determinism controls
 // =============================================================================
 
@@ -1249,6 +1470,149 @@ mod tests {
             HKDF_OUTPUT_LENGTH,
             "HKDF output must be exactly {} bytes",
             HKDF_OUTPUT_LENGTH
+        );
+    }
+
+    // =========================================================================
+    // TypedSeed Tests
+    // =========================================================================
+
+    #[test]
+    fn typed_seed_new_sets_current_version() {
+        let global = B3Hash::hash(b"test");
+        let typed = derive_typed_seed(&global, "test-label");
+        assert_eq!(
+            typed.version, HKDF_ALGORITHM_VERSION,
+            "TypedSeed should use current algorithm version"
+        );
+    }
+
+    #[test]
+    fn typed_seed_checksum_validation_passes() {
+        let global = B3Hash::hash(b"test");
+        let typed = derive_typed_seed(&global, "test-label");
+        assert!(
+            typed.validate_checksum().is_ok(),
+            "Valid TypedSeed should pass checksum validation"
+        );
+    }
+
+    #[test]
+    fn typed_seed_checksum_validation_detects_corruption() {
+        let global = B3Hash::hash(b"test");
+        let mut typed = derive_typed_seed(&global, "test-label");
+        // Corrupt the checksum by creating a new one with wrong hash
+        typed.checksum = B3Hash::hash(b"wrong");
+        assert!(
+            typed.validate_checksum().is_err(),
+            "Corrupted TypedSeed should fail checksum validation"
+        );
+    }
+
+    #[test]
+    fn typed_seed_version_mismatch_detected() {
+        let bytes = [0u8; HKDF_OUTPUT_LENGTH];
+        let typed = TypedSeed::with_version(bytes, 1); // Old version
+        assert!(
+            !typed.version_matches(HKDF_ALGORITHM_VERSION),
+            "Version 1 should not match current version"
+        );
+        assert!(
+            typed.validate().is_err(),
+            "Version mismatch should fail validation"
+        );
+    }
+
+    #[test]
+    fn typed_seed_validate_passes_for_current_version() {
+        let global = B3Hash::hash(b"test");
+        let typed = derive_typed_seed(&global, "test-label");
+        assert!(
+            typed.validate().is_ok(),
+            "Current version TypedSeed should pass validation"
+        );
+    }
+
+    #[test]
+    fn typed_seed_bytes_match_derive_seed() {
+        let global = B3Hash::hash(b"determinism-test");
+        let raw_seed = derive_seed(&global, "consistency");
+        let typed_seed = derive_typed_seed(&global, "consistency");
+        assert_eq!(
+            *typed_seed.bytes(),
+            raw_seed,
+            "TypedSeed bytes must match raw derive_seed output"
+        );
+    }
+
+    #[test]
+    fn typed_seed_deterministic() {
+        let global = B3Hash::hash(b"determinism-check");
+        let typed1 = derive_typed_seed(&global, "label");
+        let typed2 = derive_typed_seed(&global, "label");
+        assert_eq!(
+            typed1, typed2,
+            "Same inputs should produce identical TypedSeed"
+        );
+    }
+
+    #[test]
+    fn typed_seed_full_deterministic() {
+        let global = B3Hash::hash(b"global");
+        let manifest = B3Hash::hash(b"manifest");
+        let adapter_dir = B3Hash::hash(b"/adapters");
+
+        let typed1 = derive_typed_seed_full(&global, &manifest, &adapter_dir, 1, "label", 0);
+        let typed2 = derive_typed_seed_full(&global, &manifest, &adapter_dir, 1, "label", 0);
+        assert_eq!(
+            typed1, typed2,
+            "Same inputs should produce identical TypedSeed"
+        );
+    }
+
+    #[test]
+    fn typed_seed_validate_with_config_strict_mode() {
+        let bytes = [0u8; HKDF_OUTPUT_LENGTH];
+        let typed = TypedSeed::with_version(bytes, 1); // Old version
+
+        let config = DeterminismConfig::builder().strict_mode(true).build();
+        let result = with_determinism_config(config, || typed.validate_with_config());
+        assert!(
+            result.is_err(),
+            "Strict mode should fail on version mismatch"
+        );
+    }
+
+    #[test]
+    fn typed_seed_display_format() {
+        let global = B3Hash::hash(b"test");
+        let typed = derive_typed_seed(&global, "test");
+        let display = format!("{}", typed);
+        assert!(
+            display.starts_with("TypedSeed(v"),
+            "Display format should start with TypedSeed(v"
+        );
+        assert!(
+            display.contains(&format!("v{}", HKDF_ALGORITHM_VERSION)),
+            "Display format should include version"
+        );
+    }
+
+    #[test]
+    fn typed_seed_serialization_roundtrip() {
+        let global = B3Hash::hash(b"serialization-test");
+        let typed = derive_typed_seed(&global, "serde");
+
+        let json = serde_json::to_string(&typed).expect("serialize");
+        let deserialized: TypedSeed = serde_json::from_str(&json).expect("deserialize");
+
+        assert_eq!(
+            typed, deserialized,
+            "Serialization roundtrip must preserve TypedSeed"
+        );
+        assert!(
+            deserialized.validate().is_ok(),
+            "Deserialized seed must validate"
         );
     }
 }

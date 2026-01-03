@@ -3,7 +3,7 @@
 //! Enforces orthogonal multi-path LoRA constraints for DIR
 //! Reference: <https://openreview.net/pdf?id=jqz6Msm3AF>
 
-use adapteros_core::{AosError, Result};
+use adapteros_core::{AosError, Result, Q15_GATE_DENOMINATOR};
 use adapteros_manifest::RouterCfg;
 use serde::{Deserialize, Serialize};
 
@@ -127,14 +127,14 @@ impl MploraPolicy {
         }
 
         // Compute gate entropy as diversity measure
-        let total_gate: f32 = gates.iter().map(|&g| g as f32 / 32767.0).sum();
+        let total_gate: f32 = gates.iter().map(|&g| g as f32 / Q15_GATE_DENOMINATOR).sum();
         if total_gate == 0.0 {
             return 0.0;
         }
 
         let mut entropy = 0.0;
         for &gate in gates {
-            let p = (gate as f32 / 32767.0) / total_gate;
+            let p = (gate as f32 / Q15_GATE_DENOMINATOR) / total_gate;
             if p > 0.0 {
                 entropy -= p * p.log2();
             }

@@ -88,6 +88,8 @@ pub struct InferenceReplayMetadata {
     pub stop_policy_json: Option<String>,
     /// Policy mask digest (BLAKE3 hex) for audit trail completeness
     pub policy_mask_digest_b3: Option<String>,
+    /// Whether UTF-8 token healing was enabled for this inference
+    pub utf8_healing: Option<bool>,
     pub created_at: String,
 }
 
@@ -137,6 +139,9 @@ pub struct CreateReplayMetadataParams {
     pub stop_policy_json: Option<String>,
     /// Policy mask digest (BLAKE3 hex) for audit trail completeness
     pub policy_mask_digest_b3: Option<String>,
+    /// Whether UTF-8 token healing was enabled for this inference.
+    /// Required for deterministic replay since healing affects output bytes.
+    pub utf8_healing: Option<bool>,
 }
 
 impl Db {
@@ -205,6 +210,8 @@ impl Db {
             );
         }
 
+        let utf8_healing = params.utf8_healing.map(|v| if v { 1 } else { 0 });
+
         sqlx::query(
             r#"
             INSERT INTO inference_replay_metadata (
@@ -215,11 +222,11 @@ impl Db {
                 replay_status, latency_ms, tokens_generated, determinism_mode,
                 fallback_triggered, coreml_compute_preference, coreml_compute_units,
                 coreml_gpu_used, fallback_backend, replay_guarantee, execution_policy_id,
-                execution_policy_version, stop_policy_json, policy_mask_digest_b3, created_at
+                execution_policy_version, stop_policy_json, policy_mask_digest_b3, utf8_healing, created_at
             )
             VALUES (
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                 datetime('now')
             )
             "#,
@@ -261,6 +268,7 @@ impl Db {
         .bind(&params.execution_policy_version)
         .bind(&params.stop_policy_json)
         .bind(&params.policy_mask_digest_b3)
+        .bind(utf8_healing)
         .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to create replay metadata: {}", e)))?;
@@ -349,7 +357,7 @@ impl Db {
                                        replay_status, latency_ms, tokens_generated, determinism_mode,
                                        fallback_triggered, coreml_compute_preference, coreml_compute_units,
                                        coreml_gpu_used, fallback_backend, replay_guarantee, execution_policy_id,
-                                       execution_policy_version, stop_policy_json, policy_mask_digest_b3, created_at
+                                       execution_policy_version, stop_policy_json, policy_mask_digest_b3, utf8_healing, created_at
                                 FROM inference_replay_metadata
                                 WHERE inference_id = ?
                                 "#,
@@ -415,7 +423,7 @@ impl Db {
                    replay_status, latency_ms, tokens_generated, determinism_mode,
                    fallback_triggered, coreml_compute_preference, coreml_compute_units,
                    coreml_gpu_used, fallback_backend, replay_guarantee, execution_policy_id,
-                   execution_policy_version, stop_policy_json, policy_mask_digest_b3, created_at
+                   execution_policy_version, stop_policy_json, policy_mask_digest_b3, utf8_healing, created_at
             FROM inference_replay_metadata
             WHERE inference_id = ?
             "#,
@@ -463,7 +471,7 @@ impl Db {
                                        replay_status, latency_ms, tokens_generated, determinism_mode,
                                        fallback_triggered, coreml_compute_preference, coreml_compute_units,
                                        coreml_gpu_used, fallback_backend, replay_guarantee, execution_policy_id,
-                                       execution_policy_version, stop_policy_json, policy_mask_digest_b3, created_at
+                                       execution_policy_version, stop_policy_json, policy_mask_digest_b3, utf8_healing, created_at
                                 FROM inference_replay_metadata
                                 WHERE id = ?
                                 "#,
@@ -525,7 +533,7 @@ impl Db {
                    replay_status, latency_ms, tokens_generated, determinism_mode,
                    fallback_triggered, coreml_compute_preference, coreml_compute_units,
                    coreml_gpu_used, fallback_backend, replay_guarantee, execution_policy_id,
-                   execution_policy_version, stop_policy_json, policy_mask_digest_b3, created_at
+                   execution_policy_version, stop_policy_json, policy_mask_digest_b3, utf8_healing, created_at
             FROM inference_replay_metadata
             WHERE id = ?
             "#,
@@ -617,7 +625,7 @@ impl Db {
                                        replay_status, latency_ms, tokens_generated, determinism_mode,
                                        fallback_triggered, coreml_compute_preference, coreml_compute_units,
                                        coreml_gpu_used, fallback_backend, replay_guarantee, execution_policy_id,
-                                       execution_policy_version, stop_policy_json, policy_mask_digest_b3, created_at
+                                       execution_policy_version, stop_policy_json, policy_mask_digest_b3, utf8_healing, created_at
                                 FROM inference_replay_metadata
                                 WHERE tenant_id = ?
                                 ORDER BY created_at DESC, inference_id DESC
@@ -671,7 +679,7 @@ impl Db {
                    replay_status, latency_ms, tokens_generated, determinism_mode,
                    fallback_triggered, coreml_compute_preference, coreml_compute_units,
                    coreml_gpu_used, fallback_backend, replay_guarantee, execution_policy_id,
-                   execution_policy_version, stop_policy_json, policy_mask_digest_b3, created_at
+                   execution_policy_version, stop_policy_json, policy_mask_digest_b3, utf8_healing, created_at
             FROM inference_replay_metadata
             WHERE tenant_id = ?
             ORDER BY created_at DESC, inference_id DESC
@@ -743,6 +751,7 @@ struct InferenceReplayMetadataRow {
     execution_policy_version: Option<i32>,
     stop_policy_json: Option<String>,
     policy_mask_digest_b3: Option<String>,
+    utf8_healing: Option<i32>,
     created_at: String,
 }
 
@@ -786,6 +795,7 @@ impl From<InferenceReplayMetadataRow> for InferenceReplayMetadata {
             execution_policy_version: row.execution_policy_version,
             stop_policy_json: row.stop_policy_json,
             policy_mask_digest_b3: row.policy_mask_digest_b3,
+            utf8_healing: row.utf8_healing.map(|v| v != 0),
             created_at: row.created_at,
         }
     }

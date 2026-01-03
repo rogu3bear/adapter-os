@@ -1,7 +1,7 @@
 //! Multi-LoRA routing implementation for MLX FFI
 
 use crate::lora::LoRAAdapter;
-use adapteros_core::Result;
+use adapteros_core::{Result, Q15_GATE_DENOMINATOR};
 use tracing::debug;
 
 /// Apply multiple LoRA adapters with weighted routing
@@ -42,7 +42,7 @@ pub fn apply_multi_lora(
             continue;
         }
 
-        let gate_weight = gate as f32 / 32767.0; // Convert Q15 to float (0-32767 -> 0.0-1.0)
+        let gate_weight = gate as f32 / Q15_GATE_DENOMINATOR; // Convert Q15 to float
         total_weight += gate_weight;
 
         // Get LoRA weights for this module
@@ -551,8 +551,8 @@ mod tests {
     fn test_q15_encode_decode_precision() {
         let values = [0.0_f32, 0.5, 0.99, 0.123456];
         for v in values {
-            let encoded = (v * 32767.0).round() as u16;
-            let decoded = encoded as f32 / 32767.0;
+            let encoded = (v * Q15_GATE_DENOMINATOR).round() as u16;
+            let decoded = encoded as f32 / Q15_GATE_DENOMINATOR;
             assert!(
                 (v - decoded).abs() < 1e-4,
                 "Precision loss for {}: encoded={}, decoded={}",
@@ -567,7 +567,10 @@ mod tests {
     fn test_q15_gate_normalization() {
         // Gates should approximately sum to 1.0 after dequantization
         let gates_q15: Vec<u16> = vec![16384, 8192, 8191]; // ~0.5, ~0.25, ~0.25
-        let sum: f32 = gates_q15.iter().map(|g| *g as f32 / 32767.0).sum();
+        let sum: f32 = gates_q15
+            .iter()
+            .map(|g| *g as f32 / Q15_GATE_DENOMINATOR)
+            .sum();
         assert!(
             (sum - 1.0).abs() < 0.01,
             "Gate sum should be ~1.0, got {}",

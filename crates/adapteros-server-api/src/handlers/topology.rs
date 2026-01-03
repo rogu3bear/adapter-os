@@ -197,6 +197,7 @@ fn adapter_to_router_info(adapter: &adapteros_db::adapters::Adapter) -> AdapterI
             .as_deref()
             .unwrap_or(&adapter.id)
             .to_string(),
+        stable_id: 0, // Stable ID not yet stored in DB; use 0 for now
         framework: adapter.framework.clone(),
         languages: parse_languages(adapter.languages_json.as_deref()),
         tier: adapter.tier.clone(),

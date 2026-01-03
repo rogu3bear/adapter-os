@@ -4,7 +4,7 @@
 // Date: 2025-11-17
 
 use crate::Db;
-use adapteros_core::Result;
+use adapteros_core::{Result, Q15_GATE_DENOMINATOR};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
@@ -431,7 +431,7 @@ impl Db {
                         let k = decision.k_value.unwrap_or(0) as usize;
                         for candidate in sorted_candidates.iter().take(k) {
                             if candidate.gate_q15 > 0 {
-                                let gate_float = (candidate.gate_q15 as f32) / 32767.0;
+                                let gate_float = (candidate.gate_q15 as f32) / Q15_GATE_DENOMINATOR;
                                 gate_values.push(gate_float as f64);
                             }
                         }

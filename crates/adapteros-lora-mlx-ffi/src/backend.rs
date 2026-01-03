@@ -1,7 +1,7 @@
 //! MLX FFI backend implementation for FusedKernels trait
 
 use crate::{LoRAAdapter, MLXFFIModel, MLXMemoryPool, MLXMemoryPoolConfig};
-use adapteros_core::{derive_seed, B3Hash, Result};
+use adapteros_core::{derive_seed, B3Hash, Result, Q15_GATE_DENOMINATOR};
 use adapteros_lora_kernel_api::{
     FusedKernels, IoBuffers, LiquidBlendRequest, LiquidBlendStats, LiquidKernel, RouterRing,
 };
@@ -1058,7 +1058,7 @@ impl MLXFFIBackend {
                 active_adapters.push(adapter.as_ref());
                 let gate_u16 = gate_q15 as u16;
                 gates.push(gate_u16);
-                total_gate_weight += gate_u16 as f32 / 32767.0; // Q15 dequantization
+                total_gate_weight += gate_u16 as f32 / Q15_GATE_DENOMINATOR; // Q15 dequantization
             } else {
                 tracing::warn!(
                     adapter_id = adapter_id,
@@ -1168,7 +1168,7 @@ impl MLXFFIBackend {
                 let gate_q15 = ring.gates_q15[i];
 
                 if let Some(adapter) = adapters.get(&adapter_id) {
-                    let gate_weight = (gate_q15.max(0) as f32) / 32767.0; // Q15 dequantization
+                    let gate_weight = (gate_q15.max(0) as f32) / Q15_GATE_DENOMINATOR; // Q15 dequantization
                     let scale = adapter.config().alpha / adapter.config().rank as f32;
 
                     // Apply scaled adaptation

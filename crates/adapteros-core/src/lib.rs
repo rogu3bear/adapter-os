@@ -50,6 +50,7 @@ pub mod hash;
 pub mod id;
 pub mod identity;
 pub mod index_snapshot;
+pub mod invariants;
 pub mod io_utils;
 pub mod json;
 pub mod lifecycle;
@@ -171,8 +172,8 @@ pub use preflight::{
 };
 pub use seed::{
     clear_seed_registry, derive_adapter_seed, derive_request_seed, derive_seed, derive_seed_full,
-    derive_seed_indexed, derive_seed_typed, hash_adapter_dir, ExecutionProfile, SeedLabel,
-    SeedMode,
+    derive_seed_indexed, derive_seed_typed, derive_typed_seed, derive_typed_seed_full,
+    hash_adapter_dir, ExecutionProfile, SeedLabel, SeedMode, TypedSeed,
 };
 pub use seed_guard::SeedScopeGuard;
 pub use stack::compute_stack_hash;
@@ -200,6 +201,12 @@ pub use version::{
     PATH_NORMALIZATION_VERSION,
 };
 pub use worker_status::{WorkerStatus, WorkerStatusTransition};
+
+// Invariant validation for determinism-critical operations
+pub use invariants::{
+    canonical_adapter_sort, canonical_score_comparator, decode_q15_gate, encode_q15_gate,
+    validate_seed_bytes, validate_seed_bytes_soft, Q15_GATE_DENOMINATOR,
+};
 
 /// RNG module version for determinism tracking
 /// @deprecated Use `version::RNG_MODULE_VERSION` instead

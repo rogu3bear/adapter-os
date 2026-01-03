@@ -10,6 +10,7 @@ use crate::middleware::require_any_role;
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::ErrorResponse;
+use adapteros_core::Q15_GATE_DENOMINATOR;
 use adapteros_db::users::Role;
 use adapteros_db::{
     routing_decision_chain::ChainVerification, RouterCandidate as DbRouterCandidate,
@@ -729,7 +730,7 @@ pub async fn get_session_router_view(
                             .into_iter()
                             .map(|c| {
                                 let selected = selected_indices.contains(&c.adapter_idx);
-                                let gate_float = (c.gate_q15 as f32) / 32767.0;
+                                let gate_float = (c.gate_q15 as f32) / Q15_GATE_DENOMINATOR;
                                 AdapterFired {
                                     adapter_idx: c.adapter_idx,
                                     gate_value: gate_float,
@@ -794,7 +795,7 @@ fn convert_decision_to_response(decision: DbRoutingDecision) -> RoutingDecisionR
                     .into_iter()
                     .map(|c| {
                         let selected = selected_indices.contains(&c.adapter_idx);
-                        let gate_float = (c.gate_q15 as f32) / 32767.0;
+                        let gate_float = (c.gate_q15 as f32) / Q15_GATE_DENOMINATOR;
                         RouterCandidateResponse {
                             adapter_idx: c.adapter_idx,
                             raw_score: c.raw_score,

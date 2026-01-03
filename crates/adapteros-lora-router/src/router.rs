@@ -966,6 +966,9 @@ impl Router {
 
         // Sort by score descending, then by index for determinism (tie-breaker keeps per-token decisions stable)
         // Issue D-2 Fix: Use total_cmp for IEEE 754 total ordering (handles NaN deterministically)
+        //
+        // NOTE: This deprecated function uses array index for tie-breaking, not stable_id.
+        // Use route_with_adapter_info() for proper stable_id-based tie-breaking.
         scores.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
 
         // Take top K
@@ -1467,18 +1470,24 @@ impl Router {
         }
         let mut tie_events: Vec<(usize, usize, f32, f32)> = Vec::new();
 
-        // Sort by score descending, then by deterministic index-based tie-break
+        // Sort by score descending, then by stable_id for deterministic tie-break
         //
         // # Tie-Breaking Strategy (Critical for Determinism - Issue D-2 Fix)
         //
         // 1. **Primary**: Score descending using `total_cmp()` for IEEE 754 total ordering
         //    - Handles NaN consistently (NaN > all other values in total_cmp)
         //    - Provides deterministic ordering across platforms
-        // 2. **Secondary**: Pure index-based tie-breaking (adapter index ascending)
+        // 2. **Secondary**: stable_id-based tie-breaking (ascending)
+        //    - Unlike array indices, stable_id doesn't change after filtering
+        //    - Assigned at registration time, never mutates
+        //    - Ensures identical selection after policy mask filtering and top-k
         //
-        // NOTE: Adaptive routing with seeded RNG tie-breakers has been removed from
-        // the tie-breaking path to ensure pure determinism. The adaptive_routing flag
-        // now only affects score computation, not the final sort order.
+        // NOTE: Using stable_id instead of array index is critical because array
+        // indices shift when adapters are filtered by policy masks. stable_id
+        // remains constant, ensuring consistent tie-breaking across:
+        // - Policy mask filtering
+        // - Top-k selection
+        // - Adapter hot-swap/reload
         //
         // Using `total_cmp()` instead of `partial_cmp()` ensures:
         // - NaN values are handled deterministically (sorted to end)
@@ -1489,11 +1498,15 @@ impl Router {
             let score_cmp = b.1.total_cmp(&a.1); // Descending order
 
             if score_cmp == std::cmp::Ordering::Equal {
-                // Exact tie: use pure index-based deterministic tie-breaking
+                // Exact tie: use stable_id for deterministic tie-breaking
+                // stable_id is assigned at registration and never changes
                 if log_ties {
                     tie_events.push((a.0, b.0, a.1, b.1));
                 }
-                a.0.cmp(&b.0) // Ascending index for stability
+                // Use stable_id instead of array index for tie-breaking
+                adapter_info[a.0]
+                    .stable_id
+                    .cmp(&adapter_info[b.0].stable_id)
             } else {
                 score_cmp
             }
@@ -1738,6 +1751,9 @@ impl Router {
 
         // Sort by score descending, then by index for determinism
         // Issue D-2 Fix: Use total_cmp for IEEE 754 total ordering (handles NaN deterministically)
+        //
+        // NOTE: This deprecated function uses array index for tie-breaking, not stable_id.
+        // Use route_with_adapter_info() for proper stable_id-based tie-breaking.
         scores.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
 
         // Take top K

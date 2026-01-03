@@ -7,7 +7,7 @@
 //! - Ring Buffer Data Structure: https://en.wikipedia.org/wiki/Circular_buffer
 //! - Metal Buffer Management: https://developer.apple.com/documentation/metal/mtlbuffer
 
-use adapteros_core::{AosError, Result};
+use adapteros_core::{AosError, Result, Q15_GATE_DENOMINATOR};
 use metal::*;
 use std::sync::Arc;
 
@@ -166,15 +166,15 @@ impl RingBuffer {
 
     /// Convert float gate to signed Q15 format (matches router canonical format)
     ///
-    /// **CRITICAL**: Uses denominator 32767.0 (not 32768.0) to match router Decision
-    /// Reference: adapteros-lora-router/src/lib.rs:1030 (Decision::gates_f32)
+    /// **CRITICAL**: Uses Q15_GATE_DENOMINATOR (32767.0) to match router Decision
+    /// Reference: adapteros-core/src/invariants.rs
     pub fn float_to_q15(gate: f32) -> i16 {
-        (gate.clamp(-1.0, 1.0) * 32767.0) as i16
+        (gate.clamp(-1.0, 1.0) * Q15_GATE_DENOMINATOR) as i16
     }
 
     /// Convert signed Q15 gate to float (matches router canonical format)
     pub fn q15_to_float(gate: i16) -> f32 {
-        gate as f32 / 32767.0
+        gate as f32 / Q15_GATE_DENOMINATOR
     }
 }
 
