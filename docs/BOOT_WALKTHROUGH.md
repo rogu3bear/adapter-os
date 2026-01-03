@@ -136,7 +136,7 @@ The `BootStateManager` is created without database connection:
 
 ```rust
 let boot_state = BootStateManager::new();  // Line 360
-boot_state.boot().await;                   // Line 361
+boot_state.start().await;                  // Line 361
 ```
 
 The entire boot sequence is wrapped in a timeout (default: 300 seconds):

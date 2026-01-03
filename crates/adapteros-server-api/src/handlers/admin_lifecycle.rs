@@ -191,9 +191,7 @@ fn map_boot_state(state: &BootState) -> String {
         | BootState::StartingBackend
         | BootState::LoadingBaseModels
         | BootState::LoadingAdapters
-        | BootState::WorkerDiscovery
-        | BootState::Booting
-        | BootState::InitializingDb => "booting",
+        | BootState::WorkerDiscovery => "booting",
         BootState::Ready | BootState::FullyReady => "ready",
         BootState::Degraded => "degraded",
         BootState::Failed => "failed",

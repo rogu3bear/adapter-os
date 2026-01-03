@@ -58,7 +58,7 @@
 use adapteros_db::Db;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{debug, info, warn};
@@ -103,12 +103,6 @@ pub enum BootState {
     Draining,
     /// Component shutdown (ordered termination)
     Stopping,
-
-    // Legacy aliases for backwards compatibility during migration
-    #[doc(hidden)]
-    Booting,
-    #[doc(hidden)]
-    InitializingDb,
 }
 
 impl BootState {
@@ -160,9 +154,6 @@ impl BootState {
                 | BootState::LoadingBaseModels
                 | BootState::LoadingAdapters
                 | BootState::WorkerDiscovery
-                // Legacy aliases
-                | BootState::Booting
-                | BootState::InitializingDb
         )
     }
 
@@ -195,9 +186,6 @@ impl BootState {
             BootState::Maintenance => "maintenance",
             BootState::Draining => "draining",
             BootState::Stopping => "stopping",
-            // Legacy aliases map to new names
-            BootState::Booting => "starting",
-            BootState::InitializingDb => "db-connecting",
         }
     }
 }
@@ -356,14 +344,35 @@ pub struct DegradedReason {
 }
 
 /// Model loading status tracking
+///
+/// Uses `BTreeSet` for deterministic ordering of model IDs. This ensures
+/// consistent iteration order regardless of concurrent insertion order,
+/// aligning with the project's determinism requirements.
 #[derive(Debug, Clone, Default)]
 pub struct ModelLoadingStatus {
-    /// Models still being loaded
-    pub pending: Vec<String>,
-    /// Models successfully loaded
-    pub ready: Vec<String>,
-    /// Models that failed to load
-    pub failed: Vec<String>,
+    /// Models still being loaded (sorted by model ID)
+    pub pending: BTreeSet<String>,
+    /// Models successfully loaded (sorted by model ID)
+    pub ready: BTreeSet<String>,
+    /// Models that failed to load (sorted by model ID)
+    pub failed: BTreeSet<String>,
+}
+
+/// A warning recorded during boot that doesn't prevent startup but indicates
+/// reduced functionality. Exposed via /readyz for operator visibility.
+///
+/// Boot warnings are distinct from the Degraded state - they capture issues
+/// that occurred during boot (before Ready state) when Degraded transitions
+/// aren't possible. This provides honest observability without lying about
+/// the system state.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct BootWarning {
+    /// Component or task that had the issue
+    pub component: String,
+    /// Human-readable description of what failed
+    pub message: String,
+    /// Milliseconds since boot when the warning was recorded
+    pub recorded_at_ms: u64,
 }
 
 /// Manager for boot lifecycle state
@@ -386,6 +395,8 @@ pub struct BootStateManager {
     transitions: Arc<RwLock<Vec<StateTransition>>>,
     /// Phase timing/status tracking
     phases: Arc<RwLock<HashMap<String, PhaseStatus>>>,
+    /// Warnings recorded during boot (non-fatal issues exposed via /readyz)
+    boot_warnings: Arc<RwLock<Vec<BootWarning>>>,
 }
 
 impl BootStateManager {
@@ -401,6 +412,7 @@ impl BootStateManager {
             degraded_reasons: Arc::new(RwLock::new(Vec::new())),
             transitions: Arc::new(RwLock::new(Vec::new())),
             phases: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            boot_warnings: Arc::new(RwLock::new(Vec::new())),
         }
     }
 
@@ -417,6 +429,7 @@ impl BootStateManager {
             degraded_reasons: Arc::clone(&self.degraded_reasons),
             transitions: Arc::clone(&self.transitions),
             phases: Arc::clone(&self.phases),
+            boot_warnings: Arc::clone(&self.boot_warnings),
         }
     }
 
@@ -497,11 +510,19 @@ impl BootStateManager {
         entry.hint = hint;
     }
 
-    /// Snapshot of all boot phases
+    /// Snapshot of all boot phases, ordered by execution time (earliest first).
+    ///
+    /// Phases are sorted by their `started_at_ms` timestamp to reflect the actual
+    /// execution timeline. Phases without a start time appear last, sorted by name.
     pub fn phase_statuses(&self) -> Vec<PhaseStatus> {
         let phases = self.phases.read();
         let mut vals: Vec<_> = phases.values().cloned().collect();
-        vals.sort_by(|a, b| a.name.cmp(&b.name));
+        vals.sort_by(|a, b| match (a.started_at_ms, b.started_at_ms) {
+            (Some(a_time), Some(b_time)) => a_time.cmp(&b_time),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => a.name.cmp(&b.name),
+        });
         vals
     }
 
@@ -575,27 +596,21 @@ impl BootStateManager {
     /// Mark a model as pending
     pub fn add_pending_model(&self, model_id: String) {
         let mut status = self.model_status.write();
-        if !status.pending.contains(&model_id) {
-            status.pending.push(model_id);
-        }
+        status.pending.insert(model_id);
     }
 
     /// Mark a model as ready
     pub fn mark_model_ready(&self, model_id: String) {
         let mut status = self.model_status.write();
-        status.pending.retain(|id| id != &model_id);
-        if !status.ready.contains(&model_id) {
-            status.ready.push(model_id);
-        }
+        status.pending.remove(&model_id);
+        status.ready.insert(model_id);
     }
 
     /// Mark a model as failed
     pub fn mark_model_failed(&self, model_id: String) {
         let mut status = self.model_status.write();
-        status.pending.retain(|id| id != &model_id);
-        if !status.failed.contains(&model_id) {
-            status.failed.push(model_id);
-        }
+        status.pending.remove(&model_id);
+        status.failed.insert(model_id);
     }
 
     /// Get time elapsed since process start
@@ -705,17 +720,16 @@ impl BootStateManager {
             return true;
         }
 
-        // Standard boot sequence transitions (new granular states)
-        // Also support legacy aliases for backwards compatibility
+        // Boot sequence transitions (strictly ordered)
         matches!(
             (from, to),
-            // New state flow: stopped → starting → db-connecting → migrating → seeding
+            // Boot flow: stopped → starting → db-connecting → migrating → seeding
             (BootState::Stopped, BootState::Starting)
                 | (BootState::Starting, BootState::DbConnecting)
                 | (BootState::DbConnecting, BootState::Migrating)
                 | (BootState::Migrating, BootState::Seeding)
                 | (BootState::Seeding, BootState::LoadingPolicies)
-                // Continue from seeding through the rest of boot
+                // Backend initialization
                 | (BootState::LoadingPolicies, BootState::StartingBackend)
                 | (BootState::StartingBackend, BootState::LoadingBaseModels)
                 | (BootState::LoadingBaseModels, BootState::LoadingAdapters)
@@ -732,23 +746,10 @@ impl BootStateManager {
                 | (BootState::Degraded, BootState::Draining)
                 | (BootState::Maintenance, BootState::Draining)
                 | (BootState::Draining, BootState::Stopping)
-                // Legacy aliases for backwards compatibility
-                | (BootState::Stopped, BootState::Booting)
-                | (BootState::Booting, BootState::StartingBackend)
-                | (BootState::Booting, BootState::InitializingDb)
-                | (BootState::Booting, BootState::DbConnecting)
-                | (BootState::InitializingDb, BootState::LoadingPolicies)
-                | (BootState::InitializingDb, BootState::Migrating)
-                | (BootState::LoadingPolicies, BootState::LoadingAdapters)
-                | (BootState::LoadingBaseModels, BootState::InitializingDb)
-                // Allow skipping WorkerDiscovery for backwards compatibility
-                | (BootState::LoadingAdapters, BootState::Ready)
         )
     }
 
-    // ============ New granular state transitions ============
-
-    /// Transition to Starting state (new primary method)
+    /// Transition to Starting state
     pub async fn start(&self) {
         self.transition(BootState::Starting, "process-start").await;
     }
@@ -775,23 +776,6 @@ impl BootStateManager {
         self.transition(BootState::WorkerDiscovery, "adapters-loaded")
             .await;
     }
-
-    // ============ Legacy aliases for backwards compatibility ============
-
-    /// Transition to Booting state (legacy alias for start())
-    #[deprecated(since = "0.1.0", note = "Use start() instead")]
-    pub async fn boot(&self) {
-        self.transition(BootState::Booting, "process-start").await;
-    }
-
-    /// Transition to InitializingDb state (legacy alias for db_connecting())
-    #[deprecated(since = "0.1.0", note = "Use db_connecting() instead")]
-    pub async fn init_db(&self) {
-        self.transition(BootState::InitializingDb, "config-loaded")
-            .await;
-    }
-
-    // ============ Standard state transitions ============
 
     /// Transition to LoadingPolicies state
     pub async fn load_policies(&self) {
@@ -958,6 +942,31 @@ impl BootStateManager {
     pub fn is_failed(&self) -> bool {
         self.current_state().is_failed()
     }
+    // ============ Boot warnings ============
+
+    /// Record a warning during boot for a component that failed non-fatally.
+    ///
+    /// Unlike `degrade()`, this can be called from any state (including boot states).
+    /// Warnings are exposed via `/readyz` to give operators visibility into
+    /// components that failed to start without lying about the system state.
+    pub fn record_boot_warning(&self, component: impl Into<String>, message: impl Into<String>) {
+        let warning = BootWarning {
+            component: component.into(),
+            message: message.into(),
+            recorded_at_ms: self.start_time.elapsed().as_millis() as u64,
+        };
+        self.boot_warnings.write().push(warning);
+    }
+
+    /// Get all boot warnings recorded during startup.
+    pub fn get_boot_warnings(&self) -> Vec<BootWarning> {
+        self.boot_warnings.read().clone()
+    }
+
+    /// Check if any boot warnings were recorded.
+    pub fn has_boot_warnings(&self) -> bool {
+        !self.boot_warnings.read().is_empty()
+    }
 }
 
 impl Default for BootStateManager {
@@ -978,6 +987,7 @@ impl Clone for BootStateManager {
             degraded_reasons: Arc::clone(&self.degraded_reasons),
             transitions: Arc::clone(&self.transitions),
             phases: Arc::clone(&self.phases),
+            boot_warnings: Arc::clone(&self.boot_warnings),
         }
     }
 }
@@ -1070,13 +1080,6 @@ mod tests {
         assert_eq!(BootState::Maintenance.as_str(), "maintenance");
         assert_eq!(BootState::Draining.as_str(), "draining");
         assert_eq!(BootState::Stopping.as_str(), "stopping");
-
-        // Legacy aliases map to new names
-        #[allow(deprecated)]
-        {
-            assert_eq!(BootState::Booting.as_str(), "starting");
-            assert_eq!(BootState::InitializingDb.as_str(), "db-connecting");
-        }
     }
 
     #[tokio::test]
@@ -1382,7 +1385,7 @@ mod tests {
         assert!(!BootState::Stopped.is_terminal());
 
         // Other states are not terminal
-        assert!(!BootState::Booting.is_terminal());
+        assert!(!BootState::Starting.is_terminal());
         assert!(!BootState::Ready.is_terminal());
         assert!(!BootState::Draining.is_terminal());
         assert!(!BootState::Maintenance.is_terminal());
@@ -1468,7 +1471,7 @@ mod tests {
         ));
         assert!(!BootStateManager::is_allowed_transition(
             BootState::Stopping,
-            BootState::Booting
+            BootState::Starting
         ));
         assert!(!BootStateManager::is_allowed_transition(
             BootState::Stopping,
@@ -1479,10 +1482,10 @@ mod tests {
             BootState::Draining
         ));
 
-        // Stopped is NOT terminal - should allow Booting
+        // Stopped is NOT terminal - should allow Starting
         assert!(BootStateManager::is_allowed_transition(
             BootState::Stopped,
-            BootState::Booting
+            BootState::Starting
         ));
 
         // Other transitions should work as expected
