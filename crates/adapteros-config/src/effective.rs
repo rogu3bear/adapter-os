@@ -512,6 +512,9 @@ impl EffectiveConfig {
         Ok(())
     }
 
+    /// Minimum required length for JWT secret in production
+    const MIN_JWT_SECRET_LENGTH: usize = 64;
+
     /// Validate critical configuration values
     ///
     /// Ensures that security-critical configuration values are set correctly.
@@ -530,6 +533,16 @@ impl EffectiveConfig {
             errors.push("rate_limits.inference_per_minute must be > 0".to_string());
         }
 
+        // dev_bypass is only allowed in debug builds
+        #[cfg(not(debug_assertions))]
+        if self.security.dev_bypass {
+            errors.push(
+                "security.dev_bypass=true is not allowed in release builds\n\
+                 Hint: Set security.dev_bypass=false or rebuild in debug mode"
+                    .to_string(),
+            );
+        }
+
         // Production-only checks
         if self.is_production {
             // JWT secret must be set in production (not empty or default)
@@ -543,8 +556,44 @@ impl EffectiveConfig {
             {
                 errors.push(
                     "Production mode requires security.jwt_secret to be set to a secure value\n\
-                     Hint: Generate with: openssl rand -base64 32"
+                     Hint: Generate with: openssl rand -base64 48"
                         .to_string(),
+                );
+            }
+
+            // JWT secret must be at least 64 characters
+            if self.security.jwt_secret.len() < Self::MIN_JWT_SECRET_LENGTH {
+                errors.push(format!(
+                    "Production mode requires security.jwt_secret to be at least {} characters (got {})\n\
+                     Hint: Generate with: openssl rand -base64 48",
+                    Self::MIN_JWT_SECRET_LENGTH,
+                    self.security.jwt_secret.len()
+                ));
+            }
+
+            // dev_bypass must be false in production
+            if self.security.dev_bypass {
+                errors.push(
+                    "Production mode requires security.dev_bypass=false\n\
+                     Hint: Set security.dev_bypass=false in your config"
+                        .to_string(),
+                );
+            }
+
+            // dev_login_enabled must be false in production
+            if self.security.dev_login_enabled {
+                errors.push(
+                    "Production mode requires security.dev_login_enabled=false\n\
+                     Hint: Set security.dev_login_enabled=false in your config"
+                        .to_string(),
+                );
+            }
+
+            // require_pf_deny should be true in production (warning only)
+            if !self.security.require_pf_deny {
+                warn!(
+                    "Production mode recommends security.require_pf_deny=true for network isolation\n\
+                     Hint: Set security.require_pf_deny=true in your config"
                 );
             }
 
@@ -1063,6 +1112,10 @@ pub fn is_effective_initialized() -> bool {
 mod tests {
     use super::*;
 
+    /// Valid 64-char JWT secret for production tests
+    const VALID_JWT_SECRET: &str =
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
     #[test]
     fn test_parse_duration_secs() {
         assert_eq!(EffectiveConfig::parse_duration_secs("30"), Some(30));
@@ -1179,7 +1232,10 @@ mod tests {
             "/adapter-os/var/documents".to_string(),
         );
         prod_abs_values.insert("log.file".to_string(), "/adapter-os/var/logs".to_string());
-        prod_abs_values.insert("security.jwt.secret".to_string(), "prod-secret".to_string());
+        prod_abs_values.insert(
+            "security.jwt.secret".to_string(),
+            VALID_JWT_SECRET.to_string(),
+        );
         prod_abs_values.insert("inference.backend.profile".to_string(), "metal".to_string());
 
         let prod_abs_config = DeterministicConfig::new_for_test(prod_abs_values);
@@ -1205,7 +1261,10 @@ mod tests {
             "paths.documents.root".to_string(),
             "var/documents".to_string(),
         );
-        prod_rel_values.insert("security.jwt.secret".to_string(), "prod-secret".to_string());
+        prod_rel_values.insert(
+            "security.jwt.secret".to_string(),
+            VALID_JWT_SECRET.to_string(),
+        );
         prod_rel_values.insert("inference.backend.profile".to_string(), "metal".to_string());
 
         let prod_rel_config = DeterministicConfig::new_for_test(prod_rel_values);
@@ -1290,5 +1349,170 @@ mod tests {
 
         assert!((effective.health.adapter.drift_hard_threshold - 0.25).abs() < f64::EPSILON);
         assert!((effective.health.adapter.high_tier_block_threshold - 0.2).abs() < f64::EPSILON);
+    }
+
+    /// Helper to build a minimal valid production config
+    fn minimal_production_config() -> HashMap<String, String> {
+        let mut values = HashMap::new();
+        values.insert("server.production.mode".to_string(), "true".to_string());
+        values.insert(
+            "database.url".to_string(),
+            "sqlite:///adapter-os/var/aos-cp.sqlite3".to_string(),
+        );
+        values.insert(
+            "adapters.dir".to_string(),
+            "/adapter-os/var/adapters/repo".to_string(),
+        );
+        values.insert(
+            "paths.datasets.root".to_string(),
+            "/adapter-os/var/datasets".to_string(),
+        );
+        values.insert(
+            "paths.documents.root".to_string(),
+            "/adapter-os/var/documents".to_string(),
+        );
+        values.insert(
+            "security.jwt.secret".to_string(),
+            VALID_JWT_SECRET.to_string(),
+        );
+        values.insert("inference.backend.profile".to_string(), "metal".to_string());
+        values.insert("inference.seed.mode".to_string(), "strict".to_string());
+        values
+    }
+
+    #[test]
+    fn test_production_requires_jwt_secret_min_length() {
+        use crate::precedence::DeterministicConfig;
+
+        let mut values = minimal_production_config();
+        // Use a short secret (11 chars, well under 64)
+        values.insert(
+            "security.jwt.secret".to_string(),
+            "short-secret".to_string(),
+        );
+
+        let config = DeterministicConfig::new_for_test(values);
+        let result = EffectiveConfig::from_deterministic(config);
+
+        assert!(
+            result.is_err(),
+            "Short JWT secret should be rejected in production"
+        );
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("at least 64 characters"),
+            "Error should mention minimum length requirement: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_production_rejects_dev_bypass() {
+        use crate::precedence::DeterministicConfig;
+
+        let mut values = minimal_production_config();
+        values.insert("security.dev.bypass".to_string(), "true".to_string());
+
+        let config = DeterministicConfig::new_for_test(values);
+        let result = EffectiveConfig::from_deterministic(config);
+
+        assert!(
+            result.is_err(),
+            "dev_bypass=true should be rejected in production"
+        );
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("dev_bypass=false"),
+            "Error should mention dev_bypass requirement: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_production_rejects_dev_login_enabled() {
+        use crate::precedence::DeterministicConfig;
+
+        let mut values = minimal_production_config();
+        values.insert("security.dev.login.enabled".to_string(), "true".to_string());
+
+        let config = DeterministicConfig::new_for_test(values);
+        let result = EffectiveConfig::from_deterministic(config);
+
+        assert!(
+            result.is_err(),
+            "dev_login_enabled=true should be rejected in production"
+        );
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("dev_login_enabled=false"),
+            "Error should mention dev_login_enabled requirement: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_production_accepts_valid_security_config() {
+        use crate::precedence::DeterministicConfig;
+
+        let mut values = minimal_production_config();
+        // Explicitly set all security settings to safe values
+        values.insert("security.dev.bypass".to_string(), "false".to_string());
+        values.insert(
+            "security.dev.login.enabled".to_string(),
+            "false".to_string(),
+        );
+        values.insert("security.pf.deny".to_string(), "true".to_string());
+
+        let config = DeterministicConfig::new_for_test(values);
+        let result = EffectiveConfig::from_deterministic(config);
+
+        assert!(
+            result.is_ok(),
+            "Valid security config should be accepted: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn test_development_mode_allows_short_jwt_secret() {
+        use crate::precedence::DeterministicConfig;
+
+        let mut values = HashMap::new();
+        values.insert("server.production.mode".to_string(), "false".to_string());
+        values.insert("security.jwt.secret".to_string(), "short".to_string());
+
+        let config = DeterministicConfig::new_for_test(values);
+        let result = EffectiveConfig::from_deterministic(config);
+
+        assert!(
+            result.is_ok(),
+            "Development mode should allow short JWT secret"
+        );
+    }
+
+    #[test]
+    fn test_development_mode_allows_dev_bypass() {
+        use crate::precedence::DeterministicConfig;
+
+        let mut values = HashMap::new();
+        values.insert("server.production.mode".to_string(), "false".to_string());
+        values.insert("security.dev.bypass".to_string(), "true".to_string());
+
+        let config = DeterministicConfig::new_for_test(values);
+        let result = EffectiveConfig::from_deterministic(config);
+
+        // In debug builds, dev_bypass should be allowed in development mode
+        #[cfg(debug_assertions)]
+        assert!(
+            result.is_ok(),
+            "Development mode should allow dev_bypass in debug builds"
+        );
+
+        // In release builds, dev_bypass is never allowed
+        #[cfg(not(debug_assertions))]
+        assert!(
+            result.is_err(),
+            "dev_bypass should be rejected in release builds"
+        );
     }
 }
