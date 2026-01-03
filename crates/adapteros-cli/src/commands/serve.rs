@@ -81,7 +81,7 @@ pub async fn run(
     socket: &Path,
     backend: BackendType,
     dry_run: bool,
-    _capture_events: Option<&std::path::PathBuf>,
+    capture_events: Option<&std::path::PathBuf>,
     model_config: Option<&ModelConfig>,
     output: &OutputWriter,
 ) -> Result<()> {
@@ -210,18 +210,24 @@ pub async fn run(
     }
 
     // 2. Initialize telemetry writer
-    let telemetry_dir = resolve_telemetry_dir()?;
-    std::fs::create_dir_all(&telemetry_dir.path)?;
+    // Use --capture-events path if provided, otherwise fall back to resolved telemetry dir
+    let (telemetry_path, telemetry_source) = if let Some(capture_path) = capture_events {
+        (capture_path.clone(), "cli/--capture-events".to_string())
+    } else {
+        let resolved = resolve_telemetry_dir()?;
+        (resolved.path, resolved.source.to_string())
+    };
+    std::fs::create_dir_all(&telemetry_path)?;
     let telemetry = adapteros_telemetry::TelemetryWriter::new(
-        telemetry_dir.path.clone(),
+        telemetry_path.clone(),
         500_000,           // max_events from policy
         256 * 1024 * 1024, // max_bytes (256MB) from policy
     )?;
 
     output.success(format!(
         "Telemetry writer initialized at {} (source: {})",
-        telemetry_dir.path.display(),
-        telemetry_dir.source
+        telemetry_path.display(),
+        telemetry_source
     ));
 
     // 3. Initialize RAG system (optional)

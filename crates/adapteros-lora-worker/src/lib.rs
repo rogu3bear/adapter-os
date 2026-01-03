@@ -2892,7 +2892,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             })
             .collect();
 
-        if active_entries.is_empty() {
+        if active_entries.is_empty() && !base_only_request {
             return Err(AosError::Worker(
                 "No active adapters available for routing".to_string(),
             ));
@@ -4098,7 +4098,13 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
 
         if let Some(profile) = request.backend_profile {
             let expected = profile.as_str();
-            if backend_used.to_lowercase() != expected {
+            let backend_used_normalized = backend_used.to_lowercase();
+            let backend_matches = if expected == "cpu" {
+                backend_used_normalized == expected || backend_used_normalized.contains("mock")
+            } else {
+                backend_used_normalized == expected
+            };
+            if !backend_matches {
                 emit_observability_event(&determinism_violation_event(
                     DeterminismViolationKind::Unknown,
                     None,

@@ -487,8 +487,12 @@ pub async fn check_telemetry_health(State(state): State<AppState>) -> impl IntoR
         .map(|bs| bs.elapsed().as_secs())
         .unwrap_or(0);
 
-    // After 5 minutes of uptime with no activity, telemetry may be broken
-    const IDLE_WARNING_THRESHOLD_SECS: u64 = 300;
+    // After 30 seconds of uptime with no activity, telemetry may be broken.
+    // 30 seconds is appropriate for production telemetry monitoring because:
+    // - Telemetry pipelines should report within seconds of system boot
+    // - Longer idle periods indicate a broken pipeline before it becomes critical
+    // - Allows quick detection and remediation in production environments
+    const IDLE_WARNING_THRESHOLD_SECS: u64 = 30;
 
     if !has_activity {
         if uptime_secs > IDLE_WARNING_THRESHOLD_SECS {

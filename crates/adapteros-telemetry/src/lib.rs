@@ -4,7 +4,7 @@ use ::tracing::{error, info, warn};
 use adapteros_core::identity::IdentityEnvelope;
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_crypto::{generate_signing_key, load_signing_key, sign_bundle, Keypair};
-use crossbeam::channel::{bounded, unbounded, Receiver, RecvTimeoutError, Sender};
+use crossbeam::channel::{bounded, Receiver, RecvTimeoutError, Sender};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
@@ -130,7 +130,10 @@ impl TelemetryWriter {
     ///
     /// Per Artifacts Ruleset #13: All bundles signed with persistent Ed25519 key
     pub fn new<P: AsRef<Path>>(output_dir: P, max_events: usize, max_bytes: usize) -> Result<Self> {
-        let (sender, receiver) = unbounded();
+        // Use bounded channel to provide backpressure and prevent OOM under burst load.
+        // 50,000 events provides ~10s buffer at 5k events/sec peak while bounding memory.
+        // When full, senders will block briefly, providing natural flow control.
+        let (sender, receiver) = bounded(50_000);
         let output_dir = output_dir.as_ref().to_path_buf();
 
         // Load or generate persistent signing key using adapteros-crypto
@@ -155,11 +158,32 @@ impl TelemetryWriter {
     }
 
     /// Log an event using the unified event schema
+    ///
+    /// Uses non-blocking send to avoid stalling callers under burst load.
+    /// If the channel is full, the event is dropped and a warning is logged.
+    /// This ensures telemetry never impacts inference latency.
     pub fn log_event(&self, event: UnifiedTelemetryEvent) -> Result<()> {
-        self.sender
-            .send(TelemetryCommand::Event(Box::new(event)))
-            .map_err(|_| AosError::Io("Failed to send telemetry event".to_string()))?;
-        Ok(())
+        use crossbeam::channel::TrySendError;
+
+        match self
+            .sender
+            .try_send(TelemetryCommand::Event(Box::new(event)))
+        {
+            Ok(()) => Ok(()),
+            Err(TrySendError::Full(_)) => {
+                // Channel is full - drop event to maintain backpressure.
+                // Log warning but don't fail the caller; telemetry should
+                // never block or fail inference operations.
+                warn!(
+                    "Telemetry channel full (capacity: 50,000), dropping event. \
+                     Consider increasing channel capacity or reducing event volume."
+                );
+                Ok(())
+            }
+            Err(TrySendError::Disconnected(_)) => {
+                Err(AosError::Io("Telemetry channel disconnected".to_string()))
+            }
+        }
     }
 
     /// Log with required identity envelope

@@ -15,6 +15,9 @@ use tracing::debug;
 ///
 /// # Returns
 /// Adapted output with LoRA modifications
+/// Epsilon for gate normalization checks
+const GATE_NORMALIZATION_EPSILON: f32 = 0.01;
+
 pub fn apply_multi_lora(
     adapters: &[&LoRAAdapter],
     gates: &[u16],
@@ -33,24 +36,49 @@ pub fn apply_multi_lora(
         gates
     );
 
-    let mut result = base_output.to_vec();
-    let mut total_weight = 0.0;
+    // Convert Q15 gates to float and compute total for normalization
+    let mut gate_weights: Vec<f32> = gates
+        .iter()
+        .map(|&g| g as f32 / Q15_GATE_DENOMINATOR)
+        .collect();
 
-    // Apply each adapter with its gate weight
-    for (adapter, &gate) in adapters.iter().zip(gates.iter()) {
+    let total_weight: f32 = gate_weights.iter().sum();
+
+    // Normalize gates BEFORE application if they don't sum to ~1.0
+    // Gates are Q15 quantized and should sum to 1.0 by design, but we
+    // normalize defensively to handle edge cases (e.g., some adapters
+    // missing the target module, or quantization rounding errors)
+    if total_weight > 0.0 {
+        if (total_weight - 1.0).abs() > GATE_NORMALIZATION_EPSILON {
+            debug!(
+                "Gate sum {:.4} deviates from 1.0 by more than epsilon, normalizing gates",
+                total_weight
+            );
+            for weight in &mut gate_weights {
+                *weight /= total_weight;
+            }
+        }
+        debug_assert!(
+            (gate_weights.iter().sum::<f32>() - 1.0).abs() <= GATE_NORMALIZATION_EPSILON + 1e-6,
+            "Gates must sum to approximately 1.0 after normalization, got {}",
+            gate_weights.iter().sum::<f32>()
+        );
+    }
+
+    let mut result = base_output.to_vec();
+
+    // Apply each adapter with its normalized gate weight
+    for (adapter, &gate_weight) in adapters.iter().zip(gate_weights.iter()) {
         if !adapter.has_module(module_name) {
             continue;
         }
-
-        let gate_weight = gate as f32 / Q15_GATE_DENOMINATOR; // Convert Q15 to float
-        total_weight += gate_weight;
 
         // Get LoRA weights for this module
         if let Some((lora_a, lora_b)) = adapter.get_module_weights(module_name) {
             // Apply LoRA transformation: output = input * A^T * B^T
             let lora_output = apply_lora_transform(input, lora_a, lora_b, adapter.config().alpha)?;
 
-            // Weighted combination with base output
+            // Weighted combination with base output using normalized gate
             for (i, &lora_val) in lora_output.iter().enumerate() {
                 if i < result.len() {
                     result[i] += lora_val * gate_weight;
@@ -59,15 +87,8 @@ pub fn apply_multi_lora(
         }
     }
 
-    // Normalize by total weight if needed
-    if total_weight > 0.0 && total_weight != 1.0 {
-        for val in &mut result {
-            *val /= total_weight;
-        }
-    }
-
     debug!(
-        "LoRA routing complete: {} adapters, total_weight={:.3}, output_len={}",
+        "LoRA routing complete: {} adapters, original_gate_sum={:.3}, output_len={}",
         adapters.len(),
         total_weight,
         result.len()
@@ -576,5 +597,80 @@ mod tests {
             "Gate sum should be ~1.0, got {}",
             sum
         );
+    }
+
+    #[test]
+    fn test_gate_normalization_before_application() {
+        // Test that gates are normalized BEFORE applying to LoRA outputs,
+        // not normalizing the final result (which would incorrectly scale base_output)
+        let adapter1 = create_test_adapter("adapter1", 2);
+        let adapter2 = create_test_adapter("adapter2", 2);
+
+        let adapters = vec![&adapter1, &adapter2];
+
+        // Gates that don't sum to 1.0 (e.g., 0.3 + 0.4 = 0.7)
+        let gates_unnormalized = vec![
+            (0.3 * Q15_GATE_DENOMINATOR) as u16,
+            (0.4 * Q15_GATE_DENOMINATOR) as u16,
+        ];
+
+        // Gates that sum to 1.0 after normalization (0.3/0.7 + 0.4/0.7 = 1.0)
+        let gates_normalized = vec![
+            ((0.3 / 0.7) * Q15_GATE_DENOMINATOR) as u16,
+            ((0.4 / 0.7) * Q15_GATE_DENOMINATOR) as u16,
+        ];
+
+        let input = vec![1.0, 2.0];
+        let base_output = vec![10.0, 20.0]; // Non-zero base to verify it's not being scaled
+
+        let result_unnorm = apply_multi_lora(
+            &adapters,
+            &gates_unnormalized,
+            "q_proj",
+            &input,
+            &base_output,
+        )
+        .unwrap();
+        let result_norm =
+            apply_multi_lora(&adapters, &gates_normalized, "q_proj", &input, &base_output).unwrap();
+
+        // Both should produce similar results since gates are normalized before application
+        for (i, (&unnorm, &norm)) in result_unnorm.iter().zip(result_norm.iter()).enumerate() {
+            assert!(
+                (unnorm - norm).abs() < 0.1,
+                "Results should be similar at index {}: unnorm={}, norm={}",
+                i,
+                unnorm,
+                norm
+            );
+        }
+    }
+
+    #[test]
+    fn test_base_output_not_scaled_by_gate_sum() {
+        // Critical test: base_output should not be divided by gate sum
+        // This was the bug in the original code
+        let adapter = create_test_adapter("adapter1", 2);
+        let adapters = vec![&adapter];
+
+        // Gate that is less than 1.0 (0.5)
+        let gates = vec![(0.5 * Q15_GATE_DENOMINATOR) as u16];
+
+        let input = vec![0.0, 0.0]; // Zero input means LoRA contribution is zero
+        let base_output = vec![10.0, 20.0];
+
+        let result = apply_multi_lora(&adapters, &gates, "q_proj", &input, &base_output).unwrap();
+
+        // With zero input, LoRA contribution is zero, so result should equal base_output
+        // (with the old buggy code, this would be base_output / 0.5 = [20.0, 40.0])
+        for (i, (&res, &base)) in result.iter().zip(base_output.iter()).enumerate() {
+            assert!(
+                (res - base).abs() < 0.01,
+                "Base output should not be scaled at index {}: result={}, expected={}",
+                i,
+                res,
+                base
+            );
+        }
     }
 }

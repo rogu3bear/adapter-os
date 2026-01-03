@@ -256,6 +256,8 @@ impl ResourceLimiter {
             ));
         }
 
+        self.memory_tracker.acquire();
+
         // Record task as queued (will be marked as started when actually processing)
         self.thread_tracker.record_task_queued();
 
@@ -425,10 +427,16 @@ impl MemoryTracker {
         }
     }
 
+    fn acquire(&self) {
+        self.active_requests.fetch_add(1, Ordering::Relaxed);
+        // Placeholder until real memory tracking is wired in.
+        self.current_usage.fetch_add(1, Ordering::Relaxed);
+    }
+
     fn would_exceed_limit(&self) -> bool {
         let current = self.current_usage.load(Ordering::Relaxed);
         let active = self.active_requests.load(Ordering::Relaxed) as u64;
-        let projected = current + (active * self.max_memory_per_request);
+        let projected = current.saturating_add(active.saturating_mul(self.max_memory_per_request));
 
         projected > self.max_memory_per_request * 2 // Allow 2x for safety
     }

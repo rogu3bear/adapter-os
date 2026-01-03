@@ -496,6 +496,13 @@ impl InferencePipeline {
         prompt_hash: &B3Hash,
         stage: &str,
     ) -> Result<PolicyDecisionChain> {
+        // Validate input content for safety policy violations before proceeding
+        // This enforces content safety checks (self-harm, high-stakes domains, etc.)
+        if let Err(e) = self.policy.validate_input_content(&request.prompt) {
+            self.emit_policy_violation_event(request, stage, &e.to_string());
+            return Err(e);
+        }
+
         let metadata = self.policy_metadata(request, prompt_hash, stage);
         let chain = self
             .policy

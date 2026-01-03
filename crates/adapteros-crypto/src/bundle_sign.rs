@@ -173,26 +173,46 @@ pub fn sign_and_save_bundle(
     Ok(signature)
 }
 
+/// Check if signature bypass is enabled via environment variable.
+///
+/// SECURITY: This should only be used in development/testing environments.
+/// Set `AOS_DEV_SIGNATURE_BYPASS=1` to enable bypass mode.
+/// Even with bypass enabled, warnings are always logged.
+fn is_signature_bypass_enabled() -> bool {
+    std::env::var("AOS_DEV_SIGNATURE_BYPASS")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
+
 /// Verify bundle signature from file
 ///
-/// Mode-dependent enforcement:
-/// - Development mode (debug_assertions): Warnings only for missing/invalid signatures
-/// - Production mode (release): Hard failures for missing/invalid signatures
+/// Signature verification is strict by default. All signature failures result in errors.
+///
+/// For development/testing only: Set `AOS_DEV_SIGNATURE_BYPASS=1` environment variable
+/// to allow verification to pass with warnings instead of hard failures.
+/// This is a runtime flag, not a compile-time flag, to ensure explicit opt-in.
 pub fn verify_bundle_from_file(
     bundle_hash: &B3Hash,
     signatures_dir: &Path,
 ) -> Result<BundleSignature> {
     let sig_path = signatures_dir.join(format!("{}.sig", bundle_hash.to_hex()));
+    let bypass_enabled = is_signature_bypass_enabled();
 
     if !sig_path.exists() {
-        #[cfg(debug_assertions)]
-        {
-            tracing::warn!(
-                bundle_hash = %bundle_hash.to_hex(),
-                sig_path = %sig_path.display(),
-                "Bundle signature verification skipped in dev mode (signature file not found)"
+        tracing::warn!(
+            target: "security.bundle",
+            bundle_hash = %bundle_hash.to_hex(),
+            sig_path = %sig_path.display(),
+            bypass_enabled = bypass_enabled,
+            "Bundle signature file not found - SECURITY VIOLATION"
+        );
+
+        if bypass_enabled {
+            tracing::error!(
+                target: "security.bundle",
+                "AOS_DEV_SIGNATURE_BYPASS enabled - returning placeholder (DO NOT USE IN PRODUCTION)"
             );
-            // Return a placeholder signature for dev mode
+            // Return a placeholder signature for dev mode ONLY when explicitly enabled
             let placeholder_keypair = crate::Keypair::generate();
             let placeholder_sig = BundleSignature {
                 bundle_hash: *bundle_hash,
@@ -201,43 +221,42 @@ pub fn verify_bundle_from_file(
                 public_key: placeholder_keypair.public_key(),
                 schema_ver: 1,
                 signed_at_us: 0,
-                key_id: "dev-mode".to_string(),
+                key_id: "dev-mode-bypass".to_string(),
             };
             return Ok(placeholder_sig);
         }
 
-        // Prod mode: fail hard
-        #[cfg(not(debug_assertions))]
-        {
-            let error_msg = format!("Signature file not found: {}", sig_path.display());
-            return Err(AosError::Crypto(error_msg));
-        }
+        return Err(AosError::Crypto(format!(
+            "Signature file not found: {}",
+            sig_path.display()
+        )));
     }
 
     let signature = BundleSignature::load_from_file(&sig_path)?;
 
     // Verify bundle hash matches
     if signature.bundle_hash != *bundle_hash {
-        #[cfg(debug_assertions)]
-        {
-            tracing::warn!(
-                bundle_hash = %bundle_hash.to_hex(),
-                expected = %bundle_hash.to_hex(),
-                got = %signature.bundle_hash.to_hex(),
-                "Bundle hash mismatch in dev mode (continuing)"
-            );
-        }
+        tracing::warn!(
+            target: "security.bundle",
+            bundle_hash = %bundle_hash.to_hex(),
+            expected = %bundle_hash.to_hex(),
+            got = %signature.bundle_hash.to_hex(),
+            bypass_enabled = bypass_enabled,
+            "Bundle hash mismatch - POSSIBLE TAMPERING"
+        );
 
-        // Prod mode: fail hard
-        #[cfg(not(debug_assertions))]
-        {
-            let error_msg = format!(
+        if !bypass_enabled {
+            return Err(AosError::Crypto(format!(
                 "Bundle hash mismatch: expected {}, got {}",
                 bundle_hash.to_hex(),
                 signature.bundle_hash.to_hex()
-            );
-            return Err(AosError::Crypto(error_msg));
+            )));
         }
+
+        tracing::error!(
+            target: "security.bundle",
+            "AOS_DEV_SIGNATURE_BYPASS enabled - continuing despite hash mismatch (DO NOT USE IN PRODUCTION)"
+        );
     }
 
     // Verify signature
@@ -251,20 +270,21 @@ pub fn verify_bundle_from_file(
             Ok(signature)
         }
         Err(e) => {
-            // Dev mode: warn only
-            #[cfg(debug_assertions)]
-            {
-                tracing::warn!(
-                    bundle_hash = %bundle_hash.to_hex(),
-                    error = %e,
-                    "Bundle signature verification failed in dev mode (continuing)"
+            tracing::warn!(
+                target: "security.bundle",
+                bundle_hash = %bundle_hash.to_hex(),
+                error = %e,
+                bypass_enabled = bypass_enabled,
+                "Bundle signature verification FAILED - POSSIBLE TAMPERING"
+            );
+
+            if bypass_enabled {
+                tracing::error!(
+                    target: "security.bundle",
+                    "AOS_DEV_SIGNATURE_BYPASS enabled - returning invalid signature (DO NOT USE IN PRODUCTION)"
                 );
                 Ok(signature)
-            }
-
-            // Prod mode: fail hard
-            #[cfg(not(debug_assertions))]
-            {
+            } else {
                 Err(e)
             }
         }
