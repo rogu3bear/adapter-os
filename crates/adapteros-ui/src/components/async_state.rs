@@ -4,10 +4,89 @@
 //! ensuring consistent UI patterns and no infinite spinners.
 
 use crate::api::ApiError;
-use crate::components::Spinner;
+use crate::components::{Badge, BadgeVariant, Spinner};
+use adapteros_api_types::FailureCode;
 use leptos::prelude::*;
 
+/// Get the appropriate badge variant for a failure code
+fn failure_code_variant(code: FailureCode) -> BadgeVariant {
+    use FailureCode::*;
+
+    match code {
+        // Critical - Red (Destructive)
+        MigrationInvalid
+        | MigrationChecksumMismatch
+        | MigrationOutOfOrder
+        | DownMigrationBlocked
+        | BootMigrationFailed
+        | BootSeedFailed
+        | BootBootstrapFailed
+        | TenantAccessDenied
+        | TlsCertificateError
+        | ReceiptMismatch
+        | PolicyDivergence => BadgeVariant::Destructive,
+
+        // Retryable/Resource - Yellow (Warning)
+        WorkerOverloaded
+        | CpuThrottled
+        | FileDescriptorExhausted
+        | ThreadPoolSaturated
+        | GpuUnavailable
+        | OutOfMemory
+        | KvQuotaExceeded
+        | BootDbUnreachable
+        | BootDependencyTimeout
+        | CacheStale
+        | DnsResolutionFailed
+        | ProxyConnectionFailed
+        | ThunderingHerdRejected => BadgeVariant::Warning,
+
+        // Operational - Outline
+        BackendFallback
+        | CacheInvalidationFailed
+        | CacheKeyNondeterministic
+        | CacheSerializationError
+        | MigrationFileMissing => BadgeVariant::Outline,
+
+        // Informational - Default (blue)
+        BootConfigInvalid
+        | BootNoWorkers
+        | BootNoModels
+        | BootBackgroundTaskFailed
+        | SchemaVersionAhead
+        | EnvironmentMismatch
+        | ModelLoadFailed
+        | TraceWriteFailed
+        | RateLimiterNotConfigured
+        | InvalidRateLimitConfig => BadgeVariant::Default,
+    }
+}
+
+/// Display a failure code as a badge with Title Case formatting
+fn failure_code_label(code: FailureCode) -> String {
+    // Use the canonical SCREAMING_SNAKE_CASE representation and convert to Title Case
+    code.as_str()
+        .split('_')
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(first) => {
+                    first.to_uppercase().collect::<String>() + &chars.as_str().to_lowercase()
+                }
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// Error display component with retry functionality
+///
+/// Enhanced to show:
+/// - Error message
+/// - Error code (if available)
+/// - Failure code badge (if available, color-coded by severity)
+/// - Collapsible details section (if available)
 #[component]
 pub fn ErrorDisplay(
     /// The error to display
@@ -18,6 +97,16 @@ pub fn ErrorDisplay(
 ) -> impl IntoView {
     let error_code = error.code().map(|s| s.to_string());
     let error_message = error.to_string();
+    let failure_code = error.failure_code();
+
+    // Extract details if this is a structured error
+    let details = match &error {
+        ApiError::Structured { details, .. } => details.clone(),
+        _ => None,
+    };
+
+    // Signal for collapsible details state
+    let (details_expanded, set_details_expanded) = signal(false);
 
     view! {
         <div class="rounded-lg border border-destructive bg-destructive/10 p-4 space-y-3">
@@ -36,20 +125,77 @@ pub fn ErrorDisplay(
                     <line x1="12" y1="8" x2="12" y2="12"/>
                     <line x1="12" y1="16" x2="12.01" y2="16"/>
                 </svg>
-                <div class="flex-1 min-w-0">
+                <div class="flex-1 min-w-0 space-y-2">
                     <p class="text-sm font-medium text-destructive">
-                        "Error loading data"
+                        "Error"
                     </p>
-                    <p class="text-sm text-destructive/80 mt-1 break-words">
+                    <p class="text-sm text-destructive/80 break-words">
                         {error_message}
                     </p>
-                    {error_code.filter(|c| !c.is_empty()).map(|code| view! {
+
+                    // Failure code badge
+                    {failure_code.map(|fc| {
+                        let variant = failure_code_variant(fc);
+                        let label = failure_code_label(fc);
+                        view! {
+                            <div class="mt-2">
+                                <Badge variant=variant>
+                                    {label}
+                                </Badge>
+                            </div>
+                        }
+                    })}
+
+                    // Error code (if different from failure_code)
+                    {error_code.filter(|c| !c.is_empty() && failure_code.is_none()).map(|code| view! {
                         <p class="text-xs text-muted-foreground mt-2 font-mono">
                             "Code: "{code}
                         </p>
                     })}
                 </div>
             </div>
+
+            // Collapsible details section
+            {details.map(|d| {
+                let details_clone = d.clone();
+                view! {
+                    <div class="border-t border-destructive/20 pt-3">
+                        <button
+                            class="w-full flex items-center justify-between text-sm text-muted-foreground hover:text-foreground transition-colors"
+                            on:click=move |_| set_details_expanded.update(|e| *e = !*e)
+                            aria-expanded=move || details_expanded.get().to_string()
+                        >
+                            <span class="font-medium">"Error Details"</span>
+                            <svg
+                                class=move || format!(
+                                    "w-4 h-4 transition-transform {}",
+                                    if details_expanded.get() { "rotate-180" } else { "" }
+                                )
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                            >
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                            </svg>
+                        </button>
+
+                        {move || if details_expanded.get() {
+                            let json_pretty = serde_json::to_string_pretty(&details_clone)
+                                .unwrap_or_else(|_| "Unable to format details".to_string());
+
+                            Some(view! {
+                                <div class="mt-3 rounded bg-muted/50 p-3 max-h-64 overflow-auto">
+                                    <pre class="font-mono text-xs text-foreground whitespace-pre-wrap break-words">
+                                        {json_pretty}
+                                    </pre>
+                                </div>
+                            })
+                        } else {
+                            None
+                        }}
+                    </div>
+                }
+            })}
 
             {on_retry.map(|retry| view! {
                 <div class="flex justify-end pt-2 border-t border-destructive/20">

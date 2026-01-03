@@ -28,6 +28,7 @@ pub mod components;
 pub mod hooks;
 pub mod pages;
 pub mod signals;
+pub mod sse;
 
 use leptos::prelude::*;
 use leptos_meta::*;
