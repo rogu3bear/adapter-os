@@ -16,6 +16,22 @@ jobs:
       - name: Check format
         run: cargo fmt --all -- --check
 
+  env-path-policy:
+    name: PRD-13 Path Policy Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check env path policy
+        run: ./scripts/check_env_paths.sh
+
+  anchor-contract:
+    name: ANCHOR Contract Guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run ANCHOR contract guard
+        run: ./scripts/ci/check_anchor_contract.sh
+
   feature-matrix:
     name: Feature Matrix Tests
     runs-on: ubuntu-latest
