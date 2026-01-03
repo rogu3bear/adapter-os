@@ -62,7 +62,7 @@ use crate::policy_packs::{
 };
 pub use abstention::should_abstain;
 pub use access_control::{AccessControlManager, AccessDecision, AccessPolicy, RoleDefinition};
-pub use backend_policy::enforce_backend_policy;
+pub use backend_policy::{enforce_backend_policy, BackendDowngradePolicy};
 pub use code_metrics::{
     AnswerRelevanceRate, CodeMetrics, CompileSuccessRate, MetricsSummary, TestPass1,
 };

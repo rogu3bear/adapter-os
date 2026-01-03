@@ -29,7 +29,10 @@ pub use input::{Input, Textarea};
 pub use layout::{Header, Shell, Sidebar, Taskbar, TopBar};
 pub use spinner::Spinner;
 pub use start_menu::{MenuGroup, MenuItem, MenuItemState, StartButton, StartMenu};
-pub use status::{Badge, BadgeVariant, StatusColor, StatusIndicator};
+pub use status::{
+    BackendStatus, BackendStatusBadge, BackendStatusIndicator, Badge, BadgeVariant, StatusColor,
+    StatusIndicator,
+};
 pub use table::{Table, TableBody, TableCell, TableHead, TableHeader, TableRow};
 pub use toggle::{Select, Toggle};
 pub use trace_viewer::{TraceButton, TracePanel, TraceViewer};
