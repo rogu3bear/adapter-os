@@ -204,7 +204,13 @@ pub async fn initialize_executor(
                 e
             );
         } else {
-            tracing::info!("MLX runtime initialized successfully");
+            let impl_name = adapteros_lora_mlx_ffi::mlx_selected_implementation()
+                .map(|imp| imp.as_str())
+                .unwrap_or("unknown");
+            tracing::info!(
+                implementation = impl_name,
+                "MLX runtime initialized successfully"
+            );
         }
     }
 

@@ -91,6 +91,28 @@ impl StubUdsServer {
         std::fs::create_dir_all(&root)?;
         let tempdir = TempDir::new_in(&root)?;
         let socket_path = tempdir.path().join("worker.sock");
+        Self::start_with_socket(socket_path, tempdir, responses)
+    }
+
+    /// Launch stub server bound to a specific socket path.
+    pub async fn start_at<P: AsRef<Path>>(
+        socket_path: P,
+        responses: Vec<StubHttpResponse>,
+    ) -> Result<Self> {
+        let root = PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root)?;
+        let tempdir = TempDir::new_in(&root)?;
+        Self::start_with_socket(socket_path.as_ref().to_path_buf(), tempdir, responses)
+    }
+
+    fn start_with_socket(
+        socket_path: PathBuf,
+        tempdir: TempDir,
+        responses: Vec<StubHttpResponse>,
+    ) -> Result<Self> {
+        if let Some(parent) = socket_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
 
         // Ensure stale socket is removed if present
         let _ = std::fs::remove_file(&socket_path);

@@ -1381,6 +1381,7 @@ async fn test_worker_registration_api_respects_tenant_boundaries() {
         pid: 1001,
         uds_path: "var/run/aos/tenant-reg-a/worker.sock".to_string(),
         capabilities: vec![],
+        capabilities_detail: None,
         backend: None,
         model_hash: None,
         strict_mode: false,

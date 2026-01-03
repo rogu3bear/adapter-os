@@ -1,7 +1,7 @@
 //! MLX FFI tensor operations
 //!
 //! This module provides tensor operations for MLX.
-//! When the `mlx-rs-backend` feature is enabled (deprecated), it uses pure Rust mlx-rs.
+//! When the `mlx-rs-backend` feature is enabled (experimental), it uses pure Rust mlx-rs.
 //! Otherwise, it uses the C++ FFI implementation (primary).
 
 use adapteros_core::{AosError, Result};

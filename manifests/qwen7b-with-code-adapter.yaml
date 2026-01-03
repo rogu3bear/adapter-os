@@ -73,7 +73,7 @@ policies:
     serve_requires_pf: true
     allow_tcp: false
     allow_udp: false
-    uds_paths: ["/var/run/aos/<tenant>/*.sock"]
+    uds_paths: ["./var/run/aos/<tenant>/*.sock"]
   determinism:
     require_metallib_embed: true
     require_kernel_hash_match: true
@@ -101,7 +101,7 @@ policies:
     order: ["score_desc", "doc_id_asc"]
   isolation:
     process_model: "per_tenant"
-    uds_root: "/var/run/aos/<tenant>"
+    uds_root: "./var/run/aos/<tenant>"
     forbid_shm: true
   performance:
     latency_p95_ms: 24

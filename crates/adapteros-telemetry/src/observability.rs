@@ -60,6 +60,9 @@ pub struct InferenceMetricsEvent {
     pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Pre-UDS latency: time from request receipt to UDS call start (microseconds)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub server_handler_latency_us: Option<u64>,
 }
 
 /// Routing telemetry payload that carries per-token RouterDecision metadata.
@@ -409,6 +412,7 @@ mod tests {
             output_tokens: Some(6),
             success: true,
             error: None,
+            server_handler_latency_us: None,
         };
 
         let event =

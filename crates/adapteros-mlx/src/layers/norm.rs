@@ -38,27 +38,39 @@ impl LayerNorm {
     pub fn new(dim: i32, eps: f32) -> Result<Self> {
         let weight = Array::ones(&[dim])?;
         let bias = Array::zeros(&[dim])?;
-        Ok(Self { weight, bias, eps, dim })
+        Ok(Self {
+            weight,
+            bias,
+            eps,
+            dim,
+        })
     }
 
     /// Create LayerNorm with custom weights
     pub fn from_weights(weight: Array, bias: Array, eps: f32) -> Result<Self> {
         let shape = weight.shape();
         if shape.len() != 1 {
-            return Err(crate::MlxError::ArrayOp(
-                format!("LayerNorm weight must be 1D, got {:?}", shape)
-            ));
+            return Err(crate::MlxError::ArrayOp(format!(
+                "LayerNorm weight must be 1D, got {:?}",
+                shape
+            )));
         }
         let dim = shape[0];
 
         let bias_shape = bias.shape();
         if bias_shape != vec![dim] {
-            return Err(crate::MlxError::ArrayOp(
-                format!("LayerNorm bias shape {:?} doesn't match weight shape {:?}", bias_shape, shape)
-            ));
+            return Err(crate::MlxError::ArrayOp(format!(
+                "LayerNorm bias shape {:?} doesn't match weight shape {:?}",
+                bias_shape, shape
+            )));
         }
 
-        Ok(Self { weight, bias, eps, dim })
+        Ok(Self {
+            weight,
+            bias,
+            eps,
+            dim,
+        })
     }
 
     /// Forward pass
@@ -109,9 +121,10 @@ impl RMSNorm {
     pub fn from_weights(weight: Array, eps: f32) -> Result<Self> {
         let shape = weight.shape();
         if shape.len() != 1 {
-            return Err(crate::MlxError::ArrayOp(
-                format!("RMSNorm weight must be 1D, got {:?}", shape)
-            ));
+            return Err(crate::MlxError::ArrayOp(format!(
+                "RMSNorm weight must be 1D, got {:?}",
+                shape
+            )));
         }
         let dim = shape[0];
         Ok(Self { weight, eps, dim })
@@ -160,7 +173,11 @@ mod tests {
 
         let data = result.to_vec_f32().unwrap();
         let mean = (data[0] + data[1] + data[2] + data[3]) / 4.0;
-        assert!((mean - 1.0).abs() < 1e-4, "Mean should be ~1 with bias=1: {}", mean);
+        assert!(
+            (mean - 1.0).abs() < 1e-4,
+            "Mean should be ~1 with bias=1: {}",
+            mean
+        );
     }
 
     #[test]

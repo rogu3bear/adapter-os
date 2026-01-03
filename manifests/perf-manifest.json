@@ -50,7 +50,7 @@
       "allow_tcp": false,
       "allow_udp": false,
       "uds_paths": [
-        "/var/run/aos/<tenant>/*.sock"
+        "./var/run/aos/<tenant>/*.sock"
       ]
     },
     "determinism": {
@@ -97,7 +97,7 @@
     },
     "isolation": {
       "process_model": "per_tenant",
-      "uds_root": "/var/run/aos/<tenant>",
+      "uds_root": "./var/run/aos/<tenant>",
       "forbid_shm": true
     },
     "performance": {

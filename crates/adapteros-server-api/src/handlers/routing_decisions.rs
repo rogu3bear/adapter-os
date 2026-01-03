@@ -429,10 +429,7 @@ pub async fn get_routing_decisions(
     Extension(claims): Extension<Claims>,
     Query(query): Query<RoutingDecisionsQuery>,
 ) -> Result<Json<RoutingDecisionsResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(
-        &claims,
-        &[Role::Admin, Role::Operator, Role::Viewer],
-    )?;
+    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
     validate_tenant_isolation(&claims, &query.tenant)?;
 
     debug!(
@@ -511,10 +508,7 @@ pub async fn get_routing_decision_by_id(
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> Result<Json<RoutingDecisionResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(
-        &claims,
-        &[Role::Admin, Role::Operator, Role::Viewer],
-    )?;
+    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
 
     let decision = state.db.get_routing_decision(&id).await.map_err(|e| {
         (
@@ -589,10 +583,7 @@ pub async fn get_adapter_usage(
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
 ) -> Result<Json<AdapterUsageResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(
-        &claims,
-        &[Role::Admin, Role::Operator, Role::Viewer],
-    )?;
+    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
 
     debug!(adapter_id = %adapter_id, "Querying adapter usage statistics");
 
@@ -670,10 +661,7 @@ pub async fn get_session_router_view(
     Extension(claims): Extension<Claims>,
     Path(request_id): Path<String>,
 ) -> Result<Json<SessionRouterViewResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(
-        &claims,
-        &[Role::Admin, Role::Operator, Role::Viewer],
-    )?;
+    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
 
     debug!(request_id = %request_id, "Querying session router view");
 

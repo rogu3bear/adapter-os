@@ -5,6 +5,10 @@
 dist = "../adapteros-server/static"
 # Public URL base
 public_url = "/"
+# Use rustup's cargo (not Homebrew's) for wasm32 target support
+cargo = "/Users/mln-dev/.cargo/bin/cargo"
+# Skip wasm-opt (it requires --enable-bulk-memory flag that trunk doesn't pass)
+no_wasm_opt = true
 
 [watch]
 # Watch for changes

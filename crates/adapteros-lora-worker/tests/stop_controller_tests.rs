@@ -24,6 +24,7 @@ fn make_test_policy() -> StopPolicySpec {
         completion_threshold_q15: default_completion_threshold_q15(),
         repetition_ngram: default_repetition_ngram(),
         repetition_window: default_repetition_window(),
+        stop_sequences: Vec::new(),
     }
 }
 
@@ -73,6 +74,7 @@ fn test_stop_reason_code_serialization() {
     let budget_max = StopReasonCode::BudgetMax;
     let completion_confident = StopReasonCode::CompletionConfident;
     let repetition_guard = StopReasonCode::RepetitionGuard;
+    let stop_sequence = StopReasonCode::StopSequence;
 
     // JSON serialization should use SCREAMING_SNAKE_CASE
     assert_eq!(
@@ -94,6 +96,11 @@ fn test_stop_reason_code_serialization() {
         serde_json::to_string(&repetition_guard).unwrap(),
         "\"REPETITION_GUARD\"",
         "RepetitionGuard should serialize to REPETITION_GUARD"
+    );
+    assert_eq!(
+        serde_json::to_string(&stop_sequence).unwrap(),
+        "\"STOP_SEQUENCE\"",
+        "StopSequence should serialize to STOP_SEQUENCE"
     );
 }
 
@@ -163,6 +170,7 @@ fn test_stop_controller_determinism_no_rng() {
         completion_threshold_q15: 24576,
         repetition_ngram: 3,
         repetition_window: 32,
+        stop_sequences: Vec::new(),
     };
 
     // Fixed token sequence that triggers repetition guard
@@ -206,6 +214,11 @@ fn test_stop_controller_determinism_no_rng() {
                     "Token index should be identical at token {}",
                     i
                 );
+                assert_eq!(
+                    d1.trim_tokens, d2.trim_tokens,
+                    "Trim tokens should be identical at token {}",
+                    i
+                );
             }
             _ => panic!("Determinism violation at token {}: {:?} vs {:?}", i, r1, r2),
         }
@@ -221,6 +234,7 @@ fn test_stop_policy_spec_serialization_roundtrip() {
         completion_threshold_q15: 24576,
         repetition_ngram: 3,
         repetition_window: 32,
+        stop_sequences: vec!["</s>".to_string(), "\n\n".to_string()],
     };
 
     // Serialize to JSON
@@ -238,6 +252,7 @@ fn test_stop_policy_spec_serialization_roundtrip() {
     );
     assert_eq!(policy.repetition_ngram, deserialized.repetition_ngram);
     assert_eq!(policy.repetition_window, deserialized.repetition_window);
+    assert_eq!(policy.stop_sequences, deserialized.stop_sequences);
 
     // Verify digest is stable after round-trip
     let original_controller = StopController::new(policy.clone());
@@ -263,6 +278,7 @@ fn test_all_stop_reason_codes_are_reachable() {
             completion_threshold_q15: 32767, // Max threshold, won't trigger
             repetition_ngram: 3,
             repetition_window: 32,
+            stop_sequences: Vec::new(),
         };
         let mut controller = StopController::new(policy);
         let logits = vec![0.0; vocab_size];
@@ -284,6 +300,7 @@ fn test_all_stop_reason_codes_are_reachable() {
             completion_threshold_q15: 32767,
             repetition_ngram: 3,
             repetition_window: 32,
+            stop_sequences: Vec::new(),
         };
         let mut controller = StopController::new(policy);
         let logits = vec![0.0; vocab_size];
@@ -307,6 +324,7 @@ fn test_all_stop_reason_codes_are_reachable() {
             completion_threshold_q15: 16384, // ~0.5 threshold
             repetition_ngram: 3,
             repetition_window: 32,
+            stop_sequences: Vec::new(),
         };
         let mut controller = StopController::new(policy);
 
@@ -332,6 +350,7 @@ fn test_all_stop_reason_codes_are_reachable() {
             completion_threshold_q15: 32767, // Max, won't trigger
             repetition_ngram: 3,
             repetition_window: 32,
+            stop_sequences: Vec::new(),
         };
         let mut controller = StopController::new(policy);
         let logits = vec![0.0; vocab_size];
@@ -351,12 +370,36 @@ fn test_all_stop_reason_codes_are_reachable() {
 
         assert!(stop_found, "REPETITION_GUARD should have been triggered");
     }
+
+    // Test 5: STOP_SEQUENCE (explicit stop sequence matched)
+    {
+        let policy = StopPolicySpec {
+            output_max_tokens: 100,
+            eos_token_id: Some(999),
+            completion_threshold_q15: 32767,
+            repetition_ngram: 3,
+            repetition_window: 32,
+            stop_sequences: vec!["END".to_string()],
+        };
+        let mut controller =
+            StopController::new_with_stop_sequences(policy, vec![vec![7u32, 8, 9]]);
+        let logits = vec![0.0; vocab_size];
+
+        assert!(controller.check_stop(7, 999, &logits).is_none());
+        assert!(controller.check_stop(8, 999, &logits).is_none());
+        let decision = controller
+            .check_stop(9, 999, &logits)
+            .expect("stop sequence should trigger");
+        assert_eq!(decision.reason, StopReasonCode::StopSequence);
+        assert_eq!(decision.trim_tokens, 2);
+    }
 }
 
 #[test]
 fn test_stop_controller_priority_order() {
     // PRD: Stop conditions are checked in priority order:
-    // 1. BUDGET_MAX, 2. COMPLETION_CONFIDENT, 3. REPETITION_GUARD, 4. LENGTH
+    // 1. BUDGET_MAX, 2. COMPLETION_CONFIDENT, 3. REPETITION_GUARD,
+    // 4. STOP_SEQUENCE, 5. LENGTH
 
     // When budget is exceeded, BUDGET_MAX should take priority over LENGTH
     let policy = StopPolicySpec {
@@ -365,6 +408,7 @@ fn test_stop_controller_priority_order() {
         completion_threshold_q15: 0, // Would trigger COMPLETION_CONFIDENT
         repetition_ngram: 1,         // Would trigger REPETITION_GUARD immediately
         repetition_window: 2,
+        stop_sequences: Vec::new(),
     };
     let mut controller = StopController::new(policy);
 
@@ -391,6 +435,7 @@ fn test_stop_policy_digest_changes_with_any_field() {
         completion_threshold_q15: 24576,
         repetition_ngram: 3,
         repetition_window: 32,
+        stop_sequences: vec!["END".to_string()],
     };
     let base_digest = StopController::new(base_policy.clone())
         .policy_digest()
@@ -437,6 +482,13 @@ fn test_stop_policy_digest_changes_with_any_field() {
         ..base_policy.clone()
     };
     assert_ne!(*StopController::new(p6).policy_digest(), base_digest);
+
+    // Changing stop_sequences
+    let p7 = StopPolicySpec {
+        stop_sequences: vec!["STOP".to_string()],
+        ..base_policy.clone()
+    };
+    assert_ne!(*StopController::new(p7).policy_digest(), base_digest);
 }
 
 #[test]
@@ -449,6 +501,7 @@ fn test_stop_reason_code_from_string_roundtrip() {
         (StopReasonCode::BudgetMax, "BUDGET_MAX"),
         (StopReasonCode::CompletionConfident, "COMPLETION_CONFIDENT"),
         (StopReasonCode::RepetitionGuard, "REPETITION_GUARD"),
+        (StopReasonCode::StopSequence, "STOP_SEQUENCE"),
     ];
 
     for (code, expected_str) in codes {

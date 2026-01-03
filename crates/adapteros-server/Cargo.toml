@@ -18,6 +18,11 @@ default = []
 # For research/training workloads with MLX support
 # Also propagates to server-api for capability reporting
 multi-backend = ["adapteros-lora-worker/multi-backend", "adapteros-server-api/mlx-ffi-backend"]
+mlx-rs-backend = [
+    "multi-backend",
+    "adapteros-lora-worker/mlx-rs-backend",
+    "adapteros-server-api/mlx-rs-backend",
+]
 
 # MLX feature (alias for multi-backend with full MLX support)
 mlx = ["multi-backend"]

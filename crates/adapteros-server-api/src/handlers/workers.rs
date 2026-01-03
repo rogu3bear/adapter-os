@@ -5,6 +5,7 @@ use crate::error_helpers::{
 use crate::middleware::require_any_role;
 use crate::state::AppState;
 use crate::types::*;
+use crate::worker_capabilities::{normalize_worker_capabilities, parse_worker_capabilities};
 use adapteros_api_types::workers::{
     WorkerRegistrationRequest, WorkerRegistrationResponse, WorkerStatusNotification,
 };
@@ -208,6 +209,7 @@ pub async fn worker_spawn(
         started_at: chrono::Utc::now().to_rfc3339(),
         last_seen_at: None,
         capabilities: Vec::new(),
+        capabilities_detail: None,
         backend: None,
         model_id: None,
         model_hash: None,
@@ -284,6 +286,7 @@ pub async fn list_workers(
             started_at: w.started_at,
             last_seen_at: w.last_seen_at,
             capabilities: Vec::new(),
+            capabilities_detail: None,
             backend: None,
             model_id: None,
             model_hash: None,
@@ -745,6 +748,23 @@ pub async fn register_worker(
     // 6. Get node_id from plan's tenant (for single-node, use "local")
     let node_id = "local".to_string();
 
+    let capabilities_detail = req
+        .capabilities_detail
+        .clone()
+        .map(normalize_worker_capabilities)
+        .or_else(|| {
+            let derived =
+                parse_worker_capabilities(None, req.backend.as_deref(), &req.capabilities);
+            if derived.is_none() {
+                warn!(
+                    worker_id = %req.worker_id,
+                    backend = ?req.backend,
+                    "Worker registration missing structured capabilities; routing will degrade"
+                );
+            }
+            derived
+        });
+
     // 7. Register worker in database
     // Use plan.id (UUID) not req.plan_id (logical name like "dev") because
     // workers.plan_id has a FK constraint to plans.id (the UUID)
@@ -758,11 +778,16 @@ pub async fn register_worker(
         manifest_hash: req.manifest_hash.clone(),
         backend: req.backend.clone(),
         model_hash_b3: req.model_hash.clone(),
-        capabilities_json: if req.capabilities.is_empty() {
-            None
-        } else {
-            serde_json::to_string(&req.capabilities).ok()
-        },
+        capabilities_json: capabilities_detail
+            .as_ref()
+            .and_then(|caps| serde_json::to_string(caps).ok())
+            .or_else(|| {
+                if req.capabilities.is_empty() {
+                    None
+                } else {
+                    serde_json::to_string(&req.capabilities).ok()
+                }
+            }),
         schema_version: req.schema_version.clone(),
         api_version: req.api_version.clone(),
     };
@@ -779,6 +804,7 @@ pub async fn register_worker(
             backend: req.backend.clone(),
             model_hash: req.model_hash.clone(),
             capabilities: req.capabilities.clone(),
+            capabilities_detail: capabilities_detail.clone(),
             cache_used_mb: None,
             cache_max_mb: None,
             cache_pinned_entries: None,
@@ -803,6 +829,7 @@ pub async fn register_worker(
         schema_version = %req.schema_version,
         api_version = %req.api_version,
         capabilities = ?req.capabilities,
+        capabilities_detail = ?capabilities_detail,
         kv_quota_bytes = ?kv_quota_bytes,
         kv_residency_policy_id = ?kv_residency_policy_id,
         "Worker registration successful"

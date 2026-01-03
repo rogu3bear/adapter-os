@@ -54,7 +54,7 @@ use crate::{Array, Result};
 use crate::MlxError;
 #[cfg(all(target_os = "macos", feature = "coreml-ane"))]
 use adapteros_lora_kernel_coreml::{
-    MLTensor, MltensorApiVersion, has_neural_engine, get_mltensor_api_version,
+    get_mltensor_api_version, has_neural_engine, MLTensor, MltensorApiVersion,
 };
 
 /// Determinism attestation report
@@ -156,13 +156,7 @@ impl AneAccelerator {
     /// Execute layer normalization on ANE
     ///
     /// Falls back to MLX if batch size is below threshold.
-    pub fn layernorm(
-        &self,
-        x: &Array,
-        weight: &Array,
-        bias: &Array,
-        eps: f32,
-    ) -> Result<Array> {
+    pub fn layernorm(&self, x: &Array, weight: &Array, bias: &Array, eps: f32) -> Result<Array> {
         let batch_size = x.shape().first().copied().unwrap_or(1) as usize;
 
         if !self.should_use_ane(batch_size) {
@@ -325,7 +319,8 @@ pub fn is_ane_available() -> bool {
     #[cfg(all(target_os = "macos", feature = "coreml-ane"))]
     {
         // Check both Neural Engine hardware and MLTensor API availability
-        has_neural_engine() && !matches!(get_mltensor_api_version(), MltensorApiVersion::NotAvailable)
+        has_neural_engine()
+            && !matches!(get_mltensor_api_version(), MltensorApiVersion::NotAvailable)
     }
 
     #[cfg(all(target_os = "macos", not(feature = "coreml-ane")))]

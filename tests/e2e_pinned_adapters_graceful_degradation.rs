@@ -207,6 +207,8 @@ fn test_inference_result_has_pinned_adapter_fields() {
     let result = InferenceResult {
         text: "test response".to_string(),
         tokens_generated: 100,
+        run_receipt: None,
+        token_usage: None,
         finish_reason: "stop".to_string(),
         adapters_used: vec!["stack-adapter-1".to_string()],
         router_decisions: vec![],
@@ -262,6 +264,8 @@ fn test_inference_result_omits_none_pinned_fields() {
     let result = InferenceResult {
         text: "test response".to_string(),
         tokens_generated: 50,
+        run_receipt: None,
+        token_usage: None,
         finish_reason: "stop".to_string(),
         adapters_used: vec!["adapter-1".to_string()],
         router_decisions: vec![],
@@ -377,6 +381,8 @@ fn test_graceful_degradation_http_200_behavior() {
     let result = InferenceResult {
         text: "Generated response despite missing pins".to_string(),
         tokens_generated: 42,
+        run_receipt: None,
+        token_usage: None,
         finish_reason: "stop".to_string(),
         adapters_used: vec!["stack-fallback-adapter".to_string()],
         router_decisions: vec![],

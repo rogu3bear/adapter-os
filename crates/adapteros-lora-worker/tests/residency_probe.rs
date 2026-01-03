@@ -278,6 +278,13 @@ async fn base_model_pinning_prevents_eviction() {
         stats.eviction_skip_pinned_count > 0,
         "Evictions should have been blocked by pinning"
     );
+
+    let pin_state = cache.base_model_pin_state();
+    assert_eq!(pin_state.load_count, 1, "Base model should load once");
+    assert_eq!(
+        pin_state.evict_count, 0,
+        "Pinned base model should not be evicted"
+    );
 }
 
 /// Test cache lifecycle invariants

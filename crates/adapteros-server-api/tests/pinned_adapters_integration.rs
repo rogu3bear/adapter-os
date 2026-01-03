@@ -217,6 +217,8 @@ fn test_inference_result_with_unavailable_pinned_adapters() {
     let result = InferenceResult {
         text: "test response".to_string(),
         tokens_generated: 10,
+        run_receipt: None,
+        token_usage: None,
         finish_reason: "ok".to_string(),
         adapters_used: vec!["adapter-available".to_string()],
         router_decisions: vec![],
@@ -254,6 +256,8 @@ fn test_inference_result_without_unavailable_pinned_adapters() {
     let result = InferenceResult {
         text: "test response".to_string(),
         tokens_generated: 10,
+        run_receipt: None,
+        token_usage: None,
         finish_reason: "ok".to_string(),
         adapters_used: vec!["adapter-1".to_string()],
         router_decisions: vec![],
@@ -298,6 +302,8 @@ fn test_inference_result_all_pins_unavailable_stack_only_fallback() {
     let result = InferenceResult {
         text: "test response".to_string(),
         tokens_generated: 10,
+        run_receipt: None,
+        token_usage: None,
         finish_reason: "ok".to_string(),
         adapters_used: vec!["stack-adapter".to_string()],
         router_decisions: vec![],
@@ -341,6 +347,8 @@ fn test_inference_result_partial_pins_unavailable() {
     let result = InferenceResult {
         text: "test response".to_string(),
         tokens_generated: 10,
+        run_receipt: None,
+        token_usage: None,
         finish_reason: "ok".to_string(),
         adapters_used: vec!["pin-available".to_string(), "stack-adapter".to_string()],
         router_decisions: vec![],

@@ -1,7 +1,7 @@
 //! MLX FFI integration for AdapterOS
 //!
 //! This crate provides C FFI bindings for MLX's C++ API, avoiding PyO3 dependency issues.
-//! The C++ FFI path is the primary/production backend; the mlx-rs backend is deprecated.
+//! The C++ FFI path is the primary/production backend; the mlx-rs backend is an experimental fallback.
 
 #![allow(unexpected_cfgs)]
 #![allow(deprecated)]
@@ -14,16 +14,18 @@
 use adapteros_core::{AosError, B3Hash, Result};
 use std::path::{Path, PathBuf};
 
-// Pure Rust mlx-rs array abstraction (deprecated backend)
+// Pure Rust mlx-rs array abstraction (experimental fallback)
 pub mod array;
 
-// Pure Rust model implementation using mlx-rs (deprecated backend)
+// Pure Rust model implementation using mlx-rs (experimental fallback)
 #[cfg(feature = "mlx-rs-backend")]
 pub mod model;
 
 // C++ FFI modules (primary backend)
 pub mod attention;
 pub mod backend;
+#[cfg(feature = "mlx-rs-backend")]
+pub mod backend_rs;
 pub mod embedding;
 pub mod ffi_error;
 pub mod generation;
@@ -53,6 +55,8 @@ pub use attention::{
     mlx_scaled_dot_product_attention, AttentionConfig, RoPEFrequencies,
 };
 pub use backend::MLXFFIBackend;
+#[cfg(feature = "mlx-rs-backend")]
+pub use backend_rs::MlxRsBackend;
 pub use embedding::{EmbeddingConfig, MLXEmbeddingModel};
 pub use generation::{GenerationConfig, GenerationResult, MLXGenerator};
 pub use kv_cache::{CacheLayer, CacheStats, KVCacheConfig, MLXKVCache, PrefixKvTensors};
@@ -115,6 +119,13 @@ pub use ffi_error::{
 /// mlx_set_seed_from_bytes(&seed);
 /// ```
 pub fn mlx_set_seed_from_bytes(seed: &[u8]) -> Result<()> {
+    match select_mlx_implementation()? {
+        MlxImplementation::Ffi => mlx_set_seed_from_bytes_ffi(seed),
+        MlxImplementation::Rs => mlx_set_seed_from_bytes_rs(seed),
+    }
+}
+
+pub(crate) fn mlx_set_seed_from_bytes_ffi(seed: &[u8]) -> Result<()> {
     if seed.is_empty() {
         return Err(AosError::Internal(
             "Seed buffer cannot be empty".to_string(),
@@ -144,6 +155,57 @@ pub fn mlx_set_seed_from_bytes(seed: &[u8]) -> Result<()> {
     );
 
     Ok(())
+}
+
+#[cfg(feature = "mlx-rs-backend")]
+fn seed_rs_sampler(seed: &[u8]) -> Result<()> {
+    use rand::rngs::StdRng;
+    use rand::SeedableRng;
+
+    let mut seed_bytes = [0u8; 32];
+    if seed.len() >= seed_bytes.len() {
+        seed_bytes.copy_from_slice(&seed[..seed_bytes.len()]);
+    } else {
+        seed_bytes.copy_from_slice(B3Hash::hash(seed).as_bytes());
+    }
+
+    let rng = StdRng::from_seed(seed_bytes);
+    let slot = RS_SAMPLER_RNG.get_or_init(|| Mutex::new(rng));
+    *slot
+        .lock()
+        .map_err(|_| AosError::Internal("MLX sampler RNG lock poisoned".to_string()))? = rng;
+    Ok(())
+}
+
+#[cfg(feature = "mlx-rs-backend")]
+pub(crate) fn mlx_set_seed_from_bytes_rs(seed: &[u8]) -> Result<()> {
+    if seed.is_empty() {
+        return Err(AosError::Internal(
+            "Seed buffer cannot be empty".to_string(),
+        ));
+    }
+
+    let mut seed_bytes = [0u8; 8];
+    let copy_len = seed_bytes.len().min(seed.len());
+    seed_bytes[..copy_len].copy_from_slice(&seed[..copy_len]);
+    let seed_value = u64::from_le_bytes(seed_bytes);
+
+    adapteros_mlx::set_seed(seed_value).map_err(|e| AosError::Mlx(e.to_string()))?;
+    seed_rs_sampler(seed)?;
+
+    tracing::debug!(
+        seed_len = seed.len(),
+        "MLX (mlx-rs) backend seeded for deterministic dropout/sampling"
+    );
+
+    Ok(())
+}
+
+#[cfg(not(feature = "mlx-rs-backend"))]
+pub(crate) fn mlx_set_seed_from_bytes_rs(_seed: &[u8]) -> Result<()> {
+    Err(AosError::Config(
+        "mlx-rs backend not compiled; rebuild with --features mlx-rs-backend".to_string(),
+    ))
 }
 
 /// Internal shared implementation for token sampling (C++ FFI backend)
@@ -195,23 +257,100 @@ fn sample_token_impl(
 fn sample_token_impl(
     logits: &MLXFFITensor,
     temperature: f32,
-    _top_k: u32,
+    top_k: u32,
     top_p: f32,
 ) -> Result<u32> {
     validate_sampling_params(temperature, top_p)?;
 
-    // Use argmax for greedy decoding (temperature ~= 0)
-    if temperature < 0.01 {
+    use rand::Rng;
+    use rand::SeedableRng;
+
+    let logits_vec = logits.to_float_vec()?;
+    if logits_vec.is_empty() {
+        return Err(AosError::Mlx("Logits vector is empty".to_string()));
+    }
+
+    // Greedy path
+    if temperature <= f32::EPSILON {
         let result = logits.as_mlx_array().argmax(-1, false)?;
         let tokens = result.to_vec_i32()?;
         return Ok(tokens.first().copied().unwrap_or(0) as u32);
     }
 
-    // For now, use argmax sampling (full sampling with top-k/top-p to be implemented)
-    // TODO: Implement full mlx-rs based sampling with temperature/top-k/top-p
-    let result = logits.as_mlx_array().argmax(-1, false)?;
-    let tokens = result.to_vec_i32()?;
-    Ok(tokens.first().copied().unwrap_or(0) as u32)
+    // Apply temperature scaling
+    let mut scaled = logits_vec;
+    for value in &mut scaled {
+        *value /= temperature;
+    }
+
+    // Softmax with numerical stability
+    let max_logit = scaled.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let mut exp_vals: Vec<f32> = scaled.iter().map(|v| (v - max_logit).exp()).collect();
+    let sum_exp: f32 = exp_vals.iter().sum();
+    if sum_exp <= 0.0 || !sum_exp.is_finite() {
+        let result = logits.as_mlx_array().argmax(-1, false)?;
+        let tokens = result.to_vec_i32()?;
+        return Ok(tokens.first().copied().unwrap_or(0) as u32);
+    }
+    for value in &mut exp_vals {
+        *value /= sum_exp;
+    }
+
+    // Apply top-k and top-p filtering on CPU (experimental mlx-rs path)
+    let mut ranked: Vec<(usize, f32)> = exp_vals.iter().copied().enumerate().collect();
+    ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    let top_k = top_k as usize;
+    if top_k > 0 && top_k < ranked.len() {
+        ranked.truncate(top_k);
+    }
+
+    if top_p > 0.0 && top_p < 1.0 {
+        let mut cumulative = 0.0;
+        let mut retained = Vec::with_capacity(ranked.len());
+        for (idx, prob) in ranked.into_iter() {
+            cumulative += prob;
+            retained.push((idx, prob));
+            if cumulative >= top_p {
+                break;
+            }
+        }
+        ranked = retained;
+    }
+
+    let mut filtered = vec![0.0f32; exp_vals.len()];
+    for (idx, prob) in ranked {
+        filtered[idx] = prob;
+    }
+    let filtered_sum: f32 = filtered.iter().sum();
+    if filtered_sum <= 0.0 {
+        let result = logits.as_mlx_array().argmax(-1, false)?;
+        let tokens = result.to_vec_i32()?;
+        return Ok(tokens.first().copied().unwrap_or(0) as u32);
+    }
+    for value in &mut filtered {
+        *value /= filtered_sum;
+    }
+
+    let rng = RS_SAMPLER_RNG.get_or_init(|| {
+        tracing::warn!("MLX sampler RNG not seeded; using zero seed");
+        let seed = [0u8; 32];
+        Mutex::new(rand::rngs::StdRng::from_seed(seed))
+    });
+    let mut rng_guard = rng
+        .lock()
+        .map_err(|_| AosError::Internal("MLX sampler RNG lock poisoned".to_string()))?;
+    let sample: f32 = rng_guard.gen();
+
+    let mut cumulative = 0.0f32;
+    for (idx, prob) in filtered.iter().enumerate() {
+        cumulative += prob;
+        if sample <= cumulative {
+            return Ok(idx as u32);
+        }
+    }
+
+    Ok(filtered.len().saturating_sub(1) as u32)
 }
 
 /// Sample next token from logits using MLX's native RNG
@@ -1601,43 +1740,237 @@ impl MlxBackendCapabilities {
 // =============================================================================
 
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, OnceLock};
 
-// When mlx-rs-backend is enabled, use pure Rust initialization from SSoT
-#[cfg(feature = "mlx-rs-backend")]
-static MLX_INITIALIZED: AtomicBool = AtomicBool::new(false);
-
-#[cfg(not(feature = "mlx-rs-backend"))]
-static MLX_INITIALIZED: AtomicBool = AtomicBool::new(false);
-
-/// Initialize MLX runtime safely (idempotent - safe to call multiple times)
-///
-/// When `mlx-rs-backend` feature is enabled, uses pure Rust mlx-rs initialization.
-/// Otherwise, uses C FFI initialization.
-///
-/// # Returns
-/// * `Ok(())` - Runtime initialized successfully (or already initialized)
-/// * `Err(...)` - Initialization failed
-#[cfg(feature = "mlx-rs-backend")]
-pub fn mlx_runtime_init() -> Result<()> {
-    if MLX_INITIALIZED.load(Ordering::SeqCst) {
-        return Ok(());
-    }
-
-    // Use the SSoT crate's runtime initialization
-    adapteros_mlx::runtime_init().map_err(|e| AosError::Mlx(e.to_string()))?;
-    MLX_INITIALIZED.store(true, Ordering::SeqCst);
-    tracing::info!("MLX runtime initialized via mlx-rs backend");
-    Ok(())
+/// Selected MLX implementation (internal; user-facing backend remains `mlx`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MlxImplementation {
+    /// C++ FFI wrapper linked against Homebrew MLX
+    Ffi,
+    /// Experimental mlx-rs backend
+    Rs,
 }
 
-#[cfg(not(feature = "mlx-rs-backend"))]
-pub fn mlx_runtime_init() -> Result<()> {
-    mlx_runtime_init_internal(None)
+impl MlxImplementation {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            MlxImplementation::Ffi => "ffi",
+            MlxImplementation::Rs => "rs",
+        }
+    }
+}
+
+static MLX_IMPLEMENTATION: OnceLock<Mutex<Option<MlxImplementation>>> = OnceLock::new();
+static MLX_INITIALIZED: AtomicBool = AtomicBool::new(false);
+#[cfg(feature = "mlx-rs-backend")]
+static RS_SAMPLER_RNG: OnceLock<Mutex<rand::rngs::StdRng>> = OnceLock::new();
+
+fn mlx_impl_slot() -> &'static Mutex<Option<MlxImplementation>> {
+    MLX_IMPLEMENTATION.get_or_init(|| Mutex::new(None))
+}
+
+fn mlx_impl_override() -> Result<Option<MlxImplementation>> {
+    let value = match std::env::var("AOS_MLX_IMPL") {
+        Ok(val) => val,
+        Err(std::env::VarError::NotPresent) => return Ok(None),
+        Err(e) => {
+            return Err(AosError::Config(format!(
+                "Failed to read AOS_MLX_IMPL: {}",
+                e
+            )))
+        }
+    };
+
+    let normalized = value.trim().to_ascii_lowercase();
+    if normalized.is_empty() || normalized == "auto" {
+        return Ok(None);
+    }
+
+    match normalized.as_str() {
+        "ffi" => Ok(Some(MlxImplementation::Ffi)),
+        "rs" | "mlx-rs" | "mlx_rs" => Ok(Some(MlxImplementation::Rs)),
+        _ => Err(AosError::Config(format!(
+            "Invalid AOS_MLX_IMPL '{}'; expected 'auto', 'ffi', or 'rs'",
+            value
+        ))),
+    }
+}
+
+fn ffi_build_available() -> bool {
+    cfg!(feature = "mlx") && !cfg!(mlx_stub)
+}
+
+fn rs_build_available() -> bool {
+    cfg!(feature = "mlx-rs-backend")
+}
+
+/// Return the selected MLX implementation, if already chosen.
+pub fn mlx_selected_implementation() -> Option<MlxImplementation> {
+    mlx_impl_slot().lock().ok().and_then(|guard| *guard)
+}
+
+/// Select MLX implementation (auto unless overridden via AOS_MLX_IMPL).
+pub fn select_mlx_implementation() -> Result<MlxImplementation> {
+    {
+        let guard = mlx_impl_slot()
+            .lock()
+            .map_err(|_| AosError::Internal("MLX implementation lock poisoned".to_string()))?;
+        if let Some(selected) = *guard {
+            return Ok(selected);
+        }
+    }
+
+    let override_choice = mlx_impl_override()?;
+    let selected = if let Some(choice) = override_choice {
+        match choice {
+            MlxImplementation::Ffi => {
+                if !ffi_build_available() {
+                    return Err(AosError::Config(
+                        "AOS_MLX_IMPL=ffi requested but MLX FFI build is unavailable".to_string(),
+                    ));
+                }
+                choice
+            }
+            MlxImplementation::Rs => {
+                if !rs_build_available() {
+                    return Err(AosError::Config(
+                        "AOS_MLX_IMPL=rs requested but mlx-rs backend is not compiled".to_string(),
+                    ));
+                }
+                choice
+            }
+        }
+    } else if ffi_build_available() {
+        MlxImplementation::Ffi
+    } else if rs_build_available() {
+        MlxImplementation::Rs
+    } else {
+        return Err(AosError::Config(
+            "MLX backend unavailable (no MLX FFI or mlx-rs build)".to_string(),
+        ));
+    };
+
+    let mut guard = mlx_impl_slot()
+        .lock()
+        .map_err(|_| AosError::Internal("MLX implementation lock poisoned".to_string()))?;
+    if guard.is_none() {
+        *guard = Some(selected);
+    }
+
+    Ok(selected)
+}
+
+#[cfg(test)]
+pub fn reset_mlx_selection_for_tests() {
+    if let Ok(mut guard) = mlx_impl_slot().lock() {
+        *guard = None;
+    }
+}
+
+#[cfg(test)]
+mod mlx_impl_tests {
+    use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    struct EnvVarGuard {
+        key: &'static str,
+        prev: Option<String>,
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: Option<&str>) -> Self {
+            let lock = ENV_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+            let prev = std::env::var(key).ok();
+            match value {
+                Some(val) => std::env::set_var(key, val),
+                None => std::env::remove_var(key),
+            }
+            Self {
+                key,
+                prev,
+                _lock: lock,
+            }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            match self.prev.take() {
+                Some(val) => std::env::set_var(self.key, val),
+                None => std::env::remove_var(self.key),
+            }
+        }
+    }
+
+    #[test]
+    fn selection_matches_compiled_features() {
+        let _env = EnvVarGuard::set("AOS_MLX_IMPL", None);
+        reset_mlx_selection_for_tests();
+
+        let result = select_mlx_implementation();
+        if ffi_build_available() {
+            assert_eq!(result.unwrap(), MlxImplementation::Ffi);
+        } else if rs_build_available() {
+            assert_eq!(result.unwrap(), MlxImplementation::Rs);
+        } else {
+            assert!(result.is_err());
+        }
+    }
+
+    #[test]
+    fn override_rs_respects_feature_gate() {
+        let _env = EnvVarGuard::set("AOS_MLX_IMPL", Some("rs"));
+        reset_mlx_selection_for_tests();
+
+        let result = select_mlx_implementation();
+        if rs_build_available() {
+            assert_eq!(result.unwrap(), MlxImplementation::Rs);
+        } else {
+            assert!(result.is_err());
+        }
+    }
+
+    #[test]
+    fn override_ffi_respects_feature_gate() {
+        let _env = EnvVarGuard::set("AOS_MLX_IMPL", Some("ffi"));
+        reset_mlx_selection_for_tests();
+
+        let result = select_mlx_implementation();
+        if ffi_build_available() {
+            assert_eq!(result.unwrap(), MlxImplementation::Ffi);
+        } else {
+            assert!(result.is_err());
+        }
+    }
+
+    #[test]
+    fn override_auto_uses_default_selection() {
+        let _env = EnvVarGuard::set("AOS_MLX_IMPL", Some("auto"));
+        reset_mlx_selection_for_tests();
+
+        let result = select_mlx_implementation();
+        if ffi_build_available() {
+            assert_eq!(result.unwrap(), MlxImplementation::Ffi);
+        } else if rs_build_available() {
+            assert_eq!(result.unwrap(), MlxImplementation::Rs);
+        } else {
+            assert!(result.is_err());
+        }
+    }
 }
 
 /// Internal implementation for MLX runtime initialization (C FFI path)
-#[cfg(not(feature = "mlx-rs-backend"))]
-fn mlx_runtime_init_internal(device: Option<MlxDeviceType>) -> Result<()> {
+fn mlx_runtime_init_internal_ffi(device: Option<MlxDeviceType>) -> Result<()> {
+    if !ffi_build_available() {
+        return Err(AosError::Config(
+            "MLX FFI not available (build with --features mlx and ensure MLX is installed)"
+                .to_string(),
+        ));
+    }
+
     // Check if already initialized (idempotent)
     if MLX_INITIALIZED.load(Ordering::SeqCst) {
         tracing::debug!("MLX runtime already initialized, skipping");
@@ -1675,60 +2008,128 @@ fn mlx_runtime_init_internal(device: Option<MlxDeviceType>) -> Result<()> {
     }
 }
 
+#[cfg(feature = "mlx-rs-backend")]
+pub(crate) fn mlx_runtime_init_rs() -> Result<()> {
+    adapteros_mlx::runtime_init().map_err(|e| AosError::Mlx(e.to_string()))?;
+    tracing::info!("MLX runtime initialized via mlx-rs backend");
+    Ok(())
+}
+
+#[cfg(not(feature = "mlx-rs-backend"))]
+pub(crate) fn mlx_runtime_init_rs() -> Result<()> {
+    Err(AosError::Config(
+        "mlx-rs backend not compiled; rebuild with --features mlx-rs-backend".to_string(),
+    ))
+}
+
+pub(crate) fn mlx_runtime_init_ffi() -> Result<()> {
+    mlx_runtime_init_internal_ffi(None)
+}
+
+pub(crate) fn mlx_runtime_init_with_device_ffi(device: MlxDeviceType) -> Result<()> {
+    mlx_runtime_init_internal_ffi(Some(device))
+}
+
+pub(crate) fn mlx_runtime_is_initialized_ffi() -> bool {
+    MLX_INITIALIZED.load(Ordering::SeqCst)
+}
+
+#[cfg(feature = "mlx-rs-backend")]
+pub(crate) fn mlx_runtime_is_initialized_rs() -> bool {
+    adapteros_mlx::runtime_is_initialized()
+}
+
+#[cfg(not(feature = "mlx-rs-backend"))]
+pub(crate) fn mlx_runtime_is_initialized_rs() -> bool {
+    false
+}
+
+/// Initialize MLX runtime safely (idempotent - safe to call multiple times)
+///
+/// Uses selected MLX implementation (FFI preferred; mlx-rs fallback).
+pub fn mlx_runtime_init() -> Result<()> {
+    let override_choice = mlx_impl_override()?;
+    let selected = select_mlx_implementation()?;
+    match selected {
+        MlxImplementation::Ffi => {
+            if let Err(err) = mlx_runtime_init_ffi() {
+                if override_choice.is_none() && rs_build_available() {
+                    tracing::warn!(
+                        error = %err,
+                        "MLX FFI init failed; falling back to mlx-rs backend (experimental)"
+                    );
+                    let _ = mlx_impl_slot()
+                        .lock()
+                        .map_err(|_| {
+                            AosError::Internal("MLX implementation lock poisoned".to_string())
+                        })?
+                        .replace(MlxImplementation::Rs);
+                    return mlx_runtime_init_rs();
+                }
+                return Err(err);
+            }
+            Ok(())
+        }
+        MlxImplementation::Rs => mlx_runtime_init_rs(),
+    }
+}
+
 /// Initialize MLX runtime with specific device type
 ///
 /// # Arguments
 /// * `device` - Device type to initialize (Cpu, Gpu, Ane, Auto)
-///
-/// # Returns
-/// * `Ok(())` - Runtime initialized successfully
-/// * `Err(...)` - Initialization failed
-#[cfg(feature = "mlx-rs-backend")]
-pub fn mlx_runtime_init_with_device(_device: MlxDeviceType) -> Result<()> {
-    // mlx-rs doesn't support device selection, use default init
-    mlx_runtime_init()
-}
-
-#[cfg(not(feature = "mlx-rs-backend"))]
 pub fn mlx_runtime_init_with_device(device: MlxDeviceType) -> Result<()> {
-    mlx_runtime_init_internal(Some(device))
+    match select_mlx_implementation()? {
+        MlxImplementation::Ffi => mlx_runtime_init_with_device_ffi(device),
+        MlxImplementation::Rs => {
+            // mlx-rs doesn't support explicit device selection
+            mlx_runtime_init_rs()
+        }
+    }
 }
 
 /// Check if MLX runtime is initialized
-#[cfg(feature = "mlx-rs-backend")]
 pub fn mlx_runtime_is_initialized() -> bool {
-    MLX_INITIALIZED.load(Ordering::SeqCst) || adapteros_mlx::runtime_is_initialized()
-}
+    if let Some(selected) = mlx_selected_implementation() {
+        return match selected {
+            MlxImplementation::Ffi => mlx_runtime_is_initialized_ffi(),
+            MlxImplementation::Rs => mlx_runtime_is_initialized_rs(),
+        };
+    }
 
-#[cfg(not(feature = "mlx-rs-backend"))]
-pub fn mlx_runtime_is_initialized() -> bool {
-    MLX_INITIALIZED.load(Ordering::SeqCst)
+    mlx_runtime_is_initialized_ffi() || mlx_runtime_is_initialized_rs()
 }
 
 /// Shutdown MLX runtime and release resources (idempotent)
 ///
 /// Safe to call multiple times or when not initialized.
-#[cfg(feature = "mlx-rs-backend")]
 pub fn mlx_runtime_shutdown() {
-    if MLX_INITIALIZED
-        .compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst)
-        .is_ok()
-    {
-        tracing::info!("MLX runtime shut down (mlx-rs backend)");
+    match mlx_selected_implementation().unwrap_or(MlxImplementation::Ffi) {
+        MlxImplementation::Ffi => {
+            if MLX_INITIALIZED
+                .compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+            {
+                unsafe {
+                    mlx_shutdown();
+                }
+                tracing::info!("MLX runtime shut down (ffi)");
+            }
+        }
+        MlxImplementation::Rs => {
+            tracing::info!("MLX runtime shut down (mlx-rs)");
+        }
     }
 }
 
-#[cfg(not(feature = "mlx-rs-backend"))]
-pub fn mlx_runtime_shutdown() {
-    if MLX_INITIALIZED
-        .compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst)
-        .is_ok()
-    {
-        unsafe {
-            mlx_shutdown();
-        }
-        tracing::info!("MLX runtime shut down");
+fn write_cstr(buf: &mut [u8], value: &str) {
+    if buf.is_empty() {
+        return;
     }
+    let bytes = value.as_bytes();
+    let len = bytes.len().min(buf.len() - 1);
+    buf[..len].copy_from_slice(&bytes[..len]);
+    buf[len] = 0;
 }
 
 /// Get MLX backend capabilities
@@ -1737,26 +2138,46 @@ pub fn mlx_runtime_shutdown() {
 /// * `Ok(capabilities)` - Backend capability information
 /// * `Err(...)` - Failed to query capabilities
 pub fn mlx_get_backend_capabilities() -> Result<MlxBackendCapabilities> {
-    let mut capabilities = MlxBackendCapabilities::default();
-
-    ffi_error::clear_ffi_error();
-    let result = unsafe { mlx_backend_info(&mut capabilities) };
-    ffi_error::check_ffi_result(result, "get backend capabilities")?;
-
-    Ok(capabilities)
+    let selected = select_mlx_implementation()?;
+    match selected {
+        MlxImplementation::Ffi => {
+            let mut capabilities = MlxBackendCapabilities::default();
+            ffi_error::clear_ffi_error();
+            let result = unsafe { mlx_backend_info(&mut capabilities) };
+            ffi_error::check_ffi_result(result, "get backend capabilities")?;
+            Ok(capabilities)
+        }
+        MlxImplementation::Rs => {
+            let mut capabilities = MlxBackendCapabilities::default();
+            if !mlx_runtime_is_initialized_rs() {
+                mlx_runtime_init_rs()?;
+            }
+            capabilities.gpu_available = true;
+            capabilities.metal_compute = true;
+            capabilities.unified_memory = true;
+            write_cstr(&mut capabilities.device_name, "mlx-rs");
+            write_cstr(&mut capabilities.mlx_version, "mlx-rs");
+            write_cstr(&mut capabilities.metal_version, "metal");
+            Ok(capabilities)
+        }
+    }
 }
 
 /// Get MLX version string
 pub fn mlx_version() -> String {
-    unsafe {
-        let version_ptr = mlx_get_version();
-        if version_ptr.is_null() {
-            "unknown".to_string()
-        } else {
-            std::ffi::CStr::from_ptr(version_ptr)
-                .to_string_lossy()
-                .to_string()
-        }
+    match select_mlx_implementation() {
+        Ok(MlxImplementation::Ffi) => unsafe {
+            let version_ptr = mlx_get_version();
+            if version_ptr.is_null() {
+                "unknown".to_string()
+            } else {
+                std::ffi::CStr::from_ptr(version_ptr)
+                    .to_string_lossy()
+                    .to_string()
+            }
+        },
+        Ok(MlxImplementation::Rs) => "mlx-rs".to_string(),
+        Err(_) => "unknown".to_string(),
     }
 }
 

@@ -40,6 +40,7 @@ use hyper_util::server::conn::auto::Builder;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::net::UnixListener;
+use tokio::signal;
 use tower::{Service, ServiceBuilder};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
@@ -181,56 +182,84 @@ pub async fn serve_uds_with_worker<
                 .layer(TraceLayer::new_for_http())
                 .layer(api_cors_layer()),
         )
-        .with_state(state);
+        .with_state(state.clone());
+
+    let shutdown_signal = signal::ctrl_c();
+    tokio::pin!(shutdown_signal);
 
     // Accept connections and serve
     loop {
-        match listener.accept().await {
-            Ok((stream, _addr)) => {
-                // Create TokioIo wrapper for the Unix stream
-                let io = hyper_util::rt::TokioIo::new(stream);
+        tokio::select! {
+            accept_result = listener.accept() => {
+                match accept_result {
+                    Ok((stream, _addr)) => {
+                        // Create TokioIo wrapper for the Unix stream
+                        let io = hyper_util::rt::TokioIo::new(stream);
 
-                // Clone app for this connection
-                let tower_service = app.clone();
+                        // Clone app for this connection
+                        let tower_service = app.clone();
 
-                // Spawn task to handle connection
-                let _ = spawn_deterministic("UDS connection handler".to_string(), async move {
-                    // Use hyper's service_fn with proper tower adapter
-                    let hyper_service = hyper::service::service_fn(
-                        |request: hyper::Request<hyper::body::Incoming>| {
-                            // Clone for this request
-                            let mut tower_service_clone = tower_service.clone();
+                        // Spawn task to handle connection
+                        let _ = spawn_deterministic("UDS connection handler".to_string(), async move {
+                            // Use hyper's service_fn with proper tower adapter
+                            let hyper_service = hyper::service::service_fn(
+                                |request: hyper::Request<hyper::body::Incoming>| {
+                                    // Clone for this request
+                                    let mut tower_service_clone = tower_service.clone();
 
-                            async move {
-                                match tower_service_clone.call(request).await {
-                                    Ok(response) => Ok::<_, hyper::Error>(response),
-                                    Err(err) => {
-                                        tracing::error!("Tower service error: {}", err);
-                                        // Return 500 Internal Server Error
-                                        let body = axum::body::Body::from("Internal Server Error");
-                                        Ok(hyper::Response::builder()
-                                            .status(500)
-                                            .body(body)
-                                            .expect("Failed to build error response"))
+                                    async move {
+                                        match tower_service_clone.call(request).await {
+                                            Ok(response) => Ok::<_, hyper::Error>(response),
+                                            Err(err) => {
+                                                tracing::error!("Tower service error: {}", err);
+                                                // Return 500 Internal Server Error
+                                                let body = axum::body::Body::from("Internal Server Error");
+                                                Ok(hyper::Response::builder()
+                                                    .status(500)
+                                                    .body(body)
+                                                    .expect("Failed to build error response"))
+                                            }
+                                        }
                                     }
-                                }
+                                },
+                            );
+
+                            // Create hyper server builder for this connection
+                            let builder = Builder::new(TokioExecutor::new());
+
+                            if let Err(err) = builder.serve_connection(io, hyper_service).await {
+                                tracing::error!("Connection error: {}", err);
                             }
-                        },
-                    );
-
-                    // Create hyper server builder for this connection
-                    let builder = Builder::new(TokioExecutor::new());
-
-                    if let Err(err) = builder.serve_connection(io, hyper_service).await {
-                        tracing::error!("Connection error: {}", err);
+                        });
                     }
-                });
+                    Err(e) => {
+                        tracing::error!("Fatal accept error, breaking out of server loop: {}", e);
+                        break;
+                    }
+                }
             }
-            Err(e) => {
-                tracing::error!("Fatal accept error, breaking out of server loop: {}", e);
+            _ = &mut shutdown_signal => {
+                tracing::info!("Shutdown signal received, stopping UDS server");
                 break;
             }
         }
+    }
+
+    let telemetry = {
+        let mut worker_guard = state.worker.lock().await;
+        if let Err(e) = worker_guard.shutdown().await {
+            tracing::warn!(error = %e, "Worker shutdown reported an error");
+        }
+        worker_guard.telemetry().clone()
+    };
+
+    if let Some(telemetry) = telemetry {
+        let _ = tokio::task::spawn_blocking(move || {
+            if let Err(e) = telemetry.shutdown_with_timeout(std::time::Duration::from_secs(5)) {
+                tracing::warn!(error = %e, "Telemetry shutdown did not complete cleanly");
+            }
+        })
+        .await;
     }
 
     Ok(())

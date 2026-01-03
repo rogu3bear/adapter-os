@@ -2,6 +2,7 @@
 
 use adapteros_core::{AosError, B3Hash, Result};
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 /// Backend type identifier
 ///
@@ -69,6 +70,40 @@ impl FloatingPointMode {
     }
 }
 
+/// Determinism strength classification for backend execution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeterminismLevel {
+    /// No determinism guarantees.
+    None,
+    /// Deterministic within bounded numeric tolerance.
+    BoundedTolerance,
+    /// Bit-exact deterministic execution.
+    BitExact,
+}
+
+impl DeterminismLevel {
+    /// True when this level implies deterministic behavior.
+    pub fn is_deterministic(self) -> bool {
+        !matches!(self, DeterminismLevel::None)
+    }
+
+    /// Canonical string representation.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            DeterminismLevel::None => "none",
+            DeterminismLevel::BoundedTolerance => "bounded_tolerance",
+            DeterminismLevel::BitExact => "bit_exact",
+        }
+    }
+}
+
+impl fmt::Display for DeterminismLevel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// Kernel manifest metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KernelManifest {
@@ -95,6 +130,8 @@ pub struct DeterminismReport {
     pub rng_seed_method: RngSeedingMethod,
     /// Floating-point execution mode
     pub floating_point_mode: FloatingPointMode,
+    /// Determinism strength classification
+    pub determinism_level: DeterminismLevel,
     /// Compiler flags used to build kernels
     pub compiler_flags: Vec<String>,
     /// Overall deterministic attestation
@@ -116,6 +153,16 @@ impl DeterminismReport {
         // Check overall deterministic flag
         if !self.deterministic {
             errors.push("Overall deterministic flag is false".to_string());
+        }
+
+        // Check determinism level aligns with deterministic flag
+        if self.deterministic && !self.determinism_level.is_deterministic() {
+            errors.push(
+                "Determinism level must be deterministic when deterministic=true".to_string(),
+            );
+        }
+        if !self.deterministic && self.determinism_level.is_deterministic() {
+            errors.push("Determinism level must be none when deterministic=false".to_string());
         }
 
         // Check backend type
@@ -170,8 +217,12 @@ impl DeterminismReport {
     /// Get a summary string for logging
     pub fn summary(&self) -> String {
         format!(
-            "{:?} backend, RNG={:?}, FP={:?}, deterministic={}",
-            self.backend_type, self.rng_seed_method, self.floating_point_mode, self.deterministic
+            "{:?} backend, RNG={:?}, FP={:?}, level={}, deterministic={}",
+            self.backend_type,
+            self.rng_seed_method,
+            self.floating_point_mode,
+            self.determinism_level,
+            self.deterministic
         )
     }
 }
@@ -210,6 +261,7 @@ mod tests {
             manifest: None,
             rng_seed_method: RngSeedingMethod::HkdfSeeded,
             floating_point_mode: FloatingPointMode::Deterministic,
+            determinism_level: DeterminismLevel::BitExact,
             compiler_flags: vec!["-O2".to_string()],
             deterministic: true,
         };
@@ -225,6 +277,7 @@ mod tests {
             manifest: None,
             rng_seed_method: RngSeedingMethod::HkdfSeeded,
             floating_point_mode: FloatingPointMode::Deterministic,
+            determinism_level: DeterminismLevel::BitExact,
             compiler_flags: vec![],
             deterministic: false,
         };
@@ -240,6 +293,7 @@ mod tests {
             manifest: None,
             rng_seed_method: RngSeedingMethod::HkdfSeeded,
             floating_point_mode: FloatingPointMode::Deterministic,
+            determinism_level: DeterminismLevel::BitExact,
             compiler_flags: vec!["-ffast-math".to_string()],
             deterministic: true,
         };
@@ -255,6 +309,7 @@ mod tests {
             manifest: None,
             rng_seed_method: RngSeedingMethod::HkdfSeeded,
             floating_point_mode: FloatingPointMode::Deterministic,
+            determinism_level: DeterminismLevel::BitExact,
             compiler_flags: vec![],
             deterministic: true,
         };
@@ -270,10 +325,17 @@ mod tests {
             manifest: None,
             rng_seed_method: RngSeedingMethod::FixedSeed(0),
             floating_point_mode: FloatingPointMode::Deterministic,
+            determinism_level: DeterminismLevel::BitExact,
             compiler_flags: vec![],
             deterministic: true,
         };
 
         assert!(report.validate().is_ok());
+    }
+
+    #[test]
+    fn test_determinism_level_ordering() {
+        assert!(DeterminismLevel::BitExact > DeterminismLevel::BoundedTolerance);
+        assert!(DeterminismLevel::BoundedTolerance > DeterminismLevel::None);
     }
 }

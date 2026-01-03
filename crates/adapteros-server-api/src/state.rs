@@ -52,6 +52,7 @@ pub struct WorkerRuntimeInfo {
     pub backend: Option<String>,
     pub model_hash: Option<String>,
     pub capabilities: Vec<String>,
+    pub capabilities_detail: Option<adapteros_api_types::workers::WorkerCapabilities>,
     /// Current cache memory usage in MB
     pub cache_used_mb: Option<u32>,
     /// Maximum cache memory budget in MB

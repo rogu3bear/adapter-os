@@ -1,7 +1,10 @@
 //! Adapters page
 
 use crate::api::ApiClient;
-use crate::components::{Badge, BadgeVariant, Card, Shell, Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow};
+use crate::components::{
+    Badge, BadgeVariant, Card, Spinner, Table, TableBody, TableCell, TableHead, TableHeader,
+    TableRow,
+};
 use crate::hooks::{use_api_resource, LoadingState};
 use adapteros_api_types::AdapterResponse;
 use leptos::prelude::*;
@@ -11,47 +14,43 @@ use std::sync::Arc;
 /// Adapters list page
 #[component]
 pub fn Adapters() -> impl IntoView {
-
-    let (adapters, refetch) = use_api_resource(|client: Arc<ApiClient>| async move {
-        client.list_adapters().await
-    });
+    let (adapters, refetch) =
+        use_api_resource(|client: Arc<ApiClient>| async move { client.list_adapters().await });
 
     view! {
-        <Shell>
-            <div class="space-y-6">
-                <div class="flex items-center justify-between">
-                    <h1 class="text-3xl font-bold tracking-tight">"Adapters"</h1>
-                    <button
-                        class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-                        on:click=move |_| refetch()
-                    >
-                        "Refresh"
-                    </button>
-                </div>
-
-                {move || {
-                    match adapters.get() {
-                        LoadingState::Idle | LoadingState::Loading => {
-                            view! {
-                                <div class="flex items-center justify-center py-12">
-                                    <Spinner/>
-                                </div>
-                            }.into_any()
-                        }
-                        LoadingState::Loaded(data) => {
-                            view! { <AdaptersList adapters=data/> }.into_any()
-                        }
-                        LoadingState::Error(e) => {
-                            view! {
-                                <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
-                                    <p class="text-destructive">{e.to_string()}</p>
-                                </div>
-                            }.into_any()
-                        }
-                    }
-                }}
+        <div class="p-6 space-y-6">
+            <div class="flex items-center justify-between">
+                <h1 class="text-3xl font-bold tracking-tight">"Adapters"</h1>
+                <button
+                    class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                    on:click=move |_| refetch()
+                >
+                    "Refresh"
+                </button>
             </div>
-        </Shell>
+
+            {move || {
+                match adapters.get() {
+                    LoadingState::Idle | LoadingState::Loading => {
+                        view! {
+                            <div class="flex items-center justify-center py-12">
+                                <Spinner/>
+                            </div>
+                        }.into_any()
+                    }
+                    LoadingState::Loaded(data) => {
+                        view! { <AdaptersList adapters=data/> }.into_any()
+                    }
+                    LoadingState::Error(e) => {
+                        view! {
+                            <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
+                                <p class="text-destructive">{e.to_string()}</p>
+                            </div>
+                        }.into_any()
+                    }
+                }
+            }}
+        </div>
     }
 }
 
@@ -64,7 +63,8 @@ fn AdaptersList(adapters: Vec<AdapterResponse>) -> impl IntoView {
                     <p class="text-muted-foreground">"No adapters found"</p>
                 </div>
             </Card>
-        }.into_any();
+        }
+        .into_any();
     }
 
     view! {
@@ -115,7 +115,8 @@ fn AdaptersList(adapters: Vec<AdapterResponse>) -> impl IntoView {
                 </TableBody>
             </Table>
         </Card>
-    }.into_any()
+    }
+    .into_any()
 }
 
 /// Adapter detail page
@@ -124,59 +125,53 @@ pub fn AdapterDetail() -> impl IntoView {
     let params = use_params_map();
 
     // Get adapter ID from URL
-    let adapter_id = Memo::new(move |_| {
-        params.get().get("id").unwrap_or_default()
-    });
+    let adapter_id = Memo::new(move |_| params.get().get("id").unwrap_or_default());
 
     // Fetch adapter details
     let (adapter, refetch) = use_api_resource(move |client: Arc<ApiClient>| {
         let id = adapter_id.get();
-        async move {
-            client.get_adapter(&id).await
-        }
+        async move { client.get_adapter(&id).await }
     });
 
     view! {
-        <Shell>
-            <div class="space-y-6">
-                <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-4">
-                        <a href="/adapters" class="text-muted-foreground hover:text-foreground">
-                            "← Adapters"
-                        </a>
-                        <h1 class="text-3xl font-bold tracking-tight">"Adapter Details"</h1>
-                    </div>
-                    <button
-                        class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-                        on:click=move |_| refetch()
-                    >
-                        "Refresh"
-                    </button>
+        <div class="p-6 space-y-6">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-4">
+                    <a href="/adapters" class="text-muted-foreground hover:text-foreground">
+                        "← Adapters"
+                    </a>
+                    <h1 class="text-3xl font-bold tracking-tight">"Adapter Details"</h1>
                 </div>
-
-                {move || {
-                    match adapter.get() {
-                        LoadingState::Idle | LoadingState::Loading => {
-                            view! {
-                                <div class="flex items-center justify-center py-12">
-                                    <Spinner/>
-                                </div>
-                            }.into_any()
-                        }
-                        LoadingState::Loaded(data) => {
-                            view! { <AdapterDetailContent adapter=data/> }.into_any()
-                        }
-                        LoadingState::Error(e) => {
-                            view! {
-                                <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
-                                    <p class="text-destructive">{e.to_string()}</p>
-                                </div>
-                            }.into_any()
-                        }
-                    }
-                }}
+                <button
+                    class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                    on:click=move |_| refetch()
+                >
+                    "Refresh"
+                </button>
             </div>
-        </Shell>
+
+            {move || {
+                match adapter.get() {
+                    LoadingState::Idle | LoadingState::Loading => {
+                        view! {
+                            <div class="flex items-center justify-center py-12">
+                                <Spinner/>
+                            </div>
+                        }.into_any()
+                    }
+                    LoadingState::Loaded(data) => {
+                        view! { <AdapterDetailContent adapter=data/> }.into_any()
+                    }
+                    LoadingState::Error(e) => {
+                        view! {
+                            <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
+                                <p class="text-destructive">{e.to_string()}</p>
+                            </div>
+                        }.into_any()
+                    }
+                }
+            }}
+        </div>
     }
 }
 

@@ -289,6 +289,8 @@ pub struct ModelHandleCache {
     metrics: Option<Arc<CriticalComponentMetrics>>,
     /// Maximum number of pinned entries allowed (safety cap to prevent unbounded growth)
     max_pinned_entries: usize,
+    /// Base model pinning state + residency counters
+    base_model_pin: RwLock<BaseModelPinState>,
 }
 
 /// Cache statistics for observability
@@ -302,6 +304,23 @@ pub struct CacheStats {
     pub eviction_skip_pinned_count: u64,
     /// Count of eviction attempts blocked because the entry was marked active
     pub eviction_skip_active_count: u64,
+}
+
+/// Base model pinning state and residency counters.
+#[derive(Debug, Default, Clone)]
+pub struct BaseModelPinState {
+    /// Whether pinning is enabled for this worker.
+    pub enabled: bool,
+    /// Optional pin budget override in bytes.
+    pub budget_bytes: Option<u64>,
+    /// Base model identifier for telemetry.
+    pub model_id: Option<String>,
+    /// Cache key tracked as the base model.
+    pub base_model_key: Option<ModelKey>,
+    /// Base model load count (cache inserts).
+    pub load_count: u64,
+    /// Base model eviction count.
+    pub evict_count: u64,
 }
 
 /// Operation label for SingleFlight metrics
@@ -337,6 +356,7 @@ impl ModelHandleCache {
             listeners: RwLock::new(HashMap::new()),
             metrics: None,
             max_pinned_entries: DEFAULT_MAX_PINNED_ENTRIES,
+            base_model_pin: RwLock::new(BaseModelPinState::default()),
         }
     }
 
@@ -356,6 +376,7 @@ impl ModelHandleCache {
             listeners: RwLock::new(HashMap::new()),
             metrics: Some(metrics),
             max_pinned_entries: DEFAULT_MAX_PINNED_ENTRIES,
+            base_model_pin: RwLock::new(BaseModelPinState::default()),
         }
     }
 
@@ -411,6 +432,51 @@ impl ModelHandleCache {
         self.register_listener(key, Arc::new(BaseModelStateEventHandler::new(state)));
     }
 
+    /// Configure base model pinning behavior and telemetry identity.
+    pub fn configure_base_model_pinning(
+        &self,
+        enabled: bool,
+        budget_bytes: Option<u64>,
+        model_id: Option<String>,
+    ) {
+        let mut state = self.base_model_pin.write();
+        state.enabled = enabled;
+        state.budget_bytes = budget_bytes;
+        state.model_id = model_id;
+        state.base_model_key = None;
+        state.load_count = 0;
+        state.evict_count = 0;
+    }
+
+    /// Snapshot the current base model pinning state.
+    pub fn base_model_pin_state(&self) -> BaseModelPinState {
+        self.base_model_pin.read().clone()
+    }
+
+    /// Check if base model pinning is enabled.
+    pub fn base_model_pin_enabled(&self) -> bool {
+        self.base_model_pin.read().enabled
+    }
+
+    /// Track which cache key corresponds to the base model.
+    pub fn set_base_model_key(&self, key: &ModelKey) {
+        let mut state = self.base_model_pin.write();
+        if state.base_model_key.as_ref() == Some(key) {
+            return;
+        }
+        if let Some(existing) = state.base_model_key.as_ref() {
+            tracing::warn!(
+                existing = %existing.short_hex(),
+                next = %key.short_hex(),
+                "Base model key changed; keeping first key for residency tracking"
+            );
+            return;
+        }
+        state.base_model_key = Some(key.clone());
+        state.load_count = 0;
+        state.evict_count = 0;
+    }
+
     /// Remove a lifecycle listener for a specific key.
     pub fn remove_listener(&self, key: &ModelKey) {
         self.listeners.write().remove(key);
@@ -420,6 +486,7 @@ impl ModelHandleCache {
         if let Some(listener) = self.listeners.read().get(key) {
             listener.on_load(key, memory_bytes);
         }
+        self.record_base_model_load(key);
     }
 
     fn notify_reuse(&self, key: &ModelKey) {
@@ -432,6 +499,7 @@ impl ModelHandleCache {
         if let Some(listener) = self.listeners.read().get(key) {
             listener.on_evict(key);
         }
+        self.record_base_model_evict(key);
     }
 
     fn notify_error(&self, key: &ModelKey, error: &AosError) {
@@ -657,6 +725,7 @@ impl ModelHandleCache {
     where
         F: FnOnce() -> Result<(ModelHandle, u64)>,
     {
+        self.set_base_model_key(key);
         let handle = self.get_or_load(key, loader)?;
 
         // Auto-pin the base model (respecting the limit)
@@ -1140,6 +1209,7 @@ impl ModelHandleCache {
         pinned.clear();
         self.active_counts.write().clear();
         self.listeners.write().clear();
+        *self.base_model_pin.write() = BaseModelPinState::default();
         // Note: SingleFlightSync manages its own state and cleans up automatically
         if let Some(ref m) = self.metrics {
             m.set_pinned_entries_count(0);
@@ -1244,6 +1314,20 @@ impl ModelHandleCache {
             "{message}"
         );
         entry.handle.clone()
+    }
+
+    fn record_base_model_load(&self, key: &ModelKey) {
+        let mut state = self.base_model_pin.write();
+        if state.base_model_key.as_ref() == Some(key) {
+            state.load_count += 1;
+        }
+    }
+
+    fn record_base_model_evict(&self, key: &ModelKey) {
+        let mut state = self.base_model_pin.write();
+        if state.base_model_key.as_ref() == Some(key) {
+            state.evict_count += 1;
+        }
     }
 }
 

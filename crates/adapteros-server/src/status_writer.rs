@@ -1,6 +1,6 @@
 //! Status writer for menu bar application
 //!
-//! Writes a JSON snapshot of AdapterOS state to `/var/run/adapteros_status.json`
+//! Writes a JSON snapshot of AdapterOS state to `./var/run/adapteros_status.json`
 //! for consumption by the macOS menu bar app.
 
 use adapteros_config::resolve_status_path;

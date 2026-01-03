@@ -35,9 +35,9 @@
 //! // Returns: ./var/adapters/my-adapter.aos
 //!
 //! // Create with custom root
-//! let paths = AdapterPaths::new("/var/lib/adapteros/adapters");
+//! let paths = AdapterPaths::new("./var/adapters");
 //! let adapter_path = paths.get_adapter_path("my-adapter");
-//! // Returns: /var/lib/adapteros/adapters/my-adapter.aos
+//! // Returns: ./var/adapters/my-adapter.aos
 //! ```
 
 use std::path::{Path, PathBuf};
@@ -50,8 +50,8 @@ pub use crate::adapter_repo_paths::{
 /// Default adapters directory (relative to project root)
 pub const DEFAULT_ADAPTERS_DIR: &str = crate::defaults::DEFAULT_ADAPTERS_ROOT;
 
-/// Production adapters directory (absolute path)
-pub const PRODUCTION_ADAPTERS_DIR: &str = "/var/lib/adapteros/adapters";
+/// Production adapters directory (repo-local path)
+pub const PRODUCTION_ADAPTERS_DIR: &str = "./var/adapters";
 
 /// Simple flat-layout path resolution for adapter files.
 ///

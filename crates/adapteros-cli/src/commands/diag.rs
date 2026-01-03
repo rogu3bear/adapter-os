@@ -1,5 +1,6 @@
 //! System diagnostics command
 
+use crate::commands::infer::uds_infer_url_string;
 use adapteros_core::{AosError, Result};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
@@ -1095,17 +1096,16 @@ pub async fn run_determinism_check(
             // Unix socket URL - use http+unix:// format (matches infer.rs pattern)
             // Note: reqwest doesn't natively support Unix sockets, but this format is used
             // throughout the codebase. In production, consider using UdsClient from adapteros-client.
-            let socket_str = socket_path
+            let socket_resolved = socket_path
                 .canonicalize()
-                .unwrap_or_else(|_| socket_path.clone())
-                .to_string_lossy()
-                .to_string();
-            let url = format!(
-                "http+unix:///{} /api/v1/infer",
-                socket_str.replace(' ', "%20")
-            );
+                .unwrap_or_else(|_| socket_path.clone());
+            let url = uds_infer_url_string(&socket_resolved);
             let url = reqwest::Url::parse(&url).map_err(|e| {
-                AosError::Config(format!("Invalid socket URL: {} (path: {})", e, socket_str))
+                AosError::Config(format!(
+                    "Invalid socket URL: {} (path: {})",
+                    e,
+                    socket_resolved.display()
+                ))
             })?;
 
             let response = client

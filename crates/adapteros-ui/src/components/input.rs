@@ -23,7 +23,11 @@ pub fn Input(
 
     let full_class = format!("{} {} {}", base_class, error_class, class);
 
-    let input_type_val = if input_type.is_empty() { "text".to_string() } else { input_type };
+    let input_type_val = if input_type.is_empty() {
+        "text".to_string()
+    } else {
+        input_type
+    };
 
     view! {
         <div class="grid w-full gap-1.5">

@@ -1,9 +1,12 @@
 //! Dashboard page
 
 use crate::api::{use_sse_json, ApiClient, SseState};
-use crate::components::{Badge, BadgeVariant, Card, Shell, Spinner, StatusIndicator, StatusColor};
+use crate::components::{Badge, BadgeVariant, Card, Spinner, StatusColor, StatusIndicator};
 use crate::hooks::{use_api_resource, LoadingState};
-use adapteros_api_types::{SystemMetricsResponse, SystemStatusResponse, StatusIndicator as ApiStatusIndicator, InferenceReadyState, WorkerResponse};
+use adapteros_api_types::{
+    InferenceReadyState, StatusIndicator as ApiStatusIndicator, SystemMetricsResponse,
+    SystemStatusResponse, WorkerResponse,
+};
 use leptos::prelude::*;
 use std::sync::Arc;
 
@@ -11,25 +14,21 @@ use std::sync::Arc;
 #[component]
 pub fn Dashboard() -> impl IntoView {
     // Fetch system status
-    let (status, refetch) = use_api_resource(|client: Arc<ApiClient>| async move {
-        client.system_status().await
-    });
+    let (status, refetch) =
+        use_api_resource(|client: Arc<ApiClient>| async move { client.system_status().await });
 
     // Fetch workers list
-    let (workers, refetch_workers) = use_api_resource(|client: Arc<ApiClient>| async move {
-        client.list_workers().await
-    });
+    let (workers, refetch_workers) =
+        use_api_resource(|client: Arc<ApiClient>| async move { client.list_workers().await });
 
     // Live metrics from SSE stream - updated in real-time
     let live_metrics: RwSignal<Option<SystemMetricsResponse>> = RwSignal::new(None);
 
     // SSE connection for real-time metrics updates
-    let (sse_status, _sse_reconnect) = use_sse_json::<SystemMetricsResponse, _>(
-        "/api/v1/stream/metrics",
-        move |metrics| {
+    let (sse_status, _sse_reconnect) =
+        use_sse_json::<SystemMetricsResponse, _>("/api/v1/stream/metrics", move |metrics| {
             live_metrics.set(Some(metrics));
-        },
-    );
+        });
 
     // Refetch functions stored for use in closures
     let refetch_signal = StoredValue::new(refetch);
@@ -42,54 +41,52 @@ pub fn Dashboard() -> impl IntoView {
     };
 
     view! {
-        <Shell>
-            <div class="space-y-6">
-                <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-4">
-                        <h1 class="text-3xl font-bold tracking-tight">"Dashboard"</h1>
-                        <SseIndicator state=sse_status/>
-                    </div>
-                    <button
-                        class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-                        on:click=move |_| refetch_all()
-                    >
-                        "Refresh"
-                    </button>
+        <div class="p-6 space-y-6">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-4">
+                    <h1 class="text-3xl font-bold tracking-tight">"Dashboard"</h1>
+                    <SseIndicator state=sse_status/>
                 </div>
-
-                {move || {
-                    match status.get() {
-                        LoadingState::Idle | LoadingState::Loading => {
-                            view! {
-                                <div class="flex items-center justify-center py-12">
-                                    <Spinner/>
-                                </div>
-                            }.into_any()
-                        }
-                        LoadingState::Loaded(data) => {
-                            let workers_data = match workers.get() {
-                                LoadingState::Loaded(w) => w,
-                                _ => Vec::new(),
-                            };
-                            view! {
-                                <DashboardContent
-                                    status=data
-                                    workers=workers_data
-                                    live_metrics=live_metrics
-                                />
-                            }.into_any()
-                        }
-                        LoadingState::Error(e) => {
-                            view! {
-                                <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
-                                    <p class="text-destructive">{e.to_string()}</p>
-                                </div>
-                            }.into_any()
-                        }
-                    }
-                }}
+                <button
+                    class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                    on:click=move |_| refetch_all()
+                >
+                    "Refresh"
+                </button>
             </div>
-        </Shell>
+
+            {move || {
+                match status.get() {
+                    LoadingState::Idle | LoadingState::Loading => {
+                        view! {
+                            <div class="flex items-center justify-center py-12">
+                                <Spinner/>
+                            </div>
+                        }.into_any()
+                    }
+                    LoadingState::Loaded(data) => {
+                        let workers_data = match workers.get() {
+                            LoadingState::Loaded(w) => w,
+                            _ => Vec::new(),
+                        };
+                        view! {
+                            <DashboardContent
+                                status=data
+                                workers=workers_data
+                                live_metrics=live_metrics
+                            />
+                        }.into_any()
+                    }
+                    LoadingState::Error(e) => {
+                        view! {
+                            <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
+                                <p class="text-destructive">{e.to_string()}</p>
+                            </div>
+                        }.into_any()
+                    }
+                }
+            }}
+        </div>
     }
 }
 

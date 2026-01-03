@@ -5,8 +5,8 @@
 
 use crate::api::{ApiClient, WorkerMetricsResponse};
 use crate::components::{
-    Badge, BadgeVariant, Card, Dialog, Input, Select, Spinner,
-    StatusColor, StatusIndicator, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    Badge, BadgeVariant, Card, Dialog, Input, Select, Spinner, StatusColor, StatusIndicator, Table,
+    TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, use_navigate, LoadingState};
 use adapteros_api_types::{NodeResponse, SpawnWorkerRequest, WorkerResponse};
@@ -17,14 +17,12 @@ use std::sync::Arc;
 #[component]
 pub fn Workers() -> impl IntoView {
     // Fetch workers list
-    let (workers, refetch_workers) = use_api_resource(|client: Arc<ApiClient>| async move {
-        client.list_workers().await
-    });
+    let (workers, refetch_workers) =
+        use_api_resource(|client: Arc<ApiClient>| async move { client.list_workers().await });
 
     // Fetch nodes for spawn form
-    let (nodes, _refetch_nodes) = use_api_resource(|client: Arc<ApiClient>| async move {
-        client.list_nodes().await
-    });
+    let (nodes, _refetch_nodes) =
+        use_api_resource(|client: Arc<ApiClient>| async move { client.list_nodes().await });
 
     // Fetch plans for spawn form
     let (plans, _refetch_plans) = use_api_resource(|client: Arc<ApiClient>| async move {
@@ -163,7 +161,7 @@ pub fn Workers() -> impl IntoView {
                             />
 
                             // Worker detail panel
-                            {move || selected_worker.get().map(|worker_id| {
+                            {move || selected_worker.get().and_then(|worker_id| {
                                 let worker = workers_data.iter().find(|w| w.id == worker_id).cloned();
                                 worker.map(|w| view! {
                                     <WorkerDetailPanel
@@ -171,7 +169,7 @@ pub fn Workers() -> impl IntoView {
                                         on_close=Callback::new(move |_| selected_worker.set(None))
                                     />
                                 })
-                            }).flatten()}
+                            })}
 
                             // Spawn dialog
                             <SpawnWorkerDialog
@@ -221,9 +219,7 @@ pub fn WorkerDetail() -> impl IntoView {
     let params = leptos_router::hooks::use_params_map();
     let navigate = use_navigate();
 
-    let worker_id = move || {
-        params.with(|p| p.get("id").unwrap_or_default())
-    };
+    let worker_id = move || params.with(|p| p.get("id").unwrap_or_default());
 
     // Fetch worker details
     let (worker, refetch_worker) = use_api_resource({
@@ -318,17 +314,18 @@ fn WorkersSummary(workers: Vec<WorkerResponse>) -> impl IntoView {
     let total = workers.len();
     let healthy = workers.iter().filter(|w| w.status == "healthy").count();
     let draining = workers.iter().filter(|w| w.status == "draining").count();
-    let error = workers.iter().filter(|w| w.status == "error" || w.status == "stopped").count();
+    let error = workers
+        .iter()
+        .filter(|w| w.status == "error" || w.status == "stopped")
+        .count();
 
     // Calculate total cache usage
     let total_cache_used: u32 = workers.iter().filter_map(|w| w.cache_used_mb).sum();
     let total_cache_max: u32 = workers.iter().filter_map(|w| w.cache_max_mb).sum();
 
     // Count unique backends (available for future use)
-    let _backends: std::collections::HashSet<_> = workers
-        .iter()
-        .filter_map(|w| w.backend.as_ref())
-        .collect();
+    let _backends: std::collections::HashSet<_> =
+        workers.iter().filter_map(|w| w.backend.as_ref()).collect();
 
     view! {
         <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
@@ -486,13 +483,20 @@ fn WorkerRow(
 
     let cache_display = match (worker.cache_used_mb, worker.cache_max_mb) {
         (Some(used), Some(max)) => {
-            let pct = if max > 0 { (used as f64 / max as f64) * 100.0 } else { 0.0 };
+            let pct = if max > 0 {
+                (used as f64 / max as f64) * 100.0
+            } else {
+                0.0
+            };
             format!("{}/{} MB ({:.0}%)", used, max, pct)
         }
         _ => "-".to_string(),
     };
 
-    let last_seen = worker.last_seen_at.clone().unwrap_or_else(|| "-".to_string());
+    let last_seen = worker
+        .last_seen_at
+        .clone()
+        .unwrap_or_else(|| "-".to_string());
 
     view! {
         <TableRow class="cursor-pointer hover:bg-muted/50">
@@ -1055,9 +1059,13 @@ fn MetricTile(label: &'static str, value: String) -> impl IntoView {
 
 #[component]
 fn ResourceBar(label: &'static str, value: String, percentage: f64) -> impl IntoView {
-    let color = if percentage > 90.0 { "bg-destructive" }
-        else if percentage > 70.0 { "bg-yellow-500" }
-        else { "bg-primary" };
+    let color = if percentage > 90.0 {
+        "bg-destructive"
+    } else if percentage > 70.0 {
+        "bg-yellow-500"
+    } else {
+        "bg-primary"
+    };
 
     view! {
         <div>
@@ -1110,21 +1118,36 @@ fn SpawnWorkerDialog(
     };
 
     // Build node options
-    let node_options: Vec<(String, String)> = std::iter::once(("".to_string(), "Select a node...".to_string()))
-        .chain(nodes.iter().map(|n| (n.id.clone(), format!("{} ({})", n.hostname, n.id))))
-        .collect();
+    let node_options: Vec<(String, String)> =
+        std::iter::once(("".to_string(), "Select a node...".to_string()))
+            .chain(
+                nodes
+                    .iter()
+                    .map(|n| (n.id.clone(), format!("{} ({})", n.hostname, n.id))),
+            )
+            .collect();
 
     // Build plan options
-    let plan_options: Vec<(String, String)> = std::iter::once(("".to_string(), "Select a plan...".to_string()))
-        .chain(plans.iter().map(|p| (p.id.clone(), format!("{} ({})", short_hash(&p.manifest_hash_b3), p.id))))
-        .collect();
+    let plan_options: Vec<(String, String)> =
+        std::iter::once(("".to_string(), "Select a plan...".to_string()))
+            .chain(plans.iter().map(|p| {
+                (
+                    p.id.clone(),
+                    format!("{} ({})", short_hash(&p.manifest_hash_b3), p.id),
+                )
+            }))
+            .collect();
 
     // Auto-generate UDS path when node is selected
     Effect::new(move || {
         let node = node_id.get();
         if !node.is_empty() && uds_path.get().is_empty() {
             let timestamp = js_sys::Date::now() as u64;
-            uds_path.set(format!("/tmp/aos-worker-{}-{}.sock", short_id(&node), timestamp));
+            uds_path.set(format!(
+                "/tmp/aos-worker-{}-{}.sock",
+                short_id(&node),
+                timestamp
+            ));
         }
     });
 

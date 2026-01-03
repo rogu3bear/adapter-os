@@ -595,6 +595,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "adapteros-e2e"
+version = "0.1.0"
+dependencies = [
+ "adapteros-core",
+ "adapteros-lora-kernel-api",
+ "adapteros-lora-router",
+ "adapteros-lora-worker",
+ "adapteros-server-api",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "adapteros-error-recovery"
 version = "0.11.0"
 dependencies = [

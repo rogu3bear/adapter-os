@@ -27,7 +27,7 @@ impl Theme {
         }
     }
 
-    pub fn from_str(s: &str) -> Self {
+    pub fn parse(s: &str) -> Self {
         match s {
             "light" => Theme::Light,
             "dark" => Theme::Dark,
@@ -67,7 +67,7 @@ impl DefaultPage {
         }
     }
 
-    pub fn from_str(s: &str) -> Self {
+    pub fn parse(s: &str) -> Self {
         match s {
             "adapters" => DefaultPage::Adapters,
             "chat" => DefaultPage::Chat,

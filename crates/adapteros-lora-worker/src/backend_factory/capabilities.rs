@@ -116,17 +116,29 @@ pub fn detect_capabilities() -> BackendCapabilities {
     // to avoid resource conflicts
     #[cfg(feature = "multi-backend")]
     {
-        #[cfg(feature = "mlx")]
+        #[cfg(any(feature = "mlx", feature = "mlx-rs-backend"))]
         {
-            // Real MLX available - check if runtime can be initialized
-            use adapteros_lora_mlx_ffi::{mlx_runtime_init, mlx_runtime_is_initialized};
+            // MLX available - check if runtime can be initialized (auto-select impl)
+            use adapteros_lora_mlx_ffi::{
+                mlx_runtime_init, mlx_runtime_is_initialized, mlx_selected_implementation,
+            };
             caps.has_mlx = mlx_runtime_is_initialized() || mlx_runtime_init().is_ok();
+            if caps.has_mlx {
+                if let Some(selected) = mlx_selected_implementation() {
+                    debug!(
+                        implementation = selected.as_str(),
+                        "MLX implementation selected"
+                    );
+                }
+            } else {
+                debug!("MLX backend not available: runtime initialization failed");
+            }
         }
-        #[cfg(not(feature = "mlx"))]
+        #[cfg(not(any(feature = "mlx", feature = "mlx-rs-backend")))]
         {
             // Only stub available - be honest about it
             caps.has_mlx = false;
-            debug!("MLX backend not available: 'mlx' feature not enabled (stub mode only)");
+            debug!("MLX backend not available: MLX features not enabled (stub mode only)");
         }
     }
 
@@ -241,7 +253,7 @@ fn is_apple_silicon() -> bool {
 /// Automatic backend selection with fallback chain
 ///
 /// Selection order is defined centrally in `BackendKind::inference_priority()`:
-/// CoreML → MLX → Metal → CPU. CPU remains an observability-only terminal entry
+/// MLX → CoreML → MlxBridge → Metal → CPU. CPU remains an observability-only terminal entry
 /// (no CPU kernels are implemented).
 pub fn auto_select_backend(capabilities: &BackendCapabilities) -> Result<BackendChoice> {
     let mut skipped: Vec<String> = Vec::new();
@@ -314,7 +326,8 @@ pub fn auto_select_backend(capabilities: &BackendCapabilities) -> Result<Backend
         "Auto backend selection exhausted all options"
     );
     Err(AosError::Config(
-        "No suitable backend available. Checked priority CoreML → MLX → Metal → CPU.".to_string(),
+        "No suitable backend available. Checked priority MLX → CoreML → MlxBridge → Metal → CPU."
+            .to_string(),
     ))
 }
 

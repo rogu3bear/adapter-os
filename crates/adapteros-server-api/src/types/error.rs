@@ -125,6 +125,8 @@ pub enum InferenceError {
         available_count: usize,
         /// Specific reason why no compatible workers were found
         reason: String,
+        /// Structured compatibility details for debugging
+        details: Option<serde_json::Value>,
     },
     /// Worker discovery failed but system is in degraded mode (dev mode only)
     ///
@@ -195,6 +197,7 @@ impl std::fmt::Display for InferenceError {
                 tenant_id,
                 available_count,
                 reason,
+                details: _,
             } => write!(
                 f,
                 "No compatible worker for tenant {} with manifest {} ({} workers available). Reason: {}",
@@ -332,6 +335,13 @@ impl From<InferenceError> for (axum::http::StatusCode, axum::Json<ErrorResponse>
         let mut response = ErrorResponse::new(&message).with_code(code);
         if let Some(fc) = failure_code {
             response = response.with_failure_code(fc);
+        }
+        if let InferenceError::NoCompatibleWorker {
+            details: Some(value),
+            ..
+        } = &err
+        {
+            response = response.with_details(value.clone());
         }
         (status, axum::Json(response))
     }

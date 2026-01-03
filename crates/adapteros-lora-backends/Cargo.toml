@@ -34,6 +34,7 @@ default = ["coreml", "mlx"]
 
 coreml = ["dep:adapteros-lora-kernel-coreml"]
 mlx = ["dep:adapteros-lora-mlx-ffi"]
+mlx-rs-backend = ["mlx", "adapteros-lora-mlx-ffi/mlx-rs-backend"]
 metal = ["dep:adapteros-lora-kernel-mtl"]
 profiler = ["dep:adapteros-lora-kernel-prof"]
 all = ["coreml", "mlx", "metal", "profiler"]

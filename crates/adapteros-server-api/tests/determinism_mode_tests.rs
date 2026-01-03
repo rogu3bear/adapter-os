@@ -283,6 +283,8 @@ fn test_inference_result_determinism_fields_flow_through() {
     let result = InferenceResult {
         text: "test".to_string(),
         tokens_generated: 10,
+        run_receipt: None,
+        token_usage: None,
         finish_reason: "stop".to_string(),
         adapters_used: vec!["adapter1".to_string()],
         router_decisions: vec![],
@@ -336,6 +338,8 @@ fn test_inference_result_strict_mode_exact_guarantee() {
     let result = InferenceResult {
         text: "test".to_string(),
         tokens_generated: 10,
+        run_receipt: None,
+        token_usage: None,
         finish_reason: "stop".to_string(),
         adapters_used: vec![],
         router_decisions: vec![],
@@ -384,6 +388,8 @@ fn test_inference_result_direct_mode_no_fallback() {
     let result = InferenceResult {
         text: "direct mode test".to_string(),
         tokens_generated: 5,
+        run_receipt: None,
+        token_usage: None,
         finish_reason: "stop".to_string(),
         adapters_used: vec![],
         router_decisions: vec![],

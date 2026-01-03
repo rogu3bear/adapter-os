@@ -1,11 +1,13 @@
 //! Execution context types for inference and replay.
 
+use adapteros_api_types::inference::RunReceipt;
 use adapteros_api_types::ReplayGuarantee;
 use adapteros_core::{BackendKind, SeedMode};
 use adapteros_types::adapters::metadata::RoutingDeterminismMode;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use super::response::TokenUsage;
 use super::sampling::PlacementTraceEntry;
 
 /// Context for replay execution through InferenceCore
@@ -52,6 +54,12 @@ pub struct InferenceRequestInternal {
     // === Delivery Mode ===
     /// Whether to stream tokens via SSE
     pub stream: bool,
+    /// Require token-by-token step inference (no bulk-only backends)
+    pub require_step: bool,
+    /// Require deterministic-capable backend
+    pub require_determinism: bool,
+    /// Allow backend fallback when requested backend is unavailable
+    pub allow_fallback: bool,
     /// Batch item ID (for batch requests only)
     pub batch_item_id: Option<String>,
 
@@ -178,6 +186,9 @@ impl InferenceRequestInternal {
             reasoning_mode: false,
             admin_override: false,
             stream: false,
+            require_step: false,
+            require_determinism: false,
+            allow_fallback: true,
             batch_item_id: None,
             rag_enabled: false,
             rag_collection_id: None,
@@ -220,6 +231,9 @@ impl InferenceRequestInternal {
     /// Set streaming mode
     pub fn with_stream(mut self, stream: bool) -> Self {
         self.stream = stream;
+        if stream {
+            self.require_step = true;
+        }
         self
     }
 
@@ -238,6 +252,12 @@ pub struct InferenceResult {
     pub text: String,
     /// Number of tokens generated
     pub tokens_generated: usize,
+    /// Verifiable run receipt (when available).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_receipt: Option<RunReceipt>,
+    /// Token usage computed by the worker tokenizer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_usage: Option<TokenUsage>,
     /// Reason for stopping (e.g., "stop", "length", "error")
     pub finish_reason: String,
     /// Adapters used during inference

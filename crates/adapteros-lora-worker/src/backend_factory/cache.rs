@@ -124,3 +124,17 @@ pub fn configure_model_cache_telemetry(writer: TelemetryWriter) {
         cache.set_telemetry(writer);
     }
 }
+
+/// Configuration for base model pinning.
+pub struct BaseModelPinConfig {
+    pub enabled: bool,
+    pub budget_bytes: Option<u64>,
+    pub model_id: Option<String>,
+}
+
+/// Configure base model pinning state in the model cache.
+pub fn configure_model_cache_pinning(config: BaseModelPinConfig) -> Result<()> {
+    let cache = get_model_cache()?;
+    cache.configure_base_model_pinning(config.enabled, config.budget_bytes, config.model_id);
+    Ok(())
+}

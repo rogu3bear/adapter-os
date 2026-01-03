@@ -333,6 +333,27 @@ mod unit_tests {
 mod determinism_tests {
     use super::*;
 
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_metal_attestation_determinism_level() {
+        let kernels = match adapteros_lora_kernel_mtl::MetalKernels::new() {
+            Ok(kernels) => kernels,
+            Err(e) => {
+                eprintln!("Skipping Metal attestation test: {}", e);
+                return;
+            }
+        };
+
+        let report = kernels
+            .attest_determinism()
+            .expect("Metal attestation should succeed");
+        assert!(report.deterministic);
+        assert_eq!(
+            report.determinism_level,
+            adapteros_lora_kernel_api::attestation::DeterminismLevel::BitExact
+        );
+    }
+
     /// Test that same input produces identical output across multiple runs
     #[test]
     fn test_metal_kernel_determinism() {

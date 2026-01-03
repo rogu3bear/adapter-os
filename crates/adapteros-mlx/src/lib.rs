@@ -1,22 +1,55 @@
-//! AdapterOS MLX - Single Source of Truth
+//! AdapterOS MLX - mlx-rs Abstraction Layer (Experimental Fallback)
 //!
-//! Real GPU inference on Apple Silicon. No stubs, no demo mode.
-//! NOTE: The mlx-rs backend is deprecated/unsupported in production; this crate remains for reference.
+//! Wraps mlx-rs for the experimental pure-Rust MLX path. The primary/production
+//! backend is C++ FFI (`adapteros-lora-mlx-ffi` with `mlx` feature).
 //!
-//! # Overview
+//! This crate is ONLY used when `mlx-rs-backend` feature is enabled.
 //!
-//! This crate wraps `mlx-rs` and provides a stable internal API for all
-//! MLX operations in AdapterOS. It is the ONLY place where mlx-rs should
-//! be used directly.
+//! # Architecture
+//!
+//! ```text
+//! ┌─────────────────────────────────────────────────┐
+//! │              adapteros-mlx                      │
+//! │  (unified API for all tensor operations)       │
+//! ├─────────────────────────────────────────────────┤
+//! │                                                 │
+//! │  ┌─────────────────┐  ┌─────────────────────┐  │
+//! │  │  ANE Accelerator │  │   MLX GPU Backend  │  │
+//! │  │  (CoreML/ANE)   │  │   (mlx-rs 0.25)    │  │
+//! │  │                 │  │                     │  │
+//! │  │  LayerNorm ✓    │  │  All operations    │  │
+//! │  │  RMSNorm ✓      │  │  (fallback path)   │  │
+//! │  │  Softmax ✓      │  │                     │  │
+//! │  └─────────────────┘  └─────────────────────┘  │
+//! └─────────────────────────────────────────────────┘
+//! ```
+//!
+//! # Backend Selection
+//!
+//! | Backend | When Used | Determinism |
+//! |---------|-----------|-------------|
+//! | **CoreML ANE** | Production, batch ≥ 32, macOS 15+ | Fixed-point arithmetic |
+//! | **MLX GPU** | Development, small batch, fallback | Seeded RNG (when seeded) |
+//!
+//! ANE provides power efficiency for production. MLX GPU provides flexibility
+//! for development and training.
+//!
+//! **Note:** End-to-end determinism depends on proper HKDF seeding at the system level
+//! (see `adapteros-core::seed`). This crate provides the seeding API but does not
+//! enforce that callers use it correctly.
 //!
 //! # Requirements
 //!
 //! - Apple Silicon (M1/M2/M3/M4)
-//! - macOS 13+
+//! - macOS 13+ (MLX), macOS 15+ (ANE via MLTensor)
+//!
+//! # Feature Flags
+//!
+//! - `coreml-ane` - Enable CoreML/ANE acceleration (recommended for production)
 //!
 //! # Usage
 //!
-//! ## Array Operations
+//! ## Basic Array Operations
 //!
 //! ```ignore
 //! use adapteros_mlx::{Array, Dtype};
@@ -26,51 +59,57 @@
 //! let data = transposed.to_vec_f32()?;
 //! ```
 //!
-//! ## Normalization
+//! ## Normalization Layers
 //!
 //! ```ignore
-//! use adapteros_mlx::{Array, RMSNorm};
+//! use adapteros_mlx::{Array, RMSNorm, LayerNorm};
 //!
 //! let norm = RMSNorm::new(512, 1e-5)?;
 //! let x = Array::from_f32(&input_data, &[batch, seq_len, 512])?;
 //! let normalized = norm.forward(&x, None)?;
 //! ```
 //!
-//! ## Layers
+//! ## ANE Acceleration (Production)
 //!
 //! ```ignore
-//! use adapteros_mlx::{Array, MultiHeadAttention, MLP};
+//! use adapteros_mlx::{AneAccelerator, AneConfig, is_ane_available};
 //!
-//! let attn = MultiHeadAttention::new(512, 8)?; // 8 heads
-//! let ffn = MLP::new(512, 2048, Activation::SiLU, true)?; // Gated FFN
+//! // Check ANE availability
+//! if is_ane_available() {
+//!     let config = AneConfig::production();
+//!     if let Some(ane) = AneAccelerator::try_new(config) {
+//!         // ANE-accelerated ops (batch ≥ 32)
+//!         let normalized = ane.layernorm(&x, &weight, &bias, 1e-5)?;
+//!         let probs = ane.softmax(&logits, -1)?;
+//!
+//!         // Verify determinism
+//!         let report = ane.attest();
+//!         assert!(report.deterministic);
+//!     }
+//! }
 //! ```
 //!
-//! ## ANE Acceleration (Optional)
+//! ## Seeding for Determinism
 //!
 //! ```ignore
-//! use adapteros_mlx::{AneAccelerator, AneConfig};
+//! use adapteros_mlx::set_seed;
 //!
-//! // Try to create ANE accelerator (returns None if unavailable)
-//! let config = AneConfig::production();
-//! if let Some(ane) = AneAccelerator::try_new(config) {
-//!     // ANE-accelerated operations for batch >= 32
-//!     let normalized = ane.layernorm(&x, &weight, &bias, 1e-5)?;
-//! }
+//! set_seed(42)?;  // Seed MLX RNG for reproducible results
 //! ```
 //!
 //! # Testing
 //!
-//! Due to Metal command buffer threading issues in the cargo test harness,
-//! run tests single-threaded:
+//! Run tests single-threaded (Metal command buffer constraint):
 //!
 //! ```bash
 //! cargo test -p adapteros-mlx -- --test-threads=1
+//! cargo test -p adapteros-mlx --features coreml-ane -- --test-threads=1
 //! ```
 
+pub mod ane;
 mod array;
 mod device;
 mod error;
-pub mod ane;
 pub mod layers;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -80,10 +119,10 @@ pub use device::Device;
 pub use error::MlxError;
 
 // Re-export commonly used layer types
-pub use layers::{LayerNorm, RMSNorm, MultiHeadAttention, MLP};
+pub use layers::{LayerNorm, MultiHeadAttention, RMSNorm, MLP};
 
 // Re-export ANE types
-pub use ane::{AneAccelerator, AneConfig, is_ane_available};
+pub use ane::{is_ane_available, AneAccelerator, AneConfig};
 
 /// Result type for MLX operations
 pub type Result<T> = std::result::Result<T, MlxError>;
@@ -149,6 +188,12 @@ pub fn runtime_init() -> Result<()> {
         }
         Err(e) => Err(e),
     }
+}
+
+/// Seed the MLX RNG (best-effort determinism for stochastic ops).
+pub fn set_seed(seed: u64) -> Result<()> {
+    mlx_rs::random::seed(seed).map_err(|e| MlxError::Upstream(format!("seed: {e}")))?;
+    Ok(())
 }
 
 /// Check if the MLX runtime is initialized

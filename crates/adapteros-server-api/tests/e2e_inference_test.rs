@@ -27,7 +27,9 @@ use adapteros_db::routing_decisions::RoutingDecision;
 use adapteros_db::workers::WorkerRegistrationParams;
 use adapteros_server_api::handlers::inference::infer;
 use adapteros_server_api::middleware::request_id::RequestId;
-use adapteros_server_api::types::{InferResponse, RouterSummary, WorkerInferResponse, WorkerTrace};
+use adapteros_server_api::types::{
+    InferResponse, RouterSummary, TokenUsage, WorkerInferResponse, WorkerTrace,
+};
 use axum::{extract::State, http::StatusCode, Extension, Json};
 use chrono::Utc;
 use common::{setup_state, test_admin_claims};
@@ -226,6 +228,7 @@ async fn test_e2e_inference_with_audit_trail() {
             router_summary: RouterSummary {
                 adapters_used: vec![adapter_id.to_string()],
             },
+            token_count: 12,
             router_decisions: None,
             // Required for strict determinism mode - Q15 quantized gate values
             router_decision_chain: Some(vec![RouterDecisionChainEntry {
@@ -243,6 +246,13 @@ async fn test_e2e_inference_with_audit_trail() {
             }]),
             model_type: None,
         },
+        run_receipt: None,
+        token_usage: Some(TokenUsage {
+            prompt_tokens: 8,
+            completion_tokens: 12,
+            billed_input_tokens: 8,
+            billed_output_tokens: 12,
+        }),
         backend_used: Some(backend_name.to_string()),
         // Must match adapteros_core::version::VERSION for strict mode
         backend_version: Some(adapteros_core::version::VERSION.to_string()),

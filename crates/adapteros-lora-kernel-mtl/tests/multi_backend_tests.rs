@@ -268,6 +268,10 @@ mod multi_backend_integration {
                 report.metallib_hash.is_none(),
                 "Mock backend has no metallib"
             );
+            assert_eq!(
+                report.determinism_level,
+                adapteros_lora_kernel_api::attestation::DeterminismLevel::BitExact
+            );
         }
     }
 

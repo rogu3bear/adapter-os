@@ -161,9 +161,9 @@ fn map_finish_reason(stop_reason_code: Option<StopReasonCode>) -> Option<String>
         Some(StopReasonCode::Length) | Some(StopReasonCode::BudgetMax) => {
             Some("length".to_string())
         }
-        Some(StopReasonCode::CompletionConfident) | Some(StopReasonCode::RepetitionGuard) => {
-            Some("stop".to_string())
-        }
+        Some(StopReasonCode::CompletionConfident)
+        | Some(StopReasonCode::RepetitionGuard)
+        | Some(StopReasonCode::StopSequence) => Some("stop".to_string()),
         None => None,
     }
 }

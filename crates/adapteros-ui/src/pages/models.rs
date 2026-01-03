@@ -4,8 +4,8 @@
 
 use crate::api::client::{ApiClient, ModelListResponse, ModelStatusResponse};
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonVariant, Card, Shell, Spinner, Table,
-    TableBody, TableCell, TableHead, TableHeader, TableRow,
+    Badge, BadgeVariant, Button, ButtonVariant, Card, Spinner, Table, TableBody, TableCell,
+    TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use leptos::prelude::*;
@@ -18,9 +18,8 @@ pub fn Models() -> impl IntoView {
     let selected_model_id = RwSignal::new(None::<String>);
 
     // Fetch models
-    let (models, refetch_models) = use_api_resource(move |client: Arc<ApiClient>| async move {
-        client.list_models().await
-    });
+    let (models, refetch_models) =
+        use_api_resource(move |client: Arc<ApiClient>| async move { client.list_models().await });
 
     // Store refetch in a signal for sharing
     let refetch_signal = StoredValue::new(refetch_models);
@@ -43,8 +42,7 @@ pub fn Models() -> impl IntoView {
     };
 
     view! {
-        <Shell>
-            <div class="flex h-full">
+        <div class="p-6 flex h-full">
                 // Left panel: Model list
                 <div class=left_panel_class>
                     <div class="flex items-center justify-between">
@@ -107,8 +105,7 @@ pub fn Models() -> impl IntoView {
                         }
                     })
                 }}
-            </div>
-        </Shell>
+        </div>
     }
 }
 
@@ -225,10 +222,7 @@ fn ModelStatusBadge(status: String) -> impl IntoView {
 
 /// Model detail panel
 #[component]
-fn ModelDetail(
-    model_id: String,
-    on_close: impl Fn() + Copy + 'static,
-) -> impl IntoView {
+fn ModelDetail(model_id: String, on_close: impl Fn() + Copy + 'static) -> impl IntoView {
     let model_id_for_fetch = model_id.clone();
 
     // Fetch model status

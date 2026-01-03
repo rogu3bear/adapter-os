@@ -7,21 +7,29 @@
 //!   aos-worker --uds-path ./var/run/worker.sock --manifest manifests/qwen32b-coder-mlx.yaml \
 //!              --model-path ./var/models/Qwen2.5-7B-Instruct-4bit --manifest-hash <HASH>
 
+use adapteros_api_types::workers::WorkerCapabilities;
 use adapteros_boot::jti_cache::JtiCacheStore;
 use adapteros_config::{
-    prepare_socket_path, reject_tmp_persistent_path, resolve_manifest_cache_dir,
+    parse_bool, prepare_socket_path, reject_tmp_persistent_path, resolve_manifest_cache_dir,
     resolve_telemetry_dir, resolve_worker_socket_for_worker,
 };
-use adapteros_core::{AosError, B3Hash, ExecutionProfile, Result, SeedMode, WorkerStatus};
+use adapteros_core::{
+    constants::DEFAULT_ADAPTER_CACHE_SIZE, identity::IdentityEnvelope, AosError, B3Hash,
+    ExecutionProfile, Result, SeedMode, WorkerStatus,
+};
+use adapteros_lora_kernel_api::{attestation::BackendType, MockKernels};
 use adapteros_lora_worker::{
     backend_coordinator::BackendCoordinator,
     backend_factory::{
-        configure_model_cache_telemetry, create_backend_with_model_hashes,
-        detect_capabilities as detect_backend_capabilities, get_model_cache,
+        configure_model_cache_pinning, configure_model_cache_telemetry,
+        create_backend_with_model_hashes, detect_capabilities as detect_backend_capabilities,
+        get_model_cache, resolve_base_model_pin_budget_bytes, resolve_base_model_pin_enabled,
         select_backend_from_execution_profile, validate_model_cache_budget, BackendChoice,
-        SelectionContext,
+        BaseModelPinConfig, SelectionContext,
     },
     health::{HealthEvent, HealthTick},
+    model_handle_cache::ModelHandle,
+    model_key::{ModelCacheIdentity, ModelKey},
     panic_utils::{
         build_fatal_payload, extract_panic_message, format_panic_location, truncate_backtrace,
     },
@@ -30,19 +38,24 @@ use adapteros_lora_worker::{
     HealthConfig, HealthMonitor, KernelWrapper, Worker,
 };
 use adapteros_manifest::ManifestV3;
+use adapteros_telemetry::unified_events::{
+    EventType, LogLevel, TelemetryEvent as UnifiedTelemetryEvent,
+};
 use adapteros_telemetry::TelemetryWriter;
 use clap::Parser;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, OnceLock,
 };
-use std::{fs, path::PathBuf, str::FromStr};
+use std::{fs, path::PathBuf, str::FromStr, time::Duration};
 use tokio::signal;
 use tokio::sync::Mutex;
 use tracing::{error, info, info_span, warn};
 
 #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
 use adapteros_db::{CreateCoremlFusionPairParams, Db};
+#[cfg(all(target_os = "macos", feature = "coreml-backend"))]
+use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
 #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
 use adapteros_lora_kernel_coreml::export::validate_coreml_fusion;
 #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
@@ -57,6 +70,7 @@ const API_VERSION: &str = "1.0";
 // Worker panic hook support for fatal error reporting
 // Global state for panic hook (must be static for panic handler access)
 static WORKER_IDENTITY: OnceLock<WorkerIdentity> = OnceLock::new();
+static WORKER_TELEMETRY: OnceLock<TelemetryWriter> = OnceLock::new();
 
 /// Worker registration result
 struct RegistrationResult {
@@ -75,6 +89,7 @@ struct RegistrationParams<'a> {
     model_hash: &'a str,
     uds_path: &'a str,
     capabilities: &'a [String],
+    capabilities_detail: &'a WorkerCapabilities,
     strict_mode: bool,
 }
 
@@ -97,6 +112,7 @@ fn register_with_cp(
         "pid": std::process::id() as i32,
         "uds_path": params.uds_path,
         "capabilities": params.capabilities,
+        "capabilities_detail": params.capabilities_detail,
         "strict_mode": params.strict_mode
     });
 
@@ -678,6 +694,27 @@ fn parse_backend_choice(raw: &str) -> BackendChoice {
     })
 }
 
+fn is_mock_backend(raw: &str) -> bool {
+    raw.eq_ignore_ascii_case("mock")
+}
+
+fn dev_no_auth_enabled() -> bool {
+    if !cfg!(debug_assertions) {
+        return false;
+    }
+
+    match std::env::var("AOS_DEV_NO_AUTH") {
+        Ok(raw) => match parse_bool(&raw) {
+            Ok(value) => value,
+            Err(err) => {
+                warn!(error = %err, value = %raw, "Invalid AOS_DEV_NO_AUTH value");
+                false
+            }
+        },
+        Err(_) => false,
+    }
+}
+
 /// Detect backend capabilities based on compiled features
 fn detect_capabilities(backend_choice: &str) -> Vec<String> {
     let mut caps = vec![];
@@ -690,6 +727,7 @@ fn detect_capabilities(backend_choice: &str) -> Vec<String> {
 
     // Add backend capability based on requested backend AND compiled features
     match backend_choice.to_lowercase().as_str() {
+        "mock" => caps.push("mock".to_string()),
         "coreml" => caps.push("coreml".to_string()),
         "mlx" => {
             // Only advertise MLX if we actually have it compiled
@@ -720,6 +758,100 @@ fn detect_capabilities(backend_choice: &str) -> Vec<String> {
     caps
 }
 
+fn build_capabilities_detail(backend_choice: BackendChoice) -> WorkerCapabilities {
+    let backend_kind = match backend_choice {
+        BackendChoice::MlxBridge => "bridge",
+        BackendChoice::Mlx => "mlx",
+        BackendChoice::CoreML => "coreml",
+        BackendChoice::Metal => "metal",
+        BackendChoice::CPU => "cpu",
+        BackendChoice::Auto => "auto",
+    };
+
+    let (supports_step, supports_bulk, supports_logits, supports_streaming) = match backend_choice {
+        BackendChoice::MlxBridge => (false, true, false, false),
+        BackendChoice::Mlx | BackendChoice::CoreML | BackendChoice::Metal => {
+            (true, false, true, true)
+        }
+        _ => (false, false, false, false),
+    };
+
+    let implementation = if matches!(backend_choice, BackendChoice::MlxBridge) {
+        Some("mlx_subprocess".to_string())
+    } else {
+        None
+    };
+
+    WorkerCapabilities {
+        backend_kind: backend_kind.to_string(),
+        implementation,
+        supports_step,
+        supports_bulk,
+        supports_logits,
+        supports_streaming,
+    }
+}
+
+fn mock_capabilities_detail() -> WorkerCapabilities {
+    WorkerCapabilities {
+        backend_kind: "mock".to_string(),
+        implementation: Some("mock_kernels".to_string()),
+        supports_step: true,
+        supports_bulk: false,
+        supports_logits: true,
+        supports_streaming: true,
+    }
+}
+
+fn setup_mock_base_model_cache(manifest_hash: &B3Hash, cache_budget_bytes: u64) -> Result<()> {
+    let cache = match get_model_cache() {
+        Ok(cache) => cache,
+        Err(e) => {
+            warn!(error = %e, "Mock backend: model cache unavailable, skipping pin setup");
+            return Ok(());
+        }
+    };
+
+    let cache_key = ModelKey::new(
+        BackendType::Mock,
+        *manifest_hash,
+        ModelCacheIdentity::for_backend(BackendType::Mock),
+    );
+    cache.set_base_model_key(&cache_key);
+
+    let max_bytes = cache.max_memory_bytes().min(cache_budget_bytes);
+    let mut mock_bytes = max_bytes / 8;
+    if mock_bytes == 0 {
+        mock_bytes = 1024 * 1024;
+    }
+    if mock_bytes > 64 * 1024 * 1024 {
+        mock_bytes = 64 * 1024 * 1024;
+    }
+    if mock_bytes > max_bytes && max_bytes > 0 {
+        mock_bytes = max_bytes;
+    }
+
+    let load = || {
+        Ok((
+            ModelHandle::Metal(Arc::new(vec![0u8; mock_bytes as usize])),
+            mock_bytes,
+        ))
+    };
+
+    if cache.base_model_pin_enabled() {
+        cache.get_or_load_base_model(&cache_key, load)?;
+    } else {
+        cache.get_or_load(&cache_key, load)?;
+    }
+
+    info!(
+        pinned = cache.is_pinned(&cache_key),
+        mock_bytes, "Mock backend: base model cached"
+    );
+
+    Ok(())
+}
+
 #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
 fn render_coreml_compute_units(units: ComputeUnits) -> &'static str {
     match units {
@@ -731,22 +863,145 @@ fn render_coreml_compute_units(units: ComputeUnits) -> &'static str {
 }
 
 #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
+fn coreml_effective_compute_units(settings: &CoreMLBackendSettings) -> ComputeUnits {
+    if settings.production_mode {
+        ComputeUnits::CpuAndNeuralEngine
+    } else {
+        settings.compute_units
+    }
+}
+
+#[cfg(all(target_os = "macos", feature = "coreml-backend"))]
 fn coreml_telemetry_from_settings(settings: &CoreMLBackendSettings) -> CoremlRuntimeTelemetry {
+    let effective_units = coreml_effective_compute_units(settings);
+    let gpu_used = settings.gpu_available
+        && matches!(effective_units, ComputeUnits::CpuAndGpu | ComputeUnits::All);
+    let ane_used = settings.ane_available
+        && matches!(
+            effective_units,
+            ComputeUnits::CpuAndNeuralEngine | ComputeUnits::All
+        );
+
     CoremlRuntimeTelemetry {
         compute_preference: Some(settings.preference.to_string()),
-        compute_units: Some(render_coreml_compute_units(settings.compute_units).to_string()),
+        compute_units: Some(render_coreml_compute_units(effective_units).to_string()),
         gpu_available: Some(settings.gpu_available),
         ane_available: Some(settings.ane_available),
-        gpu_used: Some(settings.gpu_used),
-        ane_used: Some(settings.ane_used),
+        gpu_used: Some(gpu_used),
+        ane_used: Some(ane_used),
         production_mode: Some(settings.production_mode),
     }
+}
+
+#[cfg(all(target_os = "macos", feature = "coreml-backend"))]
+fn coreml_device_label(ane_used: bool, gpu_used: bool) -> &'static str {
+    if ane_used {
+        "ane"
+    } else if gpu_used {
+        "gpu"
+    } else {
+        "cpu"
+    }
+}
+
+#[cfg(all(target_os = "macos", feature = "coreml-backend"))]
+fn coreml_fallback_reason(settings: &CoreMLBackendSettings) -> Option<String> {
+    let mut reasons = Vec::new();
+    let effective_units = coreml_effective_compute_units(settings);
+
+    if settings.production_mode && settings.compute_units != effective_units {
+        reasons.push("production_enforced_ane");
+    }
+
+    if settings.production_mode && !settings.ane_available {
+        reasons.push("ane_required_for_production");
+    }
+
+    if matches!(
+        settings.preference,
+        adapteros_config::CoreMLComputePreference::CpuAndGpu
+            | adapteros_config::CoreMLComputePreference::All
+    ) && !settings.gpu_available
+    {
+        reasons.push("gpu_unavailable");
+    }
+
+    if matches!(
+        settings.preference,
+        adapteros_config::CoreMLComputePreference::CpuAndNe
+            | adapteros_config::CoreMLComputePreference::All
+    ) && !settings.ane_available
+    {
+        reasons.push("ane_unavailable");
+    }
+
+    if reasons.is_empty() {
+        None
+    } else {
+        Some(reasons.join(","))
+    }
+}
+
+#[cfg(all(target_os = "macos", feature = "coreml-backend"))]
+fn log_coreml_runtime(label: &str, settings: &CoreMLBackendSettings) {
+    let effective_units = coreml_effective_compute_units(settings);
+    let gpu_used = settings.gpu_available
+        && matches!(effective_units, ComputeUnits::CpuAndGpu | ComputeUnits::All);
+    let ane_used = settings.ane_available
+        && matches!(
+            effective_units,
+            ComputeUnits::CpuAndNeuralEngine | ComputeUnits::All
+        );
+    let fallback_reason = coreml_fallback_reason(settings);
+    info!(
+        coreml_lane = label,
+        compute_preference = %settings.preference,
+        compute_units = render_coreml_compute_units(effective_units),
+        compute_units_config = render_coreml_compute_units(settings.compute_units),
+        production_mode = settings.production_mode,
+        ane_available = settings.ane_available,
+        gpu_available = settings.gpu_available,
+        ane_used = ane_used,
+        gpu_used = gpu_used,
+        selected_device = coreml_device_label(ane_used, gpu_used),
+        fallback_reason = fallback_reason.as_deref().unwrap_or("none"),
+        "CoreML runtime selection"
+    );
+}
+
+#[cfg(all(target_os = "macos", feature = "coreml-backend"))]
+fn run_coreml_boot_smoke(
+    label: &str,
+    kernels: &mut dyn FusedKernels,
+    vocab_size: usize,
+) -> Result<()> {
+    if vocab_size == 0 {
+        return Err(AosError::Config(
+            "CoreML boot smoke requires non-zero vocab_size".to_string(),
+        ));
+    }
+
+    let mut ring = RouterRing::new(0);
+    let mut io = IoBuffers::new(vocab_size);
+    io.input_ids = vec![0];
+
+    kernels
+        .run_step(&ring, &mut io)
+        .map_err(|e| AosError::Kernel(format!("CoreML boot smoke ({label}) failed: {}", e)))?;
+
+    info!(
+        coreml_lane = label,
+        vocab_size, "CoreML boot smoke inference completed"
+    );
+
+    Ok(())
 }
 
 #[derive(Debug, Clone)]
 struct WorkerIdentity {
     worker_id: String,
     cp_url: String,
+    tenant_id: String,
 }
 
 /// Set up panic hook to report fatal errors to the control plane
@@ -770,6 +1025,45 @@ fn setup_panic_hook() {
             let _ = std::fmt::Write::write_fmt(&mut buf, format_args!("{backtrace}"));
             truncate_backtrace(&buf, 1024)
         };
+
+        if let Some(writer) = WORKER_TELEMETRY.get() {
+            let identity_snapshot = WORKER_IDENTITY.get().cloned();
+            let _ = std::panic::catch_unwind(|| {
+                let (tenant_id, worker_id) = identity_snapshot
+                    .as_ref()
+                    .map(|id| (id.tenant_id.clone(), id.worker_id.clone()))
+                    .unwrap_or_else(|| ("system".to_string(), "unknown".to_string()));
+                let location_meta = location.clone();
+                let message_meta = message.clone();
+                let identity = IdentityEnvelope::new(
+                    tenant_id,
+                    "worker".to_string(),
+                    "panic".to_string(),
+                    "1.0".to_string(),
+                );
+                let event = UnifiedTelemetryEvent {
+                    id: uuid::Uuid::new_v7(uuid::Timestamp::now(uuid::NoContext)).to_string(),
+                    timestamp: chrono::Utc::now(),
+                    event_type: EventType::SystemError.as_str().to_string(),
+                    level: LogLevel::Critical,
+                    message: "Worker panic captured".to_string(),
+                    component: Some("aos-worker".to_string()),
+                    identity,
+                    user_id: None,
+                    metadata: Some(serde_json::json!({
+                        "worker_id": worker_id,
+                        "location": location_meta,
+                        "message": message_meta,
+                    })),
+                    trace_id: None,
+                    span_id: None,
+                    hash: None,
+                    sampling_rate: None,
+                };
+                let _ = writer.log_event(event);
+                let _ = writer.flush_with_timeout(std::time::Duration::from_secs(2));
+            });
+        }
 
         // Attempt to notify CP of fatal error
         if let Some(identity) = WORKER_IDENTITY.get() {
@@ -812,6 +1106,19 @@ fn setup_panic_hook() {
     }));
 }
 
+async fn shutdown_worker_telemetry(timeout: std::time::Duration) {
+    let Some(writer) = WORKER_TELEMETRY.get() else {
+        return;
+    };
+    let writer = writer.clone();
+    let _ = tokio::task::spawn_blocking(move || {
+        if let Err(e) = writer.shutdown_with_timeout(timeout) {
+            warn!(error = %e, "Telemetry shutdown did not complete cleanly");
+        }
+    })
+    .await;
+}
+
 /// AdapterOS Inference Worker
 #[derive(Parser, Debug)]
 #[command(name = "aos-worker")]
@@ -826,7 +1133,7 @@ struct Args {
     plan_id: String,
 
     /// UDS socket path for communication
-    /// Standard production path: /var/run/aos/{tenant_id}/worker.sock
+    /// Standard production path: ./var/run/aos/{tenant_id}/worker.sock
     /// Development path: ./var/run/worker.sock (relative to cwd)
     #[arg(long, env = "AOS_WORKER_SOCKET")]
     uds_path: Option<PathBuf>,
@@ -847,9 +1154,21 @@ struct Args {
     #[arg(long, env = "AOS_TOKENIZER_PATH")]
     tokenizer: Option<PathBuf>,
 
-    /// Backend choice (auto, metal, coreml, mlx)
+    /// Backend choice (auto, metal, coreml, mlx, mock [debug-only])
     #[arg(long, default_value = "auto")]
     backend: String,
+
+    /// Pin the base model in cache for the worker lifetime
+    #[arg(long, default_value_t = false)]
+    pin_base_model: bool,
+
+    /// Pin budget in bytes for base model residency
+    #[arg(long)]
+    pin_budget_bytes: Option<u64>,
+
+    /// Adapter cache budget in bytes
+    #[arg(long, env = "AOS_ADAPTER_CACHE_BYTES")]
+    adapter_cache_bytes: Option<u64>,
 
     /// Worker ID (auto-generated if not provided)
     #[arg(long, env = "WORKER_ID")]
@@ -899,16 +1218,31 @@ fn error_to_exit_code(err: &AosError) -> i32 {
     }
 }
 
+fn is_prod_runtime() -> bool {
+    match std::env::var("AOS_RUNTIME_MODE") {
+        Ok(mode) => matches!(mode.to_lowercase().as_str(), "prod" | "production"),
+        Err(_) => false,
+    }
+}
+
 fn main() -> Result<()> {
     // CRITICAL: Initialize MLX BEFORE tokio runtime starts
     // This ensures the MLX C library's Metal device is initialized before any
     // other Metal operations that might come from tokio or other async code.
-    #[cfg(feature = "mlx")]
+    #[cfg(any(feature = "mlx", feature = "mlx-rs-backend"))]
     {
         // Try to initialize MLX early, but don't fail the worker if it doesn't work
         // The backend selection logic will handle unavailability gracefully
         match adapteros_lora_mlx_ffi::mlx_runtime_init() {
-            Ok(()) => eprintln!("MLX runtime initialized early (before tokio)"),
+            Ok(()) => {
+                let impl_name = adapteros_lora_mlx_ffi::mlx_selected_implementation()
+                    .map(|imp| imp.as_str())
+                    .unwrap_or("unknown");
+                eprintln!(
+                    "MLX runtime initialized early (before tokio, impl: {})",
+                    impl_name
+                );
+            }
             Err(e) => eprintln!("MLX early init failed (will use fallback backend): {}", e),
         }
     }
@@ -920,18 +1254,56 @@ fn main() -> Result<()> {
         .expect("Failed to build tokio runtime")
         .block_on(async {
             // Run the actual worker logic and map errors to exit codes
-            match run_worker().await {
-                Ok(()) => std::process::exit(EXIT_SUCCESS),
+            let result = run_worker().await;
+            let exit_code = match &result {
+                Ok(()) => EXIT_SUCCESS,
                 Err(e) => {
-                    let exit_code = error_to_exit_code(&e);
+                    let exit_code = error_to_exit_code(e);
                     error!(
                         error = %e,
                         exit_code = exit_code,
                         "Worker exiting with error"
                     );
-                    std::process::exit(exit_code);
+                    exit_code
+                }
+            };
+
+            if let Err(e) = result {
+                if let Some(writer) = WORKER_TELEMETRY.get() {
+                    let identity_snapshot = WORKER_IDENTITY.get().cloned();
+                    let (tenant_id, worker_id) = identity_snapshot
+                        .as_ref()
+                        .map(|id| (id.tenant_id.clone(), id.worker_id.clone()))
+                        .unwrap_or_else(|| ("system".to_string(), "unknown".to_string()));
+                    let identity = IdentityEnvelope::new(
+                        tenant_id,
+                        "worker".to_string(),
+                        "shutdown".to_string(),
+                        "1.0".to_string(),
+                    );
+                    let event = UnifiedTelemetryEvent {
+                        id: uuid::Uuid::new_v7(uuid::Timestamp::now(uuid::NoContext)).to_string(),
+                        timestamp: chrono::Utc::now(),
+                        event_type: EventType::SystemError.as_str().to_string(),
+                        level: LogLevel::Error,
+                        message: "Worker exiting with error".to_string(),
+                        component: Some("aos-worker".to_string()),
+                        identity,
+                        user_id: None,
+                        metadata: Some(serde_json::json!({
+                            "worker_id": worker_id,
+                            "error": e.to_string(),
+                        })),
+                        trace_id: None,
+                        span_id: None,
+                        hash: None,
+                        sampling_rate: None,
+                    };
+                    let _ = writer.log_event(event);
                 }
             }
+            shutdown_worker_telemetry(std::time::Duration::from_secs(2)).await;
+            std::process::exit(exit_code);
         })
 }
 
@@ -954,17 +1326,31 @@ async fn run_worker() -> Result<()> {
     // This is a fail-fast check to avoid 100-200ms of wasted work (manifest loading,
     // backend selection) when the configuration is missing.
     info!("Validating model cache budget configuration...");
-    if let Err(e) = validate_model_cache_budget() {
-        error!(error = %e, "FATAL: Model cache budget not configured");
-        eprintln!(
-            "ERROR: Model cache budget not configured.\n\
+    let cache_budget_bytes = match validate_model_cache_budget() {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            error!(error = %e, "FATAL: Model cache budget not configured");
+            eprintln!(
+                "ERROR: Model cache budget not configured.\n\
              Set AOS_MODEL_CACHE_MAX_MB=<megabytes> environment variable\n\
              or model.cache.max.mb in the config TOML file."
-        );
-        // Exit immediately with config error - no point in continuing
-        std::process::exit(EXIT_CONFIG_ERROR);
-    }
+            );
+            // Exit immediately with config error - no point in continuing
+            std::process::exit(EXIT_CONFIG_ERROR);
+        }
+    };
     info!("Model cache budget validated successfully");
+
+    let adapter_cache_bytes = match args.adapter_cache_bytes {
+        Some(0) => {
+            return Err(AosError::Validation(
+                "Adapter cache budget bytes must be greater than zero".to_string(),
+            ))
+        }
+        Some(bytes) => bytes,
+        None => DEFAULT_ADAPTER_CACHE_SIZE,
+    };
+    info!(adapter_cache_bytes, "Adapter cache budget configured");
 
     // Set up panic hook for fatal error reporting
     let worker_id = args
@@ -976,6 +1362,7 @@ async fn run_worker() -> Result<()> {
     let _ = WORKER_IDENTITY.set(WorkerIdentity {
         worker_id: worker_id.clone(),
         cp_url: args.cp_url.clone(),
+        tenant_id: args.tenant_id.clone(),
     });
 
     // Install panic hook for fatal error reporting
@@ -1135,6 +1522,58 @@ async fn run_worker() -> Result<()> {
     };
 
     let manifest = loaded_manifest.manifest;
+
+    let pin_enabled = if args.pin_base_model {
+        true
+    } else {
+        resolve_base_model_pin_enabled()?
+    };
+    if let Some(0) = args.pin_budget_bytes {
+        return Err(AosError::Validation(
+            "Pin budget bytes must be greater than zero".to_string(),
+        ));
+    }
+    let mut pin_budget_bytes = if let Some(bytes) = args.pin_budget_bytes {
+        Some(bytes)
+    } else {
+        resolve_base_model_pin_budget_bytes()?
+    };
+    if is_prod_runtime() {
+        if !pin_enabled {
+            return Err(AosError::Config(
+                "Production runtime requires --pin-base-model or AOS_PIN_BASE_MODEL=true"
+                    .to_string(),
+            ));
+        }
+        if pin_budget_bytes.is_none() {
+            return Err(AosError::Config(
+                "Production runtime requires --pin-budget-bytes or AOS_PIN_BUDGET_BYTES"
+                    .to_string(),
+            ));
+        }
+    }
+    if pin_enabled && pin_budget_bytes.is_none() {
+        pin_budget_bytes = Some(cache_budget_bytes);
+        info!(
+            pin_budget_bytes,
+            "Base model pin budget not set; defaulting to model cache budget"
+        );
+    } else if !pin_enabled && pin_budget_bytes.is_some() {
+        warn!("Pin budget configured but base model pinning is disabled; ignoring pin budget");
+    }
+
+    let base_model_id = manifest.base.model_id.clone();
+    configure_model_cache_pinning(BaseModelPinConfig {
+        enabled: pin_enabled,
+        budget_bytes: pin_budget_bytes,
+        model_id: Some(base_model_id.clone()),
+    })?;
+    info!(
+        pin_enabled,
+        pin_budget_bytes,
+        model_id = %base_model_id,
+        "Base model pinning configured"
+    );
     let manifest_hash = loaded_manifest.hash;
 
     info!(
@@ -1145,117 +1584,179 @@ async fn run_worker() -> Result<()> {
     );
     let model_hash_hex = manifest.base.model_hash.to_hex();
 
-    // Select backend (ExecutionProfile is the canonical source)
-    let requested_backend = parse_backend_choice(&args.backend);
-    validate_backend_feature(&requested_backend)?;
+    let mock_backend = is_mock_backend(&args.backend);
+    let prod_runtime = is_prod_runtime();
+    if mock_backend && !cfg!(debug_assertions) {
+        return Err(AosError::Config(
+            "Mock backend is only allowed in debug builds".to_string(),
+        ));
+    }
 
-    let capabilities = detect_backend_capabilities();
-    let exec_profile = ExecutionProfile {
-        seed_mode: SeedMode::BestEffort,
-        backend_profile: requested_backend,
-    };
-    let selection = select_backend_from_execution_profile(&SelectionContext::new(
-        exec_profile,
-        capabilities.clone(),
-    ))?;
-    info!(
-        requested = %requested_backend.as_str(),
-        selected = %selection.selected.as_str(),
-        overridden = selection.overridden,
-        reason = selection.reason.unwrap_or("none"),
-        "Resolved backend selection at worker startup"
-    );
-    if selection.overridden {
+    let backend_choice;
+    let kernels;
+    let available_backends;
+
+    if mock_backend {
+        info!("Mock backend requested; using MockKernels for worker");
+        setup_mock_base_model_cache(&manifest_hash, cache_budget_bytes)?;
+
+        backend_choice = BackendChoice::CPU;
+        kernels = KernelWrapper::Direct(DirectKernels::new(Box::new(MockKernels::new())));
+        available_backends = adapteros_lora_worker::AvailableBackends {
+            primary: backend_choice,
+            fallback: None,
+            coreml_primary: None,
+            coreml_fallback: None,
+        };
+    } else {
+        // Select backend (ExecutionProfile is the canonical source)
+        let requested_backend = parse_backend_choice(&args.backend);
+        validate_backend_feature(&requested_backend)?;
+
+        let capabilities = detect_backend_capabilities();
+        let exec_profile = ExecutionProfile {
+            seed_mode: SeedMode::BestEffort,
+            backend_profile: requested_backend,
+        };
+        let selection = select_backend_from_execution_profile(&SelectionContext::new(
+            exec_profile,
+            capabilities.clone(),
+        ))?;
         info!(
             requested = %requested_backend.as_str(),
             selected = %selection.selected.as_str(),
-            reason = ?selection.reason,
-            "Backend request overridden based on capabilities"
+            overridden = selection.overridden,
+            reason = selection.reason.unwrap_or("none"),
+            "Resolved backend selection at worker startup"
         );
-    }
-    let backend_choice = selection.selected;
+        if selection.overridden {
+            info!(
+                requested = %requested_backend.as_str(),
+                selected = %selection.selected.as_str(),
+                reason = ?selection.reason,
+                "Backend request overridden based on capabilities"
+            );
+        }
+        let backend_choice_local = selection.selected;
+        if prod_runtime && backend_choice_local == BackendChoice::MlxBridge {
+            return Err(AosError::Config(
+                "Production runtime forbids MLX bridge backend selection".to_string(),
+            ));
+        }
 
-    #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
-    let coreml_primary_runtime = if backend_choice == BackendChoice::CoreML {
-        Some(coreml_telemetry_from_settings(
-            &adapteros_lora_worker::backend_factory::resolve_coreml_backend_settings(),
-        ))
-    } else {
-        None
-    };
-    #[cfg(not(all(target_os = "macos", feature = "coreml-backend")))]
-    let coreml_primary_runtime: Option<CoremlRuntimeTelemetry> = None;
-    #[allow(unused_mut)]
-    let mut fallback_coreml_runtime: Option<CoremlRuntimeTelemetry> = None;
+        #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
+        let coreml_primary_settings = if backend_choice_local == BackendChoice::CoreML {
+            Some(adapteros_lora_worker::backend_factory::resolve_coreml_backend_settings())
+        } else {
+            None
+        };
+        #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
+        let coreml_primary_runtime = coreml_primary_settings
+            .as_ref()
+            .map(coreml_telemetry_from_settings);
+        #[cfg(not(all(target_os = "macos", feature = "coreml-backend")))]
+        let coreml_primary_runtime: Option<CoremlRuntimeTelemetry> = None;
+        #[allow(unused_mut)]
+        let mut fallback_coreml_runtime: Option<CoremlRuntimeTelemetry> = None;
 
-    // NOTE: Model cache budget validation moved to startup (line ~952) for fail-fast behavior.
-    // The budget is validated before any expensive operations like manifest loading.
+        // NOTE: Model cache budget validation moved to startup (line ~952) for fail-fast behavior.
+        // The budget is validated before any expensive operations like manifest loading.
 
-    // Create kernel backend with manifest hash for cache identity and model hash for integrity verification
-    info!(
-        backend = %backend_choice.as_str(),
-        manifest_hash = %manifest_hash.to_hex(),
-        model_hash = %manifest.base.model_hash.to_hex(),
-        "Creating kernel backend with integrity verification"
-    );
-    let primary_kernels = create_backend_with_model_hashes(
-        backend_choice,
-        &model_path,
-        Some(&manifest_hash),
-        Some(&manifest.base.model_hash),
-    )?;
+        // Create kernel backend with manifest hash for cache identity and model hash for integrity verification
+        info!(
+            backend = %backend_choice_local.as_str(),
+            manifest_hash = %manifest_hash.to_hex(),
+            model_hash = %manifest.base.model_hash.to_hex(),
+            "Creating kernel backend with integrity verification"
+        );
+        #[allow(unused_mut)]
+        let mut primary_kernels = create_backend_with_model_hashes(
+            backend_choice_local,
+            &model_path,
+            Some(&manifest_hash),
+            Some(&manifest.base.model_hash),
+        )?;
+        #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
+        if let Some(settings) = coreml_primary_settings.as_ref() {
+            log_coreml_runtime("primary", settings);
+            run_coreml_boot_smoke(
+                "primary",
+                primary_kernels.as_mut(),
+                manifest.base.vocab_size as usize,
+            )?;
+        }
 
-    // Optional fallback backend via coordinator
-    let mut fallback_backend_kind: Option<BackendChoice> = None;
-    let fallback_kernels = if args.coordinator_enabled {
-        match BackendCoordinator::select_fallback_backend(&backend_choice, &capabilities) {
-            Ok(choice) => {
-                match create_backend_with_model_hashes(
-                    choice,
-                    &model_path,
-                    Some(&manifest_hash),
-                    Some(&manifest.base.model_hash),
-                ) {
-                    Ok(k) => {
-                        if choice == BackendChoice::CoreML {
-                            #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
-                            {
-                                fallback_coreml_runtime = Some(coreml_telemetry_from_settings(
-                                    &adapteros_lora_worker::backend_factory::resolve_coreml_backend_settings(),
-                                ));
-                            }
-                        }
-                        info!(fallback_backend = ?choice, "Created fallback backend");
-                        fallback_backend_kind = Some(choice);
-                        Some(k)
+        // Optional fallback backend via coordinator
+        let mut fallback_backend_kind: Option<BackendChoice> = None;
+        #[allow(unused_mut)]
+        let mut fallback_kernels = if args.coordinator_enabled {
+            match BackendCoordinator::select_fallback_backend(&backend_choice_local, &capabilities)
+            {
+                Ok(choice) => {
+                    if prod_runtime && choice == BackendChoice::MlxBridge {
+                        return Err(AosError::Config(
+                            "Production runtime forbids MLX bridge fallback backend".to_string(),
+                        ));
                     }
-                    Err(e) => {
-                        warn!(error = %e, "Failed to create fallback backend, continuing without fallback");
-                        None
+                    match create_backend_with_model_hashes(
+                        choice,
+                        &model_path,
+                        Some(&manifest_hash),
+                        Some(&manifest.base.model_hash),
+                    ) {
+                        #[allow(unused_mut)]
+                        Ok(mut k) => {
+                            if choice == BackendChoice::CoreML {
+                                #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
+                                {
+                                    let settings =
+                                        adapteros_lora_worker::backend_factory::resolve_coreml_backend_settings();
+                                    log_coreml_runtime("fallback", &settings);
+                                    run_coreml_boot_smoke(
+                                        "fallback",
+                                        k.as_mut(),
+                                        manifest.base.vocab_size as usize,
+                                    )?;
+                                    fallback_coreml_runtime =
+                                        Some(coreml_telemetry_from_settings(&settings));
+                                }
+                            }
+                            info!(fallback_backend = ?choice, "Created fallback backend");
+                            fallback_backend_kind = Some(choice);
+                            Some(k)
+                        }
+                        Err(e) => {
+                            warn!(error = %e, "Failed to create fallback backend, continuing without fallback");
+                            None
+                        }
                     }
                 }
+                Err(e) => {
+                    warn!(error = %e, "No suitable fallback backend available, continuing without fallback");
+                    None
+                }
             }
-            Err(e) => {
-                warn!(error = %e, "No suitable fallback backend available, continuing without fallback");
-                None
-            }
-        }
-    } else {
-        None
-    };
+        } else {
+            None
+        };
 
-    let kernels = if args.coordinator_enabled {
-        KernelWrapper::Coordinated(CoordinatedKernels::new(primary_kernels, fallback_kernels))
-    } else {
-        KernelWrapper::Direct(DirectKernels::new(primary_kernels))
-    };
+        let kernels_local = if args.coordinator_enabled {
+            KernelWrapper::Coordinated(CoordinatedKernels::new(primary_kernels, fallback_kernels))
+        } else {
+            KernelWrapper::Direct(DirectKernels::new(primary_kernels))
+        };
 
-    let available_backends = adapteros_lora_worker::AvailableBackends {
-        primary: backend_choice,
-        fallback: fallback_backend_kind,
-        coreml_primary: coreml_primary_runtime,
-        coreml_fallback: fallback_coreml_runtime,
-    };
+        let available_backends_local = adapteros_lora_worker::AvailableBackends {
+            primary: backend_choice_local,
+            fallback: fallback_backend_kind,
+            coreml_primary: coreml_primary_runtime,
+            coreml_fallback: fallback_coreml_runtime,
+        };
+
+        backend_choice = backend_choice_local;
+        kernels = kernels_local;
+        available_backends = available_backends_local;
+    }
 
     // Compute and verify CoreML fused package hash when CoreML is in play.
     #[allow(unused_variables)]
@@ -1364,6 +1865,7 @@ async fn run_worker() -> Result<()> {
         TelemetryWriter::new(&resolved_telemetry.path, 10000, 100_000_000).map_err(|e| {
             adapteros_core::AosError::Worker(format!("Failed to create telemetry writer: {}", e))
         })?;
+    let _ = WORKER_TELEMETRY.set(telemetry.clone());
     info!(
         path = %resolved_telemetry.path.display(),
         source = %resolved_telemetry.source,
@@ -1373,71 +1875,98 @@ async fn run_worker() -> Result<()> {
 
     // Track lifecycle locally for state validation
     let mut lifecycle = WorkerStatus::Created;
-    let backend_label = backend_choice.as_str();
+    let backend_label = if mock_backend {
+        "mock"
+    } else {
+        backend_choice.as_str()
+    };
+    let cp_enabled = !dev_no_auth_enabled();
+    if !cp_enabled {
+        warn!("Dev no-auth enabled; skipping control plane registration and status updates");
+    }
 
     // Register with control plane first to get quota allocation
     let capabilities = detect_capabilities(backend_label);
+    let capabilities_detail = if mock_backend {
+        mock_capabilities_detail()
+    } else {
+        build_capabilities_detail(backend_choice)
+    };
     let uds_path_str = uds_path.to_string_lossy().to_string();
 
     let manifest_hash_hex = manifest_hash.to_hex();
-    info!(
-        worker_id = %worker_id,
-        tenant_id = %args.tenant_id,
-        plan_id = %args.plan_id,
-        manifest_hash = %manifest_hash_hex,
-        backend = %backend_label,
-        model_hash = %model_hash_hex,
-        "Registering with control plane"
-    );
+    if cp_enabled {
+        info!(
+            worker_id = %worker_id,
+            tenant_id = %args.tenant_id,
+            plan_id = %args.plan_id,
+            manifest_hash = %manifest_hash_hex,
+            backend = %backend_label,
+            model_hash = %model_hash_hex,
+            "Registering with control plane"
+        );
+    }
 
-    let registration_result = match register_with_cp_with_retry(&RegistrationParams {
-        cp_url: &args.cp_url,
-        worker_id: &worker_id,
-        tenant_id: &args.tenant_id,
-        plan_id: &args.plan_id,
-        manifest_hash: &manifest_hash_hex,
-        backend: backend_label,
-        model_hash: &model_hash_hex,
-        uds_path: &uds_path_str,
-        capabilities: &capabilities,
-        strict_mode: args.strict,
-    }) {
-        Ok(result) => {
-            lifecycle = lifecycle
-                .transition_to(WorkerStatus::Registered)
-                .map_err(|e| AosError::Lifecycle(e.to_string()))?;
-            notify_cp_status(
-                &args.cp_url,
-                &worker_id,
-                WorkerStatus::Registered.as_str(),
-                "registration-accepted",
-                &args.backend,
-                &model_hash_hex,
-                &manifest_hash_hex,
-            );
-            info!(
-                heartbeat_interval = result.heartbeat_interval_secs,
-                kv_quota_bytes = ?result.kv_quota_bytes,
-                kv_residency_policy_id = ?result.kv_residency_policy_id,
-                "Worker registration accepted by control plane"
-            );
-            result
+    let registration_result = if cp_enabled {
+        match register_with_cp_with_retry(&RegistrationParams {
+            cp_url: &args.cp_url,
+            worker_id: &worker_id,
+            tenant_id: &args.tenant_id,
+            plan_id: &args.plan_id,
+            manifest_hash: &manifest_hash_hex,
+            backend: backend_label,
+            model_hash: &model_hash_hex,
+            uds_path: &uds_path_str,
+            capabilities: &capabilities,
+            capabilities_detail: &capabilities_detail,
+            strict_mode: args.strict,
+        }) {
+            Ok(result) => {
+                lifecycle = lifecycle
+                    .transition_to(WorkerStatus::Registered)
+                    .map_err(|e| AosError::Lifecycle(e.to_string()))?;
+                notify_cp_status(
+                    &args.cp_url,
+                    &worker_id,
+                    WorkerStatus::Registered.as_str(),
+                    "registration-accepted",
+                    &args.backend,
+                    &model_hash_hex,
+                    &manifest_hash_hex,
+                );
+                info!(
+                    heartbeat_interval = result.heartbeat_interval_secs,
+                    kv_quota_bytes = ?result.kv_quota_bytes,
+                    kv_residency_policy_id = ?result.kv_residency_policy_id,
+                    "Worker registration accepted by control plane"
+                );
+                result
+            }
+            Err(reason) => {
+                let _lifecycle = lifecycle
+                    .transition_to(WorkerStatus::Error)
+                    .unwrap_or(lifecycle);
+                notify_cp_status(
+                    &args.cp_url,
+                    &worker_id,
+                    WorkerStatus::Error.as_str(),
+                    "registration-failed",
+                    &args.backend,
+                    &model_hash_hex,
+                    &manifest_hash_hex,
+                );
+                error!(reason = %reason, "Worker registration failed - exiting");
+                return Err(AosError::Worker(format!("Registration failed: {}", reason)));
+            }
         }
-        Err(reason) => {
-            let _lifecycle = lifecycle
-                .transition_to(WorkerStatus::Error)
-                .unwrap_or(lifecycle);
-            notify_cp_status(
-                &args.cp_url,
-                &worker_id,
-                WorkerStatus::Error.as_str(),
-                "registration-failed",
-                &args.backend,
-                &model_hash_hex,
-                &manifest_hash_hex,
-            );
-            error!(reason = %reason, "Worker registration failed - exiting");
-            return Err(AosError::Worker(format!("Registration failed: {}", reason)));
+    } else {
+        lifecycle = lifecycle
+            .transition_to(WorkerStatus::Registered)
+            .map_err(|e| AosError::Lifecycle(e.to_string()))?;
+        RegistrationResult {
+            heartbeat_interval_secs: 30,
+            kv_quota_bytes: None,
+            kv_residency_policy_id: None,
         }
     };
 
@@ -1495,9 +2024,33 @@ async fn run_worker() -> Result<()> {
         coreml_package_hash_hex.clone(),
         coreml_verification.clone(),
         Some(quota_manager),
+        Some(adapter_cache_bytes),
         worker_id_u32,
     )
     .await?;
+
+    if let Ok(cache) = get_model_cache() {
+        let pin_state = cache.base_model_pin_state();
+        let pinned = match pin_state.base_model_key.as_ref() {
+            Some(key) => cache.is_pinned(key),
+            None => pin_state.enabled,
+        };
+        let rss_bytes = worker.get_memory_usage_bytes();
+
+        if let Some(telemetry) = worker.telemetry().clone() {
+            let model_id = pin_state.model_id.unwrap_or_else(|| base_model_id.clone());
+            let _ = telemetry.log(
+                "model.residency",
+                serde_json::json!({
+                    "model_id": model_id,
+                    "pinned": pinned,
+                    "load_count": pin_state.load_count,
+                    "evict_count": pin_state.evict_count,
+                    "rss_bytes": rss_bytes,
+                }),
+            );
+        }
+    }
 
     let worker = Arc::new(Mutex::new(worker));
     let drain_flag = Arc::new(AtomicBool::new(false));
@@ -1574,12 +2127,18 @@ async fn run_worker() -> Result<()> {
         None
     };
 
+    let inference_cancellations = {
+        let guard = worker.lock().await;
+        guard.inference_cancel_registry()
+    };
+
     info!(uds_path = %uds_path.display(), "Starting UDS server");
     let server = if let Some(verifying_key) = worker_verifying_key {
         let jti_cache = jti_cache.expect("JTI cache should be initialized when auth is enabled");
         UdsServer::new_with_worker_auth(
             uds_path.clone(),
             worker.clone(),
+            inference_cancellations.clone(),
             None,
             drain_flag.clone(),
             verifying_key,
@@ -1588,22 +2147,30 @@ async fn run_worker() -> Result<()> {
         )
     } else {
         // In non-strict mode, this is allowed
-        UdsServer::new(uds_path.clone(), worker.clone(), None, drain_flag.clone())
+        UdsServer::new(
+            uds_path.clone(),
+            worker.clone(),
+            inference_cancellations.clone(),
+            None,
+            drain_flag.clone(),
+        )
     };
     let listener = server.bind().await?;
 
     lifecycle = lifecycle
         .transition_to(WorkerStatus::Healthy)
         .map_err(|e| AosError::Lifecycle(e.to_string()))?;
-    notify_cp_status(
-        &args.cp_url,
-        &worker_id,
-        WorkerStatus::Healthy.as_str(),
-        "uds-listening",
-        &args.backend,
-        &model_hash_hex,
-        &manifest_hash_hex,
-    );
+    if cp_enabled {
+        notify_cp_status(
+            &args.cp_url,
+            &worker_id,
+            WorkerStatus::Healthy.as_str(),
+            "uds-listening",
+            &args.backend,
+            &model_hash_hex,
+            &manifest_hash_hex,
+        );
+    }
 
     // Spawn health monitor loop with telemetry + shutdown hook
     let (health_monitor, telemetry_for_health) = {
@@ -1617,7 +2184,7 @@ async fn run_worker() -> Result<()> {
     let model_hash_health = model_hash_hex.clone();
     let manifest_hash_health = manifest_hash_hex.clone();
     let drain_flag_health = drain_flag.clone();
-    tokio::spawn(async move {
+    let health_monitor_handle = tokio::spawn(async move {
         if let Err(e) = health_monitor_for_task
             .start_monitoring_with_hook(|monitor, tick| {
                 if let Some(t) = telemetry_for_health.as_ref() {
@@ -1629,15 +2196,17 @@ async fn run_worker() -> Result<()> {
                 }
 
                 if matches!(tick, HealthTick::Shutdown { .. }) {
-                    notify_cp_status(
-                        &cp_url_health,
-                        &worker_id_health,
-                        WorkerStatus::Error.as_str(),
-                        "health-shutdown",
-                        &backend_health,
-                        &model_hash_health,
-                        &manifest_hash_health,
-                    );
+                    if cp_enabled {
+                        notify_cp_status(
+                            &cp_url_health,
+                            &worker_id_health,
+                            WorkerStatus::Error.as_str(),
+                            "health-shutdown",
+                            &backend_health,
+                            &model_hash_health,
+                            &manifest_hash_health,
+                        );
+                    }
                     drain_flag_health.store(true, Ordering::Relaxed);
                 }
 
@@ -1666,9 +2235,11 @@ async fn run_worker() -> Result<()> {
     tokio::pin!(shutdown_signal);
     let serve_fut = server.serve_with_listener(listener);
     tokio::pin!(serve_fut);
-    tokio::select! {
+    let mut shutdown_signal_received = false;
+    let serve_result = tokio::select! {
         res = &mut serve_fut => res,
         _ = &mut shutdown_signal => {
+            shutdown_signal_received = true;
             info!(worker_id = %worker_id, "Drain signal received, initiating worker drain");
 
             // Persist JTI cache before shutdown to maintain replay defense across restarts
@@ -1685,43 +2256,95 @@ async fn run_worker() -> Result<()> {
             drain_flag.store(true, Ordering::Relaxed);
             lifecycle = lifecycle.transition_to(WorkerStatus::Draining)
                 .map_err(|e| AosError::Lifecycle(e.to_string()))?;
-            notify_cp_status(
-                &args.cp_url,
-                &worker_id,
-                WorkerStatus::Draining.as_str(),
-                "drain-signal",
-                &args.backend,
-                &model_hash_hex,
-                &manifest_hash_hex,
-            );
+            if cp_enabled {
+                notify_cp_status(
+                    &args.cp_url,
+                    &worker_id,
+                    WorkerStatus::Draining.as_str(),
+                    "drain-signal",
+                    &args.backend,
+                    &model_hash_hex,
+                    &manifest_hash_hex,
+                );
+            }
             serve_fut.await
         }
-    }?;
+    };
 
-    // Notify stopped (or error if health triggered shutdown) on clean exit
     let final_status = if health_monitor.is_shutdown_requested() {
         WorkerStatus::Error
     } else {
         WorkerStatus::Stopped
     };
+
+    {
+        let mut guard = worker.lock().await;
+        if let Err(e) = guard.shutdown().await {
+            warn!(error = %e, "Worker shutdown reported an error");
+        }
+    }
+
+    join_task_with_timeout(
+        "health_monitor",
+        health_monitor_handle,
+        Duration::from_secs(5),
+    )
+    .await;
+
+    if let Err(e) = serve_result {
+        if shutdown_signal_received {
+            warn!(error = %e, "UDS server returned an error during shutdown");
+        } else {
+            return Err(e);
+        }
+    }
+
+    // Notify stopped (or error if health triggered shutdown) on clean exit
     let _lifecycle = lifecycle
         .transition_to(final_status)
         .map_err(|e| AosError::Lifecycle(e.to_string()))?;
-    notify_cp_status(
-        &args.cp_url,
-        &worker_id,
-        final_status.as_str(),
-        if final_status == WorkerStatus::Error {
-            "health-shutdown"
-        } else {
-            "clean shutdown"
-        },
-        &args.backend,
-        &model_hash_hex,
-        &manifest_hash_hex,
-    );
+    if cp_enabled {
+        notify_cp_status(
+            &args.cp_url,
+            &worker_id,
+            final_status.as_str(),
+            if final_status == WorkerStatus::Error {
+                "health-shutdown"
+            } else {
+                "clean shutdown"
+            },
+            &args.backend,
+            &model_hash_hex,
+            &manifest_hash_hex,
+        );
+    }
 
     Ok(())
+}
+
+async fn join_task_with_timeout(
+    name: &str,
+    mut handle: tokio::task::JoinHandle<()>,
+    timeout: Duration,
+) {
+    tokio::select! {
+        res = &mut handle => {
+            if let Err(e) = res {
+                warn!(task = name, error = %e, "Shutdown task failed");
+            }
+        }
+        _ = tokio::time::sleep(timeout) => {
+            warn!(
+                task = name,
+                timeout_ms = timeout.as_millis() as u64,
+                "Shutdown task timed out; aborting"
+            );
+            handle.abort();
+            if let Err(e) = handle.await {
+                warn!(task = name, error = %e, "Shutdown task abort failed");
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -2000,7 +2623,7 @@ mod tests {
                         serve_requires_pf: true,
                         allow_tcp: false,
                         allow_udp: false,
-                        uds_paths: vec!["/var/run/aos/<tenant>/*.sock".into()],
+                        uds_paths: vec!["./var/run/aos/<tenant>/*.sock".into()],
                     },
                     determinism: DeterminismPolicy {
                         require_metallib_embed: true,
@@ -2032,7 +2655,7 @@ mod tests {
                     },
                     isolation: IsolationPolicy {
                         process_model: "per_tenant".into(),
-                        uds_root: "/var/run/aos/<tenant>".into(),
+                        uds_root: "./var/run/aos/<tenant>".into(),
                         forbid_shm: true,
                     },
                     performance: PerformancePolicy {

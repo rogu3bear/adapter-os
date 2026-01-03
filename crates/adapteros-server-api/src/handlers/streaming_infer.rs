@@ -33,7 +33,7 @@ use crate::sse::{SseEventManager, SseStreamType};
 use crate::state::AppState;
 use crate::types::run_envelope::set_policy_mask;
 use crate::types::*;
-use crate::uds_client::UdsClient;
+use crate::uds_client::{UdsClient, WorkerStreamToken};
 use adapteros_core::identity::IdentityEnvelope;
 use adapteros_policy::hooks::PolicyHook;
 use adapteros_types::adapters::metadata::RoutingDeterminismMode;
@@ -49,7 +49,7 @@ use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::Mutex as TokioMutex;
+use tokio::sync::{mpsc, oneshot, Mutex as TokioMutex};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 use utoipa::ToSchema;
@@ -141,6 +141,9 @@ impl From<(&StreamingInferRequest, &Claims)> for InferenceRequestInternal {
             reasoning_mode: req.reasoning_mode,
             admin_override: is_admin,
             stream: true, // Always streaming for this endpoint
+            require_step: true,
+            require_determinism: false,
+            allow_fallback: true,
             batch_item_id: None,
             rag_enabled: req.collection_id.is_some(), // Enable RAG if collection_id provided
             rag_collection_id: req.collection_id.clone(),
@@ -881,18 +884,26 @@ pub async fn streaming_infer(
     }
 
     let core = InferenceCore::new(&state);
-    let worker = core
+    let _worker = core
         .select_worker_for_tenant(&claims.tenant_id)
         .await
         .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
-    let uds_path_buf = std::path::PathBuf::from(&worker.uds_path);
+
+    let mut internal_request: InferenceRequestInternal = (&req, &claims).into();
+    internal_request.request_id = request_id.clone();
+    internal_request.run_envelope = Some(run_envelope.clone());
+    internal_request.prompt = augmented_prompt;
+    internal_request.chat_context_hash = chat_context_hash.clone();
+    internal_request.session_id = req.session_id.clone();
+    internal_request.adapters = req.adapters.clone();
+    internal_request.adapter_strength_overrides = req.adapter_strength_overrides.clone();
+    internal_request.model = req.model.clone();
+    internal_request.stop_policy = req.stop_policy.clone();
+    internal_request.created_at = std::time::Instant::now();
 
     // Clone data for the stream
     let request_id_clone = request_id.clone();
     let model_name_clone = model_name.clone();
-    let prompt = augmented_prompt; // Use RAG-augmented prompt if available
-    let max_tokens = req.max_tokens;
-    let temperature = req.temperature;
     let session_id = req.session_id.clone();
     let adapters = req.adapters.clone();
     // Pass hook context to stream state
@@ -906,23 +917,23 @@ pub async fn streaming_infer(
         request_id: request_id.clone(),
     };
 
+    let (token_rx, done_rx) =
+        spawn_streaming_inference(state.clone(), internal_request, cancellation_token.clone());
+
     // Create the SSE stream with cancellation support
     let stream = stream::unfold(
         (
             StreamState::new(
                 state,
-                uds_path_buf,
-                prompt,
-                max_tokens,
-                temperature,
                 request_id_clone,
                 run_envelope.clone(),
                 model_name_clone,
+                token_rx,
+                done_rx,
                 session_id,
                 adapters,
                 tenant_id,
                 user_id,
-                chat_context_hash,
                 Some(claims),
                 cancellation_token,
             ),
@@ -993,6 +1004,28 @@ pub async fn stream_with_loading_progress(
     )
 }
 
+fn spawn_streaming_inference(
+    state: AppState,
+    request: InferenceRequestInternal,
+    cancellation_token: CancellationToken,
+) -> (
+    mpsc::Receiver<WorkerStreamToken>,
+    oneshot::Receiver<Result<InferenceResult, InferenceError>>,
+) {
+    let (token_tx, token_rx) = mpsc::channel(128);
+    let (done_tx, done_rx) = oneshot::channel();
+
+    tokio::spawn(async move {
+        let core = InferenceCore::new(&state);
+        let result = core
+            .route_and_infer_stream(request, None, Some(cancellation_token), token_tx)
+            .await;
+        let _ = done_tx.send(result);
+    });
+
+    (token_rx, done_rx)
+}
+
 /// State machine for loading progress streaming
 struct LoadingStreamState {
     state: AppState,
@@ -1012,6 +1045,8 @@ struct LoadingStreamState {
     pinned_routing_fallback: Option<String>,
     /// User claims for policy enforcement
     claims: Option<crate::auth::Claims>,
+    token_rx: Option<mpsc::Receiver<WorkerStreamToken>>,
+    done_rx: Option<oneshot::Receiver<Result<InferenceResult, InferenceError>>>,
     /// Stop reason code (PRD: Hard Deterministic Stop Controller)
     stop_reason_code: Option<adapteros_api_types::inference::StopReasonCode>,
     /// Token index at which the stop decision was made
@@ -1058,6 +1093,8 @@ impl LoadingStreamState {
             stop_reason_code: None,
             stop_reason_token_index: None,
             stop_policy_digest_b3: None,
+            token_rx: None,
+            done_rx: None,
         }
     }
 
@@ -1132,19 +1169,47 @@ impl LoadingStreamState {
                 }
             }
             LoadingPhase::Inferring => {
-                // Run inference and stream tokens
-                match self.run_inference().await {
-                    Ok(Some(token)) => {
-                        self.token_count += 1;
-                        Some(InferenceEvent::Token {
-                            text: token,
-                            token_id: None,
-                        })
-                    }
-                    Ok(None) => {
-                        // Inference complete
+                if self.token_rx.is_none() {
+                    if let Err(e) = self.start_inference_stream().await {
                         self.phase = LoadingPhase::Complete;
-                        let latency_ms = self.start_time.elapsed().as_millis() as u64;
+                        return Some(InferenceEvent::Error {
+                            message: format!("Inference failed: {}", e),
+                            recoverable: false,
+                        });
+                    }
+                }
+
+                let token = if let Some(rx) = self.token_rx.as_mut() {
+                    rx.recv().await
+                } else {
+                    None
+                };
+
+                if let Some(token) = token {
+                    self.token_count += 1;
+                    return Some(InferenceEvent::Token {
+                        text: token.text,
+                        token_id: token.token_id,
+                    });
+                }
+
+                let done_rx = self.done_rx.take();
+                let result = if let Some(done_rx) = done_rx {
+                    done_rx.await.ok()
+                } else {
+                    None
+                };
+
+                self.phase = LoadingPhase::Complete;
+                let latency_ms = self.start_time.elapsed().as_millis() as u64;
+
+                match result {
+                    Some(Ok(result)) => {
+                        self.unavailable_pinned_adapters = result.unavailable_pinned_adapters;
+                        self.pinned_routing_fallback = result.pinned_routing_fallback;
+                        self.stop_reason_code = result.stop_reason_code;
+                        self.stop_reason_token_index = result.stop_reason_token_index;
+                        self.stop_policy_digest_b3 = result.stop_policy_digest_b3.clone();
 
                         // Collect citations (best-effort, non-blocking if empty)
                         let citations = collect_citations_for_adapters(
@@ -1222,13 +1287,14 @@ impl LoadingStreamState {
                             stop_policy_digest_b3: self.stop_policy_digest_b3.clone(),
                         })
                     }
-                    Err(e) => {
-                        self.phase = LoadingPhase::Complete;
-                        Some(InferenceEvent::Error {
-                            message: format!("Inference failed: {}", e),
-                            recoverable: false,
-                        })
-                    }
+                    Some(Err(err)) => Some(InferenceEvent::Error {
+                        message: format!("Inference failed: {}", err),
+                        recoverable: false,
+                    }),
+                    None => Some(InferenceEvent::Error {
+                        message: "Stream ended without completion".to_string(),
+                        recoverable: false,
+                    }),
                 }
             }
             LoadingPhase::Complete => None,
@@ -1384,11 +1450,7 @@ impl LoadingStreamState {
         }
     }
 
-    async fn run_inference(&mut self) -> Result<Option<String>, String> {
-        // Use InferenceCore for all inference - single unified path
-        // This ensures routing enforcement, RAG, evidence recording, and session activity
-        // are all handled consistently.
-
+    async fn start_inference_stream(&mut self) -> Result<(), String> {
         // Build Claims from stored tenant/user info, or use provided claims
         let claims = self.claims.clone().unwrap_or_else(|| Claims {
             sub: self.user_id.clone(),
@@ -1414,45 +1476,24 @@ impl LoadingStreamState {
         let mut internal_request: InferenceRequestInternal = (&self.request, &claims).into();
         internal_request.request_id = self.request_id.clone();
         internal_request.run_envelope = Some(self.run_envelope.clone());
+        internal_request.prompt = self.request.prompt.clone();
+        internal_request.session_id = self.request.session_id.clone();
+        internal_request.adapters = self.request.adapters.clone();
+        internal_request.adapter_strength_overrides =
+            self.request.adapter_strength_overrides.clone();
+        internal_request.model = self.request.model.clone();
+        internal_request.stop_policy = self.request.stop_policy.clone();
+        internal_request.created_at = std::time::Instant::now();
 
-        // Execute via InferenceCore - the single entry point for all inference
-        let core = InferenceCore::new(&self.state);
-        match core
-            .route_and_infer(
-                internal_request,
-                None,
-                Some(self.cancellation_token.clone()),
-            )
-            .await
-        {
-            Ok(result) => {
-                debug!(
-                    text_len = result.text.len(),
-                    finish_reason = %result.finish_reason,
-                    adapters_used = ?result.adapters_used,
-                    unavailable_pinned = ?result.unavailable_pinned_adapters,
-                    pinned_fallback = ?result.pinned_routing_fallback,
-                    "Received inference response via InferenceCore"
-                );
+        let (token_rx, done_rx) = spawn_streaming_inference(
+            self.state.clone(),
+            internal_request,
+            self.cancellation_token.clone(),
+        );
 
-                // Store pinned adapter metadata
-                self.unavailable_pinned_adapters = result.unavailable_pinned_adapters.clone();
-                self.pinned_routing_fallback = result.pinned_routing_fallback.clone();
-
-                // Store stop controller metadata (PRD: Hard Deterministic Stop Controller)
-                self.stop_reason_code = result.stop_reason_code;
-                self.stop_reason_token_index = result.stop_reason_token_index;
-                self.stop_policy_digest_b3 = result.stop_policy_digest_b3.clone();
-
-                // Mark as complete after returning the response
-                self.phase = LoadingPhase::Complete;
-                Ok(Some(result.text))
-            }
-            Err(e) => {
-                error!(error = %e, "UDS inference failed");
-                Err(format!("Inference failed: {}", e))
-            }
-        }
+        self.token_rx = Some(token_rx);
+        self.done_rx = Some(done_rx);
+        Ok(())
     }
 
     fn format_loading_event(&self, event: InferenceEvent) -> Event {
@@ -1473,22 +1514,16 @@ impl LoadingStreamState {
 /// Internal state for streaming generation
 #[allow(dead_code)]
 struct StreamState {
-    /// Application state (reserved for future token-by-token streaming)
+    /// Application state
     state: AppState,
-    uds_path: std::path::PathBuf,
-    prompt: String,
-    max_tokens: usize,
-    /// Temperature (reserved for future token-by-token streaming)
-    temperature: f32,
     request_id: String,
     run_envelope: adapteros_api_types::RunEnvelope,
     model_name: String,
     // State machine
     phase: StreamPhase,
-    // Generated text for chunking
-    generated_text: Option<String>,
-    word_index: usize,
-    words: Vec<String>,
+    // Worker token stream
+    token_rx: mpsc::Receiver<WorkerStreamToken>,
+    done_rx: Option<oneshot::Receiver<Result<InferenceResult, InferenceError>>>,
     // Idle timeout tracking (5 minutes default)
     last_activity: Arc<TokioMutex<std::time::Instant>>,
     idle_timeout: Duration,
@@ -1502,8 +1537,6 @@ struct StreamState {
     user_id: String,
     // Track if after-hook has been fired (one-shot)
     after_hook_fired: bool,
-    // BLAKE3 hash of chat context for replay metadata
-    chat_context_hash: Option<String>,
     // User claims for policy enforcement
     claims: Option<crate::auth::Claims>,
     // Stop controller metadata (PRD: Hard Deterministic Stop Controller)
@@ -1511,9 +1544,6 @@ struct StreamState {
     stop_reason_token_index: Option<u32>,
     stop_policy_digest_b3: Option<String>,
 }
-
-/// Maximum size for words buffer to prevent unbounded growth
-const MAX_WORDS_BUFFER_SIZE: usize = 100_000;
 
 /// Guard that cancels the stream when dropped (client disconnect detection)
 ///
@@ -1539,7 +1569,6 @@ impl Drop for StreamDropGuard {
 #[derive(Debug, Clone, PartialEq)]
 enum StreamPhase {
     Start,
-    GeneratingText,
     StreamingTokens,
     Done,
 }
@@ -1548,18 +1577,15 @@ impl StreamState {
     #[allow(clippy::too_many_arguments)]
     fn new(
         state: AppState,
-        uds_path: std::path::PathBuf,
-        prompt: String,
-        max_tokens: usize,
-        temperature: f32,
         request_id: String,
         run_envelope: adapteros_api_types::RunEnvelope,
         model_name: String,
+        token_rx: mpsc::Receiver<WorkerStreamToken>,
+        done_rx: oneshot::Receiver<Result<InferenceResult, InferenceError>>,
         session_id: Option<String>,
         adapters: Option<Vec<String>>,
         tenant_id: String,
         user_id: String,
-        chat_context_hash: Option<String>,
         claims: Option<crate::auth::Claims>,
         cancellation_token: CancellationToken,
     ) -> Self {
@@ -1574,10 +1600,6 @@ impl StreamState {
 
         Self {
             state,
-            uds_path,
-            prompt,
-            max_tokens,
-            temperature,
             request_id: canonical_request_id,
             run_envelope,
             model_name,
@@ -1585,15 +1607,13 @@ impl StreamState {
             tenant_id,
             user_id,
             after_hook_fired: false,
-            generated_text: None,
-            word_index: 0,
-            words: Vec::new(),
+            token_rx,
+            done_rx: Some(done_rx),
             last_activity: Arc::new(TokioMutex::new(std::time::Instant::now())),
             idle_timeout: Duration::from_secs(300), // 5 minutes
             cancellation_token,
             session_id,
             adapters,
-            chat_context_hash,
             claims,
             stop_reason_code: None,
             stop_reason_token_index: None,
@@ -1639,163 +1659,43 @@ impl StreamState {
         match self.phase {
             StreamPhase::Start => {
                 // Send initial role chunk
-                self.phase = StreamPhase::GeneratingText;
+                self.phase = StreamPhase::StreamingTokens;
                 Some(StreamEvent::Start)
             }
-            StreamPhase::GeneratingText => {
-                // Generate the full response via UDS
-                match self.generate_response().await {
-                    Ok(text) => {
-                        // Split into words for streaming simulation
-                        let words: Vec<String> = text
-                            .split_inclusive(|c: char| c.is_whitespace() || c == '\n')
-                            .map(|s| s.to_string())
-                            .collect();
+            StreamPhase::StreamingTokens => match self.token_rx.recv().await {
+                Some(token) => Some(StreamEvent::Token(token.text)),
+                None => {
+                    let done_rx = self.done_rx.take();
+                    let result = if let Some(done_rx) = done_rx {
+                        done_rx.await.ok()
+                    } else {
+                        None
+                    };
 
-                        // Enforce max buffer size to prevent unbounded growth
-                        if words.len() > MAX_WORDS_BUFFER_SIZE {
-                            warn!(
-                                request_id = %self.request_id,
-                                words_count = words.len(),
-                                max_size = MAX_WORDS_BUFFER_SIZE,
-                                "Words buffer exceeded max size, truncating"
-                            );
-                            self.words = words.into_iter().take(MAX_WORDS_BUFFER_SIZE).collect();
-                        } else {
-                            self.words = words;
-                        }
-
-                        self.generated_text = Some(text);
-                        self.word_index = 0;
-                        self.phase = StreamPhase::StreamingTokens;
-                        // Return first token immediately instead of recursing
-                        if !self.words.is_empty() {
-                            let word = self.words[0].clone();
-                            self.word_index = 1;
-                            Some(StreamEvent::Token(word))
-                        } else {
+                    match result {
+                        Some(Ok(result)) => {
+                            self.stop_reason_code = result.stop_reason_code;
+                            self.stop_reason_token_index = result.stop_reason_token_index;
+                            self.stop_policy_digest_b3 = result.stop_policy_digest_b3.clone();
                             self.phase = StreamPhase::Done;
                             Some(StreamEvent::Done {
-                                finish_reason: "stop".to_string(),
+                                finish_reason: result.finish_reason,
                             })
                         }
-                    }
-                    Err(e) => {
-                        self.phase = StreamPhase::Done;
-                        Some(StreamEvent::Error(e))
+                        Some(Err(err)) => {
+                            self.phase = StreamPhase::Done;
+                            Some(StreamEvent::Error(err.to_string()))
+                        }
+                        None => {
+                            self.phase = StreamPhase::Done;
+                            Some(StreamEvent::Error(
+                                "Stream ended without completion".to_string(),
+                            ))
+                        }
                     }
                 }
-            }
-            StreamPhase::StreamingTokens => {
-                if self.word_index < self.words.len() {
-                    let word = self.words[self.word_index].clone();
-                    self.word_index += 1;
-                    Some(StreamEvent::Token(word))
-                } else {
-                    self.phase = StreamPhase::Done;
-                    Some(StreamEvent::Done {
-                        finish_reason: "stop".to_string(),
-                    })
-                }
-            }
+            },
             StreamPhase::Done => None,
-        }
-    }
-
-    async fn generate_response(&mut self) -> Result<String, String> {
-        // Use InferenceCore for all inference - single unified path
-        // This ensures routing enforcement, RAG, evidence recording, and session activity
-        // are all handled consistently.
-
-        // Build InferenceRequestInternal directly from StreamState fields
-        let internal_request = InferenceRequestInternal {
-            request_id: self.request_id.clone(),
-            cpid: self.tenant_id.clone(),
-            prompt: self.prompt.clone(),
-            run_envelope: Some(self.run_envelope.clone()),
-            reasoning_mode: false,
-            admin_override: false,
-            stream: true,
-            batch_item_id: None,
-            rag_enabled: false, // RAG handled earlier in the pipeline
-            rag_collection_id: None,
-            dataset_version_id: None,
-            adapter_stack: None,
-            adapters: self.adapters.clone(),
-            stack_id: None,
-            domain_hint: None,
-            stack_version: None,
-            stack_determinism_mode: None,
-            stack_routing_determinism_mode: None,
-            effective_adapter_ids: None,
-            determinism_mode: None,
-            routing_determinism_mode: None,
-            seed_mode: None,
-            request_seed: None,
-            backend_profile: None,
-            coreml_mode: None,
-            max_tokens: self.max_tokens,
-            temperature: self.temperature,
-            top_k: None,
-            top_p: None,
-            seed: None,
-            router_seed: None, // deterministic routing (not set for streaming)
-            require_evidence: false,
-            session_id: self.session_id.clone(),
-            pinned_adapter_ids: None, // Pinning not yet exposed in streaming API
-            chat_context_hash: self.chat_context_hash.clone(),
-            claims: self.claims.clone(),
-            adapter_strength_overrides: None,
-            model: Some(self.model_name.clone()),
-            stop_policy: None, // StreamState doesn't carry stop_policy yet
-            created_at: std::time::Instant::now(),
-            worker_auth_token: None,
-            policy_mask_digest_b3: None, // Streaming doesn't use policy enforcement hooks
-            utf8_healing: None,
-        };
-
-        // Execute via InferenceCore - the single entry point for all inference
-        // Use tokio::select! to allow cancellation if client disconnects
-        let core = InferenceCore::new(&self.state);
-        let inference_future = core.route_and_infer(
-            internal_request,
-            None,
-            Some(self.cancellation_token.clone()),
-        );
-
-        tokio::select! {
-            // Client disconnect - cancel inference
-            _ = self.cancellation_token.cancelled() => {
-                warn!(
-                    request_id = %self.request_id,
-                    "Inference cancelled due to client disconnect"
-                );
-                Err("Stream cancelled by client disconnect".to_string())
-            }
-            // Normal inference completion
-            result = inference_future => {
-                match result {
-                    Ok(result) => {
-                        debug!(
-                            text_len = result.text.len(),
-                            finish_reason = %result.finish_reason,
-                            adapters_used = ?result.adapters_used,
-                            "Received inference response via InferenceCore"
-                        );
-
-                        // Store stop controller metadata (PRD: Hard Deterministic Stop Controller)
-                        self.stop_reason_code = result.stop_reason_code;
-                        self.stop_reason_token_index = result.stop_reason_token_index;
-                        self.stop_policy_digest_b3 = result.stop_policy_digest_b3.clone();
-
-                        Ok(result.text)
-                    }
-                    Err(e) => {
-                        error!(error = %e, "InferenceCore inference failed");
-                        Err(format!("Inference failed: {}", e))
-                    }
-                }
-            }
         }
     }
 

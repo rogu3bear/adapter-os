@@ -81,7 +81,11 @@ pub struct RoleParseError {
 
 impl std::fmt::Display for RoleParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "invalid role: '{}', valid roles are: admin, operator, viewer", self.invalid_role)
+        write!(
+            f,
+            "invalid role: '{}', valid roles are: admin, operator, viewer",
+            self.invalid_role
+        )
     }
 }
 

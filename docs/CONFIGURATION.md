@@ -2,7 +2,7 @@
 
 **Purpose:** Comprehensive reference for configuring AdapterOS development and deployment environments.
 
-**Last Updated:** 2025-12-11
+**Last Updated:** 2026-01-02
 
 ---
 
@@ -12,6 +12,9 @@
 2. [Configuration File Formats](#configuration-file-formats)
 3. [Configuration Precedence Rules](#configuration-precedence-rules)
 4. [Environment Variables Reference](#environment-variables-reference)
+   - [Backend Selection Priority](#backend-selection-priority)
+   - [HuggingFace Hub Integration](#huggingface-hub-integration)
+   - [Model Seeding](#model-seeding)
 5. [Configuration Loading Flow](#configuration-loading-flow)
 6. [Troubleshooting](#troubleshooting)
 
@@ -335,12 +338,15 @@ AOS_TELEMETRY_ENABLED=true
 | `AOS_MANIFEST_HASH` | `756be0c4434c3fe5e1198fcf417c52a662e7a24d0716dbf12aae6246bea84f9e` | Manifest hash (preferred contract) | Same as default |
 | `AOS_MODEL_BACKEND` | `mlx` | Backend selection | `mlx`, `coreml`, `metal`, `auto` |
 | `AOS_MODEL_ARCHITECTURE` | Auto-detect | Model type (Qwen2, Llama, etc.) | `qwen2`, `llama2` |
+| `AOS_PIN_BASE_MODEL` | `false` | Pin base model in worker cache for residency | `true` |
+| `AOS_PIN_BUDGET_BYTES` | unset | Pin budget for base model residency (bytes) | `16GB`, `17179869184` |
 
 **Notes:**
 - `AOS_MODEL_PATH` must contain `config.json` and model weights
 - `AOS_MANIFEST_HASH` is the routing contract; workers fetch/verify by hash
-- `AOS_MODEL_BACKEND=mlx` by default; `auto` selects CoreML > Metal > MLX
+- `AOS_MODEL_BACKEND=mlx` by default; `auto` selects MLX > CoreML > MlxBridge > Metal
 - Model auto-detected from `config.json` if architecture not specified
+- Base model pinning keeps weights resident; set `AOS_PIN_BUDGET_BYTES` >= model size to avoid startup failure
 
 #### Backend Selection for Codebase Adapters
 
@@ -558,11 +564,127 @@ AOS_MEMORY_EVICTION_THRESHOLD=0.85
 | Variable | Default | Purpose | Example |
 |----------|---------|---------|---------|
 | `AOS_MLX_FFI_MODEL` | unset | MLX model directory | `./var/models/Qwen2.5-7B-Instruct-4bit` |
+| `AOS_MLX_IMPL` | `auto` | MLX implementation override (`auto`, `ffi`, `rs`) | `ffi` |
 | `AOS_MLX_MAX_MEMORY` | `0` (unlimited) | Max memory (bytes) | `16000000000` (16GB) |
 | `AOS_MLX_MEMORY_POOL_ENABLED` | `true` | Enable memory pool | `false` to disable |
 | _Quantization_ | model-defined | Quantization/precision is fixed per backend | model weights (int4/int8/fp16) |
 
 **Quantization Note:** Quantization/precision is fixed per backend. MLX uses the model's packaged weights (int4/int8/fp16) without per-request or per-token overrides. Metal/CoreML run backend-fixed fp16/bf16 kernels.
+
+**TOML Configuration (`[mlx]` section):**
+
+```toml
+# configs/cp.toml
+[mlx]
+enabled = true
+max_memory = 0              # 0 = unlimited, or bytes (e.g., 16000000000 for 16GB)
+memory_pool_enabled = true  # Enable unified memory pool
+model_path = "./var/models/Qwen2.5-7B-Instruct-4bit"
+```
+
+#### Backend Selection Priority
+
+When `AOS_MODEL_BACKEND=auto` (or unset), backends are selected using the MLX-first priority chain:
+
+1. **MLX** (highest priority) - Native Apple Silicon inference via C++ FFI
+2. **CoreML** - ANE-accelerated inference for compiled models
+3. **MlxBridge** - Fallback MLX bridge implementation
+4. **Metal** - Direct GPU compute kernels
+5. **CPU** (lowest priority) - Software fallback
+
+The system probes each backend in order and selects the first available. Set `AOS_MODEL_BACKEND` explicitly to override:
+
+```bash
+# Force specific backend
+export AOS_MODEL_BACKEND=mlx      # Always use MLX
+export AOS_MODEL_BACKEND=coreml   # Always use CoreML (requires .mlpackage)
+export AOS_MODEL_BACKEND=metal    # Always use Metal kernels
+export AOS_MODEL_BACKEND=cpu      # Force CPU fallback
+export AOS_MODEL_BACKEND=auto     # Use priority chain (default)
+```
+
+#### HuggingFace Hub Integration
+
+AdapterOS can automatically download models from HuggingFace Hub on startup.
+
+| Variable | Default | Purpose | Example |
+|----------|---------|---------|---------|
+| `AOS_HF_HUB_ENABLED` | `false` | Enable HuggingFace Hub model downloads | `true` |
+| `AOS_PRIORITY_MODELS` | unset | Comma-separated list of models to download on startup | `Qwen/Qwen2.5-7B-Instruct,meta-llama/Llama-3.1-8B` |
+| `HF_TOKEN` | unset | HuggingFace API token for private/gated models | `hf_xxxxxxxxxxxxxxxx` |
+| `AOS_HF_REGISTRY_URL` | `https://huggingface.co` | Custom registry URL (for mirrors/proxies) | `https://hf-mirror.com` |
+| `AOS_MAX_CONCURRENT_DOWNLOADS` | `3` | Max parallel downloads (1-10) | `5` |
+| `AOS_DOWNLOAD_TIMEOUT_SECS` | `300` | Download timeout in seconds (30-3600) | `600` |
+
+**Setup Example:**
+
+```bash
+# Enable HuggingFace Hub downloads
+export AOS_HF_HUB_ENABLED=true
+
+# Download specific models on startup
+export AOS_PRIORITY_MODELS="Qwen/Qwen2.5-7B-Instruct,mlx-community/Llama-3.1-8B-4bit"
+
+# For private/gated models (e.g., Llama), set your HF token
+export HF_TOKEN=hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# Optional: Increase concurrent downloads for faster startup
+export AOS_MAX_CONCURRENT_DOWNLOADS=5
+
+# Optional: Increase timeout for large models on slow connections
+export AOS_DOWNLOAD_TIMEOUT_SECS=600
+```
+
+**Notes:**
+- Models are downloaded to `AOS_MODEL_CACHE_DIR` (default: `./var/model-cache/models`)
+- The HF token is required for gated models (Llama, Mistral, etc.) - generate at https://huggingface.co/settings/tokens
+- Downloads are cached; subsequent startups skip already-downloaded models
+- Use `AOS_HF_REGISTRY_URL` for air-gapped environments with a local HuggingFace mirror
+
+#### Model Seeding
+
+Model seeding automatically registers cached models in the database on startup.
+
+| Variable | Default | Purpose | Example |
+|----------|---------|---------|---------|
+| `AOS_SEED_MODEL_CACHE` | `true` (debug), `false` (release) | Enable auto-seeding models from cache to DB | `true` |
+| `AOS_MODEL_CACHE_DIR` | `./var/model-cache/models` | Model cache directory location | `/data/models` |
+
+**Behavior:**
+- In **debug builds**, model seeding is enabled by default for developer convenience
+- In **release builds**, model seeding is disabled by default (explicit registration preferred)
+- When enabled, the server scans `AOS_MODEL_CACHE_DIR` on startup and registers any valid models found
+
+**Setup Example:**
+
+```bash
+# Enable model seeding in production (if desired)
+export AOS_SEED_MODEL_CACHE=true
+
+# Custom model cache location
+export AOS_MODEL_CACHE_DIR=/data/aos-models
+
+# Models in this directory will be auto-registered on startup
+```
+
+**Directory Structure:**
+```
+$AOS_MODEL_CACHE_DIR/
+├── Qwen2.5-7B-Instruct-4bit/
+│   ├── config.json
+│   ├── tokenizer.json
+│   └── model-*.safetensors
+├── Llama-3.1-8B-Instruct/
+│   ├── config.json
+│   ├── tokenizer.json
+│   └── model-*.safetensors
+└── ...
+```
+
+**Notes:**
+- Each subdirectory must contain a valid `config.json` to be recognized as a model
+- Seeding is idempotent; existing models in the database are not duplicated
+- Use `aosctl models list` to verify registered models after seeding
 
 #### Telemetry Configuration
 
@@ -1043,6 +1165,6 @@ let config = loader.load(cli_args, manifest_path)?;
 
 ---
 
-**Last Updated:** 2025-12-11 | **Maintainer:** MLNavigator Inc
+**Last Updated:** 2026-01-02 | **Maintainer:** MLNavigator Inc
 
-MLNavigator Inc 2025-12-11
+MLNavigator Inc 2026-01-02

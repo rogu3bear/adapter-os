@@ -22,6 +22,9 @@ impl From<(&InferRequest, &Claims)> for super::context::InferenceRequestInternal
             reasoning_mode: req.reasoning_mode.unwrap_or(false),
             admin_override: is_admin,
             stream: req.stream.unwrap_or(false),
+            require_step: req.stream.unwrap_or(false),
+            require_determinism: false,
+            allow_fallback: !matches!(req.backend, Some(backend) if backend != adapteros_core::BackendKind::Auto),
             batch_item_id: None,
             rag_enabled: req.rag_enabled.unwrap_or(false),
             rag_collection_id: req.collection_id.clone(),
@@ -78,6 +81,16 @@ impl From<InferenceResult> for InferResponse {
             .deterministic_receipt
             .as_ref()
             .and_then(|receipt| receipt.model.clone());
+        let prompt_tokens = result
+            .run_receipt
+            .as_ref()
+            .map(|receipt| receipt.logical_prompt_tokens as usize)
+            .or_else(|| {
+                result
+                    .token_usage
+                    .as_ref()
+                    .map(|usage| usage.prompt_tokens as usize)
+            });
 
         Self {
             schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
@@ -87,7 +100,7 @@ impl From<InferenceResult> for InferResponse {
             tokens_generated: result.tokens_generated,
             finish_reason: result.finish_reason,
             latency_ms: result.latency_ms,
-            run_receipt: None,
+            run_receipt: result.run_receipt,
             deterministic_receipt: result.deterministic_receipt,
             run_envelope: result.run_envelope.clone(),
             adapters_used: result.adapters_used.clone(),
@@ -126,7 +139,7 @@ impl From<InferenceResult> for InferResponse {
                 model_type: result.model_type,
             },
             model,
-            prompt_tokens: None,
+            prompt_tokens,
             error: None,
             unavailable_pinned_adapters: result.unavailable_pinned_adapters,
             pinned_routing_fallback: result.pinned_routing_fallback,

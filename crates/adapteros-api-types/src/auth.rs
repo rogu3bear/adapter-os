@@ -249,11 +249,14 @@ impl std::str::FromStr for Role {
             "operator" => Ok(Role::Operator),
             "viewer" => Ok(Role::Viewer),
             // Backwards compatibility: map old roles to new ones
-            "developer" => Ok(Role::Admin),      // Developer had full access like Admin
-            "sre" => Ok(Role::Operator),         // SRE maps to Operator
-            "compliance" => Ok(Role::Viewer),    // Compliance was read-focused
-            "auditor" => Ok(Role::Viewer),       // Auditor was read-focused
-            _ => Err(format!("invalid role: '{}', valid roles are: admin, operator, viewer", s)),
+            "developer" => Ok(Role::Admin), // Developer had full access like Admin
+            "sre" => Ok(Role::Operator),    // SRE maps to Operator
+            "compliance" => Ok(Role::Viewer), // Compliance was read-focused
+            "auditor" => Ok(Role::Viewer),  // Auditor was read-focused
+            _ => Err(format!(
+                "invalid role: '{}', valid roles are: admin, operator, viewer",
+                s
+            )),
         }
     }
 }

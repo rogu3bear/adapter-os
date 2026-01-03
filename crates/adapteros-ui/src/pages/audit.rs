@@ -7,7 +7,7 @@ use crate::api::{
     AuditLogsResponse, ChainVerificationResponse, ComplianceAuditResponse,
 };
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonVariant, Card, Shell, Spinner, Table, TableBody, TableCell,
+    Badge, BadgeVariant, Button, ButtonVariant, Card, Spinner, Table, TableBody, TableCell,
     TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState};
@@ -66,21 +66,20 @@ pub fn Audit() -> impl IntoView {
     });
 
     // Fetch audit chain
-    let (chain, refetch_chain) = use_api_resource(|client: Arc<ApiClient>| async move {
-        client.get_audit_chain(Some(50)).await
-    });
+    let (chain, refetch_chain) =
+        use_api_resource(
+            |client: Arc<ApiClient>| async move { client.get_audit_chain(Some(50)).await },
+        );
 
     // Fetch chain verification
     let (verification, refetch_verification) =
-        use_api_resource(|client: Arc<ApiClient>| async move {
-            client.verify_audit_chain().await
-        });
+        use_api_resource(|client: Arc<ApiClient>| async move { client.verify_audit_chain().await });
 
     // Fetch compliance
     let (compliance, _refetch_compliance) =
-        use_api_resource(|client: Arc<ApiClient>| async move {
-            client.get_compliance_audit().await
-        });
+        use_api_resource(
+            |client: Arc<ApiClient>| async move { client.get_compliance_audit().await },
+        );
 
     let refetch_all = move || {
         refetch_logs();
@@ -89,8 +88,7 @@ pub fn Audit() -> impl IntoView {
     };
 
     view! {
-        <Shell>
-            <div class="space-y-6">
+        <div class="p-6 space-y-6">
                 // Header
                 <div class="flex items-center justify-between">
                     <div>
@@ -149,8 +147,7 @@ pub fn Audit() -> impl IntoView {
                         }
                     }
                 }}
-            </div>
-        </Shell>
+        </div>
     }
 }
 

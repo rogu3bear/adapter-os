@@ -1,7 +1,7 @@
 # Backend Selection Guide
 
 **Copyright:** © 2025 JKCA / James KC Auchterlonie. All rights reserved.
-**Last Updated:** 2025-12-24
+**Last Updated:** 2026-01-02
 **Purpose:** Complete guide to backend selection strategies in AdapterOS
 
 ---
@@ -9,14 +9,17 @@
 ## Table of Contents
 
 1. [Overview](#overview)
-2. [Available Backends](#available-backends)
-3. [Selection Strategies](#selection-strategies)
-4. [Capability Detection](#capability-detection)
-5. [Configuration & Environment Variables](#configuration--environment-variables)
-6. [Decision Flowchart](#decision-flowchart)
-7. [Performance Characteristics](#performance-characteristics)
-8. [Use Case Recommendations](#use-case-recommendations)
-9. [Troubleshooting](#troubleshooting)
+2. [BackendKind Enum](#backendkind-enum)
+3. [MLX-First Priority Chain](#mlx-first-priority-chain)
+4. [Backend Aliases](#backend-aliases)
+5. [Available Backends](#available-backends)
+6. [Selection Strategies](#selection-strategies)
+7. [Capability Detection](#capability-detection)
+8. [Configuration & Environment Variables](#configuration--environment-variables)
+9. [Decision Flowchart](#decision-flowchart)
+10. [Performance Characteristics](#performance-characteristics)
+11. [Use Case Recommendations](#use-case-recommendations)
+12. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -44,10 +47,182 @@ The backend selection system is implemented in `/Users/mln-dev/Dev/adapter-os/cr
 ```rust
 // Backend selection follows MLX-first priority
 // CoreML is used as an acceleration layer, not a standalone backend
-return auto_select_backend(capabilities);  // Returns: MLX → CoreML → Metal → CPU
+return auto_select_backend(capabilities);  // Returns: MLX → CoreML → MlxBridge → Metal → CPU
 ```
 
 **Rationale**: MLX is the primary backend for all inference and training. CoreML provides ANE acceleration for specific operations but is not a standalone backend due to its compiled/immutable package format.
+
+---
+
+## BackendKind Enum
+
+The canonical `BackendKind` enum is defined in `adapteros-core/src/backend.rs` and serves as the single source of truth for all backend selection across AdapterOS (inference + training).
+
+### Enum Definition
+
+```rust
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum BackendKind {
+    #[default]
+    Auto,      // Deterministic auto-selection
+    CoreML,    // CoreML / ANE acceleration (macOS)
+    Mlx,       // MLX FFI backend (macOS, HKDF-seeded determinism)
+    MlxBridge, // MLX subprocess bridge (Python mlx-lm for MoE models)
+    Metal,     // Metal GPU backend (macOS)
+    CPU,       // CPU-only execution
+}
+```
+
+### Backend Types
+
+| Backend | Description | Platform | Determinism | Primary Use Case |
+|---------|-------------|----------|-------------|-----------------|
+| **Auto** | Deterministic auto-selection based on hardware capabilities | All | Inherited | Default behavior - picks best available backend |
+| **Mlx** | MLX FFI backend with C++ bindings | macOS (Apple Silicon) | HKDF-seeded | Primary inference/training, research workloads |
+| **MlxBridge** | MLX subprocess bridge via Python mlx-lm | macOS (Apple Silicon) | Best-effort | MoE (Mixture of Experts) models not supported by MLX FFI |
+| **CoreML** | Apple Neural Engine acceleration | macOS (Apple Silicon) | Guaranteed (ANE) | Production inference with audit trails, power efficiency |
+| **Metal** | Metal GPU compute kernels | macOS (Intel/Apple Silicon) | Guaranteed | Legacy hardware, development/testing |
+| **CPU** | CPU-only execution | All | N/A | Not implemented for inference (observability only) |
+
+### Key Methods
+
+```rust
+impl BackendKind {
+    /// Canonical string for logging/config surface
+    pub fn as_str(&self) -> &'static str;
+
+    /// List of canonical variants for error reporting
+    pub fn variants() -> &'static [&'static str];
+
+    /// Canonical MLX-first priority list for inference backends
+    /// Order: MLX -> CoreML -> MlxBridge -> Metal -> CPU
+    pub fn inference_priority() -> &'static [BackendKind];
+
+    /// Check if this backend is an MLX variant (FFI or Bridge)
+    pub fn is_mlx_variant(&self) -> bool;
+
+    /// MLX-first default backend when capabilities allow it
+    pub fn default_inference_backend() -> BackendKind;
+}
+```
+
+---
+
+## MLX-First Priority Chain
+
+AdapterOS implements an MLX-first priority chain for backend selection. This ensures consistent, deterministic backend selection across the control plane, worker selection, and UI hints.
+
+### Priority Order
+
+```
+MLX -> CoreML -> MlxBridge -> Metal -> CPU
+```
+
+| Priority | Backend | Rationale |
+|----------|---------|-----------|
+| 1 | **MLX** | Primary backend for flexibility and HKDF-seeded determinism |
+| 2 | **CoreML** | First fallback for ANE acceleration when MLX unavailable |
+| 3 | **MlxBridge** | MoE models that MLX FFI doesn't support |
+| 4 | **Metal** | GPU fallback when MLX/CoreML unavailable |
+| 5 | **CPU** | Terminal entry (observability only - not implemented) |
+
+### Why MLX is Primary
+
+1. **HKDF-Seeded Determinism**: MLX uses HKDF-SHA256 seed derivation from the manifest hash, ensuring reproducible inference and training across runs.
+
+2. **Flexibility**: Native C++ bindings via FFI provide full feature set including:
+   - Multi-adapter routing with K-sparse selection
+   - Hot-swap adapter loading/unloading
+   - Circuit breaker pattern for resilience
+   - Unified memory tracking and GC hints
+
+3. **Training Support**: MLX is the only backend that supports training workflows.
+
+4. **Unified Memory**: Leverages Apple Silicon's unified memory architecture for efficient GPU/CPU data sharing.
+
+### Selection Logic
+
+```rust
+// From BackendKind::inference_priority()
+pub fn inference_priority() -> &'static [BackendKind] {
+    static ORDER: [BackendKind; 5] = [
+        BackendKind::Mlx,       // Primary: HKDF-seeded determinism
+        BackendKind::CoreML,    // Fallback: ANE acceleration
+        BackendKind::MlxBridge, // MoE fallback: Python subprocess
+        BackendKind::Metal,     // GPU fallback
+        BackendKind::CPU,       // Observability only
+    ];
+    &ORDER
+}
+```
+
+---
+
+## Backend Aliases
+
+The `BackendKind` enum supports multiple string aliases for flexible configuration. All aliases are normalized (lowercased, hyphens/underscores removed) before matching.
+
+### Alias Table
+
+| Canonical | Aliases | Notes |
+|-----------|---------|-------|
+| `auto` | `autodev`, `auto_dev`, `default` | Default behavior |
+| `coreml` | `core-ml`, `ane` | ANE acceleration |
+| `mlx` | `mlx-ffi`, `mlx_ffi` | Primary MLX backend |
+| `mlxbridge` | `mlx-bridge`, `mlx_bridge`, `subprocess` | Python subprocess bridge |
+| `metal` | (none) | GPU compute |
+| `cpu` | `cpu_only`, `cpu-only` | Not implemented for inference |
+
+### Parsing Examples
+
+```rust
+use adapteros_core::backend::BackendKind;
+use std::str::FromStr;
+
+// All of these parse to BackendKind::Mlx
+BackendKind::from_str("mlx")?;        // Canonical
+BackendKind::from_str("mlx-ffi")?;    // Hyphenated alias
+BackendKind::from_str("mlx_ffi")?;    // Underscored alias
+BackendKind::from_str("MLX-FFI")?;    // Case insensitive
+
+// All of these parse to BackendKind::MlxBridge
+BackendKind::from_str("mlxbridge")?;    // Canonical
+BackendKind::from_str("mlx-bridge")?;   // Hyphenated alias
+BackendKind::from_str("mlx_bridge")?;   // Underscored alias
+BackendKind::from_str("subprocess")?;   // Semantic alias
+
+// All of these parse to BackendKind::Auto
+BackendKind::from_str("auto")?;       // Canonical
+BackendKind::from_str("autodev")?;    // Development alias
+BackendKind::from_str("auto_dev")?;   // Underscored alias
+BackendKind::from_str("default")?;    // Semantic alias
+```
+
+### Environment Variable Usage
+
+```bash
+# All equivalent - set MLX as backend
+export AOS_MODEL_BACKEND=mlx
+export AOS_MODEL_BACKEND=mlx-ffi
+export AOS_MODEL_BACKEND=mlx_ffi
+
+# All equivalent - set MLX Bridge for MoE models
+export AOS_MODEL_BACKEND=mlxbridge
+export AOS_MODEL_BACKEND=mlx-bridge
+export AOS_MODEL_BACKEND=subprocess
+
+# All equivalent - auto-selection
+export AOS_MODEL_BACKEND=auto
+export AOS_MODEL_BACKEND=default
+```
+
+### Error Handling
+
+Invalid backend strings produce helpful error messages:
+
+```
+Error: Invalid backend 'unknown-backend'. Expected one of: auto, coreml, mlx, mlxbridge, metal, cpu
+```
 
 ---
 
@@ -90,9 +265,9 @@ production_mode = false  # Disable fallbacks in production
 
 ### 2. MLX (Apple MLX Framework)
 
-**Status:** ✅ Production Ready (Feature-Gated)
+**Status:** ✅ Production Ready (Feature-Gated, FFI primary)
 **Platform:** macOS (Apple Silicon)
-**Features:** `multi-backend` + `mlx` build flags required
+**Features:** `multi-backend` + `mlx` build flags required (`mlx-rs-backend` optional fallback)
 
 **Characteristics:**
 - **Hardware:** Unified memory on Apple Silicon
@@ -108,6 +283,11 @@ production_mode = false  # Disable fallbacks in production
 - Unified memory tracking and GC hints
 - Tokenizer integration
 - MoE (Mixture of Experts) support via subprocess bridge
+
+**Implementation Selection (internal):**
+- **FFI (default):** C++ MLX library, full feature set
+- **mlx-rs (fallback):** Experimental; no LoRA adapters yet, CPU sampling, cache bypass
+- **Auto-selection:** chosen at boot; override with `AOS_MLX_IMPL=ffi|rs|auto` for debugging
 
 **Memory Management:**
 ```bash
@@ -230,17 +410,18 @@ The backend factory implements several selection strategies defined in `BackendS
 
 ### 1. Auto Selection (Default)
 
-**Priority Order:** CoreML → MLX → Metal → CPU
+**Priority Order:** MLX → CoreML → MlxBridge → Metal → CPU
 
 ```rust
 pub fn auto_select_backend(capabilities: &BackendCapabilities) -> Result<BackendChoice>
 ```
 
 **Selection Logic:**
-1. **CoreML**: If `has_coreml && has_ane`, select CoreML
-2. **MLX**: If `multi-backend` feature enabled and `has_mlx`, select MLX
-3. **Metal**: If `has_metal`, select Metal
-4. **CPU**: Terminal entry (returns error - not implemented)
+1. **MLX**: If `multi-backend` feature enabled and `has_mlx`, select MLX
+2. **CoreML**: If `has_coreml && has_ane`, select CoreML
+3. **MlxBridge**: If `mlx-bridge` enabled and `has_mlx_bridge`, select MLX Bridge
+4. **Metal**: If `has_metal`, select Metal
+5. **CPU**: Terminal entry (returns error - not implemented)
 
 **Usage:**
 ```rust
@@ -335,7 +516,7 @@ BackendStrategy::MetalOnly => {
 
 ## Capability Detection
 
-The backend factory performs runtime hardware detection via `detect_capabilities()`:
+The backend factory performs runtime hardware detection via `detect_capabilities()` in `adapteros-lora-worker/src/backend_factory/capabilities.rs`.
 
 ### Detection Logic
 
@@ -348,6 +529,22 @@ pub struct BackendCapabilities {
     pub has_mlx: bool,             // MLX runtime initialized
     pub has_mlx_bridge: bool,      // Python/mlx-lm subprocess available
     pub gpu_memory_bytes: Option<u64>,
+}
+```
+
+### Selection Context
+
+Backend selection uses a `SelectionContext` that combines capabilities with execution profile:
+
+```rust
+pub struct SelectionContext {
+    pub profile: ExecutionProfile,
+    pub capabilities: BackendCapabilities,
+}
+
+pub struct BackendSelection {
+    pub backend: BackendKind,
+    pub override_reason: Option<String>,  // Audit trail for selection overrides
 }
 ```
 
@@ -426,6 +623,51 @@ fn is_apple_silicon() -> bool {
 
 ---
 
+### MLX Bridge Detection
+
+**Platform:** macOS (Apple Silicon) with `mlx-bridge` feature
+**Method:** Check Python 3 and mlx-lm availability
+
+```rust
+#[cfg(feature = "mlx-bridge")]
+fn detect_mlx_bridge_availability() -> bool {
+    use std::process::Command;
+
+    // Try to run python3 with a quick mlx-lm import check
+    let result = Command::new("python3")
+        .args(["-c", "import mlx_lm; print('ok')"])
+        .output();
+
+    match result {
+        Ok(output) => output.status.success(),
+        Err(_) => false,
+    }
+}
+```
+
+**Requirements:**
+- Python 3.9+
+- `mlx-lm` package installed (`pip install mlx-lm`)
+- `mlx-bridge` feature flag enabled at build time
+
+**Environment Variables for Bridge:**
+```bash
+# Custom Python executable (default: python3)
+export MLX_BRIDGE_PYTHON_PATH=/usr/bin/python3
+
+# Path to bridge script (auto-detected if not set)
+export MLX_BRIDGE_SCRIPT_PATH=/opt/aos/scripts/mlx_bridge_server.py
+```
+
+**Auto-Detection Locations:**
+The bridge script is searched in the following order:
+1. `MLX_BRIDGE_SCRIPT_PATH` environment variable
+2. `scripts/mlx_bridge_server.py` relative to executable
+3. `scripts/mlx_bridge_server.py` relative to working directory
+4. `../scripts/mlx_bridge_server.py` and `../../scripts/mlx_bridge_server.py`
+
+---
+
 ### Detection Logging
 
 All capability detection results are logged:
@@ -445,6 +687,75 @@ debug!(
 ---
 
 ## Configuration & Environment Variables
+
+### Configuration Precedence
+
+Backend selection follows a strict precedence order:
+
+```
+CLI argument > Environment variable > Config file > Auto-selection
+```
+
+| Priority | Source | Example |
+|----------|--------|---------|
+| 1 (highest) | CLI argument | `--backend mlx` |
+| 2 | Environment variable | `AOS_MODEL_BACKEND=mlx` |
+| 3 | Config file | `[mlx] backend = "mlx"` |
+| 4 (lowest) | Auto-selection | Hardware capability detection |
+
+**Example Precedence:**
+```bash
+# Config file sets CoreML
+# configs/cp.toml: [model] backend = "coreml"
+
+# Environment overrides to MLX
+export AOS_MODEL_BACKEND=mlx
+
+# CLI overrides to Metal (highest priority)
+./aosctl serve --backend metal
+# Result: Metal backend selected
+```
+
+---
+
+### Backend Selection Environment Variable
+
+#### AOS_MODEL_BACKEND
+
+**Primary:** Preferred backend selection variable
+
+```bash
+export AOS_MODEL_BACKEND=mlx  # auto, coreml, mlx, mlxbridge, metal, cpu
+```
+
+**Parsed Values (with aliases):**
+- `auto`, `autodev`, `auto_dev`, `default` -> `BackendKind::Auto`
+- `coreml`, `core-ml`, `ane` -> `BackendKind::CoreML`
+- `mlx`, `mlx-ffi`, `mlx_ffi` -> `BackendKind::Mlx`
+- `mlxbridge`, `mlx-bridge`, `mlx_bridge`, `subprocess` -> `BackendKind::MlxBridge`
+- `metal` -> `BackendKind::Metal`
+- `cpu`, `cpu_only`, `cpu-only` -> `BackendKind::CPU`
+
+---
+
+### Config File Backend Section
+
+The `[mlx]` section in `configs/cp.toml` configures MLX-specific settings:
+
+```toml
+# configs/cp.toml
+[mlx]
+# Model path (required for MLX)
+model_path = "/var/model-cache/models/qwen2.5-7b-instruct-bf16"
+
+# Fusion interval mode
+fusion_mode = "per_request"  # per_request, per_token, per_segment:N
+
+# Memory management
+gc_threshold_mb = 1024
+```
+
+---
 
 ### Model Cache Configuration
 
@@ -495,19 +806,13 @@ Recommended minimums by model size:
 
 #### AOS_BACKEND (Legacy)
 
-**Deprecated:** Use `ExecutionProfile.backend_profile` instead
+**Deprecated:** Use `AOS_MODEL_BACKEND` instead (see [Configuration Precedence](#configuration-precedence))
 
 ```bash
 export AOS_BACKEND=coreml  # auto, coreml, mlx, metal, cpu
 ```
 
-**Parsed Values:**
-- `auto`, `autodev`, `default` → `BackendKind::Auto`
-- `coreml`, `core-ml`, `ane` → `BackendKind::CoreML`
-- `mlx` → `BackendKind::Mlx`
-- `mlxbridge`, `mlx-bridge`, `mlx_bridge`, `subprocess` → `BackendKind::MlxBridge`
-- `metal` → `BackendKind::Metal`
-- `cpu`, `cpu_only`, `cpu-only` → `BackendKind::CPU`
+**Note:** This variable is legacy and may be removed in future versions. Prefer `AOS_MODEL_BACKEND` for new deployments.
 
 ---
 
@@ -620,13 +925,15 @@ flowchart TD
     IsCPU -->|Yes| ErrorCPU[❌ Error: CPU backend<br/>not supported for inference]
 
     %% Auto Selection Path
-    AutoSelect --> Priority1{CoreML Available?<br/>has_coreml &&<br/>has_ane}
-    Priority1 -->|Yes| CoreMLAuto[✅ CoreML Backend<br/>ANE acceleration]
-    Priority1 -->|No| Priority2{MLX Available?<br/>multi-backend &&<br/>has_mlx}
-    Priority2 -->|Yes| MLXAuto[✅ MLX Backend<br/>GPU acceleration]
-    Priority2 -->|No| Priority3{Metal Available?<br/>has_metal}
-    Priority3 -->|Yes| MetalAuto[✅ Metal Backend<br/>GPU acceleration]
-    Priority3 -->|No| ErrorAuto[❌ Error: No suitable backend<br/>CoreML → MLX → Metal → CPU]
+    AutoSelect --> Priority1{MLX Available?<br/>multi-backend &&<br/>has_mlx}
+    Priority1 -->|Yes| MLXAuto[✅ MLX Backend<br/>GPU acceleration]
+    Priority1 -->|No| Priority2{CoreML Available?<br/>has_coreml &&<br/>has_ane}
+    Priority2 -->|Yes| CoreMLAuto[✅ CoreML Backend<br/>ANE acceleration]
+    Priority2 -->|No| Priority3{MlxBridge Available?<br/>mlx-bridge &&<br/>has_mlx_bridge}
+    Priority3 -->|Yes| MlxBridgeAuto[✅ MLX Bridge Backend<br/>MoE fallback]
+    Priority3 -->|No| Priority4{Metal Available?<br/>has_metal}
+    Priority4 -->|Yes| MetalAuto[✅ Metal Backend<br/>GPU acceleration]
+    Priority4 -->|No| ErrorAuto[❌ Error: No suitable backend<br/>MLX → CoreML → MlxBridge → Metal → CPU]
 
     %% Backend Creation
     CoreMLBackend --> CreateCoreML[Create CoreML Backend]
@@ -636,6 +943,7 @@ flowchart TD
     MetalFallback1 --> CreateMetal
     CoreMLAuto --> CreateCoreML
     MLXAuto --> CreateMLX
+    MlxBridgeAuto --> CreateMLXBridge[Create MLX Bridge Backend]
     MetalAuto --> CreateMetal
 
     %% Cache Check
@@ -952,7 +1260,7 @@ export AOS_MODEL_PATH=/var/model-cache/models/qwen3-30b-moe
 
 #### Error: "No suitable backend available"
 
-**Cause:** Auto-selection exhausted all options (CoreML → MLX → Metal → CPU)
+**Cause:** Auto-selection exhausted all options (MLX → CoreML → MlxBridge → Metal → CPU)
 
 **Solution:**
 1. Check hardware capabilities:

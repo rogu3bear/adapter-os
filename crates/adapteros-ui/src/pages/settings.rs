@@ -4,9 +4,11 @@
 //! and System Info sections. Settings persist to localStorage.
 
 use crate::api::ApiClient;
-use crate::components::{Badge, BadgeVariant, Button, ButtonVariant, Card, Input, Shell, Spinner, Toggle, Select};
+use crate::components::{
+    Badge, BadgeVariant, Button, ButtonVariant, Card, Input, Select, Spinner, Toggle,
+};
 use crate::hooks::{use_api_resource, LoadingState};
-use crate::signals::{use_auth, use_settings, update_setting, Theme, DefaultPage};
+use crate::signals::{update_setting, use_auth, use_settings, DefaultPage, Theme};
 use adapteros_api_types::HealthResponse;
 use leptos::prelude::*;
 use std::sync::Arc;
@@ -18,9 +20,8 @@ pub fn Settings() -> impl IntoView {
     let active_tab = RwSignal::new("profile".to_string());
 
     view! {
-        <Shell>
-            <div class="space-y-6">
-                <h1 class="text-3xl font-bold tracking-tight">"Settings"</h1>
+        <div class="p-6 space-y-6">
+            <h1 class="text-3xl font-bold tracking-tight">"Settings"</h1>
 
                 // Tab navigation
                 <div class="border-b">
@@ -60,18 +61,13 @@ pub fn Settings() -> impl IntoView {
                         }
                     }}
                 </div>
-            </div>
-        </Shell>
+        </div>
     }
 }
 
 /// Tab button component
 #[component]
-fn TabButton(
-    tab: String,
-    label: String,
-    active: RwSignal<String>,
-) -> impl IntoView {
+fn TabButton(tab: String, label: String, active: RwSignal<String>) -> impl IntoView {
     let tab_value = tab.clone();
     let is_active = move || active.get() == tab_value;
 
@@ -254,7 +250,10 @@ fn ApiConfigSection() -> impl IntoView {
 
     // Local state for API endpoint editing
     let api_endpoint = RwSignal::new(
-        settings.get_untracked().api_endpoint.unwrap_or_else(get_default_api_endpoint)
+        settings
+            .get_untracked()
+            .api_endpoint
+            .unwrap_or_else(get_default_api_endpoint),
     );
 
     // Connection test state
@@ -440,11 +439,7 @@ fn mask_token(token: &str) -> String {
     if token.len() <= 12 {
         "*".repeat(token.len())
     } else {
-        format!(
-            "{}...{}",
-            &token[..6],
-            &token[token.len() - 6..]
-        )
+        format!("{}...{}", &token[..6], &token[token.len() - 6..])
     }
 }
 
@@ -464,7 +459,7 @@ fn PreferencesSection() -> impl IntoView {
 
     // Effect to sync theme changes
     Effect::new(move || {
-        let new_theme = Theme::from_str(&theme.get());
+        let new_theme = Theme::parse(&theme.get());
         update_setting(settings, |s| {
             s.theme = new_theme;
             s.apply_theme();
@@ -489,7 +484,7 @@ fn PreferencesSection() -> impl IntoView {
 
     // Effect to sync default page changes
     Effect::new(move || {
-        let new_page = DefaultPage::from_str(&default_page.get());
+        let new_page = DefaultPage::parse(&default_page.get());
         update_setting(settings, |s| {
             s.default_page = new_page;
         });
@@ -585,9 +580,8 @@ fn PreferencesSection() -> impl IntoView {
 #[component]
 fn SystemInfoSection() -> impl IntoView {
     // Fetch health info
-    let (health, refetch) = use_api_resource(|client: Arc<ApiClient>| async move {
-        client.health().await
-    });
+    let (health, refetch) =
+        use_api_resource(|client: Arc<ApiClient>| async move { client.health().await });
 
     view! {
         <div class="space-y-6 max-w-2xl">

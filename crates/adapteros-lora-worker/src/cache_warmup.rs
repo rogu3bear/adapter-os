@@ -146,7 +146,10 @@ impl CacheWarmupManager {
                 placement: None,
                 routing_policy: None,
                 stop_policy: None,
+                policy_mask_digest_b3: None,
+                utf8_healing: true,
                 admin_override: false,
+                arrival_instant: None, // Internal warmup, no queue timing needed
             };
 
             match worker.infer(request).await {
@@ -225,7 +228,10 @@ impl CacheWarmupManager {
                 placement: None,
                 routing_policy: None,
                 stop_policy: None,
+                policy_mask_digest_b3: None,
+                utf8_healing: true,
                 admin_override: false,
+                arrival_instant: None, // Internal warmup, no queue timing needed
             };
 
             match worker.infer(request).await {
@@ -441,7 +447,10 @@ where
             placement: None,
             routing_policy: None,
             stop_policy: None,
+            policy_mask_digest_b3: None,
+            utf8_healing: true,
             admin_override: false,
+            arrival_instant: None, // Internal health check, no queue timing needed
         };
 
         // Run inference with timeout

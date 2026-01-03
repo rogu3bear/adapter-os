@@ -112,18 +112,33 @@ pub struct InferenceRequest {
     /// Used to enforce allow/deny lists and max-adapter limits per token.
     #[serde(default)]
     pub routing_policy: Option<adapteros_api_types::RoutingPolicy>,
+    /// BLAKE3 digest of policy decisions applied during request processing
+    #[serde(default)]
+    pub policy_mask_digest_b3: Option<[u8; 32]>,
 
     /// Optional stop policy for deterministic stop control (PRD: Hard Deterministic Stop Controller)
     #[serde(default)]
     pub stop_policy: Option<adapteros_api_types::inference::StopPolicySpec>,
+    /// Enable UTF-8 token healing (default: true)
+    #[serde(default = "default_utf8_healing")]
+    pub utf8_healing: bool,
 
     /// Admin override flag to bypass cluster routing restrictions (debug only)
     #[serde(default)]
     pub admin_override: bool,
+
+    /// Arrival timestamp for queue timing measurement (set by UDS server)
+    /// This is NOT serialized - it's set internally when the request arrives
+    #[serde(skip)]
+    pub arrival_instant: Option<std::time::Instant>,
 }
 
 fn default_determinism_mode() -> String {
     "strict".to_string()
+}
+
+fn default_utf8_healing() -> bool {
+    true
 }
 
 /// Returns true when strict determinism protections should be enforced.

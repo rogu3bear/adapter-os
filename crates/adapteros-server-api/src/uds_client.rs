@@ -16,8 +16,42 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
+use tokio::sync::mpsc;
+use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
+
+// ============================================================================
+// UDS Phase Timings
+// ============================================================================
+
+/// Timing breakdown for UDS inference operations.
+///
+/// Captures the duration of each phase of the UDS communication:
+/// - connect: Time to establish the Unix socket connection
+/// - write: Time to send the request over the socket
+/// - read: Time to receive and read the response (includes inference time)
+#[derive(Debug, Clone, Default)]
+pub struct UdsPhaseTimings {
+    /// Connect phase duration in seconds
+    pub connect_secs: f64,
+    /// Write phase duration in seconds
+    pub write_secs: f64,
+    /// Read phase duration in seconds (includes worker inference time)
+    pub read_secs: f64,
+}
+
+impl UdsPhaseTimings {
+    /// Total round-trip time in seconds
+    pub fn total_secs(&self) -> f64 {
+        self.connect_secs + self.write_secs + self.read_secs
+    }
+
+    /// Total round-trip time in milliseconds
+    pub fn total_ms(&self) -> u64 {
+        (self.total_secs() * 1000.0) as u64
+    }
+}
 
 // ============================================================================
 // Routing Guard - Ensures all inference goes through the router
@@ -148,6 +182,22 @@ fn default_status() -> String {
     "unknown".to_string()
 }
 
+/// Token payload for streaming inference over UDS.
+#[derive(Debug, Clone, Deserialize)]
+pub struct WorkerStreamToken {
+    pub text: String,
+    #[serde(default)]
+    pub token_id: Option<u32>,
+}
+
+/// Streaming events emitted by the worker over UDS.
+#[derive(Debug)]
+pub enum WorkerStreamEvent {
+    Token(WorkerStreamToken),
+    Complete(Box<crate::types::WorkerInferResponse>),
+    Error(String),
+}
+
 impl UdsClient {
     /// Create a new UDS client with default circuit breaker configuration
     pub fn new(timeout: Duration) -> Self {
@@ -246,6 +296,50 @@ impl UdsClient {
         result
     }
 
+    fn format_auth_header(authorization: Option<&str>) -> String {
+        let Some(token) = authorization else {
+            return String::new();
+        };
+
+        let token = token.trim();
+        if token.starts_with("Bearer ") || token.starts_with("ApiKey ") {
+            format!("Authorization: {}\r\n", token)
+        } else {
+            format!("Authorization: Bearer {}\r\n", token)
+        }
+    }
+
+    fn spawn_cancel_request(
+        uds_path: &Path,
+        request_id: Option<&str>,
+        cpid: Option<&str>,
+        authorization: Option<&str>,
+        reason: &str,
+    ) {
+        let Some(request_id) = request_id else {
+            return;
+        };
+
+        let uds_path = uds_path.to_path_buf();
+        let request_id = request_id.to_string();
+        let cpid = cpid.map(|value| value.to_string());
+        let authorization = authorization.map(|token| token.to_string());
+        let reason = reason.to_string();
+
+        tokio::spawn(async move {
+            let client = UdsClient::new(Duration::from_secs(2));
+            let _ = client
+                .cancel_inference(
+                    &uds_path,
+                    &request_id,
+                    cpid.as_deref(),
+                    authorization.as_deref(),
+                    Some(&reason),
+                )
+                .await;
+        });
+    }
+
     /// Internal implementation of infer without circuit breaker wrapping
     async fn infer_inner(
         &self,
@@ -255,12 +349,21 @@ impl UdsClient {
         cancellation_token: Option<CancellationToken>,
     ) -> Result<crate::types::WorkerInferResponse, UdsClientError> {
         let cancel = cancellation_token.as_ref();
+        let request_id = request.request_id.clone();
+        let request_cpid = request.cpid.clone();
 
         // Connect to UDS
         let connect = tokio::time::timeout(self.timeout, UnixStream::connect(uds_path));
         let stream_result = if let Some(token) = cancel {
             tokio::select! {
                 _ = token.cancelled() => {
+                    Self::spawn_cancel_request(
+                        uds_path,
+                        request_id.as_deref(),
+                        Some(request_cpid.as_str()),
+                        authorization,
+                        "Cancelled before connecting to worker",
+                    );
                     return Err(UdsClientError::Cancelled(
                         "Cancelled before connecting to worker".to_string()
                     ));
@@ -280,9 +383,7 @@ impl UdsClient {
 
         // Worker authentication: Use Bearer format for Ed25519-signed JWTs
         // The worker validates these tokens using the control plane's public key
-        let auth_header = authorization
-            .map(|token| format!("Authorization: Bearer {}\r\n", token))
-            .unwrap_or_default();
+        let auth_header = Self::format_auth_header(authorization);
 
         // Create HTTP request
         let http_request = format!(
@@ -304,6 +405,13 @@ impl UdsClient {
         if let Some(token) = cancel {
             tokio::select! {
                 _ = token.cancelled() => {
+                    Self::spawn_cancel_request(
+                        uds_path,
+                        request_id.as_deref(),
+                        Some(request_cpid.as_str()),
+                        authorization,
+                        "Cancelled while sending request to worker",
+                    );
                     return Err(UdsClientError::Cancelled(
                         "Cancelled while sending request to worker".to_string()
                     ));
@@ -328,6 +436,13 @@ impl UdsClient {
         if let Some(token) = cancel {
             tokio::select! {
                 _ = token.cancelled() => {
+                    Self::spawn_cancel_request(
+                        uds_path,
+                        request_id.as_deref(),
+                        Some(request_cpid.as_str()),
+                        authorization,
+                        "Cancelled while waiting for worker response",
+                    );
                     return Err(UdsClientError::Cancelled(
                         "Cancelled while waiting for worker response".to_string()
                     ));
@@ -450,6 +565,535 @@ impl UdsClient {
         Ok(response)
     }
 
+    /// Internal implementation of infer that captures phase timings.
+    ///
+    /// This method wraps the I/O operations with timing to produce
+    /// `UdsPhaseTimings` for observability and debugging.
+    async fn infer_inner_with_timings(
+        &self,
+        uds_path: &Path,
+        request: crate::types::WorkerInferRequest,
+        authorization: Option<&str>,
+        cancellation_token: Option<CancellationToken>,
+    ) -> Result<(crate::types::WorkerInferResponse, UdsPhaseTimings), UdsClientError> {
+        let cancel = cancellation_token.as_ref();
+        let request_id = request.request_id.clone();
+        let request_cpid = request.cpid.clone();
+
+        let mut timings = UdsPhaseTimings::default();
+
+        // ---- Connect phase ----
+        let connect_start = Instant::now();
+        let connect = tokio::time::timeout(self.timeout, UnixStream::connect(uds_path));
+        let stream_result = if let Some(token) = cancel {
+            tokio::select! {
+                _ = token.cancelled() => {
+                    Self::spawn_cancel_request(
+                        uds_path,
+                        request_id.as_deref(),
+                        Some(request_cpid.as_str()),
+                        authorization,
+                        "Cancelled before connecting to worker",
+                    );
+                    return Err(UdsClientError::Cancelled(
+                        "Cancelled before connecting to worker".to_string()
+                    ));
+                }
+                res = connect => res,
+            }
+        } else {
+            connect.await
+        };
+        let mut stream = stream_result
+            .map_err(|_| UdsClientError::Timeout("Connection timed out".to_string()))?
+            .map_err(|e| UdsClientError::ConnectionFailed(e.to_string()))?;
+        timings.connect_secs = connect_start.elapsed().as_secs_f64();
+
+        // Serialize the request
+        let request_json = serde_json::to_string(&request)
+            .map_err(|e| UdsClientError::SerializationError(e.to_string()))?;
+
+        // Worker authentication: Use Bearer format for Ed25519-signed JWTs
+        // The worker validates these tokens using the control plane's public key
+        let auth_header = Self::format_auth_header(authorization);
+
+        // Create HTTP request
+        let http_request = format!(
+            "POST /inference HTTP/1.1\r\n\
+             Host: worker\r\n\
+             Content-Type: application/json\r\n\
+             {}\
+             Content-Length: {}\r\n\
+             \r\n\
+             {}",
+            auth_header,
+            request_json.len(),
+            request_json
+        );
+
+        // ---- Write phase ----
+        let write_start = Instant::now();
+        let write_future =
+            tokio::time::timeout(self.timeout, stream.write_all(http_request.as_bytes()));
+        if let Some(token) = cancel {
+            tokio::select! {
+                _ = token.cancelled() => {
+                    Self::spawn_cancel_request(
+                        uds_path,
+                        request_id.as_deref(),
+                        Some(request_cpid.as_str()),
+                        authorization,
+                        "Cancelled while sending request to worker",
+                    );
+                    return Err(UdsClientError::Cancelled(
+                        "Cancelled while sending request to worker".to_string()
+                    ));
+                }
+                result = write_future => {
+                    result
+                        .map_err(|_| UdsClientError::Timeout("Write timed out".to_string()))?
+                        .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?
+                }
+            }
+        } else {
+            write_future
+                .await
+                .map_err(|_| UdsClientError::Timeout("Write timed out".to_string()))?
+                .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
+        }
+        timings.write_secs = write_start.elapsed().as_secs_f64();
+
+        // ---- Read phase ----
+        let read_start = Instant::now();
+        let mut response_buffer = Vec::new();
+        let read_future =
+            tokio::time::timeout(self.timeout, stream.read_to_end(&mut response_buffer));
+        if let Some(token) = cancel {
+            tokio::select! {
+                _ = token.cancelled() => {
+                    Self::spawn_cancel_request(
+                        uds_path,
+                        request_id.as_deref(),
+                        Some(request_cpid.as_str()),
+                        authorization,
+                        "Cancelled while waiting for worker response",
+                    );
+                    return Err(UdsClientError::Cancelled(
+                        "Cancelled while waiting for worker response".to_string()
+                    ));
+                }
+                result = read_future => {
+                    let _ = result
+                        .map_err(|_| UdsClientError::Timeout("Read timed out".to_string()))?
+                        .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
+                }
+            }
+        } else {
+            let _ = read_future
+                .await
+                .map_err(|_| UdsClientError::Timeout("Read timed out".to_string()))?
+                .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
+        }
+        timings.read_secs = read_start.elapsed().as_secs_f64();
+
+        // Parse HTTP response
+        let response_str = String::from_utf8_lossy(&response_buffer);
+        let lines: Vec<&str> = response_str.lines().collect();
+
+        if lines.is_empty() {
+            return Err(UdsClientError::RequestFailed("Empty response".to_string()));
+        }
+
+        // Check status line
+        let status_line = lines[0];
+        if !status_line.contains("200 OK") {
+            // Check for 503 backpressure response (worker healthy but at capacity)
+            if status_line.contains("503") {
+                // Try to parse the JSON body for retry_after_ms
+                let bp_json_str = response_str
+                    .find("\r\n\r\n")
+                    .and_then(|pos| response_str.get(pos + 4..))
+                    .unwrap_or("{}");
+
+                #[derive(Deserialize)]
+                struct OverloadResponse {
+                    #[serde(default)]
+                    retry_after_ms: u64,
+                    #[serde(default)]
+                    message: String,
+                }
+
+                let overload: OverloadResponse =
+                    serde_json::from_str(bp_json_str).unwrap_or(OverloadResponse {
+                        retry_after_ms: 100,
+                        message: "Worker overloaded".to_string(),
+                    });
+
+                return Err(UdsClientError::WorkerOverloaded {
+                    retry_after_ms: overload.retry_after_ms,
+                    message: overload.message,
+                });
+            }
+
+            // Try to parse the JSON body for structured error details
+            let error_json_str = response_str
+                .find("\r\n\r\n")
+                .and_then(|pos| response_str.get(pos + 4..))
+                .unwrap_or("{}");
+
+            // Check for cache budget exceeded error by parsing error body
+            #[derive(Deserialize)]
+            struct WorkerErrorResponse {
+                #[serde(default)]
+                error: String,
+            }
+
+            if let Ok(err_response) = serde_json::from_str::<WorkerErrorResponse>(error_json_str) {
+                // Check if error message indicates cache budget exceeded
+                if err_response.error.contains("cache budget exceeded")
+                    || err_response.error.contains("Model cache budget exceeded")
+                {
+                    // Try to parse structured fields from the error message
+                    if let Some((needed_mb, freed_mb, pinned_count, active_count, max_mb)) =
+                        parse_cache_budget_error(&err_response.error)
+                    {
+                        return Err(UdsClientError::CacheBudgetExceeded {
+                            needed_mb,
+                            freed_mb,
+                            pinned_count,
+                            active_count,
+                            max_mb,
+                            model_key: None,
+                        });
+                    }
+                }
+            }
+
+            return Err(UdsClientError::RequestFailed(format!(
+                "Worker returned error: {}",
+                status_line
+            )));
+        }
+
+        // Find JSON body (after double CRLF) - safe slicing to prevent panic
+        let json_str = match response_str.find("\r\n\r\n") {
+            Some(pos) => response_str.get(pos + 4..).unwrap_or_else(|| {
+                warn!(
+                    response_len = response_str.len(),
+                    header_end_pos = pos,
+                    "Malformed HTTP response: body offset exceeds response length"
+                );
+                ""
+            }),
+            None => {
+                warn!(
+                    response_preview = %response_str.chars().take(100).collect::<String>(),
+                    "Malformed HTTP response: missing header/body separator (\\r\\n\\r\\n)"
+                );
+                ""
+            }
+        };
+
+        // Parse JSON response
+        let response: crate::types::WorkerInferResponse = serde_json::from_str(json_str)
+            .map_err(|e| UdsClientError::SerializationError(e.to_string()))?;
+
+        Ok((response, timings))
+    }
+
+    /// Send an inference request and stream tokens via SSE.
+    pub async fn infer_stream(
+        &self,
+        uds_path: &Path,
+        request: crate::types::WorkerInferRequest,
+        authorization: Option<&str>,
+        cancellation_token: Option<CancellationToken>,
+    ) -> Result<ReceiverStream<Result<WorkerStreamEvent, UdsClientError>>, UdsClientError> {
+        // GUARD: Fail hard if not in routed context
+        if !is_routed_context() {
+            tracing::error!(
+                kind = "ROUTING_BYPASS",
+                "Inference call attempted without routing; this is a bug. Use InferenceCore::route_and_infer()"
+            );
+            return Err(UdsClientError::RoutingBypass(
+                "Inference call attempted without routing. Use InferenceCore::route_and_infer()"
+                    .into(),
+            ));
+        }
+
+        // Check circuit breaker state before attempting the operation
+        let cb_state = self.circuit_breaker.state();
+        if matches!(cb_state, adapteros_core::CircuitState::Open { .. }) {
+            return Err(UdsClientError::WorkerNotAvailable(
+                "Circuit breaker is open - worker is experiencing failures".to_string(),
+            ));
+        }
+
+        let cancel = cancellation_token.clone();
+        let request_id = request.request_id.clone();
+        let request_cpid = request.cpid.clone();
+        let cancel_authorization = authorization.map(|token| token.to_string());
+
+        // Connect to UDS
+        let connect = tokio::time::timeout(self.timeout, UnixStream::connect(uds_path));
+        let stream_result = if let Some(token) = cancel.as_ref() {
+            tokio::select! {
+                _ = token.cancelled() => {
+                    Self::spawn_cancel_request(
+                        uds_path,
+                        request_id.as_deref(),
+                        Some(request_cpid.as_str()),
+                        authorization,
+                        "Cancelled before connecting to worker",
+                    );
+                    return Err(UdsClientError::Cancelled(
+                        "Cancelled before connecting to worker".to_string()
+                    ));
+                }
+                res = connect => res,
+            }
+        } else {
+            connect.await
+        };
+
+        let stream = stream_result
+            .map_err(|_| UdsClientError::Timeout("Connection timed out".to_string()))?
+            .map_err(|e| UdsClientError::ConnectionFailed(e.to_string()))?;
+
+        let (read_half, mut write_half) = stream.into_split();
+
+        // Serialize the request
+        let request_json = serde_json::to_string(&request)
+            .map_err(|e| UdsClientError::SerializationError(e.to_string()))?;
+
+        // Worker authentication: Use Bearer format for Ed25519-signed JWTs
+        let auth_header = Self::format_auth_header(authorization);
+
+        // Create HTTP request with SSE headers
+        let http_request = format!(
+            "POST /inference HTTP/1.1\r\n\
+             Host: worker\r\n\
+             Content-Type: application/json\r\n\
+             {}\
+             Accept: text/event-stream\r\n\
+             X-Stream: true\r\n\
+             Content-Length: {}\r\n\
+             \r\n\
+             {}",
+            auth_header,
+            request_json.len(),
+            request_json
+        );
+
+        // Send request
+        let write_future =
+            tokio::time::timeout(self.timeout, write_half.write_all(http_request.as_bytes()));
+        if let Some(token) = cancel.as_ref() {
+            tokio::select! {
+                _ = token.cancelled() => {
+                    Self::spawn_cancel_request(
+                        uds_path,
+                        request_id.as_deref(),
+                        Some(request_cpid.as_str()),
+                        authorization,
+                        "Cancelled while sending request to worker",
+                    );
+                    return Err(UdsClientError::Cancelled(
+                        "Cancelled while sending request to worker".to_string()
+                    ));
+                }
+                result = write_future => {
+                    result
+                        .map_err(|_| UdsClientError::Timeout("Write timed out".to_string()))?
+                        .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?
+                }
+            }
+        } else {
+            write_future
+                .await
+                .map_err(|_| UdsClientError::Timeout("Write timed out".to_string()))?
+                .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
+        }
+
+        let (tx, rx) = mpsc::channel::<Result<WorkerStreamEvent, UdsClientError>>(64);
+        let timeout = self.timeout;
+        let uds_path = uds_path.to_path_buf();
+        let cancel_request_id = request_id.clone();
+        let cancel_cpid = request_cpid.clone();
+        let cancel_authorization = cancel_authorization.clone();
+
+        tokio::spawn(async move {
+            let mut reader = BufReader::new(read_half);
+            let mut line = String::new();
+
+            // Read status line
+            line.clear();
+            let status = match tokio::time::timeout(timeout, reader.read_line(&mut line)).await {
+                Ok(Ok(0)) => {
+                    let _ = tx
+                        .send(Err(UdsClientError::RequestFailed(
+                            "Empty response".to_string(),
+                        )))
+                        .await;
+                    return;
+                }
+                Ok(Ok(_)) => line.clone(),
+                Ok(Err(e)) => {
+                    let _ = tx
+                        .send(Err(UdsClientError::RequestFailed(e.to_string())))
+                        .await;
+                    return;
+                }
+                Err(_) => {
+                    let _ = tx
+                        .send(Err(UdsClientError::Timeout("Read timed out".to_string())))
+                        .await;
+                    return;
+                }
+            };
+
+            if !status.contains("200 OK") {
+                let _ = tx
+                    .send(Err(UdsClientError::RequestFailed(format!(
+                        "Worker returned error: {}",
+                        status.trim()
+                    ))))
+                    .await;
+                return;
+            }
+
+            // Skip headers
+            loop {
+                line.clear();
+                match tokio::time::timeout(timeout, reader.read_line(&mut line)).await {
+                    Ok(Ok(0)) => break,
+                    Ok(Ok(_)) => {
+                        if line.trim().is_empty() {
+                            break;
+                        }
+                    }
+                    Ok(Err(e)) => {
+                        let _ = tx
+                            .send(Err(UdsClientError::RequestFailed(e.to_string())))
+                            .await;
+                        return;
+                    }
+                    Err(_) => {
+                        let _ = tx
+                            .send(Err(UdsClientError::Timeout(
+                                "Header read timed out".to_string(),
+                            )))
+                            .await;
+                        return;
+                    }
+                }
+            }
+
+            let mut event_type = String::new();
+            let mut event_data = String::new();
+
+            loop {
+                line.clear();
+                let read_line = tokio::time::timeout(timeout, reader.read_line(&mut line));
+                let read_result = if let Some(token) = cancel.as_ref() {
+                    tokio::select! {
+                        _ = token.cancelled() => {
+                            UdsClient::spawn_cancel_request(
+                                &uds_path,
+                                cancel_request_id.as_deref(),
+                                Some(cancel_cpid.as_str()),
+                                cancel_authorization.as_deref(),
+                                "Cancelled while streaming",
+                            );
+                            let _ = tx
+                                .send(Err(UdsClientError::Cancelled(
+                                    "Cancelled while streaming".to_string()
+                                )))
+                                .await;
+                            return;
+                        }
+                        res = read_line => res,
+                    }
+                } else {
+                    read_line.await
+                };
+
+                let n = match read_result {
+                    Ok(Ok(n)) => n,
+                    Ok(Err(e)) => {
+                        let _ = tx
+                            .send(Err(UdsClientError::RequestFailed(e.to_string())))
+                            .await;
+                        return;
+                    }
+                    Err(_) => {
+                        let _ = tx
+                            .send(Err(UdsClientError::Timeout(
+                                "SSE line read timed out".to_string(),
+                            )))
+                            .await;
+                        return;
+                    }
+                };
+
+                if n == 0 {
+                    break;
+                }
+
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    if event_type.is_empty() {
+                        event_data.clear();
+                        continue;
+                    }
+
+                    let result = match event_type.as_str() {
+                        "token" => serde_json::from_str::<WorkerStreamToken>(&event_data)
+                            .map(WorkerStreamEvent::Token)
+                            .map_err(|e| UdsClientError::SerializationError(e.to_string())),
+                        "complete" => {
+                            serde_json::from_str::<crate::types::WorkerInferResponse>(&event_data)
+                                .map(|v| WorkerStreamEvent::Complete(Box::new(v)))
+                                .map_err(|e| UdsClientError::SerializationError(e.to_string()))
+                        }
+                        "error" => {
+                            let message = serde_json::from_str::<serde_json::Value>(&event_data)
+                                .ok()
+                                .and_then(|value| {
+                                    value
+                                        .get("error")
+                                        .and_then(|v| v.as_str())
+                                        .map(|v| v.to_string())
+                                })
+                                .unwrap_or_else(|| event_data.clone());
+                            Ok(WorkerStreamEvent::Error(message))
+                        }
+                        _ => Ok(WorkerStreamEvent::Error(format!(
+                            "Unknown event type: {}",
+                            event_type
+                        ))),
+                    };
+
+                    if tx.send(result).await.is_err() {
+                        return;
+                    }
+
+                    event_type.clear();
+                    event_data.clear();
+                } else if let Some(stripped) = trimmed.strip_prefix("event:") {
+                    event_type = stripped.trim().to_string();
+                } else if let Some(stripped) = trimmed.strip_prefix("data:") {
+                    if !event_data.is_empty() {
+                        event_data.push('\n');
+                    }
+                    event_data.push_str(stripped.trim());
+                }
+            }
+        });
+
+        Ok(ReceiverStream::new(rx))
+    }
+
     /// Send an inference request to a worker via UDS with latency tracking
     ///
     /// Returns both the response and the round-trip latency in milliseconds.
@@ -467,6 +1111,79 @@ impl UdsClient {
             .await?;
         let latency_ms = start.elapsed().as_millis() as u64;
         Ok((response, latency_ms))
+    }
+
+    /// Send an inference request to a worker via UDS with detailed phase timings.
+    ///
+    /// Returns the response along with `UdsPhaseTimings` which captures the
+    /// duration of each I/O phase (connect, write, read). This is useful for
+    /// diagnosing performance issues in the UDS communication path.
+    ///
+    /// This method is protected by:
+    /// - Routing guard (must be called via InferenceCore)
+    /// - Circuit breaker (fails fast when worker is unhealthy)
+    pub async fn infer_with_phase_timings(
+        &self,
+        uds_path: &Path,
+        request: crate::types::WorkerInferRequest,
+        authorization: Option<&str>,
+        cancellation_token: Option<CancellationToken>,
+    ) -> Result<(crate::types::WorkerInferResponse, UdsPhaseTimings), UdsClientError> {
+        // GUARD: Fail hard if not in routed context
+        if !is_routed_context() {
+            tracing::error!(
+                kind = "ROUTING_BYPASS",
+                "Inference call attempted without routing; this is a bug. Use InferenceCore::route_and_infer()"
+            );
+            return Err(UdsClientError::RoutingBypass(
+                "Inference call attempted without routing. Use InferenceCore::route_and_infer()"
+                    .into(),
+            ));
+        }
+
+        // Check circuit breaker state before attempting the operation
+        let cb_state = self.circuit_breaker.state();
+        if matches!(cb_state, adapteros_core::CircuitState::Open { .. }) {
+            return Err(UdsClientError::WorkerNotAvailable(
+                "Circuit breaker is open - worker is experiencing failures".to_string(),
+            ));
+        }
+
+        // Execute the inference operation through the circuit breaker
+        let result = self
+            .infer_inner_with_timings(uds_path, request, authorization, cancellation_token)
+            .await;
+
+        // Record the result with the circuit breaker
+        match &result {
+            Ok(_) => {
+                // Record success with circuit breaker
+                let _ = self.circuit_breaker.call(async { Ok::<(), _>(()) }).await;
+            }
+            Err(e) => {
+                // Only count certain errors as failures for circuit breaker purposes
+                // Connection failures and timeouts indicate worker issues
+                // Routing bypass, cancellation, and serialization errors are not worker issues
+                let is_worker_failure = matches!(
+                    e,
+                    UdsClientError::ConnectionFailed(_)
+                        | UdsClientError::Timeout(_)
+                        | UdsClientError::RequestFailed(_)
+                        | UdsClientError::WorkerNotAvailable(_)
+                );
+                if is_worker_failure {
+                    // Record failure with circuit breaker by calling with a failing future
+                    let _ = self
+                        .circuit_breaker
+                        .call(async {
+                            Err::<(), _>(adapteros_core::AosError::Worker(e.to_string()))
+                        })
+                        .await;
+                }
+            }
+        }
+
+        result
     }
 
     /// Check if a worker is healthy via UDS
@@ -985,16 +1702,47 @@ impl UdsClient {
         &self,
         uds_path: &Path,
         request_id: &str,
+        cpid: Option<&str>,
+        authorization: Option<&str>,
+        reason: Option<&str>,
     ) -> Result<(), UdsClientError> {
         let mut stream = tokio::time::timeout(self.timeout, UnixStream::connect(uds_path))
             .await
             .map_err(|_| UdsClientError::Timeout("Connection timed out".to_string()))?
             .map_err(|e| UdsClientError::ConnectionFailed(e.to_string()))?;
 
-        let http_request = format!(
-            "POST /inference/cancel/{} HTTP/1.1\r\nHost: worker\r\n\r\n",
-            request_id
-        );
+        let request_json = if reason.is_some() || cpid.is_some() {
+            serde_json::to_string(&serde_json::json!({
+                "reason": reason,
+                "cpid": cpid,
+            }))
+            .map_err(|e| UdsClientError::SerializationError(e.to_string()))?
+        } else {
+            String::new()
+        };
+
+        let auth_header = Self::format_auth_header(authorization);
+
+        let http_request = if request_json.is_empty() {
+            format!(
+                "POST /inference/cancel/{} HTTP/1.1\r\nHost: worker\r\n{}\r\n",
+                request_id, auth_header
+            )
+        } else {
+            format!(
+                "POST /inference/cancel/{} HTTP/1.1\r\n\
+                 Host: worker\r\n\
+                 Content-Type: application/json\r\n\
+                 {}\
+                 Content-Length: {}\r\n\
+                 \r\n\
+                 {}",
+                request_id,
+                auth_header,
+                request_json.len(),
+                request_json
+            )
+        };
 
         tokio::time::timeout(self.timeout, stream.write_all(http_request.as_bytes()))
             .await

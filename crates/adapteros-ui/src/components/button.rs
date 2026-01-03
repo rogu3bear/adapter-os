@@ -18,9 +18,13 @@ impl ButtonVariant {
         match self {
             Self::Primary => "bg-primary text-primary-foreground hover:bg-primary/90",
             Self::Secondary => "bg-secondary text-secondary-foreground hover:bg-secondary/80",
-            Self::Outline => "border border-input bg-background hover:bg-accent hover:text-accent-foreground",
+            Self::Outline => {
+                "border border-input bg-background hover:bg-accent hover:text-accent-foreground"
+            }
             Self::Ghost => "hover:bg-accent hover:text-accent-foreground",
-            Self::Destructive => "bg-destructive text-destructive-foreground hover:bg-destructive/90",
+            Self::Destructive => {
+                "bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            }
         }
     }
 }

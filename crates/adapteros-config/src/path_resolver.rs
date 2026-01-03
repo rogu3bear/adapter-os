@@ -383,7 +383,7 @@ pub fn resolve_database_url() -> Result<ResolvedPath> {
 /// Precedence:
 /// 1) CLI override (already parsed into `override_path`)
 /// 2) AOS_WORKER_SOCKET
-/// 3) /var/run/aos/{tenant}/worker.sock (attempts to create parent)
+/// 3) ./var/run/aos/{tenant}/worker.sock (attempts to create parent)
 /// 4) ./var/run/worker.sock (dev fallback)
 pub fn resolve_worker_socket_for_worker(
     tenant_id: &str,
@@ -467,7 +467,7 @@ pub fn resolve_worker_socket_for_worker(
 ///
 /// Precedence:
 /// 1) AOS_WORKER_SOCKET
-/// 2) /var/run/adapteros.sock
+/// 2) ./var/run/adapteros.sock
 pub fn resolve_worker_socket_for_cp() -> Result<ResolvedPath> {
     crate::model::load_dotenv();
     if let Ok(env_path) = std::env::var("AOS_WORKER_SOCKET") {

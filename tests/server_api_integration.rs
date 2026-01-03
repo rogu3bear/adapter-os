@@ -13,7 +13,9 @@ use adapteros_manifest::{
     ManifestV3, Policies, RouterCfg, Sampling, Seeds, TelemetryCfg,
 };
 use adapteros_server_api::{
-    types::{InferenceRequestInternal, RouterSummary, WorkerInferResponse, WorkerTrace},
+    types::{
+        InferenceRequestInternal, RouterSummary, TokenUsage, WorkerInferResponse, WorkerTrace,
+    },
     InferenceCore,
 };
 use common::fixtures_consolidated::{TestAdapterFactory, TestAppStateBuilder};
@@ -114,7 +116,7 @@ async fn golden_path_inference_over_uds() -> Result<(), Box<dyn std::error::Erro
 
     let core = InferenceCore::new(&state);
     let result = core
-        .route_and_infer(request, None, None)
+        .route_and_infer(request, None, None, None)
         .await
         .expect("golden path inference should succeed");
 
@@ -251,10 +253,18 @@ fn build_stub_response(adapter_id: &str, backend: &str) -> WorkerInferResponse {
             router_summary: RouterSummary {
                 adapters_used: vec![adapter_id.to_string()],
             },
+            token_count: 6,
             router_decisions: None,
             router_decision_chain: Some(build_stub_router_chain(adapter_id)),
             model_type: Some(RouterModelType::Dense),
         },
+        run_receipt: None,
+        token_usage: Some(TokenUsage {
+            prompt_tokens: 3,
+            completion_tokens: 6,
+            billed_input_tokens: 3,
+            billed_output_tokens: 6,
+        }),
         backend_used: Some(backend.to_string()),
         backend_version: Some(AOS_VERSION.to_string()),
         fallback_triggered: false,

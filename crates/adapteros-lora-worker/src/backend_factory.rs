@@ -14,20 +14,28 @@ pub mod capabilities;
 mod model_config;
 mod model_io;
 
-pub use cache::{configure_model_cache_telemetry, get_model_cache, validate_model_cache_budget};
+pub use cache::{
+    configure_model_cache_pinning, configure_model_cache_telemetry, get_model_cache,
+    validate_model_cache_budget, BaseModelPinConfig,
+};
 pub use capabilities::{
     auto_select_backend, describe_available_backends, detect_capabilities,
     select_backend_from_execution_profile, BackendCapabilities, BackendSelection, BackendStrategy,
     SelectionContext,
 };
+pub use model_config::{resolve_base_model_pin_budget_bytes, resolve_base_model_pin_enabled};
 pub use model_io::load_model_bytes_verified;
 
-use crate::model_handle_cache::ModelHandle;
+use crate::model_handle_cache::{ModelHandle, ModelHandleCache};
 use crate::model_key::ModelKey;
 use adapteros_config::{model, reject_tmp_persistent_path, BackendPreference, ModelConfig};
 use adapteros_core::{constants::BYTES_PER_MB, AosError, B3Hash, Result};
 use adapteros_lora_kernel_api::attestation::BackendType;
 use adapteros_lora_kernel_api::FusedKernels;
+#[cfg(all(target_os = "macos", feature = "coreml-backend"))]
+use model_io::estimate_coreml_model_size_bytes;
+#[cfg(target_os = "macos")]
+use model_io::estimate_model_size_bytes;
 use model_io::load_model_bytes_atomic_verified;
 #[cfg(feature = "multi-backend")]
 use model_io::verify_model_integrity;
@@ -35,15 +43,17 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 #[cfg(feature = "multi-backend")]
 use tracing::debug;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 #[cfg(any(target_os = "macos", feature = "multi-backend"))]
 use model_config::{build_model_cache_identity, load_and_validate_model_config};
 
 #[cfg(test)]
 use adapteros_core::{backend::BackendKind, ExecutionProfile};
+#[cfg(any(test, all(target_os = "macos", feature = "coreml-backend")))]
+use model_io::compute_model_directory_hash;
 #[cfg(test)]
-use model_io::{compute_model_directory_hash, parse_safetensors_index};
+use model_io::parse_safetensors_index;
 #[cfg(all(test, not(feature = "multi-backend")))]
 use model_io::verify_model_integrity;
 
@@ -283,6 +293,14 @@ pub fn create_backend_with_model(choice: BackendChoice, model_path: &Path) -> Re
                     ));
                 }
 
+                let plan_path = model_path.to_str().ok_or_else(|| {
+                    AosError::Config(format!(
+                        "CoreML model path is not valid UTF-8: {}",
+                        model_path.display()
+                    ))
+                })?;
+                backend.load(plan_path.as_bytes())?;
+
                 Ok(Box::new(backend))
             }
             #[cfg(all(target_os = "macos", not(feature = "coreml-backend")))]
@@ -373,6 +391,73 @@ pub fn create_backend_with_model_hashes(
     }
 }
 
+fn effective_pin_budget_bytes(cache: &ModelHandleCache) -> Option<u64> {
+    let state = cache.base_model_pin_state();
+    if !state.enabled {
+        return None;
+    }
+    let configured = state
+        .budget_bytes
+        .unwrap_or_else(|| cache.max_memory_bytes());
+    Some(configured.min(cache.max_memory_bytes()))
+}
+
+fn validate_base_model_pin_budget(
+    cache: &ModelHandleCache,
+    required_bytes: u64,
+    backend: BackendType,
+) -> Result<()> {
+    let Some(budget_bytes) = effective_pin_budget_bytes(cache) else {
+        return Ok(());
+    };
+
+    if required_bytes <= budget_bytes {
+        return Ok(());
+    }
+
+    let state = cache.base_model_pin_state();
+    if let Some(configured) = state.budget_bytes {
+        if configured > cache.max_memory_bytes() {
+            warn!(
+                configured_bytes = configured,
+                cache_max_bytes = cache.max_memory_bytes(),
+                "Pin budget exceeds cache max; cache max still applies"
+            );
+        }
+    }
+    let model_id = state.model_id.unwrap_or_else(|| "unknown".to_string());
+    let required_mb = required_bytes.div_ceil(BYTES_PER_MB);
+    let budget_mb = budget_bytes.div_ceil(BYTES_PER_MB);
+
+    error!(
+        model_id = %model_id,
+        backend = ?backend,
+        required_bytes,
+        budget_bytes,
+        required_mb,
+        budget_mb,
+        "Base model pin budget exceeded"
+    );
+
+    Err(AosError::Config(format!(
+        "Base model pin budget exceeded for {model_id} on {backend:?}: required {required_mb} MB ({required_bytes} bytes) > budget {budget_mb} MB ({budget_bytes} bytes)"
+    )))
+}
+
+#[cfg(any(target_os = "macos", feature = "multi-backend"))]
+fn ensure_base_model_pinned(
+    cache: &ModelHandleCache,
+    key: &ModelKey,
+    backend: BackendType,
+) -> Result<()> {
+    if cache.base_model_pin_enabled() && !cache.is_pinned(key) {
+        return Err(AosError::Config(format!(
+            "Base model pinning enabled but {backend:?} base model was not pinned (pin limit reached?)"
+        )));
+    }
+    Ok(())
+}
+
 /// Internal helper to create MLX backend with optional manifest hash
 #[cfg(feature = "multi-backend")]
 fn create_mlx_backend(
@@ -380,11 +465,43 @@ fn create_mlx_backend(
     manifest_hash: Option<&B3Hash>,
     model_weights_hash: Option<&B3Hash>,
 ) -> Result<KernelBox> {
-    // FAIL-FAST: Validate MLX feature is enabled before attempting backend creation
+    // FAIL-FAST: Ensure at least one MLX implementation is compiled in.
+    #[cfg(all(not(feature = "mlx"), not(feature = "mlx-rs-backend")))]
+    {
+        return Err(AosError::Config(
+            "MLX backend selected but no MLX implementation is enabled. Rebuild with --features mlx or --features mlx-rs-backend"
+                .to_string(),
+        ));
+    }
+
+    let selected_impl = adapteros_lora_mlx_ffi::select_mlx_implementation()
+        .map_err(|e| AosError::Config(format!("MLX backend selection failed: {}", e)))?;
+
+    info!(
+        implementation = selected_impl.as_str(),
+        "Selected MLX implementation"
+    );
+
+    match selected_impl {
+        adapteros_lora_mlx_ffi::MlxImplementation::Ffi => {
+            create_mlx_ffi_backend(model_path, manifest_hash, model_weights_hash)
+        }
+        adapteros_lora_mlx_ffi::MlxImplementation::Rs => {
+            create_mlx_rs_backend(model_path, manifest_hash, model_weights_hash)
+        }
+    }
+}
+
+#[cfg(feature = "multi-backend")]
+fn create_mlx_ffi_backend(
+    model_path: &Path,
+    manifest_hash: Option<&B3Hash>,
+    model_weights_hash: Option<&B3Hash>,
+) -> Result<KernelBox> {
     #[cfg(not(feature = "mlx"))]
     {
         return Err(AosError::Config(
-            "MLX backend selected but 'mlx' feature not enabled. Rebuild with --features mlx"
+            "MLX FFI backend selected but 'mlx' feature not enabled. Rebuild with --features mlx"
                 .to_string(),
         ));
     }
@@ -393,9 +510,8 @@ fn create_mlx_backend(
     let model_path_str = model_path.to_string_lossy();
 
     use adapteros_lora_mlx_ffi::{
-        mlx_get_backend_capabilities, mlx_runtime_init, mlx_runtime_init_with_device,
-        mlx_runtime_is_initialized, mlx_runtime_shutdown, MLXFFIBackend, MLXFFIModel,
-        MlxDeviceType,
+        mlx_get_backend_capabilities, mlx_runtime_init_with_device, mlx_runtime_is_initialized,
+        mlx_runtime_shutdown, MLXFFIBackend, MLXFFIModel, MlxDeviceType,
     };
 
     info!(
@@ -437,7 +553,7 @@ fn create_mlx_backend(
                 AosError::Config(format!("Failed to initialize MLX CPU runtime: {}", e))
             })?;
         } else {
-            mlx_runtime_init().map_err(|e| {
+            mlx_runtime_init_with_device(MlxDeviceType::Auto).map_err(|e| {
                 AosError::Config(format!("Failed to initialize MLX runtime: {}", e))
             })?;
         }
@@ -454,19 +570,40 @@ fn create_mlx_backend(
         *manifest_hash,
         build_model_cache_identity(BackendType::MLX, &model_path),
     );
-    let model_arc = get_model_cache()?
-        .get_or_load(&cache_key, || {
+    let cache = get_model_cache()?;
+    cache.set_base_model_key(&cache_key);
+
+    let pin_enabled = cache.base_model_pin_enabled();
+    let memory_estimate = estimate_mlx_model_memory(&model_path)?;
+    if pin_enabled {
+        validate_base_model_pin_budget(cache, memory_estimate, BackendType::MLX)?;
+    }
+
+    let model_handle = if pin_enabled {
+        cache.get_or_load_base_model(&cache_key, || {
             let model = MLXFFIModel::load(&model_path).map_err(|e| {
                 AosError::Config(format!(
                     "Failed to load MLX model from '{}': {}",
                     model_path_str, e
                 ))
             })?;
-            // Estimate memory: use config if available, otherwise estimate from architecture
-            let memory_bytes = estimate_mlx_model_memory(&model_path)?;
-            Ok((ModelHandle::Mlx(Arc::new(model)), memory_bytes))
+            Ok((ModelHandle::Mlx(Arc::new(model)), memory_estimate))
         })?
-        .as_mlx_model()?;
+    } else {
+        cache.get_or_load(&cache_key, || {
+            let model = MLXFFIModel::load(&model_path).map_err(|e| {
+                AosError::Config(format!(
+                    "Failed to load MLX model from '{}': {}",
+                    model_path_str, e
+                ))
+            })?;
+            Ok((ModelHandle::Mlx(Arc::new(model)), memory_estimate))
+        })?
+    };
+    if pin_enabled {
+        ensure_base_model_pinned(cache, &cache_key, BackendType::MLX)?;
+    }
+    let model_arc = model_handle.as_mlx_model()?;
 
     // Create backend with or without manifest hash for deterministic seeding
     info!("Creating MLX backend with HKDF-seeded determinism from manifest hash");
@@ -480,6 +617,67 @@ fn create_mlx_backend(
     );
 
     Ok(backend)
+}
+
+#[cfg(feature = "multi-backend")]
+fn create_mlx_rs_backend(
+    model_path: &Path,
+    manifest_hash: Option<&B3Hash>,
+    model_weights_hash: Option<&B3Hash>,
+) -> Result<KernelBox> {
+    #[cfg(not(feature = "mlx-rs-backend"))]
+    {
+        let _ = (model_path, manifest_hash, model_weights_hash);
+        return Err(AosError::Config(
+            "mlx-rs backend selected but not compiled. Rebuild with --features mlx-rs-backend"
+                .to_string(),
+        ));
+    }
+
+    #[cfg(feature = "mlx-rs-backend")]
+    {
+        use adapteros_lora_mlx_ffi::{MlxRsBackend, MlxRsModel};
+
+        let model_path = validate_mlx_model_dir(model_path)?;
+        let model_path_str = model_path.to_string_lossy();
+
+        info!(
+            model_path = %model_path_str,
+            has_manifest_hash = manifest_hash.is_some(),
+            has_model_weights_hash = model_weights_hash.is_some(),
+            "Creating MLX (mlx-rs) kernel backend (experimental)"
+        );
+
+        let manifest_hash = manifest_hash.ok_or_else(|| {
+            AosError::Config(
+                "Manifest hash is required for MLX backend identity; pass manifest hash to backend factory"
+                    .to_string(),
+            )
+        })?;
+
+        verify_model_integrity(&model_path, model_weights_hash, "MLX (mlx-rs)")?;
+
+        tracing::warn!(
+            "mlx-rs backend is experimental: LoRA adapters are not applied and model cache is bypassed"
+        );
+
+        let model = MlxRsModel::load(&model_path).map_err(|e| {
+            AosError::Config(format!(
+                "Failed to load mlx-rs model from '{}': {}",
+                model_path_str, e
+            ))
+        })?;
+
+        let backend =
+            MlxRsBackend::with_manifest_hash(model, manifest_hash.clone()).map_err(|e| {
+                AosError::Config(format!(
+                    "Failed to create mlx-rs backend with manifest hash: {}",
+                    e
+                ))
+            })?;
+
+        Ok(Box::new(backend))
+    }
 }
 
 /// Create MLX subprocess bridge backend for MoE models
@@ -673,8 +871,17 @@ fn create_metal_backend(
         *manifest_hash,
         build_model_cache_identity(BackendType::Metal, model_path),
     );
-    let model_bytes_arc = get_model_cache()?
-        .get_or_load(&cache_key, || {
+    let cache = get_model_cache()?;
+    cache.set_base_model_key(&cache_key);
+
+    let pin_enabled = cache.base_model_pin_enabled();
+    if pin_enabled {
+        let estimated_bytes = estimate_model_size_bytes(model_path)?;
+        validate_base_model_pin_budget(cache, estimated_bytes, BackendType::Metal)?;
+    }
+
+    let model_handle = if pin_enabled {
+        cache.get_or_load_base_model(&cache_key, || {
             // Load and verify atomically to eliminate TOCTOU gap
             let (bytes, computed_hash) =
                 load_model_bytes_atomic_verified(model_path, model_weights_hash)?;
@@ -687,7 +894,25 @@ fn create_metal_backend(
             );
             Ok((ModelHandle::Metal(Arc::new(bytes)), memory_bytes))
         })?
-        .as_metal_bytes()?;
+    } else {
+        cache.get_or_load(&cache_key, || {
+            // Load and verify atomically to eliminate TOCTOU gap
+            let (bytes, computed_hash) =
+                load_model_bytes_atomic_verified(model_path, model_weights_hash)?;
+            let memory_bytes = bytes.len() as u64;
+            info!(
+                model_size_mb = memory_bytes / BYTES_PER_MB,
+                computed_hash = %computed_hash.to_hex(),
+                verified = model_weights_hash.is_some(),
+                "Loaded model weights for Metal backend"
+            );
+            Ok((ModelHandle::Metal(Arc::new(bytes)), memory_bytes))
+        })?
+    };
+    if pin_enabled {
+        ensure_base_model_pinned(cache, &cache_key, BackendType::Metal)?;
+    }
+    let model_bytes_arc = model_handle.as_metal_bytes()?;
 
     // Create Metal backend
     let mut kernels = MetalKernels::new()?;
@@ -747,10 +972,17 @@ fn create_metal_backend(
 #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
 fn create_coreml_backend(
     model_path: &Path,
-    _manifest_hash: Option<&B3Hash>,
+    manifest_hash: Option<&B3Hash>,
     model_weights_hash: Option<&B3Hash>,
 ) -> Result<KernelBox> {
     use adapteros_lora_kernel_coreml::{init_coreml, CoreMLBackend, CoreMLModelParams};
+
+    let manifest_hash = manifest_hash.ok_or_else(|| {
+        AosError::Config(
+            "Manifest hash is required for CoreML backend identity; pass manifest hash to backend factory"
+                .to_string(),
+        )
+    })?;
 
     // Initialize CoreML runtime
     init_coreml()?;
@@ -768,6 +1000,20 @@ fn create_coreml_backend(
             rope_theta = cfg.rope_theta,
             "Loaded model configuration for CoreML backend"
         );
+    }
+
+    let cache_key = ModelKey::new(
+        BackendType::CoreML,
+        *manifest_hash,
+        build_model_cache_identity(BackendType::CoreML, model_path),
+    );
+    let cache = get_model_cache()?;
+    cache.set_base_model_key(&cache_key);
+
+    let pin_enabled = cache.base_model_pin_enabled();
+    let estimated_bytes = estimate_coreml_model_size_bytes(model_path)?;
+    if pin_enabled {
+        validate_base_model_pin_budget(cache, estimated_bytes, BackendType::CoreML)?;
     }
 
     // Verify model integrity before CoreML loads it
@@ -812,6 +1058,21 @@ fn create_coreml_backend(
             cfg.rope_theta,
             cfg.max_seq_len,
         ));
+    }
+
+    let plan_path = model_path.to_str().ok_or_else(|| {
+        AosError::Config(format!(
+            "CoreML model path is not valid UTF-8: {}",
+            model_path.display()
+        ))
+    })?;
+    backend.load(plan_path.as_bytes())?;
+
+    if pin_enabled {
+        cache.get_or_load_base_model(&cache_key, || Ok((ModelHandle::CoreML, estimated_bytes)))?;
+        ensure_base_model_pinned(cache, &cache_key, BackendType::CoreML)?;
+    } else {
+        cache.get_or_load(&cache_key, || Ok((ModelHandle::CoreML, estimated_bytes)))?;
     }
 
     Ok(Box::new(backend))

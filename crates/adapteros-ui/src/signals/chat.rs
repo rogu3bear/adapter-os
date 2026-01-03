@@ -55,9 +55,10 @@ impl ChatMessage {
 }
 
 /// Target type for chat inference
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum ChatTarget {
     /// Use the default model/stack
+    #[default]
     Default,
     /// Target a specific model
     Model(String),
@@ -65,12 +66,6 @@ pub enum ChatTarget {
     Stack(String),
     /// Target a specific policy pack
     PolicyPack(String),
-}
-
-impl Default for ChatTarget {
-    fn default() -> Self {
-        Self::Default
-    }
 }
 
 impl ChatTarget {
@@ -285,14 +280,10 @@ impl ChatAction {
 
     /// Toggle a context option
     pub fn toggle_context(&self, toggle: ContextToggle) {
-        self.state.update(|s| {
-            match toggle {
-                ContextToggle::CurrentPage => s.context.current_page = !s.context.current_page,
-                ContextToggle::RecentLogs => s.context.recent_logs = !s.context.recent_logs,
-                ContextToggle::SystemSnapshot => {
-                    s.context.system_snapshot = !s.context.system_snapshot
-                }
-            }
+        self.state.update(|s| match toggle {
+            ContextToggle::CurrentPage => s.context.current_page = !s.context.current_page,
+            ContextToggle::RecentLogs => s.context.recent_logs = !s.context.recent_logs,
+            ContextToggle::SystemSnapshot => s.context.system_snapshot = !s.context.system_snapshot,
         });
     }
 
@@ -332,11 +323,15 @@ pub type ChatContext = (ReadSignal<ChatState>, ChatAction);
 
 /// Provide chat context to the application
 pub fn provide_chat_context() {
+    web_sys::console::log_1(&"[ChatContext] Initializing...".into());
     let client = Arc::new(ApiClient::new());
+    web_sys::console::log_1(&"[ChatContext] Client created".into());
     let state = RwSignal::new(ChatState::default());
+    web_sys::console::log_1(&"[ChatContext] State created".into());
     let action = ChatAction::new(Arc::clone(&client), state);
 
     provide_context((state.read_only(), action));
+    web_sys::console::log_1(&"[ChatContext] Context provided".into());
 }
 
 /// Use chat context

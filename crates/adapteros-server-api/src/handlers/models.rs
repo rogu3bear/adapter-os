@@ -31,6 +31,15 @@ const ACTION_MODEL_UNLOAD: &str = "model.unload";
 
 /// Audit action: model import
 const ACTION_MODEL_IMPORT: &str = "model.import";
+
+fn normalize_backend_label(backend: &str) -> &str {
+    let trimmed = backend.trim();
+    if trimmed.eq_ignore_ascii_case("mlx-ffi") || trimmed.eq_ignore_ascii_case("mlx_ffi") {
+        "mlx"
+    } else {
+        trimmed
+    }
+}
 use axum::{
     extract::{Extension, Path, Query, State},
     http::StatusCode,
@@ -54,7 +63,7 @@ pub struct ImportModelRequest {
     pub model_name: String,
     pub model_path: String,
     pub format: String,  // "mlx", "safetensors", "pytorch", "gguf"
-    pub backend: String, // "mlx", "mlx-ffi", "metal"
+    pub backend: String, // "mlx", "metal", "coreml"
     pub capabilities: Option<Vec<String>>, // ["chat", "completion", "embeddings"]
     pub metadata: Option<serde_json::Value>,
 }
@@ -1264,7 +1273,7 @@ pub async fn validate_model(
 /// - `model_name`: Name for the imported model
 /// - `model_path`: Filesystem path to model directory
 /// - `format`: Model format (mlx, safetensors, pytorch, gguf)
-/// - `backend`: Backend to use (mlx-ffi, metal)
+/// - `backend`: Backend to use (mlx, metal, coreml)
 /// - `capabilities`: Optional list of capabilities (chat, completion, embeddings)
 /// - `metadata`: Optional JSON metadata
 ///
@@ -1293,7 +1302,7 @@ pub async fn validate_model(
 ///   "model_name": "qwen-7b",
 ///   "model_path": "/var/model-cache/models/qwen2.5-7b-instruct-bf16",
 ///   "format": "mlx",
-///   "backend": "mlx-ffi",
+///   "backend": "mlx",
 ///   "capabilities": ["chat", "completion"]
 /// }
 /// ```
@@ -1343,9 +1352,12 @@ pub async fn import_model(
         ));
     }
 
+    // Normalize backend aliases (keep API surface MLX-only)
+    let backend = normalize_backend_label(&req.backend).to_ascii_lowercase();
+
     // Validate backend
-    let valid_backends = ["mlx", "mlx-ffi", "metal"];
-    if !valid_backends.contains(&req.backend.as_str()) {
+    let valid_backends = ["mlx", "metal", "coreml"];
+    if !valid_backends.contains(&backend.as_str()) {
         warn!("Invalid backend: {}", req.backend);
         return Err((
             StatusCode::BAD_REQUEST,
@@ -1360,7 +1372,7 @@ pub async fn import_model(
             &req.model_name,
             &req.model_path,
             &req.format,
-            &req.backend,
+            &backend,
             tenant_id,
             &claims.sub,
         )
@@ -1414,7 +1426,7 @@ pub async fn import_model(
         model_name = %req.model_name,
         model_path = %req.model_path,
         format = %req.format,
-        backend = %req.backend,
+        backend = %backend,
         tenant_id = %tenant_id,
         "Model import completed"
     );
@@ -1487,7 +1499,7 @@ pub struct ModelWithStatsResponse {
 ///   - `id`: Unique model identifier
 ///   - `name`: Model name
 ///   - `format`: Model format (mlx, safetensors, pytorch, gguf)
-///   - `backend`: Backend type (mlx-ffi, metal)
+///   - `backend`: Backend type (mlx, metal, coreml)
 ///   - `size_bytes`: Total size of model files
 ///   - `import_status`: Import status (available, in_progress, failed)
 ///   - `model_path`: Filesystem path to model files
@@ -1553,7 +1565,11 @@ pub async fn list_models_with_stats(
                 config_hash_b3: model.config_hash_b3.clone(),
                 tokenizer_hash_b3: model.tokenizer_hash_b3.clone(),
                 format: model.format.clone(),
-                backend: model.backend.clone(),
+                backend: model
+                    .backend
+                    .as_deref()
+                    .map(normalize_backend_label)
+                    .map(|value| value.to_string()),
                 size_bytes: model.size_bytes,
                 import_status: model.import_status.clone(),
                 model_path: model.model_path.clone(),

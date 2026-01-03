@@ -345,10 +345,12 @@ async fn api_contract_snapshots() {
     });
 
     // Notifications stream handshake (HEAD preflight)
-    let (stream_status, stream_headers) = harness
-        .head("/v1/stream/notifications", Some(&token))
-        .await;
-    let headers = header_subset(&stream_headers, &["content-type", "cache-control", "connection"]);
+    let (stream_status, stream_headers) =
+        harness.head("/v1/stream/notifications", Some(&token)).await;
+    let headers = header_subset(
+        &stream_headers,
+        &["content-type", "cache-control", "connection"],
+    );
     settings.bind(|| {
         insta::assert_json_snapshot!(
             "notifications_stream_handshake",
@@ -365,8 +367,7 @@ async fn api_contract_snapshots() {
         &viewer_claims.tenant_id,
         &viewer_claims.admin_tenants,
     );
-    let (auth_me_status, mut auth_me_body) =
-        harness.get("/v1/auth/me", Some(&viewer_token)).await;
+    let (auth_me_status, mut auth_me_body) = harness.get("/v1/auth/me", Some(&viewer_token)).await;
     redact_pii(&mut auth_me_body);
     settings.bind(|| {
         insta::assert_json_snapshot!(
@@ -376,8 +377,7 @@ async fn api_contract_snapshots() {
     });
 
     // Auth me unauthorized
-    let (auth_me_unauth_status, mut auth_me_unauth_body) =
-        harness.get("/v1/auth/me", None).await;
+    let (auth_me_unauth_status, mut auth_me_unauth_body) = harness.get("/v1/auth/me", None).await;
     redact_pii(&mut auth_me_unauth_body);
     settings.bind(|| {
         insta::assert_json_snapshot!(

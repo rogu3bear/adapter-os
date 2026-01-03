@@ -3,8 +3,8 @@
 //! User and role management for administrators.
 
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonVariant, Card, Shell, Table,
-    TableBody, TableCell, TableHead, TableHeader, TableRow,
+    Badge, BadgeVariant, Button, ButtonVariant, Card, Table, TableBody, TableCell, TableHead,
+    TableHeader, TableRow,
 };
 use crate::signals::use_auth;
 use leptos::prelude::*;
@@ -19,8 +19,7 @@ pub fn Admin() -> impl IntoView {
     let active_tab = RwSignal::new("users".to_string());
 
     view! {
-        <Shell>
-            <div class="space-y-6">
+        <div class="p-6 space-y-6">
                 <div class="flex items-center justify-between">
                     <div>
                         <h1 class="text-3xl font-bold tracking-tight">"Administration"</h1>
@@ -79,18 +78,13 @@ pub fn Admin() -> impl IntoView {
                         }
                     }}
                 </div>
-            </div>
-        </Shell>
+        </div>
     }
 }
 
 /// Tab button component
 #[component]
-fn TabButton(
-    tab: String,
-    label: String,
-    active: RwSignal<String>,
-) -> impl IntoView {
+fn TabButton(tab: String, label: String, active: RwSignal<String>) -> impl IntoView {
     let tab_value = tab.clone();
     let is_active = move || active.get() == tab_value;
 
@@ -191,24 +185,36 @@ fn UsersSection() -> impl IntoView {
 fn RolesSection() -> impl IntoView {
     // Define the roles with their descriptions
     let roles = vec![
-        ("Admin", "Full access to all features including user management, policies, and system settings", vec![
-            "Manage users and roles",
-            "Configure policies",
-            "Access audit logs",
-            "Manage federation",
-        ]),
-        ("Operator", "Can run inference, training, and manage adapters. Cannot modify system settings", vec![
-            "Create/cancel training jobs",
-            "Load/unload models",
-            "Create adapter stacks",
-            "View system metrics",
-        ]),
-        ("Viewer", "Read-only access to dashboards and status. Cannot modify any resources", vec![
-            "View dashboard",
-            "View system status",
-            "Run approved inferences",
-            "View training jobs",
-        ]),
+        (
+            "Admin",
+            "Full access to all features including user management, policies, and system settings",
+            vec![
+                "Manage users and roles",
+                "Configure policies",
+                "Access audit logs",
+                "Manage federation",
+            ],
+        ),
+        (
+            "Operator",
+            "Can run inference, training, and manage adapters. Cannot modify system settings",
+            vec![
+                "Create/cancel training jobs",
+                "Load/unload models",
+                "Create adapter stacks",
+                "View system metrics",
+            ],
+        ),
+        (
+            "Viewer",
+            "Read-only access to dashboards and status. Cannot modify any resources",
+            vec![
+                "View dashboard",
+                "View system status",
+                "Run approved inferences",
+                "View training jobs",
+            ],
+        ),
     ];
 
     view! {

@@ -341,7 +341,7 @@ async fn test_failed_inference_records_minimal_replay_metadata() {
     request.stack_id = Some("missing-stack".to_string());
 
     let err = core
-        .route_and_infer(request, None, None)
+        .route_and_infer(request, None, None, None)
         .await
         .expect_err("inference should fail for missing stack");
 
@@ -374,7 +374,7 @@ async fn test_failed_capture_marks_replay_status() {
     request.request_id = inference_id.to_string();
     request.stack_id = Some("missing-stack".to_string());
 
-    core.route_and_infer(request, None, None)
+    core.route_and_infer(request, None, None, None)
         .await
         .expect_err("inference should fail for missing stack");
 

@@ -63,6 +63,10 @@ pub struct StopPolicySpec {
     /// Default: 32
     #[serde(default = "default_repetition_window")]
     pub repetition_window: u16,
+
+    /// Explicit stop sequences to terminate generation (matched on tokenized output).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stop_sequences: Vec<String>,
 }
 
 impl Default for StopPolicySpec {
@@ -73,6 +77,7 @@ impl Default for StopPolicySpec {
             completion_threshold_q15: default_completion_threshold_q15(),
             repetition_ngram: default_repetition_ngram(),
             repetition_window: default_repetition_window(),
+            stop_sequences: Vec::new(),
         }
     }
 }
@@ -101,6 +106,12 @@ impl StopPolicySpec {
         bytes.extend_from_slice(&self.completion_threshold_q15.to_le_bytes());
         bytes.push(self.repetition_ngram);
         bytes.extend_from_slice(&self.repetition_window.to_le_bytes());
+        bytes.extend_from_slice(&(self.stop_sequences.len() as u32).to_le_bytes());
+        for sequence in &self.stop_sequences {
+            let seq_bytes = sequence.as_bytes();
+            bytes.extend_from_slice(&(seq_bytes.len() as u32).to_le_bytes());
+            bytes.extend_from_slice(seq_bytes);
+        }
         bytes
     }
 

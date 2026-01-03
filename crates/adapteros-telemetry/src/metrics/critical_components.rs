@@ -70,6 +70,8 @@ pub struct CriticalComponentMetrics {
     pub adapter_state_transitions: CounterVec,
     pub adapter_activation_percentage: GaugeVec,
     pub adapter_evictions_total: CounterVec,
+    pub adapter_cache_bytes: Gauge,
+    pub adapter_cache_budget_exceeded_total: Counter,
 
     // Model cache metrics
     pub model_cache_hits_total: Counter,
@@ -118,6 +120,21 @@ pub struct CriticalComponentMetrics {
     // Evidence validation metrics
     pub evidence_validation_success_total: CounterVec,
     pub evidence_validation_failure_total: CounterVec,
+
+    // UDS phase breakdown metrics
+    pub uds_connect_latency_seconds: HistogramVec,
+    pub uds_write_latency_seconds: HistogramVec,
+    pub uds_read_latency_seconds: HistogramVec,
+
+    // Worker inference timing metrics
+    /// Time spent waiting in queue before inference starts (seconds)
+    pub worker_queue_wait_seconds: HistogramVec,
+    /// Time spent in actual token generation (seconds)
+    pub worker_generation_seconds: HistogramVec,
+
+    // Server handler latency metrics
+    /// Pre-UDS latency: time from request receipt to UDS call start (seconds)
+    pub server_handler_latency_seconds: HistogramVec,
 }
 
 impl CriticalComponentMetrics {
@@ -432,6 +449,95 @@ impl CriticalComponentMetrics {
             adapteros_core::AosError::Telemetry(format!("Counter creation failed: {}", e))
         })?;
 
+        // UDS phase breakdown histograms
+        // Connect/Write: fast operations, sub-millisecond to sub-second buckets
+        let uds_connect_latency_seconds = HistogramVec::new(
+            HistogramOpts::new(
+                "uds_connect_latency_seconds",
+                "UDS socket connect phase latency in seconds",
+            )
+            .buckets(vec![
+                0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 0.25, 0.5,
+            ]),
+            &["worker_id"],
+        )
+        .map_err(|e| {
+            adapteros_core::AosError::Telemetry(format!("Histogram creation failed: {}", e))
+        })?;
+
+        let uds_write_latency_seconds = HistogramVec::new(
+            HistogramOpts::new(
+                "uds_write_latency_seconds",
+                "UDS socket write phase latency in seconds",
+            )
+            .buckets(vec![
+                0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 0.25, 0.5,
+            ]),
+            &["worker_id"],
+        )
+        .map_err(|e| {
+            adapteros_core::AosError::Telemetry(format!("Histogram creation failed: {}", e))
+        })?;
+
+        // Read: longer operations including inference time, extended buckets
+        let uds_read_latency_seconds = HistogramVec::new(
+            HistogramOpts::new(
+                "uds_read_latency_seconds",
+                "UDS socket read phase latency in seconds",
+            )
+            .buckets(vec![0.001, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]),
+            &["worker_id"],
+        )
+        .map_err(|e| {
+            adapteros_core::AosError::Telemetry(format!("Histogram creation failed: {}", e))
+        })?;
+
+        // Worker queue wait time histogram (seconds)
+        // Measures time from request arrival to inference start
+        // Buckets optimized for queue wait times (sub-millisecond to 1 second)
+        let worker_queue_wait_seconds = HistogramVec::new(
+            HistogramOpts::new(
+                "worker_queue_wait_seconds",
+                "Time spent waiting in queue before inference starts (seconds)",
+            )
+            .buckets(vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0]),
+            &["worker_id"],
+        )
+        .map_err(|e| {
+            adapteros_core::AosError::Telemetry(format!("Histogram creation failed: {}", e))
+        })?;
+
+        // Worker generation time histogram (seconds)
+        // Measures actual token generation time (excludes queue wait)
+        // Buckets optimized for generation times (10ms to 10+ seconds)
+        let worker_generation_seconds = HistogramVec::new(
+            HistogramOpts::new(
+                "worker_generation_seconds",
+                "Time spent in actual token generation (seconds)",
+            )
+            .buckets(vec![0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]),
+            &["worker_id", "model_id"],
+        )
+        .map_err(|e| {
+            adapteros_core::AosError::Telemetry(format!("Histogram creation failed: {}", e))
+        })?;
+
+        // Server handler latency histogram (seconds)
+        // Measures pre-UDS latency from request receipt to UDS call start
+        let server_handler_latency_seconds = HistogramVec::new(
+            HistogramOpts::new(
+                "server_handler_latency_seconds",
+                "Pre-UDS latency: time from request receipt to UDS call start (seconds)",
+            )
+            .buckets(vec![
+                0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5,
+            ]),
+            &["endpoint", "status"],
+        )
+        .map_err(|e| {
+            adapteros_core::AosError::Telemetry(format!("Histogram creation failed: {}", e))
+        })?;
+
         // Hash operations counter (BLAKE3, SHA256, etc.)
         let hash_operations_total = CounterVec::new(
             Opts::new("hash_operations_total", "Total hash operations performed"),
@@ -565,6 +671,19 @@ impl CriticalComponentMetrics {
                 "Total adapter evictions due to memory pressure",
             ),
             &["adapter_id", "reason"],
+        )
+        .map_err(|e| {
+            adapteros_core::AosError::Telemetry(format!("Counter creation failed: {}", e))
+        })?;
+
+        let adapter_cache_bytes =
+            Gauge::new("adapter_cache_bytes", "Total bytes used by cached adapters").map_err(
+                |e| adapteros_core::AosError::Telemetry(format!("Gauge creation failed: {}", e)),
+            )?;
+
+        let adapter_cache_budget_exceeded_total = Counter::new(
+            "adapter_cache_budget_exceeded_total",
+            "Total adapter cache load failures due to budget limits",
         )
         .map_err(|e| {
             adapteros_core::AosError::Telemetry(format!("Counter creation failed: {}", e))
@@ -945,6 +1064,16 @@ impl CriticalComponentMetrics {
             .map_err(|e| {
                 adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
             })?;
+        registry_arc
+            .register(Box::new(adapter_cache_bytes.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
+        registry_arc
+            .register(Box::new(adapter_cache_budget_exceeded_total.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
 
         registry_arc
             .register(Box::new(model_cache_hits_total.clone()))
@@ -1149,6 +1278,44 @@ impl CriticalComponentMetrics {
                 adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
             })?;
 
+        // Register UDS phase breakdown metrics
+        registry_arc
+            .register(Box::new(uds_connect_latency_seconds.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
+
+        registry_arc
+            .register(Box::new(uds_write_latency_seconds.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
+
+        registry_arc
+            .register(Box::new(uds_read_latency_seconds.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
+
+        // Register worker inference timing metrics
+        registry_arc
+            .register(Box::new(worker_queue_wait_seconds.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
+
+        registry_arc
+            .register(Box::new(worker_generation_seconds.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
+
+        registry_arc
+            .register(Box::new(server_handler_latency_seconds.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
+
         info!("Critical component metrics initialized");
 
         Ok(Self {
@@ -1190,6 +1357,8 @@ impl CriticalComponentMetrics {
             adapter_state_transitions,
             adapter_activation_percentage,
             adapter_evictions_total,
+            adapter_cache_bytes,
+            adapter_cache_budget_exceeded_total,
             // Checkpoint metrics
             checkpoint_operations_total,
             // GPU fingerprint metrics
@@ -1232,6 +1401,15 @@ impl CriticalComponentMetrics {
             // Evidence validation metrics
             evidence_validation_success_total,
             evidence_validation_failure_total,
+            // UDS phase breakdown metrics
+            uds_connect_latency_seconds,
+            uds_write_latency_seconds,
+            uds_read_latency_seconds,
+            // Worker inference timing metrics
+            worker_queue_wait_seconds,
+            worker_generation_seconds,
+            // Server handler latency metrics
+            server_handler_latency_seconds,
         })
     }
 
@@ -1397,6 +1575,16 @@ impl CriticalComponentMetrics {
         self.adapter_evictions_total
             .with_label_values(&[adapter_id, reason])
             .inc();
+    }
+
+    /// Set total adapter cache bytes used
+    pub fn set_adapter_cache_bytes(&self, bytes: u64) {
+        self.adapter_cache_bytes.set(bytes as f64);
+    }
+
+    /// Record adapter cache budget exceeded event
+    pub fn record_adapter_cache_budget_exceeded(&self) {
+        self.adapter_cache_budget_exceeded_total.inc();
     }
 
     /// Record GPU fingerprint sampling time
@@ -1915,6 +2103,113 @@ impl CriticalComponentMetrics {
             .with_label_values(&[tenant_id, query_type, error_type])
             .inc();
     }
+
+    // ========================================
+    // UDS phase breakdown metrics helper functions
+    // ========================================
+
+    /// Record UDS connect phase latency in seconds
+    pub fn record_uds_connect_latency(&self, worker_id: &str, duration_seconds: f64) {
+        self.uds_connect_latency_seconds
+            .with_label_values(&[worker_id])
+            .observe(duration_seconds);
+    }
+
+    /// Record UDS write phase latency in seconds
+    pub fn record_uds_write_latency(&self, worker_id: &str, duration_seconds: f64) {
+        self.uds_write_latency_seconds
+            .with_label_values(&[worker_id])
+            .observe(duration_seconds);
+    }
+
+    /// Record UDS read phase latency in seconds
+    pub fn record_uds_read_latency(&self, worker_id: &str, duration_seconds: f64) {
+        self.uds_read_latency_seconds
+            .with_label_values(&[worker_id])
+            .observe(duration_seconds);
+    }
+
+    /// Record all UDS phase timings at once
+    pub fn record_uds_phase_timings(
+        &self,
+        worker_id: &str,
+        connect_secs: f64,
+        write_secs: f64,
+        read_secs: f64,
+    ) {
+        self.record_uds_connect_latency(worker_id, connect_secs);
+        self.record_uds_write_latency(worker_id, write_secs);
+        self.record_uds_read_latency(worker_id, read_secs);
+    }
+
+    // ========================================
+    // Worker inference timing metrics helper functions
+    // ========================================
+
+    /// Record worker queue wait time in seconds
+    ///
+    /// This measures the time from when a request arrives at the worker
+    /// until inference actually begins (i.e., time spent waiting for
+    /// resources, locks, or other queued requests).
+    pub fn record_worker_queue_wait(&self, worker_id: &str, duration_seconds: f64) {
+        self.worker_queue_wait_seconds
+            .with_label_values(&[worker_id])
+            .observe(duration_seconds);
+    }
+
+    /// Record worker generation time in seconds
+    ///
+    /// This measures the actual time spent generating tokens, excluding
+    /// any queue wait time. Useful for understanding pure inference
+    /// performance vs. queueing overhead.
+    pub fn record_worker_generation_time(
+        &self,
+        worker_id: &str,
+        model_id: &str,
+        duration_seconds: f64,
+    ) {
+        self.worker_generation_seconds
+            .with_label_values(&[worker_id, model_id])
+            .observe(duration_seconds);
+    }
+
+    /// Record both queue wait and generation time at once
+    ///
+    /// Convenience method for recording both timing metrics together.
+    pub fn record_worker_inference_timing(
+        &self,
+        worker_id: &str,
+        model_id: &str,
+        queue_wait_seconds: f64,
+        generation_seconds: f64,
+    ) {
+        self.record_worker_queue_wait(worker_id, queue_wait_seconds);
+        self.record_worker_generation_time(worker_id, model_id, generation_seconds);
+    }
+
+    // ========================================
+    // Server handler latency metrics helper functions
+    // ========================================
+
+    /// Record server handler latency in seconds
+    ///
+    /// This measures pre-UDS latency: the time from request receipt to UDS call start.
+    /// Useful for understanding control plane overhead before inference dispatch.
+    ///
+    /// # Arguments
+    /// * `endpoint` - The API endpoint being called (e.g., "infer", "stream")
+    /// * `status` - The request status (e.g., "success", "error")
+    /// * `duration_seconds` - The latency in seconds
+    pub fn record_server_handler_latency(
+        &self,
+        endpoint: &str,
+        status: &str,
+        duration_seconds: f64,
+    ) {
+        self.server_handler_latency_seconds
+            .with_label_values(&[endpoint, status])
+            .observe(duration_seconds);
+    }
 }
 
 impl Default for CriticalComponentMetrics {
@@ -2334,6 +2629,38 @@ mod tests {
         assert_eq!(
             CriticalComponentMetrics::singleflight_op_prefix_kv(),
             "prefix_kv_build"
+        );
+    }
+
+    #[test]
+    fn test_worker_inference_timing_metrics() {
+        let metrics = Arc::new(CriticalComponentMetrics::new().expect("Failed to create metrics"));
+
+        // Record queue wait time
+        metrics.record_worker_queue_wait("worker-1", 0.015); // 15ms queue wait
+
+        // Record generation time
+        metrics.record_worker_generation_time("worker-1", "qwen-7b", 0.250); // 250ms generation
+
+        // Record combined timing
+        metrics.record_worker_inference_timing("worker-2", "qwen-32b", 0.005, 1.5);
+
+        let export = metrics.export().expect("Failed to export");
+        assert!(
+            export.contains("worker_queue_wait_seconds"),
+            "Export should contain worker_queue_wait_seconds"
+        );
+        assert!(
+            export.contains("worker_generation_seconds"),
+            "Export should contain worker_generation_seconds"
+        );
+        assert!(
+            export.contains("worker-1"),
+            "Export should contain worker_id label"
+        );
+        assert!(
+            export.contains("qwen-7b"),
+            "Export should contain model_id label"
         );
     }
 }

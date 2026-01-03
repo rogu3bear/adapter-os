@@ -40,10 +40,7 @@ pub fn Card(
 
 /// Card header component
 #[component]
-pub fn CardHeader(
-    #[prop(optional, into)] class: String,
-    children: Children,
-) -> impl IntoView {
+pub fn CardHeader(#[prop(optional, into)] class: String, children: Children) -> impl IntoView {
     let full_class = format!("flex flex-col space-y-1.5 p-6 {}", class);
     view! {
         <div class=full_class>
@@ -54,10 +51,7 @@ pub fn CardHeader(
 
 /// Card content component
 #[component]
-pub fn CardContent(
-    #[prop(optional, into)] class: String,
-    children: Children,
-) -> impl IntoView {
+pub fn CardContent(#[prop(optional, into)] class: String, children: Children) -> impl IntoView {
     let full_class = format!("p-6 pt-0 {}", class);
     view! {
         <div class=full_class>
@@ -68,10 +62,7 @@ pub fn CardContent(
 
 /// Card footer component
 #[component]
-pub fn CardFooter(
-    #[prop(optional, into)] class: String,
-    children: Children,
-) -> impl IntoView {
+pub fn CardFooter(#[prop(optional, into)] class: String, children: Children) -> impl IntoView {
     let full_class = format!("flex items-center p-6 pt-0 {}", class);
     view! {
         <div class=full_class>

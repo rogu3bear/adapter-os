@@ -6,7 +6,10 @@ use crate::api::{
     ApiClient, PublishAdapterRequest, RegisterRepositoryRequest, RepositoryAdapter,
     RepositoryResponse, RepositoryVersion,
 };
-use crate::components::{Badge, BadgeVariant, Card, Input, Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow};
+use crate::components::{
+    Badge, BadgeVariant, Card, Input, Spinner, Table, TableBody, TableCell, TableHead, TableHeader,
+    TableRow,
+};
 use crate::hooks::{use_api_resource, LoadingState};
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
@@ -25,9 +28,10 @@ pub fn Repositories() -> impl IntoView {
     let register_dialog_open = RwSignal::new(false);
 
     // Fetch repositories
-    let (repos, refetch_repos) = use_api_resource(move |client: Arc<ApiClient>| async move {
-        client.list_repositories().await
-    });
+    let (repos, refetch_repos) =
+        use_api_resource(
+            move |client: Arc<ApiClient>| async move { client.list_repositories().await },
+        );
 
     // Dynamic class for left panel width
     let left_panel_class = move || {
@@ -658,10 +662,7 @@ fn VersionsList(versions: Vec<RepositoryVersion>) -> impl IntoView {
 
 /// Detail row component
 #[component]
-fn DetailRow(
-    label: &'static str,
-    #[prop(into)] value: String,
-) -> impl IntoView {
+fn DetailRow(label: &'static str, #[prop(into)] value: String) -> impl IntoView {
     view! {
         <div class="flex justify-between">
             <span class="text-muted-foreground">{label}</span>
@@ -831,10 +832,7 @@ fn RegisterRepositoryDialog(open: RwSignal<bool>) -> impl IntoView {
 
 /// Publish adapter dialog
 #[component]
-fn PublishAdapterDialog(
-    open: RwSignal<bool>,
-    #[prop(into)] repo_id: String,
-) -> impl IntoView {
+fn PublishAdapterDialog(open: RwSignal<bool>, #[prop(into)] repo_id: String) -> impl IntoView {
     // Form state
     let adapter_name = RwSignal::new(String::new());
     let description = RwSignal::new(String::new());

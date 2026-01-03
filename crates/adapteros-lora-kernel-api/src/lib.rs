@@ -699,6 +699,7 @@ impl FusedKernels for MockKernels {
             manifest: None,
             rng_seed_method: attestation::RngSeedingMethod::FixedSeed(0),
             floating_point_mode: attestation::FloatingPointMode::Deterministic,
+            determinism_level: attestation::DeterminismLevel::BitExact,
             compiler_flags: vec![],
             deterministic: true,
         })
@@ -762,6 +763,7 @@ impl FusedKernels for FailingKernel {
             manifest: None,
             rng_seed_method: attestation::RngSeedingMethod::FixedSeed(0),
             floating_point_mode: attestation::FloatingPointMode::Deterministic,
+            determinism_level: attestation::DeterminismLevel::None,
             compiler_flags: vec![],
             deterministic: false, // Failing kernel is not deterministic
         })

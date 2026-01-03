@@ -32,3 +32,6 @@ CFLAGS = "-fmodules-cache-path=target/clang-cache"
 CXXFLAGS = "-fmodules-cache-path=target/clang-cache"
 # SOURCE_DATE_EPOCH ensures timestamps are deterministic
 SOURCE_DATE_EPOCH = "1704067200"
+
+[alias]
+xtask = "run --package xtask --"

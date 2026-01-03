@@ -21,10 +21,10 @@
 //! let output = norm.forward(&input, Some(&ane_accel))?;
 //! ```
 
-pub mod norm;
 pub mod attention;
 pub mod mlp;
+pub mod norm;
 
-pub use norm::{LayerNorm, RMSNorm};
 pub use attention::MultiHeadAttention;
 pub use mlp::MLP;
+pub use norm::{LayerNorm, RMSNorm};

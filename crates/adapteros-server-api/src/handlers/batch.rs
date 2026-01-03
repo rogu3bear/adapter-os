@@ -193,7 +193,7 @@ pub async fn batch_infer(
                 // Execute inference via InferenceCore with timeout
                 match timeout(
                     remaining,
-                    inference_core.route_and_infer(internal_request, None, None),
+                    inference_core.route_and_infer(internal_request, None, None, None),
                 )
                 .await
                 {
@@ -299,17 +299,27 @@ fn map_inference_error(id: String, err: crate::types::InferenceError) -> BatchIn
             tenant_id,
             available_count,
             reason,
+            details,
         } => BatchInferItemResponse {
             id,
             response: None,
-            error: Some(
-                ErrorResponse::new("no compatible worker available")
-                    .with_code("NO_COMPATIBLE_WORKER")
-                    .with_string_details(format!(
-                        "No worker with manifest {} for tenant {} ({} available). {}",
-                        required_hash, tenant_id, available_count, reason
-                    )),
-            ),
+            error: {
+                let reason_detail = format!(
+                    "No worker with manifest {} for tenant {} ({} available). {}",
+                    required_hash, tenant_id, available_count, reason
+                );
+                let mut response = ErrorResponse::new("no compatible worker available")
+                    .with_code("NO_COMPATIBLE_WORKER");
+                if let Some(value) = details {
+                    response = response.with_details(serde_json::json!({
+                        "reason": reason_detail,
+                        "compatibility": value,
+                    }));
+                } else {
+                    response = response.with_string_details(reason_detail);
+                }
+                Some(response)
+            },
         },
         InferenceError::AdapterNotFound(msg) => BatchInferItemResponse {
             id,
@@ -790,7 +800,8 @@ async fn process_batch_job(
                 // Execute inference via InferenceCore with timeout
                 let start = Instant::now();
                 let result =
-                    timeout(remaining, core.route_and_infer(internal_request, None, None)).await;
+                    timeout(remaining, core.route_and_infer(internal_request, None, None, None))
+                        .await;
                 let latency_ms = start.elapsed().as_millis() as i32;
 
                 match result {

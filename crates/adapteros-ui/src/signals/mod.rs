@@ -6,12 +6,12 @@ pub mod auth;
 pub mod chat;
 pub mod settings;
 
-pub use auth::{use_auth, provide_auth_context, AuthState, AuthAction, AuthContext};
+pub use auth::{provide_auth_context, use_auth, AuthAction, AuthContext, AuthState};
 pub use chat::{
-    use_chat, provide_chat_context, ChatState, ChatAction, ChatContext,
-    ChatMessage, ChatTarget, ContextToggles, ContextToggle, DockState, PageContext,
+    provide_chat_context, use_chat, ChatAction, ChatContext, ChatMessage, ChatState, ChatTarget,
+    ContextToggle, ContextToggles, DockState, PageContext,
 };
 pub use settings::{
-    use_settings, provide_settings_context, update_setting,
-    UserSettings, SettingsContext, Theme, DefaultPage,
+    provide_settings_context, update_setting, use_settings, DefaultPage, SettingsContext, Theme,
+    UserSettings,
 };

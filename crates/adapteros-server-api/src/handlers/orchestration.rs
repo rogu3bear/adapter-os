@@ -42,10 +42,7 @@ pub async fn get_orchestration_config(
     State(_state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<OrchestrationConfig>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(
-        &claims,
-        &[Role::Admin, Role::Operator, Role::Viewer],
-    )?;
+    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
 
     // Single-node deterministic config; future versions may hydrate from DB
     let config = OrchestrationConfig::default();
@@ -101,10 +98,7 @@ pub async fn analyze_orchestration_prompt(
     Extension(claims): Extension<Claims>,
     Json(_body): Json<PromptAnalysisRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(
-        &claims,
-        &[Role::Admin, Role::Operator, Role::Viewer],
-    )?;
+    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
 
     warn!(
         user = %claims.sub,
@@ -140,10 +134,7 @@ pub async fn get_orchestration_metrics(
     State(_state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Value>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(
-        &claims,
-        &[Role::Admin, Role::Operator, Role::Viewer],
-    )?;
+    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
 
     warn!(
         user = %claims.sub,

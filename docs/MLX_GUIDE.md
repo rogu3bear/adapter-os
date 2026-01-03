@@ -1,7 +1,7 @@
 # MLX Backend Guide
 
 **Copyright:** © 2025 JKCA / James KC Auchterlonie. All rights reserved.
-**Last Updated:** 2025-12-24
+**Last Updated:** 2026-01-02
 **Status:** Production Ready
 
 ---
@@ -20,6 +20,11 @@
 10. [Deployment](#deployment)
 11. [MLX Bridge (Subprocess Backend)](#mlx-bridge-subprocess-backend)
 12. [MLX vs CoreML](#mlx-vs-coreml)
+13. [Streaming Token Generation](#streaming-token-generation)
+14. [Adapter Cache Configuration](#adapter-cache-configuration)
+15. [Memory Pool Configuration](#memory-pool-configuration)
+16. [MLX Implementation Selection](#mlx-implementation-selection)
+17. [Monitoring Integration](#monitoring-integration)
 
 ---
 
@@ -29,7 +34,9 @@ The MLX backend is a production-ready GPU acceleration layer for AdapterOS suppo
 
 ### Current Status: Feature-Gated
 
-**Real MLX is available only when built with `multi-backend` + `mlx`; otherwise the stub is used.**
+**Real MLX is available when built with `multi-backend` + `mlx` (C++ FFI).**
+If `mlx-rs-backend` is also enabled, the system can fall back to the Rust bindings when FFI init fails.
+The user-facing backend remains `mlx`; the implementation is auto-selected at boot (internal override via `AOS_MLX_IMPL=ffi|rs`).
 
 | Aspect | Status | Implementation |
 |--------|--------|----------------|
@@ -155,6 +162,9 @@ cargo build -p adapteros-lora-mlx-ffi --features mlx --release
 cargo build --release --features "multi-backend,mlx"
 
 # Check output for: "MLX FFI build: REAL"
+
+# Optional: enable experimental mlx-rs fallback
+cargo build --release --features "multi-backend,mlx,mlx-rs-backend"
 ```
 
 #### 3. Prepare Model
@@ -331,6 +341,7 @@ base_seed = "automatic"
 |----------|---------|---------|
 | `AOS_MODEL_PATH` | Primary model path | `/data/models/qwen2.5-7b-mlx` |
 | `AOS_MLX_FFI_MODEL` | Legacy model path (warned) | `./models/qwen2.5-7b-mlx` |
+| `AOS_MLX_IMPL` | Internal MLX implementation override (`auto`, `ffi`, `rs`) | `auto` |
 | `MLX_INCLUDE_DIR` | MLX headers path | `/opt/homebrew/include` |
 | `MLX_LIB_DIR` | MLX library path | `/opt/homebrew/lib` |
 | `MLX_PATH` | MLX base path | `/opt/homebrew` |
@@ -346,6 +357,17 @@ base_seed = "automatic"
 3. Legacy: `AOS_MLX_FFI_MODEL`, then `MLX_PATH` (warned)
 
 The path must be a directory containing `config.json`; otherwise backend creation fails with an actionable `AOS_MODEL_PATH` error.
+
+---
+
+### Implementation Differences (FFI vs mlx-rs)
+
+| Implementation | Status | Notes |
+|----------------|--------|-------|
+| **C++ FFI (default)** | Production | Full feature set (LoRA, adapter cache, hot-swap, GPU sampling) |
+| **mlx-rs (fallback)** | Experimental | No LoRA adapters yet; bypasses model cache; CPU sampling path |
+
+Use `AOS_MLX_IMPL=ffi|rs|auto` for internal debugging; production runs should keep `auto`.
 
 ---
 
@@ -775,6 +797,7 @@ let result = hotswap_manager.execute(command).await?;
 let command = AdapterCommand::Swap {
     add_ids: vec!["adapter-2".to_string(), "adapter-3".to_string()],
     remove_ids: vec!["adapter-1".to_string()],
+    expected_stack_hash: None,
 };
 let result = hotswap_manager.execute(command).await?;
 
@@ -1305,6 +1328,475 @@ Warning: MLX bridge restart count exceeded (3)
 
 ---
 
+## Streaming Token Generation
+
+The MLX backend provides token-by-token streaming generation for real-time inference applications.
+
+### MLXStreamingGenerator
+
+```rust
+use adapteros_lora_mlx_ffi::{MLXStreamingGenerator, StreamEvent};
+
+let generator = MLXStreamingGenerator::new(&model)?;
+
+// Stream tokens with callback
+generator.generate_stream(
+    "Once upon a time",
+    |event| {
+        match event {
+            StreamEvent::Token { token, confidence, alternatives } => {
+                print!("{}", token);
+                if let Some(conf) = confidence {
+                    tracing::debug!(confidence = %conf, "Token confidence");
+                }
+                if !alternatives.is_empty() {
+                    tracing::trace!(?alternatives, "Alternative tokens");
+                }
+            }
+            StreamEvent::StartTime { timestamp } => {
+                tracing::info!(?timestamp, "Generation started");
+            }
+            StreamEvent::EndTime { timestamp, total_tokens } => {
+                tracing::info!(?timestamp, total_tokens, "Generation complete");
+            }
+            StreamEvent::Error { message, recoverable } => {
+                if recoverable {
+                    tracing::warn!(%message, "Recoverable streaming error");
+                } else {
+                    tracing::error!(%message, "Fatal streaming error");
+                    return false;  // Stop generation
+                }
+            }
+        }
+        true  // Continue generation
+    },
+)?;
+```
+
+### StreamEvent Types
+
+| Event Type | Description | Fields |
+|------------|-------------|--------|
+| `Token` | Generated token | `token`, `confidence`, `alternatives` |
+| `StartTime` | Generation start marker | `timestamp` |
+| `EndTime` | Generation complete marker | `timestamp`, `total_tokens` |
+| `Error` | Error during streaming | `message`, `recoverable` |
+
+### Token Confidence Scores
+
+Token confidence scores indicate the model's certainty about each generated token:
+
+```rust
+StreamEvent::Token {
+    token: "the",
+    confidence: Some(0.95),  // 95% confidence
+    alternatives: vec![
+        ("a", 0.03),         // Alternative with probability
+        ("an", 0.02),
+    ],
+}
+```
+
+### UTF-8 Partial Character Healing
+
+The streaming generator handles partial UTF-8 characters that may span multiple tokens:
+
+```rust
+// Internal buffer accumulates partial bytes until a complete character forms
+let generator = MLXStreamingGenerator::with_config(&model, StreamConfig {
+    utf8_healing: true,       // Enable partial character healing (default)
+    buffer_incomplete: true,  // Buffer incomplete sequences
+})?;
+```
+
+### SSE Format Support
+
+For Server-Sent Events integration:
+
+```rust
+use adapteros_lora_mlx_ffi::sse::{SseFormatter, SseEvent};
+
+let formatter = SseFormatter::new();
+
+generator.generate_stream(prompt, |event| {
+    let sse = formatter.format(&event);
+    // Output: "data: {"token":"the","confidence":0.95}\n\n"
+    response_stream.write_all(sse.as_bytes())?;
+    true
+})?;
+```
+
+---
+
+## Adapter Cache Configuration
+
+The MLX backend includes an LRU adapter cache for efficient adapter management.
+
+### MLXAdapterCache
+
+```rust
+use adapteros_lora_mlx_ffi::{MLXAdapterCache, AdapterCacheConfig};
+
+// Create cache with custom configuration
+let config = AdapterCacheConfig {
+    max_cached_adapters: 10,                  // Maximum adapters to cache
+    max_adapter_size_bytes: 500 * 1024 * 1024, // 500MB per adapter limit
+    max_total_cache_bytes: 4 * 1024 * 1024 * 1024, // 4GB total cache limit
+    adapter_ttl_secs: 3600,                   // 1 hour TTL
+};
+
+let cache = MLXAdapterCache::with_config(config)?;
+
+// Load adapter (cached or fresh)
+let adapter = cache.get_or_load("adapter-id", adapter_path)?;
+
+// Preload adapters for hot-swap
+cache.preload(&["adapter-1", "adapter-2"])?;
+
+// Evict specific adapter
+cache.evict("adapter-id")?;
+
+// Clear entire cache
+cache.clear()?;
+```
+
+### Configuration Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `max_cached_adapters` | 8 | Maximum number of adapters to keep in cache |
+| `max_adapter_size_bytes` | 512MB | Maximum size of a single adapter |
+| `max_total_cache_bytes` | 4GB | Total cache memory limit |
+| `adapter_ttl_secs` | 1800 | Time-to-live before automatic eviction |
+
+### Cache Statistics
+
+```rust
+let stats = cache.stats();
+
+println!("Cache Statistics:");
+println!("  Hit rate: {:.1}%", stats.hit_rate * 100.0);
+println!("  Miss rate: {:.1}%", stats.miss_rate * 100.0);
+println!("  Total hits: {}", stats.total_hits);
+println!("  Total misses: {}", stats.total_misses);
+println!("  Evictions: {}", stats.eviction_count);
+println!("  Current size: {} MB", stats.current_size_bytes / (1024 * 1024));
+println!("  Cached adapters: {}", stats.cached_adapter_count);
+```
+
+### Configuration File
+
+```toml
+[mlx.adapter_cache]
+max_cached_adapters = 10
+max_adapter_size_bytes = 536870912  # 512MB
+max_total_cache_bytes = 4294967296  # 4GB
+adapter_ttl_secs = 3600
+```
+
+---
+
+## Memory Pool Configuration
+
+The MLX backend provides size-bucketed buffer pooling for efficient memory reuse.
+
+### MLXMemoryPool
+
+```rust
+use adapteros_lora_mlx_ffi::{MLXMemoryPool, MemoryPoolConfig};
+
+// Create memory pool with custom configuration
+let config = MemoryPoolConfig {
+    pressure_threshold: 0.85,     // Trigger cleanup at 85% utilization
+    idle_timeout_secs: 300,       // Release idle buffers after 5 minutes
+    target_headroom: 0.15,        // Maintain 15% free memory
+};
+
+let pool = MLXMemoryPool::with_config(config)?;
+
+// Acquire buffer from pool (reused or newly allocated)
+let buffer = pool.acquire(1024 * 1024)?;  // 1MB buffer
+
+// Buffer automatically returned to pool on drop
+drop(buffer);
+
+// Manual pool maintenance
+pool.trim_idle()?;  // Release idle buffers
+pool.compact()?;    // Defragment pool
+```
+
+### Configuration Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `pressure_threshold` | 0.80 | Memory utilization threshold for cleanup |
+| `idle_timeout_secs` | 120 | Seconds before idle buffers are released |
+| `target_headroom` | 0.20 | Target free memory ratio |
+
+### Memory Pressure Callbacks
+
+```rust
+use adapteros_lora_mlx_ffi::{MLXMemoryPool, PressureLevel};
+
+let pool = MLXMemoryPool::new()?;
+
+// Register pressure callback
+pool.on_pressure(|level| {
+    match level {
+        PressureLevel::Low => {
+            tracing::debug!("Memory pressure low, operations normal");
+        }
+        PressureLevel::Moderate => {
+            tracing::info!("Moderate memory pressure, consider reducing batch size");
+        }
+        PressureLevel::High => {
+            tracing::warn!("High memory pressure, evicting idle buffers");
+            // Trigger adapter cache eviction
+        }
+        PressureLevel::Critical => {
+            tracing::error!("Critical memory pressure, emergency cleanup");
+            // Force GC, evict all non-essential resources
+        }
+    }
+});
+```
+
+### Pool Statistics
+
+```rust
+let stats = pool.stats();
+
+println!("Memory Pool Statistics:");
+println!("  Active buffers: {}", stats.active_buffers);
+println!("  Pooled buffers: {}", stats.pooled_buffers);
+println!("  Total allocated: {} MB", stats.total_allocated_bytes / (1024 * 1024));
+println!("  Pool utilization: {:.1}%", stats.utilization * 100.0);
+println!("  Reuse ratio: {:.1}%", stats.reuse_ratio * 100.0);
+```
+
+### Configuration File
+
+```toml
+[mlx.memory_pool]
+pressure_threshold = 0.85
+idle_timeout_secs = 300
+target_headroom = 0.15
+```
+
+---
+
+## MLX Implementation Selection
+
+The MLX backend supports two implementations with automatic selection at runtime.
+
+### Available Implementations
+
+| Implementation | Feature Flag | Status | Description |
+|----------------|--------------|--------|-------------|
+| **C++ FFI** | `mlx` | Primary/Production | Full MLX C++ library integration via FFI |
+| **mlx-rs** | `mlx-rs-backend` | Experimental | Pure Rust bindings (limited features) |
+
+### Feature Differences
+
+| Feature | C++ FFI | mlx-rs |
+|---------|---------|--------|
+| LoRA adapters | ✅ Full support | ❌ Not available |
+| Adapter cache | ✅ Full support | ❌ Not available |
+| Hot-swap | ✅ Full support | ❌ Not available |
+| GPU sampling | ✅ GPU-accelerated | ⚠️ CPU fallback |
+| Text generation | ✅ Full support | ✅ Basic support |
+| Model loading | ✅ Lazy tokenizer | ⚠️ Eager loading |
+| Memory management | ✅ Full GC integration | ⚠️ Limited |
+
+### Runtime Override
+
+Use `AOS_MLX_IMPL` to override automatic implementation selection:
+
+```bash
+# Force C++ FFI implementation
+export AOS_MLX_IMPL=ffi
+
+# Force mlx-rs implementation (experimental)
+export AOS_MLX_IMPL=rs
+
+# Automatic selection (default)
+export AOS_MLX_IMPL=auto
+```
+
+### Auto-Selection Logic
+
+```mermaid
+flowchart TD
+    A[MLX Backend Init] --> B{AOS_MLX_IMPL set?}
+    B -->|ffi| C[Use C++ FFI]
+    B -->|rs| D[Use mlx-rs]
+    B -->|auto/unset| E{FFI available?}
+    E -->|Yes| C
+    E -->|No| F{mlx-rs enabled?}
+    F -->|Yes| D
+    F -->|No| G[Error: No MLX impl]
+```
+
+The automatic selection:
+1. Attempts C++ FFI initialization first
+2. If FFI fails and `mlx-rs-backend` feature is enabled, falls back to mlx-rs
+3. If both fail, returns an initialization error
+
+### Checking Active Implementation
+
+```rust
+use adapteros_lora_mlx_ffi::implementation;
+
+// Check which implementation is active
+match implementation::active() {
+    implementation::Kind::Ffi => println!("Using C++ FFI (production)"),
+    implementation::Kind::Rs => println!("Using mlx-rs (experimental)"),
+    implementation::Kind::Stub => println!("Using stub (no real MLX)"),
+}
+
+// Check via FFI
+let is_real = adapteros_lora_mlx_ffi::mlx_wrapper_is_real();
+println!("Real MLX: {}", is_real);
+```
+
+---
+
+## Monitoring Integration
+
+The MLX backend provides comprehensive monitoring and health tracking for production deployments.
+
+### PerformanceMetrics
+
+```rust
+use adapteros_lora_mlx_ffi::{MLXFFIBackend, PerformanceMetrics};
+
+let backend = MLXFFIBackend::new(model);
+
+// Get current performance metrics
+let metrics: PerformanceMetrics = backend.metrics();
+
+println!("Performance Metrics:");
+println!("  Total inference time: {} ms", metrics.total_inference_time_ms);
+println!("  Average latency: {:.2} ms", metrics.average_latency_ms);
+println!("  Peak memory usage: {} MB", metrics.peak_memory_usage_mb);
+println!("  Cache hit rate: {:.1}%", metrics.cache_hit_rate * 100.0);
+println!("  Tokens generated: {}", metrics.total_tokens_generated);
+println!("  Requests processed: {}", metrics.total_requests);
+```
+
+### PerformanceMetrics Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `total_inference_time_ms` | `u64` | Cumulative inference time in milliseconds |
+| `average_latency_ms` | `f64` | Rolling average request latency |
+| `peak_memory_usage_mb` | `u64` | Highest memory usage observed |
+| `cache_hit_rate` | `f64` | KV cache hit rate (0.0-1.0) |
+| `total_tokens_generated` | `u64` | Total tokens generated since startup |
+| `total_requests` | `u64` | Total inference requests processed |
+
+### BackendHealth Tracking
+
+```rust
+use adapteros_lora_mlx_ffi::{MLXFFIBackend, BackendHealth};
+
+let backend = MLXFFIBackend::new(model);
+
+// Check backend health
+match backend.health_check()? {
+    BackendHealth::Healthy => {
+        tracing::info!("Backend healthy");
+    }
+    BackendHealth::Degraded { reason } => {
+        tracing::warn!(%reason, "Backend degraded");
+    }
+    BackendHealth::Failed { reason, recoverable } => {
+        tracing::error!(%reason, recoverable, "Backend failed");
+    }
+}
+
+// Detailed health status
+let health = backend.health_status();
+println!("Health Status:");
+println!("  Operational: {}", health.operational);
+println!("  Consecutive failures: {}", health.consecutive_failures);
+println!("  Circuit breaker: {:?}", health.circuit_breaker_state);
+println!("  Last success: {:?}", health.last_success);
+println!("  Last failure: {:?}", health.last_failure);
+println!("  Uptime: {:?}", health.uptime);
+```
+
+### Prometheus/OpenMetrics Integration
+
+```rust
+use adapteros_lora_mlx_ffi::metrics::{MetricsExporter, PrometheusFormat};
+
+let exporter = MetricsExporter::new(&backend);
+
+// Export in Prometheus format
+let output = exporter.export(PrometheusFormat)?;
+// Output:
+// # HELP mlx_inference_latency_ms MLX inference latency in milliseconds
+// # TYPE mlx_inference_latency_ms histogram
+// mlx_inference_latency_ms_bucket{le="10"} 150
+// mlx_inference_latency_ms_bucket{le="50"} 890
+// ...
+// mlx_memory_usage_bytes 4294967296
+// mlx_cache_hit_rate 0.85
+// mlx_tokens_generated_total 1234567
+```
+
+### Telemetry Configuration
+
+```toml
+[mlx.telemetry]
+# Enable metrics collection
+enabled = true
+
+# Metrics export interval
+export_interval_secs = 15
+
+# Histogram buckets for latency (ms)
+latency_buckets = [5, 10, 25, 50, 100, 250, 500, 1000]
+
+# Memory tracking granularity
+memory_sample_interval_secs = 5
+
+# Health check interval
+health_check_interval_secs = 30
+```
+
+### Health Endpoint Integration
+
+```rust
+use axum::{routing::get, Router, Json};
+use serde_json::json;
+
+async fn health_handler(backend: Extension<Arc<MLXFFIBackend>>) -> Json<serde_json::Value> {
+    let health = backend.health_status();
+    let metrics = backend.metrics();
+
+    Json(json!({
+        "status": if health.operational { "healthy" } else { "degraded" },
+        "backend": "mlx",
+        "operational": health.operational,
+        "consecutive_failures": health.consecutive_failures,
+        "circuit_breaker": format!("{:?}", health.circuit_breaker_state),
+        "metrics": {
+            "average_latency_ms": metrics.average_latency_ms,
+            "peak_memory_mb": metrics.peak_memory_usage_mb,
+            "cache_hit_rate": metrics.cache_hit_rate,
+            "total_requests": metrics.total_requests,
+        }
+    }))
+}
+
+let app = Router::new()
+    .route("/healthz/mlx", get(health_handler));
+```
+
+---
+
 ## See Also
 
 ### Related Documentation
@@ -1325,7 +1817,7 @@ Warning: MLX bridge restart count exceeded (3)
 ---
 
 **Maintained by:** James KC Auchterlonie
-**Last Updated:** 2025-12-11
+**Last Updated:** 2026-01-02
 **Status:** Production-Ready
 
 MLNavigator Inc 2025

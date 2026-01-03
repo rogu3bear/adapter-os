@@ -6,7 +6,7 @@
 use adapteros_core::Result;
 use adapteros_deterministic_exec::spawn_deterministic;
 use adapteros_lora_kernel_api::FusedKernels;
-use adapteros_lora_worker::StrictnessControl;
+use adapteros_lora_worker::{StrictnessControl, WorkerStreamEvent};
 use axum::{
     extract::State,
     response::{
@@ -261,20 +261,9 @@ pub async fn streaming_inference_handler<
     )
 }
 
-/// Generate streaming response from worker
+/// Generate streaming response from worker.
 ///
-/// **IMPORTANT: Streaming is currently simulated.**
-///
-/// Since Worker.infer() returns complete text, we simulate streaming by
-/// chunking the response word-by-word. This provides an SSE interface for
-/// clients while the backend generates the full response first.
-///
-/// **Limitations:**
-/// - No time-to-first-token improvement (full generation happens before streaming)
-/// - Client disconnect not detected until after generation completes
-/// - Resource waste if client disconnects during generation
-///
-/// **Future improvement:** Implement true token-by-token streaming at the kernel level.
+/// Uses the worker's streaming channel so tokens arrive as they are generated.
 async fn generate_streaming_response<
     K: FusedKernels + StrictnessControl + Send + Sync + 'static,
 >(
@@ -282,9 +271,6 @@ async fn generate_streaming_response<
     request: StreamingInferenceRequest,
     tx: mpsc::Sender<StreamEvent>,
 ) -> Result<()> {
-    // Lock worker and call infer
-    let mut worker = state.worker.lock().await;
-
     // Create Worker InferenceRequest with proper fields
     let cpid = uuid::Uuid::new_v4().to_string();
     let inference_req = adapteros_lora_worker::InferenceRequest {
@@ -319,7 +305,10 @@ async fn generate_streaming_response<
         placement: None,
         routing_policy: None,
         stop_policy: None,
+        policy_mask_digest_b3: None,
+        utf8_healing: true,
         admin_override: false,
+        arrival_instant: None,
     };
 
     debug!(
@@ -328,58 +317,78 @@ async fn generate_streaming_response<
         request.max_tokens
     );
 
-    // Run inference to get complete response
-    let response = worker
-        .infer(inference_req)
-        .await
-        .map_err(|e| adapteros_core::AosError::Worker(format!("Inference failed: {}", e)))?;
+    let (worker_tx, mut worker_rx) = mpsc::channel::<WorkerStreamEvent>(256);
+    let worker_state = state.worker.clone();
+    let infer_task = tokio::spawn(async move {
+        let mut worker = worker_state.lock().await;
+        worker.infer_stream(inference_req, worker_tx).await
+    });
 
-    // Check for refusal or missing text
-    let text = if let Some(text) = response.text {
-        text
-    } else if let Some(refusal) = response.refusal {
-        let error_msg = format!("Request refused: {}", refusal.message);
-        tx.send(StreamEvent::Error(error_msg)).await.ok();
-        return Ok(());
-    } else {
-        tx.send(StreamEvent::Error("No text generated".to_string()))
-            .await
-            .ok();
-        return Ok(());
-    };
-    debug!("Generated text: {} chars", text.len());
+    let mut client_disconnected = false;
+    let mut saw_terminal = false;
 
-    // Simulate streaming by chunking the response
-    // Split by words for more natural streaming
-    let words: Vec<&str> = text.split_whitespace().collect();
-
-    for (i, word) in words.iter().enumerate() {
-        // Add space before word (except first)
-        let chunk = if i == 0 {
-            word.to_string()
-        } else {
-            format!(" {}", word)
-        };
-
-        // Send chunk to stream
-        if tx.send(StreamEvent::Token(chunk)).await.is_err() {
-            // Client disconnected
-            debug!("Client disconnected during streaming");
-            return Ok(());
+    while let Some(event) = worker_rx.recv().await {
+        match event {
+            WorkerStreamEvent::Token(token) => {
+                if tx.send(StreamEvent::Token(token.text)).await.is_err() {
+                    debug!("Client disconnected during streaming");
+                    client_disconnected = true;
+                    break;
+                }
+            }
+            WorkerStreamEvent::Complete(response) => {
+                if let Some(refusal) = response.refusal {
+                    let error_msg = format!("Request refused: {}", refusal.message);
+                    let _ = tx.send(StreamEvent::Error(error_msg)).await;
+                } else if response.text.is_none() {
+                    let _ = tx
+                        .send(StreamEvent::Error("No text generated".to_string()))
+                        .await;
+                } else {
+                    let _ = tx
+                        .send(StreamEvent::Done {
+                            finish_reason: "stop".to_string(),
+                        })
+                        .await;
+                }
+                saw_terminal = true;
+                break;
+            }
+            WorkerStreamEvent::Error(error) => {
+                let _ = tx.send(StreamEvent::Error(error)).await;
+                saw_terminal = true;
+                break;
+            }
         }
-
-        // Small delay to simulate progressive generation (optional)
-        tokio::time::sleep(Duration::from_millis(10)).await;
     }
 
-    // Send completion event
-    tx.send(StreamEvent::Done {
-        finish_reason: "stop".to_string(),
-    })
-    .await
-    .ok();
+    drop(worker_rx);
 
-    Ok(())
+    match infer_task.await {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => {
+            if !client_disconnected && !saw_terminal {
+                let _ = tx
+                    .send(StreamEvent::Error(format!("Inference failed: {}", e)))
+                    .await;
+            }
+            Err(adapteros_core::AosError::Worker(format!(
+                "Inference failed: {}",
+                e
+            )))
+        }
+        Err(e) => {
+            if !client_disconnected && !saw_terminal {
+                let _ = tx
+                    .send(StreamEvent::Error("Inference task failed".to_string()))
+                    .await;
+            }
+            Err(adapteros_core::AosError::Worker(format!(
+                "Inference task failed: {}",
+                e
+            )))
+        }
+    }
 }
 
 /// Non-streaming completion handler (for compatibility)
@@ -461,7 +470,10 @@ pub async fn completion_handler<K: FusedKernels + StrictnessControl + Send + Syn
         placement: None,
         routing_policy: None,
         stop_policy: None,
+        policy_mask_digest_b3: None,
+        utf8_healing: true,
         admin_override: false,
+        arrival_instant: None,
     };
 
     // Run inference

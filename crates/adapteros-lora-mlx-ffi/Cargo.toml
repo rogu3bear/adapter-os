@@ -17,8 +17,7 @@ serde.workspace = true
 serde_json.workspace = true
 safetensors.workspace = true
 
-# MLX SSoT - Single Source of Truth for all MLX operations
-# Deprecated: only used by mlx-rs-backend (unsupported)
+# mlx-rs abstraction layer (only used by deprecated mlx-rs-backend feature)
 adapteros-mlx = { path = "../adapteros-mlx", optional = true }
 
 # MLX Language Models (transformer models using mlx-rs)
@@ -76,7 +75,7 @@ default = []
 
 # mlx-rs: Pure Rust MLX bindings (deprecated/unsupported)
 #   - Kept for reference only, do not enable in production
-#   - Uses adapteros-mlx SSoT for all MLX operations
+#   - Uses adapteros-mlx wrapper around mlx-rs
 #   - Uses mlx-lm for transformer model implementation
 mlx-rs-backend = ["dep:adapteros-mlx", "dep:mlx-lm"]
 

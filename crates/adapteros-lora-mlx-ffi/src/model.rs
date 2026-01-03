@@ -397,7 +397,10 @@ impl MlxRsModel {
                 mask_data[(i * seq_len + j) as usize] = f32::NEG_INFINITY;
             }
         }
-        Ok(MlxArray::from_slice_f32(&mask_data, &[1, 1, seq_len, seq_len])?)
+        Ok(MlxArray::from_slice_f32(
+            &mask_data,
+            &[1, 1, seq_len, seq_len],
+        )?)
     }
 
     /// Repeat KV heads for GQA (Grouped Query Attention)

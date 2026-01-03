@@ -126,8 +126,9 @@ result_large_err = "warn"
 
 [features]
 default = []
-# MLX FFI backend support - enables MLX capability detection and reporting
+# MLX backend support - enables MLX capability detection and reporting
 mlx-ffi-backend = ["adapteros-lora-mlx-ffi"]
+mlx-rs-backend = ["mlx-ffi-backend", "adapteros-lora-mlx-ffi/mlx-rs-backend"]
 # Standalone MLX flag for capability gating
 mlx = []
 embeddings = ["adapteros-ingest-docs/multi-backend"]

@@ -52,6 +52,7 @@ pub mod telemetry_ext;
 pub mod types;
 pub mod uds_client;
 pub mod validation;
+pub mod worker_capabilities;
 pub mod worker_health;
 
 pub use auth::{is_dev_bypass_enabled, set_dev_bypass_from_config, Claims};

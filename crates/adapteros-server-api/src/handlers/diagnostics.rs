@@ -40,10 +40,7 @@ pub async fn get_determinism_status(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<DeterminismStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(
-        &claims,
-        &[Role::Admin, Role::Operator, Role::Viewer],
-    )?;
+    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
 
     debug!("Querying determinism check status");
 
@@ -127,10 +124,7 @@ pub async fn get_quarantine_status(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<QuarantineStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(
-        &claims,
-        &[Role::Admin, Role::Operator, Role::Viewer],
-    )?;
+    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
 
     debug!("Querying quarantine status");
 
