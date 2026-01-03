@@ -1,7 +1,7 @@
 //! Health check and system status handlers
 
 use crate::auth::is_dev_bypass_enabled;
-use crate::boot_state::BootState;
+use crate::boot_state::{BootState, BootWarning};
 use crate::state::{AppState, BackgroundTaskSnapshot};
 use crate::supervisor_client;
 use crate::types::*;
@@ -130,6 +130,11 @@ pub struct ReadyzResponse {
     /// - `dev_bypass`: All checks informational, always returns 200
     #[serde(default)]
     pub readiness_mode: ReadinessMode,
+    /// Warnings recorded during boot (non-fatal issues that reduce functionality).
+    /// Present even when `ready=true` to give operators visibility into
+    /// components that failed to start.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub boot_warnings: Vec<BootWarning>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Default)]
@@ -215,6 +220,7 @@ pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
                 last_error_code: None,
                 phases: Vec::new(),
                 readiness_mode,
+                boot_warnings: Vec::new(),
             }),
         );
     };
@@ -490,6 +496,7 @@ pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
             last_error_code: boot_state.last_error_code(),
             phases: boot_state.phase_statuses(),
             readiness_mode,
+            boot_warnings: boot_state.get_boot_warnings(),
         }),
     )
 }
@@ -762,9 +769,7 @@ fn map_boot_state(state: &AppState) -> String {
             | BootState::StartingBackend
             | BootState::LoadingBaseModels
             | BootState::LoadingAdapters
-            | BootState::WorkerDiscovery
-            | BootState::Booting
-            | BootState::InitializingDb => "booting",
+            | BootState::WorkerDiscovery => "booting",
             BootState::Ready | BootState::FullyReady => "ready",
             BootState::Degraded => "degraded",
             BootState::Failed => "failed",
