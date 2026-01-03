@@ -21,7 +21,7 @@
 //! 5. WAL checkpoint task (5m interval)
 //! 6. Upload session cleanup task (1h interval)
 //! 7. Security cleanup task (1h interval)
-//! 8. Telemetry bundle GC task (24h interval)
+//! 8. Telemetry bundle GC task (6h interval)
 //!
 //! Each task uses the `BackgroundTaskSpawner` to integrate with the shutdown coordinator
 //! and task tracking system.
@@ -132,10 +132,14 @@ pub async fn spawn_all_background_tasks(
                 return Err(anyhow::anyhow!(err.to_string()));
             }
 
+            // Record the warning for /readyz visibility (honest about what happened)
+            boot_state
+                .record_boot_warning(&err.task_name, format!("Failed to spawn: {}", &err.message));
+
             warn!(
                 task = %err.task_name,
                 error = %err.message,
-                "Critical background task failed to spawn; boot will continue in degraded state"
+                "Background task failed to spawn; boot continues but this feature will be unavailable"
             );
         }
         shutdown_coordinator = spawner.into_coordinator();
@@ -566,12 +570,13 @@ pub async fn spawn_all_background_tasks(
 
     // Spawn telemetry bundle GC background task
     // SKIPPED in dev mode - production maintenance only
+    // Default interval: 6 hours (21600 seconds) per Retention Ruleset #10
     if !dev_mode {
         let telemetry_store = Arc::clone(&state.telemetry_bundle_store);
         let interval_secs = std::env::var("AOS_TELEMETRY_BUNDLE_GC_SECS")
             .ok()
             .and_then(|v| v.parse::<u64>().ok())
-            .unwrap_or(86400);
+            .unwrap_or(21600); // 6 hours default
 
         if interval_secs > 0 {
             let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator)
@@ -599,19 +604,57 @@ pub async fn spawn_all_background_tasks(
                                             warn!(error = %e, "Telemetry bundle store lock poisoned, recovering");
                                             e.into_inner()
                                         });
-                                        store.run_gc()
+
+                                        // Log retention policy before GC
+                                        let stats_before = store.get_stats();
+                                        info!(
+                                            total_bundles = stats_before.total_bundles,
+                                            incident_bundles = stats_before.incident_bundles,
+                                            promotion_bundles = stats_before.promotion_bundles,
+                                            total_bytes = stats_before.total_bytes,
+                                            "Telemetry bundle GC starting"
+                                        );
+
+                                        // Run GC
+                                        let gc_result = store.run_gc();
+
+                                        // Verify protected bundles after GC
+                                        if gc_result.is_ok() {
+                                            let stats_after = store.get_stats();
+                                            // Verify incident/promotion bundles were preserved
+                                            if stats_after.incident_bundles < stats_before.incident_bundles {
+                                                warn!(
+                                                    before = stats_before.incident_bundles,
+                                                    after = stats_after.incident_bundles,
+                                                    "Incident bundles decreased during GC - policy violation!"
+                                                );
+                                            }
+                                            if stats_after.promotion_bundles < stats_before.promotion_bundles {
+                                                warn!(
+                                                    before = stats_before.promotion_bundles,
+                                                    after = stats_after.promotion_bundles,
+                                                    "Promotion bundles decreased during GC - policy violation!"
+                                                );
+                                            }
+                                            debug!(
+                                                incident_bundles_preserved = stats_after.incident_bundles,
+                                                promotion_bundles_preserved = stats_after.promotion_bundles,
+                                                "Protected bundles verified after GC"
+                                            );
+                                        }
+
+                                        gc_result
                                     })
                                     .await
                                     {
                                         Ok(Ok(report)) => {
-                                            if !report.evicted_bundles.is_empty() {
-                                                info!(
-                                                    evicted = report.evicted_bundles.len(),
-                                                    bytes_freed = report.bytes_freed,
-                                                    retained = report.retained_bundles,
-                                                    "Telemetry bundle GC completed"
-                                                );
-                                            }
+                                            info!(
+                                                evicted = report.evicted_bundles.len(),
+                                                bytes_freed = report.bytes_freed,
+                                                retained = report.retained_bundles,
+                                                total_before = report.total_bundles,
+                                                "Telemetry bundle GC completed"
+                                            );
                                         }
                                         Ok(Err(e)) => {
                                             warn!(error = %e, "Telemetry bundle GC failed");
@@ -628,7 +671,11 @@ pub async fn spawn_all_background_tasks(
                 )
                 .is_ok()
             {
-                info!("Telemetry bundle GC task started ({}s interval)", interval_secs);
+                info!(
+                    interval_secs = interval_secs,
+                    interval_hours = interval_secs / 3600,
+                    "Telemetry bundle GC task started"
+                );
             }
             shutdown_coordinator = spawner.into_coordinator();
         } else {
