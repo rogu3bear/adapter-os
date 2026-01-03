@@ -18,8 +18,8 @@ use adapteros_server::boot::migrations::run_migrations;
 use adapteros_server::boot::{
     bind_and_serve, bind_error_exit_code, build_app_state, finalize_boot, initialize_config,
     initialize_database, initialize_executor, initialize_federation, initialize_metrics,
-    initialize_security, log_effective_config, run_preflight_checks, write_boot_report, BindMode,
-    ServerBindConfig,
+    initialize_security, log_effective_config, run_preflight_checks,
+    validate_production_security_env, write_boot_report, BindMode, ServerBindConfig,
 };
 use adapteros_server::cli::Cli;
 use adapteros_server_api::boot_state::failure_codes;
@@ -36,6 +36,9 @@ mod openapi;
 async fn main() -> Result<()> {
     // Parse CLI first (before logging, so we know config path)
     let cli = Cli::parse();
+
+    // Early Security Gate: Block dev bypass flags in release builds
+    validate_production_security_env()?;
 
     // =========================================================================
     // Phase 1: Configuration

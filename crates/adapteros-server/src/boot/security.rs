@@ -406,3 +406,80 @@ pub async fn run_preflight_checks(config: Arc<RwLock<Config>>, cli: &Cli) -> Res
 
     Ok(())
 }
+
+// Production Security Environment Validation (P0 Security Gate)
+const DEV_BYPASS_ENV_VARS: &[&str] = &[
+    "AOS_DEV_NO_AUTH",
+    "AOS_DEV_SIGNATURE_BYPASS",
+    "AOS_SKIP_MIGRATION_SIGNATURES",
+];
+const ALLOW_INSECURE_FLAG: &str = "AOS_ALLOW_INSECURE_DEV_FLAGS";
+
+#[derive(Debug)]
+pub struct SecurityEnvValidation {
+    pub passed: bool,
+    pub offending_vars: Vec<String>,
+    pub override_used: bool,
+    pub is_release_build: bool,
+}
+
+fn env_truthy(key: &str) -> bool {
+    std::env::var(key)
+        .ok()
+        .map(|v| {
+            matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
+/// Block dev bypass flags in release builds. Fails fast before any other init.
+pub fn validate_production_security_env() -> Result<SecurityEnvValidation> {
+    let is_release = !cfg!(debug_assertions);
+    let offending: Vec<String> = DEV_BYPASS_ENV_VARS
+        .iter()
+        .filter(|&&var| env_truthy(var))
+        .map(|&s| s.to_string())
+        .collect();
+    let override_requested = env_truthy(ALLOW_INSECURE_FLAG);
+
+    if offending.is_empty() {
+        return Ok(SecurityEnvValidation {
+            passed: true,
+            offending_vars: vec![],
+            override_used: false,
+            is_release_build: is_release,
+        });
+    }
+
+    if is_release {
+        if override_requested {
+            error!(offending_vars = ?offending, "DANGER: Dev bypass flags in RELEASE build");
+            Ok(SecurityEnvValidation {
+                passed: true,
+                offending_vars: offending,
+                override_used: true,
+                is_release_build: true,
+            })
+        } else {
+            for var in &offending {
+                error!(env_var = %var, "Offending environment variable");
+            }
+            Err(anyhow::anyhow!(
+                "SECURITY VIOLATION: Dev bypass flags [{}] in release build. Set {}=1 to override.",
+                offending.join(", "),
+                ALLOW_INSECURE_FLAG
+            ))
+        }
+    } else {
+        warn!(offending_vars = ?offending, "Dev bypass flags detected (debug build)");
+        Ok(SecurityEnvValidation {
+            passed: true,
+            offending_vars: offending,
+            override_used: false,
+            is_release_build: false,
+        })
+    }
+}
