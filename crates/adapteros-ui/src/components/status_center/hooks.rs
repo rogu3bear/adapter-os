@@ -63,8 +63,8 @@ pub enum StatusLoadingState {
     Idle,
     /// Currently loading
     Loading,
-    /// Successfully loaded
-    Loaded(CombinedStatus),
+    /// Successfully loaded (boxed to reduce enum size)
+    Loaded(Box<CombinedStatus>),
     /// Error occurred
     Error(ApiError),
 }
@@ -113,7 +113,7 @@ pub fn use_status_data() -> (ReadSignal<StatusLoadingState>, impl Fn() + Clone) 
 
             match futures::future::join(status_future, state_future).await {
                 (Ok(status), Ok(state)) => {
-                    set_state.set(StatusLoadingState::Loaded(CombinedStatus { status, state }));
+                    set_state.set(StatusLoadingState::Loaded(Box::new(CombinedStatus { status, state })));
                 }
                 (Err(e), _) | (_, Err(e)) => {
                     set_state.set(StatusLoadingState::Error(e));

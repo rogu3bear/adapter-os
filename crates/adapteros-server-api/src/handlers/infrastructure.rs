@@ -166,7 +166,9 @@ pub async fn test_node_connection(
                 if attempt >= max_attempts {
                     break Err(e);
                 }
-                tokio::time::sleep(backoff).await;
+                // Add jitter to prevent thundering herd on retries
+                let jitter = std::time::Duration::from_millis(rand::random::<u64>() % 100);
+                tokio::time::sleep(backoff + jitter).await;
                 backoff = (backoff * 2).min(std::time::Duration::from_millis(800));
             }
         }
@@ -258,7 +260,7 @@ pub async fn evict_node(
             StatusCode::CONFLICT,
             Json(
                 ErrorResponse::new("node has running workers")
-                    .with_code("INTERNAL_ERROR")
+                    .with_code("CONFLICT")
                     .with_string_details("Stop all workers before evicting node"),
             ),
         ));
@@ -461,11 +463,16 @@ pub async fn get_base_model_status(
 
     // Authenticated path - return full data
     // PRD-RECT-002: Validate caller has access to the requested tenant
-    // SAFETY: is_authenticated was checked above at line 451, so claims must be Some
-    let claims_inner = claims
-        .as_ref()
-        .map(|c| &c.0)
-        .expect("claims must exist when is_authenticated is true");
+    let claims_inner = claims.as_ref().map(|c| &c.0).ok_or_else(|| {
+        tracing::error!("claims unexpectedly None despite is_authenticated=true");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("authentication state inconsistency")
+                    .with_code("AUTH_STATE_ERROR"),
+            ),
+        )
+    })?;
     let tenant_id = query
         .tenant_id
         .clone()
@@ -695,7 +702,13 @@ pub async fn worker_spawn(
         ));
     }
 
-    let spawn_response: serde_json::Value = response.json().await.map_err(|e| {
+    /// Response from node agent spawn endpoint
+    #[derive(Deserialize)]
+    struct SpawnResponse {
+        pid: i64,
+    }
+
+    let spawn_response: SpawnResponse = response.json().await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
@@ -706,16 +719,25 @@ pub async fn worker_spawn(
         )
     })?;
 
-    let pid = spawn_response["pid"].as_i64().ok_or_else(|| {
-        (
+    // Validate PID is within valid range (1 to i32::MAX)
+    const MIN_VALID_PID: i64 = 1;
+    const MAX_VALID_PID: i64 = i32::MAX as i64;
+
+    if spawn_response.pid < MIN_VALID_PID || spawn_response.pid > MAX_VALID_PID {
+        return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
                 ErrorResponse::new("invalid response from node agent")
-                    .with_code("BAD_REQUEST")
-                    .with_string_details("missing or invalid PID field"),
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(format!(
+                        "PID {} is outside valid range ({}-{})",
+                        spawn_response.pid, MIN_VALID_PID, MAX_VALID_PID
+                    )),
             ),
-        )
-    })? as i32;
+        ));
+    }
+
+    let pid = spawn_response.pid as i32;
 
     // Create UDS path for worker
     let uds_path = format!("/var/run/aos/{}/worker.sock", req.tenant_id);
@@ -847,6 +869,8 @@ pub async fn list_workers(
         }
     }
 
+    // Limit cache size to prevent unbounded memory growth
+    const PLAN_MODEL_CACHE_MAX: usize = 1000;
     let mut plan_model_cache: HashMap<String, (Option<String>, Option<String>)> = HashMap::new();
     let mut response: Vec<WorkerResponse> = Vec::with_capacity(workers.len());
 
@@ -861,7 +885,10 @@ pub async fn list_workers(
             Some(cached) => cached.clone(),
             None => {
                 let resolved = resolve_plan_model_info(&state.db, &w.plan_id).await;
-                plan_model_cache.insert(w.plan_id.clone(), resolved.clone());
+                // Only cache if under capacity limit to prevent unbounded growth
+                if plan_model_cache.len() < PLAN_MODEL_CACHE_MAX {
+                    plan_model_cache.insert(w.plan_id.clone(), resolved.clone());
+                }
                 resolved
             }
         };
@@ -1196,10 +1223,13 @@ pub async fn get_worker_health_summary(
     for worker in &workers {
         let health = state.db.get_worker_health(&worker.id).await.ok().flatten();
 
-        let status = health
-            .as_ref()
-            .map(|h| h.health_status.as_str())
-            .unwrap_or("unknown");
+        let status = match &health {
+            Some(h) => h.health_status.as_str(),
+            None => {
+                tracing::debug!(worker_id = %worker.id, "No health record found for worker, marking as unchecked");
+                "unchecked"
+            }
+        };
 
         match status {
             "healthy" => healthy_count += 1,
@@ -1238,4 +1268,12 @@ pub async fn get_worker_health_summary(
         "workers": health_records,
         "timestamp": chrono::Utc::now().to_rfc3339()
     })))
+}
+
+/// Get build version information (PRD-RECT-001)
+///
+/// Returns build fingerprint including version, git SHA, platform, enabled features, and backends.
+/// This endpoint is public (no auth required) for service discovery and monitoring.
+pub async fn get_version() -> Json<adapteros_core::BuildInfo> {
+    Json(adapteros_core::BuildInfo::current())
 }
