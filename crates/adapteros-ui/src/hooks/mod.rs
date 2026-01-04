@@ -2,6 +2,10 @@
 //!
 //! Leptos-style hooks for data fetching, state management, etc.
 
+pub mod use_sse_notifications;
+
+pub use use_sse_notifications::use_sse_notifications;
+
 use crate::api::{ApiClient, ApiError, ApiResult};
 use leptos::prelude::*;
 use std::sync::Arc;
@@ -78,6 +82,15 @@ where
 }
 
 /// Simple polling hook
+///
+/// # Resource Leak Note
+/// The interval handle is intentionally leaked via `std::mem::forget` because:
+/// 1. Leptos 0.7's `on_cleanup` requires `Send + Sync` closures
+/// 2. `gloo_timers::Interval` is `!Send` (uses browser APIs)
+/// 3. In WASM, page unload or component unmount will release resources anyway
+///
+/// For long-lived SPAs with frequent component remounts, consider using
+/// `AbortController` patterns or a global polling manager instead.
 pub fn use_polling<F, Fut>(interval_ms: u32, fetch: F)
 where
     F: Fn() -> Fut + Clone + 'static,
@@ -100,7 +113,7 @@ where
             });
         });
 
-        // Keep interval alive
+        // Keep interval alive - see doc comment for rationale
         std::mem::forget(interval_handle);
     });
 }

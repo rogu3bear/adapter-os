@@ -31,7 +31,7 @@ pub struct TrainingDatasetManager {
 /// Serializable training generation configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SerializableTrainingConfig {
-    /// Strategy: "identity", "question_answer", or "masked_lm"
+    /// Strategy: "identity" or "question_answer"
     pub strategy: String,
     /// Maximum sequence length
     pub max_seq_length: usize,
@@ -53,7 +53,6 @@ impl From<SerializableTrainingConfig> for TrainingGenConfig {
     fn from(config: SerializableTrainingConfig) -> Self {
         let strategy = match config.strategy.as_str() {
             "question_answer" => TrainingStrategy::QuestionAnswer,
-            "masked_lm" => TrainingStrategy::MaskedLM,
             _ => TrainingStrategy::Identity,
         };
 

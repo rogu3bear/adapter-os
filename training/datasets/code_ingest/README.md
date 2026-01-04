@@ -4,13 +4,13 @@
 
 ## Overview
 
-Code ingestion transforms source code, PDFs, and documentation into training examples for LoRA adapters. The pipeline supports Identity, QuestionAnswer, and MaskedLM strategies.
+Code ingestion transforms source code, PDFs, and documentation into training examples for LoRA adapters. The pipeline supports Identity and QuestionAnswer strategies.
 
 ## Key Concepts
 
 - **Document Parsing:** PDF, Markdown, code extraction
 - **Tokenization:** Model-specific tokenizer patterns
-- **Training Strategies:** Identity (unsupervised), QA, MaskedLM
+- **Training Strategies:** Identity (unsupervised), QA
 - **Quality Filtering:** Relevance, confidence thresholds
 - **Content Addressing:** BLAKE3 hashing for datasets
 
@@ -57,12 +57,6 @@ Target: "adapter_id: &str) -> Result<()>"
 ```rust
 Input:  "What does the router do?"
 Target: "The router selects top-K adapters using gate scores"
-```
-
-### 3. MaskedLM
-```rust
-Input:  "The router selects [MASK] adapters"
-Target: "top-K"
 ```
 
 ## Quality Criteria

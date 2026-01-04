@@ -39,7 +39,7 @@ pub struct IngestDocsArgs {
     #[arg(long)]
     training_output: Option<PathBuf>,
 
-    /// Training strategy: identity, qa, or mlm
+    /// Training strategy: identity or qa
     #[arg(long, default_value = "identity")]
     training_strategy: String,
 
@@ -316,10 +316,9 @@ impl IngestDocsArgs {
         let strategy = match self.training_strategy.to_lowercase().as_str() {
             "identity" => TrainingStrategy::Identity,
             "qa" | "question-answer" => TrainingStrategy::QuestionAnswer,
-            "mlm" | "masked-lm" => TrainingStrategy::MaskedLM,
             _ => {
                 return Err(AosError::Validation(format!(
-                    "Invalid training strategy: {}. Must be one of: identity, qa, mlm",
+                    "Invalid training strategy: {}. Must be one of: identity, qa",
                     self.training_strategy
                 )));
             }

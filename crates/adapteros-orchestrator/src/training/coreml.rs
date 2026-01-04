@@ -119,6 +119,7 @@ pub(crate) async fn run_coreml_export_flow(
                     job.coreml_metadata_path = Some(metadata_path_str.clone());
                     job.coreml_base_manifest_hash = Some(base_hash.clone());
                     job.coreml_adapter_hash_b3 = Some(adapter_hash.clone());
+                    job.coreml_fusion_verified = Some(record.fusion_verified);
                 }
             }
 
@@ -243,9 +244,20 @@ fn perform_coreml_export(job: CoreMLExportJob) -> Result<CoreMLExportRecord> {
 pub(crate) fn perform_coreml_export(job: CoreMLExportJob) -> Result<CoreMLExportRecord> {
     if std::env::var("AOS_ALLOW_COREML_EXPORT_STUB").is_err() && !cfg!(test) {
         return Err(anyhow::anyhow!(
-            "CoreML export not supported on this platform (enable AOS_ALLOW_COREML_EXPORT_STUB=1 to stub)"
+            "CoreML export requires macOS with coreml-backend feature. \
+             Set AOS_ALLOW_COREML_EXPORT_STUB=1 to create metadata-only package (not recommended for production)"
         ));
     }
+
+    // Emit prominent warning when stub mode is used
+    warn!(
+        adapter_id = ?job.adapter_id,
+        base_model_id = ?job.base_model_id,
+        output_package = ?job.output_package,
+        "CoreML export running in STUB MODE - producing metadata-only package. \
+         This package will NOT contain fused weights and is NOT suitable for production deployment. \
+         To produce a functional CoreML package, run on macOS with --features coreml-backend"
+    );
 
     if let Some(parent) = job.output_package.parent() {
         fs::create_dir_all(parent).map_err(|e| anyhow::anyhow!(e.to_string()))?;

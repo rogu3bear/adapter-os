@@ -1,4 +1,5 @@
 #![allow(unused_variables)]
+#![allow(ambiguous_glob_reexports)]
 
 use crate::auth::Claims;
 use crate::middleware::require_any_role;
@@ -66,7 +67,6 @@ pub mod node_detail;
 pub mod notifications;
 pub mod openai_compat;
 pub mod orchestration;
-pub mod owner_chat;
 pub mod owner_cli;
 // pub mod packages; // Feature removed in migration 0200
 pub mod pilot_status;

@@ -4,10 +4,16 @@
 //! Designed like a Windows taskbar + modern control plane aesthetic.
 
 use crate::components::chat_dock::{ChatDockPanel, MobileChatOverlay, NarrowChatDock};
+use crate::components::glass_toggle::GlassThemeToggle;
+use crate::components::global_search::GlobalSearchBox;
+use crate::components::offline_banner::OfflineBanner;
 use crate::components::status::{StatusColor, StatusIndicator};
-use crate::signals::{use_auth, use_chat, DockState};
+use crate::components::workspace::Workspace;
+use crate::signals::{use_auth, use_chat, use_search, DockState};
 use leptos::prelude::*;
 use leptos_router::hooks::use_location;
+use wasm_bindgen::prelude::*;
+use wasm_bindgen::JsCast;
 
 // ============================================================================
 // Shell - Main Application Frame
@@ -18,19 +24,78 @@ use leptos_router::hooks::use_location;
 pub fn Shell(children: Children) -> impl IntoView {
     web_sys::console::log_1(&"[Shell] Rendering...".into());
     let (chat_state, _chat_action) = use_chat();
+    let search = use_search();
     web_sys::console::log_1(&"[Shell] Got chat context".into());
 
+    // Global keyboard handler for Command Palette
+    let keyboard_handler_set = StoredValue::new(false);
+    Effect::new(move || {
+        if keyboard_handler_set.get_value() {
+            return;
+        }
+        keyboard_handler_set.set_value(true);
+
+        let search = search.clone();
+        let closure = Closure::wrap(Box::new(move |event: web_sys::KeyboardEvent| {
+            let key = event.key();
+            let ctrl_or_cmd = event.ctrl_key() || event.meta_key();
+
+            // Check if we're in an input field
+            if let Some(target) = event.target() {
+                if let Some(element) = target.dyn_ref::<web_sys::HtmlElement>() {
+                    let tag = element.tag_name().to_lowercase();
+                    if tag == "input" || tag == "textarea" {
+                        // Allow Escape to blur
+                        if key == "Escape" {
+                            let _ = element.blur();
+                            event.prevent_default();
+                            return;
+                        }
+                        // Don't intercept other keys in inputs (except Ctrl+K)
+                        if !(ctrl_or_cmd && key == "k") {
+                            return;
+                        }
+                    }
+                }
+            }
+
+            // Ctrl+K or Cmd+K opens command palette
+            if ctrl_or_cmd && key == "k" {
+                event.prevent_default();
+                search.toggle();
+                return;
+            }
+
+            // "/" opens command palette when not in input
+            if key == "/" && !search.command_palette_open.get_untracked() {
+                event.prevent_default();
+                search.open();
+            }
+        }) as Box<dyn FnMut(_)>);
+
+        if let Some(window) = web_sys::window() {
+            let _ = window
+                .add_event_listener_with_callback("keydown", closure.as_ref().unchecked_ref());
+        }
+        closure.forget();
+    });
+
     view! {
-        <div class="flex flex-col h-screen overflow-hidden bg-background">
+        <div class="shell">
+            // PRD-UI-000: Offline banner for API connectivity status
+            <OfflineBanner/>
+
             // Top bar
             <TopBar/>
 
-            // Main content area
-            <div class="flex flex-1 overflow-hidden">
-                // Main workspace
-                <main class="flex-1 overflow-y-auto bg-muted/5">
-                    {children()}
-                </main>
+            // Main content area with workspace
+            <div class="shell-content">
+                // Main workspace wrapper
+                <Workspace class="shell-workspace">
+                    <main class="shell-main">
+                        {children()}
+                    </main>
+                </Workspace>
 
                 // Chat dock (collapsible right panel)
                 {move || {
@@ -99,25 +164,19 @@ pub fn TopBar() -> impl IntoView {
                 </div>
             </div>
 
-            // Center: Command palette hint
+            // Center: Global search box (opens Command Palette)
             <div class="flex-1 flex justify-center">
-                <button
-                    class="flex items-center gap-2 px-3 py-1 rounded-md border border-border/50 bg-muted/30 hover:bg-muted/50 text-muted-foreground text-xs transition-colors"
-                    title="Open command palette"
-                >
-                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
-                    </svg>
-                    <span>"Search..."</span>
-                    <kbd class="hidden sm:inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-background border border-border/50 text-[10px] font-mono">
-                        <span class="text-xs">"Cmd"</span>
-                        <span>"K"</span>
-                    </kbd>
-                </button>
+                <GlobalSearchBox/>
             </div>
 
-            // Right: Notifications + User menu
+            // Right: Glass toggle + Notifications + User menu
             <div class="flex items-center gap-2">
+                // Glass theme toggle (PRD-UI-100)
+                <GlassThemeToggle/>
+
+                // Separator
+                <div class="w-px h-4 bg-border/30"></div>
+
                 // Notifications bell
                 <div class="relative">
                     <button

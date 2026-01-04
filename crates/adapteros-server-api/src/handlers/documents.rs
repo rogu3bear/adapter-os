@@ -500,15 +500,31 @@ pub async fn list_document_chunks(
 
     let responses: Vec<ChunkResponse> = chunks
         .into_iter()
-        .map(|c| ChunkResponse {
-            schema_version: "1.0".to_string(),
-            chunk_id: c.id,
-            document_id: c.document_id,
-            chunk_index: c.chunk_index,
-            text: c.text_preview.clone().unwrap_or_default(),
-            embedding: None, // TODO: Add embedding field to DB schema
-            metadata: None,  // TODO: Add metadata field to DB schema
-            created_at: chrono::Utc::now().to_rfc3339(),
+        .map(|c| {
+            // Parse embedding from JSON string if present
+            let embedding = c
+                .embedding_json
+                .as_ref()
+                .and_then(|json_str| serde_json::from_str::<Vec<f32>>(json_str).ok());
+
+            // Construct metadata from chunk fields
+            let metadata = serde_json::json!({
+                "page_number": c.page_number,
+                "start_offset": c.start_offset,
+                "end_offset": c.end_offset,
+                "chunk_hash": c.chunk_hash,
+            });
+
+            ChunkResponse {
+                schema_version: "1.0".to_string(),
+                chunk_id: c.id,
+                document_id: c.document_id,
+                chunk_index: c.chunk_index,
+                text: c.text_preview.unwrap_or_default(),
+                embedding,
+                metadata: Some(metadata),
+                created_at: chrono::Utc::now().to_rfc3339(),
+            }
         })
         .collect();
 

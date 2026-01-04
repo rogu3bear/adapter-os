@@ -1,8 +1,5 @@
 //! Train adapter from codebase command
 //!
-//! This module is temporarily stubbed pending migration from the deleted
-//! adapteros-single-file-adapter crate.
-//!
 //! Automatically extracts knowledge from a repository and trains a LoRA adapter
 //!
 //! # CLI Inputs Aligned with Repo Commit Overrides
@@ -14,10 +11,10 @@
 use crate::commands::adapter_codebase::CodebaseScopeOverrides;
 use crate::commands::training_common::{CommonTrainingArgs, TokenizerArg};
 use adapteros_core::{AosError, Result};
-// Removed: use adapteros_db::Db;
-// Removed: use adapteros_orchestrator::codebase_ingestion::{CodebaseIngestion, IngestionConfig};
-// Removed: use adapteros_orchestrator::training::TrainingConfig as OrchestratorTrainingConfig;
-// Removed: use adapteros_single_file_adapter::format::WeightGroupConfig;
+use adapteros_db::Db;
+use adapteros_lora_worker::training::TrainingConfig;
+use adapteros_orchestrator::codebase_ingestion::{CodebaseIngestion, IngestionConfig};
+use tracing::info;
 
 use clap::Args;
 use std::path::PathBuf;
@@ -101,19 +98,104 @@ pub struct TrainFromCodeArgs {
 impl TrainFromCodeArgs {
     /// Execute the train-from-code command
     pub async fn execute(&self) -> Result<()> {
-        tracing::warn!(
-            "train-from-code command is temporarily disabled pending crate migration"
-        );
+        // Validate arguments first
+        self.validate()?;
 
-        // The original implementation used:
-        // - adapteros_single_file_adapter::format::WeightGroupConfig
-        // - adapteros_orchestrator::codebase_ingestion::{CodebaseIngestion, IngestionConfig}
-        //
-        // These need to be replaced with types from adapteros-aos
+        // Log scope overrides if any are set
+        self.scope_overrides.log_overrides();
 
-        Err(AosError::Config(
-            "train-from-code: pending crate migration".to_string()
-        ))
+        info!("=== Train from Code Pipeline ===");
+        info!("Repository: {}", self.repo.display());
+        info!("Adapter ID: {}", self.adapter_id);
+        info!("Output: {}", self.output.display());
+
+        // Resolve tokenizer path
+        let tokenizer_path =
+            adapteros_config::resolve_tokenizer_path(self.tokenizer_arg.tokenizer.as_ref())?;
+        info!("Tokenizer: {}", tokenizer_path.display());
+
+        // Build training config from common args
+        let training_config = TrainingConfig {
+            rank: self.common.rank,
+            alpha: self.common.alpha,
+            learning_rate: self.common.learning_rate,
+            batch_size: self.common.batch_size,
+            epochs: self.common.epochs,
+            hidden_dim: self.common.hidden_dim,
+            ..TrainingConfig::default()
+        };
+
+        // The orchestrator derives its own deterministic seed from content hash,
+        // commit SHA, etc. No explicit seed configuration needed here.
+
+        // Build ingestion config
+        let ingestion_config = IngestionConfig {
+            training_config,
+            tokenizer_path: Some(tokenizer_path),
+            max_pairs_per_symbol: self.max_pairs_per_symbol,
+            include_private: self.include_private,
+            min_doc_length: self.min_doc_length,
+            generate_negative_examples: self.generate_negative,
+            base_model: self.base_model.clone(),
+        };
+
+        // Create and run the ingestion pipeline
+        let pipeline = CodebaseIngestion::new(ingestion_config)?;
+
+        // Ensure output directory exists
+        std::fs::create_dir_all(&self.output).map_err(|e| {
+            AosError::Io(format!(
+                "Failed to create output directory {}: {}",
+                self.output.display(),
+                e
+            ))
+        })?;
+
+        let result = pipeline
+            .ingest_and_train(&self.repo, &self.adapter_id, &self.output)
+            .await?;
+
+        info!("=== Training Complete ===");
+        info!("Adapter ID: {}", result.adapter_id);
+        info!("Adapter hash: {}", result.adapter_hash);
+        info!("Symbols extracted: {}", result.symbols_count);
+        info!("Training examples: {}", result.examples_count);
+        info!("Final loss: {:.6}", result.final_loss);
+        info!("Training time: {}ms", result.training_time_ms);
+        info!("Content hash: {}", result.content_hash);
+
+        // Register adapter if requested
+        if self.register {
+            let db_path = self.db_path.as_ref().ok_or_else(|| {
+                AosError::Validation("--register requires --db-path to be specified".to_string())
+            })?;
+
+            info!("Registering adapter to database: {}", db_path.display());
+            let db = Db::connect(&db_path.to_string_lossy()).await?;
+
+            // Build the adapter path
+            let aos_path = self
+                .output
+                .join("default")
+                .join(format!("{}.aos", self.adapter_id));
+
+            let register_request = crate::commands::register_adapter::RegisterAosRequest {
+                adapter_id: self.adapter_id.clone(),
+                aos_path,
+                tenant_id: self.tenant_id.clone(),
+                base_model_id: self.base_model.clone(),
+                tier: self.tier.to_string(),
+                rank: self.common.rank as u32,
+                name: Some(format!("Codebase adapter: {}", self.adapter_id)),
+                revision: result.commit_sha.clone(),
+            };
+
+            crate::commands::register_adapter::register_aos_with_db(&db, register_request).await?;
+            info!("Adapter registered successfully");
+        }
+
+        info!("=== Train from Code Complete ===");
+        Ok(())
     }
 
     /// Validate command arguments

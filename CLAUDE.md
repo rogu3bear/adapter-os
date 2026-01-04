@@ -40,8 +40,6 @@ Defined at workspace level in root `Cargo.toml` and propagate to crates:
 --features coreml-backend    # CoreML ANE acceleration layer
 --features metal-backend     # Metal GPU kernels
 --features mlx               # MLX C++ FFI (Homebrew MLX)
---features mlx-backend       # Legacy stub alias (deprecated)
---features mlx-rs-backend    # Deprecated/unsupported (do not use)
 
 # Combined profiles
 --features production-macos  # Full Apple Silicon stack (MLX + CoreML + Metal)
@@ -101,6 +99,7 @@ cargo test -p adapteros-e2e --features prod-gate
 ./aosctl train-docs --docs-dir ./my-docs --register \
   --tenant-id <tenant> --base-model-id Qwen2.5-7B-Instruct      # Train and register
 ./aosctl train-docs --training-strategy qa --epochs 5           # Custom training params
+./aosctl train-docs --docs-dir ./my-docs --resume               # Resume from checkpoint
 
 # Model management
 ./aosctl models seed                           # Seed models from model directory
@@ -110,6 +109,9 @@ cargo test -p adapteros-e2e --features prod-gate
 ./aosctl models list --json                    # Output in JSON format
 ./aosctl models list --db-path ./custom.sqlite3            # Use custom database
 
+# Tokenizer validation
+./aosctl models check-tokenizer ./var/models/Qwen2.5-7B-Instruct/tokenizer.json  # Validate tokenizer
+
 # Serve with additional options
 ./aosctl serve --capture-events ./events/              # Capture telemetry events to directory
 ./aosctl serve --insecure-skip-egress-check            # Skip PF egress preflight (dev only)
@@ -117,7 +119,7 @@ cargo test -p adapteros-e2e --features prod-gate
 
 ## UI (Leptos WASM)
 
-Located in `crates/adapteros-ui/`. Leptos 0.7 + Tailwind CSS + WASM (Client-Side Rendering).
+Located in `crates/adapteros-ui/`. Leptos 0.7 + Pure CSS + WASM (Client-Side Rendering).
 
 ```bash
 # Install trunk (WASM bundler)
@@ -144,6 +146,7 @@ cargo test -p adapteros-ui --lib
 - `src/pages/` - Route pages (Dashboard, Adapters, Chat, etc.)
 - `src/hooks/` - Custom hooks (use_api_resource, use_polling, etc.)
 - `src/contexts/` - Context providers (AuthProvider)
+- `src/validation.rs` - Form validation rules (PRD-UI-150)
 
 ### Shared API Types
 
@@ -160,8 +163,44 @@ This ensures compile-time type consistency between the Rust server and WASM clie
 
 The `Trunk.toml` configures the WASM build:
 - Output directory: `../adapteros-server/static/`
-- Tailwind CSS processing
-- WASM optimization settings
+- Pure CSS (migrated from Tailwind, no Node.js required)
+- wasm-opt with `--enable-bulk-memory` for size optimization
+
+### PRD Acceptance Criteria
+
+**PRD-UI-150: Forms & Validation**
+- [x] 11+ validation rule types in `validation.rs`
+- [x] Field-level error mapping via `FormErrors` signal
+- [x] Typed confirmation for destructive actions (`ConfirmationDialog`)
+- [x] DangerZone component for high-risk operations
+- Acceptance: No form submits invalid required fields
+
+**PRD-UI-160: Accessibility**
+- [x] WCAG AA compliance target (4.5:1 text, 3:1 UI)
+- [x] `prefers-reduced-motion` disables all animations
+- [x] ARIA attributes on dialogs, forms, toggles
+- [x] Keyboard navigation (Escape, Enter, Ctrl+K)
+- Acceptance: Full app usable via keyboard only
+
+**PRD-UI-170: Performance**
+- Baseline: 3.8MB WASM (unoptimized)
+- Target: <2.5MB WASM with wasm-opt enabled
+- Target: <1MB gzipped over wire
+- Acceptance: Dashboard interactive in <2s on M1
+
+### Liquid Glass Design System
+
+See `dist/glass.css` header for full spec. Key rules:
+
+| Tier | Usage | Blur | Alpha |
+|------|-------|------|-------|
+| 1 | headers, nav, inputs | 9.6px | 70% |
+| 2 | cards, panels | 12px | 78% |
+| 3 | dialogs, popovers | 15.6px | 85% |
+
+- Borders required: 1px, hsla white 0.30
+- Noise: 2% opacity, fractalNoise pattern
+- Motion: state-change only, no idle animations
 
 ## Architecture
 
@@ -200,6 +239,48 @@ The architecture's scale is deliberate, not accidental:
 
 This complexity serves the core constraint: **deterministic, auditable inference in air-gapped environments**. Do not simplify by merging crates or removing feature gates without understanding the deployment implications.
 
+## Training Checkpoints
+
+Training checkpoints enable resuming interrupted training sessions. Checkpoints are saved to `{output_dir}/checkpoints/` and contain weights, optimizer state, and loss history.
+
+### Checkpoint Format
+
+Checkpoints are saved as JSON files with the following naming convention:
+- Epoch checkpoints: `{adapter_id}_epoch_{N:04}.ckpt`
+- Latest checkpoint: `{adapter_id}_latest.ckpt`
+
+Each checkpoint contains:
+- `epoch`: Current epoch number (0-indexed)
+- `step`: Current step within epoch
+- `loss`: Current loss value
+- `learning_rate`: Learning rate at checkpoint
+- `config`: Training configuration
+- `weights`: LoRA weights (lora_a, lora_b matrices)
+- `best_loss`: Best loss seen so far
+- `timestamp`: ISO 8601 timestamp
+
+### Resume Training
+
+```bash
+# Resume training from latest checkpoint
+./aosctl train --resume --data ./data.json --output ./adapter-out
+
+# Resume docs training
+./aosctl train-docs --docs-dir ./my-docs --resume
+```
+
+When `--resume` is specified:
+1. Checks for existing checkpoint in the output directory
+2. If found, loads weights and resumes from that epoch
+3. If not found, starts fresh training
+4. Logs checkpoint availability and resumed epoch in output
+
+### Configuration
+
+Checkpointing is automatically enabled when using the CLI training commands. Default settings:
+- Save frequency: Every epoch
+- Max checkpoints: 5 (oldest are deleted)
+
 ## Determinism Rules
 
 These rules ensure reproducible inference:
@@ -227,6 +308,25 @@ Migrations are in `migrations/` with signatures tracked in `migrations/signature
 - Main config: `configs/cp.toml`
 - Environment: `.env` (copy from `.env.example`)
 - Rust toolchain: `rust-toolchain.toml` (stable channel)
+
+## Tokenizer Configuration
+
+Tokenizers are required for inference and training. The system discovers tokenizers in this order:
+
+1. **AOS_TOKENIZER_PATH**: Explicit path to `tokenizer.json`
+2. **Model directory**: `tokenizer.json` in `AOS_MODEL_PATH`
+
+```bash
+# Set explicit tokenizer path
+export AOS_TOKENIZER_PATH=./var/models/Qwen2.5-7B-Instruct/tokenizer.json
+
+# Validate a tokenizer file
+./aosctl models check-tokenizer ./path/to/tokenizer.json
+```
+
+Known working tokenizers:
+- Qwen2.5-7B-Instruct: `./var/models/Qwen2.5-7B-Instruct/tokenizer.json`
+- Llama-3-8B: `./var/models/Llama-3-8B/tokenizer.json`
 
 ## Code Quality
 

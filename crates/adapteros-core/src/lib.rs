@@ -29,6 +29,7 @@ pub mod adapter_repo_paths;
 pub mod adapter_store;
 pub mod adapter_type;
 pub mod backend;
+pub mod build_info;
 pub mod circuit_breaker;
 pub mod circuit_breaker_registry;
 pub mod codebase_versioning;
@@ -44,6 +45,7 @@ pub mod error_helpers;
 pub mod errors;
 pub mod evidence_envelope;
 pub mod evidence_verifier;
+pub mod feature_guards;
 pub mod fusion_interval;
 pub mod guard_common;
 pub mod hash;
@@ -78,6 +80,7 @@ pub mod tenant_isolation;
 pub mod tenant_snapshot;
 pub mod time;
 pub mod timeout;
+pub mod tokenizer_config;
 pub mod training;
 pub mod validation;
 pub mod version;
@@ -92,6 +95,7 @@ pub use adapter_store::{
 };
 pub use adapter_type::{AdapterType, AdapterTypeParseError};
 pub use backend::BackendKind;
+pub use build_info::BuildInfo;
 pub use circuit_breaker::{
     CircuitBreaker, CircuitBreakerConfig, CircuitBreakerMetrics, CircuitState,
     SharedCircuitBreaker, StandardCircuitBreaker,
@@ -195,6 +199,7 @@ pub use tenant_isolation::{
     TenantIsolationViolation, TenantPrincipal, TENANT_ISOLATION_ERROR_CODE,
 };
 pub use timeout::TimeoutExt;
+pub use tokenizer_config::SpecialTokenMap;
 pub use training::{TrainingConfig, TrainingJob, TrainingJobStatus, TrainingTemplate};
 pub use version::{
     AlgorithmVersionBundle, IncompatibilitySeverity, VersionIncompatibility, VersionInfo,

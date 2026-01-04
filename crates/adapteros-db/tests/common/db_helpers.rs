@@ -114,7 +114,7 @@ impl TestDb {
 
         // Open SQLite database
         let db_url = db_path.to_str().expect("Invalid db path");
-        let db = Db::connect(db_url)
+        let mut db = Db::connect(db_url)
             .await
             .expect("Failed to connect to database");
 
@@ -127,9 +127,8 @@ impl TestDb {
         // Initialize KV backend if needed
         if mode.write_to_kv() {
             debug!(kv_path = ?kv_path, "Initializing KV backend for test");
-            let _kv = KvDb::init_redb(&kv_path).expect("Failed to initialize KV backend");
-            // TODO: Attach KV backend to Db instance
-            // This requires API changes to support runtime KV attachment
+            let kv = KvDb::init_redb(&kv_path).expect("Failed to initialize KV backend");
+            db.attach_kv_backend(kv);
         }
 
         Self {
@@ -253,7 +252,7 @@ pub async fn create_test_db_with_kv(mode: StorageMode) -> Result<(Db, TempDir)> 
     let db_url = db_path
         .to_str()
         .ok_or_else(|| adapteros_core::AosError::Internal("Invalid database path".to_string()))?;
-    let db = Db::connect(db_url).await?;
+    let mut db = Db::connect(db_url).await?;
 
     // Apply migrations and seed
     db.migrate().await?;
@@ -262,8 +261,8 @@ pub async fn create_test_db_with_kv(mode: StorageMode) -> Result<(Db, TempDir)> 
     // Initialize KV backend
     if mode.write_to_kv() {
         debug!(kv_path = ?kv_path, "Initializing KV backend");
-        let _kv = KvDb::init_redb(&kv_path)?;
-        // TODO: Attach to Db instance once API supports it
+        let kv = KvDb::init_redb(&kv_path)?;
+        db.attach_kv_backend(kv);
     }
 
     Ok((db, temp_dir))

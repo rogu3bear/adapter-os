@@ -39,17 +39,17 @@ pub struct AosFileView<'a> {
     pub segments: Vec<AosSegmentRef<'a>>,
 }
 
-/// Open an AOS2 archive from in-memory bytes, validating header, index, and segment hashes.
+/// Open an AOS archive from in-memory bytes, validating header, index, and segment hashes.
 pub fn open_aos<'a>(bytes: &'a [u8]) -> Result<AosFileView<'a>> {
     if bytes.len() < HEADER_SIZE {
         return Err(AosError::Validation(
-            "Corrupted / needs retrain: file too small for AOS2 header".to_string(),
+            "Corrupted / needs retrain: file too small for AOS header".to_string(),
         ));
     }
 
     if bytes[0..4] != AOS_MAGIC {
         return Err(AosError::Validation(
-            "Corrupted / needs retrain: invalid AOS2 magic".to_string(),
+            "Corrupted / needs retrain: invalid AOS magic".to_string(),
         ));
     }
 
@@ -67,7 +67,7 @@ pub fn open_aos<'a>(bytes: &'a [u8]) -> Result<AosFileView<'a>> {
 
     if index_offset != HEADER_SIZE {
         return Err(AosError::Validation(
-            "Corrupted / needs retrain: invalid AOS2 header layout".to_string(),
+            "Corrupted / needs retrain: invalid AOS header layout".to_string(),
         ));
     }
 
@@ -401,7 +401,7 @@ mod tests {
 
     #[test]
     fn test_header_constants() {
-        assert_eq!(AOS_MAGIC, *b"AOS2");
+        assert_eq!(AOS_MAGIC, *b"AOS\0");
         assert_eq!(HEADER_SIZE, 64);
         assert_eq!(INDEX_ENTRY_SIZE, 80);
     }
@@ -502,6 +502,6 @@ mod tests {
         assert!(result
             .unwrap_err()
             .to_string()
-            .contains("invalid AOS2 magic"));
+            .contains("invalid AOS magic"));
     }
 }

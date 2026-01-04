@@ -1,14 +1,103 @@
 //! Dashboard page
 
 use crate::api::{use_sse_json, ApiClient, SseState};
-use crate::components::{Badge, BadgeVariant, Card, Spinner, StatusColor, StatusIndicator};
-use crate::hooks::{use_api_resource, LoadingState};
+use crate::components::{
+    Badge, BadgeVariant, Card, ChartPoint, DataSeries, LineChart, SparklineMetric, Spinner,
+    StatusColor, StatusIndicator, TimeSeriesData,
+};
+use crate::hooks::{use_api_resource, use_sse_notifications, LoadingState};
 use adapteros_api_types::{
     InferenceReadyState, StatusIndicator as ApiStatusIndicator, SystemMetricsResponse,
     SystemStatusResponse, WorkerResponse,
 };
 use leptos::prelude::*;
+use std::collections::VecDeque;
 use std::sync::Arc;
+
+/// Maximum number of data points to keep in history for charts
+const METRICS_HISTORY_SIZE: usize = 60;
+
+/// Metrics history for chart visualization
+#[derive(Clone, Default)]
+struct MetricsHistory {
+    cpu_usage: VecDeque<f64>,
+    memory_usage: VecDeque<f64>,
+    gpu_utilization: VecDeque<f64>,
+    requests_per_second: VecDeque<f64>,
+    avg_latency_ms: VecDeque<f64>,
+    timestamps: VecDeque<u64>,
+}
+
+impl MetricsHistory {
+    fn push(&mut self, metrics: &SystemMetricsResponse, timestamp: u64) {
+        // Add new data points (convert f32 to f64)
+        self.cpu_usage
+            .push_back(metrics.cpu_usage_percent.unwrap_or(metrics.cpu_usage) as f64);
+        self.memory_usage
+            .push_back(metrics.memory_usage_percent.unwrap_or(metrics.memory_usage) as f64);
+        self.gpu_utilization
+            .push_back(metrics.gpu_utilization as f64);
+        self.requests_per_second
+            .push_back(metrics.requests_per_second as f64);
+        self.avg_latency_ms.push_back(metrics.avg_latency_ms as f64);
+        self.timestamps.push_back(timestamp);
+
+        // Trim to max size
+        while self.cpu_usage.len() > METRICS_HISTORY_SIZE {
+            self.cpu_usage.pop_front();
+            self.memory_usage.pop_front();
+            self.gpu_utilization.pop_front();
+            self.requests_per_second.pop_front();
+            self.avg_latency_ms.pop_front();
+            self.timestamps.pop_front();
+        }
+    }
+
+    fn to_time_series(&self, name: &str, values: &VecDeque<f64>) -> TimeSeriesData {
+        let points: Vec<ChartPoint> = self
+            .timestamps
+            .iter()
+            .zip(values.iter())
+            .map(|(&ts, &val)| ChartPoint::new(ts, val))
+            .collect();
+
+        let mut data = TimeSeriesData::new();
+        data.series.push(DataSeries {
+            name: name.to_string(),
+            points,
+            color: String::new(),
+        });
+        data
+    }
+
+    fn throughput_series(&self) -> TimeSeriesData {
+        self.to_time_series("Requests/sec", &self.requests_per_second)
+    }
+
+    fn latency_series(&self) -> TimeSeriesData {
+        self.to_time_series("Latency (ms)", &self.avg_latency_ms)
+    }
+
+    fn cpu_values(&self) -> Vec<f64> {
+        self.cpu_usage.iter().copied().collect()
+    }
+
+    fn memory_values(&self) -> Vec<f64> {
+        self.memory_usage.iter().copied().collect()
+    }
+
+    fn gpu_values(&self) -> Vec<f64> {
+        self.gpu_utilization.iter().copied().collect()
+    }
+
+    fn rps_values(&self) -> Vec<f64> {
+        self.requests_per_second.iter().copied().collect()
+    }
+
+    fn latency_values(&self) -> Vec<f64> {
+        self.avg_latency_ms.iter().copied().collect()
+    }
+}
 
 /// Dashboard page
 #[component]
@@ -24,11 +113,22 @@ pub fn Dashboard() -> impl IntoView {
     // Live metrics from SSE stream - updated in real-time
     let live_metrics: RwSignal<Option<SystemMetricsResponse>> = RwSignal::new(None);
 
+    // Metrics history for charts
+    let metrics_history: RwSignal<MetricsHistory> = RwSignal::new(MetricsHistory::default());
+
     // SSE connection for real-time metrics updates
     let (sse_status, _sse_reconnect) =
         use_sse_json::<SystemMetricsResponse, _>("/api/v1/stream/metrics", move |metrics| {
-            live_metrics.set(Some(metrics));
+            // Update current metrics
+            live_metrics.set(Some(metrics.clone()));
+
+            // Add to history with timestamp
+            let timestamp = js_sys::Date::now() as u64;
+            metrics_history.update(|h| h.push(&metrics, timestamp));
         });
+
+    // Bridge SSE connection state to user notifications
+    use_sse_notifications(sse_status.read_only());
 
     // Refetch functions stored for use in closures
     let refetch_signal = StoredValue::new(refetch);
@@ -74,6 +174,7 @@ pub fn Dashboard() -> impl IntoView {
                                 status=data
                                 workers=workers_data
                                 live_metrics=live_metrics
+                                metrics_history=metrics_history
                             />
                         }.into_any()
                     }
@@ -122,6 +223,7 @@ fn DashboardContent(
     status: SystemStatusResponse,
     workers: Vec<WorkerResponse>,
     live_metrics: RwSignal<Option<SystemMetricsResponse>>,
+    metrics_history: RwSignal<MetricsHistory>,
 ) -> impl IntoView {
     let is_ready = matches!(status.readiness.overall, ApiStatusIndicator::Ready);
     let db_status = matches!(status.readiness.checks.db.status, ApiStatusIndicator::Ready);
@@ -173,8 +275,8 @@ fn DashboardContent(
             </Card>
         </div>
 
-        // Live Metrics Section - Updated in real-time via SSE
-        <LiveMetricsSection metrics=live_metrics/>
+        // Live Metrics Section - Updated in real-time via SSE with charts
+        <LiveMetricsSection metrics=live_metrics history=metrics_history/>
 
         // Workers List
         <Card title="Workers".to_string() class="mt-6".to_string()>
@@ -220,68 +322,127 @@ fn DashboardContent(
     }
 }
 
-/// Live metrics section - displays real-time metrics from SSE stream
+/// Live metrics section - displays real-time metrics from SSE stream with charts
 #[component]
-fn LiveMetricsSection(metrics: RwSignal<Option<SystemMetricsResponse>>) -> impl IntoView {
+fn LiveMetricsSection(
+    metrics: RwSignal<Option<SystemMetricsResponse>>,
+    history: RwSignal<MetricsHistory>,
+) -> impl IntoView {
+    // Create signals for sparklines from history
+    let cpu_sparkline = Signal::derive(move || history.get().cpu_values());
+    let memory_sparkline = Signal::derive(move || history.get().memory_values());
+    let gpu_sparkline = Signal::derive(move || history.get().gpu_values());
+    let rps_sparkline = Signal::derive(move || history.get().rps_values());
+    let latency_sparkline = Signal::derive(move || history.get().latency_values());
+
+    // Time series for the line charts
+    let throughput_data = Signal::derive(move || history.get().throughput_series());
+    let latency_data = Signal::derive(move || history.get().latency_series());
+
     view! {
-        <Card title="Live Metrics".to_string() description="Real-time system metrics via SSE".to_string() class="mt-6".to_string()>
-            {move || {
-                match metrics.get() {
-                    Some(m) => view! {
-                        <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                            <MetricCard
-                                label="CPU Usage".to_string()
-                                value=format!("{:.1}%", m.cpu_usage_percent.unwrap_or(m.cpu_usage))
-                                trend=None
-                            />
-                            <MetricCard
-                                label="Memory Usage".to_string()
-                                value=format!("{:.1}%", m.memory_usage_percent.unwrap_or(m.memory_usage))
-                                trend=None
-                            />
-                            <MetricCard
-                                label="GPU Utilization".to_string()
-                                value=format!("{:.1}%", m.gpu_utilization)
-                                trend=None
-                            />
-                            <MetricCard
-                                label="Requests/sec".to_string()
-                                value=format!("{:.1}", m.requests_per_second)
-                                trend=None
-                            />
-                            <MetricCard
-                                label="Avg Latency".to_string()
-                                value=format!("{:.0} ms", m.avg_latency_ms)
-                                trend=m.latency_p95_ms.map(|p95| format!("P95: {:.0} ms", p95))
-                            />
-                            <MetricCard
-                                label="Active Workers".to_string()
-                                value=m.active_workers.to_string()
-                                trend=m.active_sessions.map(|s| format!("{} sessions", s))
-                            />
-                            <MetricCard
-                                label="Uptime".to_string()
-                                value=format_uptime(m.uptime_seconds)
-                                trend=None
-                            />
-                            <MetricCard
-                                label="Load Average".to_string()
-                                value=format!("{:.2}", m.load_average.load_1min)
-                                trend=Some(format!("5m: {:.2} 15m: {:.2}", m.load_average.load_5min, m.load_average.load_15min))
-                            />
-                        </div>
-                    }.into_any(),
-                    None => view! {
-                        <div class="flex items-center justify-center py-8 text-muted-foreground">
-                            <div class="flex items-center gap-2">
-                                <Spinner/>
-                                <span>"Waiting for live metrics..."</span>
+        <div class="space-y-6 mt-6">
+            // Metric cards with sparklines
+            <Card title="Live Metrics".to_string() description="Real-time system metrics via SSE".to_string()>
+                {move || {
+                    match metrics.get() {
+                        Some(m) => view! {
+                            <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                                // CPU with sparkline
+                                <SparklineMetric
+                                    label="CPU Usage".to_string()
+                                    value=format!("{:.1}%", m.cpu_usage_percent.unwrap_or(m.cpu_usage))
+                                    values=cpu_sparkline
+                                    show_trend=true
+                                />
+
+                                // Memory with sparkline
+                                <SparklineMetric
+                                    label="Memory Usage".to_string()
+                                    value=format!("{:.1}%", m.memory_usage_percent.unwrap_or(m.memory_usage))
+                                    values=memory_sparkline
+                                    show_trend=true
+                                />
+
+                                // GPU with sparkline
+                                <SparklineMetric
+                                    label="GPU Utilization".to_string()
+                                    value=format!("{:.1}%", m.gpu_utilization)
+                                    values=gpu_sparkline
+                                    show_trend=true
+                                />
+
+                                // Requests/sec with sparkline
+                                <SparklineMetric
+                                    label="Requests/sec".to_string()
+                                    value=format!("{:.1}", m.requests_per_second)
+                                    values=rps_sparkline
+                                    show_trend=true
+                                />
+
+                                // Latency with sparkline
+                                <SparklineMetric
+                                    label="Avg Latency".to_string()
+                                    value=format!("{:.0} ms", m.avg_latency_ms)
+                                    unit="ms".to_string()
+                                    values=latency_sparkline
+                                    show_trend=true
+                                />
+
+                                // Active Workers (no sparkline needed)
+                                <MetricCard
+                                    label="Active Workers".to_string()
+                                    value=m.active_workers.to_string()
+                                    trend=m.active_sessions.map(|s| format!("{} sessions", s))
+                                />
+
+                                // Uptime
+                                <MetricCard
+                                    label="Uptime".to_string()
+                                    value=format_uptime(m.uptime_seconds)
+                                    trend=None
+                                />
+
+                                // Load Average
+                                <MetricCard
+                                    label="Load Average".to_string()
+                                    value=format!("{:.2}", m.load_average.load_1min)
+                                    trend=Some(format!("5m: {:.2} 15m: {:.2}", m.load_average.load_5min, m.load_average.load_15min))
+                                />
                             </div>
-                        </div>
-                    }.into_any(),
-                }
-            }}
-        </Card>
+                        }.into_any(),
+                        None => view! {
+                            <div class="flex items-center justify-center py-8 text-muted-foreground">
+                                <div class="flex items-center gap-2">
+                                    <Spinner/>
+                                    <span>"Waiting for live metrics..."</span>
+                                </div>
+                            </div>
+                        }.into_any(),
+                    }
+                }}
+            </Card>
+
+            // Time series charts
+            <div class="grid gap-6 md:grid-cols-2">
+                // Throughput chart
+                <LineChart
+                    data=throughput_data
+                    title="Throughput".to_string()
+                    y_label="req/s".to_string()
+                    height=200.0
+                    show_points=false
+                />
+
+                // Latency chart
+                <LineChart
+                    data=latency_data
+                    title="Latency".to_string()
+                    y_label="ms".to_string()
+                    height=200.0
+                    show_points=false
+                />
+            </div>
+        </div>
     }
 }
 

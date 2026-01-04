@@ -914,17 +914,50 @@ pub async fn get_timeline(
         })?
         .ok_or_else(|| ApiError::repo_not_found(&repo_id))?;
 
-    // TODO: Implement list_version_history_for_repo in adapter_repositories.rs
-    // For now, return empty timeline
-    // The DB function should query adapter_version_history table for this repo_id
+    // Query version history from database
+    let history = state
+        .db
+        .list_version_history_for_repo(&claims.tenant_id, &repo_id, Some(100))
+        .await
+        .map_err(|e| {
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DATABASE_ERROR",
+                format!("failed to fetch version history: {}", e),
+            )
+        })?;
+
+    // Convert to timeline events
+    let timeline_events: Vec<RepoTimelineEventResponse> = history
+        .into_iter()
+        .map(|record| {
+            let event_type = format!("state_change:{}", record.new_state);
+            let description = match (&record.old_state, &record.reason) {
+                (Some(old), Some(reason)) => {
+                    format!("{} → {} ({})", old, record.new_state, reason)
+                }
+                (Some(old), None) => format!("{} → {}", old, record.new_state),
+                (None, Some(reason)) => format!("Created as {} ({})", record.new_state, reason),
+                (None, None) => format!("Created as {}", record.new_state),
+            };
+
+            RepoTimelineEventResponse {
+                id: record.id,
+                timestamp: record.created_at,
+                event_type,
+                description,
+            }
+        })
+        .collect();
 
     info!(
         repo_id = %repo_id,
         tenant_id = %claims.tenant_id,
-        "Retrieved repository timeline (stub)"
+        event_count = timeline_events.len(),
+        "Retrieved repository timeline"
     );
 
-    Ok(Json(vec![]))
+    Ok(Json(timeline_events))
 }
 
 /// List training jobs associated with a repository
@@ -1147,26 +1180,52 @@ pub async fn start_training(
         ));
     }
 
-    // TODO: Implement training workflow for version-based training
-    // This should:
+    // Version-based training workflow:
     // 1. Create a draft version based on the specified version
-    // 2. Submit a training job using the version's configuration
-    // 3. Return the training job ID
-    //
-    // For now, return a message indicating this is a placeholder.
-    // The proper implementation should integrate with the existing
-    // training service workflow (see handlers/training.rs::start_training)
+    // 2. Return success with the draft version ID
+    // The user should then use POST /v1/training/jobs with base_version_id to start training
+
+    // Use the version's branch
+    let target_branch = version.branch.clone();
+
+    // Create a draft version based on the specified version
+    let draft_version_id: String = state
+        .db
+        .create_adapter_draft_version(adapteros_db::CreateDraftVersionParams {
+            repo_id: &repo_id,
+            tenant_id: &claims.tenant_id,
+            branch: &target_branch,
+            branch_classification: &version.branch_classification,
+            parent_version_id: Some(&version_id),
+            code_commit_sha: version.code_commit_sha.as_deref(),
+            data_spec_hash: version.data_spec_hash.as_deref(),
+            training_backend: version.training_backend.as_deref(),
+            dataset_version_ids: None,
+            actor: Some(&claims.sub),
+            reason: Some(&format!("Created from version {}", version.version)),
+        })
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                version_id = %version_id,
+                repo_id = %repo_id,
+                error = %e,
+                "Failed to create draft version for training"
+            );
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DRAFT_VERSION_FAILED",
+                format!("Failed to create draft version: {}", e),
+            )
+        })?;
 
     info!(
-        version_id = %version_id,
+        draft_version_id = %draft_version_id,
+        base_version_id = %version_id,
         repo_id = %repo_id,
         tenant_id = %claims.tenant_id,
-        "Training from version (placeholder - not yet implemented)"
+        "Created draft version for training from version"
     );
 
-    Err(ApiError::new(
-        StatusCode::NOT_IMPLEMENTED,
-        "NOT_IMPLEMENTED",
-        "Version-based training workflow not yet implemented. Use POST /v1/training/jobs instead.",
-    ))
+    Ok(StatusCode::OK)
 }

@@ -19,6 +19,7 @@ pub mod build_plan;
 pub mod cdp_list;
 pub mod chat;
 pub mod check;
+pub mod check_tokenizer;
 pub mod code;
 #[cfg(feature = "codegraph")]
 pub mod codegraph;
@@ -104,7 +105,11 @@ pub mod train;
 pub mod train_base_adapter;
 pub mod train_cli;
 pub mod train_docs;
+pub mod train_from_code;
 pub mod training_common;
+
+#[cfg(feature = "orchestrator")]
+pub mod adapter_train_from_code;
 #[cfg(feature = "tui")]
 pub mod tui;
 pub mod tutorial;

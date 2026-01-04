@@ -26,8 +26,6 @@ async fn main() -> Result<()> {
         Some("determinism-report") => determinism_report::generate_determinism_report()?,
         Some("verify-artifacts") => verify_artifacts::run()?,
         Some("openapi-docs") => openapi_docs::run()?,
-        Some("build") => build()?,
-        Some("test") => test()?,
         Some("code2db-dataset") => {
             use clap::Parser;
             let args_vec: Vec<String> = env::args().collect();
@@ -95,20 +93,6 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-fn build() -> Result<()> {
-    println!("Building AdapterOS...");
-    // TODO: Custom build steps
-    println!("✓ Build complete");
-    Ok(())
-}
-
-fn test() -> Result<()> {
-    println!("Running tests...");
-    // TODO: Custom test orchestration
-    println!("✓ Tests passed");
-    Ok(())
-}
-
 fn print_help() {
     println!("AdapterOS Build Tasks");
     println!();
@@ -121,8 +105,6 @@ fn print_help() {
     println!("  determinism-report  Generate build reproducibility report");
     println!("  verify-artifacts    Verify and sign release artifacts");
     println!("  openapi-docs        Generate OpenAPI documentation markdown");
-    println!("  build               Custom build workflow (dev-only)");
-    println!("  test                Run full test suite (dev-only)");
     println!("  verify-adapters     Verify all adapter deliverables and proofs");
     println!("  code2db-dataset     Build JSON training dataset for code→DB tasks");
     println!("  pack-lora           Quantize and package trained LoRA weights");

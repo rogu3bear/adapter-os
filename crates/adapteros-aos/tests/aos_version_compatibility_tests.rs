@@ -4,7 +4,7 @@
 //! The format must handle version evolution gracefully.
 //!
 //! These tests verify:
-//! - AOS2 magic bytes detection
+//! - AOS magic bytes detection
 //! - Invalid magic bytes rejection
 //! - Schema version handling
 //! - Minimum supported schema
@@ -29,9 +29,9 @@ struct TestManifest {
     metadata: HashMap<String, String>,
 }
 
-/// Test that AOS2 magic bytes are correctly written and detected.
+/// Test that AOS magic bytes are correctly written and detected.
 #[test]
-fn test_aos2_magic_bytes_correct() {
+fn test_aos_magic_bytes_correct() {
     let temp_dir = new_test_tempdir();
     let path = temp_dir.path().join("magic.aos");
 
@@ -55,8 +55,8 @@ fn test_aos2_magic_bytes_correct() {
     // Read file and check magic bytes
     let data = fs::read(&path).unwrap();
     assert!(data.len() >= 4, "File too small");
-    assert_eq!(&data[0..4], &AOS_MAGIC, "Magic bytes should be AOS2");
-    assert_eq!(&data[0..4], b"AOS2", "Magic bytes should be 'AOS2'");
+    assert_eq!(&data[0..4], &AOS_MAGIC, "Magic bytes should be AOS");
+    assert_eq!(&data[0..4], b"AOS\0", "Magic bytes should be 'AOS\\0'");
 }
 
 /// Test that invalid magic bytes are rejected.

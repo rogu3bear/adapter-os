@@ -267,6 +267,7 @@ fn detect_mlx_version(include_dir: &Path, lib_dir: &Path) -> Option<String> {
     }
 
     // Method 3: Default fallback
+    println!("cargo:warning=MLX version detection failed, using 0.0.0");
     Some("0.0.0".to_string())
 }
 

@@ -289,26 +289,29 @@ fn generate_fallback_attestation(
 
 /// Verify attestation certificate chain
 ///
-/// This function verifies:
-/// 1. Certificate chain is valid (each cert signed by previous)
-/// 2. Root certificate is Apple's root CA
-/// 3. Nonce matches expected value
+/// # STUB: CRYPTO-GAP-003
+/// **Status**: NOT IMPLEMENTED - always returns Ok(()) without verification
+///
+/// **Audit Impact**: When SEP attestation is active, certificate chains are
+/// not cryptographically verified. Forged certificates would be accepted.
+/// Currently mitigated by SEP API bindings being incomplete (fallback mode).
+///
+/// **Rectify Steps**:
+/// 1. Add `x509-parser` dependency
+/// 2. Parse each certificate in chain
+/// 3. Verify signature chain (cert[i] signed by cert[i+1])
+/// 4. Verify root cert is Apple's SEP root CA
+/// 5. Verify nonce is embedded in leaf certificate
 pub fn verify_attestation_chain(attestation: &SepAttestation) -> Result<()> {
     if attestation.certificate_chain.is_empty() {
         debug!("Attestation has no certificate chain (fallback mode)");
         return Ok(());
     }
 
-    // TODO: Implement full X.509 certificate chain verification
-    // This would involve:
-    // 1. Parse each certificate using x509-parser
-    // 2. Verify signature chain (cert[i] signed by cert[i+1])
-    // 3. Verify root cert is Apple's SEP root CA
-    // 4. Verify nonce is embedded in leaf certificate
-
-    debug!(
+    // STUB: CRYPTO-GAP-003 - X.509 chain verification not implemented
+    warn!(
         cert_count = attestation.certificate_chain.len(),
-        "Verifying attestation certificate chain"
+        "CRYPTO-GAP-003: Certificate chain verification stub - no validation performed"
     );
 
     Ok(())

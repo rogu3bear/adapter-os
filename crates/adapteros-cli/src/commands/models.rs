@@ -4,6 +4,7 @@ use anyhow::Result;
 use clap::Subcommand;
 use std::path::PathBuf;
 
+use crate::commands::check_tokenizer::CheckTokenizerArgs;
 use crate::output::OutputWriter;
 use adapteros_db::{sqlx, Db};
 use tracing::{info, warn};
@@ -52,6 +53,16 @@ pub enum ModelsCommand {
         #[arg(long)]
         json: bool,
     },
+
+    /// Validate a tokenizer.json file
+    #[command(after_help = r#"Examples:
+  # Check a tokenizer file
+  aosctl models check-tokenizer ./var/models/Qwen2.5-7B-Instruct/tokenizer.json
+
+  # Validate tokenizer with JSON output
+  aosctl models check-tokenizer ./tokenizer.json --json
+"#)]
+    CheckTokenizer(CheckTokenizerArgs),
 }
 
 /// Handle models commands
@@ -69,6 +80,7 @@ pub async fn handle_models_command(cmd: ModelsCommand, output: &OutputWriter) ->
             force,
         } => run_seed(model_path, db_path, force, output).await,
         ModelsCommand::List { db_path, json } => run_list(db_path, json, output).await,
+        ModelsCommand::CheckTokenizer(args) => args.execute(output).await,
     }
 }
 
@@ -76,6 +88,7 @@ fn get_models_command_name(cmd: &ModelsCommand) -> String {
     match cmd {
         ModelsCommand::Seed { .. } => "models_seed".to_string(),
         ModelsCommand::List { .. } => "models_list".to_string(),
+        ModelsCommand::CheckTokenizer { .. } => "models_check_tokenizer".to_string(),
     }
 }
 
