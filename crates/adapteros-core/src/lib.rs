@@ -29,6 +29,8 @@ pub mod adapter_repo_paths;
 pub mod adapter_store;
 pub mod adapter_type;
 pub mod backend;
+pub mod build_info;
+pub mod feature_guards;
 pub mod circuit_breaker;
 pub mod circuit_breaker_registry;
 pub mod codebase_versioning;
@@ -93,6 +95,7 @@ pub use adapter_store::{
 };
 pub use adapter_type::{AdapterType, AdapterTypeParseError};
 pub use backend::BackendKind;
+pub use build_info::BuildInfo;
 pub use circuit_breaker::{
     CircuitBreaker, CircuitBreakerConfig, CircuitBreakerMetrics, CircuitState,
     SharedCircuitBreaker, StandardCircuitBreaker,

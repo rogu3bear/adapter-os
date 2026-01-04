@@ -1,7 +1,13 @@
 //! Tokenizer wrapper for Qwen2.5 model
 //!
 //! Provides encoding/decoding and chat template formatting for Qwen2.5-Instruct models.
+//!
+//! # Special Token Loading (PRD-RECT-003)
+//!
+//! Special token IDs are loaded dynamically from the model directory using
+//! `SpecialTokenMap`. No hardcoded fallback values are used.
 
+use adapteros_core::tokenizer_config::SpecialTokenMap;
 use adapteros_core::{AosError, Result};
 use adapteros_secure_fs::{content::validate_tokenizer_config_json, traversal::normalize_path};
 use std::path::Path;
@@ -10,13 +16,15 @@ use tokenizers::Tokenizer;
 /// Tokenizer for Qwen2.5 models
 pub struct QwenTokenizer {
     tokenizer: Tokenizer,
-    eos_token_id: u32,
-    _im_start_id: u32,
-    _im_end_id: u32,
+    /// Special token map loaded from model directory (PRD-RECT-003)
+    special_tokens: SpecialTokenMap,
 }
 
 impl QwenTokenizer {
     /// Load tokenizer from model directory
+    ///
+    /// Loads both the tokenizer and special token IDs from the model directory.
+    /// Special tokens are resolved via `SpecialTokenMap` without hardcoded fallbacks.
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path_ref = path.as_ref();
         let display_path = path_ref.to_string_lossy();
@@ -46,12 +54,15 @@ impl QwenTokenizer {
         let tokenizer = Tokenizer::from_file(&canonical_path)
             .map_err(|e| AosError::Worker(format!("Failed to load tokenizer: {}", e)))?;
 
-        // Qwen2.5 special tokens
+        // Load special tokens from model directory (PRD-RECT-003: no hardcoded fallbacks)
+        let model_dir = canonical_path.parent().ok_or_else(|| {
+            AosError::Worker("Tokenizer path has no parent directory".to_string())
+        })?;
+        let special_tokens = SpecialTokenMap::from_model_dir(model_dir)?;
+
         Ok(Self {
             tokenizer,
-            eos_token_id: 151645, // <|im_end|>
-            _im_start_id: 151644, // <|im_start|>
-            _im_end_id: 151645,   // <|im_end|>
+            special_tokens,
         })
     }
 
@@ -81,21 +92,23 @@ impl QwenTokenizer {
 
     /// Get EOS token ID
     pub fn eos_token_id(&self) -> u32 {
-        self.eos_token_id
+        self.special_tokens.eos_token_id
     }
 
-    /// Create a tokenizer from an existing tokenizers::Tokenizer instance.
+    /// Get the full special token map
+    pub fn special_tokens(&self) -> &SpecialTokenMap {
+        &self.special_tokens
+    }
+
+    /// Create a tokenizer from an existing tokenizers::Tokenizer instance with explicit tokens.
     ///
     /// This is primarily intended for tests where we want to avoid loading
-    /// tokenizer JSON files from disk. The token IDs for special tokens
-    /// mirror the defaults used in `from_file`.
+    /// tokenizer JSON files from disk.
     #[cfg(test)]
-    pub(crate) fn from_tokenizer_instance(tokenizer: Tokenizer) -> Self {
+    pub(crate) fn from_tokenizer_with_tokens(tokenizer: Tokenizer, special_tokens: SpecialTokenMap) -> Self {
         Self {
             tokenizer,
-            eos_token_id: 151645,
-            _im_start_id: 151644,
-            _im_end_id: 151645,
+            special_tokens,
         }
     }
 }
@@ -104,6 +117,7 @@ impl QwenTokenizer {
 mod tests {
     use super::*;
     use adapteros_config::{DEFAULT_BASE_MODEL_ID, DEFAULT_MODEL_CACHE_ROOT};
+    use adapteros_core::tokenizer_config::TokenMapSource;
 
     #[test]
     #[ignore = "Requires tokenizer model files - run with: cargo test --release -- --ignored [tracking: STAB-IGN-0044]"]
@@ -131,13 +145,20 @@ mod tests {
     #[test]
     fn test_chat_template() {
         // Create a mock tokenizer for testing since we don't have actual tokenizer files
-        // This follows the pattern from the main implementation
-        let tokenizer = QwenTokenizer {
-            tokenizer: Tokenizer::new(tokenizers::models::bpe::BPE::default()),
+        // Uses explicit SpecialTokenMap instead of hardcoded values
+        let special_tokens = SpecialTokenMap {
             eos_token_id: 151645,
-            _im_start_id: 151644,
-            _im_end_id: 151645,
+            bos_token_id: None,
+            pad_token_id: None,
+            unk_token_id: None,
+            im_start_id: Some(151644),
+            im_end_id: Some(151645),
+            source: TokenMapSource::Unknown,
         };
+        let tokenizer = QwenTokenizer::from_tokenizer_with_tokens(
+            Tokenizer::new(tokenizers::models::bpe::BPE::default()),
+            special_tokens,
+        );
 
         let formatted = tokenizer.apply_chat_template("What is 2+2?");
         assert!(formatted.contains("system"));
