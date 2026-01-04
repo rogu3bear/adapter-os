@@ -115,6 +115,8 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::create_training_session,
         handlers::get_training_logs,
         handlers::get_training_metrics,
+        handlers::training::stream_training_progress,
+        handlers::training::batch_training_status,
         handlers::list_training_templates,
         handlers::get_training_template,
         handlers::get_chat_bootstrap,
@@ -467,6 +469,9 @@ use utoipa_swagger_ui::SwaggerUi;
         crate::types::TrainingJobResponse,
         crate::types::TrainingMetricsResponse,
         crate::types::TrainingTemplateResponse,
+        handlers::training::BatchTrainingJobStatus,
+        handlers::training::BatchStatusRequest,
+        handlers::training::BatchStatusResponse,
         adapteros_api_types::training::TrainingStatus,
         adapteros_api_types::training::TrustState,
         adapteros_api_types::training::DatasetSourceType,
@@ -658,6 +663,7 @@ pub fn build(state: AppState) -> Router {
     let health_routes = Router::new()
         .route("/healthz", get(handlers::health))
         .route("/readyz", get(handlers::ready))
+        .route("/version", get(handlers::infrastructure::get_version))
         .with_state(state.clone());
 
     // Public routes (no auth required)
@@ -1327,14 +1333,10 @@ pub fn build(state: AppState) -> Router {
             "/v1/chat/sessions/{session_id}/shares/{share_id}",
             axum::routing::delete(handlers::chat_sessions::revoke_session_share),
         )
-        // Owner CLI and Chat routes (admin only)
+        // Owner CLI routes (admin only)
         .route(
             "/v1/cli/owner-run",
             post(handlers::owner_cli::run_owner_cli_command),
-        )
-        .route(
-            "/v1/chat/owner-system",
-            post(handlers::owner_chat::handle_owner_chat),
         )
         // Adapter routes
         .route("/v1/adapters", get(handlers::adapters::list_adapters))
@@ -2017,6 +2019,14 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/training/jobs/{job_id}/metrics",
             get(handlers::training::get_training_metrics),
+        )
+        .route(
+            "/v1/training/jobs/{job_id}/progress",
+            get(handlers::training::stream_training_progress),
+        )
+        .route(
+            "/v1/training/jobs/batch-status",
+            post(handlers::training::batch_training_status),
         )
         // TODO: Add get_training_artifacts handler when implemented
         .route(

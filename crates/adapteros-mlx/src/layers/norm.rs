@@ -3,6 +3,7 @@
 //! Provides LayerNorm and RMSNorm layer implementations with optional
 //! ANE acceleration support.
 
+use crate::ane::AneAccelerator;
 use crate::{Array, Result};
 
 /// Layer Normalization Layer
@@ -77,11 +78,14 @@ impl LayerNorm {
     ///
     /// # Arguments
     /// * `x` - Input tensor, last dimension must match `dim`
-    /// * `_ane_accel` - Reserved for future ANE acceleration
-    pub fn forward(&self, x: &Array, _ane_accel: Option<&()>) -> Result<Array> {
-        // TODO: When AneAccelerator is implemented, check batch size
-        // and delegate to ANE if conditions are met
-        x.layernorm(&self.weight, &self.bias, self.eps)
+    /// * `ane_accel` - Optional ANE accelerator for LayerNorm delegation
+    pub fn forward(&self, x: &Array, ane_accel: Option<&AneAccelerator>) -> Result<Array> {
+        // Delegate to ANE when accelerator is provided (handles threshold check internally)
+        if let Some(accel) = ane_accel {
+            accel.layernorm(x, &self.weight, &self.bias, self.eps)
+        } else {
+            x.layernorm(&self.weight, &self.bias, self.eps)
+        }
     }
 }
 
@@ -134,11 +138,14 @@ impl RMSNorm {
     ///
     /// # Arguments
     /// * `x` - Input tensor, last dimension must match `dim`
-    /// * `_ane_accel` - Reserved for future ANE acceleration
-    pub fn forward(&self, x: &Array, _ane_accel: Option<&()>) -> Result<Array> {
-        // TODO: When AneAccelerator is implemented, check batch size
-        // and delegate to ANE if conditions are met
-        x.rms_norm(&self.weight, self.eps)
+    /// * `ane_accel` - Optional ANE accelerator for RMSNorm delegation
+    pub fn forward(&self, x: &Array, ane_accel: Option<&AneAccelerator>) -> Result<Array> {
+        // Delegate to ANE when accelerator is provided (handles threshold check internally)
+        if let Some(accel) = ane_accel {
+            accel.rms_norm(x, &self.weight, self.eps)
+        } else {
+            x.rms_norm(&self.weight, self.eps)
+        }
     }
 }
 

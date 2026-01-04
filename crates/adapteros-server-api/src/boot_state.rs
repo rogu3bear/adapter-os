@@ -204,6 +204,8 @@ pub mod failure_codes {
     pub const WORKER_ATTACH_FAILED: &str = "WORKER_ATTACH_FAILED";
     /// OpenTelemetry initialization failed
     pub const OTEL_INIT_FAILED: &str = "OTEL_INIT_FAILED";
+    /// Invariant validation failed
+    pub const INVARIANTS_FAILED: &str = "INVARIANTS_FAILED";
 }
 
 /// Degraded state reason for non-critical dependency failures
@@ -271,6 +273,8 @@ pub struct BootStateManager {
     phases: Arc<RwLock<HashMap<String, PhaseStatus>>>,
     /// Warnings recorded during boot (non-fatal issues exposed via /readyz)
     boot_warnings: Arc<RwLock<Vec<BootWarning>>>,
+    /// Total bytes downloaded during boot (for model/adapter downloads)
+    download_bytes: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl BootStateManager {
@@ -287,6 +291,7 @@ impl BootStateManager {
             transitions: Arc::new(RwLock::new(Vec::new())),
             phases: Arc::new(RwLock::new(std::collections::HashMap::new())),
             boot_warnings: Arc::new(RwLock::new(Vec::new())),
+            download_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         }
     }
 
@@ -304,6 +309,7 @@ impl BootStateManager {
             transitions: Arc::clone(&self.transitions),
             phases: Arc::clone(&self.phases),
             boot_warnings: Arc::clone(&self.boot_warnings),
+            download_bytes: Arc::clone(&self.download_bytes),
         }
     }
 
@@ -325,6 +331,25 @@ impl BootStateManager {
     /// Boot trace identifier for correlating logs/readyz
     pub fn boot_trace_id(&self) -> String {
         self.boot_trace_id.clone()
+    }
+
+    /// Add bytes to the boot download counter
+    ///
+    /// Call this when downloading models, adapters, or other files during boot.
+    pub fn add_download_bytes(&self, bytes: u64) {
+        self.download_bytes
+            .fetch_add(bytes, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Get total bytes downloaded during boot
+    pub fn total_download_bytes(&self) -> u64 {
+        self.download_bytes
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Get total download size in megabytes (rounded down)
+    pub fn total_download_mb(&self) -> u64 {
+        self.total_download_bytes() / (1024 * 1024)
     }
 
     /// Begin tracking a boot phase
@@ -862,6 +887,7 @@ impl Clone for BootStateManager {
             transitions: Arc::clone(&self.transitions),
             phases: Arc::clone(&self.phases),
             boot_warnings: Arc::clone(&self.boot_warnings),
+            download_bytes: Arc::clone(&self.download_bytes),
         }
     }
 }

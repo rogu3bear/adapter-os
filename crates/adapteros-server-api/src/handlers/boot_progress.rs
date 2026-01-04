@@ -220,10 +220,11 @@ pub async fn boot_progress_stream(
             if current_state.is_fully_ready() {
                 let elapsed_ms = boot_state_ref.elapsed().as_millis() as u64;
                 let total_models = model_status.ready.len();
+                let total_download_mb = boot_state_ref.total_download_mb();
 
                 let boot_event = BootProgressEvent::FullyReady {
                     total_models,
-                    total_download_mb: 0,
+                    total_download_mb,
                     total_load_time_ms: elapsed_ms,
                 };
 

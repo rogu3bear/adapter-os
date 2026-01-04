@@ -35,8 +35,6 @@ pub enum TrainingStrategy {
     Identity,
     /// Question-answer pairs (requires prompt engineering)
     QuestionAnswer,
-    /// Masked language modeling (predict masked tokens)
-    MaskedLM,
 }
 
 /// Configuration for training data generation
@@ -69,7 +67,6 @@ pub fn generate_examples_from_chunk(
         TrainingStrategy::QuestionAnswer => {
             generate_qa_examples(chunk, document, tokenizer, config)
         }
-        TrainingStrategy::MaskedLM => generate_mlm_examples(chunk, document, tokenizer, config),
     }
 }
 
@@ -192,19 +189,6 @@ fn generate_qa_examples(
     );
 
     Ok(examples)
-}
-
-/// Generate masked language modeling examples (placeholder)
-fn generate_mlm_examples(
-    chunk: &DocumentChunk,
-    document: &IngestedDocument,
-    tokenizer: &Arc<Tokenizer>,
-    config: &TrainingGenConfig,
-) -> Result<Vec<TrainingExample>> {
-    // For now, just use identity mapping
-    // A proper MLM implementation would mask random tokens
-    warn!("MLM strategy not fully implemented, using identity mapping");
-    generate_identity_example(chunk, document, tokenizer, config)
 }
 
 /// Generate training data from an entire document

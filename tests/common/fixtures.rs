@@ -115,15 +115,6 @@ pub mod datasets {
         })
     }
 
-    pub fn masked_lm_dataset() -> serde_json::Value {
-        json!({
-            "name": "masked-lm-dataset",
-            "format": "jsonl",
-            "strategy": "masked_lm",
-            "validation_status": "valid"
-        })
-    }
-
     pub fn large_chunked_dataset() -> serde_json::Value {
         json!({
             "name": "large-dataset",

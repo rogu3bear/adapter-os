@@ -5,8 +5,8 @@
 use crate::api::client::{ChunkListResponse, DocumentListParams, DocumentResponse};
 use crate::api::ApiClient;
 use crate::components::{
-    Badge, BadgeVariant, Card, Spinner, Table, TableBody, TableCell, TableHead, TableHeader,
-    TableRow,
+    Badge, BadgeVariant, Card, ConfirmationDialog, ConfirmationSeverity, Spinner, Table, TableBody,
+    TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use leptos::prelude::*;
@@ -363,30 +363,47 @@ fn DocumentDetailContent(
     let doc_id_for_process = doc_id.clone();
     let doc_id_for_retry = doc_id.clone();
 
-    // Delete action
-    let delete_action = move |_| {
-        let client = Arc::new(ApiClient::new());
-        let id = doc_id_for_delete.clone();
-        set_deleting.set(true);
-        set_action_error.set(None);
+    // Delete confirmation dialog state
+    let show_delete_dialog = RwSignal::new(false);
+    let doc_name_for_confirm = document.name.clone();
 
-        wasm_bindgen_futures::spawn_local(async move {
-            match client.delete_document(&id).await {
-                Ok(_) => {
-                    // Navigate back to documents list
-                    #[cfg(target_arch = "wasm32")]
-                    {
+    // Open delete confirmation dialog
+    let open_delete_dialog = move |_| {
+        show_delete_dialog.set(true);
+    };
+
+    // Handle cancel/close of delete dialog
+    let on_cancel_delete = Callback::new(move |_| {
+        // Reset any error state when dialog is dismissed
+        set_action_error.set(None);
+    });
+
+    // Delete action (called from confirmation dialog)
+    let delete_action = {
+        let doc_id_for_delete = doc_id_for_delete.clone();
+        Callback::new(move |_: ()| {
+            let client = Arc::new(ApiClient::new());
+            let id = doc_id_for_delete.clone();
+            set_deleting.set(true);
+            set_action_error.set(None);
+
+            wasm_bindgen_futures::spawn_local(async move {
+                match client.delete_document(&id).await {
+                    Ok(_) => {
+                        set_deleting.set(false);
+                        show_delete_dialog.set(false);
+                        // Navigate back to documents list
                         if let Some(window) = web_sys::window() {
                             let _ = window.location().set_href("/documents");
                         }
                     }
+                    Err(e) => {
+                        set_action_error.set(Some(format!("Delete failed: {}", e)));
+                        set_deleting.set(false);
+                    }
                 }
-                Err(e) => {
-                    set_action_error.set(Some(format!("Delete failed: {}", e)));
-                    set_deleting.set(false);
-                }
-            }
-        });
+            });
+        })
     };
 
     // Process action (for reprocessing)
@@ -512,13 +529,29 @@ fn DocumentDetailContent(
                         <button
                             class="inline-flex items-center gap-2 rounded-md bg-destructive px-3 py-1.5 text-sm font-medium text-destructive-foreground hover:bg-destructive/80 disabled:opacity-50"
                             disabled=move || deleting.get()
-                            on:click=delete_action
+                            on:click=open_delete_dialog
                         >
                             {move || if deleting.get() { "Deleting..." } else { "Delete" }}
                         </button>
                     </div>
                 </div>
             </Card>
+
+            // Delete confirmation dialog
+            <ConfirmationDialog
+                open=show_delete_dialog
+                title="Delete Document"
+                description=format!(
+                    "This will permanently delete the document '{}' and all associated chunks. This action cannot be undone.",
+                    doc_name_for_confirm
+                )
+                severity=ConfirmationSeverity::Destructive
+                confirm_text="Delete"
+                typed_confirmation=doc_name_for_confirm.clone()
+                on_confirm=delete_action
+                on_cancel=on_cancel_delete
+                loading=Signal::derive(move || deleting.get())
+            />
         </div>
 
         // File Details

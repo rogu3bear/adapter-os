@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "signed_at": "2026-01-03T07:17:45Z",
+  "signed_at": "2026-01-03T23:04:00Z",
   "public_key": "LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUNvd0JRWURLMlZ3QXlFQU9jY0RZb0trVXl0KytHc3ZsN1dxSExjaE5aRkRHUXhrS0hYY1ZaY0J2bGM9Ci0tLS0tRU5EIFBVQkxJQyBLRVktLS0tLQo=",
   "signatures": {
     "0001_init.sql": {"hash": "c892c5f22f9907547c7dab915c8e473bc2108bc5e7b40b120a7ef68ddd5facc4", "signature": "AiSiNLUW9xNgvyjSPaUxPDp4/YGe8xV2DGvAuL9djVEnNIjouaSXQk+iPICJMUZLk8EkuK20dFRmUvKYlOE2BA==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
@@ -138,6 +138,7 @@
     "0133_training_retryable.sql": {"hash": "b348a43b368958302bfd2682ebd1f01c5396960dba87afae12900a524465cdb8", "signature": "JZK23CXWRX0+s1PEInV3J8cqywWEa+CP944rK08cTi54LVwR2Xu7QsbVHKSDRp7iytCB7QMCs7YRLMzRI6ZSCQ==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
     "0134_training_metrics_step_epoch.sql": {"hash": "36b6bee3f7b90776d1ed44d2c55bd4f4be025c390495110e84f62615609ce805", "signature": "4EKAaBY6cGIGbdORvdGbEJzCRtinGbhNoL7tSDfLdAsuYn6NaryIO507egESSbgmxcC23i8hdJBP8Nb1EPUcDw==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
     "0135_runtime_sessions.sql": {"hash": "9016c365d22b0e43b3b6dfc88b2f995b3817c9d0d9a8ee485062a1195fb8b409", "signature": "EsbHtLoobzi1gLrC331OM7jBKgjU19J9z96LjrnV56dseYw2X6S6xKraSPkz4xRU/fjAFlfyObb4uVj+A1VWCg==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
+    "0136_reserved.sql": {"hash": "58bf4c7765c84fee1f0e83bf7ef55d0736ac4dbfc219ab8d8eaa05a9feab98a4", "signature": "NRZPcoNaTpMSPuLLobM60VzNmd8zLpyzIRMuX89C5Y83NeWdWWgMw10vPWBsOw58p5Kq2orhP4x0F4Ncgc6pCg==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
     "0137_rag_evidence_extension.sql": {"hash": "abaad050d4a095d5071e10d1c4c9097e3eb81db40c462e1d28a8828f70a14bae", "signature": "1PRcA7/1df2msdlQHok0JRP8Ymdliw9dsjm0R9CQ0niyDMmJLUg+LifnlG6hAzIYPgrKPyEOtghQWMDhYo0nBw==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
     "0138_adapter_archive_gc.sql": {"hash": "9a129852f152f472ab883d784cf31de609836016c45afe18ea966086721508db", "signature": "mcTyOjwcd8MNzhEs83zUQu0GYK3D9uIQdvysdby2/ulBG+O/wqiYbqlhv6mptxYc65Kng5f6/ANWkUFdsTfwDg==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
     "0139_pinned_adapters.sql": {"hash": "c7883a580455e9673bdadea8a65688942e3b25d80a35fcf5ea61d0e7f29a28b3", "signature": "aVPfgyMRDHVsVrddJHAzb5K7dwrmpGlDfGLpzr9LOnpRhNev8lnyg5381iI6YfuhgUYzTVk2ouu61eMKeofmBw==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
@@ -181,6 +182,7 @@
     "0177_dataset_trust_gates.sql": {"hash": "bc763320bac035cafde6a11b8fb5cd25d29ef3706a187c1826eaea3d778d05ed", "signature": "b0CCfSCGAHnBM1RA17ybpSHEQt9Aymo2L5c3SL/HDXhhfwO5IVJsd6X5DPY966xWx1+/xcz2CmVPKLXanjXNAg==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
     "0178_storage_integrity.sql": {"hash": "782db64c5d86618e565452efa2eea24bd64fb8ee410d153930e61895f9c39fe3", "signature": "hvTK+6XnwAo1Bcql/Wb62G/2Q2Pn7MLJDE7KuKTNyiP2fqyabzpUF8VfOgnZQo/wkIqOiiMDUk7okuoyYLIvDQ==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
     "0179_repository_training_policies.sql": {"hash": "a24a73b83e10a0d455306b4b398579bd9600253d7b8a396fb5a9f050302faa65", "signature": "iWd/dls57hZl/gJ5r5ENVeZvYlthMnWlbgYveU8/MJ0UQoRdp57sNFj5+PXfad9tMCSY4R49169IgEpUa5YWCg==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
+    "0180_reserved.sql": {"hash": "fad99944c7b59b7f5384b66a0a687a3d352330266d058df93d4e8270eb112ad4", "signature": "x7bRdO+2QDK9DD1hMkkXlmWwpiIa2gxK/n4CnxRn9EDkJx+wrntVAKg9IcLWbdb4JwFTxIPkZIi293NXQCMYDA==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
     "0181_adapter_version_coreml_dataset.sql": {"hash": "a460eadea7d97017a10f2e21536d3fbefe6473a8e6de7c8e7d2015a6a04a88b4", "signature": "x9tAAK3ra9OVjJOZPi6oIOPV5gKbyPrqqbtSMYFjFR0xRB8/VcjiacDQJG/tDXBq6Oay3RmMkFSJBpDV4L0UCA==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
     "0182_adapter_version_backfill.sql": {"hash": "0988eea2407c1159197abceeed5b9f77faf7a2153774aafaa9911a69751bea1e", "signature": "sKfJPqBco7+oGOnJpIVPFJZ6nVwmuVvN7JMMuoxT5zGZnKToYAZiJ/Zo/Olb3IedGFCVGBFF66TxGgizJyjbCQ==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
     "0183_adapter_versions_branch_classification.sql": {"hash": "684c794f08deac9d515987205d474546458908df59d67818ce4ff476c15b14c4", "signature": "Ml6Zeag26nws/aT4BdmcuS7huMt1fx/NbOY0k6uJFU/2ZtA64acc23ZyOEAaVDGQXCnSiRXoNiVMfr7PWJm9DQ==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
@@ -270,6 +272,7 @@
     "0267_worker_pending_lifecycle_fix.sql": {"hash": "eaf6f58d73185fba76aec95aaeab7503f21513d6c3cb6336b2a57f2130390a05", "signature": "ddTQpkSTtOBeOcNZI0jbdtvtcRuhsucttyyz/bxMWWzQHoMqfHJVZ3n1vnhB9wPq9zi1t6BIutUlqdHu8gm4AA==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
     "0268_replay_metadata_utf8_healing.sql": {"hash": "984ddbe1013cceac60e798e4961f1aa2617e34da648c17772a4cc25eefc6a7bc", "signature": "pLb/ncQWyYnaRXtONxzBWGTIeWv4T1F+c+HDxDt5+dTaW6fb8TiTtL0R+TdMLaJo1S+hbN4qtfFN29TT2eoSAg==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
     "0269_gate_format_metadata.sql": {"hash": "823006dc30c7b715ccf469c4c6cf1aba97e2ae1db91157ee2915d93a0ec9ac06", "signature": "CNnchPpRpu34ROhvhafticDnRhTkQaa3O9r8ITIsXjTZo5mdIC29zMatsSIhtiQXYOGgxTbCH7UoKWMnKGngDw==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
-    "0270_write_acks_table.sql": {"hash": "14a49e73e10de341f07e2addf291990cb15f8b679603af073f184e85c64e2ea3", "signature": "E1PQB1+yblcb1rqjYFoj2P5UWe2/i4q/xLg0SX44Zeu2QIHzyJ43xOtyDAPnnJH3Wsv2uYxsZGffVCdvJa2JBA==", "algorithm": "ed25519", "hash_algorithm": "blake3"}
+    "0270_write_acks_table.sql": {"hash": "14a49e73e10de341f07e2addf291990cb15f8b679603af073f184e85c64e2ea3", "signature": "E1PQB1+yblcb1rqjYFoj2P5UWe2/i4q/xLg0SX44Zeu2QIHzyJ43xOtyDAPnnJH3Wsv2uYxsZGffVCdvJa2JBA==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
+    "0271_trusted_adapter_keys.sql": {"hash": "0d8ebc51505b872a5f142bb545515c9c004b5d62e0db2ed92b54157fb1ac0296", "signature": "Lmx5nAsBPafNmd979h3PjOu4v7wEDHvEf7CrwGqHj2mDu8zGkk3Xc1uLCPIOGgKsHxGkjMAzk74kt9SOdhRFAw==", "algorithm": "ed25519", "hash_algorithm": "blake3"}
   }
 }

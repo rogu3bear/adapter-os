@@ -1,8 +1,5 @@
 //! `aosctl adapter train-from-code` implementation
 //!
-//! This module is temporarily stubbed pending migration from the deleted
-//! adapteros-single-file-adapter crate.
-//!
 //! # CLI Inputs Aligned with Repo Commit Overrides
 //!
 //! The `scope_overrides` field provides CLI arguments that align with
@@ -13,10 +10,14 @@ use crate::commands::adapter::validate_adapter_id;
 use crate::commands::adapter_codebase::CodebaseScopeOverrides;
 use crate::commands::training_common::{CommonTrainingArgs, TokenizerArg};
 use crate::output::OutputWriter;
+use adapteros_config::resolve_tokenizer_path;
 use adapteros_core::{AosError, Result};
-// Removed: use adapteros_lora_worker::training::TrainingConfig;
-// Removed: use adapteros_orchestrator::code_ingestion::{...};
-// Removed: use adapteros_single_file_adapter::format::WeightGroupConfig;
+use adapteros_lora_worker::training::{
+    DeterminismConfig as TrainingDeterminismConfig, TrainingConfig,
+};
+use adapteros_orchestrator::code_ingestion::{
+    CodeDatasetConfig, CodeIngestionPipeline, CodeIngestionRequest, CodeIngestionSource,
+};
 
 use clap::Args;
 use std::path::{Path, PathBuf};
@@ -127,36 +128,132 @@ pub async fn run(args: &TrainFromCodeArgs, output: &OutputWriter) -> Result<()> 
     // Log any scope overrides for debugging/audit trail
     args.scope_overrides.log_overrides();
 
-    output.warning("adapter train-from-code command is temporarily disabled pending crate migration");
+    // Validate common training arguments
+    args.common.validate()?;
 
-    // The original implementation used:
-    // - adapteros_single_file_adapter::format::WeightGroupConfig
-    // - adapteros_orchestrator::code_ingestion::{CodeDatasetConfig, CodeIngestionPipeline, ...}
-    // - adapteros_lora_worker::training::TrainingConfig
-    //
-    // These need to be replaced with types from adapteros-aos
+    // Display configuration
+    output.info("Codebase ingestion configuration:");
+    output.kv("Repository", &args.repo);
+    if let Some(adapter_id) = &args.adapter_id {
+        output.kv("Adapter ID", adapter_id);
+    } else {
+        output.kv("Adapter ID", "(auto-generated: code.<slug>.<commit>)");
+    }
+    output.kv("Max symbols", &args.max_symbols.to_string());
+    output.kv("Include private", &args.include_private.to_string());
+    if let Some(seed) = args.seed {
+        output.kv("Seed", &seed.to_string());
+    }
+    if args.deterministic {
+        output.kv("Deterministic mode", "enabled");
+    }
 
-    Err(AosError::Config(
-        "adapter train-from-code: pending crate migration".to_string()
-    ))
+    // Resolve tokenizer path
+    let tokenizer_path = resolve_tokenizer_path(args.tokenizer_arg.tokenizer.as_ref())?;
+    output.kv("Tokenizer", &tokenizer_path.display().to_string());
+
+    // Resolve repository source
+    let source = resolve_repo_source(&args.repo)?;
+
+    // Build training config from common args
+    let mut training_config = TrainingConfig {
+        rank: args.common.rank,
+        alpha: args.common.alpha,
+        learning_rate: args.common.learning_rate,
+        batch_size: args.common.batch_size,
+        epochs: args.common.epochs,
+        hidden_dim: args.common.hidden_dim,
+        ..TrainingConfig::default()
+    };
+
+    // Apply determinism settings
+    if args.deterministic || args.seed.is_some() {
+        training_config.determinism = Some(TrainingDeterminismConfig {
+            seed: args.seed,
+            ..Default::default()
+        });
+    }
+
+    // Build dataset config
+    let dataset_config = CodeDatasetConfig {
+        max_symbols: args.max_symbols,
+        include_private: args.include_private,
+        positive_weight: args.positive_weight,
+        negative_weight: args.negative_weight,
+    };
+
+    // Build scope metadata from CLI overrides
+    let scope_metadata = if args.scope_overrides.has_overrides() {
+        Some(args.scope_overrides.to_scope_metadata())
+    } else {
+        None
+    };
+
+    // Build the ingestion request
+    let request = CodeIngestionRequest {
+        source,
+        tokenizer_path,
+        training_config,
+        dataset: dataset_config,
+        output_dir: args.output_dir.clone(),
+        adapter_id: args.adapter_id.clone(),
+        base_model: args.base_model.clone(),
+        register: !args.skip_register,
+        tier: args.tier,
+        repo_id: args.repo_id.clone(),
+        project_name: args.project_name.clone(),
+        seed: args.seed,
+        determinism_config: None,
+        session_name: None,
+        session_tags: None,
+        session_id: None,
+        repo_scope: None,
+        scan_roots: Vec::new(),
+        stream: None,
+        scope_metadata,
+        lineage: None,
+        adapter_scope: None,
+        repo_slug: None,
+    };
+
+    // Run the pipeline
+    output.info("Starting codebase ingestion pipeline...");
+    let pipeline = CodeIngestionPipeline::new();
+    let result = pipeline.run(request).await?;
+
+    // Display results
+    output.success("Codebase ingestion completed");
+    output.kv("Adapter ID", &result.adapter_id);
+    output.kv(
+        "Repo",
+        &format!("{} ({})", result.repo_name, result.repo_slug),
+    );
+    output.kv("Repo identifier", &result.repo_identifier);
+    if let Some(branch) = &result.branch {
+        output.kv("Branch", branch);
+    } else {
+        output.kv("Branch", "(detached)");
+    }
+    output.kv("Commit", &result.commit_sha);
+    output.kv("Dataset hash", &result.dataset_hash);
+    output.kv("Examples", &result.dataset_examples.to_string());
+    output.kv("AOS path", &result.aos_path.display().to_string());
+    output.kv("AOS hash", &result.aos_hash_b3);
+    if let Some(registry_id) = &result.registry_id {
+        output.kv("Registry ID", registry_id);
+    }
+
+    Ok(())
 }
 
-#[allow(dead_code)]
-fn resolve_repo_source(repo: &str) -> Result<RepoSource> {
+fn resolve_repo_source(repo: &str) -> Result<CodeIngestionSource> {
     let path_candidate = Path::new(repo);
     if path_candidate.exists() {
         let absolute = std::fs::canonicalize(path_candidate).map_err(|e| {
             AosError::Io(format!("Failed to canonicalize repo path {}: {}", repo, e))
         })?;
-        Ok(RepoSource::LocalPath(absolute))
+        Ok(CodeIngestionSource::LocalPath(absolute))
     } else {
-        Ok(RepoSource::GitUrl(repo.to_string()))
+        Ok(CodeIngestionSource::GitUrl(repo.to_string()))
     }
-}
-
-/// Stub enum for repo source (pending v3.0 migration)
-#[allow(dead_code)]
-enum RepoSource {
-    LocalPath(PathBuf),
-    GitUrl(String),
 }

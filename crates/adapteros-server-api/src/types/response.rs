@@ -628,6 +628,14 @@ pub struct WorkerInferResponse {
     /// BLAKE3 digest of the StopPolicySpec used (hex encoded)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stop_policy_digest_b3: Option<String>,
+
+    // Tokenizer Fields (PRD-RECT-003: Tokenizer Unification)
+    /// BLAKE3 digest of the tokenizer.json used (hex encoded)
+    ///
+    /// This allows verification that the same tokenizer was used for encoding
+    /// and decoding, which is critical for determinism.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokenizer_digest_b3: Option<String>,
 }
 
 /// Worker trace

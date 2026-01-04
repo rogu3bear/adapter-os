@@ -3,6 +3,7 @@
 //! Provides multi-head self-attention with optional ANE acceleration
 //! for softmax operations.
 
+use crate::ane::AneAccelerator;
 use crate::{Array, MlxError, Result};
 
 /// Multi-Head Self-Attention Layer
@@ -115,7 +116,7 @@ impl MultiHeadAttention {
     /// # Arguments
     /// * `x` - Input tensor [batch, seq_len, hidden_dim]
     /// * `mask` - Optional attention mask [batch, 1, seq_len, seq_len]
-    /// * `_ane_accel` - Reserved for future ANE acceleration
+    /// * `ane_accel` - Optional ANE accelerator for softmax delegation
     ///
     /// # Returns
     /// Output tensor [batch, seq_len, hidden_dim]
@@ -123,7 +124,7 @@ impl MultiHeadAttention {
         &self,
         x: &Array,
         mask: Option<&Array>,
-        _ane_accel: Option<&()>,
+        ane_accel: Option<&AneAccelerator>,
     ) -> Result<Array> {
         let shape = x.shape();
         if shape.len() != 3 {
@@ -165,9 +166,12 @@ impl MultiHeadAttention {
         };
 
         // Softmax over last axis (seq_len)
-        // TODO: When AneAccelerator is implemented, delegate softmax to ANE
-        // if batch_size >= ANE_BATCH_THRESHOLD
-        let attn_weights = scores.softmax(-1)?;
+        // Delegate to ANE when accelerator is provided (handles threshold check internally)
+        let attn_weights = if let Some(accel) = ane_accel {
+            accel.softmax(&scores, -1)?
+        } else {
+            scores.softmax(-1)?
+        };
 
         // Apply attention to values
         let attn_output = attn_weights.matmul(&v)?;

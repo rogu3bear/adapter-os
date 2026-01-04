@@ -663,7 +663,7 @@ mod invalid_manifest_handling {
         let too_small: [u8; 4] = [0, 0, 0, 8];
         assert!(
             adapteros_aos::open_aos(&too_small).is_err(),
-            "Too small for valid AOS2 file"
+            "Too small for valid AOS file"
         );
 
         let mut invalid_magic = vec![0u8; adapteros_aos::HEADER_SIZE];

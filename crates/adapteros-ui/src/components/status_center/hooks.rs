@@ -25,16 +25,17 @@ pub fn use_keyboard_shortcut(key: &'static str, ctrl: bool, shift: bool) -> Read
         let window = web_sys::window().expect("window should exist");
         let document = window.document().expect("document should exist");
 
-        let closure = Closure::<dyn Fn(web_sys::KeyboardEvent)>::new(move |event: web_sys::KeyboardEvent| {
-            let key_matches = event.key().to_lowercase() == key.to_lowercase();
-            let ctrl_matches = !ctrl || event.ctrl_key() || event.meta_key();
-            let shift_matches = !shift || event.shift_key();
+        let closure =
+            Closure::<dyn Fn(web_sys::KeyboardEvent)>::new(move |event: web_sys::KeyboardEvent| {
+                let key_matches = event.key().to_lowercase() == key.to_lowercase();
+                let ctrl_matches = !ctrl || event.ctrl_key() || event.meta_key();
+                let shift_matches = !shift || event.shift_key();
 
-            if key_matches && ctrl_matches && shift_matches {
-                event.prevent_default();
-                set_count.update(|c| *c = c.wrapping_add(1));
-            }
-        });
+                if key_matches && ctrl_matches && shift_matches {
+                    event.prevent_default();
+                    set_count.update(|c| *c = c.wrapping_add(1));
+                }
+            });
 
         document
             .add_event_listener_with_callback("keydown", closure.as_ref().unchecked_ref())
@@ -113,7 +114,10 @@ pub fn use_status_data() -> (ReadSignal<StatusLoadingState>, impl Fn() + Clone) 
 
             match futures::future::join(status_future, state_future).await {
                 (Ok(status), Ok(state)) => {
-                    set_state.set(StatusLoadingState::Loaded(Box::new(CombinedStatus { status, state })));
+                    set_state.set(StatusLoadingState::Loaded(Box::new(CombinedStatus {
+                        status,
+                        state,
+                    })));
                 }
                 (Err(e), _) | (_, Err(e)) => {
                     set_state.set(StatusLoadingState::Error(e));

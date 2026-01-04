@@ -227,10 +227,7 @@ fn test_aos_header_parsing_valid() {
     let archive = create_aos_archive(&metadata, &weights);
 
     let result = parse_aos_header(&archive);
-    assert!(
-        result.is_ok(),
-        "Valid AOS header should parse successfully"
-    );
+    assert!(result.is_ok(), "Valid AOS header should parse successfully");
 
     let (version, total_size, weights_offset, weights_size, metadata_offset, metadata_size) =
         result.unwrap();
@@ -601,11 +598,7 @@ fn test_invalid_archive_corrupted_magic() {
 
     let format = detect_format(&archive);
     // Should not be detected as AOS due to wrong magic
-    assert_ne!(
-        format,
-        AosFormat::Aos,
-        "Corrupted magic should not be AOS"
-    );
+    assert_ne!(format, AosFormat::Aos, "Corrupted magic should not be AOS");
 }
 
 #[test]
@@ -877,10 +870,7 @@ fn test_constants_aos_header_field_positions() {
     // [52-267]: Reserved
 
     let field_end = 52; // Last documented field ends at byte 52
-    assert!(
-        field_end <= AOS_HEADER_SIZE,
-        "All fields fit within header"
-    );
+    assert!(field_end <= AOS_HEADER_SIZE, "All fields fit within header");
 }
 
 // =============================================================================

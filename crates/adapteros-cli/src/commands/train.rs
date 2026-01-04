@@ -38,6 +38,10 @@ pub struct TrainArgs {
     #[arg(long)]
     seed: Option<u64>,
 
+    /// Resume from latest checkpoint if available
+    #[arg(long)]
+    resume: bool,
+
     /// Common training hyperparameters
     #[command(flatten)]
     common: CommonTrainingArgs,
@@ -71,6 +75,12 @@ impl TrainArgs {
         // Create trainer
         let mut trainer = MicroLoRATrainer::new(config)?;
 
+        // Enable checkpointing for resume support
+        trainer.enable_checkpointing(&self.output, "training", 5);
+
+        // Check for checkpoint availability
+        let checkpoint_exists = trainer.try_resume_from_checkpoint().await.is_some();
+
         // Initialize Metal kernels if plan is provided
         if let Some(plan_path) = &self.plan {
             let plan_bytes = std::fs::read(plan_path)
@@ -85,8 +95,21 @@ impl TrainArgs {
             warn!("No plan file provided, training will use CPU-only mode");
         }
 
-        // Train the adapter
-        let result = trainer.train(&examples).await?;
+        // Train the adapter (with resume if requested)
+        let (result, resumed_from_epoch) = if self.resume {
+            if let Some((epoch, _weights, loss)) = trainer.try_resume_from_checkpoint().await {
+                info!("Resuming from epoch {} with loss {:.4}", epoch, loss);
+                let result = trainer.train_with_resume(&examples, |_| {}).await?;
+                (result, Some(epoch))
+            } else {
+                info!("No checkpoint found, starting fresh training");
+                let result = trainer.train(&examples).await?;
+                (result, None)
+            }
+        } else {
+            let result = trainer.train(&examples).await?;
+            (result, None)
+        };
 
         // Save the trained adapter
         self.save_adapter(&result)?;
@@ -97,6 +120,11 @@ impl TrainArgs {
             result.final_loss,
             result.training_time_ms(),
             result.training_time_us
+        );
+        info!(
+            "Checkpoint info: available={}, resumed_from_epoch={}",
+            checkpoint_exists,
+            resumed_from_epoch.unwrap_or(0)
         );
 
         Ok(())
@@ -264,6 +292,7 @@ mod tests {
             plan: None,
             deterministic: false,
             seed: None,
+            resume: false,
             common: CommonTrainingArgs {
                 rank: 4,
                 alpha: 16.0,
@@ -314,6 +343,7 @@ mod tests {
             plan: None,
             deterministic: false,
             seed: None,
+            resume: false,
             common: CommonTrainingArgs {
                 rank: 4,
                 alpha: 16.0,

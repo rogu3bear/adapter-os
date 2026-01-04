@@ -310,6 +310,11 @@ impl DependencyChecker {
         // Check required tools
         for tool in &deps.required_tools {
             let available = check_tool_availability(tool);
+            let version = if available {
+                get_tool_version(tool)
+            } else {
+                None
+            };
 
             if !available {
                 result.all_available = false;
@@ -328,7 +333,7 @@ impl DependencyChecker {
                 ToolStatus {
                     tool: tool.clone(),
                     available,
-                    version: None, // TODO: parse version if tool is available
+                    version,
                 },
             );
         }
@@ -377,6 +382,18 @@ fn check_tool_availability(tool: &str) -> bool {
     matches!(status, Ok(output) if output.status.success())
 }
 
+/// Get the version string for a tool
+fn get_tool_version(tool: &str) -> Option<String> {
+    std::process::Command::new(tool)
+        .arg("--version")
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .and_then(|s| s.lines().next().map(|l| l.trim().to_string()))
+        .filter(|s| !s.is_empty())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -422,5 +439,35 @@ mod tests {
 
         result.degradation_level = 2;
         assert!(!result.critical_met());
+    }
+
+    #[test]
+    fn test_get_tool_version_for_existing_tool() {
+        // cargo should be available in the test environment
+        let version = get_tool_version("cargo");
+        assert!(version.is_some(), "cargo --version should return output");
+        let v = version.unwrap();
+        assert!(v.contains("cargo"), "version should mention cargo");
+    }
+
+    #[test]
+    fn test_get_tool_version_for_missing_tool() {
+        let version = get_tool_version("definitely-not-a-real-tool-12345");
+        assert!(version.is_none(), "missing tool should return None");
+    }
+
+    #[test]
+    fn test_security_gate_includes_tool_version() {
+        let checker = DependencyChecker::new();
+        let result = checker.check_gate("security").unwrap();
+        // Security gate requires cargo
+        if let Some(cargo_status) = result.required_tools.get("cargo") {
+            if cargo_status.available {
+                assert!(
+                    cargo_status.version.is_some(),
+                    "available cargo should have version"
+                );
+            }
+        }
     }
 }

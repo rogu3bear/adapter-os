@@ -140,9 +140,14 @@ async fn test_find_expired_adapters_with_all_schema_fields() {
         expired.last_loaded_at.is_none(),
         "last_loaded_at should initially be None"
     );
-    // Note: aos_file_path and aos_file_hash are in AdapterRegistrationParams
-    // but not in the Adapter struct - they would need to be added to the schema
-    // TODO: Add aos_file_path and aos_file_hash to Adapter struct when DB migration is added
+    assert!(
+        expired.aos_file_path.is_none(),
+        "aos_file_path should be None by default"
+    );
+    assert!(
+        expired.aos_file_hash.is_none(),
+        "aos_file_hash should be None by default"
+    );
 
     assert_eq!(expired.active, 1, "Adapter should be active");
     assert!(
@@ -246,8 +251,14 @@ async fn test_adapter_struct_schema_consistency() {
     // Verify new schema fields from migration 0031
     assert_eq!(adapter.load_state, "cold");
     assert!(adapter.last_loaded_at.is_none());
-    // Note: aos_file_path and aos_file_hash are not in Adapter struct yet
-    // TODO: Add these fields when schema migration is implemented
+    assert!(
+        adapter.aos_file_path.is_none(),
+        "aos_file_path should be None by default"
+    );
+    assert!(
+        adapter.aos_file_hash.is_none(),
+        "aos_file_hash should be None by default"
+    );
 
     // Verify timestamps exist
     assert!(!adapter.created_at.is_empty());

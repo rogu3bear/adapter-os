@@ -5,8 +5,8 @@
 use crate::components::search_results::{SearchEmptyState, SearchResultsList};
 use crate::search::{RecentItem, SearchAction};
 use crate::signals::search::use_search;
-use leptos::prelude::*;
 use leptos::ev::KeyboardEvent;
+use leptos::prelude::*;
 use leptos_router::hooks::use_navigate;
 
 /// Command Palette modal component
@@ -30,11 +30,14 @@ pub fn CommandPalette() -> impl IntoView {
 
             // Focus input after a brief delay to ensure DOM is ready
             let input_ref = input_ref.clone();
-            set_timeout_simple(move || {
-                if let Some(input) = input_ref.get() {
-                    let _ = input.focus();
-                }
-            }, 50);
+            set_timeout_simple(
+                move || {
+                    if let Some(input) = input_ref.get() {
+                        let _ = input.focus();
+                    }
+                },
+                50,
+            );
         }
     });
 
@@ -47,11 +50,19 @@ pub fn CommandPalette() -> impl IntoView {
             let recent_item = RecentItem::new(
                 match result.result_type {
                     crate::search::SearchResultType::Page => crate::search::RecentItemType::Page,
-                    crate::search::SearchResultType::Adapter => crate::search::RecentItemType::Adapter,
+                    crate::search::SearchResultType::Adapter => {
+                        crate::search::RecentItemType::Adapter
+                    }
                     crate::search::SearchResultType::Model => crate::search::RecentItemType::Model,
-                    crate::search::SearchResultType::Worker => crate::search::RecentItemType::Worker,
-                    crate::search::SearchResultType::Stack => crate::search::RecentItemType::Adapter,
-                    crate::search::SearchResultType::Action => crate::search::RecentItemType::Action,
+                    crate::search::SearchResultType::Worker => {
+                        crate::search::RecentItemType::Worker
+                    }
+                    crate::search::SearchResultType::Stack => {
+                        crate::search::RecentItemType::Adapter
+                    }
+                    crate::search::SearchResultType::Action => {
+                        crate::search::RecentItemType::Action
+                    }
                 },
                 &result.id,
                 &result.title,
@@ -402,10 +413,8 @@ fn set_timeout_simple<F: FnOnce() + 'static>(f: F, ms: i32) {
 
     let closure = Closure::once_into_js(f);
     let window = web_sys::window().expect("no window");
-    let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
-        closure.unchecked_ref(),
-        ms,
-    );
+    let _ =
+        window.set_timeout_with_callback_and_timeout_and_arguments_0(closure.unchecked_ref(), ms);
 }
 
 #[cfg(not(target_arch = "wasm32"))]

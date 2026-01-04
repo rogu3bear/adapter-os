@@ -24,6 +24,11 @@ pub struct ServerConfig {
     /// Timeout in milliseconds for health check models probe (default: 2000)
     #[serde(default = "default_health_check_models_timeout_ms")]
     pub health_check_models_timeout_ms: u64,
+    /// Skip worker readiness check in /readyz endpoint (default: false)
+    /// When true, the control plane can report ready without worker connectivity.
+    /// Useful for deployments where control plane starts independently of workers.
+    #[serde(default = "default_false")]
+    pub skip_worker_check: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

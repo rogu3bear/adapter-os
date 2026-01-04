@@ -159,32 +159,45 @@ pub fn StatusItemMemory(
     #[prop(optional)]
     available: bool,
 ) -> impl IntoView {
-    let unit = if unit.is_empty() { "MB".to_string() } else { unit };
-
-    let (value, severity, detail): (String, StatusItemSeverity, String) = match (available, used, total) {
-        (false, _, _) => ("Unavailable".to_string(), StatusItemSeverity::Warning, String::new()),
-        (true, Some(u), Some(t)) => {
-            let pct = if t > 0 {
-                (u as f64 / t as f64 * 100.0) as u64
-            } else {
-                0
-            };
-            let sev = if pct > 90 {
-                StatusItemSeverity::Error
-            } else if pct > 75 {
-                StatusItemSeverity::Warning
-            } else {
-                StatusItemSeverity::Success
-            };
-            (
-                format!("{} / {} {}", u, t, unit),
-                sev,
-                format!("{}% used", pct),
-            )
-        }
-        (true, Some(u), None) => (format!("{} {}", u, unit), StatusItemSeverity::Info, String::new()),
-        (true, None, _) => ("N/A".to_string(), StatusItemSeverity::Info, String::new()),
+    let unit = if unit.is_empty() {
+        "MB".to_string()
+    } else {
+        unit
     };
+
+    let (value, severity, detail): (String, StatusItemSeverity, String) =
+        match (available, used, total) {
+            (false, _, _) => (
+                "Unavailable".to_string(),
+                StatusItemSeverity::Warning,
+                String::new(),
+            ),
+            (true, Some(u), Some(t)) => {
+                let pct = if t > 0 {
+                    (u as f64 / t as f64 * 100.0) as u64
+                } else {
+                    0
+                };
+                let sev = if pct > 90 {
+                    StatusItemSeverity::Error
+                } else if pct > 75 {
+                    StatusItemSeverity::Warning
+                } else {
+                    StatusItemSeverity::Success
+                };
+                (
+                    format!("{} / {} {}", u, t, unit),
+                    sev,
+                    format!("{}% used", pct),
+                )
+            }
+            (true, Some(u), None) => (
+                format!("{} {}", u, unit),
+                StatusItemSeverity::Info,
+                String::new(),
+            ),
+            (true, None, _) => ("N/A".to_string(), StatusItemSeverity::Info, String::new()),
+        };
 
     view! {
         <StatusItem

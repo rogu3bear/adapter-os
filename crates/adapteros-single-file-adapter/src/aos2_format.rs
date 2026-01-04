@@ -95,9 +95,7 @@ impl AosAdapter {
         };
 
         if mmap.len() < AosHeader::SIZE {
-            return Err(AosError::Parse(
-                "AOS file too short for header".to_string(),
-            ));
+            return Err(AosError::Parse("AOS file too short for header".to_string()));
         }
 
         let header = AosHeader::from_bytes(&mmap[..AosHeader::SIZE])?;

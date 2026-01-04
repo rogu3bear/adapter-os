@@ -247,24 +247,55 @@ fn calculate_uptime(state: &AppState) -> u64 {
 }
 
 /// Check for configuration drift
+///
+/// Compares the current configuration against the baseline captured at boot.
+/// Returns (drift_detected, drift_summary) where drift_summary contains
+/// details about which fields have changed.
 #[allow(clippy::result_large_err)]
-fn check_config_drift(_state: &AppState) -> Result<(bool, Option<DriftSummaryResponse>), ApiError> {
-    // Try to detect configuration drift using adapteros-config
-    if let Some(cfg) = adapteros_config::try_effective_config() {
-        // Create current snapshot
-        let _current_snapshot = adapteros_config::ConfigSnapshot::from_effective_config(cfg);
+fn check_config_drift(state: &AppState) -> Result<(bool, Option<DriftSummaryResponse>), ApiError> {
+    // Get the baseline snapshot captured at boot
+    let Some(baseline) = state.get_config_baseline() else {
+        // No baseline captured - try to capture it now (first call)
+        if state.capture_config_baseline() {
+            tracing::info!("Config baseline captured on first drift check");
+        }
+        // No drift if we just captured the baseline
+        return Ok((false, None));
+    };
 
-        // In production, we'd compare against a persisted baseline snapshot
-        // For now, check if there's a stored baseline (would be in state or db)
-        // If no baseline exists, no drift detected
+    // Get current effective config
+    let Some(cfg) = adapteros_config::try_effective_config() else {
+        // Config not initialized, can't detect drift
+        return Ok((false, None));
+    };
 
-        // TODO: Implement baseline storage and retrieval
-        // For now, return no drift
+    // Create current snapshot and compare against baseline
+    let current_snapshot = adapteros_config::ConfigSnapshot::from_effective_config(cfg);
+    let drift_report = current_snapshot.diff(&baseline);
+
+    if !drift_report.drift_detected {
         return Ok((false, None));
     }
 
-    // Config not initialized, can't detect drift
-    Ok((false, None))
+    // Convert ConfigDriftReport to DriftSummaryResponse
+    let fields: Vec<DriftFieldResponse> = drift_report
+        .fields
+        .iter()
+        .map(|f| DriftFieldResponse {
+            key: f.key.clone(),
+            old_value: f.old_value.clone(),
+            new_value: f.new_value.clone(),
+            severity: format!("{:?}", f.severity).to_lowercase(),
+        })
+        .collect();
+
+    let summary = DriftSummaryResponse {
+        previous_hash: drift_report.previous_hash,
+        field_count: drift_report.field_count,
+        fields,
+    };
+
+    Ok((true, Some(summary)))
 }
 
 /// Get runtime paths configuration

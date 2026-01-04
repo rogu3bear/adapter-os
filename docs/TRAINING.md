@@ -239,7 +239,6 @@ Supported formats: PDF, plain text, markdown
 Strategies:
 - **Identity**: Unsupervised (input == target)
 - **QuestionAnswer**: Q&A pairs from content
-- **MaskedLM**: Masked language modeling
 
 **3. Dataset** - `TrainingDatasetManager::new(db, path, tok).create_dataset_from_documents(req).await?`
 

@@ -2426,6 +2426,53 @@ impl Db {
         }
     }
 
+    /// Get trusted adapter signing key for a tenant
+    ///
+    /// Returns the first active (non-revoked) trusted public key for the given tenant.
+    /// Used during adapter import to verify manifest signatures when the tenant
+    /// policy requires signed adapters.
+    ///
+    /// Returns None if no active trusted key exists for the tenant.
+    pub async fn get_trusted_adapter_key(
+        &self,
+        tenant_id: &str,
+    ) -> Result<Option<adapteros_crypto::PublicKey>> {
+        let row: Option<(String,)> = sqlx::query_as(
+            r#"
+            SELECT public_key_hex
+            FROM trusted_adapter_keys
+            WHERE tenant_id = ? AND revoked_at IS NULL
+            ORDER BY created_at DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(tenant_id)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get trusted adapter key: {}", e)))?;
+
+        match row {
+            Some((key_hex,)) => {
+                let key_bytes = hex::decode(&key_hex).map_err(|e| {
+                    AosError::Database(format!("Invalid hex in trusted adapter key: {}", e))
+                })?;
+                if key_bytes.len() != 32 {
+                    return Err(AosError::Database(format!(
+                        "Invalid trusted adapter key length: {} (expected 32)",
+                        key_bytes.len()
+                    )));
+                }
+                let mut arr = [0u8; 32];
+                arr.copy_from_slice(&key_bytes);
+                let pubkey = adapteros_crypto::PublicKey::from_bytes(&arr).map_err(|e| {
+                    AosError::Database(format!("Invalid Ed25519 public key: {}", e))
+                })?;
+                Ok(Some(pubkey))
+            }
+            None => Ok(None),
+        }
+    }
+
     /// Close the database connection pool gracefully
     ///
     /// This method should be called during shutdown to ensure:

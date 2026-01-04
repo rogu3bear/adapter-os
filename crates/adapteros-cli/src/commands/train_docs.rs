@@ -100,7 +100,7 @@ pub struct TrainDocsArgs {
     #[arg(long)]
     skip_training: bool,
 
-    /// Training strategy: identity, qa, or mlm
+    /// Training strategy: identity or qa
     #[arg(long, default_value = "identity")]
     training_strategy: String,
 
@@ -111,6 +111,10 @@ pub struct TrainDocsArgs {
     /// Training seed (for deterministic training)
     #[arg(long)]
     seed: Option<u64>,
+
+    /// Resume from latest checkpoint if available
+    #[arg(long)]
+    resume: bool,
 
     /// Tokenizer configuration
     #[command(flatten)]
@@ -391,10 +395,9 @@ impl TrainDocsArgs {
         let strategy = match self.training_strategy.to_lowercase().as_str() {
             "identity" => TrainingStrategy::Identity,
             "qa" | "question-answer" => TrainingStrategy::QuestionAnswer,
-            "mlm" | "masked-lm" => TrainingStrategy::MaskedLM,
             _ => {
                 return Err(AosError::Validation(format!(
-                    "Invalid training strategy: '{}'. Must be one of: identity, qa, mlm",
+                    "Invalid training strategy: '{}'. Must be one of: identity, qa",
                     self.training_strategy
                 )));
             }
@@ -477,12 +480,35 @@ impl TrainDocsArgs {
         };
 
         let mut trainer = MicroLoRATrainer::new(train_config.clone())?;
-        let result = trainer.train(&examples).await?;
+
+        // Enable checkpointing for resume support
+        trainer.enable_checkpointing(&output_dir, &adapter_id, 5);
+
+        // Check for checkpoint availability
+        let checkpoint_exists = trainer.try_resume_from_checkpoint().await.is_some();
+
+        // Train with optional resume
+        let (result, resumed_from_epoch) = if self.resume {
+            if let Some((epoch, _weights, loss)) = trainer.try_resume_from_checkpoint().await {
+                info!("Resuming from epoch {} with loss {:.4}", epoch, loss);
+                let result = trainer.train_with_resume(&examples, |_| {}).await?;
+                (result, Some(epoch))
+            } else {
+                info!("No checkpoint found, starting fresh training");
+                let result = trainer.train(&examples).await?;
+                (result, None)
+            }
+        } else {
+            let result = trainer.train(&examples).await?;
+            (result, None)
+        };
 
         info!(
-            "Training complete: loss={:.4}, time={}ms",
+            "Training complete: loss={:.4}, time={}ms, checkpoint_available={}, resumed_from_epoch={}",
             result.final_loss,
-            result.training_time_ms()
+            result.training_time_ms(),
+            checkpoint_exists,
+            resumed_from_epoch.unwrap_or(0)
         );
 
         // Save adapter weights (JSON format for compatibility)

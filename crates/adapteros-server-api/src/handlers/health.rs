@@ -186,10 +186,21 @@ pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
     };
 
     // Determine readiness mode based on configuration
+    let skip_worker_check = {
+        // STABILITY: Use poison-safe lock access
+        let cfg = state.config.read().unwrap_or_else(|e| {
+            tracing::warn!("Config lock poisoned in readiness mode check, recovering");
+            e.into_inner()
+        });
+        cfg.server.skip_worker_check
+    };
     let readiness_mode = if is_dev_bypass_enabled() {
         ReadinessMode::DevBypass
+    } else if skip_worker_check {
+        ReadinessMode::Relaxed {
+            relaxed_checks: vec!["worker".to_string()],
+        }
     } else {
-        // TODO: Add support for relaxed mode based on config (e.g., skip-worker)
         ReadinessMode::Strict
     };
 
@@ -427,10 +438,29 @@ pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
         }
     }
 
-    // Final readiness is the conjunction of the individual checks.
-    ready = db_check.ok && worker_check.ok && models_seeded_check.ok;
+    // Final readiness depends on mode:
+    // - Strict: all checks must pass
+    // - Relaxed: skip specified checks (e.g., worker check when skip_worker_check is set)
+    // - DevBypass: all checks informational only
+    ready = match &readiness_mode {
+        ReadinessMode::Strict => db_check.ok && worker_check.ok && models_seeded_check.ok,
+        ReadinessMode::Relaxed { relaxed_checks } => {
+            // Start with db check (always required)
+            let mut result = db_check.ok;
+            // Worker check is optional if relaxed
+            if !relaxed_checks.contains(&"worker".to_string()) {
+                result = result && worker_check.ok;
+            }
+            // Models check is optional if relaxed
+            if !relaxed_checks.contains(&"models".to_string()) {
+                result = result && models_seeded_check.ok;
+            }
+            result
+        }
+        ReadinessMode::DevBypass => true, // Always ready in dev bypass
+    };
 
-    // In dev bypass mode, always return 200 regardless of check results
+    // Determine status code based on readiness
     let status_code = if matches!(readiness_mode, ReadinessMode::DevBypass) || ready {
         StatusCode::OK
     } else {

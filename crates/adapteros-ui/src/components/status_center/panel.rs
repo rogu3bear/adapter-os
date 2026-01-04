@@ -613,9 +613,7 @@ fn service_status_to_severity(status: ServiceHealthStatus) -> StatusItemSeverity
     }
 }
 
-fn drift_level_to_severity(
-    level: &adapteros_api_types::DriftLevel,
-) -> StatusItemSeverity {
+fn drift_level_to_severity(level: &adapteros_api_types::DriftLevel) -> StatusItemSeverity {
     match level {
         adapteros_api_types::DriftLevel::Ok => StatusItemSeverity::Success,
         adapteros_api_types::DriftLevel::Warn => StatusItemSeverity::Warning,

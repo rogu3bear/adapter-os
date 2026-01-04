@@ -105,7 +105,10 @@ impl QwenTokenizer {
     /// This is primarily intended for tests where we want to avoid loading
     /// tokenizer JSON files from disk.
     #[cfg(test)]
-    pub(crate) fn from_tokenizer_with_tokens(tokenizer: Tokenizer, special_tokens: SpecialTokenMap) -> Self {
+    pub(crate) fn from_tokenizer_with_tokens(
+        tokenizer: Tokenizer,
+        special_tokens: SpecialTokenMap,
+    ) -> Self {
         Self {
             tokenizer,
             special_tokens,
