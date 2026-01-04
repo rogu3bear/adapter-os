@@ -48,8 +48,8 @@ pub mod training;
 pub mod validator;
 pub mod weights;
 
-pub use aos2_format::{Aos2Adapter, Aos2Header};
-pub use aos2_packager::{Aos2PackageOptions, Aos2Packager};
+pub use aos2_format::{AosAdapter, AosHeader};
+pub use aos2_packager::{AosPackageOptions, AosPackager};
 pub use format::{
     get_compatibility_report, verify_format_version, AdapterManifest, AdapterWeights, AosSignature,
     CompatibilityReport, CompressionLevel, LineageInfo, Mutation, SingleFileAdapter, WeightGroup,

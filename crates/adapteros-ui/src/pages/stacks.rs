@@ -5,9 +5,10 @@
 
 use crate::api::{ApiClient, CreateStackRequest, StackResponse, UpdateStackRequest, WorkflowType};
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, EmptyState, ErrorDisplay, Input,
-    LoadingDisplay, PageHeader, RefreshButton, Select, Spinner, Table, TableBody, TableCell,
-    TableHead, TableHeader, TableRow, Textarea,
+    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ConfirmationDialog,
+    ConfirmationSeverity, EmptyState, ErrorDisplay, Input, LoadingDisplay, PageHeader,
+    RefreshButton, Select, Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    Textarea,
 };
 use crate::hooks::{use_api, use_api_resource, LoadingState};
 use adapteros_api_types::AdapterResponse;
@@ -96,6 +97,50 @@ fn StacksList(stacks: Vec<StackResponse>, refetch_trigger: RwSignal<u32>) -> imp
 
     let client = use_api();
 
+    // Delete confirmation dialog state
+    let show_delete_confirm = RwSignal::new(false);
+    let pending_delete_id = RwSignal::new(Option::<String>::None);
+    let pending_delete_name = RwSignal::new(String::new());
+    let deleting = RwSignal::new(false);
+    let delete_error = RwSignal::new(Option::<String>::None);
+
+    // Reset dialog state
+    let reset_delete_state = move || {
+        pending_delete_id.set(None);
+        pending_delete_name.set(String::new());
+        delete_error.set(None);
+    };
+
+    // Handle cancel/close of delete dialog
+    let on_cancel_delete = Callback::new(move |_| {
+        reset_delete_state();
+    });
+
+    // Handle confirmed deletion
+    let on_confirm_delete = {
+        let client = Arc::clone(&client);
+        Callback::new(move |_| {
+            if let Some(id) = pending_delete_id.get() {
+                deleting.set(true);
+                delete_error.set(None);
+                let client = Arc::clone(&client);
+                wasm_bindgen_futures::spawn_local(async move {
+                    match client.delete_stack(&id).await {
+                        Ok(_) => {
+                            refetch_trigger.update(|n| *n = n.wrapping_add(1));
+                            show_delete_confirm.set(false);
+                            reset_delete_state();
+                        }
+                        Err(e) => {
+                            delete_error.set(Some(format!("Failed to delete: {}", e)));
+                        }
+                    }
+                    deleting.set(false);
+                });
+            }
+        })
+    };
+
     view! {
         <Card>
             <Table>
@@ -118,6 +163,9 @@ fn StacksList(stacks: Vec<StackResponse>, refetch_trigger: RwSignal<u32>) -> imp
                                     stack=stack
                                     client=client
                                     refetch_trigger=refetch_trigger
+                                    show_delete_confirm=show_delete_confirm
+                                    pending_delete_id=pending_delete_id
+                                    pending_delete_name=pending_delete_name
                                 />
                             }
                         })
@@ -125,6 +173,33 @@ fn StacksList(stacks: Vec<StackResponse>, refetch_trigger: RwSignal<u32>) -> imp
                 </TableBody>
             </Table>
         </Card>
+
+        {move || {
+            let name = pending_delete_name.get();
+            let error = delete_error.get();
+            let description = if let Some(ref err) = error {
+                format!(
+                    "This will permanently delete the adapter stack '{}'. This action cannot be undone.\n\nError: {}",
+                    name,
+                    err
+                )
+            } else {
+                format!("This will permanently delete the adapter stack '{}'. This action cannot be undone.", name)
+            };
+            view! {
+                <ConfirmationDialog
+                    open=show_delete_confirm
+                    title="Delete Stack"
+                    description=description
+                    severity=ConfirmationSeverity::Destructive
+                    confirm_text="Delete"
+                    typed_confirmation=name.clone()
+                    on_confirm=on_confirm_delete
+                    on_cancel=on_cancel_delete
+                    loading=Signal::derive(move || deleting.get())
+                />
+            }
+        }}
     }
     .into_any()
 }
@@ -135,12 +210,16 @@ fn StackRow(
     stack: StackResponse,
     client: Arc<ApiClient>,
     refetch_trigger: RwSignal<u32>,
+    show_delete_confirm: RwSignal<bool>,
+    pending_delete_id: RwSignal<Option<String>>,
+    pending_delete_name: RwSignal<String>,
 ) -> impl IntoView {
     let id = stack.id.clone();
     let id_link = id.clone();
     let id_activate = id.clone();
     let id_delete = id.clone();
     let name = stack.name.clone();
+    let name_for_delete = name.clone();
     let adapter_count = stack.adapter_ids.len();
     let workflow_label = workflow_type_label(&stack.workflow_type);
     let is_active = stack.is_active;
@@ -230,19 +309,15 @@ fn StackRow(
                         }.into_any()
                     }}
                     {
-                        let client = Arc::clone(&client);
                         let id_for_delete = id_delete.clone();
+                        let name_for_delete = name_for_delete.clone();
                         view! {
                             <button
                                 class="text-sm text-destructive hover:underline"
                                 on:click=move |_| {
-                                    let client = Arc::clone(&client);
-                                    let id = id_for_delete.clone();
-                                    wasm_bindgen_futures::spawn_local(async move {
-                                        if client.delete_stack(&id).await.is_ok() {
-                                            trigger_refresh();
-                                        }
-                                    });
+                                    pending_delete_id.set(Some(id_for_delete.clone()));
+                                    pending_delete_name.set(name_for_delete.clone());
+                                    show_delete_confirm.set(true);
                                 }
                             >
                                 "Delete"
