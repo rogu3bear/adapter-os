@@ -533,6 +533,8 @@ jobs:
           fi
           echo "✓ Leptos WASM build artifacts verified"
           ls -la crates/adapteros-server/static/
+      - name: PRD-UI-000 Asset integrity check
+        run: ./scripts/ci/check_ui_assets.sh
 
   leptos-wasm-check:
     name: Leptos WASM Check

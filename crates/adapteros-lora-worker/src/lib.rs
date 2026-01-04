@@ -2301,12 +2301,13 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         // Note: Actual KV tensor reuse requires kernel-level integration (follow-up work)
         let prefix_cache_entry = self.prefix_kv_cache.get(&prefix_kv_key);
         let prefix_cache_hit = prefix_cache_entry.is_some();
-        let (prefix_cached_token_count, prefix_kv_bytes) = if let Some(ref entry) = prefix_cache_entry {
-            entry.record_access();
-            (entry.prefix_cached_token_count, entry.kv_bytes)
-        } else {
-            (0, 0)
-        };
+        let (prefix_cached_token_count, prefix_kv_bytes) =
+            if let Some(ref entry) = prefix_cache_entry {
+                entry.record_access();
+                (entry.prefix_cached_token_count, entry.kv_bytes)
+            } else {
+                (0, 0)
+            };
 
         if prefix_cache_hit {
             tracing::debug!(

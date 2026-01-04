@@ -378,6 +378,24 @@ fn inspect_aos_archive(path: &Path, output: &OutputWriter) -> Result<()> {
     let operation = manifest_lookup("operation").or_else(|| meta_lookup("operation"));
     let scope_path = meta_lookup("scope_path");
 
+    // CoreML fusion status lookup - check both manifest and metadata
+    let coreml_fusion_verified = manifest_json
+        .get("coreml_fusion_verified")
+        .and_then(|v| v.as_bool())
+        .or_else(|| {
+            metadata_obj
+                .and_then(|m| m.get("coreml_fusion_verified"))
+                .and_then(|v| v.as_bool())
+        });
+    let coreml_stub = manifest_json
+        .get("coreml_stub")
+        .and_then(|v| v.as_bool())
+        .or_else(|| {
+            metadata_obj
+                .and_then(|m| m.get("coreml_stub"))
+                .and_then(|v| v.as_bool())
+        });
+
     let header_json = json!({
         "flags": header.flags,
         "index_offset": header.index_offset,
@@ -411,11 +429,13 @@ fn inspect_aos_archive(path: &Path, output: &OutputWriter) -> Result<()> {
         "group": group,
         "operation": operation,
         "scope_path": scope_path,
+        "coreml_fusion_verified": coreml_fusion_verified,
+        "coreml_stub": coreml_stub,
         "metadata": metadata_obj,
     });
 
     let summary = json!({
-        "magic": "AOS2",
+        "magic": "AOS",
         "header": header_json,
         "segments": segments_json,
         "manifest": manifest_summary,
@@ -427,7 +447,7 @@ fn inspect_aos_archive(path: &Path, output: &OutputWriter) -> Result<()> {
     }
 
     output.section("Header");
-    output.kv("magic", "AOS2");
+    output.kv("magic", "AOS");
     output.kv("index_offset", &header.index_offset.to_string());
     output.kv("index_size", &header.index_size.to_string());
     output.kv("manifest_offset", &header.manifest_offset.to_string());
@@ -472,6 +492,25 @@ fn inspect_aos_archive(path: &Path, output: &OutputWriter) -> Result<()> {
     output.kv("domain", domain.as_deref().unwrap_or("-"));
     output.kv("group", group.as_deref().unwrap_or("-"));
     output.kv("operation", operation.as_deref().unwrap_or("-"));
+
+    // CoreML Fusion Status section - prominently display fusion verification status
+    output.section("CoreML Status");
+    match (coreml_fusion_verified, coreml_stub) {
+        (Some(true), _) => {
+            output.kv("fusion_verified", "true");
+            output.success("CoreML fusion verified - package is production-ready");
+        }
+        (Some(false), _) | (_, Some(true)) => {
+            output.kv("fusion_verified", "false");
+            output.kv("stub_mode", "true");
+            output.warning("WARNING: CoreML export was stubbed - package may not be functional");
+            output.warning("Run on macOS with --features coreml-backend for production use");
+        }
+        (None, None) | (None, Some(false)) => {
+            output.kv("fusion_verified", "unknown");
+            output.info("No CoreML fusion metadata found in manifest");
+        }
+    }
 
     Ok(())
 }

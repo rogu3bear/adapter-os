@@ -503,6 +503,9 @@ impl TraceSink for SqlTraceSink {
             .as_ref()
             .map(|d| d.as_bytes().to_vec());
 
+        // PRD-01: Serialize prefix_kv_key_b3 to hex string for TEXT column
+        let prefix_kv_key_hex = finalization.prefix_kv_key_b3.as_ref().map(|h| h.to_hex());
+
         sqlx::query(
             r#"
             INSERT OR REPLACE INTO inference_trace_receipts (
@@ -521,8 +524,11 @@ impl TraceSink for SqlTraceSink {
                 stop_reason_token_index,
                 stop_policy_digest_b3,
                 model_cache_identity_v2_digest_b3,
+                prefix_kv_key_b3,
+                prefix_cache_hit,
+                prefix_kv_bytes,
                 created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
             "#,
         )
         .bind(&self.start.trace_id)
@@ -544,6 +550,9 @@ impl TraceSink for SqlTraceSink {
                 .as_ref()
                 .map(|b| &b[..]),
         )
+        .bind(&prefix_kv_key_hex)
+        .bind(finalization.prefix_cache_hit as i64)
+        .bind(finalization.prefix_kv_bytes as i64)
         .execute(self.db.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to insert trace receipt: {e}")))?;

@@ -516,6 +516,16 @@ pub trait FusedKernels: Send + Sync {
         std::collections::HashMap::new()
     }
 
+    /// Get comprehensive GPU memory report
+    ///
+    /// Returns memory pool statistics, adapter allocations, and VRAM usage.
+    /// Used by capacity handlers to expose real GPU metrics instead of hardcoded values.
+    ///
+    /// Default implementation returns None for backends without memory tracking.
+    fn memory_report(&self) -> Option<GpuMemoryReportData> {
+        None
+    }
+
     // =========================================================================
     // TEXT GENERATION METHODS (for backends that bypass run_step)
     // =========================================================================
@@ -646,6 +656,41 @@ pub struct GpuBufferFingerprint {
     pub buffer_bytes: u64,
     /// BLAKE3 hash of checkpoint samples
     pub checkpoint_hash: adapteros_core::B3Hash,
+}
+
+/// GPU memory report data returned by backends that support memory tracking
+///
+/// This struct provides a backend-agnostic view of GPU memory usage.
+/// Backends like Metal expose this through their memory pool tracking.
+#[derive(Debug, Clone, Default)]
+pub struct GpuMemoryReportData {
+    /// Total GPU memory in bytes
+    pub total_gpu_bytes: u64,
+    /// Used GPU memory in bytes
+    pub used_gpu_bytes: u64,
+    /// Number of tracked adapters
+    pub adapter_count: usize,
+    /// Total VRAM used by adapters
+    pub adapter_vram_total: u64,
+    /// Per-adapter allocations: (adapter_id, bytes)
+    pub adapter_allocations: Vec<(u32, u64)>,
+    /// Pool statistics (if available)
+    pub pool_stats: Option<GpuPoolStats>,
+}
+
+/// GPU memory pool statistics
+#[derive(Debug, Clone, Default)]
+pub struct GpuPoolStats {
+    /// Total allocations made
+    pub total_allocations: u64,
+    /// Current active memory in bytes
+    pub active_bytes: u64,
+    /// Current pooled (cached) memory in bytes
+    pub pooled_bytes: u64,
+    /// Pool hit rate (0.0-1.0)
+    pub hit_rate: f32,
+    /// Peak memory usage in bytes
+    pub peak_usage: u64,
 }
 
 /// Mock kernels implementation for testing
@@ -861,6 +906,10 @@ macro_rules! impl_fused_kernels_for_box {
 
             fn get_gpu_fingerprints(&self) -> std::collections::HashMap<u32, GpuBufferFingerprint> {
                 (**self).get_gpu_fingerprints()
+            }
+
+            fn memory_report(&self) -> Option<GpuMemoryReportData> {
+                (**self).memory_report()
             }
 
             #[allow(deprecated)]

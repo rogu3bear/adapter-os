@@ -10,7 +10,7 @@ use crate::components::{
     Badge, BadgeVariant, Card, Spinner, StatusColor, StatusIndicator, Table, TableBody, TableCell,
     TableHead, TableHeader, TableRow,
 };
-use crate::hooks::{use_api_resource, LoadingState};
+use crate::hooks::{use_api_resource, use_sse_notifications, LoadingState};
 use adapteros_api_types::{
     workers::WorkerStatusUpdate, ComponentCheck, DriftLevel, InferenceBlocker, InferenceReadyState,
     NodeResponse, StatusIndicator as ApiStatusIndicator, SystemMetricsResponse,
@@ -91,6 +91,9 @@ pub fn System() -> impl IntoView {
                 }
             }
         });
+
+    // Bridge SSE connection state to user notifications
+    use_sse_notifications(sse_status.read_only());
 
     // Set up polling interval for non-worker data (every 10 seconds)
     // Worker data is now primarily updated via SSE

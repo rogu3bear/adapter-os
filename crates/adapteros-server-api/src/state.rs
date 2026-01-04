@@ -300,6 +300,10 @@ pub struct ServerConfigApi {
     /// Timeout in milliseconds for health check models probe (default: 2000)
     #[serde(default = "default_health_check_models_timeout_ms")]
     pub health_check_models_timeout_ms: u64,
+    /// Skip worker readiness check in /readyz endpoint (default: false)
+    /// When true, the control plane can report ready without worker connectivity.
+    #[serde(default)]
+    pub skip_worker_check: bool,
 }
 
 fn default_health_check_db_timeout_ms() -> u64 {
@@ -779,6 +783,8 @@ pub struct AppState {
     pub sse_manager: Arc<SseEventManager>,
     // Idempotency store for safe request retries
     pub idempotency_store: Arc<IdempotencyStore>,
+    // Config baseline snapshot for drift detection (captured at boot)
+    pub config_baseline: Arc<RwLock<Option<adapteros_config::ConfigSnapshot>>>,
 }
 
 impl AppState {
@@ -953,6 +959,8 @@ impl AppState {
             background_tasks: Arc::new(BackgroundTaskTracker::default()),
             sse_manager: Arc::new(SseEventManager::new()),
             idempotency_store: Arc::new(IdempotencyStore::new()),
+            // Config baseline captured at boot via with_config_baseline
+            config_baseline: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -1153,6 +1161,47 @@ impl AppState {
     /// Get a reference to the idempotency store
     pub fn idempotency_store(&self) -> Arc<IdempotencyStore> {
         Arc::clone(&self.idempotency_store)
+    }
+
+    /// Set config baseline for drift detection.
+    ///
+    /// Should be called at boot time to capture the initial configuration
+    /// snapshot that will be used as baseline for drift detection.
+    pub fn with_config_baseline(self, snapshot: adapteros_config::ConfigSnapshot) -> Self {
+        if let Ok(mut baseline) = self.config_baseline.write() {
+            *baseline = Some(snapshot);
+        }
+        self
+    }
+
+    /// Capture config baseline from current effective config.
+    ///
+    /// Returns true if baseline was successfully captured, false if
+    /// no effective config is available or baseline already exists.
+    pub fn capture_config_baseline(&self) -> bool {
+        // Only capture if not already set
+        if let Ok(baseline) = self.config_baseline.read() {
+            if baseline.is_some() {
+                return false;
+            }
+        }
+
+        if let Some(cfg) = adapteros_config::try_effective_config() {
+            let snapshot = adapteros_config::ConfigSnapshot::from_effective_config(cfg);
+            if let Ok(mut baseline) = self.config_baseline.write() {
+                *baseline = Some(snapshot);
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Get config baseline snapshot for drift comparison.
+    pub fn get_config_baseline(&self) -> Option<adapteros_config::ConfigSnapshot> {
+        self.config_baseline
+            .read()
+            .ok()
+            .and_then(|guard| guard.clone())
     }
 
     pub fn background_task_tracker(&self) -> Arc<BackgroundTaskTracker> {

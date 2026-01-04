@@ -586,9 +586,8 @@ async fn test_kv_primary_find_by_hash() {
     // Switch to KvPrimary mode
     db.set_storage_mode(StorageMode::KvPrimary).unwrap();
 
-    // Find by hash - currently falls back to SQL for cross-tenant hash lookup
-    // This is expected behavior (see TODO in adapters.rs)
-    // Updated to use tenant hint for 2-phase lookup
+    // Cross-tenant hash lookups require tenant_hint for security isolation.
+    // Uses 2-phase lookup: tries KV first, then falls back to SQL.
     let adapter = db
         .find_adapter_by_hash("b3:unique_hash_12345", Some("default-tenant"))
         .await

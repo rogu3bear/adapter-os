@@ -344,8 +344,7 @@ mod tests {
         assert_eq!(health.component, "MLX Backend");
         // Status depends on whether multi-backend feature is enabled
         assert!(
-            health.status == ComponentStatus::Healthy
-                || health.status == ComponentStatus::Degraded
+            health.status == ComponentStatus::Healthy || health.status == ComponentStatus::Degraded
         );
         assert!(health.details.is_some());
     }
@@ -356,8 +355,7 @@ mod tests {
         assert_eq!(health.component, "CoreML Backend");
         // Status depends on platform and feature
         assert!(
-            health.status == ComponentStatus::Healthy
-                || health.status == ComponentStatus::Degraded
+            health.status == ComponentStatus::Healthy || health.status == ComponentStatus::Degraded
         );
         assert!(health.details.is_some());
     }
@@ -368,8 +366,7 @@ mod tests {
         assert_eq!(health.component, "Metal Backend");
         // Status depends on platform and feature
         assert!(
-            health.status == ComponentStatus::Healthy
-                || health.status == ComponentStatus::Degraded
+            health.status == ComponentStatus::Healthy || health.status == ComponentStatus::Degraded
         );
         assert!(health.details.is_some());
     }

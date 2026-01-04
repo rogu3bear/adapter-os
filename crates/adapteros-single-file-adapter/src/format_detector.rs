@@ -1,22 +1,22 @@
 //! Format detection for .aos files
 //!
-//! Detects whether a file is in ZIP format (v1) or AOS 2.0 format (v2)
+//! Detects whether a file is in ZIP format (v1) or AOS format (v2)
 //! by examining magic bytes.
 
 use adapteros_core::{AosError, Result};
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
-use tracing::warn;
 
-const LEGACY_AOS_MAGIC: [u8; 4] = *b"AOS\x00";
+/// AOS magic bytes (4-byte prefix)
+const AOS_MAGIC: [u8; 4] = *b"AOS\x00";
 
 /// Format version enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FormatVersion {
     /// ZIP-based format (v1)
     ZipV1,
-    /// Memory-mappable AOS 2.0 format (v2)
+    /// Memory-mappable AOS format (v2)
     AosV2,
 }
 
@@ -45,39 +45,25 @@ pub fn detect_format<P: AsRef<Path>>(path: P) -> Result<FormatVersion> {
     file.read_exact(&mut magic)
         .map_err(|e| AosError::Io(format!("Failed to read magic bytes: {}", e)))?;
 
-    // Explicitly detect legacy AOS v1 magic (AOS\0) and fail with a clear message.
-    if magic == LEGACY_AOS_MAGIC {
-        warn!(
-            code = "LEGACY_AOS_SEEN",
-            path = %path.display(),
-            "Detected unsupported legacy AOS format (AOS\\0 magic bytes)"
-        );
-        return Err(AosError::Parse(format!(
-            "Unsupported legacy AOS 1.x bundle at {} (magic: {:?}); please repackage as AOS2",
-            path.display(),
-            magic
-        )));
-    }
-
     // Check for ZIP format (PK\x03\x04)
     if &magic == b"PK\x03\x04" {
         return Ok(FormatVersion::ZipV1);
     }
 
-    // Check for AOS 2.0 format if file is large enough (AOS2\x00\x00\x00\x00)
+    // Check for AOS format if file is large enough (AOS\0\x00\x00\x00\x00)
     if file_size >= 8 {
         let mut remaining = [0u8; 4];
         file.read_exact(&mut remaining)
             .map_err(|e| AosError::Io(format!("Failed to read magic bytes: {}", e)))?;
 
-        if &magic == b"AOS2" && &remaining == b"\x00\x00\x00\x00" {
+        if magic == AOS_MAGIC && &remaining == b"\x00\x00\x00\x00" {
             return Ok(FormatVersion::AosV2);
         }
     }
 
     let read_bytes = if file_size >= 8 { 8 } else { 4 };
     Err(AosError::Parse(format!(
-        "Unknown file format: expected ZIP (PK\\x03\\x04) or AOS 2.0 (AOS2\\x00\\x00\\x00\\x00) magic bytes, got {:?} (file size: {} bytes, read {} bytes)",
+        "Unknown file format: expected ZIP (PK\\x03\\x04) or AOS (AOS\\0\\x00\\x00\\x00\\x00) magic bytes, got {:?} (file size: {} bytes, read {} bytes)",
         &magic,
         file_size,
         read_bytes
@@ -109,10 +95,10 @@ mod tests {
     }
 
     #[test]
-    fn test_detect_aos2_format() {
+    fn test_detect_aos_format() {
         let mut file = new_test_tempfile();
-        // Write AOS 2.0 magic bytes
-        file.write_all(b"AOS2\x00\x00\x00\x00").unwrap();
+        // Write AOS magic bytes
+        file.write_all(b"AOS\x00\x00\x00\x00\x00").unwrap();
         file.flush().unwrap();
 
         let format = detect_format(file.path()).unwrap();
@@ -161,20 +147,13 @@ mod tests {
     }
 
     #[test]
-    fn test_detect_legacy_magic_returns_explicit_error() {
+    fn test_detect_aos_with_extra_data() {
         let mut file = new_test_tempfile();
-        file.write_all(b"AOS\x00LEGACY").unwrap();
+        // Write AOS magic bytes followed by some extra data
+        file.write_all(b"AOS\x00\x00\x00\x00\x00EXTRA").unwrap();
         file.flush().unwrap();
 
-        let result = detect_format(file.path());
-        assert!(result.is_err());
-        let error = result.unwrap_err();
-        match error {
-            AosError::Parse(msg) => {
-                assert!(msg.contains("Unsupported legacy AOS 1.x bundle"));
-                assert!(msg.contains("[65, 79, 83, 0]"));
-            }
-            _ => panic!("Expected Parse error, got {:?}", error),
-        }
+        let format = detect_format(file.path()).unwrap();
+        assert_eq!(format, FormatVersion::AosV2);
     }
 }

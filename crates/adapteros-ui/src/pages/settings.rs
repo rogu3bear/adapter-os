@@ -5,7 +5,8 @@
 
 use crate::api::ApiClient;
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonVariant, Card, Input, Select, Spinner, Toggle,
+    Badge, BadgeVariant, Button, ButtonVariant, Card, DangerZone, DangerZoneItem, Input, Select,
+    SimpleConfirmDialog, Spinner, Toggle,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::{update_setting, use_auth, use_settings, DefaultPage, Theme};
@@ -98,14 +99,16 @@ fn ProfileSection() -> impl IntoView {
 
     // Logout handler
     let logout_loading = RwSignal::new(false);
-    let handle_logout = move |_| {
+    let show_logout_confirm = RwSignal::new(false);
+
+    let handle_logout = Callback::new(move |_| {
         logout_loading.set(true);
         let action = auth_action.clone();
         wasm_bindgen_futures::spawn_local(async move {
             action.logout().await;
             // Redirect will happen via auth context
         });
-    };
+    });
 
     view! {
         <div class="space-y-6 max-w-2xl">
@@ -211,23 +214,29 @@ fn ProfileSection() -> impl IntoView {
                 }}
             </Card>
 
-            // Session Actions
-            <Card title="Session".to_string() description="Manage your current session.".to_string()>
-                <div class="flex items-center justify-between">
-                    <div>
-                        <p class="text-sm text-muted-foreground">
-                            "Sign out of your current session. You will need to log in again."
-                        </p>
-                    </div>
+            // Session Actions (Danger Zone)
+            <DangerZone>
+                <DangerZoneItem
+                    title="Sign Out"
+                    description="End your current session. You will need to log in again."
+                >
                     <Button
                         variant=ButtonVariant::Destructive
                         loading=logout_loading.get_untracked()
-                        on_click=Callback::new(handle_logout)
+                        on_click=Callback::new(move |_| show_logout_confirm.set(true))
                     >
                         "Logout"
                     </Button>
-                </div>
-            </Card>
+                </DangerZoneItem>
+            </DangerZone>
+
+            // Logout confirmation dialog
+            <SimpleConfirmDialog
+                open=show_logout_confirm
+                title="Sign Out"
+                description="Are you sure you want to sign out? You will need to log in again."
+                on_confirm=handle_logout
+            />
         </div>
     }
 }

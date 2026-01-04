@@ -229,10 +229,7 @@ pub struct ProvenanceDocument {
 }
 
 // Re-export types from adapteros-aos for backward compatibility
-#[deprecated(
-    since = "0.1.0",
-    note = "Use adapteros_aos::WeightGroupConfig instead"
-)]
+#[deprecated(since = "0.1.0", note = "Use adapteros_aos::WeightGroupConfig instead")]
 pub use adapteros_aos::WeightGroupConfig;
 
 #[deprecated(

@@ -242,6 +242,22 @@ pub struct VersionHistoryEntry<'a> {
     pub train_job_id: Option<&'a str>,
 }
 
+/// Record from adapter_version_history table for timeline display.
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct VersionHistoryRecord {
+    pub id: String,
+    pub repo_id: String,
+    pub tenant_id: String,
+    pub version_id: String,
+    pub branch: Option<String>,
+    pub old_state: Option<String>,
+    pub new_state: String,
+    pub actor: Option<String>,
+    pub reason: Option<String>,
+    pub train_job_id: Option<String>,
+    pub created_at: String,
+}
+
 fn normalize_release_state(state: &str) -> String {
     state.trim().to_ascii_lowercase()
 }
@@ -452,6 +468,48 @@ impl Db {
         .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(())
+    }
+
+    /// List version history entries for a repository, ordered by creation time descending.
+    ///
+    /// Returns timeline events for the repository including state transitions,
+    /// training job completions, and other version-related events.
+    pub async fn list_version_history_for_repo(
+        &self,
+        tenant_id: &str,
+        repo_id: &str,
+        limit: Option<usize>,
+    ) -> Result<Vec<VersionHistoryRecord>> {
+        let limit = limit.unwrap_or(100);
+
+        let records: Vec<VersionHistoryRecord> = sqlx::query_as::<_, VersionHistoryRecord>(
+            r#"
+            SELECT
+                id,
+                repo_id,
+                tenant_id,
+                version_id,
+                branch,
+                old_state,
+                new_state,
+                actor,
+                reason,
+                train_job_id,
+                created_at
+            FROM adapter_version_history
+            WHERE tenant_id = ? AND repo_id = ?
+            ORDER BY created_at DESC
+            LIMIT ?
+            "#,
+        )
+        .bind(tenant_id)
+        .bind(repo_id)
+        .bind(limit as i64)
+        .fetch_all(self.pool())
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
+
+        Ok(records)
     }
 
     async fn derive_adapter_trust_state_from_dataset_versions(

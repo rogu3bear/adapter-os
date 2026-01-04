@@ -13,6 +13,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tracing::{info, warn};
 
+/// Error message for rejecting legacy AOS bundles
+const LEGACY_REJECTION_MSG: &str = "Legacy AOS bundle format is no longer supported. Please regenerate using the current toolchain.";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegisterAosRequest {
     pub adapter_id: String,
@@ -106,24 +109,8 @@ pub async fn register_aos_with_db(db: &Db, req: RegisterAosRequest) -> Result<Re
         ))
     })?;
 
-    const LEGACY_REJECTION_MSG: &str =
-        "Unsupported legacy AOS 1.x bundle; please repackage as AOS2";
-
     // Ensure schema compatibility for legacy/in-memory DBs.
     ensure_adapter_schema(db).await?;
-
-    // Reject legacy AOS 1.x bundles with old magic header
-    let legacy_magic_header = data.len() >= 4 && &data[0..4] == b"AOS\x00";
-    if legacy_magic_header {
-        warn!(
-            code = "LEGACY_AOS_REJECTED",
-            adapter_id = %req.adapter_id,
-            tenant_id = %req.tenant_id,
-            path = %canonical_path.display(),
-            "Rejecting legacy AOS 1.x bundle"
-        );
-        return Err(AosError::Validation(LEGACY_REJECTION_MSG.to_string()).into());
-    }
 
     let file_view = open_aos(&data)?;
     let manifest: Value = serde_json::from_slice(file_view.manifest_bytes).map_err(|e| {
@@ -370,8 +357,6 @@ mod tests {
     use serial_test::serial;
     use std::fs::File;
     use std::io::Write;
-    use std::sync::{Arc, Mutex};
-    use tracing::subscriber::DefaultGuard;
     use uuid::Uuid;
 
     fn build_aos_file(manifest: &serde_json::Value, weights: &[u8], magic: [u8; 4]) -> Vec<u8> {
@@ -396,37 +381,11 @@ mod tests {
         tempfile::tempdir_in(&root).expect("tempdir")
     }
 
-    #[derive(Clone)]
-    struct BufferingWriter(Arc<Mutex<Vec<u8>>>);
-
-    impl std::io::Write for BufferingWriter {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            let mut guard = self.0.lock().unwrap();
-            guard.extend_from_slice(buf);
-            Ok(buf.len())
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-
-    fn install_buffering_subscriber(buffer: Arc<Mutex<Vec<u8>>>) -> DefaultGuard {
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(move || BufferingWriter(buffer.clone()))
-            .with_max_level(tracing::Level::WARN)
-            .with_ansi(false)
-            .finish();
-        tracing::subscriber::set_default(subscriber)
-    }
-
     #[tokio::test]
     #[serial]
-    async fn legacy_magic_bundle_is_always_rejected() {
+    async fn aos_magic_bundle_is_accepted() {
         // Migration signatures are not available in CI/unit tests; skip verification.
         std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
-        let log_buffer = Arc::new(Mutex::new(Vec::new()));
-        let _guard = install_buffering_subscriber(log_buffer.clone());
 
         // Use an in-memory SQLite instance and apply migrations explicitly.
         let db = Db::connect(":memory:")
@@ -455,23 +414,24 @@ mod tests {
             .await
             .expect("insert tenant");
         let tmp = new_test_tempdir();
-        let aos_path = tmp.path().join("legacy.aos");
+        let aos_path = tmp.path().join("valid.aos");
 
         let manifest = json!({
-            "adapter_id": "legacy-adapter",
-            "name": "Legacy Adapter",
+            "adapter_id": "valid-adapter",
+            "name": "Valid Adapter",
             "version": "1.0.0",
             "metadata": { "scope_path": "test/domain/scope/op" }
             // base_model intentionally omitted
         });
         let weights = vec![0u8; 16];
 
+        // AOS\0 is now the current format magic
         let aos_bytes = build_aos_file(&manifest, &weights, *b"AOS\x00");
         let mut file = File::create(&aos_path).expect("create aos");
         file.write_all(&aos_bytes).expect("write aos");
 
         let req = RegisterAosRequest {
-            adapter_id: "legacy-adapter".to_string(),
+            adapter_id: "valid-adapter".to_string(),
             aos_path: aos_path.clone(),
             tenant_id: tenant_id.clone(),
             base_model_id: model_id.clone(),
@@ -481,25 +441,15 @@ mod tests {
             revision: None,
         };
 
-        let err = register_aos_with_db(&db, req)
+        // With AOS\0 as the current format, registration should succeed
+        register_aos_with_db(&db, req)
             .await
-            .expect_err("legacy magic should be rejected");
-        let msg = format!("{err}");
-        assert!(
-            msg.contains("Unsupported legacy AOS 1.x bundle; please repackage as AOS2"),
-            "error message should instruct to repackage; got {msg}"
-        );
+            .expect("AOS magic should be accepted");
 
-        let adapter = db.get_adapter("legacy-adapter").await.expect("query ok");
+        let adapter = db.get_adapter("valid-adapter").await.expect("query ok");
         assert!(
-            adapter.is_none(),
-            "legacy adapter should not be registered when legacy magic is present"
-        );
-
-        let logs = String::from_utf8(log_buffer.lock().unwrap().clone()).unwrap();
-        assert!(
-            logs.contains("LEGACY_AOS_REJECTED"),
-            "rejection log should be emitted for legacy bundles"
+            adapter.is_some(),
+            "adapter should be registered when using AOS magic"
         );
     }
 }

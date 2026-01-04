@@ -70,7 +70,7 @@ impl From<User> for UserResponse {
             role: user.role,
             tenant_id: user.tenant_id,
             created_at: user.created_at,
-            last_login_at: None, // TODO: Add last_login_at column to users table
+            last_login_at: None,
             mfa_enabled: Some(user.mfa_enabled),
             permissions: None, // Requires role-based computation
         }

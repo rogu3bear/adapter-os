@@ -215,16 +215,16 @@ pub fn BackendStatusBadge(
             {move || {
                 if show_details && is_downgraded {
                     view! {
-                        <div class="text-xs text-muted-foreground pl-5 space-y-0.5">
+                        <div class="text-xs text-muted-foreground pl-5 space-y-1">
                             {requested_backend.clone().map(|req| view! {
                                 <div class="flex items-center gap-1">
-                                    <span class="text-yellow-600 dark:text-yellow-400">"Requested:"</span>
+                                    <span class="text-warning">"Requested:"</span>
                                     <span>{req}</span>
                                 </div>
                             })}
                             {downgrade_reason.clone().map(|reason| view! {
                                 <div class="flex items-center gap-1">
-                                    <span class="text-yellow-600 dark:text-yellow-400">"Reason:"</span>
+                                    <span class="text-warning">"Reason:"</span>
                                     <span>{reason}</span>
                                 </div>
                             })}
@@ -264,7 +264,7 @@ pub fn BackendStatusIndicator(
             {move || {
                 if is_downgraded {
                     view! {
-                        <span class="text-xs text-yellow-600 dark:text-yellow-400">"(fallback)"</span>
+                        <span class="text-xs text-warning">"(fallback)"</span>
                     }.into_any()
                 } else {
                     view! {}.into_any()

@@ -17,7 +17,7 @@ use std::path::Path;
 use tracing::{debug, info};
 
 /// Magic bytes identifying an AOS archive (4 bytes)
-pub const AOS_MAGIC: [u8; 4] = *b"AOS2";
+pub const AOS_MAGIC: [u8; 4] = *b"AOS\0";
 
 /// Current header size in bytes (64-byte aligned for cache efficiency)
 pub const HEADER_SIZE: usize = 64;
@@ -25,7 +25,7 @@ pub const HEADER_SIZE: usize = 64;
 /// Fixed size for each segment index entry
 pub const INDEX_ENTRY_SIZE: usize = 80;
 
-/// Bit 0: segment index present (required for AOS2)
+/// Bit 0: segment index present (required for AOS)
 pub const HAS_INDEX_FLAG: u32 = 0x1;
 
 /// Compute the truncated scope hash used in the segment index.
@@ -121,7 +121,7 @@ pub struct AosWriter {
 /// ```text
 /// | Offset | Size | Field                              |
 /// |--------|------|------------------------------------|
-/// | 0      | 4    | Magic: "AOS2"                      |
+/// | 0      | 4    | Magic: "AOS\0"                      |
 /// | 4      | 4    | Flags (u32 LE)                     |
 /// | 8      | 8    | Index offset (u64 LE)              |
 /// | 16     | 8    | Index size (u64 LE)                |
@@ -407,7 +407,7 @@ impl AosWriter {
     pub fn parse_header_bytes(bytes: &[u8]) -> Result<AosHeader> {
         if bytes.len() < HEADER_SIZE {
             return Err(AosError::Validation(
-                "Corrupted / needs retrain: file too small for AOS2 header".to_string(),
+                "Corrupted / needs retrain: file too small for AOS header".to_string(),
             ));
         }
 

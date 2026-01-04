@@ -45,7 +45,7 @@ impl ConfirmationSeverity {
     fn header_class(&self) -> &'static str {
         match self {
             Self::Normal => "text-foreground",
-            Self::Warning => "text-yellow-600 dark:text-yellow-400",
+            Self::Warning => "text-warning",
             Self::Destructive => "text-destructive",
         }
     }
@@ -173,22 +173,20 @@ pub fn ConfirmationDialog(
     // Keyboard event handler for accessibility
     let handle_keydown = {
         let handle_close = handle_close.clone();
-        move |ev: KeyboardEvent| {
-            match ev.key().as_str() {
-                "Escape" => {
-                    if !loading.get() {
-                        ev.prevent_default();
-                        handle_close();
-                    }
+        move |ev: KeyboardEvent| match ev.key().as_str() {
+            "Escape" => {
+                if !loading.get() {
+                    ev.prevent_default();
+                    handle_close();
                 }
-                "Enter" => {
-                    if can_confirm.get() && !loading.get() {
-                        ev.prevent_default();
-                        on_confirm.run(());
-                    }
-                }
-                _ => {}
             }
+            "Enter" => {
+                if can_confirm.get() && !loading.get() {
+                    ev.prevent_default();
+                    on_confirm.run(());
+                }
+            }
+            _ => {}
         }
     };
 

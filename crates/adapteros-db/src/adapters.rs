@@ -92,10 +92,10 @@ tokio::task_local! {
 }
 
 const AOS_HASH_BUFFER_SIZE: usize = 64 * 1024;
-const AOS2_MAGIC: &[u8; 4] = b"AOS2";
-const AOS2_HAS_INDEX_FLAG: u32 = 0x1;
-const AOS2_INDEX_ENTRY_SIZE: u64 = 80;
-const AOS2_HEADER_SIZE: usize = 64;
+const AOS_MAGIC: &[u8; 4] = b"AOS\0";
+const AOS_HAS_INDEX_FLAG: u32 = 0x1;
+const AOS_INDEX_ENTRY_SIZE: u64 = 80;
+const AOS_HEADER_SIZE: usize = 64;
 
 fn compute_aos_file_hash(path: &Path) -> Result<String> {
     let mut file = std::fs::File::open(path).map_err(|e| {
@@ -144,20 +144,20 @@ fn read_aos_segment_count(path: &Path) -> Result<Option<i64>> {
         ))
     })?;
 
-    if !header.starts_with(AOS2_MAGIC) {
+    if !header.starts_with(AOS_MAGIC) {
         return Ok(None);
     }
     let flags = u32::from_le_bytes(header[4..8].try_into().unwrap());
-    if flags & AOS2_HAS_INDEX_FLAG == 0 {
+    if flags & AOS_HAS_INDEX_FLAG == 0 {
         return Ok(None);
     }
 
     let index_size = u64::from_le_bytes(header[16..24].try_into().unwrap());
-    if index_size == 0 || index_size % AOS2_INDEX_ENTRY_SIZE != 0 {
+    if index_size == 0 || index_size % AOS_INDEX_ENTRY_SIZE != 0 {
         return Ok(None);
     }
 
-    let count = index_size / AOS2_INDEX_ENTRY_SIZE;
+    let count = index_size / AOS_INDEX_ENTRY_SIZE;
     let count = i64::try_from(count).ok();
     Ok(count.filter(|value| *value > 0))
 }
@@ -241,7 +241,7 @@ fn read_aos_manifest_bytes(path: &Path) -> Result<Option<Vec<u8>>> {
             e
         ))
     })?;
-    let mut header = [0u8; AOS2_HEADER_SIZE];
+    let mut header = [0u8; AOS_HEADER_SIZE];
     file.read_exact(&mut header).map_err(|e| {
         AosError::Io(format!(
             "Failed to read .aos manifest header {}: {}",
@@ -250,11 +250,11 @@ fn read_aos_manifest_bytes(path: &Path) -> Result<Option<Vec<u8>>> {
         ))
     })?;
 
-    if !header.starts_with(AOS2_MAGIC) {
+    if !header.starts_with(AOS_MAGIC) {
         return Ok(None);
     }
     let flags = u32::from_le_bytes(header[4..8].try_into().unwrap());
-    if flags & AOS2_HAS_INDEX_FLAG == 0 {
+    if flags & AOS_HAS_INDEX_FLAG == 0 {
         return Ok(None);
     }
 

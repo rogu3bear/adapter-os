@@ -310,7 +310,10 @@ pub mod rules {
             ValidationRule::Required,
             ValidationRule::PositiveNumber,
             // Range max only - PositiveNumber handles min > 0
-            ValidationRule::Range { min: 1e-10, max: 1.0 },
+            ValidationRule::Range {
+                min: 1e-10,
+                max: 1.0,
+            },
         ]
     }
 
@@ -354,7 +357,7 @@ mod tests {
         assert!(rule.validate("@example.com").is_some());
         assert!(rule.validate("test@example").is_some()); // No TLD
         assert!(rule.validate("test @example.com").is_some()); // Whitespace
-        // Valid emails
+                                                               // Valid emails
         assert!(rule.validate("test@example.com").is_none());
         assert!(rule.validate("user.name@example.co.uk").is_none());
         assert!(rule.validate("user+tag@example.com").is_none());

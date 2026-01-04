@@ -753,7 +753,7 @@ fn CreateStackDialog(open: RwSignal<bool>, refetch_trigger: RwSignal<u32>) -> im
                     />
 
                     // Dialog content
-                    <div class="fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg sm:rounded-lg max-h-[90vh] overflow-y-auto">
+                    <div class="dialog-content dialog-scrollable">
                         <div class="flex flex-col space-y-1.5">
                             <h2 class="text-lg font-semibold">"Create Adapter Stack"</h2>
                             <p class="text-sm text-muted-foreground">
@@ -999,7 +999,7 @@ fn EditStackDialog(
                     />
 
                     // Dialog content
-                    <div class="fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg sm:rounded-lg max-h-[90vh] overflow-y-auto">
+                    <div class="dialog-content dialog-scrollable">
                         <div class="flex flex-col space-y-1.5">
                             <h2 class="text-lg font-semibold">"Edit Adapter Stack"</h2>
                             <p class="text-sm text-muted-foreground">

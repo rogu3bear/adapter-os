@@ -2137,8 +2137,10 @@ impl KmsProvider {
             }
             KmsBackendType::HashicorpVault => Arc::new(HashicorpVaultBackend::new(config.clone())?),
             KmsBackendType::Pkcs11Hsm => {
-                // TODO: Implement PKCS#11 HSM backend
-                warn!("PKCS#11 HSM backend not yet fully implemented, using mock");
+                // STUB: CRYPTO-GAP-001 - PKCS#11 HSM backend not implemented
+                // Impact: Users selecting Pkcs11Hsm get mock backend silently
+                // Rectify: Implement PKCS#11 via rust-pkcs11 crate when HSM support required
+                warn!("PKCS#11 HSM backend not implemented (CRYPTO-GAP-001), using mock");
                 Arc::new(MockKmsBackend::new())
             }
         };
@@ -2859,14 +2861,14 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "GCP KMS emulator integration not yet implemented - requires GcpKmsBackend::new_async"]
     async fn test_gcp_kms_emulator_key_generation() {
         if !is_kms_emulator_available() {
-            println!("SKIP: GCP KMS emulator not available (set GCP_KMS_EMULATOR_HOST)");
-            return;
+            panic!("GCP KMS emulator not available (set GCP_KMS_EMULATOR_HOST)");
         }
 
         // This test requires the GCP KMS emulator to be running locally
-        // Start with: gcloud kms emulator
+        // Start with: gcloud beta emulators cloud-kms start
         let endpoint =
             std::env::var("GCP_KMS_EMULATOR_HOST").unwrap_or_else(|_| "localhost:9011".to_string());
 
@@ -2891,40 +2893,55 @@ mod tests {
             key_namespace: Some("test-keyring".to_string()),
         };
 
-        // TODO: Implement actual key generation test
-        // let result = GcpKmsBackend::new_async(config).await;
-        // assert!(result.is_ok());
-        println!("GCP KMS emulator key generation test placeholder");
+        // Implementation needed:
+        // let backend = GcpKmsBackend::new_async(config).await.expect("backend init");
+        // let key_id = backend.generate_key("test-key", KeyType::Signing).await.expect("key gen");
+        // assert!(!key_id.is_empty());
+        unimplemented!("GCP KMS key generation test");
     }
 
     #[tokio::test]
+    #[ignore = "GCP KMS emulator integration not yet implemented - requires sign/verify methods"]
     async fn test_gcp_kms_emulator_sign_and_verify() {
         if !is_kms_emulator_available() {
-            println!("SKIP: GCP KMS emulator not available (set GCP_KMS_EMULATOR_HOST)");
-            return;
+            panic!("GCP KMS emulator not available (set GCP_KMS_EMULATOR_HOST)");
         }
-        // TODO: Implement signing/verification with GCP KMS emulator
-        println!("GCP KMS emulator sign/verify test placeholder");
+        // Implementation needed:
+        // 1. Initialize GcpKmsBackend
+        // 2. Generate or import a signing key
+        // 3. Sign test data
+        // 4. Verify signature
+        unimplemented!("GCP KMS sign/verify test");
     }
 
     #[tokio::test]
+    #[ignore = "GCP KMS emulator integration not yet implemented - requires encrypt/decrypt methods"]
     async fn test_gcp_kms_emulator_encrypt_decrypt() {
         if !is_kms_emulator_available() {
-            println!("SKIP: GCP KMS emulator not available (set GCP_KMS_EMULATOR_HOST)");
-            return;
+            panic!("GCP KMS emulator not available (set GCP_KMS_EMULATOR_HOST)");
         }
-        // TODO: Implement encryption/decryption with GCP KMS emulator
-        println!("GCP KMS emulator encrypt/decrypt test placeholder");
+        // Implementation needed:
+        // 1. Initialize GcpKmsBackend
+        // 2. Generate or import an encryption key
+        // 3. Encrypt plaintext
+        // 4. Decrypt ciphertext
+        // 5. Assert plaintext matches
+        unimplemented!("GCP KMS encrypt/decrypt test");
     }
 
     #[tokio::test]
+    #[ignore = "GCP KMS emulator integration not yet implemented - requires key rotation methods"]
     async fn test_gcp_kms_emulator_key_rotation() {
         if !is_kms_emulator_available() {
-            println!("SKIP: GCP KMS emulator not available (set GCP_KMS_EMULATOR_HOST)");
-            return;
+            panic!("GCP KMS emulator not available (set GCP_KMS_EMULATOR_HOST)");
         }
-        // TODO: Implement key rotation with GCP KMS emulator
-        println!("GCP KMS emulator key rotation test placeholder");
+        // Implementation needed:
+        // 1. Initialize GcpKmsBackend
+        // 2. Create initial key version
+        // 3. Trigger rotation
+        // 4. Verify new version is primary
+        // 5. Verify old version still decrypts old data
+        unimplemented!("GCP KMS key rotation test");
     }
 
     // GCP KMS Async Initialization Tests

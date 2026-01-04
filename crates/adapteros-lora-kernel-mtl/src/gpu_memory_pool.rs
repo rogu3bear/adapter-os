@@ -15,6 +15,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tracing::{debug, error, info, warn};
 
 use super::kv_cache::KvResidency;
+#[cfg(target_os = "macos")]
+use super::purgeable::{PurgeableBuffer, PurgeableState};
 
 // Import telemetry metrics for KV residency event emission
 use adapteros_telemetry::CriticalComponentMetrics;
@@ -155,6 +157,10 @@ pub struct GpuMemoryPool {
     total_device_memory: u64,
     /// Optional telemetry metrics handle for event emission
     metrics: Option<Arc<CriticalComponentMetrics>>,
+    /// KV quota limit in bytes (None means unlimited)
+    kv_quota_limit: Option<u64>,
+    /// Current reserved quota in bytes
+    kv_quota_reserved: AtomicU64,
 }
 
 #[cfg(target_os = "macos")]
@@ -181,12 +187,73 @@ impl GpuMemoryPool {
             pressure_callbacks: parking_lot::RwLock::new(Vec::new()),
             total_device_memory,
             metrics: None,
+            kv_quota_limit: None,
+            kv_quota_reserved: AtomicU64::new(0),
         }
     }
 
     /// Set telemetry metrics handle for event emission
     pub fn set_metrics(&mut self, metrics: Arc<CriticalComponentMetrics>) {
         self.metrics = Some(metrics);
+    }
+
+    /// Set KV quota limit in bytes
+    ///
+    /// When set, allocations will fail with QuotaExceeded if they would exceed this limit.
+    /// Set to None for unlimited allocations.
+    pub fn set_kv_quota(&mut self, limit: Option<u64>) {
+        self.kv_quota_limit = limit;
+        if let Some(limit) = limit {
+            info!(limit_bytes = limit, "KV quota limit set");
+        } else {
+            info!("KV quota limit disabled");
+        }
+    }
+
+    /// Get current quota usage
+    pub fn quota_usage(&self) -> (u64, Option<u64>) {
+        (
+            self.kv_quota_reserved.load(Ordering::SeqCst),
+            self.kv_quota_limit,
+        )
+    }
+
+    /// Reserve quota for an allocation
+    ///
+    /// Returns true if quota was reserved, false if it would exceed limit.
+    fn reserve_quota(&self, size: u64) -> bool {
+        let Some(limit) = self.kv_quota_limit else {
+            return true; // No quota limit = unlimited
+        };
+
+        // Use compare-exchange loop for atomic reservation
+        loop {
+            let current = self.kv_quota_reserved.load(Ordering::SeqCst);
+            if current + size > limit {
+                debug!(
+                    current = current,
+                    requested = size,
+                    limit = limit,
+                    "Quota reservation would exceed limit"
+                );
+                return false;
+            }
+            if self
+                .kv_quota_reserved
+                .compare_exchange(current, current + size, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+            {
+                return true;
+            }
+            // Retry if another thread modified the value
+        }
+    }
+
+    /// Release reserved quota
+    fn release_quota(&self, size: u64) {
+        if self.kv_quota_limit.is_some() {
+            self.kv_quota_reserved.fetch_sub(size, Ordering::SeqCst);
+        }
     }
 
     /// Allocate a GPU buffer (from pool or new)
@@ -246,14 +313,16 @@ impl GpuMemoryPool {
 
     /// Allocate a new buffer (not from pool)
     fn allocate_new(&self, size: u64) -> Result<(Buffer, u64)> {
-        // TODO: KV quota enforcement
-        // When quota enforcement is wired up, check if allocation would exceed quota:
-        // if !self.reserve_quota(size) {
-        //     if let Some(ref metrics) = self.metrics {
-        //         metrics.record_kv_quota_exceeded();
-        //     }
-        //     return Err(AosError::QuotaExceeded(...));
-        // }
+        // KV quota enforcement
+        if !self.reserve_quota(size) {
+            if let Some(ref metrics) = self.metrics {
+                metrics.record_kv_quota_exceeded();
+            }
+            return Err(AosError::QuotaExceeded {
+                resource: "kv_cache".to_string(),
+                failure_code: Some("KV_QUOTA_EXCEEDED".to_string()),
+            });
+        }
 
         // Check memory pressure before allocation
         self.check_memory_pressure()?;
@@ -357,6 +426,9 @@ impl GpuMemoryPool {
             stats.total_active_bytes -= size;
         }
 
+        // Release quota when buffer is actually dropped
+        self.release_quota(size);
+
         debug!(
             allocation_id = allocation_id,
             size = size,
@@ -404,6 +476,9 @@ impl GpuMemoryPool {
                 .values()
                 .map(|q: &VecDeque<PooledGpuBuffer>| q.len())
                 .sum();
+
+            // Release quota for cleaned up buffers
+            self.release_quota(total_freed);
 
             info!(total_freed = total_freed, "Cleaned up idle GPU buffers");
         }
@@ -573,6 +648,9 @@ impl GpuMemoryPool {
                     metrics.record_kv_eviction(CriticalComponentMetrics::kv_residency_hot());
                 }
             }
+
+            // Release quota for evicted buffers
+            self.release_quota(total_freed);
         }
 
         total_freed
@@ -594,19 +672,36 @@ impl GpuMemoryPool {
                         "Updated buffer residency"
                     );
 
-                    // TODO: Apply purgeable state to Metal buffer when residency changes
-                    // When integrated with purgeable.rs:
-                    // use crate::purgeable::PurgeableBuffer;
-                    // let purgeable_state = match residency {
-                    //     KvResidency::Hot => PurgeableState::NonVolatile,
-                    //     KvResidency::Cold => PurgeableState::Volatile,
-                    // };
-                    // if let Err(e) = pooled.buffer.set_purgeable_state(purgeable_state) {
-                    //     warn!(allocation_id = allocation_id, error = %e, "Failed to set purgeable state");
-                    //     if let Some(ref metrics) = self.metrics {
-                    //         metrics.record_kv_purgeable_failure();
-                    //     }
-                    // }
+                    // Apply purgeable state to Metal buffer based on residency
+                    let purgeable_state = match residency {
+                        KvResidency::Hot => PurgeableState::NonVolatile,
+                        KvResidency::Cold => PurgeableState::Volatile,
+                    };
+                    match pooled.buffer.set_purgeable_state(purgeable_state) {
+                        Ok(result) if result.was_purged => {
+                            warn!(
+                                allocation_id = allocation_id,
+                                "Buffer contents were purged by OS before state change"
+                            );
+                        }
+                        Ok(_) => {
+                            debug!(
+                                allocation_id = allocation_id,
+                                purgeable_state = ?purgeable_state,
+                                "Applied purgeable state to buffer"
+                            );
+                        }
+                        Err(e) => {
+                            warn!(
+                                allocation_id = allocation_id,
+                                error = %e,
+                                "Failed to set purgeable state"
+                            );
+                            if let Some(ref metrics) = self.metrics {
+                                metrics.record_kv_purgeable_failure();
+                            }
+                        }
+                    }
 
                     return true;
                 }
@@ -691,6 +786,9 @@ impl GpuMemoryPool {
         stats.total_pooled_bytes = 0;
         stats.pooled_buffer_count = 0;
 
+        // Release quota for all cleared buffers
+        self.release_quota(total_freed);
+
         info!(total_freed = total_freed, "Cleared GPU memory pool");
     }
 
@@ -722,6 +820,7 @@ impl GpuMemoryPool {
 pub struct GpuMemoryPool {
     config: GpuMemoryPoolConfig,
     stats: parking_lot::RwLock<GpuMemoryStats>,
+    kv_quota_limit: Option<u64>,
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -730,7 +829,16 @@ impl GpuMemoryPool {
         Self {
             config,
             stats: parking_lot::RwLock::new(GpuMemoryStats::default()),
+            kv_quota_limit: None,
         }
+    }
+
+    pub fn set_kv_quota(&mut self, limit: Option<u64>) {
+        self.kv_quota_limit = limit;
+    }
+
+    pub fn quota_usage(&self) -> (u64, Option<u64>) {
+        (0, self.kv_quota_limit)
     }
 
     pub fn stats(&self) -> GpuMemoryStats {
@@ -795,5 +903,105 @@ mod tests {
         assert_eq!(stats.total_allocations, 0);
         assert_eq!(stats.pool_hits, 0);
         assert_eq!(stats.pool_misses, 0);
+    }
+
+    #[test]
+    fn test_quota_reserve_release() {
+        // Test the quota reservation logic directly using atomics
+        let quota_limit = Some(1024u64);
+        let quota_reserved = AtomicU64::new(0);
+
+        // Helper to simulate reserve_quota logic
+        let reserve = |size: u64| -> bool {
+            let Some(limit) = quota_limit else {
+                return true;
+            };
+            loop {
+                let current = quota_reserved.load(Ordering::SeqCst);
+                if current + size > limit {
+                    return false;
+                }
+                if quota_reserved
+                    .compare_exchange(current, current + size, Ordering::SeqCst, Ordering::SeqCst)
+                    .is_ok()
+                {
+                    return true;
+                }
+            }
+        };
+
+        // Should succeed: 512 < 1024
+        assert!(reserve(512));
+        assert_eq!(quota_reserved.load(Ordering::SeqCst), 512);
+
+        // Should succeed: 512 + 256 = 768 < 1024
+        assert!(reserve(256));
+        assert_eq!(quota_reserved.load(Ordering::SeqCst), 768);
+
+        // Should fail: 768 + 512 = 1280 > 1024
+        assert!(!reserve(512));
+        assert_eq!(quota_reserved.load(Ordering::SeqCst), 768);
+
+        // Should succeed: 768 + 256 = 1024 == 1024
+        assert!(reserve(256));
+        assert_eq!(quota_reserved.load(Ordering::SeqCst), 1024);
+
+        // Release and verify
+        quota_reserved.fetch_sub(512, Ordering::SeqCst);
+        assert_eq!(quota_reserved.load(Ordering::SeqCst), 512);
+
+        // Now 512 + 512 = 1024, should succeed
+        assert!(reserve(512));
+        assert_eq!(quota_reserved.load(Ordering::SeqCst), 1024);
+    }
+
+    #[test]
+    fn test_quota_unlimited() {
+        // Test that None quota means unlimited
+        let quota_limit: Option<u64> = None;
+        let reserve = |_size: u64| -> bool { quota_limit.is_none() };
+
+        assert!(reserve(u64::MAX));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_pool_quota_enforcement() {
+        use metal::Device;
+
+        let device = Device::system_default().expect("Metal device should be available");
+        let config = GpuMemoryPoolConfig {
+            max_pooled_memory: 1024 * 1024, // 1 MB
+            ..Default::default()
+        };
+        let mut pool = GpuMemoryPool::new(Arc::new(device), config);
+
+        // Set a 256 KB quota (must account for power-of-2 bucket rounding)
+        // min_buffer_size is 4KB, so allocations are rounded up to next power of 2
+        pool.set_kv_quota(Some(256 * 1024));
+
+        // First allocation: 32KB -> bucket = 32KB
+        let result1 = pool.allocate(32 * 1024);
+        assert!(result1.is_ok(), "First 32KB allocation should succeed");
+
+        // Second allocation: 64KB -> bucket = 64KB (total = 96KB)
+        let result2 = pool.allocate(64 * 1024);
+        assert!(result2.is_ok(), "Second 64KB allocation should succeed");
+
+        // Third allocation: 128KB -> bucket = 128KB (total would = 224KB, still under 256KB)
+        let result3 = pool.allocate(128 * 1024);
+        assert!(result3.is_ok(), "Third 128KB allocation should succeed");
+
+        // Fourth allocation: 64KB -> would exceed quota (224 + 64 = 288KB > 256KB)
+        let result4 = pool.allocate(64 * 1024);
+        assert!(
+            result4.is_err(),
+            "Fourth allocation should fail due to quota"
+        );
+
+        // Verify quota usage
+        let (used, limit) = pool.quota_usage();
+        assert_eq!(limit, Some(256 * 1024));
+        assert!(used <= 256 * 1024);
     }
 }

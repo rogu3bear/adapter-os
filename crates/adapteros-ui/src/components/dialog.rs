@@ -1,4 +1,7 @@
 //! Dialog/Modal component
+//!
+//! Uses semantic CSS classes from components.css.
+//! No Tailwind arbitrary value syntax.
 
 use leptos::prelude::*;
 
@@ -18,11 +21,11 @@ pub fn Dialog(
     let has_description = !description.is_empty();
 
     view! {
-        // Backdrop - conditionally visible
+        // Backdrop - uses .dialog-overlay CSS class
         <div
             class=move || {
                 if open.get() {
-                    "fixed inset-0 z-50 bg-black/80"
+                    "dialog-overlay"
                 } else {
                     "hidden"
                 }
@@ -30,11 +33,11 @@ pub fn Dialog(
             on:click=close
         />
 
-        // Dialog content - conditionally visible
+        // Dialog content - uses .dialog-content CSS class
         <div
             class=move || {
                 if open.get() {
-                    "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg duration-200 sm:rounded-lg"
+                    "dialog-content"
                 } else {
                     "hidden"
                 }
@@ -42,7 +45,7 @@ pub fn Dialog(
         >
             // Close button
             <button
-                class="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                class="dialog-close"
                 on:click=close
             >
                 <svg
@@ -66,12 +69,12 @@ pub fn Dialog(
             // Header
             {(has_title || has_description).then(|| {
                 view! {
-                    <div class="flex flex-col space-y-1.5 text-center sm:text-left">
+                    <div class="dialog-header">
                         {has_title.then(|| view! {
-                            <h2 class="text-lg font-semibold leading-none tracking-tight">{title.clone()}</h2>
+                            <h2 class="dialog-title">{title.clone()}</h2>
                         })}
                         {has_description.then(|| view! {
-                            <p class="text-sm text-muted-foreground">{description.clone()}</p>
+                            <p class="dialog-description">{description.clone()}</p>
                         })}
                     </div>
                 }
