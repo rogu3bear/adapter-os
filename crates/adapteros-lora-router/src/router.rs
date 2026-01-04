@@ -159,6 +159,10 @@ pub struct Router {
     routing_bias: f32,
     /// Whether the current base model is a Mixture-of-Experts model
     is_moe_model: bool,
+
+    // Diagnostics
+    /// Optional router diagnostics emitter for fine-grained decision events
+    router_diag: Option<crate::router_diag::RouterDiag>,
 }
 
 /// Request-level context captured when abstaining so we can route the prompt
@@ -205,6 +209,7 @@ impl Router {
             abstain_context: None,
             routing_bias: 1.0,
             is_moe_model: false,
+            router_diag: None,
         }
     }
 
@@ -266,6 +271,7 @@ impl Router {
             abstain_context: None,
             routing_bias: 1.0,
             is_moe_model: false,
+            router_diag: None,
         }
     }
 
@@ -305,6 +311,21 @@ impl Router {
     /// Clear the stored abstain context.
     pub fn clear_abstain_context(&mut self) {
         self.abstain_context = None;
+    }
+
+    /// Set the router diagnostics emitter for fine-grained decision events.
+    ///
+    /// When set, the router will emit RoutingStart, GateComputed, KsparseSelected,
+    /// TieBreakApplied, and RoutingEnd events during routing decisions.
+    ///
+    /// Events are only emitted when `diag.level >= router`.
+    pub fn set_router_diag(&mut self, diag: crate::router_diag::RouterDiag) {
+        self.router_diag = Some(diag);
+    }
+
+    /// Clear the router diagnostics emitter.
+    pub fn clear_router_diag(&mut self) {
+        self.router_diag = None;
     }
 
     /// Take abstain events emitted during the last routing call.
@@ -1328,6 +1349,15 @@ impl Router {
     ) -> Result<Decision> {
         self.validate_router_inputs(features, priors)?;
 
+        // Get current step index for diagnostic events
+        let step_idx = self.step_counter as u32;
+        self.step_counter += 1;
+
+        // Emit RoutingStart diagnostic event
+        if let Some(ref diag) = self.router_diag {
+            diag.emit_routing_start(step_idx, adapter_info.len() as u32, self.k as u32, features);
+        }
+
         let mut filtered_priors: Option<Vec<f32>> = None;
         if let Some(hint) = scope_hint {
             let mut priors_copy = priors.to_vec();
@@ -1419,6 +1449,11 @@ impl Router {
                 )));
             }
 
+            // Emit GateComputed diagnostic event for this adapter
+            if let Some(ref diag) = self.router_diag {
+                diag.emit_gate_computed(step_idx, &adapter_info[i], score);
+            }
+
             scores.push((i, score));
         }
 
@@ -1442,6 +1477,7 @@ impl Router {
             Vec::new()
         };
         let log_ties = determinism_debug_enabled();
+        let emit_diag_ties = self.router_diag.is_some();
         if log_ties {
             tracing::info!(
                 target: "determinism",
@@ -1468,6 +1504,7 @@ impl Router {
                 );
             }
         }
+        // Track tie events for logging and diagnostics
         let mut tie_events: Vec<(usize, usize, f32, f32)> = Vec::new();
 
         // Sort by score descending, then by stable_id for deterministic tie-break
@@ -1500,7 +1537,7 @@ impl Router {
             if score_cmp == std::cmp::Ordering::Equal {
                 // Exact tie: use stable_id for deterministic tie-breaking
                 // stable_id is assigned at registration and never changes
-                if log_ties {
+                if log_ties || emit_diag_ties {
                     tie_events.push((a.0, b.0, a.1, b.1));
                 }
                 // Use stable_id instead of array index for tie-breaking
@@ -1528,6 +1565,25 @@ impl Router {
                     b_score = *score_b,
                     adaptive = self.adaptive_routing,
                     "Tie-break comparison"
+                );
+            }
+        }
+
+        // Emit TieBreakApplied diagnostic events
+        if let Some(ref diag) = self.router_diag {
+            for (idx_a, idx_b, score_a, _score_b) in tie_events.iter() {
+                // Determine winner and loser based on stable_id ordering
+                let (winner_idx, loser_idx) =
+                    if adapter_info[*idx_a].stable_id < adapter_info[*idx_b].stable_id {
+                        (*idx_a, *idx_b)
+                    } else {
+                        (*idx_b, *idx_a)
+                    };
+                diag.emit_tie_break_applied(
+                    step_idx,
+                    &adapter_info[winner_idx],
+                    &adapter_info[loser_idx],
+                    *score_a,
                 );
             }
         }
@@ -1613,6 +1669,52 @@ impl Router {
             policy_mask_digest_b3: Some(policy_mask.digest),
             policy_overrides_applied: Some(policy_mask.overrides_applied.clone()),
         };
+
+        // Emit KsparseSelected and RoutingEnd diagnostic events
+        if let Some(ref diag) = self.router_diag {
+            // Collect adapter info references for selected adapters
+            let selected_adapters: Vec<&AdapterInfo> = decision
+                .candidates
+                .iter()
+                .map(|c| &adapter_info[c.adapter_idx as usize])
+                .collect();
+            let gates_vec: Vec<i16> = decision.gates_q15.iter().copied().collect();
+
+            // Compute decision hash for diagnostics
+            // If decision hashing is enabled, use combined_hash from DecisionHash
+            // Otherwise compute a simple hash of the output indices and gates
+            let diag_decision_hash = match &decision.decision_hash {
+                Some(dh) => {
+                    // combined_hash is a hex string - hash it to get a B3Hash
+                    B3Hash::hash(dh.combined_hash.as_bytes())
+                }
+                None => {
+                    // Compute a fallback hash from indices and gates
+                    let mut hash_input = Vec::new();
+                    for idx in decision.indices.iter() {
+                        hash_input.extend_from_slice(&idx.to_le_bytes());
+                    }
+                    for gate in decision.gates_q15.iter() {
+                        hash_input.extend_from_slice(&gate.to_le_bytes());
+                    }
+                    B3Hash::hash(&hash_input)
+                }
+            };
+
+            diag.emit_ksparse_selected(
+                step_idx,
+                &selected_adapters,
+                &gates_vec,
+                diag_decision_hash,
+            );
+
+            diag.emit_routing_end(
+                step_idx,
+                decision.candidates.len() as u32,
+                diag_decision_hash,
+                decision.policy_mask_digest_b3,
+            );
+        }
 
         // Emit telemetry event (non-blocking)
         self.emit_decision_event(&decision, None);

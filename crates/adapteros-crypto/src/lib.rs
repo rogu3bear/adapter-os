@@ -2,6 +2,7 @@
 
 pub mod audit;
 pub mod bundle_sign;
+pub mod decision_chain;
 pub mod envelope;
 pub mod key_manager;
 pub mod key_provider;
@@ -34,6 +35,11 @@ pub use sep_attestation::{
     SepChipGeneration,
 };
 pub use signature::{sign_bytes, verify_signature, Keypair, PublicKey, Signature};
+
+pub use decision_chain::{
+    verify_bundle_commits, DecisionChainBuilder, EnvironmentIdentity, MerkleBundleCommits,
+    RouterEventDigest,
+};
 
 // Re-export ed25519-dalek types for node agent
 pub use ed25519_dalek::SigningKey;
