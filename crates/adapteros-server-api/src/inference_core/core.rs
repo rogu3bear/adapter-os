@@ -123,6 +123,7 @@
 
 use super::adapters::{map_router_decision_chain, map_router_decisions, parse_routing_mode};
 use super::determinism::validate_strict_mode_constraints;
+use super::diag::{extract_error_code, suggest_recovery, DiagRunContext};
 use super::policy::{resolve_tenant_execution_policy, GoldenPolicyResolved};
 use super::replay::{compute_replay_guarantee, enforce_strict_runtime_guards};
 use super::validation::{parse_pinned_adapter_ids, validate_pinned_within_effective_set};
@@ -153,6 +154,7 @@ use adapteros_core::{
 };
 use adapteros_db::workers::WorkerWithBinding;
 use adapteros_db::{chat_sessions::ChatSession, CreateReplayMetadataParams};
+use adapteros_diagnostics::DiagStage;
 use adapteros_policy::hooks::{HookContext, PolicyHook};
 use adapteros_telemetry::unified_events::{EventType, LogLevel, TelemetryEventBuilder};
 use adapteros_telemetry::{
@@ -238,6 +240,22 @@ impl<'a> InferenceCore<'a> {
             None => true,
             Some(ctx) => !ctx.skip_metadata_capture,
         };
+
+        // Create trace context for diagnostics
+        let trace_context = adapteros_telemetry::tracing::TraceContext::new_root();
+
+        // Initialize diagnostic run context (if diagnostics enabled)
+        let diag_ctx = DiagRunContext::try_new(
+            self.state,
+            &request.request_id,
+            &request.cpid,
+            &trace_context,
+        );
+
+        // Emit RunStarted
+        if let Some(ref ctx) = diag_ctx {
+            ctx.emit_run_started(is_replay);
+        }
 
         let result = async {
         let mut all_policy_decisions = Vec::new();
@@ -1408,6 +1426,18 @@ impl<'a> InferenceCore<'a> {
         })
         }
         .await;
+
+        // Emit diagnostic run completion
+        if let Some(ref ctx) = diag_ctx {
+            match &result {
+                Ok(_) => ctx.emit_run_finished(),
+                Err(err) => {
+                    let error_code = extract_error_code(err);
+                    let recovery = suggest_recovery(err);
+                    ctx.emit_run_failed(error_code, recovery);
+                }
+            }
+        }
 
         if let Err(err) = &result {
             if should_capture {

@@ -26,6 +26,7 @@
 mod adapters;
 mod core;
 mod determinism;
+mod diag;
 mod policy;
 mod replay;
 mod validation;
