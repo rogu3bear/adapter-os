@@ -265,7 +265,7 @@ fn StatusCenterSections(
         // Inference Section
         <StatusSection
             title="Inference"
-            badge_count=(if blockers_count > 0 { blockers_count } else { 1 })
+            badge_count={ if blockers_count > 0 { blockers_count } else { 1 } }
             badge_variant=inference_badge_variant
             initially_expanded=true
         >

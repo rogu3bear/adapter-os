@@ -944,6 +944,8 @@ pub struct Worker<K: FusedKernels + StrictnessControl + Send + Sync + 'static> {
     evidence_retriever: Option<EvidenceRetriever>,
     /// KV cache for transformer attention with generation tracking
     kv_cache: Arc<StdMutex<KvCache>>,
+    /// Prefix KV cache for reusing prefill computation on repeated prefixes
+    prefix_kv_cache: Arc<prefix_kv_cache::PrefixKvCache>,
     /// MoE-specific prefix cache for expert pre-warming and free tokens
     #[cfg(feature = "mlx-bridge")]
     moe_prefix_cache: Arc<crate::moe_prefix_cache::MoEPrefixCache>,
@@ -1119,6 +1121,14 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             adapteros_core::constants::BYTES_PER_GB,
             quota_manager,
         ))); // 1GB default
+
+        // Initialize prefix KV cache for reusing prefill computation on repeated prefixes
+        // Budget: 2GB for prefix KV tensors (can be tuned via env var)
+        let prefix_kv_cache_bytes = std::env::var("AOS_PREFIX_KV_CACHE_BYTES")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(2 * adapteros_core::constants::BYTES_PER_GB);
+        let prefix_kv_cache = Arc::new(prefix_kv_cache::PrefixKvCache::new(prefix_kv_cache_bytes));
 
         // Initialize MoE prefix cache (512MB default budget for metadata)
         #[cfg(feature = "mlx-bridge")]
@@ -1325,6 +1335,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             embedding_model,
             evidence_retriever,
             kv_cache,
+            prefix_kv_cache,
             #[cfg(feature = "mlx-bridge")]
             moe_prefix_cache,
             _last_stack_hash: last_stack_hash,
@@ -2282,6 +2293,30 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         }
         let context_digest = B3Hash::hash(&context_bytes).to_bytes();
 
+        // PRD-01: Compute prefix KV cache key from context digest
+        // This key uniquely identifies the prefix for caching
+        let prefix_kv_key = B3Hash::from_bytes(context_digest);
+
+        // Check for prefix KV cache hit (metrics tracking)
+        // Note: Actual KV tensor reuse requires kernel-level integration (follow-up work)
+        let prefix_cache_entry = self.prefix_kv_cache.get(&prefix_kv_key);
+        let prefix_cache_hit = prefix_cache_entry.is_some();
+        let (prefix_cached_token_count, prefix_kv_bytes) = if let Some(ref entry) = prefix_cache_entry {
+            entry.record_access();
+            (entry.prefix_cached_token_count, entry.kv_bytes)
+        } else {
+            (0, 0)
+        };
+
+        if prefix_cache_hit {
+            tracing::debug!(
+                key = %prefix_kv_key.to_hex()[..16],
+                cached_tokens = prefix_cached_token_count,
+                kv_bytes = prefix_kv_bytes,
+                "Prefix KV cache hit (metrics only - KV reuse pending kernel integration)"
+            );
+        }
+
         let trace_id = Uuid::now_v7().to_string();
 
         let mut trace_sink = if let Some(trace_db) = self.trace_db.as_mut() {
@@ -2721,7 +2756,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             let output_token_ids = self.tokenizer.encode(&generation_result.text)?;
             let logical_prompt_tokens: u32 = prompt_tokens.len().try_into().unwrap_or(u32::MAX);
             let logical_output_tokens: u32 = output_token_ids.len().try_into().unwrap_or(u32::MAX);
-            let prefix_cached_token_count: u32 = 0;
+            // PRD-01: Use prefix_cached_token_count from PrefixKvCache lookup
             let billed_input_tokens =
                 logical_prompt_tokens.saturating_sub(prefix_cached_token_count);
             let billed_output_tokens = logical_output_tokens;
@@ -2835,9 +2870,10 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                         kv_evictions: 0,
                         kv_residency_policy_id: None,
                         kv_quota_enforced: false,
-                        prefix_kv_key_b3: None,
-                        prefix_cache_hit: false,
-                        prefix_kv_bytes: 0,
+                        // PRD-01: Wired from PrefixKvCache lookup
+                        prefix_kv_key_b3: Some(prefix_kv_key),
+                        prefix_cache_hit,
+                        prefix_kv_bytes,
                         model_cache_identity_v2_digest_b3: Some(model_cache_identity_v2_digest),
                         attestation: None,
                     })
@@ -2870,9 +2906,10 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                             kv_evictions: 0,
                             kv_residency_policy_id: None,
                             kv_quota_enforced: false,
-                            prefix_kv_key_b3: None,
-                            prefix_cache_hit: false,
-                            prefix_kv_bytes: 0,
+                            // PRD-01: Wired from PrefixKvCache lookup
+                            prefix_kv_key_b3: Some(prefix_kv_key),
+                            prefix_cache_hit,
+                            prefix_kv_bytes,
                             model_cache_identity_v2_digest_b3: receipt
                                 .model_cache_identity_v2_digest_b3,
                         });
@@ -3448,8 +3485,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
 
         let logical_prompt_tokens: u32 = prompt_tokens.len().try_into().unwrap_or(u32::MAX);
         let logical_output_tokens: u32 = generated_tokens.len().try_into().unwrap_or(u32::MAX);
-        // TODO(PRD-01): replace with PrefixKvCache-derived reuse once available.
-        let prefix_cached_token_count: u32 = 0;
+        // PRD-01: Use prefix_cached_token_count from PrefixKvCache lookup (computed earlier in generate())
         let billed_input_tokens = logical_prompt_tokens.saturating_sub(prefix_cached_token_count);
         let billed_output_tokens = logical_output_tokens;
         let token_usage = TokenUsage {
@@ -3480,10 +3516,10 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                     kv_evictions: 0,
                     kv_residency_policy_id: None,
                     kv_quota_enforced: false,
-                    // TODO(PRD-01): Wire up from PrefixKvCache
-                    prefix_kv_key_b3: None,
-                    prefix_cache_hit: false,
-                    prefix_kv_bytes: 0,
+                    // PRD-01: Wired from PrefixKvCache lookup
+                    prefix_kv_key_b3: Some(prefix_kv_key),
+                    prefix_cache_hit,
+                    prefix_kv_bytes,
                     // PRD-06: Model cache identity v2 digest
                     model_cache_identity_v2_digest_b3: Some(model_cache_identity_v2_digest),
                     attestation: determinism_attestation.clone(),
@@ -3517,10 +3553,10 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                         kv_evictions: 0,
                         kv_residency_policy_id: None,
                         kv_quota_enforced: false,
-                        // TODO(PRD-01): Wire up from PrefixKvCache
-                        prefix_kv_key_b3: None,
-                        prefix_cache_hit: false,
-                        prefix_kv_bytes: 0,
+                        // PRD-01: Wired from PrefixKvCache lookup
+                        prefix_kv_key_b3: Some(prefix_kv_key),
+                        prefix_cache_hit,
+                        prefix_kv_bytes,
                         // PRD-06: Model cache identity v2 digest (from receipt)
                         model_cache_identity_v2_digest_b3: receipt
                             .model_cache_identity_v2_digest_b3,
@@ -3643,6 +3679,15 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
     // - adapter_operations.rs: execute_adapter_command, verify_gpu_integrity
     // - worker_utilities.rs: compute_embedding, generate_plan_id, etc.
     // - training_management.rs: training job management methods
+
+    /// Get GPU memory report from the underlying kernel backend.
+    ///
+    /// Returns memory pool statistics, adapter allocations, and VRAM usage.
+    /// Used by capacity handlers to expose real GPU metrics instead of hardcoded values.
+    pub async fn memory_report(&self) -> Option<adapteros_lora_kernel_api::GpuMemoryReportData> {
+        let kernels = self.kernels.lock().await;
+        kernels.memory_report()
+    }
 
     /// Flush trace buffers and persist state
     pub async fn flush(&self) -> Result<()> {
