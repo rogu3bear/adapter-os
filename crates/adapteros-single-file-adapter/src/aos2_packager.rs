@@ -3,7 +3,7 @@
 //! Provides functionality to create AOS 2.0 format files with fixed-offset
 //! sections for memory-mappable weight loading.
 
-use crate::aos2_format::{align_to_page, Aos2Header, Aos2Metadata, Aos2Weights};
+use crate::aos2_format::{align_to_page, AosHeader, AosMetadata, AosWeights};
 use crate::format::SingleFileAdapter;
 use crate::weights::{serialize_weight_group, WeightGroupDiskInfo, WeightGroupsManifest};
 use adapteros_core::{AosError, B3Hash, Result};
@@ -14,9 +14,9 @@ use std::path::Path;
 /// Page size for memory alignment (typically 4096 bytes)
 const PAGE_SIZE: usize = 4096;
 
-/// Options for AOS 2.0 packaging
+/// Options for AOS packaging
 #[derive(Debug, Clone)]
-pub struct Aos2PackageOptions {
+pub struct AosPackageOptions {
     /// Whether to compress metadata section
     pub compress_metadata: bool,
     /// Whether to compress weights section
@@ -27,7 +27,7 @@ pub struct Aos2PackageOptions {
     pub include_combined_weights: bool,
 }
 
-impl Default for Aos2PackageOptions {
+impl Default for AosPackageOptions {
     fn default() -> Self {
         Self {
             compress_metadata: true,
@@ -38,20 +38,20 @@ impl Default for Aos2PackageOptions {
     }
 }
 
-/// AOS 2.0 packager
-pub struct Aos2Packager;
+/// AOS packager
+pub struct AosPackager;
 
-impl Aos2Packager {
-    /// Save adapter to AOS 2.0 format
+impl AosPackager {
+    /// Save adapter to AOS format
     pub async fn save<P: AsRef<Path>>(adapter: &SingleFileAdapter, path: P) -> Result<()> {
-        Self::save_with_options(adapter, path, Aos2PackageOptions::default()).await
+        Self::save_with_options(adapter, path, AosPackageOptions::default()).await
     }
 
-    /// Save adapter to AOS 2.0 format with options
+    /// Save adapter to AOS format with options
     pub async fn save_with_options<P: AsRef<Path>>(
         adapter: &SingleFileAdapter,
         path: P,
-        options: Aos2PackageOptions,
+        options: AosPackageOptions,
     ) -> Result<()> {
         let path = path.as_ref();
 
@@ -60,7 +60,7 @@ impl Aos2Packager {
             .map_err(|e| AosError::Io(format!("Failed to create AOS 2.0 file: {}", e)))?;
 
         // Reserve space for header
-        file.set_len(Aos2Header::SIZE as u64)
+        file.set_len(AosHeader::SIZE as u64)
             .map_err(|e| AosError::Io(format!("Failed to set file length: {}", e)))?;
 
         // Prepare weights section
@@ -104,7 +104,7 @@ impl Aos2Packager {
         };
 
         // Build weights structure
-        let weights = Aos2Weights {
+        let weights = AosWeights {
             positive: positive_weights,
             negative: negative_weights,
             combined: combined_weights,
@@ -123,7 +123,7 @@ impl Aos2Packager {
         };
 
         // Prepare metadata section
-        let metadata = Aos2Metadata {
+        let metadata = AosMetadata {
             manifest: adapter.manifest.clone(),
             config: adapter.config.clone(),
             lineage: adapter.lineage.clone(),
@@ -143,7 +143,7 @@ impl Aos2Packager {
         };
 
         // Calculate offsets with page alignment for weights section
-        let weights_offset = align_to_page(Aos2Header::SIZE as u64, PAGE_SIZE);
+        let weights_offset = align_to_page(AosHeader::SIZE as u64, PAGE_SIZE);
 
         // Write weights section
         file.seek(SeekFrom::Start(weights_offset))
@@ -181,8 +181,8 @@ impl Aos2Packager {
 
         // Compute header checksum (excluding the checksum field itself)
         let header_checksum = {
-            let temp_header = Aos2Header {
-                magic: *Aos2Header::MAGIC,
+            let temp_header = AosHeader {
+                magic: *AosHeader::MAGIC,
                 version: 2,
                 total_size,
                 weights_offset,
@@ -200,8 +200,8 @@ impl Aos2Packager {
         };
 
         // Create and write header
-        let header = Aos2Header {
-            magic: *Aos2Header::MAGIC,
+        let header = AosHeader {
+            magic: *AosHeader::MAGIC,
             version: 2,
             total_size,
             weights_offset,

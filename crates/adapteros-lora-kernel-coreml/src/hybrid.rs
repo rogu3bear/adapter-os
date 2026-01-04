@@ -615,11 +615,15 @@ fn get_tensor_any_name(tensors: &SafeTensors, names: &[&str]) -> Result<(Vec<f32
 
 /// Extract LoRA alpha from safetensors metadata
 ///
-/// Currently returns None as safetensors metadata parsing is not implemented.
-/// Falls back to using rank as alpha (scale = 1.0).
+/// Returns None, using default alpha = rank (scale = 1.0).
+///
+/// Note: In the current safetensors API (0.4.x), the metadata field is private
+/// and not directly accessible. AdapterOS stores alpha in the .aos manifest
+/// file rather than in safetensors metadata, so this is rarely needed.
+/// The caller (load_lora_adapter) handles the fallback correctly.
 fn get_alpha_from_metadata(_tensors: &SafeTensors) -> Option<f32> {
-    // TODO: Parse metadata when safetensors API supports it
-    // For now, return None to use default alpha = rank
+    // SafeTensors 0.4.x has private metadata field
+    // Alpha is stored in .aos manifest (AdapterMetadata.lora_strength) instead
     None
 }
 
@@ -666,5 +670,33 @@ mod tests {
         assert!((result[0] - 1.0).abs() < 0.01);
         assert!((result[1] - 2.0).abs() < 0.01);
         assert!((result[2] - 3.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_get_alpha_from_metadata_returns_none() {
+        use std::collections::HashMap;
+
+        // Create a simple safetensors file
+        let tensor_data: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
+        let tensor_bytes: Vec<u8> = tensor_data.iter().flat_map(|f| f.to_le_bytes()).collect();
+
+        let mut tensors = HashMap::new();
+        tensors.insert(
+            "weight".to_string(),
+            safetensors::tensor::TensorView::new(
+                safetensors::Dtype::F32,
+                vec![2, 2],
+                &tensor_bytes,
+            )
+            .unwrap(),
+        );
+
+        let serialized = safetensors::serialize(&tensors, &None).unwrap();
+        let st = SafeTensors::deserialize(&serialized).unwrap();
+
+        // Currently returns None as safetensors 0.4.x has private metadata field
+        // Alpha is stored in .aos manifest instead
+        let alpha = get_alpha_from_metadata(&st);
+        assert_eq!(alpha, None);
     }
 }

@@ -83,9 +83,24 @@ Tests:
 
 **Security Notes:**
 - Credentials are stored in memory (plaintext in current implementation)
-- TODO: Implement `Zeroize` trait to clear credentials after use
-- TODO: Custom `Debug` impl to mask sensitive fields
 - Log output should NEVER include credentials
+
+#### Known Security Gaps
+
+| Gap ID | Description | Priority |
+|--------|-------------|----------|
+| CRYPTO-SEC-001 | `KmsCredentials` should implement `Zeroize` trait | P2 |
+| CRYPTO-SEC-002 | `KmsCredentials` needs custom `Debug` with masking | P2 |
+
+**CRYPTO-SEC-001: Credential Zeroization**
+- Credentials currently remain in memory after use
+- Implement `Zeroize` trait to securely overwrite on drop
+- See `tests/kms_security.rs:test_credential_leak_detection_in_config`
+
+**CRYPTO-SEC-002: Debug Field Masking**
+- Credentials visible in debug output (potential log leak)
+- Implement custom `Debug` showing `***REDACTED***`
+- See `tests/kms_security.rs:test_credential_leak_detection_in_errors`
 
 **Example Detection:**
 ```rust

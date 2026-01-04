@@ -4,18 +4,16 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "AdapterOS MLX abstraction layer using mlx-rs (experimental fallback path)"
+description = "AdapterOS MLX abstraction layer using mlx-rs (DEPRECATED - not used in production)"
 
 # =============================================================================
-# MLX-RS ABSTRACTION LAYER (EXPERIMENTAL FALLBACK)
+# MLX-RS ABSTRACTION LAYER (DEPRECATED)
 # =============================================================================
-# This crate wraps mlx-rs for the experimental pure-Rust MLX path.
+# This crate wrapped mlx-rs for an experimental pure-Rust MLX path.
+# The mlx-rs-backend feature has been removed. This crate is no longer used.
 # The primary/production backend is C++ FFI (adapteros-lora-mlx-ffi with `mlx` feature).
 #
-# This crate is ONLY used when `mlx-rs-backend` feature is enabled, which is
-# deprecated and unsupported in production. Use C++ FFI for production workloads.
-#
-# Requires: Apple Silicon (M1/M2/M3/M4)
+# TODO: Consider removing this crate entirely in a future cleanup.
 # =============================================================================
 
 [features]

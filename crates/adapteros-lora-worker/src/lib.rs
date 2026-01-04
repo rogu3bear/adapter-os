@@ -60,7 +60,6 @@ use crate::router_bridge::decision_to_router_ring_with_active_ids_and_strengths;
 use adapteros_api_types::inference::{
     FusionIntervalTrace, RouterDecisionChainEntry, RouterDecisionHash, RouterModelType, RunReceipt,
 };
-use adapteros_api_types::RunEnvelope;
 use adapteros_config::{
     resolve_index_root, ModelConfig, PlacementConfig, PlacementMode, PlacementWeights,
 };
@@ -72,10 +71,7 @@ use adapteros_core::{
     FusionInterval, RepoAdapterPaths, Result, SeedMode, StandardCircuitBreaker,
 };
 use adapteros_db::{Db, SqlTraceSink, TraceFinalization, TraceSink, TraceStart, TraceTokenInput};
-use adapteros_lora_kernel_api::{
-    attestation::DeterminismLevel, blend_and_forward_reference, FusedKernels, IoBuffers,
-    LiquidBlendRequest, LiquidBlendStats, LiquidKernel, RouterRing,
-};
+use adapteros_lora_kernel_api::{attestation::DeterminismLevel, FusedKernels, IoBuffers};
 use adapteros_lora_rag::RagSystem;
 use adapteros_lora_router::{
     constants::PINNED_BOOST, features::CodeFeatures, policy_mask::PolicyMask, AbstainContext,
@@ -85,7 +81,6 @@ use adapteros_manifest::ManifestV3;
 use adapteros_policy::{PolicyEngine, RefusalResponse};
 use adapteros_telemetry::{CriticalComponentMetrics, TelemetryWriter};
 use adapteros_types::adapters::metadata::RoutingDeterminismMode;
-use adapteros_types::coreml::CoreMLMode;
 use base64::Engine;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -442,35 +437,10 @@ mod tests {
     }
 }
 
-/// Strictness control for backend execution (strict mode disables fallback)
-pub trait StrictnessControl {
-    /// Set strict mode for subsequent operations
-    fn set_strict_mode(&mut self, strict: bool);
-    /// Reset fallback tracking for a new request
-    fn reset_fallback(&mut self);
-    /// Select active lane (primary/fallback) for next step
-    fn set_active_lane(&mut self, lane: BackendLane);
-    /// Report currently active lane
-    fn active_lane(&self) -> BackendLane;
-    /// Names for the available lanes (primary, fallback)
-    fn lane_names(&self) -> (String, Option<String>);
-    /// Whether fallback occurred on the last operation
-    fn fallback_triggered(&self) -> bool;
-    /// Backend name used on the last operation (if known)
-    fn last_backend_used(&self) -> Option<String>;
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BackendLane {
-    Primary,
-    Fallback,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ActiveBackend {
-    Primary,
-    Fallback,
-}
+// Kernel wrapper types moved to kernel_wrapper.rs
+pub use kernel_wrapper::{
+    BackendLane, CoordinatedKernels, DirectKernels, KernelWrapper, StrictnessControl,
+};
 
 /// Enforce guardrails for adapter preload under memory pressure.
 fn ensure_preload_allowed(
@@ -492,532 +462,12 @@ fn ensure_preload_allowed(
     Ok(())
 }
 
-// Default strictness control for plain backends (no fallback)
-impl StrictnessControl for Box<dyn FusedKernels + Send + Sync> {
-    fn set_strict_mode(&mut self, _strict: bool) {}
-    fn reset_fallback(&mut self) {}
-    fn set_active_lane(&mut self, _lane: BackendLane) {}
-    fn active_lane(&self) -> BackendLane {
-        BackendLane::Primary
-    }
-    fn lane_names(&self) -> (String, Option<String>) {
-        (self.device_name().to_string(), None)
-    }
-    fn fallback_triggered(&self) -> bool {
-        false
-    }
-    fn last_backend_used(&self) -> Option<String> {
-        Some(self.device_name().to_string())
-    }
-}
+// DirectKernels, CoordinatedKernels, KernelWrapper and all impls moved to kernel_wrapper.rs
 
-/// Direct single-backend wrapper (no fallback)
-pub struct DirectKernels {
-    inner: Box<dyn FusedKernels + Send + Sync>,
-    last_backend: String,
-}
+// InferenceRequest, default_determinism_mode, default_utf8_healing, strict_mode_enabled
+// moved to request_types.rs - see re-exports below
 
-impl DirectKernels {
-    pub fn new(inner: Box<dyn FusedKernels + Send + Sync>) -> Self {
-        let last_backend = inner.device_name().to_string();
-        Self {
-            inner,
-            last_backend,
-        }
-    }
-}
-
-/// Coordinated backend wrapper with optional fallback backend
-pub struct CoordinatedKernels {
-    primary: Box<dyn FusedKernels + Send + Sync>,
-    fallback: Option<Box<dyn FusedKernels + Send + Sync>>,
-    active_backend: ActiveBackend,
-    strict_mode: bool,
-    primary_degraded: bool,
-    fallback_triggered: bool,
-    last_backend: String,
-}
-
-impl CoordinatedKernels {
-    pub fn new(
-        primary: Box<dyn FusedKernels + Send + Sync>,
-        fallback: Option<Box<dyn FusedKernels + Send + Sync>>,
-    ) -> Self {
-        let last_backend = primary.device_name().to_string();
-        Self {
-            primary,
-            fallback,
-            active_backend: ActiveBackend::Primary,
-            strict_mode: false,
-            primary_degraded: false,
-            fallback_triggered: false,
-            last_backend,
-        }
-    }
-}
-
-/// Unified kernel wrapper supporting strictness control and optional fallback
-pub enum KernelWrapper {
-    Direct(DirectKernels),
-    Coordinated(CoordinatedKernels),
-}
-
-impl StrictnessControl for KernelWrapper {
-    fn set_strict_mode(&mut self, strict: bool) {
-        if let KernelWrapper::Coordinated(k) = self {
-            k.strict_mode = strict;
-        }
-    }
-
-    fn reset_fallback(&mut self) {
-        match self {
-            KernelWrapper::Direct(k) => {
-                k.last_backend = k.inner.device_name().to_string();
-            }
-            KernelWrapper::Coordinated(k) => {
-                k.fallback_triggered = false;
-                k.active_backend = if k.strict_mode || k.fallback.is_none() || !k.primary_degraded {
-                    ActiveBackend::Primary
-                } else {
-                    ActiveBackend::Fallback
-                };
-                k.fallback_triggered = matches!(k.active_backend, ActiveBackend::Fallback);
-                k.last_backend = match k.active_backend {
-                    ActiveBackend::Primary => k.primary.device_name().to_string(),
-                    ActiveBackend::Fallback => k
-                        .fallback
-                        .as_ref()
-                        .map(|f| f.device_name().to_string())
-                        .unwrap_or_else(|| k.primary.device_name().to_string()),
-                };
-            }
-        }
-    }
-
-    fn set_active_lane(&mut self, lane: BackendLane) {
-        match self {
-            KernelWrapper::Direct(k) => {
-                k.last_backend = k.inner.device_name().to_string();
-            }
-            KernelWrapper::Coordinated(k) => {
-                match lane {
-                    BackendLane::Primary => k.active_backend = ActiveBackend::Primary,
-                    BackendLane::Fallback => {
-                        if k.fallback.is_some() {
-                            k.active_backend = ActiveBackend::Fallback;
-                        } else {
-                            k.active_backend = ActiveBackend::Primary;
-                        }
-                    }
-                }
-                k.fallback_triggered = matches!(k.active_backend, ActiveBackend::Fallback);
-                k.last_backend = match k.active_backend {
-                    ActiveBackend::Primary => k.primary.device_name().to_string(),
-                    ActiveBackend::Fallback => k
-                        .fallback
-                        .as_ref()
-                        .map(|f| f.device_name().to_string())
-                        .unwrap_or_else(|| k.primary.device_name().to_string()),
-                };
-            }
-        }
-    }
-
-    fn active_lane(&self) -> BackendLane {
-        match self {
-            KernelWrapper::Direct(_) => BackendLane::Primary,
-            KernelWrapper::Coordinated(k) => match k.active_backend {
-                ActiveBackend::Primary => BackendLane::Primary,
-                ActiveBackend::Fallback => BackendLane::Fallback,
-            },
-        }
-    }
-
-    fn lane_names(&self) -> (String, Option<String>) {
-        match self {
-            KernelWrapper::Direct(k) => (k.inner.device_name().to_string(), None),
-            KernelWrapper::Coordinated(k) => (
-                k.primary.device_name().to_string(),
-                k.fallback.as_ref().map(|f| f.device_name().to_string()),
-            ),
-        }
-    }
-
-    fn fallback_triggered(&self) -> bool {
-        match self {
-            KernelWrapper::Direct(_) => false,
-            KernelWrapper::Coordinated(k) => k.fallback_triggered,
-        }
-    }
-
-    fn last_backend_used(&self) -> Option<String> {
-        match self {
-            KernelWrapper::Direct(k) => Some(k.last_backend.clone()),
-            KernelWrapper::Coordinated(k) => Some(k.last_backend.clone()),
-        }
-    }
-}
-
-impl FusedKernels for KernelWrapper {
-    fn load(&mut self, plan_bytes: &[u8]) -> Result<()> {
-        match self {
-            KernelWrapper::Direct(k) => k.inner.load(plan_bytes),
-            KernelWrapper::Coordinated(k) => {
-                k.primary.load(plan_bytes)?;
-                if let Some(fallback) = k.fallback.as_mut() {
-                    fallback.load(plan_bytes)?;
-                }
-                Ok(())
-            }
-        }
-    }
-
-    fn run_step(&mut self, ring: &RouterRing, io: &mut IoBuffers) -> Result<()> {
-        match self {
-            KernelWrapper::Direct(k) => k.inner.run_step(ring, io),
-            KernelWrapper::Coordinated(k) => {
-                k.fallback_triggered = matches!(k.active_backend, ActiveBackend::Fallback);
-                match k.active_backend {
-                    ActiveBackend::Primary => match k.primary.run_step(ring, io) {
-                        Ok(_) => {
-                            k.primary_degraded = false;
-                            k.last_backend = k.primary.device_name().to_string();
-                            k.fallback_triggered = false;
-                            Ok(())
-                        }
-                        Err(e) => {
-                            k.primary_degraded = true;
-                            k.last_backend = k.primary.device_name().to_string();
-                            Err(e)
-                        }
-                    },
-                    ActiveBackend::Fallback => {
-                        let Some(fallback) = k.fallback.as_mut() else {
-                            return Err(AosError::Kernel(
-                                "Fallback backend not configured".to_string(),
-                            ));
-                        };
-
-                        match fallback.run_step(ring, io) {
-                            Ok(_) => {
-                                k.last_backend = fallback.device_name().to_string();
-                                k.fallback_triggered = true;
-                                Ok(())
-                            }
-                            Err(e) => {
-                                k.last_backend = fallback.device_name().to_string();
-                                Err(e)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    fn device_name(&self) -> &str {
-        match self {
-            KernelWrapper::Direct(k) => k.inner.device_name(),
-            KernelWrapper::Coordinated(k) => k.last_backend.as_str(),
-        }
-    }
-
-    fn attest_determinism(
-        &self,
-    ) -> Result<adapteros_lora_kernel_api::attestation::DeterminismReport> {
-        match self {
-            KernelWrapper::Direct(k) => k.inner.attest_determinism(),
-            KernelWrapper::Coordinated(k) => match k.active_backend {
-                ActiveBackend::Primary => k.primary.attest_determinism(),
-                ActiveBackend::Fallback => k
-                    .fallback
-                    .as_ref()
-                    .map(|fb| fb.attest_determinism())
-                    .unwrap_or_else(|| k.primary.attest_determinism()),
-            },
-        }
-    }
-
-    fn load_adapter(&mut self, id: u16, weights: &[u8]) -> Result<()> {
-        match self {
-            KernelWrapper::Direct(k) => k.inner.load_adapter(id, weights),
-            KernelWrapper::Coordinated(k) => {
-                k.primary.load_adapter(id, weights)?;
-                if let Some(fallback) = k.fallback.as_mut() {
-                    fallback.load_adapter(id, weights)?;
-                }
-                Ok(())
-            }
-        }
-    }
-
-    fn unload_adapter(&mut self, id: u16) -> Result<()> {
-        match self {
-            KernelWrapper::Direct(k) => k.inner.unload_adapter(id),
-            KernelWrapper::Coordinated(k) => {
-                k.primary.unload_adapter(id)?;
-                if let Some(fallback) = k.fallback.as_mut() {
-                    fallback.unload_adapter(id)?;
-                }
-                Ok(())
-            }
-        }
-    }
-
-    fn attach_adapter(&mut self, id: u16) -> Result<()> {
-        match self {
-            KernelWrapper::Direct(k) => k.inner.attach_adapter(id),
-            KernelWrapper::Coordinated(k) => {
-                if let Some(fallback) = k.fallback.as_mut() {
-                    fallback.attach_adapter(id)?;
-                }
-                k.primary.attach_adapter(id)
-            }
-        }
-    }
-
-    fn detach_adapter(&mut self, id: u16) -> Result<()> {
-        match self {
-            KernelWrapper::Direct(k) => k.inner.detach_adapter(id),
-            KernelWrapper::Coordinated(k) => {
-                if let Some(fallback) = k.fallback.as_mut() {
-                    fallback.detach_adapter(id)?;
-                }
-                k.primary.detach_adapter(id)
-            }
-        }
-    }
-
-    fn switch_adapter(&mut self, id: u16) -> Result<()> {
-        match self {
-            KernelWrapper::Direct(k) => k.inner.switch_adapter(id),
-            KernelWrapper::Coordinated(k) => {
-                if let Some(fallback) = k.fallback.as_mut() {
-                    fallback.switch_adapter(id)?;
-                }
-                k.primary.switch_adapter(id)
-            }
-        }
-    }
-}
-
-impl LiquidKernel for KernelWrapper {
-    fn supports_liquid_blending(&self) -> bool {
-        match self {
-            KernelWrapper::Direct(k) => k.inner.supports_liquid_blending(),
-            KernelWrapper::Coordinated(k) => {
-                k.primary.supports_liquid_blending()
-                    || k.fallback
-                        .as_ref()
-                        .map(|fb| fb.supports_liquid_blending())
-                        .unwrap_or(false)
-            }
-        }
-    }
-
-    fn max_liquid_adapters(&self) -> usize {
-        match self {
-            KernelWrapper::Direct(k) => k.inner.liquid_max_adapters(),
-            KernelWrapper::Coordinated(k) => {
-                let primary_max = k.primary.liquid_max_adapters();
-                let fallback_max = k
-                    .fallback
-                    .as_ref()
-                    .map(|fb| fb.liquid_max_adapters())
-                    .unwrap_or(0);
-                primary_max.max(fallback_max)
-            }
-        }
-    }
-
-    fn blend_and_forward(&mut self, request: LiquidBlendRequest<'_>) -> Result<LiquidBlendStats> {
-        match self {
-            KernelWrapper::Direct(k) => {
-                if let Some(liquid) = k.inner.as_liquid_kernel_mut() {
-                    liquid.blend_and_forward(request)
-                } else {
-                    blend_and_forward_reference(request)
-                }
-            }
-            KernelWrapper::Coordinated(k) => match k.active_backend {
-                ActiveBackend::Primary => {
-                    let primary_name = k.primary.device_name().to_string();
-                    if let Some(liquid) = k.primary.as_liquid_kernel_mut() {
-                        k.last_backend = primary_name.clone();
-                        k.fallback_triggered = false;
-                        liquid.blend_and_forward(request)
-                    } else if let Some(fallback) = k.fallback.as_mut() {
-                        k.last_backend = fallback.device_name().to_string();
-                        k.fallback_triggered = true;
-                        if let Some(liquid) = fallback.as_liquid_kernel_mut() {
-                            liquid.blend_and_forward(request)
-                        } else {
-                            blend_and_forward_reference(request)
-                        }
-                    } else {
-                        k.last_backend = primary_name;
-                        k.fallback_triggered = false;
-                        blend_and_forward_reference(request)
-                    }
-                }
-                ActiveBackend::Fallback => {
-                    let primary_name = k.primary.device_name().to_string();
-                    if let Some(fallback) = k.fallback.as_mut() {
-                        k.last_backend = fallback.device_name().to_string();
-                        k.fallback_triggered = true;
-                        if let Some(liquid) = fallback.as_liquid_kernel_mut() {
-                            liquid.blend_and_forward(request)
-                        } else if let Some(primary_liquid) = k.primary.as_liquid_kernel_mut() {
-                            k.last_backend = primary_name.clone();
-                            k.fallback_triggered = false;
-                            primary_liquid.blend_and_forward(request)
-                        } else {
-                            blend_and_forward_reference(request)
-                        }
-                    } else {
-                        k.last_backend = primary_name;
-                        k.fallback_triggered = false;
-                        blend_and_forward_reference(request)
-                    }
-                }
-            },
-        }
-    }
-}
-
-/// Inference request
-///
-/// Includes full sampling parameters for deterministic replay (PRD-02).
-/// When router_seed is provided, it overrides the manifest-derived seed
-/// for deterministic adapter selection during replay.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct InferenceRequest {
-    pub cpid: String,
-    pub prompt: String,
-    pub max_tokens: usize,
-    /// Optional request identifier for tracing across stages
-    #[serde(default)]
-    pub request_id: Option<String>,
-    /// Canonical run envelope propagated from control plane
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub run_envelope: Option<RunEnvelope>,
-    #[serde(default)]
-    pub require_evidence: bool,
-    /// Enable reasoning-aware routing (pauses at reasoning spans to hot-swap adapters)
-    #[serde(default)]
-    pub reasoning_mode: bool,
-    /// Optional: Request patch proposal mode
-    #[serde(default)]
-    pub request_type: RequestType,
-    /// Stack ID for telemetry correlation
-    #[serde(default)]
-    pub stack_id: Option<String>,
-    /// Stack version for telemetry correlation
-    #[serde(default)]
-    pub stack_version: Option<i64>,
-    /// Optional domain hint for routing/package preference
-    #[serde(default)]
-    pub domain_hint: Option<String>,
-    /// Sampling temperature (0.0 = deterministic, higher = more random)
-    /// Defaults to manifest setting if not provided
-    #[serde(default)]
-    pub temperature: Option<f32>,
-    /// Top-K sampling (limits vocabulary to K most likely tokens)
-    #[serde(default)]
-    pub top_k: Option<usize>,
-    /// Top-P (nucleus) sampling (limits vocabulary to tokens with cumulative prob <= P)
-    #[serde(default)]
-    pub top_p: Option<f32>,
-    /// Random seed for deterministic sampling (PRD-02: critical for replay)
-    #[serde(default)]
-    pub seed: Option<u64>,
-    /// Router seed override for deterministic adapter selection (PRD-02: replay)
-    /// When provided, overrides the manifest-derived router seed to reproduce
-    /// exact routing decisions from a previous inference.
-    #[serde(default)]
-    pub router_seed: Option<String>,
-    /// Seed mode provided by control plane
-    #[serde(default)]
-    pub seed_mode: Option<SeedMode>,
-    /// Request-scoped seed provided by control plane (32 bytes)
-    #[serde(default)]
-    pub request_seed: Option<[u8; 32]>,
-    /// Canonical determinism context supplied by control plane (optional)
-    #[serde(default)]
-    pub determinism: Option<DeterminismContext>,
-    /// Fusion interval policy for aligning router gates with fused weights
-    #[serde(default)]
-    pub fusion_interval: Option<FusionInterval>,
-    /// Backend profile requested by control plane
-    #[serde(default)]
-    pub backend_profile: Option<BackendKind>,
-    /// CoreML mode applied by control plane
-    #[serde(default)]
-    pub coreml_mode: Option<CoreMLMode>,
-    /// Pinned adapter IDs that receive prior boost in routing (CHAT-PIN-02)
-    ///
-    /// These adapters receive PINNED_BOOST (0.3) added to their prior scores
-    /// before the router's scoring algorithm runs.
-    #[serde(default)]
-    pub pinned_adapter_ids: Option<Vec<String>>,
-    /// Determinism mode for this request (strict, besteffort, relaxed)
-    /// Controls router behavior for reproducibility vs performance tradeoffs
-    #[serde(default = "default_determinism_mode")]
-    pub determinism_mode: String,
-    /// Routing determinism mode (deterministic|adaptive)
-    #[serde(default)]
-    pub routing_determinism_mode: Option<RoutingDeterminismMode>,
-    /// Strict mode flag (disables backend fallback when true)
-    #[serde(default)]
-    pub strict_mode: bool,
-    /// Per-adapter strength overrides (multiplier applied to manifest lora_strength)
-    #[serde(default)]
-    pub adapter_strength_overrides: Option<std::collections::HashMap<String, f32>>,
-    /// Effective adapter IDs (control-plane gate)
-    #[serde(default)]
-    pub effective_adapter_ids: Option<Vec<String>>,
-    /// Placement override for replay
-    #[serde(default)]
-    pub placement: Option<PlacementReplay>,
-
-    /// Optional routing policy resolved by control plane.
-    /// Used to enforce allow/deny lists and max-adapter limits per token.
-    #[serde(default)]
-    pub routing_policy: Option<adapteros_api_types::RoutingPolicy>,
-    /// BLAKE3 digest of policy decisions applied during request processing
-    #[serde(default)]
-    pub policy_mask_digest_b3: Option<[u8; 32]>,
-
-    /// Optional stop policy for deterministic stop control (PRD: Hard Deterministic Stop Controller)
-    #[serde(default)]
-    pub stop_policy: Option<adapteros_api_types::inference::StopPolicySpec>,
-    /// Enable UTF-8 token healing (default: true)
-    #[serde(default = "default_utf8_healing")]
-    pub utf8_healing: bool,
-    /// Admin override flag to bypass cluster routing restrictions (debug only)
-    #[serde(default)]
-    pub admin_override: bool,
-
-    /// Arrival timestamp for queue timing measurement (set by UDS server)
-    /// This is NOT serialized - it's set internally when the request arrives
-    #[serde(skip)]
-    pub arrival_instant: Option<std::time::Instant>,
-}
-
-fn default_determinism_mode() -> String {
-    "strict".to_string()
-}
-
-fn default_utf8_healing() -> bool {
-    true
-}
-
-/// Returns true when strict determinism protections should be enforced.
-fn strict_mode_enabled(strict_flag: bool, determinism_mode: &str) -> bool {
-    strict_flag || determinism_mode.eq_ignore_ascii_case("strict")
-}
-
+// Backend resolution helpers (will move to backend_resolution.rs in Phase 2)
 fn resolve_baseline_backend(
     requested_backend: Option<BackendKind>,
     resolved_backend: BackendKind,
@@ -1126,27 +576,8 @@ fn enforce_strict_router_chain(
     Ok(())
 }
 
-/// Request type for different inference modes
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum RequestType {
-    #[default]
-    Normal,
-    PatchProposal(PatchProposalRequest),
-}
-
-/// Patch proposal request parameters
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PatchProposalRequest {
-    /// Repository ID for context
-    pub repo_id: String,
-    /// Commit SHA for context (optional)
-    pub commit_sha: Option<String>,
-    /// Files to focus on
-    pub target_files: Vec<String>,
-    /// Issue description or prompt
-    pub description: String,
-}
+// RequestType and PatchProposalRequest moved to request_types.rs
+// Re-exported via pub use request_types::{...} below
 
 /// Placement decision trace entry
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1378,8 +809,13 @@ pub use routing_utilities::summarize_router_usage;
 // Import internal fusion helpers for use in lib.rs
 use routing_utilities::fusion_intervals_for_mode;
 
-// Re-export training request/response types from refactored modules
-pub use request_types::{CancelTrainingRequest, CancelTrainingResponse};
+// Re-export request/response types from refactored modules
+pub use request_types::{
+    CancelTrainingRequest, CancelTrainingResponse, InferenceRequest, PatchProposalRequest,
+    RequestType,
+};
+// Import internal helpers for use within lib.rs
+use request_types::strict_mode_enabled;
 
 struct PlacementState {
     engine: PlacementEngine,
@@ -1508,6 +944,8 @@ pub struct Worker<K: FusedKernels + StrictnessControl + Send + Sync + 'static> {
     evidence_retriever: Option<EvidenceRetriever>,
     /// KV cache for transformer attention with generation tracking
     kv_cache: Arc<StdMutex<KvCache>>,
+    /// Prefix KV cache for reusing prefill computation on repeated prefixes
+    prefix_kv_cache: Arc<prefix_kv_cache::PrefixKvCache>,
     /// MoE-specific prefix cache for expert pre-warming and free tokens
     #[cfg(feature = "mlx-bridge")]
     moe_prefix_cache: Arc<crate::moe_prefix_cache::MoEPrefixCache>,
@@ -1683,6 +1121,14 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             adapteros_core::constants::BYTES_PER_GB,
             quota_manager,
         ))); // 1GB default
+
+        // Initialize prefix KV cache for reusing prefill computation on repeated prefixes
+        // Budget: 2GB for prefix KV tensors (can be tuned via env var)
+        let prefix_kv_cache_bytes = std::env::var("AOS_PREFIX_KV_CACHE_BYTES")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(2 * adapteros_core::constants::BYTES_PER_GB);
+        let prefix_kv_cache = Arc::new(prefix_kv_cache::PrefixKvCache::new(prefix_kv_cache_bytes));
 
         // Initialize MoE prefix cache (512MB default budget for metadata)
         #[cfg(feature = "mlx-bridge")]
@@ -1889,6 +1335,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             embedding_model,
             evidence_retriever,
             kv_cache,
+            prefix_kv_cache,
             #[cfg(feature = "mlx-bridge")]
             moe_prefix_cache,
             _last_stack_hash: last_stack_hash,
@@ -2846,6 +2293,31 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         }
         let context_digest = B3Hash::hash(&context_bytes).to_bytes();
 
+        // PRD-01: Compute prefix KV cache key from context digest
+        // This key uniquely identifies the prefix for caching
+        let prefix_kv_key = B3Hash::from_bytes(context_digest);
+
+        // Check for prefix KV cache hit (metrics tracking)
+        // Note: Actual KV tensor reuse requires kernel-level integration (follow-up work)
+        let prefix_cache_entry = self.prefix_kv_cache.get(&prefix_kv_key);
+        let prefix_cache_hit = prefix_cache_entry.is_some();
+        let (prefix_cached_token_count, prefix_kv_bytes) =
+            if let Some(ref entry) = prefix_cache_entry {
+                entry.record_access();
+                (entry.prefix_cached_token_count, entry.kv_bytes)
+            } else {
+                (0, 0)
+            };
+
+        if prefix_cache_hit {
+            tracing::debug!(
+                key = %prefix_kv_key.to_hex()[..16],
+                cached_tokens = prefix_cached_token_count,
+                kv_bytes = prefix_kv_bytes,
+                "Prefix KV cache hit (metrics only - KV reuse pending kernel integration)"
+            );
+        }
+
         let trace_id = Uuid::now_v7().to_string();
 
         let mut trace_sink = if let Some(trace_db) = self.trace_db.as_mut() {
@@ -3285,7 +2757,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             let output_token_ids = self.tokenizer.encode(&generation_result.text)?;
             let logical_prompt_tokens: u32 = prompt_tokens.len().try_into().unwrap_or(u32::MAX);
             let logical_output_tokens: u32 = output_token_ids.len().try_into().unwrap_or(u32::MAX);
-            let prefix_cached_token_count: u32 = 0;
+            // PRD-01: Use prefix_cached_token_count from PrefixKvCache lookup
             let billed_input_tokens =
                 logical_prompt_tokens.saturating_sub(prefix_cached_token_count);
             let billed_output_tokens = logical_output_tokens;
@@ -3399,9 +2871,10 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                         kv_evictions: 0,
                         kv_residency_policy_id: None,
                         kv_quota_enforced: false,
-                        prefix_kv_key_b3: None,
-                        prefix_cache_hit: false,
-                        prefix_kv_bytes: 0,
+                        // PRD-01: Wired from PrefixKvCache lookup
+                        prefix_kv_key_b3: Some(prefix_kv_key),
+                        prefix_cache_hit,
+                        prefix_kv_bytes,
                         model_cache_identity_v2_digest_b3: Some(model_cache_identity_v2_digest),
                         attestation: None,
                     })
@@ -3434,9 +2907,10 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                             kv_evictions: 0,
                             kv_residency_policy_id: None,
                             kv_quota_enforced: false,
-                            prefix_kv_key_b3: None,
-                            prefix_cache_hit: false,
-                            prefix_kv_bytes: 0,
+                            // PRD-01: Wired from PrefixKvCache lookup
+                            prefix_kv_key_b3: Some(prefix_kv_key),
+                            prefix_cache_hit,
+                            prefix_kv_bytes,
                             model_cache_identity_v2_digest_b3: receipt
                                 .model_cache_identity_v2_digest_b3,
                         });
@@ -4012,8 +3486,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
 
         let logical_prompt_tokens: u32 = prompt_tokens.len().try_into().unwrap_or(u32::MAX);
         let logical_output_tokens: u32 = generated_tokens.len().try_into().unwrap_or(u32::MAX);
-        // TODO(PRD-01): replace with PrefixKvCache-derived reuse once available.
-        let prefix_cached_token_count: u32 = 0;
+        // PRD-01: Use prefix_cached_token_count from PrefixKvCache lookup (computed earlier in generate())
         let billed_input_tokens = logical_prompt_tokens.saturating_sub(prefix_cached_token_count);
         let billed_output_tokens = logical_output_tokens;
         let token_usage = TokenUsage {
@@ -4044,10 +3517,10 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                     kv_evictions: 0,
                     kv_residency_policy_id: None,
                     kv_quota_enforced: false,
-                    // TODO(PRD-01): Wire up from PrefixKvCache
-                    prefix_kv_key_b3: None,
-                    prefix_cache_hit: false,
-                    prefix_kv_bytes: 0,
+                    // PRD-01: Wired from PrefixKvCache lookup
+                    prefix_kv_key_b3: Some(prefix_kv_key),
+                    prefix_cache_hit,
+                    prefix_kv_bytes,
                     // PRD-06: Model cache identity v2 digest
                     model_cache_identity_v2_digest_b3: Some(model_cache_identity_v2_digest),
                     attestation: determinism_attestation.clone(),
@@ -4081,10 +3554,10 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                         kv_evictions: 0,
                         kv_residency_policy_id: None,
                         kv_quota_enforced: false,
-                        // TODO(PRD-01): Wire up from PrefixKvCache
-                        prefix_kv_key_b3: None,
-                        prefix_cache_hit: false,
-                        prefix_kv_bytes: 0,
+                        // PRD-01: Wired from PrefixKvCache lookup
+                        prefix_kv_key_b3: Some(prefix_kv_key),
+                        prefix_cache_hit,
+                        prefix_kv_bytes,
                         // PRD-06: Model cache identity v2 digest (from receipt)
                         model_cache_identity_v2_digest_b3: receipt
                             .model_cache_identity_v2_digest_b3,
@@ -4207,6 +3680,15 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
     // - adapter_operations.rs: execute_adapter_command, verify_gpu_integrity
     // - worker_utilities.rs: compute_embedding, generate_plan_id, etc.
     // - training_management.rs: training job management methods
+
+    /// Get GPU memory report from the underlying kernel backend.
+    ///
+    /// Returns memory pool statistics, adapter allocations, and VRAM usage.
+    /// Used by capacity handlers to expose real GPU metrics instead of hardcoded values.
+    pub async fn memory_report(&self) -> Option<adapteros_lora_kernel_api::GpuMemoryReportData> {
+        let kernels = self.kernels.lock().await;
+        kernels.memory_report()
+    }
 
     /// Flush trace buffers and persist state
     pub async fn flush(&self) -> Result<()> {

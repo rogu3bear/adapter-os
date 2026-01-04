@@ -185,24 +185,23 @@ pub async fn get_capacity(
 
 /// Get VRAM information from worker if available
 ///
-/// **LIMITATION (PRD G3):** Worker doesn't expose a public `memory_report()` method.
-/// The kernels (Metal/MLX/CoreML) have `memory_report()` but it's wrapped in private `Arc<Mutex<K>>`.
-/// TODO: Add `pub fn memory_report(&self) -> GpuMemoryReport` to Worker struct.
+/// Queries the Worker's kernel backend for real GPU memory metrics.
+/// Falls back to defaults if worker is unavailable or doesn't support memory reporting.
 async fn get_vram_info(state: &AppState) -> (u64, u64) {
-    // Try to get VRAM info from worker's kernel backend
-    if let Some(ref worker_mutex) = state.worker {
-        let worker = worker_mutex.lock().await;
-        // NOTE: Worker.kernels is private, so we can't access memory_report() directly.
-        // The kernel backends (MetalKernels, MLXKernels, CoreMLKernels) all implement
-        // FusedKernels trait with memory_report() -> GpuMemoryReport, but Worker doesn't
-        // expose a public method to access it.
-        //
-        // For now, return defaults. When Worker exposes memory_report(), update this to:
-        // let report = worker.memory_report();
-        // (report.adapter_vram_total, report.pool_stats.allocated_bytes)
-
-        debug!("Worker available but VRAM tracking requires Worker.memory_report() method - using defaults");
-        (8 * 1024 * 1024 * 1024, 0) // 8GB total, 0 used (placeholder until Worker exposes memory_report)
+    // Check if worker is available
+    if let Some(ref worker_handle) = state.worker {
+        let worker = worker_handle.lock().await;
+        if let Some(report) = worker.memory_report().await {
+            debug!(
+                total_gpu_bytes = report.total_gpu_bytes,
+                used_gpu_bytes = report.used_gpu_bytes,
+                adapter_count = report.adapter_count,
+                "Retrieved GPU memory report from worker"
+            );
+            return (report.total_gpu_bytes, report.used_gpu_bytes);
+        }
+        debug!("Worker available but memory_report() returned None - using defaults");
+        (8 * 1024 * 1024 * 1024, 0) // 8GB total, 0 used (fallback)
     } else {
         debug!("Worker not available - using VRAM defaults");
         (8 * 1024 * 1024 * 1024, 0) // 8GB total, 0 used
@@ -237,27 +236,25 @@ pub async fn get_memory_report(
         100.0
     };
 
-    // Get per-adapter memory usage from database or worker
-    // For now, we'll query the database for adapter load states and estimate memory usage
-    let per_adapter_usage = match state.db.count_adapters_by_load_state().await {
-        Ok(adapter_states) => {
-            // Filter for loaded adapters and create usage entries
-            // TODO: Get actual memory usage from worker when Worker.memory_report() is available
-            adapter_states
+    // Get per-adapter memory usage from worker's memory report
+    let per_adapter_usage: Vec<AdapterMemoryUsage> = if let Some(ref worker_handle) = state.worker {
+        let worker = worker_handle.lock().await;
+        if let Some(report) = worker.memory_report().await {
+            report
+                .adapter_allocations
                 .into_iter()
-                .filter(|(state, _)| {
-                    matches!(state.as_str(), "loaded" | "warm" | "hot" | "resident")
-                })
-                .map(|(adapter_id, _count)| AdapterMemoryUsage {
-                    adapter_id,
-                    memory_bytes: 0, // Placeholder - will be populated when worker exposes memory_report
+                .map(|(adapter_id, memory_bytes)| AdapterMemoryUsage {
+                    adapter_id: adapter_id.to_string(),
+                    memory_bytes,
                 })
                 .collect()
-        }
-        Err(e) => {
-            debug!("Failed to query adapter load states: {}", e);
+        } else {
+            debug!("Worker available but memory_report() returned None - no per-adapter usage");
             vec![]
         }
+    } else {
+        debug!("Worker not available - no per-adapter usage available");
+        vec![]
     };
 
     Ok(Json(MemoryReportResponse {

@@ -295,33 +295,33 @@ mod tests {
         let format = detect_format(&zip_path).unwrap();
         assert_eq!(format, FormatVersion::ZipV1);
         
-        // Test AOS 2.0 format detection
-        let aos2_path = temp_dir.path().join("test.aos2");
-        use crate::aos2_packager::Aos2Packager;
-        Aos2Packager::save(&adapter, &aos2_path).await.unwrap();
-        
-        let format = detect_format(&aos2_path).unwrap();
+        // Test AOS format detection
+        let aos_path = temp_dir.path().join("test.aos");
+        use crate::aos2_packager::AosPackager;
+        AosPackager::save(&adapter, &aos_path).await.unwrap();
+
+        let format = detect_format(&aos_path).unwrap();
         assert_eq!(format, FormatVersion::AosV2);
     }
 
     #[tokio::test]
-    async fn test_aos2_create_and_load() {
+    async fn test_aos_create_and_load() {
         let temp_dir = new_test_tempdir();
-        let aos2_path = temp_dir.path().join("test.aos2");
-        
+        let aos_path = temp_dir.path().join("test.aos");
+
         // Create test adapter
         let adapter = create_test_adapter();
-        
-        // Save to AOS 2.0 format
-        use crate::aos2_packager::Aos2Packager;
-        Aos2Packager::save(&adapter, &aos2_path).await.unwrap();
-        
-        // Load from AOS 2.0 file (should auto-detect format)
-        let loaded = SingleFileAdapterLoader::load(&aos2_path).await.unwrap();
-        
+
+        // Save to AOS format
+        use crate::aos2_packager::AosPackager;
+        AosPackager::save(&adapter, &aos_path).await.unwrap();
+
+        // Load from AOS file (should auto-detect format)
+        let loaded = SingleFileAdapterLoader::load(&aos_path).await.unwrap();
+
         // Verify integrity
         assert!(loaded.verify().unwrap());
-        
+
         // Verify contents
         assert_eq!(adapter.manifest.adapter_id, loaded.manifest.adapter_id);
         assert_eq!(adapter.weights.positive.lora_a, loaded.weights.positive.lora_a);
@@ -332,29 +332,29 @@ mod tests {
     async fn test_format_conversion() {
         let temp_dir = new_test_tempdir();
         let zip_path = temp_dir.path().join("test.zip.aos");
-        let aos2_path = temp_dir.path().join("test.aos2");
-        
+        let aos_path = temp_dir.path().join("test.aos");
+
         // Create ZIP format adapter
         let adapter = create_test_adapter();
         SingleFileAdapterPackager::save(&adapter, &zip_path).await.unwrap();
-        
+
         // Load ZIP adapter
         let zip_adapter = SingleFileAdapterLoader::load(&zip_path).await.unwrap();
-        
-        // Convert to AOS 2.0
-        use crate::aos2_packager::Aos2Packager;
-        Aos2Packager::save(&zip_adapter, &aos2_path).await.unwrap();
-        
-        // Load AOS 2.0 adapter
-        let aos2_adapter = SingleFileAdapterLoader::load(&aos2_path).await.unwrap();
-        
+
+        // Convert to AOS format
+        use crate::aos2_packager::AosPackager;
+        AosPackager::save(&zip_adapter, &aos_path).await.unwrap();
+
+        // Load AOS adapter
+        let aos_adapter = SingleFileAdapterLoader::load(&aos_path).await.unwrap();
+
         // Verify both produce identical data
-        assert_eq!(zip_adapter.manifest.adapter_id, aos2_adapter.manifest.adapter_id);
-        assert_eq!(zip_adapter.weights.positive.lora_a, aos2_adapter.weights.positive.lora_a);
-        assert_eq!(zip_adapter.training_data.len(), aos2_adapter.training_data.len());
+        assert_eq!(zip_adapter.manifest.adapter_id, aos_adapter.manifest.adapter_id);
+        assert_eq!(zip_adapter.weights.positive.lora_a, aos_adapter.weights.positive.lora_a);
+        assert_eq!(zip_adapter.training_data.len(), aos_adapter.training_data.len());
         
         // Both should verify
         assert!(zip_adapter.verify().unwrap());
-        assert!(aos2_adapter.verify().unwrap());
+        assert!(aos_adapter.verify().unwrap());
     }
 }

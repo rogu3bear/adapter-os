@@ -4,10 +4,16 @@
 //! - Text encoding to token IDs
 //! - Token ID decoding to text
 //! - Chat template formatting
-//! - BOS/EOS token handling
+//! - BOS/EOS token handling (via SpecialTokenMap)
 //! - UTF-8 validation
+//!
+//! # Token Loading
+//!
+//! Special token IDs are loaded from the model directory using `SpecialTokenMap`,
+//! which reads from `tokenizer_config.json` or `tokenizer.json`. NO hardcoded
+//! fallback values are used - loading fails if EOS token cannot be resolved.
 
-use adapteros_core::{AosError, Result};
+use adapteros_core::{AosError, Result, SpecialTokenMap};
 use std::path::Path;
 use tokenizers::Tokenizer;
 
@@ -19,10 +25,8 @@ use tokenizers::Tokenizer;
 pub struct MLXTokenizer {
     /// Underlying tokenizers library instance
     tokenizer: Tokenizer,
-    /// Beginning of sequence token ID (usually 0 or <bos>)
-    bos_token_id: Option<u32>,
-    /// End of sequence token ID (usually 151645 for Qwen or 2 for Llama)
-    eos_token_id: u32,
+    /// Special token map loaded from model directory
+    special_tokens: SpecialTokenMap,
 }
 
 impl MLXTokenizer {
@@ -34,9 +38,10 @@ impl MLXTokenizer {
     /// # Returns
     /// Loaded tokenizer ready for encoding/decoding
     ///
-    /// # Notes
-    /// Attempts to auto-detect BOS/EOS tokens from the tokenizer configuration.
-    /// Falls back to common defaults if not found.
+    /// # Errors
+    /// Returns error if:
+    /// - Tokenizer file cannot be read or parsed
+    /// - EOS token cannot be resolved from tokenizer config
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
         let tokenizer = Tokenizer::from_file(path).map_err(|e| {
@@ -47,49 +52,24 @@ impl MLXTokenizer {
             ))
         })?;
 
-        // Try to extract special token IDs from the tokenizer
-        let mut bos_token_id = None;
-        let mut eos_token_id = 151645; // Default Qwen2.5 EOS
-
-        // Check for common EOS tokens
-        let eos_candidates = [
-            "<|endoftext|>",
-            "<|im_end|>",
-            "</s>",
-            "<eos>",
-            "[EOS]",
-            "<|end|>",
-        ];
-        for token in &eos_candidates {
-            if let Some(id) = tokenizer.token_to_id(token) {
-                eos_token_id = id;
-                tracing::debug!(token = token, id = id, "Found EOS token");
-                break;
-            }
-        }
-
-        // Check for common BOS tokens
-        let bos_candidates = ["<|startoftext|>", "<|im_start|>", "<s>", "<bos>", "[BOS]"];
-        for token in &bos_candidates {
-            if let Some(id) = tokenizer.token_to_id(token) {
-                bos_token_id = Some(id);
-                tracing::debug!(token = token, id = id, "Found BOS token");
-                break;
-            }
-        }
+        // Load special tokens from model directory (parent of tokenizer.json)
+        // NO hardcoded fallbacks - fail if EOS cannot be resolved
+        let model_dir = path.parent().unwrap_or(Path::new("."));
+        let special_tokens = SpecialTokenMap::from_model_dir(model_dir)?;
 
         tracing::info!(
             vocab_size = tokenizer.get_vocab_size(false),
-            eos_token_id = eos_token_id,
-            bos_token_id = ?bos_token_id,
+            eos_token_id = special_tokens.eos_token_id,
+            bos_token_id = ?special_tokens.bos_token_id,
+            im_start_id = ?special_tokens.im_start_id,
+            im_end_id = ?special_tokens.im_end_id,
             path = %path.display(),
-            "Tokenizer loaded successfully"
+            "Tokenizer loaded successfully with SpecialTokenMap"
         );
 
         Ok(Self {
             tokenizer,
-            bos_token_id,
-            eos_token_id,
+            special_tokens,
         })
     }
 
@@ -116,26 +96,37 @@ impl MLXTokenizer {
         Self::from_file(&tokenizer_path)
     }
 
-    /// Create tokenizer with custom EOS token ID
+    /// Create tokenizer with custom special tokens
     ///
     /// # Arguments
     /// * `tokenizer` - Loaded tokenizers::Tokenizer instance
-    /// * `eos_token_id` - End of sequence token ID
+    /// * `special_tokens` - Special token configuration
     ///
     /// # Returns
     /// Configured tokenizer
-    pub fn new(tokenizer: Tokenizer, eos_token_id: u32) -> Self {
+    pub fn new(tokenizer: Tokenizer, special_tokens: SpecialTokenMap) -> Self {
         Self {
             tokenizer,
-            bos_token_id: None,
-            eos_token_id,
+            special_tokens,
         }
     }
 
-    /// Set BOS token ID
-    pub fn with_bos_token(mut self, bos_token_id: u32) -> Self {
-        self.bos_token_id = Some(bos_token_id);
-        self
+    /// Create tokenizer with just EOS token (for testing)
+    #[cfg(test)]
+    pub(crate) fn new_with_eos(tokenizer: Tokenizer, eos_token_id: u32) -> Self {
+        use adapteros_core::tokenizer_config::TokenMapSource;
+        Self {
+            tokenizer,
+            special_tokens: SpecialTokenMap {
+                eos_token_id,
+                bos_token_id: None,
+                pad_token_id: None,
+                unk_token_id: None,
+                im_start_id: None,
+                im_end_id: Some(eos_token_id),
+                source: TokenMapSource::Unknown,
+            },
+        }
     }
 
     /// Encode text to token IDs
@@ -165,7 +156,7 @@ impl MLXTokenizer {
         let mut tokens = self.encode(text)?;
 
         // Prepend BOS token if configured
-        if let Some(bos_id) = self.bos_token_id {
+        if let Some(bos_id) = self.special_tokens.bos_token_id {
             tokens.insert(0, bos_id);
         }
 
@@ -196,12 +187,17 @@ impl MLXTokenizer {
 
     /// Get EOS token ID
     pub fn eos_token_id(&self) -> u32 {
-        self.eos_token_id
+        self.special_tokens.eos_token_id
     }
 
     /// Get BOS token ID if configured
     pub fn bos_token_id(&self) -> Option<u32> {
-        self.bos_token_id
+        self.special_tokens.bos_token_id
+    }
+
+    /// Get the special token map
+    pub fn special_tokens(&self) -> &SpecialTokenMap {
+        &self.special_tokens
     }
 
     /// Get vocabulary size
@@ -318,24 +314,35 @@ mod tests {
     #[test]
     fn test_tokenizer_creation() {
         let tokenizer = Tokenizer::new(tokenizers::models::bpe::BPE::default());
-        let mlx_tokenizer = MLXTokenizer::new(tokenizer, 151645);
+        let mlx_tokenizer = MLXTokenizer::new_with_eos(tokenizer, 151645);
 
         assert_eq!(mlx_tokenizer.eos_token_id(), 151645);
         assert_eq!(mlx_tokenizer.bos_token_id(), None);
     }
 
     #[test]
-    fn test_tokenizer_with_bos() {
+    fn test_tokenizer_with_special_tokens() {
+        use adapteros_core::tokenizer_config::TokenMapSource;
         let tokenizer = Tokenizer::new(tokenizers::models::bpe::BPE::default());
-        let mlx_tokenizer = MLXTokenizer::new(tokenizer, 151645).with_bos_token(1);
+        let special_tokens = SpecialTokenMap {
+            eos_token_id: 151645,
+            bos_token_id: Some(1),
+            pad_token_id: None,
+            unk_token_id: None,
+            im_start_id: Some(151644),
+            im_end_id: Some(151645),
+            source: TokenMapSource::Unknown,
+        };
+        let mlx_tokenizer = MLXTokenizer::new(tokenizer, special_tokens);
 
+        assert_eq!(mlx_tokenizer.eos_token_id(), 151645);
         assert_eq!(mlx_tokenizer.bos_token_id(), Some(1));
     }
 
     #[test]
     fn test_chat_template_formatting() {
         let tokenizer = Tokenizer::new(tokenizers::models::bpe::BPE::default());
-        let mlx_tokenizer = MLXTokenizer::new(tokenizer, 151645);
+        let mlx_tokenizer = MLXTokenizer::new_with_eos(tokenizer, 151645);
 
         let formatted = mlx_tokenizer.apply_chat_template("What is 2+2?");
         assert!(formatted.contains("<|im_start|>system"));

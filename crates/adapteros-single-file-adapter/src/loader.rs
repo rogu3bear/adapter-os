@@ -2,7 +2,7 @@
 
 use super::format::*;
 use super::training::{TrainingConfig, TrainingExample};
-use crate::aos2_format::Aos2Adapter;
+use crate::aos2_format::AosAdapter;
 use crate::format_detector::{detect_format, FormatVersion};
 use crate::weights::{WeightGroupDiskInfo, WeightGroupsManifest};
 use adapteros_core::{AosError, Result};
@@ -331,8 +331,8 @@ impl SingleFileAdapterLoader {
 
     /// Load AOS 2.0 format adapter
     async fn load_aos2_format(path: &Path, options: LoadOptions) -> Result<SingleFileAdapter> {
-        let aos2_adapter = Aos2Adapter::load(path)?;
-        let adapter_arc = aos2_adapter.to_single_file_adapter()?;
+        let aos_adapter = AosAdapter::load(path)?;
+        let adapter_arc = aos_adapter.to_single_file_adapter()?;
         let mut adapter = (*adapter_arc).clone();
 
         // Apply verification semantics

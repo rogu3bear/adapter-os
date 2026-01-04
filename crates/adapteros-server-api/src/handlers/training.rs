@@ -26,12 +26,16 @@ use axum::{
     extract::State,
     extract::{Extension, Path, Query},
     http::StatusCode,
+    response::sse::{Event, KeepAlive, Sse},
     response::Json,
 };
 use blake3::Hasher;
 use chrono::Utc;
+use futures_util::stream::{self, Stream};
 use serde::Deserialize;
+use std::convert::Infallible;
 use std::sync::Arc;
+use std::time::Duration;
 use tracing::{error, info, warn};
 use utoipa::IntoParams;
 use uuid::Uuid;
@@ -244,6 +248,7 @@ pub async fn list_training_jobs(
                     started_at: Some(record.started_at),
                     completed_at: record.completed_at,
                     error_message: None,
+                    error_code: None,
                     artifact_path: record.artifact_path,
                     adapter_id: record.adapter_id,
                     weights_hash_b3: record.weights_hash_b3,
@@ -281,6 +286,7 @@ pub async fn list_training_jobs(
                     coreml_metadata_path: None,
                     coreml_base_manifest_hash: None,
                     coreml_adapter_hash_b3: None,
+                    coreml_fusion_verified: None,
                     determinism_mode: None,
                     training_seed: None,
                     seed_inputs_json: None,
@@ -3048,4 +3054,283 @@ pub async fn create_training_session(
 ) -> Result<Json<TrainingJobResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Delegate to create_training_job
     create_training_job(State(state), Extension(claims), Json(req)).await
+}
+
+/// Training progress event for SSE streaming
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TrainingProgressEvent {
+    pub epoch: u32,
+    pub loss: f32,
+    pub tokens_processed: Option<i64>,
+    pub status: String,
+    pub progress_pct: f32,
+}
+
+/// Stream real-time training progress for a job
+///
+/// Provides an SSE stream of training progress updates including epoch,
+/// loss, tokens processed, and status. The stream terminates when the
+/// job reaches a terminal state (completed, failed, or cancelled).
+#[utoipa::path(
+    tag = "training",
+    get,
+    path = "/v1/training/jobs/{job_id}/progress",
+    params(
+        ("job_id" = String, Path, description = "Training job ID")
+    ),
+    responses(
+        (status = 200, description = "SSE stream of training progress"),
+        (status = 403, description = "Access denied", body = ErrorResponse),
+        (status = 404, description = "Training job not found", body = ErrorResponse)
+    )
+)]
+pub async fn stream_training_progress(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(job_id): Path<String>,
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::TrainingView)?;
+
+    // Validate job exists and user has access
+    let job = state
+        .db
+        .get_training_job(&job_id)
+        .await
+        .map_err(|e| {
+            error!(job_id = %job_id, error = %e, "Failed to get training job for progress stream");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to get training job")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new(format!("Training job not found: {}", job_id))
+                        .with_code("NOT_FOUND"),
+                ),
+            )
+        })?;
+
+    // Validate tenant isolation
+    if let Some(ref job_tenant_id) = job.tenant_id {
+        validate_tenant_isolation(&claims, job_tenant_id)?;
+    } else if claims.role != "admin" {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse::new("Access denied to training job").with_code("FORBIDDEN")),
+        ));
+    }
+
+    info!(job_id = %job_id, "Starting training progress SSE stream");
+
+    // Create SSE stream
+    let stream = stream::unfold((state, job_id), |(state, job_id)| async move {
+        // Poll interval
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        // Get latest job state
+        let job = match state.db.get_training_job(&job_id).await {
+            Ok(Some(job)) => job,
+            Ok(None) => {
+                // Job was deleted - end stream
+                let event = Event::default().event("error").data("Job not found");
+                return Some((Ok(event), (state, job_id)));
+            }
+            Err(e) => {
+                warn!(job_id = %job_id, error = %e, "Failed to get training job in progress stream");
+                let event = Event::default()
+                    .event("error")
+                    .data(format!("Database error: {}", e));
+                return Some((Ok(event), (state, job_id)));
+            }
+        };
+
+        let status = job.status.to_lowercase();
+
+        // Parse progress data from JSON
+        let progress_data: Option<serde_json::Value> =
+            serde_json::from_str(&job.progress_json).ok();
+
+        let current_epoch = progress_data
+            .as_ref()
+            .and_then(|p| p.get("current_epoch"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
+
+        let current_loss = progress_data
+            .as_ref()
+            .and_then(|p| p.get("current_loss"))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0) as f32;
+
+        let tokens_processed = progress_data
+            .as_ref()
+            .and_then(|p| p.get("tokens_processed"))
+            .and_then(|v| v.as_i64());
+
+        let progress_pct = progress_data
+            .as_ref()
+            .and_then(|p| p.get("progress_pct"))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0) as f32;
+
+        let progress_event = TrainingProgressEvent {
+            epoch: current_epoch,
+            loss: current_loss,
+            tokens_processed,
+            status: status.clone(),
+            progress_pct,
+        };
+
+        let event_data = serde_json::to_string(&progress_event).unwrap_or_default();
+        let event = Event::default().event("progress").data(event_data);
+
+        // Check if job is in terminal state
+        if status == "completed" || status == "failed" || status == "cancelled" {
+            // Send final event and terminate
+            return None;
+        }
+
+        Some((Ok(event), (state, job_id)))
+    });
+
+    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
+}
+
+/// Batch training job status response
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct BatchTrainingJobStatus {
+    pub job_id: String,
+    pub status: String,
+    pub progress_pct: f32,
+    pub current_epoch: u32,
+    pub total_epochs: u32,
+    pub current_loss: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<String>,
+}
+
+/// Batch status request body
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct BatchStatusRequest {
+    pub job_ids: Vec<String>,
+}
+
+/// Batch status response body
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct BatchStatusResponse {
+    pub schema_version: String,
+    pub jobs: Vec<BatchTrainingJobStatus>,
+}
+
+/// Get batch status for multiple training jobs
+///
+/// Retrieves status information for multiple training jobs in a single request.
+/// Only jobs accessible to the authenticated user are returned.
+#[utoipa::path(
+    tag = "training",
+    post,
+    path = "/v1/training/jobs/batch-status",
+    request_body = BatchStatusRequest,
+    responses(
+        (status = 200, description = "Batch training job statuses", body = BatchStatusResponse),
+        (status = 400, description = "Invalid request", body = ErrorResponse)
+    )
+)]
+pub async fn batch_training_status(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(request): Json<BatchStatusRequest>,
+) -> Result<Json<BatchStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::TrainingView)?;
+
+    let job_ids = request.job_ids;
+
+    if job_ids.is_empty() {
+        return Ok(Json(BatchStatusResponse {
+            schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+            jobs: vec![],
+        }));
+    }
+
+    if job_ids.len() > 100 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse::new("Too many job IDs (max 100)").with_code("INVALID_REQUEST")),
+        ));
+    }
+
+    let mut statuses = Vec::with_capacity(job_ids.len());
+
+    for job_id in job_ids {
+        match state.db.get_training_job(&job_id).await {
+            Ok(Some(job)) => {
+                // Validate tenant access
+                let has_access = match &job.tenant_id {
+                    Some(tenant_id) => claims.role == "admin" || tenant_id == &claims.tenant_id,
+                    None => claims.role == "admin",
+                };
+
+                if has_access {
+                    // Parse progress data from JSON
+                    let progress_data: Option<serde_json::Value> =
+                        serde_json::from_str(&job.progress_json).ok();
+
+                    let current_epoch = progress_data
+                        .as_ref()
+                        .and_then(|p| p.get("current_epoch"))
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0) as u32;
+
+                    let current_loss = progress_data
+                        .as_ref()
+                        .and_then(|p| p.get("current_loss"))
+                        .and_then(|v| v.as_f64())
+                        .unwrap_or(0.0) as f32;
+
+                    let progress_pct = progress_data
+                        .as_ref()
+                        .and_then(|p| p.get("progress_pct"))
+                        .and_then(|v| v.as_f64())
+                        .unwrap_or(0.0) as f32;
+
+                    // Parse training config for total epochs
+                    let config: adapteros_types::training::TrainingConfig =
+                        serde_json::from_str(&job.training_config_json).unwrap_or_default();
+
+                    statuses.push(BatchTrainingJobStatus {
+                        job_id: job.id,
+                        status: job.status.to_lowercase(),
+                        progress_pct,
+                        current_epoch,
+                        total_epochs: config.epochs as u32,
+                        current_loss,
+                        error_message: None, // Error message not stored in progress_json
+                        completed_at: job.completed_at,
+                    });
+                }
+                // If no access, simply skip this job (don't reveal existence)
+            }
+            Ok(None) => {
+                // Job not found - skip silently
+            }
+            Err(e) => {
+                warn!(job_id = %job_id, error = %e, "Failed to get training job in batch status");
+                // Skip errored jobs
+            }
+        }
+    }
+
+    Ok(Json(BatchStatusResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+        jobs: statuses,
+    }))
 }

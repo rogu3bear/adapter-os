@@ -606,10 +606,14 @@ pub fn get_tokenizer_path() -> Result<PathBuf> {
 
     Err(AosError::Config(format!(
         "Tokenizer not found. To fix:\n\
-         1. Set AOS_TOKENIZER_PATH to the path of your tokenizer.json file, or\n\
+         1. Set AOS_TOKENIZER_PATH to your tokenizer.json file, or\n\
          2. Ensure tokenizer.json exists in your model directory{}\n\
          \n\
-         Example: export AOS_TOKENIZER_PATH=./var/models/Qwen2.5-7B-Instruct-4bit/tokenizer.json",
+         Known working tokenizers:\n\
+         - Qwen2.5-7B-Instruct: ./var/models/Qwen2.5-7B-Instruct/tokenizer.json\n\
+         - Llama-3-8B: ./var/models/Llama-3-8B/tokenizer.json\n\
+         \n\
+         Example: export AOS_TOKENIZER_PATH=./var/models/Qwen2.5-7B-Instruct/tokenizer.json",
         model_path_hint
     )))
 }

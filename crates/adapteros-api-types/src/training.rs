@@ -530,6 +530,10 @@ pub struct TrainingJobResponse {
     pub started_at: Option<String>,
     pub completed_at: Option<String>,
     pub error_message: Option<String>,
+    /// Structured error code for failed jobs (e.g., "TRAIN_E101_GPU_OOM").
+    /// Use `aosctl explain <code>` for remediation guidance.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<String>,
     pub estimated_completion: Option<String>,
 
     // Backend and determinism
@@ -561,6 +565,14 @@ pub struct TrainingJobResponse {
     pub coreml_base_manifest_hash: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub coreml_adapter_hash_b3: Option<String>,
+    /// Whether the CoreML export used fusion verification.
+    /// If false, the package may be stub/metadata-only and not production-ready.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coreml_fusion_verified: Option<bool>,
+    /// Warning messages related to training or export.
+    /// Populated when there are non-fatal issues that users should be aware of.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub determinism_mode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -700,6 +712,30 @@ impl From<TrainingJob> for TrainingJobResponse {
         let artifact_path = aos_path.clone();
         let artifact_hash_b3 = package_hash_b3.clone();
 
+        // Compute warnings before struct initialization to avoid borrow issues
+        let warnings = {
+            let mut warnings = Vec::new();
+            // Add warning if CoreML export was requested but fusion was not verified
+            if job.coreml_export_requested == Some(true)
+                && job.coreml_fusion_verified == Some(false)
+            {
+                warnings.push(
+                    "CoreML export was stubbed - package may not be functional. \
+                     Run on macOS with --features coreml-backend for production use."
+                        .to_string(),
+                );
+            }
+            // Add warning if CoreML export status indicates metadata-only
+            if job.coreml_export_status.as_deref() == Some("metadata_only") {
+                warnings.push(
+                    "CoreML package is metadata-only (fused manifest matches base). \
+                     This may indicate stub mode was used."
+                        .to_string(),
+                );
+            }
+            warnings
+        };
+
         Self {
             schema_version: schema_version(),
             id: job.id,
@@ -780,6 +816,7 @@ impl From<TrainingJob> for TrainingJobResponse {
             started_at: job.started_at,
             completed_at: job.completed_at,
             error_message: job.error_message,
+            error_code: job.error_code,
             estimated_completion: None, // Calculate if needed
             // Backend/determinism
             requested_backend: job.requested_backend,
@@ -789,13 +826,15 @@ impl From<TrainingJob> for TrainingJobResponse {
             backend_reason: job.backend_reason,
             backend_device: job.backend_device,
             coreml_export_requested: job.coreml_export_requested,
-            coreml_export_status: job.coreml_export_status,
             coreml_export_reason: job.coreml_export_reason,
             coreml_fused_package_hash: job.coreml_fused_package_hash,
             coreml_package_path: job.coreml_package_path,
             coreml_metadata_path: job.coreml_metadata_path,
             coreml_base_manifest_hash: job.coreml_base_manifest_hash,
             coreml_adapter_hash_b3: job.coreml_adapter_hash_b3,
+            coreml_fusion_verified: job.coreml_fusion_verified,
+            warnings,
+            coreml_export_status: job.coreml_export_status,
             determinism_mode: job.determinism_mode,
             training_seed: job.training_seed,
             seed_inputs_json: job.seed_inputs_json,

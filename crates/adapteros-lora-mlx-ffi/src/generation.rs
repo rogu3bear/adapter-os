@@ -63,9 +63,32 @@ impl GenerationConfig {
     pub fn sampling_strategy(&self) -> SamplingStrategy {
         SamplingStrategy::from_temperature(self.temperature)
     }
+
+    /// Create a new GenerationConfig with the specified EOS token ID.
+    ///
+    /// This is the preferred way to create a GenerationConfig as it ensures
+    /// the EOS token is explicitly provided from the model's special tokens.
+    pub fn with_eos_token(eos_token: u32) -> Self {
+        Self {
+            eos_token,
+            ..Default::default()
+        }
+    }
+
+    /// Set the EOS token ID (builder pattern)
+    pub fn eos_token(mut self, eos_token: u32) -> Self {
+        self.eos_token = eos_token;
+        self
+    }
 }
 
 impl Default for GenerationConfig {
+    /// Default configuration.
+    ///
+    /// **Warning**: The default `eos_token` value (0) is a placeholder.
+    /// You MUST set the correct EOS token from `SpecialTokenMap` before using
+    /// this configuration for generation. Use `GenerationConfig::with_eos_token()`
+    /// or `config.eos_token(id)` to set the correct value.
     fn default() -> Self {
         Self {
             max_tokens: 100,
@@ -73,7 +96,7 @@ impl Default for GenerationConfig {
             top_k: None,
             top_p: None,
             repetition_penalty: 1.0,
-            eos_token: 151645, // Qwen2.5 <|im_end|>
+            eos_token: 0, // MUST be overridden with value from SpecialTokenMap
             use_cache: true,
             kv_num_layers: None,
         }

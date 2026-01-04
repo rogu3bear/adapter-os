@@ -403,6 +403,11 @@ pub struct TrainingJob {
     #[serde(rename = "error_message", skip_serializing_if = "Option::is_none")]
     pub error_message: Option<String>,
 
+    /// Structured error code for failed jobs (e.g., "TRAIN_E101_GPU_OOM").
+    /// Use `aosctl explain <code>` for remediation guidance.
+    #[serde(rename = "error_code", skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<String>,
+
     /// Training hyperparameters
     #[serde(rename = "config")]
     pub config: TrainingConfig,
@@ -573,6 +578,13 @@ pub struct TrainingJob {
         skip_serializing_if = "Option::is_none"
     )]
     pub coreml_adapter_hash_b3: Option<String>,
+    /// Whether the CoreML export used fusion verification.
+    /// If false, the package may be stub/metadata-only and not production-ready.
+    #[serde(
+        rename = "coreml_fusion_verified",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub coreml_fusion_verified: Option<bool>,
     /// Determinism mode (e.g., hkdf_seeded, nondet_fallback)
     #[serde(rename = "determinism_mode", skip_serializing_if = "Option::is_none")]
     pub determinism_mode: Option<String>,
@@ -691,6 +703,7 @@ impl TrainingJob {
             started_at: None,
             completed_at: None,
             error_message: None,
+            error_code: None,
             config,
             artifact_path: None,
             adapter_id: None,
@@ -732,6 +745,7 @@ impl TrainingJob {
             coreml_metadata_path: None,
             coreml_base_manifest_hash: None,
             coreml_adapter_hash_b3: None,
+            coreml_fusion_verified: None,
             determinism_mode: None,
             training_seed: None,
             seed_inputs_json: None,

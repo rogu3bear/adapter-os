@@ -283,21 +283,25 @@ impl RotationDaemon {
     }
 
     /// Re-encrypt all DEKs with new KEK
+    ///
+    /// # STUB: CRYPTO-GAP-002
+    /// **Status**: NOT IMPLEMENTED - returns 0 without re-encrypting
+    ///
+    /// **Audit Impact**: Key rotation reports success but no DEKs are rotated.
+    /// Callers should NOT rely on this for actual key rotation until implemented.
+    ///
+    /// **Rectify Steps**:
+    /// 1. Query all DEKs from database via `CryptoStore`
+    /// 2. Decrypt each DEK with old KEK
+    /// 3. Re-encrypt each DEK with new KEK
+    /// 4. Atomic update to database with new encrypted DEKs
     async fn reencrypt_deks(&self, old_kek: &KeyHandle, new_kek: &KeyHandle) -> Result<usize> {
-        debug!(
+        // STUB: CRYPTO-GAP-002 - DEK re-encryption not implemented
+        warn!(
             old_kek = %old_kek.provider_id,
             new_kek = %new_kek.provider_id,
-            "Re-encrypting DEKs with new KEK"
+            "CRYPTO-GAP-002: DEK re-encryption stub - no actual rotation performed"
         );
-
-        // In a full implementation, this would:
-        // 1. Query all DEKs from database
-        // 2. Decrypt each DEK with old KEK
-        // 3. Re-encrypt each DEK with new KEK
-        // 4. Update database with new encrypted DEKs
-
-        // For now, return mock count
-        // TODO: Implement actual DEK re-encryption
         Ok(0)
     }
 

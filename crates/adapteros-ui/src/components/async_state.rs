@@ -8,6 +8,33 @@ use crate::components::{Badge, BadgeVariant, Spinner};
 use adapteros_api_types::FailureCode;
 use leptos::prelude::*;
 
+/// Breadcrumb item for navigation hierarchy
+#[derive(Debug, Clone)]
+pub struct Breadcrumb {
+    /// Display label for the breadcrumb
+    pub label: String,
+    /// Optional navigation href (None for current page)
+    pub href: Option<String>,
+}
+
+impl Breadcrumb {
+    /// Create a new breadcrumb with a link
+    pub fn new(label: impl Into<String>, href: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            href: Some(href.into()),
+        }
+    }
+
+    /// Create a breadcrumb for the current page (no link)
+    pub fn current(label: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            href: None,
+        }
+    }
+}
+
 /// Get the appropriate badge variant for a failure code
 fn failure_code_variant(code: FailureCode) -> BadgeVariant {
     use FailureCode::*;
@@ -181,7 +208,12 @@ pub fn ErrorDisplay(
 
                         {move || if details_expanded.get() {
                             let json_pretty = serde_json::to_string_pretty(&details_clone)
-                                .unwrap_or_else(|_| "Unable to format details".to_string());
+                                .unwrap_or_else(|e| {
+                                    format!(
+                                        "[Error: JSON formatting failed - {}. Raw value: {:?}]",
+                                        e, details_clone
+                                    )
+                                });
 
                             Some(view! {
                                 <div class="mt-3 rounded bg-muted/50 p-3 max-h-64 overflow-auto">
@@ -282,7 +314,7 @@ pub fn LoadingDisplay(
     }
 }
 
-/// Page header with title and optional actions
+/// Page header with title, breadcrumbs, and optional actions
 #[component]
 pub fn PageHeader(
     /// Page title
@@ -291,23 +323,72 @@ pub fn PageHeader(
     /// Optional subtitle/description
     #[prop(optional, into)]
     subtitle: Option<String>,
+    /// Optional breadcrumb navigation
+    #[prop(optional)]
+    breadcrumbs: Option<Vec<Breadcrumb>>,
     /// Optional action buttons (rendered on the right)
     #[prop(optional)]
     children: Option<Children>,
 ) -> impl IntoView {
     view! {
-        <div class="flex items-center justify-between">
-            <div>
-                <h1 class="text-3xl font-bold tracking-tight">{title}</h1>
-                {subtitle.map(|s| view! {
-                    <p class="text-muted-foreground mt-1">{s}</p>
+        <div class="page-header">
+            // Breadcrumb navigation
+            {breadcrumbs.map(|crumbs| {
+                view! {
+                    <nav class="page-header-breadcrumbs" aria-label="Breadcrumb">
+                        <ol class="page-header-breadcrumb-list">
+                            {crumbs.into_iter().enumerate().map(|(idx, crumb)| {
+                                let label = crumb.label.clone();
+                                let href = crumb.href.clone();
+
+                                view! {
+                                    <li class="page-header-breadcrumb-item">
+                                        {if idx > 0 {
+                                            Some(view! {
+                                                <span class="page-header-breadcrumb-separator" aria-hidden="true">
+                                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                                                    </svg>
+                                                </span>
+                                            })
+                                        } else {
+                                            None
+                                        }}
+                                        {if let Some(href) = href {
+                                            view! {
+                                                <a href=href class="page-header-breadcrumb-link">
+                                                    {label}
+                                                </a>
+                                            }.into_any()
+                                        } else {
+                                            view! {
+                                                <span class="page-header-breadcrumb-current" aria-current="page">
+                                                    {label}
+                                                </span>
+                                            }.into_any()
+                                        }}
+                                    </li>
+                                }
+                            }).collect::<Vec<_>>()}
+                        </ol>
+                    </nav>
+                }
+            })}
+
+            // Title and actions row
+            <div class="flex items-center justify-between">
+                <div>
+                    <h1 class="text-3xl font-bold tracking-tight">{title}</h1>
+                    {subtitle.map(|s| view! {
+                        <p class="text-muted-foreground mt-1">{s}</p>
+                    })}
+                </div>
+                {children.map(|c| view! {
+                    <div class="flex items-center gap-2">
+                        {c()}
+                    </div>
                 })}
             </div>
-            {children.map(|c| view! {
-                <div class="flex items-center gap-2">
-                    {c()}
-                </div>
-            })}
         </div>
     }
 }

@@ -35,6 +35,7 @@ fastrand = "2.0"
 parking_lot = { workspace = true }
 dashmap = "5.5"
 unicode-normalization = "0.1"
+tokenizers = { version = "0.15", default-features = false, features = ["onig"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
@@ -56,6 +57,27 @@ async = []
 coreml-backend = []
 multi-backend = []  # MLX primary with CoreML fallback
 evidence-signing = ["ed25519-dalek"]
+
+# Workspace feature passthroughs for build_info.rs
+# These are defined at workspace level and enabled via workspace dependencies
+deterministic-only = []
+telemetry = []
+metrics = []
+replay = []
+backend-mlx = []
+backend-coreml = []
+backend-metal = []
+impl-mlx-rs = []
+impl-mlx-bridge = []
+profile-production = []
+profile-development = []
+test-extended = []
+test-loom = []
+federation = []
+secure-enclave = []
+mlx = []
+metal-backend = []
+mlx-bridge = []
 
 [dependencies.utoipa]
 version = "5.4"

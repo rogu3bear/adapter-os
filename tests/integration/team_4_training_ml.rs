@@ -147,14 +147,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_masked_lm_dataset_fixture() {
-        let payload = fixtures::datasets::masked_lm_dataset();
-
-        assert_eq!(payload["strategy"], "masked_lm");
-        assert_eq!(payload["validation_status"], "valid");
-    }
-
-    #[tokio::test]
     async fn test_large_chunked_dataset_fixture() {
         let payload = fixtures::datasets::large_chunked_dataset();
 

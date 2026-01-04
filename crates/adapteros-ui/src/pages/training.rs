@@ -4,10 +4,11 @@
 
 use crate::api::ApiClient;
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonVariant, Card, Input, Spinner, Table, TableBody, TableCell,
-    TableHead, TableHeader, TableRow,
+    Badge, BadgeVariant, Button, ButtonVariant, Card, ConfirmationDialog, ConfirmationSeverity,
+    FormField, Input, Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, use_polling, LoadingState};
+use crate::validation::{rules, use_form_errors, validate_field, ValidationRule};
 use adapteros_api_types::TrainingJobResponse;
 use leptos::prelude::*;
 use std::sync::Arc;
@@ -304,6 +305,13 @@ fn TrainingJobDetail(
     // Cancel job handler
     let job_id_for_cancel = job_id.clone();
     let cancelling = RwSignal::new(false);
+    let show_cancel_confirm = RwSignal::new(false);
+
+    // Handle cancel dialog dismiss
+    let on_cancel_dismiss = Callback::new(move |_| {
+        // Reset cancelling state if user dismisses dialog during loading
+        cancelling.set(false);
+    });
 
     // Create the cancel callback outside the reactive closure
     let cancel_callback = Callback::new(move |_| {
@@ -312,8 +320,15 @@ fn TrainingJobDetail(
 
         wasm_bindgen_futures::spawn_local(async move {
             let client = ApiClient::new();
-            if client.cancel_training_job(&job_id).await.is_ok() {
-                on_cancelled();
+            match client.cancel_training_job(&job_id).await {
+                Ok(_) => {
+                    show_cancel_confirm.set(false);
+                    on_cancelled();
+                }
+                Err(_) => {
+                    // On error, close dialog - user can retry via UI
+                    show_cancel_confirm.set(false);
+                }
             }
             cancelling.set(false);
         });
@@ -359,7 +374,9 @@ fn TrainingJobDetail(
                             <JobDetailContent
                                 job=data
                                 cancelling=cancelling
+                                show_cancel_confirm=show_cancel_confirm
                                 on_cancel=cancel_callback
+                                on_cancel_dismiss=on_cancel_dismiss
                             />
                         }.into_any()
                     }
@@ -381,7 +398,9 @@ fn TrainingJobDetail(
 fn JobDetailContent(
     job: TrainingJobResponse,
     cancelling: RwSignal<bool>,
+    show_cancel_confirm: RwSignal<bool>,
     on_cancel: Callback<()>,
+    on_cancel_dismiss: Callback<()>,
 ) -> impl IntoView {
     // Clone values before view! to avoid move issues
     let status = job.status.clone();
@@ -405,8 +424,7 @@ fn JobDetailContent(
                     {can_cancel.then(|| view! {
                         <Button
                             variant=ButtonVariant::Destructive
-                            loading=cancelling.get()
-                            on_click=on_cancel
+                            on_click=Callback::new(move |_| show_cancel_confirm.set(true))
                         >
                             "Cancel Job"
                         </Button>
@@ -528,6 +546,18 @@ fn JobDetailContent(
                 <LogViewer job_id=job_id_for_logs/>
             </Card>
         })}
+
+        // Cancel confirmation dialog
+        <ConfirmationDialog
+            open=show_cancel_confirm
+            title="Cancel Training Job"
+            description="Are you sure you want to cancel this training job? Progress will be lost, but you can start a new job with the same configuration."
+            severity=ConfirmationSeverity::Warning
+            confirm_text="Cancel Job"
+            on_confirm=on_cancel
+            on_cancel=on_cancel_dismiss
+            loading=Signal::derive(move || cancelling.get())
+        />
     }
 }
 
@@ -599,6 +629,9 @@ fn CreateJobDialog(
 
     let submitting = RwSignal::new(false);
     let error = RwSignal::new(None::<String>);
+
+    // Form validation state
+    let form_errors = use_form_errors();
 
     // File upload state
     let uploading = RwSignal::new(false);
@@ -722,21 +755,91 @@ fn CreateJobDialog(
     };
 
     let submit = move |_: ()| {
-        // Validate
+        // Clear previous errors
+        form_errors.update(|e| e.clear_all());
+        error.set(None);
+
+        // Validate all fields
         let name = adapter_name.get();
-        if name.is_empty() {
-            error.set(Some("Adapter name is required".to_string()));
+        let epochs_str = epochs.get();
+        let lr_str = learning_rate.get();
+        let batch_str = batch_size.get();
+        let rank_str = rank.get();
+        let alpha_str = alpha.get();
+
+        let mut has_errors = false;
+
+        // Validate adapter name
+        if let Some(err) = validate_field(&name, &rules::adapter_name()) {
+            form_errors.update(|e| e.set("adapter_name", err));
+            has_errors = true;
+        }
+
+        // Validate epochs (1-1000)
+        if let Some(err) = validate_field(
+            &epochs_str,
+            &[
+                ValidationRule::Required,
+                ValidationRule::IntRange { min: 1, max: 1000 },
+            ],
+        ) {
+            form_errors.update(|e| e.set("epochs", err));
+            has_errors = true;
+        }
+
+        // Validate learning rate (0 < lr <= 1)
+        if let Some(err) = validate_field(&lr_str, &rules::learning_rate()) {
+            form_errors.update(|e| e.set("learning_rate", err));
+            has_errors = true;
+        }
+
+        // Validate batch size (1-256)
+        if let Some(err) = validate_field(
+            &batch_str,
+            &[
+                ValidationRule::Required,
+                ValidationRule::IntRange { min: 1, max: 256 },
+            ],
+        ) {
+            form_errors.update(|e| e.set("batch_size", err));
+            has_errors = true;
+        }
+
+        // Validate rank (1-256, typically 4, 8, 16, 32, 64)
+        if let Some(err) = validate_field(
+            &rank_str,
+            &[
+                ValidationRule::Required,
+                ValidationRule::IntRange { min: 1, max: 256 },
+            ],
+        ) {
+            form_errors.update(|e| e.set("rank", err));
+            has_errors = true;
+        }
+
+        // Validate alpha (1-512)
+        if let Some(err) = validate_field(
+            &alpha_str,
+            &[
+                ValidationRule::Required,
+                ValidationRule::IntRange { min: 1, max: 512 },
+            ],
+        ) {
+            form_errors.update(|e| e.set("alpha", err));
+            has_errors = true;
+        }
+
+        if has_errors {
             return;
         }
 
-        error.set(None);
         submitting.set(true);
 
-        let epochs_val: u32 = epochs.get().parse().unwrap_or(10);
-        let lr_val: f32 = learning_rate.get().parse().unwrap_or(0.0001);
-        let batch_val: u32 = batch_size.get().parse().unwrap_or(4);
-        let rank_val: u32 = rank.get().parse().unwrap_or(8);
-        let alpha_val: u32 = alpha.get().parse().unwrap_or(16);
+        let epochs_val: u32 = epochs_str.parse().unwrap_or(10);
+        let lr_val: f32 = lr_str.parse().unwrap_or(0.0001);
+        let batch_val: u32 = batch_str.parse().unwrap_or(4);
+        let rank_val: u32 = rank_str.parse().unwrap_or(8);
+        let alpha_val: u32 = alpha_str.parse().unwrap_or(16);
         let ds_id = dataset_id.get();
         let cat = category.get();
 
@@ -775,6 +878,7 @@ fn CreateJobDialog(
                     rank.set("8".to_string());
                     alpha.set("16".to_string());
                     dataset_id.set(String::new());
+                    form_errors.update(|e| e.clear_all());
                     on_created();
                 }
                 Err(e) => {
@@ -788,6 +892,7 @@ fn CreateJobDialog(
     let close = move |_: ()| {
         open.set(false);
         error.set(None);
+        form_errors.update(|e| e.clear_all());
     };
 
     view! {
@@ -839,11 +944,18 @@ fn CreateJobDialog(
 
                     // Form
                     <div class="space-y-4">
-                        <Input
-                            value=adapter_name
-                            label="Adapter Name".to_string()
-                            placeholder="my-code-adapter".to_string()
-                        />
+                        <FormField
+                            label="Adapter Name"
+                            name="adapter_name"
+                            required=true
+                            help="Name for the trained adapter (letters, numbers, hyphens)"
+                            error=Signal::derive(move || form_errors.get().get("adapter_name").cloned())
+                        >
+                            <Input
+                                value=adapter_name
+                                placeholder="my-code-adapter".to_string()
+                            />
+                        </FormField>
 
                         <div class="space-y-2">
                             <label class="text-sm font-medium">"Category"</label>
@@ -933,37 +1045,72 @@ fn CreateJobDialog(
                         <div class="border-t pt-4 mt-4">
                             <h3 class="text-sm font-medium mb-3">"Training Parameters"</h3>
                             <div class="grid gap-4 grid-cols-2">
-                                <Input
-                                    value=epochs
-                                    label="Epochs".to_string()
-                                    input_type="number".to_string()
-                                />
-                                <Input
-                                    value=learning_rate
-                                    label="Learning Rate".to_string()
-                                    input_type="number".to_string()
-                                />
-                                <Input
-                                    value=batch_size
-                                    label="Batch Size".to_string()
-                                    input_type="number".to_string()
-                                />
-                                <Input
-                                    value=rank
-                                    label="LoRA Rank".to_string()
-                                    input_type="number".to_string()
-                                />
+                                <FormField
+                                    label="Epochs"
+                                    name="epochs"
+                                    required=true
+                                    help="Number of training iterations (1-1000)"
+                                    error=Signal::derive(move || form_errors.get().get("epochs").cloned())
+                                >
+                                    <Input
+                                        value=epochs
+                                        input_type="number".to_string()
+                                    />
+                                </FormField>
+                                <FormField
+                                    label="Learning Rate"
+                                    name="learning_rate"
+                                    required=true
+                                    help="Step size for optimization (0.0001-0.01 recommended)"
+                                    error=Signal::derive(move || form_errors.get().get("learning_rate").cloned())
+                                >
+                                    <Input
+                                        value=learning_rate
+                                        input_type="number".to_string()
+                                    />
+                                </FormField>
+                                <FormField
+                                    label="Batch Size"
+                                    name="batch_size"
+                                    required=true
+                                    help="Examples per training step (1-256)"
+                                    error=Signal::derive(move || form_errors.get().get("batch_size").cloned())
+                                >
+                                    <Input
+                                        value=batch_size
+                                        input_type="number".to_string()
+                                    />
+                                </FormField>
+                                <FormField
+                                    label="LoRA Rank"
+                                    name="rank"
+                                    required=true
+                                    help="Adapter rank dimension (4, 8, 16 typical)"
+                                    error=Signal::derive(move || form_errors.get().get("rank").cloned())
+                                >
+                                    <Input
+                                        value=rank
+                                        input_type="number".to_string()
+                                    />
+                                </FormField>
                             </div>
                         </div>
 
                         <div class="border-t pt-4 mt-4">
                             <h3 class="text-sm font-medium mb-3">"LoRA Configuration"</h3>
                             <div class="grid gap-4 grid-cols-2">
-                                <Input
-                                    value=alpha
-                                    label="Alpha".to_string()
-                                    input_type="number".to_string()
-                                />
+                                <FormField
+                                    label="Alpha"
+                                    name="alpha"
+                                    required=true
+                                    help="Scaling factor (typically 2x rank)"
+                                    error=Signal::derive(move || form_errors.get().get("alpha").cloned())
+                                >
+                                    <Input
+                                        value=alpha
+                                        input_type="number".to_string()
+                                    />
+                                </FormField>
                                 <div class="space-y-2">
                                     <label class="text-sm font-medium">"Target Layers"</label>
                                     <div class="text-sm text-muted-foreground p-2 bg-muted rounded-md">

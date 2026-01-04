@@ -134,3 +134,34 @@ pub mod z_index {
     pub const Z40: &str = "40";
     pub const Z50: &str = "50";
 }
+
+/// Glass morphism design tokens (PRD-UI-100)
+///
+/// CSS custom property references for the liquid glass theme.
+/// These reference the CSS variables defined in glass.css.
+pub mod glass {
+    // Glass background layers
+    pub const BG_1: &str = "var(--glass-bg-1)";
+    pub const BG_2: &str = "var(--glass-bg-2)";
+    pub const BG_3: &str = "var(--glass-bg-3)";
+
+    // Glass border
+    pub const BORDER: &str = "var(--glass-border)";
+
+    // Glass shadows
+    pub const SHADOW_SM: &str = "var(--glass-shadow-sm)";
+    pub const SHADOW_MD: &str = "var(--glass-shadow-md)";
+    pub const SHADOW_LG: &str = "var(--glass-shadow-lg)";
+
+    // Glass effects
+    pub const BLUR: &str = "var(--glass-blur)";
+    pub const SATURATION: &str = "var(--glass-saturation)";
+    pub const NOISE_OPACITY: &str = "var(--glass-noise-opacity)";
+    pub const HIGHLIGHT: &str = "var(--glass-highlight)";
+    pub const GLOW: &str = "var(--glass-glow)";
+
+    // Elevation blur multipliers
+    pub const BLUR_1: &str = "var(--glass-blur-1)";
+    pub const BLUR_2: &str = "var(--glass-blur-2)";
+    pub const BLUR_3: &str = "var(--glass-blur-3)";
+}

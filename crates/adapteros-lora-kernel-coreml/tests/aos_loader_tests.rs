@@ -1,7 +1,7 @@
 //! Tests for .aos archive loader functionality
 //!
 //! Tests the aos_loader module which handles multiple archive formats:
-//! - AOS 2.0 format: 268-byte header with AOS2 magic
+//! - AOS format: 268-byte header with AOS magic
 //! - Simple format: 8-byte header with manifest_offset/manifest_len
 //! - Raw/NotAos: Plain file paths or unrecognized formats
 //!
@@ -10,9 +10,9 @@
 #![cfg(target_os = "macos")]
 
 use adapteros_lora_kernel_coreml::aos_loader::{
-    detect_format, extract_simple_manifest, parse_aos2_header, parse_simple_aos_header,
-    read_coreml_sections, AosFormat, CoremlTrainingSection, PlacementRecord, AOS2_HEADER_SIZE,
-    AOS2_MAGIC, MIN_AOS_HEADER_SIZE,
+    detect_format, extract_simple_manifest, parse_aos_header, parse_simple_aos_header,
+    read_coreml_sections, AosFormat, CoremlTrainingSection, PlacementRecord, AOS_HEADER_SIZE,
+    AOS_MAGIC, MIN_AOS_HEADER_SIZE,
 };
 
 // =============================================================================
@@ -45,19 +45,19 @@ fn create_simple_aos_with_weights(manifest: &[u8], weights: &[u8]) -> Vec<u8> {
     bytes
 }
 
-/// Create a valid AOS 2.0 format archive
-fn create_aos2_archive(metadata: &[u8], weights: &[u8]) -> Vec<u8> {
+/// Create a valid AOS format archive
+fn create_aos_archive(metadata: &[u8], weights: &[u8]) -> Vec<u8> {
     let version: u32 = 2;
-    let weights_offset: u64 = AOS2_HEADER_SIZE as u64;
+    let weights_offset: u64 = AOS_HEADER_SIZE as u64;
     let weights_size: u64 = weights.len() as u64;
     let metadata_offset: u64 = weights_offset + weights_size;
     let metadata_size: u64 = metadata.len() as u64;
     let total_size: u64 = metadata_offset + metadata_size;
 
-    let mut bytes = vec![0u8; AOS2_HEADER_SIZE];
+    let mut bytes = vec![0u8; AOS_HEADER_SIZE];
 
     // Magic bytes (0-7)
-    bytes[..8].copy_from_slice(AOS2_MAGIC);
+    bytes[..8].copy_from_slice(AOS_MAGIC);
 
     // Version (8-11)
     bytes[8..12].copy_from_slice(&version.to_le_bytes());
@@ -112,14 +112,14 @@ fn mock_weights(size: usize) -> Vec<u8> {
 // =============================================================================
 
 #[test]
-fn test_aos_format_detection_aos2() {
-    // Test AOS 2.0 format detection
+fn test_aos_format_detection_aos() {
+    // Test AOS format detection
     let metadata = minimal_manifest();
     let weights = mock_weights(1024);
-    let archive = create_aos2_archive(&metadata, &weights);
+    let archive = create_aos_archive(&metadata, &weights);
 
     let format = detect_format(&archive);
-    assert_eq!(format, AosFormat::Aos2, "Should detect AOS 2.0 format");
+    assert_eq!(format, AosFormat::Aos, "Should detect AOS format");
 }
 
 #[test]
@@ -203,44 +203,41 @@ fn test_aos_format_detection_not_aos_invalid_json() {
 }
 
 #[test]
-fn test_aos_format_detection_aos2_priority_over_simple() {
-    // AOS2 magic should take priority even if simple format would also match
+fn test_aos_format_detection_aos_priority_over_simple() {
+    // AOS magic should take priority even if simple format would also match
     let mut archive = vec![0u8; 300];
-    archive[..8].copy_from_slice(AOS2_MAGIC);
+    archive[..8].copy_from_slice(AOS_MAGIC);
 
     let format = detect_format(&archive);
     assert_eq!(
         format,
-        AosFormat::Aos2,
-        "AOS2 magic should take priority over simple format heuristics"
+        AosFormat::Aos,
+        "AOS magic should take priority over simple format heuristics"
     );
 }
 
 // =============================================================================
-// AOS 2.0 Header Parsing Tests
+// AOS Header Parsing Tests
 // =============================================================================
 
 #[test]
-fn test_aos2_header_parsing_valid() {
+fn test_aos_header_parsing_valid() {
     let metadata = full_manifest();
     let weights = mock_weights(2048);
-    let archive = create_aos2_archive(&metadata, &weights);
+    let archive = create_aos_archive(&metadata, &weights);
 
-    let result = parse_aos2_header(&archive);
-    assert!(
-        result.is_ok(),
-        "Valid AOS2 header should parse successfully"
-    );
+    let result = parse_aos_header(&archive);
+    assert!(result.is_ok(), "Valid AOS header should parse successfully");
 
     let (version, total_size, weights_offset, weights_size, metadata_offset, metadata_size) =
         result.unwrap();
 
     assert_eq!(version, 2, "Version should be 2");
-    assert_eq!(weights_offset, AOS2_HEADER_SIZE, "Weights at header end");
+    assert_eq!(weights_offset, AOS_HEADER_SIZE, "Weights at header end");
     assert_eq!(weights_size, 2048, "Weights size should match");
     assert_eq!(
         metadata_offset,
-        AOS2_HEADER_SIZE + 2048,
+        AOS_HEADER_SIZE + 2048,
         "Metadata after weights"
     );
     assert_eq!(metadata_size, metadata.len(), "Metadata size should match");
@@ -248,15 +245,15 @@ fn test_aos2_header_parsing_valid() {
 }
 
 #[test]
-fn test_aos2_header_parsing_empty_weights() {
+fn test_aos_header_parsing_empty_weights() {
     let metadata = minimal_manifest();
     let weights: Vec<u8> = vec![];
-    let archive = create_aos2_archive(&metadata, &weights);
+    let archive = create_aos_archive(&metadata, &weights);
 
-    let result = parse_aos2_header(&archive);
+    let result = parse_aos_header(&archive);
     assert!(
         result.is_ok(),
-        "AOS2 with empty weights should parse successfully"
+        "AOS with empty weights should parse successfully"
     );
 
     let (_, _, _, weights_size, _, _) = result.unwrap();
@@ -264,15 +261,15 @@ fn test_aos2_header_parsing_empty_weights() {
 }
 
 #[test]
-fn test_aos2_header_parsing_large_archive() {
+fn test_aos_header_parsing_large_archive() {
     let metadata = full_manifest();
     let weights = mock_weights(1024 * 1024); // 1MB weights
-    let archive = create_aos2_archive(&metadata, &weights);
+    let archive = create_aos_archive(&metadata, &weights);
 
-    let result = parse_aos2_header(&archive);
+    let result = parse_aos_header(&archive);
     assert!(
         result.is_ok(),
-        "Large AOS2 archive should parse successfully"
+        "Large AOS archive should parse successfully"
     );
 
     let (_, total_size, _, weights_size, _, _) = result.unwrap();
@@ -284,11 +281,11 @@ fn test_aos2_header_parsing_large_archive() {
 }
 
 #[test]
-fn test_aos2_header_parsing_too_short() {
-    // Create buffer that's too short for AOS2 header
+fn test_aos_header_parsing_too_short() {
+    // Create buffer that's too short for AOS header
     let short_bytes = vec![0u8; 100];
 
-    let result = parse_aos2_header(&short_bytes);
+    let result = parse_aos_header(&short_bytes);
     assert!(result.is_err(), "Short buffer should fail to parse");
 
     let err = result.unwrap_err();
@@ -300,17 +297,17 @@ fn test_aos2_header_parsing_too_short() {
 }
 
 #[test]
-fn test_aos2_header_parsing_wrong_version() {
+fn test_aos_header_parsing_wrong_version() {
     // Create archive with wrong version
-    let mut archive = vec![0u8; AOS2_HEADER_SIZE + 100];
+    let mut archive = vec![0u8; AOS_HEADER_SIZE + 100];
     let archive_len = archive.len() as u64;
-    archive[..8].copy_from_slice(AOS2_MAGIC);
+    archive[..8].copy_from_slice(AOS_MAGIC);
     // Set version to 3 instead of 2
     archive[8..12].copy_from_slice(&3u32.to_le_bytes());
     // Set total_size to match buffer length
     archive[12..20].copy_from_slice(&archive_len.to_le_bytes());
 
-    let result = parse_aos2_header(&archive);
+    let result = parse_aos_header(&archive);
     assert!(result.is_err(), "Wrong version should fail to parse");
 
     let err = result.unwrap_err();
@@ -322,15 +319,15 @@ fn test_aos2_header_parsing_wrong_version() {
 }
 
 #[test]
-fn test_aos2_header_parsing_truncated() {
+fn test_aos_header_parsing_truncated() {
     let metadata = minimal_manifest();
     let weights = mock_weights(1024);
-    let mut archive = create_aos2_archive(&metadata, &weights);
+    let mut archive = create_aos_archive(&metadata, &weights);
 
     // Truncate the archive
-    archive.truncate(AOS2_HEADER_SIZE + 512);
+    archive.truncate(AOS_HEADER_SIZE + 512);
 
-    let result = parse_aos2_header(&archive);
+    let result = parse_aos_header(&archive);
     assert!(result.is_err(), "Truncated archive should fail to parse");
 
     let err = result.unwrap_err();
@@ -342,19 +339,19 @@ fn test_aos2_header_parsing_truncated() {
 }
 
 #[test]
-fn test_aos2_header_parsing_invalid_metadata_offset() {
+fn test_aos_header_parsing_invalid_metadata_offset() {
     // Create archive where metadata offset points beyond file
-    let mut archive = vec![0u8; AOS2_HEADER_SIZE + 100];
+    let mut archive = vec![0u8; AOS_HEADER_SIZE + 100];
     let archive_len = archive.len() as u64;
-    archive[..8].copy_from_slice(AOS2_MAGIC);
+    archive[..8].copy_from_slice(AOS_MAGIC);
     archive[8..12].copy_from_slice(&2u32.to_le_bytes()); // version
     archive[12..20].copy_from_slice(&archive_len.to_le_bytes()); // total_size
-    archive[20..28].copy_from_slice(&(AOS2_HEADER_SIZE as u64).to_le_bytes()); // weights_offset
+    archive[20..28].copy_from_slice(&(AOS_HEADER_SIZE as u64).to_le_bytes()); // weights_offset
     archive[28..36].copy_from_slice(&50u64.to_le_bytes()); // weights_size
     archive[36..44].copy_from_slice(&(9999u64).to_le_bytes()); // invalid metadata_offset
     archive[44..52].copy_from_slice(&100u64.to_le_bytes()); // metadata_size
 
-    let result = parse_aos2_header(&archive);
+    let result = parse_aos_header(&archive);
     assert!(
         result.is_err(),
         "Invalid metadata offset should fail to parse"
@@ -363,7 +360,7 @@ fn test_aos2_header_parsing_invalid_metadata_offset() {
     let err = result.unwrap_err();
     let err_msg = format!("{}", err);
     assert!(
-        err_msg.contains("Invalid AOS 2.0 metadata offset"),
+        err_msg.contains("Invalid AOS metadata offset"),
         "Error should mention invalid offset"
     );
 }
@@ -595,17 +592,13 @@ fn test_invalid_archive_garbage_data() {
 
 #[test]
 fn test_invalid_archive_corrupted_magic() {
-    // Create AOS2-like archive with corrupted magic
-    let mut archive = vec![0u8; AOS2_HEADER_SIZE + 100];
+    // Create AOS-like archive with corrupted magic
+    let mut archive = vec![0u8; AOS_HEADER_SIZE + 100];
     archive[..8].copy_from_slice(b"AOS3\x00\x00\x00\x00"); // Wrong magic
 
     let format = detect_format(&archive);
-    // Should not be detected as AOS2 due to wrong magic
-    assert_ne!(
-        format,
-        AosFormat::Aos2,
-        "Corrupted magic should not be AOS2"
-    );
+    // Should not be detected as AOS due to wrong magic
+    assert_ne!(format, AosFormat::Aos, "Corrupted magic should not be AOS");
 }
 
 #[test]
@@ -729,18 +722,18 @@ fn test_edge_case_minimum_valid_simple() {
 }
 
 #[test]
-fn test_edge_case_minimum_valid_aos2() {
-    // Smallest possible valid AOS2 archive
+fn test_edge_case_minimum_valid_aos() {
+    // Smallest possible valid AOS archive
     let metadata = b"{}";
     let weights: Vec<u8> = vec![];
-    let archive = create_aos2_archive(metadata, &weights);
+    let archive = create_aos_archive(metadata, &weights);
 
-    assert_eq!(archive.len(), AOS2_HEADER_SIZE + 2); // Header + empty weights + 2 byte metadata
+    assert_eq!(archive.len(), AOS_HEADER_SIZE + 2); // Header + empty weights + 2 byte metadata
 
     let format = detect_format(&archive);
-    assert_eq!(format, AosFormat::Aos2);
+    assert_eq!(format, AosFormat::Aos);
 
-    let result = parse_aos2_header(&archive);
+    let result = parse_aos_header(&archive);
     assert!(result.is_ok());
 }
 
@@ -848,25 +841,25 @@ fn test_read_coreml_sections_when_absent() {
 // =============================================================================
 
 #[test]
-fn test_constants_aos2_magic() {
-    assert_eq!(AOS2_MAGIC.len(), 8);
-    assert_eq!(&AOS2_MAGIC[..4], b"AOS2");
-    assert_eq!(&AOS2_MAGIC[4..], &[0, 0, 0, 0]);
+fn test_constants_aos_magic() {
+    assert_eq!(AOS_MAGIC.len(), 8);
+    assert_eq!(&AOS_MAGIC[..4], b"AOS\0");
+    assert_eq!(&AOS_MAGIC[4..], &[0, 0, 0, 0]);
 }
 
 #[test]
 fn test_constants_header_sizes() {
     assert_eq!(MIN_AOS_HEADER_SIZE, 8, "Simple header is 8 bytes");
-    assert_eq!(AOS2_HEADER_SIZE, 268, "AOS2 header is 268 bytes");
+    assert_eq!(AOS_HEADER_SIZE, 268, "AOS header is 268 bytes");
     assert!(
-        AOS2_HEADER_SIZE > MIN_AOS_HEADER_SIZE,
-        "AOS2 header is larger"
+        AOS_HEADER_SIZE > MIN_AOS_HEADER_SIZE,
+        "AOS header is larger"
     );
 }
 
 #[test]
-fn test_constants_aos2_header_field_positions() {
-    // Verify the documented field positions in AOS2 header
+fn test_constants_aos_header_field_positions() {
+    // Verify the documented field positions in AOS header
     // [0-7]: Magic
     // [8-11]: Version
     // [12-19]: Total size
@@ -877,10 +870,7 @@ fn test_constants_aos2_header_field_positions() {
     // [52-267]: Reserved
 
     let field_end = 52; // Last documented field ends at byte 52
-    assert!(
-        field_end <= AOS2_HEADER_SIZE,
-        "All fields fit within header"
-    );
+    assert!(field_end <= AOS_HEADER_SIZE, "All fields fit within header");
 }
 
 // =============================================================================
@@ -889,20 +879,20 @@ fn test_constants_aos2_header_field_positions() {
 
 #[test]
 fn test_aos_format_enum_equality() {
-    assert_eq!(AosFormat::Aos2, AosFormat::Aos2);
+    assert_eq!(AosFormat::Aos, AosFormat::Aos);
     assert_eq!(AosFormat::Simple, AosFormat::Simple);
     assert_eq!(AosFormat::NotAos, AosFormat::NotAos);
 
-    assert_ne!(AosFormat::Aos2, AosFormat::Simple);
-    assert_ne!(AosFormat::Aos2, AosFormat::NotAos);
+    assert_ne!(AosFormat::Aos, AosFormat::Simple);
+    assert_ne!(AosFormat::Aos, AosFormat::NotAos);
     assert_ne!(AosFormat::Simple, AosFormat::NotAos);
 }
 
 #[test]
 fn test_aos_format_enum_debug() {
     // Ensure Debug trait is implemented
-    let debug_str = format!("{:?}", AosFormat::Aos2);
-    assert!(debug_str.contains("Aos2"));
+    let debug_str = format!("{:?}", AosFormat::Aos);
+    assert!(debug_str.contains("Aos"));
 }
 
 #[test]
@@ -916,7 +906,7 @@ fn test_aos_format_enum_clone() {
 #[test]
 fn test_aos_format_enum_copy() {
     // Ensure Copy trait is implemented
-    let format = AosFormat::Aos2;
+    let format = AosFormat::Aos;
     let copied: AosFormat = format;
     assert_eq!(format, copied);
 }

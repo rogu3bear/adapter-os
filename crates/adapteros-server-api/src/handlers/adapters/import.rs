@@ -605,27 +605,125 @@ pub async fn import_adapter(
         })?;
 
     if policy.require_signed_adapters {
-        let is_signed = manifest.get("signature").is_some();
-        if !is_signed {
-            let _ = tokio::fs::remove_file(&temp_path).await;
-            warn!(
-                tenant_id = %claims.tenant_id,
-                "Rejected unsigned adapter import due to tenant policy"
-            );
-            return Err((
-                StatusCode::FORBIDDEN,
+        // Extract signature from manifest
+        let sig_hex = manifest
+            .get("signature")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                let _ = std::fs::remove_file(&temp_path);
+                warn!(
+                    tenant_id = %claims.tenant_id,
+                    "Rejected unsigned adapter import due to tenant policy"
+                );
+                (
+                    StatusCode::FORBIDDEN,
+                    Json(
+                        ErrorResponse::new("Tenant policy requires signed adapters")
+                            .with_code("SIGNATURE_REQUIRED"),
+                    ),
+                )
+            })?;
+
+        // Get trusted public key for this tenant
+        let pubkey = state
+            .db
+            .get_trusted_adapter_key(&claims.tenant_id)
+            .await
+            .map_err(|e| {
+                error!(
+                    tenant_id = %claims.tenant_id,
+                    error = %e,
+                    "Failed to get trusted adapter key"
+                );
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("failed to retrieve trusted signing key")
+                            .with_code("INTERNAL_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?
+            .ok_or_else(|| {
+                let _ = std::fs::remove_file(&temp_path);
+                warn!(
+                    tenant_id = %claims.tenant_id,
+                    "No trusted signing key configured for tenant"
+                );
+                (
+                    StatusCode::FORBIDDEN,
+                    Json(
+                        ErrorResponse::new("No trusted signing key configured for tenant")
+                            .with_code("NO_TRUSTED_KEY"),
+                    ),
+                )
+            })?;
+
+        // Decode signature from hex
+        let sig_bytes = hex::decode(sig_hex).map_err(|e| {
+            let _ = std::fs::remove_file(&temp_path);
+            (
+                StatusCode::BAD_REQUEST,
                 Json(
-                    ErrorResponse::new("Tenant policy requires signed adapters")
-                        .with_code("SIGNATURE_REQUIRED"),
+                    ErrorResponse::new("Invalid signature format: not valid hex")
+                        .with_code("INVALID_SIGNATURE")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+        if sig_bytes.len() != 64 {
+            let _ = tokio::fs::remove_file(&temp_path).await;
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("Invalid signature format: expected 64 bytes")
+                        .with_code("INVALID_SIGNATURE"),
                 ),
             ));
         }
-        // NOTE: Signature validation deferred pending PKI design
-        // When implemented, use adapteros_crypto::verify_signature with trusted public key:
-        // 1. Extract signature from manifest["signature"]
-        // 2. Compute content_hash_b3 over canonical manifest bytes
-        // 3. Call verify_signature(trusted_pubkey, content_hash_b3.as_bytes(), &signature)
-        // See: crates/adapteros-verify/src/metadata.rs::load_verified for reference implementation
+
+        let mut sig_arr = [0u8; 64];
+        sig_arr.copy_from_slice(&sig_bytes);
+        let signature = adapteros_crypto::Signature::from_bytes(&sig_arr).map_err(|e| {
+            let _ = std::fs::remove_file(&temp_path);
+            (
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("Invalid Ed25519 signature")
+                        .with_code("INVALID_SIGNATURE")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+        // Compute BLAKE3 hash of manifest bytes for verification
+        let manifest_hash = B3Hash::hash(manifest_bytes);
+
+        // Verify signature
+        adapteros_crypto::verify_signature(&pubkey, manifest_hash.as_bytes(), &signature).map_err(
+            |e| {
+                let _ = std::fs::remove_file(&temp_path);
+                warn!(
+                    tenant_id = %claims.tenant_id,
+                    error = %e,
+                    "Adapter signature verification failed"
+                );
+                (
+                    StatusCode::FORBIDDEN,
+                    Json(
+                        ErrorResponse::new("Adapter signature verification failed")
+                            .with_code("SIGNATURE_INVALID")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            },
+        )?;
+
+        info!(
+            tenant_id = %claims.tenant_id,
+            "Adapter signature verified successfully"
+        );
     }
 
     // F. Content Hash Identity (compute BLAKE3 of manifest + weights for dedup/identity)

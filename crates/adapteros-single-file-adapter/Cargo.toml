@@ -8,6 +8,7 @@ description = "Single-file adapter format (.aos) implementation for AdapterOS"
 repository = "https://github.com/rogu3bear/mplora"
 
 [dependencies]
+adapteros-aos = { path = "../adapteros-aos" }
 adapteros-core = { path = "../adapteros-core" }
 adapteros-crypto = { path = "../adapteros-crypto" }
 serde = { version = "1.0", features = ["derive"] }

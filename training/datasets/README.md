@@ -72,7 +72,7 @@ Document/code ingestion training
 - PDF parsing examples
 - Code extraction patterns
 - Training example generation
-- Identity/QA/MaskedLM strategies
+- Identity/QA strategies
 - Tokenization patterns
 
 ### 9. **docs_derived/**

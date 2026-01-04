@@ -177,3 +177,28 @@ p, h1, h2, h3, h4, h5, h6 {
 ::-webkit-scrollbar-thumb:hover {
     background: var(--color-foreground);
 }
+
+/* ===== Accessibility: Reduced Motion ===== */
+/* WCAG 2.1 Level AA - Success Criterion 2.3.3 */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}
+
+/* ===== Accessibility: Contrast & Focus Constants ===== */
+:root {
+    /* WCAG AA minimum contrast ratios (for tooling reference) */
+    --wcag-aa-normal-text: 4.5;  /* 4.5:1 for normal text */
+    --wcag-aa-large-text: 3;     /* 3:1 for large text (18pt+) */
+    --wcag-aa-ui-components: 3;  /* 3:1 for UI components */
+
+    /* Focus ring - ensure 3:1 contrast against adjacent colors */
+    --focus-ring-width: 2px;
+    --focus-ring-offset: 2px;
+}

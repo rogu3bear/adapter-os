@@ -799,12 +799,13 @@ async fn test_prefix_kv_receipt_fields_persistence() {
     assert_eq!(receipt.prefix_cached_token_count, 20);
 
     // Query the database directly to verify persistence
+    // Note: model_cache_identity_v2_digest_b3 is stored as BLOB, prefix_kv_key_b3 as TEXT (hex)
     let (
         stored_prefix_kv_key,
         stored_prefix_cache_hit,
         stored_prefix_kv_bytes,
         stored_model_identity,
-    ): (Option<String>, i64, i64, Option<String>) = sqlx::query_as(
+    ): (Option<String>, i64, i64, Option<Vec<u8>>) = sqlx::query_as(
         "SELECT prefix_kv_key_b3, prefix_cache_hit, prefix_kv_bytes, model_cache_identity_v2_digest_b3
          FROM inference_trace_receipts
          WHERE trace_id = ?",
@@ -827,9 +828,11 @@ async fn test_prefix_kv_receipt_fields_persistence() {
         stored_prefix_kv_bytes, 4096,
         "prefix_kv_bytes should be persisted"
     );
+    // Convert BLOB to B3Hash for comparison
+    let expected_model_identity_bytes = model_identity_digest.as_bytes().to_vec();
     assert_eq!(
         stored_model_identity,
-        Some(model_identity_digest.to_hex()),
+        Some(expected_model_identity_bytes),
         "model_cache_identity_v2_digest_b3 should be persisted"
     );
 }

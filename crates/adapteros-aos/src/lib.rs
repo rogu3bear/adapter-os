@@ -7,7 +7,7 @@
 //! ```text
 //! | Offset | Size | Field                               |
 //! |--------|------|-------------------------------------|
-//! | 0      | 4    | Magic: "AOS2"                       |
+//! | 0      | 4    | Magic: "AOS\0"                      |
 //! | 4      | 4    | Flags (bit 0 = has index)           |
 //! | 8      | 8    | Index offset (u64 LE)               |
 //! | 16     | 8    | Index size (u64 LE)                 |
@@ -30,6 +30,7 @@ pub mod implementation;
 #[cfg(feature = "mmap")]
 pub mod manager;
 pub mod metrics;
+pub mod types;
 pub mod writer;
 
 #[cfg(feature = "mmap")]
@@ -39,6 +40,7 @@ pub use implementation::{
 };
 #[cfg(feature = "mmap")]
 pub use manager::{AosManager, AosManagerBuilder};
+pub use types::{CombinationStrategy, WeightGroupConfig};
 pub use writer::{
     compute_scope_hash, open_aos, parse_segments, select_segment, AosFileView, AosHeader,
     AosWriter, BackendTag, SegmentDescriptor, SegmentView, WriteOptions, AOS_MAGIC, HAS_INDEX_FLAG,

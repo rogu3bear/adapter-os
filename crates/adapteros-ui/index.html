@@ -4,10 +4,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AdapterOS</title>
+    <!-- PRD-UI-000: Build metadata for diagnostics -->
+    <meta name="aos-build-hash" content="__TRUNK_HASH__">
+    <meta name="aos-build-time" content="__BUILD_TIME__">
     <!-- Base styles with CSS variables and reset -->
     <link data-trunk rel="css" href="dist/base.css">
     <!-- Component styles -->
     <link data-trunk rel="css" href="dist/components.css">
+    <!-- Glass morphism theme (PRD-UI-100) -->
+    <link data-trunk rel="css" href="dist/glass.css">
+    <!-- Liquid Glass Charts (PRD-UI-101) -->
+    <link data-trunk rel="css" href="dist/charts.css">
     <link data-trunk rel="rust" data-wasm-opt="z">
     <style>
         /* PRD-UI-000: White screen triage styles */
@@ -26,6 +33,38 @@
         }
         #aos-boot-probe.error { background: #7f1d1d; color: #fca5a5; }
         #aos-boot-probe.hidden { display: none; }
+
+        /* PRD-UI-000: Loading spinner */
+        #aos-loading-spinner {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1rem;
+            z-index: 99998;
+        }
+        #aos-loading-spinner.hidden { display: none; }
+        #aos-loading-spinner .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid #1a1a2e;
+            border-top-color: #4ade80;
+            border-radius: 50%;
+            animation: aos-spin 1s linear infinite;
+        }
+        #aos-loading-spinner .text {
+            font-family: ui-monospace, monospace;
+            font-size: 12px;
+            color: #6b7280;
+        }
+        @keyframes aos-spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* PRD-UI-000: Enhanced panic overlay */
         #aos-panic-overlay {
             display: none;
             position: fixed;
@@ -40,6 +79,18 @@
         }
         #aos-panic-overlay.visible { display: block; }
         #aos-panic-overlay h1 { color: #fca5a5; font-size: 1.5rem; margin-bottom: 1rem; }
+        #aos-panic-overlay .panic-meta {
+            background: #450a0a;
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            font-size: 12px;
+            display: flex;
+            gap: 1.5rem;
+            flex-wrap: wrap;
+        }
+        #aos-panic-overlay .panic-meta span { opacity: 0.8; }
+        #aos-panic-overlay .panic-meta strong { opacity: 1; }
         #aos-panic-overlay pre {
             background: #450a0a;
             padding: 1rem;
@@ -48,28 +99,64 @@
             white-space: pre-wrap;
             word-break: break-word;
         }
-        #aos-panic-overlay button {
+        #aos-panic-overlay details {
             margin-top: 1rem;
+        }
+        #aos-panic-overlay details summary {
+            cursor: pointer;
+            padding: 0.5rem 0;
+            color: #fca5a5;
+        }
+        #aos-panic-overlay details summary:hover { text-decoration: underline; }
+        #aos-panic-overlay .panic-actions {
+            margin-top: 1.5rem;
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+        #aos-panic-overlay button {
             padding: 0.5rem 1rem;
             background: #dc2626;
             color: white;
             border: none;
             border-radius: 4px;
             cursor: pointer;
-            margin-right: 0.5rem;
         }
+        #aos-panic-overlay button:hover { background: #b91c1c; }
+        #aos-panic-overlay button.secondary {
+            background: #450a0a;
+            border: 1px solid #dc2626;
+        }
+        #aos-panic-overlay button.secondary:hover { background: #5c0f0f; }
     </style>
 </head>
 <body>
+    <!-- PRD-UI-000: Loading spinner -->
+    <div id="aos-loading-spinner">
+        <div class="spinner"></div>
+        <div class="text">Loading AdapterOS...</div>
+    </div>
     <!-- PRD-UI-000: Render probe -->
     <div id="aos-boot-probe">HTML: OK | WASM: loading...</div>
-    <!-- PRD-UI-000: Panic overlay -->
+    <!-- PRD-UI-000: Enhanced panic overlay with route/build info -->
     <div id="aos-panic-overlay">
         <h1>AdapterOS UI Panic</h1>
+        <div class="panic-meta">
+            <div><span>Route:</span> <strong id="aos-panic-route">/</strong></div>
+            <div><span>Build:</span> <strong id="aos-panic-build">unknown</strong></div>
+            <div><span>Time:</span> <strong id="aos-panic-time">-</strong></div>
+        </div>
         <p>The UI encountered a fatal error:</p>
         <pre id="aos-panic-message">Unknown error</pre>
-        <button onclick="location.reload()">Reload Page</button>
-        <button onclick="document.getElementById('aos-panic-overlay').classList.remove('visible')">Dismiss</button>
+        <details>
+            <summary>Stack Trace</summary>
+            <pre id="aos-panic-stack">No stack trace available</pre>
+        </details>
+        <div class="panic-actions">
+            <button onclick="location.reload()">Reload Page</button>
+            <button class="secondary" onclick="location.href='/safe'">Safe Mode</button>
+            <button class="secondary" onclick="document.getElementById('aos-panic-overlay').classList.remove('visible')">Dismiss</button>
+        </div>
     </div>
     <noscript>
         <div style="padding: 2rem; text-align: center;">
@@ -78,38 +165,115 @@
         </div>
     </noscript>
     <script>
-        window.aosBoot = { htmlLoaded: true, wasmLoaded: false, appMounted: false, errors: [] };
-        window.addEventListener('error', function(e) {
-            window.aosBoot.errors.push(e.message || 'Unknown error');
-            var probe = document.getElementById('aos-boot-probe');
-            if (probe) { probe.textContent = 'ERROR: ' + (e.message || 'Unknown'); probe.classList.add('error'); }
-        });
-        window.addEventListener('unhandledrejection', function(e) {
-            var msg = e.reason ? (e.reason.message || String(e.reason)) : 'Promise rejected';
-            window.aosBoot.errors.push(msg);
-            var probe = document.getElementById('aos-boot-probe');
-            if (probe) { probe.textContent = 'WASM ERROR: ' + msg; probe.classList.add('error'); }
-        });
-        window.aosSignalMounted = function() {
-            window.aosBoot.appMounted = true;
-            var probe = document.getElementById('aos-boot-probe');
-            if (probe) {
-                probe.textContent = 'HTML: OK | WASM: OK | App: mounted';
-                setTimeout(function() { if (!probe.classList.contains('error')) probe.classList.add('hidden'); }, 3000);
+        // PRD-UI-000: Enhanced boot diagnostics with build metadata
+        (function() {
+            // Read build metadata from meta tags
+            var buildHashMeta = document.querySelector('meta[name="aos-build-hash"]');
+            var buildTimeMeta = document.querySelector('meta[name="aos-build-time"]');
+            var buildHash = buildHashMeta ? buildHashMeta.content : 'dev';
+            var buildTime = buildTimeMeta ? buildTimeMeta.content : new Date().toISOString();
+
+            window.aosBoot = {
+                htmlLoaded: true,
+                wasmLoaded: false,
+                appMounted: false,
+                errors: [],
+                buildHash: buildHash,
+                buildTime: buildTime,
+                startTime: Date.now()
+            };
+
+            // Helper to get current route
+            function getCurrentRoute() {
+                return window.location.pathname || '/';
             }
-        };
-        window.aosSignalWasmLoaded = function() {
-            window.aosBoot.wasmLoaded = true;
-            var probe = document.getElementById('aos-boot-probe');
-            if (probe && !probe.classList.contains('error')) probe.textContent = 'HTML: OK | WASM: OK | App: mounting...';
-        };
-        window.aosShowPanic = function(message) {
-            var overlay = document.getElementById('aos-panic-overlay');
-            var msgEl = document.getElementById('aos-panic-message');
-            if (overlay && msgEl) { msgEl.textContent = message; overlay.classList.add('visible'); }
-            var probe = document.getElementById('aos-boot-probe');
-            if (probe) { probe.textContent = 'PANIC'; probe.classList.add('error'); }
-        };
+
+            // Helper to format elapsed time
+            function getElapsedTime() {
+                return ((Date.now() - window.aosBoot.startTime) / 1000).toFixed(2) + 's';
+            }
+
+            window.addEventListener('error', function(e) {
+                window.aosBoot.errors.push(e.message || 'Unknown error');
+                var probe = document.getElementById('aos-boot-probe');
+                var spinner = document.getElementById('aos-loading-spinner');
+                if (spinner) spinner.classList.add('hidden');
+                if (probe) { probe.textContent = 'ERROR: ' + (e.message || 'Unknown'); probe.classList.add('error'); }
+            });
+
+            window.addEventListener('unhandledrejection', function(e) {
+                var msg = e.reason ? (e.reason.message || String(e.reason)) : 'Promise rejected';
+                window.aosBoot.errors.push(msg);
+                var probe = document.getElementById('aos-boot-probe');
+                var spinner = document.getElementById('aos-loading-spinner');
+                if (spinner) spinner.classList.add('hidden');
+                if (probe) { probe.textContent = 'WASM ERROR: ' + msg; probe.classList.add('error'); }
+            });
+
+            window.aosSignalMounted = function() {
+                window.aosBoot.appMounted = true;
+                var probe = document.getElementById('aos-boot-probe');
+                var spinner = document.getElementById('aos-loading-spinner');
+                if (spinner) spinner.classList.add('hidden');
+                if (probe) {
+                    probe.textContent = 'HTML: OK | WASM: OK | App: mounted (' + getElapsedTime() + ')';
+                    setTimeout(function() { if (!probe.classList.contains('error')) probe.classList.add('hidden'); }, 3000);
+                }
+            };
+
+            window.aosSignalWasmLoaded = function() {
+                window.aosBoot.wasmLoaded = true;
+                var probe = document.getElementById('aos-boot-probe');
+                var spinnerText = document.querySelector('#aos-loading-spinner .text');
+                if (spinnerText) spinnerText.textContent = 'Mounting application...';
+                if (probe && !probe.classList.contains('error')) {
+                    probe.textContent = 'HTML: OK | WASM: OK | App: mounting...';
+                }
+            };
+
+            window.aosShowPanic = function(message, stackTrace) {
+                var overlay = document.getElementById('aos-panic-overlay');
+                var msgEl = document.getElementById('aos-panic-message');
+                var stackEl = document.getElementById('aos-panic-stack');
+                var routeEl = document.getElementById('aos-panic-route');
+                var buildEl = document.getElementById('aos-panic-build');
+                var timeEl = document.getElementById('aos-panic-time');
+                var spinner = document.getElementById('aos-loading-spinner');
+
+                if (spinner) spinner.classList.add('hidden');
+
+                if (overlay && msgEl) {
+                    msgEl.textContent = message;
+                    overlay.classList.add('visible');
+                }
+                if (stackEl && stackTrace) {
+                    stackEl.textContent = stackTrace;
+                }
+                if (routeEl) {
+                    routeEl.textContent = getCurrentRoute();
+                }
+                if (buildEl) {
+                    buildEl.textContent = window.aosBoot.buildHash.substring(0, 8);
+                }
+                if (timeEl) {
+                    timeEl.textContent = new Date().toISOString();
+                }
+
+                var probe = document.getElementById('aos-boot-probe');
+                if (probe) { probe.textContent = 'PANIC'; probe.classList.add('error'); }
+            };
+
+            // Expose build info for diagnostics
+            window.aosGetBuildInfo = function() {
+                return {
+                    hash: window.aosBoot.buildHash,
+                    time: window.aosBoot.buildTime,
+                    route: getCurrentRoute(),
+                    elapsed: getElapsedTime(),
+                    errors: window.aosBoot.errors
+                };
+            };
+        })();
     </script>
 </body>
 </html>

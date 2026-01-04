@@ -2,28 +2,28 @@
 //!
 //! Provides support for loading adapters from .aos archives in multiple formats:
 //! - Simple .aos format: manifest_offset/manifest_len header
-//! - AOS 2.0 format: 268-byte header with AOS2 magic
+//! - AOS format: 268-byte header with AOS magic
 
 use adapteros_core::{AosError, Result};
 use serde::Deserialize;
 use std::path::PathBuf;
 
-/// AOS 2.0 magic bytes
-pub const AOS2_MAGIC: &[u8; 8] = b"AOS2\x00\x00\x00\x00";
+/// AOS magic bytes (8 bytes for AOS 2.0 format with 268-byte header)
+pub const AOS_MAGIC: &[u8; 8] = b"AOS\x00\x00\x00\x00\x00";
 
 /// Minimum size for .aos header (manifest_offset + manifest_len)
 pub const MIN_AOS_HEADER_SIZE: usize = 8;
 
-/// AOS 2.0 header size
-pub const AOS2_HEADER_SIZE: usize = 268;
+/// AOS header size
+pub const AOS_HEADER_SIZE: usize = 268;
 
 /// Detect if bytes are a raw .aos archive
 ///
 /// Returns the detected format type if the bytes appear to be an .aos archive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AosFormat {
-    /// AOS 2.0 format with magic header
-    Aos2,
+    /// AOS format with 268-byte magic header
+    Aos,
     /// Simple format with manifest_offset/manifest_len
     Simple,
     /// Not an .aos archive (likely a UTF-8 path)
@@ -78,9 +78,9 @@ pub fn read_coreml_sections(
 
 /// Detect the format of plan_bytes
 pub fn detect_format(plan_bytes: &[u8]) -> AosFormat {
-    // Check for AOS 2.0 magic bytes first
-    if plan_bytes.len() >= 8 && &plan_bytes[..8] == AOS2_MAGIC {
-        return AosFormat::Aos2;
+    // Check for AOS magic bytes first (8-byte magic for AOS 2.0)
+    if plan_bytes.len() >= 8 && &plan_bytes[..8] == AOS_MAGIC {
+        return AosFormat::Aos;
     }
 
     // Check for simple .aos format (manifest_offset + manifest_len header)
@@ -112,15 +112,15 @@ pub fn detect_format(plan_bytes: &[u8]) -> AosFormat {
     AosFormat::NotAos
 }
 
-/// Parse AOS 2.0 header from bytes
+/// Parse AOS header from bytes
 ///
 /// Returns (version, total_size, weights_offset, weights_size, metadata_offset, metadata_size)
-pub fn parse_aos2_header(plan_bytes: &[u8]) -> Result<(u32, usize, usize, usize, usize, usize)> {
-    if plan_bytes.len() < AOS2_HEADER_SIZE {
+pub fn parse_aos_header(plan_bytes: &[u8]) -> Result<(u32, usize, usize, usize, usize, usize)> {
+    if plan_bytes.len() < AOS_HEADER_SIZE {
         return Err(AosError::Kernel(format!(
-            "AOS 2.0 file too short: {} bytes (need at least {} for header)",
+            "AOS file too short: {} bytes (need at least {} for header)",
             plan_bytes.len(),
-            AOS2_HEADER_SIZE
+            AOS_HEADER_SIZE
         )));
     }
 
@@ -193,7 +193,7 @@ pub fn parse_aos2_header(plan_bytes: &[u8]) -> Result<(u32, usize, usize, usize,
     // Validate sizes
     if plan_bytes.len() < total_size {
         return Err(AosError::Kernel(format!(
-            "AOS 2.0 file truncated: {} bytes (expected {})",
+            "AOS file truncated: {} bytes (expected {})",
             plan_bytes.len(),
             total_size
         )));
@@ -201,7 +201,7 @@ pub fn parse_aos2_header(plan_bytes: &[u8]) -> Result<(u32, usize, usize, usize,
 
     if metadata_offset + metadata_size > plan_bytes.len() {
         return Err(AosError::Kernel(format!(
-            "Invalid AOS 2.0 metadata offset/size: {}+{} > {}",
+            "Invalid AOS metadata offset/size: {}+{} > {}",
             metadata_offset,
             metadata_size,
             plan_bytes.len()
@@ -322,10 +322,10 @@ mod tests {
     }
 
     #[test]
-    fn test_detect_format_aos2() {
+    fn test_detect_format_aos() {
         let mut bytes = vec![0u8; 300];
-        bytes[..8].copy_from_slice(AOS2_MAGIC);
-        assert_eq!(detect_format(&bytes), AosFormat::Aos2);
+        bytes[..8].copy_from_slice(AOS_MAGIC);
+        assert_eq!(detect_format(&bytes), AosFormat::Aos);
     }
 
     #[test]

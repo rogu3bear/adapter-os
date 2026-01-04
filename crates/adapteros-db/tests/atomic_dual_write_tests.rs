@@ -18,16 +18,6 @@ use adapteros_db::{
 mod atomic_dual_write_tests {
     use super::*;
 
-    /// Helper to create a test database with both SQL and KV backends
-    async fn setup_dual_write_db(config: AtomicDualWriteConfig) -> Result<Db> {
-        let db = Db::new_in_memory().await?;
-
-        // TODO: Initialize KV backend for testing
-        // This requires mocking or test implementation of KvDb
-
-        Ok(db.with_atomic_dual_write_config(config))
-    }
-
     /// Helper to create test adapter registration params
     fn test_adapter_params(
         adapter_id: &str,
@@ -136,54 +126,7 @@ mod atomic_dual_write_tests {
         Ok(())
     }
 
-    // TODO: Add tests with mocked KV backend failures
-    // These tests require:
-    // 1. Mock KV backend that can simulate failures
-    // 2. Verification that SQL rollback occurs in strict mode
-    // 3. Verification that warnings are logged in best-effort mode
-
     #[tokio::test]
-    #[ignore] // Requires KV backend implementation
-    async fn test_best_effort_mode_continues_on_kv_failure() {
-        // Setup: Create DB with best-effort config and failing KV backend
-        // Action: Register adapter
-        // Verify: SQL insert succeeds, warning logged, operation succeeds
-    }
-
-    #[tokio::test]
-    #[ignore] // Requires KV backend implementation
-    async fn test_strict_mode_rolls_back_on_kv_failure() {
-        // Setup: Create DB with strict config and failing KV backend
-        // Action: Register adapter
-        // Verify: SQL insert rolled back, error returned, adapter not in SQL
-    }
-
-    #[tokio::test]
-    #[ignore] // Requires KV backend implementation
-    async fn test_strict_mode_rollback_failure_logs_critical() {
-        // Setup: Create DB with strict config, failing KV backend, and SQL that prevents DELETE
-        // Action: Register adapter
-        // Verify: CRITICAL error logged, error indicates manual intervention needed
-    }
-
-    #[tokio::test]
-    #[ignore] // Requires KV backend implementation
-    async fn test_ensure_consistency_repairs_missing_kv_entry() {
-        // Setup: Create adapter in SQL only
-        // Action: Call ensure_consistency()
-        // Verify: Adapter created in KV with matching data
-    }
-
-    #[tokio::test]
-    #[ignore] // Requires KV backend implementation
-    async fn test_ensure_consistency_repairs_inconsistent_data() {
-        // Setup: Create adapter in both SQL and KV with different state
-        // Action: Call ensure_consistency()
-        // Verify: KV updated to match SQL (source of truth)
-    }
-
-    #[tokio::test]
-    #[ignore] // Requires KV backend implementation
     async fn test_ensure_consistency_returns_false_for_missing_adapter() -> Result<()> {
         let db = Db::new_in_memory().await?;
 
@@ -194,51 +137,101 @@ mod atomic_dual_write_tests {
     }
 
     #[tokio::test]
-    #[ignore] // Requires KV backend implementation
-    async fn test_ensure_consistency_batch() {
-        // Setup: Create multiple adapters with various consistency states
-        // Action: Call ensure_consistency_batch()
-        // Verify: All adapters repaired, results returned for each
+    async fn test_ensure_consistency_batch_empty() -> Result<()> {
+        let db = Db::new_in_memory().await?;
+
+        // Empty batch should return empty results
+        let results = db.ensure_consistency_batch(&[]).await;
+        assert!(results.is_empty());
+
+        Ok(())
     }
 
     #[tokio::test]
-    #[ignore] // Requires KV backend implementation
-    async fn test_validate_tenant_consistency() {
-        // Setup: Create tenant with multiple adapters in various states
-        // Action: Call validate_tenant_consistency()
-        // Verify: Returns correct counts of (consistent, inconsistent, errors)
+    async fn test_ensure_consistency_batch_with_adapters() -> Result<()> {
+        let db = Db::new_in_memory().await?;
+
+        // Create tenant and adapters
+        let tenant_id = db.create_tenant("Test Tenant", false).await?;
+        for i in 1..=3 {
+            let params = test_adapter_params(&format!("batch-adapter-{}", i), &tenant_id)?;
+            db.register_adapter_extended(params).await?;
+        }
+
+        // Run batch consistency check
+        let adapter_ids: Vec<String> = (1..=3).map(|i| format!("batch-adapter-{}", i)).collect();
+        let results = db.ensure_consistency_batch(&adapter_ids).await;
+
+        assert_eq!(results.len(), 3);
+        for (id, result) in &results {
+            assert!(result.is_ok(), "Adapter {} should be consistent", id);
+            assert!(
+                result.as_ref().unwrap(),
+                "Adapter {} should return true",
+                id
+            );
+        }
+
+        Ok(())
     }
 
     #[tokio::test]
-    #[ignore] // Requires KV backend implementation
-    async fn test_update_state_strict_mode_logs_on_kv_failure() {
-        // Setup: Create adapter, enable strict mode, mock KV failure on update
-        // Action: Call update_adapter_state_tx()
-        // Verify: SQL commits, error returned, consistency warning logged
+    async fn test_validate_tenant_consistency_with_adapters() -> Result<()> {
+        let db = Db::new_in_memory().await?;
+
+        // Create tenant with multiple adapters
+        let tenant_id = db.create_tenant("consistency-test-tenant", false).await?;
+        for i in 1..=5 {
+            let params = AdapterRegistrationBuilder::new()
+                .tenant_id(&tenant_id)
+                .adapter_id(&format!("consistency-adapter-{}", i))
+                .name(format!("Consistency Test Adapter {}", i))
+                .hash_b3(format!("b3:consistency_{}", i))
+                .rank(8)
+                .build()?;
+            db.register_adapter_extended(params).await?;
+        }
+
+        // Validate tenant consistency
+        let (consistent, inconsistent, errors) =
+            db.validate_tenant_consistency(&tenant_id, false).await?;
+
+        assert_eq!(consistent, 5, "All 5 adapters should be consistent");
+        assert_eq!(inconsistent, 0, "No adapters should be inconsistent");
+        assert_eq!(errors, 0, "No errors should occur");
+
+        Ok(())
     }
 
     #[tokio::test]
-    #[ignore] // Requires KV backend implementation
-    async fn test_update_memory_strict_mode_logs_on_kv_failure() {
-        // Setup: Create adapter, enable strict mode, mock KV failure on update
-        // Action: Call update_adapter_memory_tx()
-        // Verify: SQL commits, error returned, consistency warning logged
-    }
+    async fn test_validate_tenant_consistency_with_repair() -> Result<()> {
+        let db = Db::new_in_memory().await?;
 
-    #[tokio::test]
-    #[ignore] // Requires KV backend implementation
-    async fn test_update_tier_strict_mode_logs_on_kv_failure() {
-        // Setup: Create adapter, enable strict mode, mock KV failure on update
-        // Action: Call update_adapter_tier()
-        // Verify: SQL commits, error returned, consistency warning logged
-    }
+        // Create tenant with adapters
+        let tenant_id = db.create_tenant("repair-test-tenant", false).await?;
+        for i in 1..=3 {
+            let params = AdapterRegistrationBuilder::new()
+                .tenant_id(&tenant_id)
+                .adapter_id(&format!("repair-adapter-{}", i))
+                .name(format!("Repair Test Adapter {}", i))
+                .hash_b3(format!("b3:repair_{}", i))
+                .rank(8)
+                .build()?;
+            db.register_adapter_extended(params).await?;
+        }
 
-    #[tokio::test]
-    #[ignore] // Requires KV backend implementation
-    async fn test_delete_strict_mode_logs_on_kv_failure() {
-        // Setup: Create adapter, enable strict mode, mock KV failure on delete
-        // Action: Call delete_adapter()
-        // Verify: SQL delete succeeds, warning logged about orphaned KV entry
+        // Validate with repair=true
+        let (consistent, inconsistent, errors) =
+            db.validate_tenant_consistency(&tenant_id, true).await?;
+
+        assert_eq!(
+            consistent, 3,
+            "All 3 adapters should be consistent after repair"
+        );
+        assert_eq!(inconsistent, 0, "No adapters should remain inconsistent");
+        assert_eq!(errors, 0, "No errors should occur");
+
+        Ok(())
     }
 
     #[tokio::test]

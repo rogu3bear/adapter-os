@@ -448,8 +448,8 @@ impl MetalKernels {
         }
     }
 
-    /// Get comprehensive memory report
-    pub fn memory_report(&self) -> GpuMemoryReport {
+    /// Get comprehensive memory report (internal method)
+    fn memory_report_internal(&self) -> GpuMemoryReport {
         let pool_stats = self
             .memory_pool
             .as_ref()
@@ -1824,6 +1824,40 @@ impl FusedKernels for MetalKernels {
         }
 
         Ok(BackendHealth::Healthy)
+    }
+
+    fn memory_report(&self) -> Option<adapteros_lora_kernel_api::GpuMemoryReportData> {
+        // Get internal memory report and convert to trait-compatible format
+        let internal_report = self.memory_report_internal();
+
+        let pool_stats = Some(adapteros_lora_kernel_api::GpuPoolStats {
+            total_allocations: internal_report.pool_stats.total_allocations,
+            active_bytes: internal_report.pool_stats.total_active_bytes,
+            pooled_bytes: internal_report.pool_stats.total_pooled_bytes,
+            hit_rate: if internal_report.pool_stats.pool_hits
+                + internal_report.pool_stats.pool_misses
+                > 0
+            {
+                internal_report.pool_stats.pool_hits as f32
+                    / (internal_report.pool_stats.pool_hits
+                        + internal_report.pool_stats.pool_misses) as f32
+            } else {
+                0.0
+            },
+            peak_usage: internal_report.pool_stats.peak_memory_usage,
+        });
+
+        Some(adapteros_lora_kernel_api::GpuMemoryReportData {
+            total_gpu_bytes: internal_report.pool_stats.peak_memory_usage.max(
+                internal_report.pool_stats.total_active_bytes
+                    + internal_report.pool_stats.total_pooled_bytes,
+            ),
+            used_gpu_bytes: internal_report.pool_stats.total_active_bytes,
+            adapter_count: internal_report.adapter_count,
+            adapter_vram_total: internal_report.adapter_vram_total,
+            adapter_allocations: internal_report.adapter_allocations,
+            pool_stats,
+        })
     }
 }
 

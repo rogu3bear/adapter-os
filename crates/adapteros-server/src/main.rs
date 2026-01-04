@@ -16,10 +16,11 @@ use adapteros_server::boot::api_config::{build_api_config, spawn_sighup_handler}
 use adapteros_server::boot::background_tasks::spawn_all_background_tasks;
 use adapteros_server::boot::migrations::run_migrations;
 use adapteros_server::boot::{
-    bind_and_serve, bind_error_exit_code, build_app_state, finalize_boot, initialize_config,
-    initialize_database, initialize_executor, initialize_federation, initialize_metrics,
-    initialize_security, log_effective_config, run_preflight_checks,
-    validate_production_security_env, write_boot_report, BindMode, ServerBindConfig,
+    bind_and_serve, bind_error_exit_code, build_app_state, enforce_invariants, finalize_boot,
+    initialize_config, initialize_database, initialize_executor, initialize_federation,
+    initialize_metrics, initialize_security, log_effective_config, run_preflight_checks,
+    validate_boot_invariants, validate_production_security_env, write_boot_report, BindMode,
+    ServerBindConfig,
 };
 use adapteros_server::cli::Cli;
 use adapteros_server_api::boot_state::failure_codes;
@@ -110,6 +111,31 @@ async fn main() -> Result<()> {
                 e
             })?;
         boot_state.finish_phase_ok("preflight");
+
+        // =====================================================================
+        // Phase 4b: Boot Invariants Validation
+        // =====================================================================
+        boot_state.start_phase("invariants");
+        let invariant_report = validate_boot_invariants(
+            &config_ctx.server_config,
+            executor_ctx.manifest_hash.is_some(),
+        );
+        let production_mode = {
+            let cfg = config_ctx
+                .server_config
+                .read()
+                .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?;
+            cfg.server.production_mode
+        };
+        enforce_invariants(&invariant_report, production_mode).map_err(|e| {
+            boot_state.finish_phase_err(
+                "invariants",
+                failure_codes::INVARIANTS_FAILED,
+                Some(e.to_string()),
+            );
+            anyhow::anyhow!("{}", e)
+        })?;
+        boot_state.finish_phase_ok("invariants");
 
         // =====================================================================
         // Phase 5: Database Connection
