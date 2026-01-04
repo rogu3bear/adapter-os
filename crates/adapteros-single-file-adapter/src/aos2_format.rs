@@ -1,6 +1,6 @@
-//! AOS 2.0: Memory-Mappable Single-File Adapter Format
+//! AOS: Memory-Mappable Single-File Adapter Format
 //!
-//! This module provides the AOS 2.0 binary format implementation with
+//! This module provides the AOS binary format implementation with
 //! fixed-offset sections for zero-copy weight loading via memory mapping.
 
 use crate::format::{AdapterManifest, LineageInfo, SingleFileAdapter};
@@ -12,11 +12,11 @@ use std::fs::File;
 use std::path::Path;
 use std::sync::Arc;
 
-/// AOS 2.0 file header (268 bytes, fixed size for mmap compatibility)
+/// AOS file header (268 bytes, fixed size for mmap compatibility)
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
-pub struct Aos2Header {
-    /// Magic bytes: "AOS2\x00\x00\x00\x00"
+pub struct AosHeader {
+    /// Magic bytes: "AOS\x00\x00\x00\x00\x00"
     pub magic: [u8; 8],
     /// Format version (2 for AOS 2.0)
     pub version: u32,
@@ -40,14 +40,14 @@ pub struct Aos2Header {
     pub _reserved: [u8; 168],
 }
 
-impl Aos2Header {
-    pub const MAGIC: &[u8; 8] = b"AOS2\x00\x00\x00\x00";
+impl AosHeader {
+    pub const MAGIC: &[u8; 8] = b"AOS\x00\x00\x00\x00\x00";
     pub const SIZE: usize = 268;
 
     /// Validate header magic and version
     pub fn validate(&self) -> Result<()> {
         if &self.magic != Self::MAGIC {
-            return Err(AosError::Parse("Invalid AOS 2.0 magic bytes".to_string()));
+            return Err(AosError::Parse("Invalid AOS magic bytes".to_string()));
         }
         if self.version != 2 {
             return Err(AosError::Parse(format!(
@@ -72,35 +72,35 @@ impl Aos2Header {
     }
 }
 
-/// AOS 2.0 adapter loader with memory-mapped access
-pub struct Aos2Adapter {
+/// AOS adapter loader with memory-mapped access
+pub struct AosAdapter {
     /// Memory-mapped file
     mmap: Arc<Mmap>,
     /// Parsed header
-    header: Aos2Header,
+    header: AosHeader,
     /// Cached adapter (loaded on demand)
     adapter: parking_lot::RwLock<Option<Arc<SingleFileAdapter>>>,
 }
 
-impl Aos2Adapter {
-    /// Load AOS 2.0 adapter from file path
+impl AosAdapter {
+    /// Load AOS adapter from file path
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
         let file = File::open(path)
-            .map_err(|e| AosError::Io(format!("Failed to open AOS 2.0 file: {}", e)))?;
+            .map_err(|e| AosError::Io(format!("Failed to open AOS file: {}", e)))?;
 
         let mmap = unsafe {
             Mmap::map(&file)
-                .map_err(|e| AosError::Io(format!("Failed to memory-map AOS 2.0 file: {}", e)))?
+                .map_err(|e| AosError::Io(format!("Failed to memory-map AOS file: {}", e)))?
         };
 
-        if mmap.len() < Aos2Header::SIZE {
+        if mmap.len() < AosHeader::SIZE {
             return Err(AosError::Parse(
-                "AOS 2.0 file too short for header".to_string(),
+                "AOS file too short for header".to_string(),
             ));
         }
 
-        let header = Aos2Header::from_bytes(&mmap[..Aos2Header::SIZE])?;
+        let header = AosHeader::from_bytes(&mmap[..AosHeader::SIZE])?;
         header.validate()?;
 
         if mmap.len() < header.total_size as usize {
@@ -139,11 +139,11 @@ impl Aos2Adapter {
         let metadata_bytes = zstd::decode_all(metadata_data)
             .map_err(|e| AosError::Parse(format!("Failed to decompress metadata: {}", e)))?;
 
-        let metadata: Aos2Metadata = serde_json::from_slice(&metadata_bytes)
+        let metadata: AosMetadata = serde_json::from_slice(&metadata_bytes)
             .map_err(|e| AosError::Parse(format!("Failed to parse metadata: {}", e)))?;
 
-        // Parse weights from AOS 2.0 format
-        let weights = parse_weights_from_aos2(weights_data)?;
+        // Parse weights from AOS format
+        let weights = parse_weights_from_aos(weights_data)?;
 
         // Build adapter
         let adapter = SingleFileAdapter {
@@ -162,14 +162,14 @@ impl Aos2Adapter {
     }
 
     /// Get header for inspection
-    pub fn header(&self) -> &Aos2Header {
+    pub fn header(&self) -> &AosHeader {
         &self.header
     }
 }
 
-/// Metadata bundle stored in AOS 2.0 format
+/// Metadata bundle stored in AOS format
 #[derive(serde::Serialize, serde::Deserialize)]
-pub struct Aos2Metadata {
+pub struct AosMetadata {
     pub manifest: AdapterManifest,
     pub config: TrainingConfig,
     pub lineage: LineageInfo,
@@ -177,22 +177,22 @@ pub struct Aos2Metadata {
     pub signature: Option<crate::format::AosSignature>,
 }
 
-/// Weights structure for AOS 2.0 format
+/// Weights structure for AOS format
 #[derive(serde::Serialize, serde::Deserialize)]
-pub struct Aos2Weights {
+pub struct AosWeights {
     pub positive: Vec<u8>,
     pub negative: Vec<u8>,
     pub combined: Option<Vec<u8>>,
     pub manifest: WeightGroupsManifest,
 }
 
-/// Parse weights from AOS 2.0 format
-fn parse_weights_from_aos2(data: &[u8]) -> Result<crate::format::AdapterWeights> {
+/// Parse weights from AOS format
+fn parse_weights_from_aos(data: &[u8]) -> Result<crate::format::AdapterWeights> {
     use crate::format::WeightGroupType;
     use crate::weights::deserialize_weight_group;
 
-    let weights: Aos2Weights = serde_json::from_slice(data)
-        .map_err(|e| AosError::Parse(format!("Failed to parse AOS 2.0 weights: {}", e)))?;
+    let weights: AosWeights = serde_json::from_slice(data)
+        .map_err(|e| AosError::Parse(format!("Failed to parse AOS weights: {}", e)))?;
 
     let positive = deserialize_weight_group(
         &weights.positive,

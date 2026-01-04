@@ -78,6 +78,7 @@ pub mod tenant_isolation;
 pub mod tenant_snapshot;
 pub mod time;
 pub mod timeout;
+pub mod tokenizer_config;
 pub mod training;
 pub mod validation;
 pub mod version;
@@ -195,6 +196,7 @@ pub use tenant_isolation::{
     TenantIsolationViolation, TenantPrincipal, TENANT_ISOLATION_ERROR_CODE,
 };
 pub use timeout::TimeoutExt;
+pub use tokenizer_config::SpecialTokenMap;
 pub use training::{TrainingConfig, TrainingJob, TrainingJobStatus, TrainingTemplate};
 pub use version::{
     AlgorithmVersionBundle, IncompatibilitySeverity, VersionIncompatibility, VersionInfo,

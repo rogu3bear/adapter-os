@@ -26,7 +26,7 @@ use crate::output::OutputWriter;
 use adapteros_core::{AosError, Result};
 use adapteros_crypto::Keypair;
 use adapteros_single_file_adapter::{
-    Aos2PackageOptions, Aos2Packager, CompressionLevel, LineageInfo, LoadOptions, PackageOptions,
+    AosPackageOptions, AosPackager, CompressionLevel, LineageInfo, LoadOptions, PackageOptions,
     SingleFileAdapter, SingleFileAdapterLoader, SingleFileAdapterPackager,
     SingleFileAdapterValidator, TrainingConfig,
 };
@@ -308,8 +308,8 @@ pub async fn create_aos(args: CreateArgs, output: &OutputWriter) -> Result<()> {
             SingleFileAdapterPackager::save_with_options(&adapter, &args.output, package_options)
                 .await?;
         }
-        "aos2" => {
-            let aos2_options = Aos2PackageOptions {
+        "aos" => {
+            let aos_options = AosPackageOptions {
                 compress_metadata: true,
                 compress_weights: false,
                 compression_level: match compression_level {
@@ -319,11 +319,11 @@ pub async fn create_aos(args: CreateArgs, output: &OutputWriter) -> Result<()> {
                 },
                 include_combined_weights: true,
             };
-            Aos2Packager::save_with_options(&adapter, &args.output, aos2_options).await?;
+            AosPackager::save_with_options(&adapter, &args.output, aos_options).await?;
         }
         other => {
             return Err(AosError::Config(format!(
-                "Invalid format: '{}'. Valid options: zip, aos2",
+                "Invalid format: '{}'. Valid options: zip, aos",
                 other
             )))
         }
