@@ -1084,7 +1084,12 @@ pub fn init_effective_config(
     // Prevent further environment access after init
     ConfigGuards::freeze()?;
 
-    Ok(EFFECTIVE_CONFIG.get().unwrap())
+    // SAFETY: We just successfully set the config above, so get() cannot fail
+    EFFECTIVE_CONFIG.get().ok_or_else(|| {
+        AosError::Config(
+            "BUG: EffectiveConfig.get() failed immediately after successful set()".to_string(),
+        )
+    })
 }
 
 /// Get the global effective configuration

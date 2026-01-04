@@ -695,7 +695,7 @@ fn RegisterRepositoryDialog(open: RwSignal<bool>) -> impl IntoView {
             />
 
             // Dialog
-            <div class="fixed left-[50%] top-[50%] z-50 w-full max-w-lg translate-x-[-50%] translate-y-[-50%] border bg-background p-6 shadow-lg sm:rounded-lg">
+            <div class="dialog-content">
                 // Header
                 <div class="flex items-center justify-between mb-4">
                     <div>
@@ -855,7 +855,7 @@ fn PublishAdapterDialog(open: RwSignal<bool>, #[prop(into)] repo_id: String) -> 
             />
 
             // Dialog
-            <div class="fixed left-[50%] top-[50%] z-50 w-full max-w-lg translate-x-[-50%] translate-y-[-50%] border bg-background p-6 shadow-lg sm:rounded-lg">
+            <div class="dialog-content">
                 // Header
                 <div class="flex items-center justify-between mb-4">
                     <div>

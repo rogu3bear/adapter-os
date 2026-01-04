@@ -307,7 +307,7 @@ pub fn ChatSession() -> impl IntoView {
                                                     "flex {}",
                                                     if is_user { "justify-end" } else { "justify-start" }
                                                 )>
-                                                    <div class="flex flex-col gap-1 max-w-[80%]">
+                                                    <div class="flex flex-col gap-1 chat-bubble">
                                                         <div class=format!(
                                                             "rounded-lg px-4 py-2 {}",
                                                             if is_user {

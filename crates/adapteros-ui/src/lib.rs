@@ -143,6 +143,8 @@ pub fn App() -> impl IntoView {
                         <Route path=path!("/repositories/:id") view=|| view! { <ProtectedRoute><Shell><pages::RepositoryDetail/></Shell></ProtectedRoute> }/>
                         // PRD-UI-000: Safe mode route (no auth required, no API calls)
                         <Route path=path!("/safe") view=pages::Safe/>
+                        // PRD-UI-003: Style audit (dev tool, no sensitive data)
+                        <Route path=path!("/style-audit") view=pages::StyleAudit/>
                     </Routes>
                         // Global Command Palette overlay
                         <CommandPalette/>

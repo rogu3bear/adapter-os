@@ -15,7 +15,8 @@
     <link data-trunk rel="css" href="dist/glass.css">
     <!-- Liquid Glass Charts (PRD-UI-101) -->
     <link data-trunk rel="css" href="dist/charts.css">
-    <link data-trunk rel="rust" data-wasm-opt="z">
+    <!-- wasm-opt disabled: Trunk's bundled wasm-opt lacks --enable-bulk-memory (PRD-UI-170) -->
+    <link data-trunk rel="rust" data-wasm-opt="0">
     <style>
         /* PRD-UI-000: White screen triage styles */
         #aos-boot-probe {

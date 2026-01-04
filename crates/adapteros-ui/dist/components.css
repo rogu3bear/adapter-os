@@ -14,7 +14,7 @@
     font-size: 0.875rem;
     font-weight: 500;
     transition-property: color, background-color, border-color;
-    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-timing-function: var(--ease-default);
     transition-duration: 150ms;
     cursor: pointer;
     border: none;
@@ -119,6 +119,51 @@
     height: 2rem;
     width: 2rem;
     padding: 0;
+}
+
+/* ===== Tab Navigation Component ===== */
+.tab-nav {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--color-border);
+    margin-bottom: 1.5rem;
+}
+
+.tab-button {
+    position: relative;
+    padding: 0.75rem 0.25rem;
+    margin-right: 2rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--color-muted-foreground);
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    white-space: nowrap;
+    transition-property: color, border-color;
+    transition-duration: 150ms;
+    transition-timing-function: var(--ease-default);
+}
+
+.tab-button:hover {
+    color: var(--color-foreground);
+    border-bottom-color: var(--color-muted);
+}
+
+.tab-button:focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+}
+
+.tab-button-active {
+    color: var(--color-primary);
+    border-bottom-color: var(--color-primary);
+}
+
+.tab-button-active:hover {
+    color: var(--color-primary);
+    border-bottom-color: var(--color-primary);
 }
 
 /* ===== Card Component ===== */
@@ -1027,25 +1072,25 @@
 /* ===== Transition Utilities ===== */
 .transition-colors {
     transition-property: color, background-color, border-color, text-decoration-color, fill, stroke;
-    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-timing-function: var(--ease-default);
     transition-duration: 150ms;
 }
 
 .transition-all {
     transition-property: all;
-    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-timing-function: var(--ease-default);
     transition-duration: 150ms;
 }
 
 .transition-opacity {
     transition-property: opacity;
-    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-timing-function: var(--ease-default);
     transition-duration: 150ms;
 }
 
 .transition-transform {
     transition-property: transform;
-    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-timing-function: var(--ease-default);
     transition-duration: 150ms;
 }
 
@@ -1339,6 +1384,46 @@
     color: var(--color-foreground);
 }
 
+/* ===== Chat Bubble Width Constraints ===== */
+.chat-bubble {
+    max-width: 80%;
+}
+
+.chat-bubble-compact {
+    max-width: 85%;
+}
+
+/* Tiny text sizes */
+.text-2xs {
+    font-size: 0.625rem; /* 10px */
+    line-height: 0.875rem;
+}
+
+.text-3xs {
+    font-size: 0.5625rem; /* 9px */
+    line-height: 0.75rem;
+}
+
+/* Min height for textarea */
+.min-h-textarea {
+    min-height: 5rem; /* 80px */
+}
+
+/* Truncation max-widths for hash displays */
+.max-w-truncate-sm {
+    max-width: 100px;
+}
+
+.max-w-truncate {
+    max-width: 200px;
+}
+
+/* Search trigger sizing */
+.search-trigger {
+    min-width: 200px;
+    max-width: 300px;
+}
+
 /* ===== Mobile Chat FAB (Floating Action Button) ===== */
 @media (max-width: 639px) {
     .chat-dock-panel {
@@ -1405,22 +1490,22 @@
 
 .toast-info {
     background-color: hsl(221 83% 53% / 0.1);
-    border-color: hsl(221 83% 53%);
+    border-color: var(--color-status-info);
 }
 
 .toast-success {
     background-color: hsl(142 76% 36% / 0.1);
-    border-color: hsl(142 76% 36%);
+    border-color: var(--color-status-success);
 }
 
 .toast-warning {
     background-color: hsl(38 92% 50% / 0.1);
-    border-color: hsl(38 92% 50%);
+    border-color: var(--color-status-warning);
 }
 
 .toast-error {
     background-color: hsl(0 84% 60% / 0.1);
-    border-color: hsl(0 84% 60%);
+    border-color: var(--color-status-error);
 }
 
 .toast-header {
@@ -1445,10 +1530,10 @@
     margin-top: 0.125rem;
 }
 
-.toast-icon-info { color: hsl(221 83% 53%); }
-.toast-icon-success { color: hsl(142 76% 36%); }
-.toast-icon-warning { color: hsl(38 92% 50%); }
-.toast-icon-error { color: hsl(0 84% 60%); }
+.toast-icon-info { color: var(--color-status-info); }
+.toast-icon-success { color: var(--color-status-success); }
+.toast-icon-warning { color: var(--color-status-warning); }
+.toast-icon-error { color: var(--color-status-error); }
 
 .toast-title {
     font-size: 0.875rem;
@@ -1535,10 +1620,10 @@
     transition: width 100ms linear;
 }
 
-.toast-progress-bar-info { background-color: hsl(221 83% 53%); }
-.toast-progress-bar-success { background-color: hsl(142 76% 36%); }
-.toast-progress-bar-warning { background-color: hsl(38 92% 50%); }
-.toast-progress-bar-error { background-color: hsl(0 84% 60%); }
+.toast-progress-bar-info { background-color: var(--color-status-info); }
+.toast-progress-bar-success { background-color: var(--color-status-success); }
+.toast-progress-bar-warning { background-color: var(--color-status-warning); }
+.toast-progress-bar-error { background-color: var(--color-status-error); }
 
 /* Toast exit animation */
 .toast-exit {
@@ -1607,12 +1692,12 @@
 }
 
 .status-center-trigger-badge-warning {
-    background-color: hsl(38 92% 50%);
+    background-color: var(--color-status-warning);
     color: hsl(0 0% 0%);
 }
 
 .status-center-trigger-badge-info {
-    background-color: hsl(221 83% 53%);
+    background-color: var(--color-status-info);
     color: hsl(0 0% 100%);
 }
 
@@ -1645,7 +1730,7 @@
     box-shadow: -10px 0 30px rgb(0 0 0 / 0.1);
     display: flex;
     flex-direction: column;
-    animation: panel-slide-in 250ms cubic-bezier(0.4, 0, 0.2, 1);
+    animation: panel-slide-in 250ms var(--ease-default);
 }
 
 @keyframes panel-slide-in {
@@ -1658,7 +1743,7 @@
 }
 
 .status-center-panel-exit {
-    animation: panel-slide-out 200ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+    animation: panel-slide-out 200ms var(--ease-default) forwards;
 }
 
 @keyframes panel-slide-out {
@@ -1773,129 +1858,6 @@
     display: none;
 }
 
-/* Status Item */
-.status-item {
-    display: flex;
-    align-items: flex-start;
-    gap: 0.75rem;
-    padding: 0.75rem 1.25rem;
-    cursor: pointer;
-    transition-property: background-color;
-    transition-duration: 150ms;
-}
-
-.status-item:hover {
-    background-color: var(--color-muted);
-}
-
-.status-item-unread {
-    background-color: hsl(221 83% 53% / 0.05);
-}
-
-.status-item-indicator {
-    flex-shrink: 0;
-    width: 0.5rem;
-    height: 0.5rem;
-    margin-top: 0.375rem;
-    border-radius: 9999px;
-}
-
-.status-item-indicator-info { background-color: hsl(221 83% 53%); }
-.status-item-indicator-success { background-color: hsl(142 76% 36%); }
-.status-item-indicator-warning { background-color: hsl(38 92% 50%); }
-.status-item-indicator-error { background-color: hsl(0 84% 60%); }
-.status-item-indicator-pending { background-color: var(--color-muted-foreground); }
-
-.status-item-content {
-    flex: 1 1 0%;
-    min-width: 0;
-}
-
-.status-item-header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 0.5rem;
-    margin-bottom: 0.25rem;
-}
-
-.status-item-title {
-    font-size: 0.875rem;
-    font-weight: 500;
-    color: var(--color-foreground);
-    line-height: 1.3;
-}
-
-.status-item-title-unread {
-    font-weight: 600;
-}
-
-.status-item-time {
-    flex-shrink: 0;
-    font-size: 0.75rem;
-    color: var(--color-muted-foreground);
-    white-space: nowrap;
-}
-
-.status-item-message {
-    font-size: 0.8125rem;
-    color: var(--color-muted-foreground);
-    line-height: 1.4;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-}
-
-.status-item-meta {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-top: 0.5rem;
-}
-
-.status-item-tag {
-    font-size: 0.6875rem;
-    font-weight: 500;
-    padding: 0.125rem 0.375rem;
-    border-radius: calc(var(--radius) - 2px);
-    background-color: var(--color-muted);
-    color: var(--color-muted-foreground);
-}
-
-.status-item-actions {
-    display: flex;
-    gap: 0.25rem;
-    margin-left: auto;
-    opacity: 0;
-    transition-property: opacity;
-    transition-duration: 150ms;
-}
-
-.status-item:hover .status-item-actions {
-    opacity: 1;
-}
-
-.status-item-action {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.5rem;
-    height: 1.5rem;
-    border: none;
-    background: transparent;
-    border-radius: calc(var(--radius) - 2px);
-    color: var(--color-muted-foreground);
-    cursor: pointer;
-    transition-property: color, background-color;
-    transition-duration: 150ms;
-}
-
-.status-item-action:hover {
-    color: var(--color-foreground);
-    background-color: var(--color-accent);
-}
-
 /* Status Center Footer */
 .status-center-footer {
     display: flex;
@@ -1985,10 +1947,10 @@
     transition: width 300ms ease-out;
 }
 
-.status-progress-fill-info { background-color: hsl(221 83% 53%); }
-.status-progress-fill-success { background-color: hsl(142 76% 36%); }
-.status-progress-fill-warning { background-color: hsl(38 92% 50%); }
-.status-progress-fill-error { background-color: hsl(0 84% 60%); }
+.status-progress-fill-info { background-color: var(--color-status-info); }
+.status-progress-fill-success { background-color: var(--color-status-success); }
+.status-progress-fill-warning { background-color: var(--color-status-warning); }
+.status-progress-fill-error { background-color: var(--color-status-error); }
 
 .status-progress-label {
     flex-shrink: 0;
@@ -2022,9 +1984,9 @@
     border-radius: 9999px;
 }
 
-.system-status-indicator-healthy { background-color: hsl(142 76% 36%); }
-.system-status-indicator-degraded { background-color: hsl(38 92% 50%); }
-.system-status-indicator-unhealthy { background-color: hsl(0 84% 60%); }
+.system-status-indicator-healthy { background-color: var(--color-status-success); }
+.system-status-indicator-degraded { background-color: var(--color-status-warning); }
+.system-status-indicator-unhealthy { background-color: var(--color-status-error); }
 .system-status-indicator-unknown { background-color: var(--color-muted-foreground); }
 
 .system-status-indicator-pulse {
@@ -2271,16 +2233,16 @@
 }
 
 /* Status Item Dot Colors */
-.status-item-dot-info { background-color: hsl(221 83% 53%); }
-.status-item-dot-success { background-color: hsl(142 76% 36%); }
-.status-item-dot-warning { background-color: hsl(38 92% 50%); }
-.status-item-dot-error { background-color: hsl(0 84% 60%); }
+.status-item-dot-info { background-color: var(--color-status-info); }
+.status-item-dot-success { background-color: var(--color-status-success); }
+.status-item-dot-warning { background-color: var(--color-status-warning); }
+.status-item-dot-error { background-color: var(--color-status-error); }
 
 /* Status Item Text Colors */
-.status-item-text-info { color: hsl(221 83% 53%); }
-.status-item-text-success { color: hsl(142 76% 36%); }
-.status-item-text-warning { color: hsl(38 92% 50%); }
-.status-item-text-error { color: hsl(0 84% 60%); }
+.status-item-text-info { color: var(--color-status-info); }
+.status-item-text-success { color: var(--color-status-success); }
+.status-item-text-warning { color: var(--color-status-warning); }
+.status-item-text-error { color: var(--color-status-error); }
 
 .status-item-label {
     font-size: 0.8125rem;
@@ -2378,22 +2340,22 @@
 
 .status-section-badge-success {
     background-color: hsl(142 76% 36% / 0.15);
-    color: hsl(142 76% 36%);
+    color: var(--color-status-success);
 }
 
 .status-section-badge-warning {
     background-color: hsl(38 92% 50% / 0.15);
-    color: hsl(38 92% 50%);
+    color: var(--color-status-warning);
 }
 
 .status-section-badge-error {
     background-color: hsl(0 84% 60% / 0.15);
-    color: hsl(0 84% 60%);
+    color: var(--color-status-error);
 }
 
 .status-section-badge-info {
     background-color: hsl(221 83% 53% / 0.15);
-    color: hsl(221 83% 53%);
+    color: var(--color-status-info);
 }
 
 .status-section-content {

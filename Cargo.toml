@@ -90,6 +90,7 @@ members = [
     "crates/adapteros-secd",
     "crates/adapteros-secure-fs",
     "crates/adapteros-ui",  # Leptos UI frontend
+    "crates/adapteros-uds-protocol",  # UDS protocol types for CP ↔ worker communication
 ]
 
 [workspace.package]

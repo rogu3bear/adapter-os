@@ -33,7 +33,7 @@ pub fn Input(
         <div class="grid w-full gap-1.5">
             {if !label.is_empty() {
                 Some(view! {
-                    <label class="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                    <label class="label">
                         {label.clone()}
                     </label>
                 })
@@ -67,14 +67,14 @@ pub fn Textarea(
     #[prop(optional)] rows: Option<u32>,
     #[prop(optional, into)] class: String,
 ) -> impl IntoView {
-    let base_class = "flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
+    let base_class = "flex min-h-textarea w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
 
     let full_class = format!("{} {}", base_class, class);
 
     view! {
         <div class="grid w-full gap-1.5">
             {label.map(|l| view! {
-                <label class="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                <label class="label">
                     {l}
                 </label>
             })}

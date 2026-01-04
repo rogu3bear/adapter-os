@@ -15,6 +15,7 @@ pub mod dialog;
 pub mod form_field;
 pub mod glass_toggle;
 pub mod global_search;
+pub mod icons;
 pub mod input;
 pub mod layout;
 pub mod notification_provider;
@@ -26,6 +27,7 @@ pub mod start_menu;
 pub mod status;
 pub mod status_center;
 pub mod table;
+pub mod tabs;
 pub mod toast;
 pub mod toggle;
 pub mod trace_viewer;
@@ -59,6 +61,7 @@ pub use status::{
     StatusIndicator,
 };
 pub use table::{Table, TableBody, TableCell, TableHead, TableHeader, TableRow};
+pub use tabs::{TabButton, TabButtonEnum, TabNav, TabNavEnum, TabPanel, TabPanelEnum};
 pub use toggle::{Select, Toggle};
 pub use trace_viewer::{TraceButton, TracePanel, TraceViewer};
 pub use workspace::{
@@ -81,4 +84,13 @@ pub use status_center::{
     CombinedStatus, StatusCenter, StatusCenterPanel, StatusDivider, StatusItem,
     StatusItemAvailability, StatusItemMemory, StatusItemSeverity, StatusLoadingState,
     StatusSection, StatusSectionBadgeVariant, StatusSectionLabel,
+};
+
+// Icon components (centralized SVG icons)
+pub use icons::{
+    IconArrowLeft, IconCheck, IconCheckCircle, IconChevronDown, IconChevronLeft, IconChevronRight,
+    IconChevronUp, IconCog, IconCopy, IconDocument, IconDotsHorizontal, IconDotsVertical, IconEdit,
+    IconError, IconExternalLink, IconEye, IconEyeOff, IconFolder, IconHome, IconInfo, IconLogout,
+    IconMenu, IconMinus, IconPause, IconPlay, IconPlus, IconRefresh, IconSearch, IconServer,
+    IconSpinner, IconStop, IconTrash, IconUser, IconWarning, IconX,
 };

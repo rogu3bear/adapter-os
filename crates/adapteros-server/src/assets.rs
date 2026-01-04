@@ -30,6 +30,20 @@ async fn spa_fallback(uri: Uri) -> impl IntoResponse {
     if uri.path().starts_with("/api/") || uri.path().starts_with("/v1/") {
         return (StatusCode::NOT_FOUND, "Not Found").into_response();
     }
+
+    // Check if this is a static asset (CSS, JS, WASM, etc.) before SPA fallback
+    let path = uri.path().trim_start_matches('/');
+    if let Some(content) = Assets::get(path) {
+        let mime = mime_guess::from_path(path).first_or_octet_stream();
+        return Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, mime.as_ref())
+            .header(header::CACHE_CONTROL, "public, max-age=31536000, immutable")
+            .body(Body::from(content.data.into_owned()))
+            .expect("Failed to build response for static asset")
+            .into_response();
+    }
+
     index_handler().await.into_response()
 }
 
