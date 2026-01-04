@@ -1115,7 +1115,9 @@ pub fn derive_adapter_seed(
 
     // Check for reuse
     let key = (label.clone(), nonce);
-    let mut registry = SEED_REGISTRY.lock().unwrap();
+    let mut registry = SEED_REGISTRY
+        .lock()
+        .map_err(|e| format!("Seed registry lock poisoned: {}", e))?;
     if registry.contains_key(&key) {
         return Err(format!(
             "Seed reuse detected: {} with nonce {}",
@@ -1128,16 +1130,37 @@ pub fn derive_adapter_seed(
 }
 
 /// Clear seed registry (call at inference boundaries)
+///
+/// Logs a warning if the registry lock is poisoned (indicates prior panic in seed path).
 pub fn clear_seed_registry() {
-    let mut registry = SEED_REGISTRY.lock().unwrap();
-    registry.clear();
-    tracing::debug!("Cleared seed registry");
+    match SEED_REGISTRY.lock() {
+        Ok(mut registry) => {
+            registry.clear();
+            tracing::debug!("Cleared seed registry");
+        }
+        Err(e) => {
+            // Lock is poisoned - a previous thread panicked while holding it.
+            // Clear the poisoned mutex to recover, since seed registry is non-critical state.
+            let mut registry = e.into_inner();
+            registry.clear();
+            tracing::warn!("Cleared poisoned seed registry (prior panic in seed derivation path)");
+        }
+    }
 }
 
 /// Check if seed registry is empty (for tests/validation)
+///
+/// Returns `true` if empty or if the registry lock is poisoned.
 pub fn is_seed_registry_empty() -> bool {
-    let registry = SEED_REGISTRY.lock().unwrap();
-    registry.is_empty()
+    match SEED_REGISTRY.lock() {
+        Ok(registry) => registry.is_empty(),
+        Err(e) => {
+            // Lock is poisoned - treat as empty for validation purposes
+            // but log a warning since this indicates a prior panic.
+            tracing::warn!("Seed registry lock poisoned during is_empty check: {}", e);
+            true
+        }
+    }
 }
 
 #[cfg(test)]

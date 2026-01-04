@@ -81,23 +81,43 @@ where
     (state, refetch)
 }
 
-/// Simple polling hook
+/// Simple polling hook with automatic cleanup
 ///
-/// # Resource Leak Note
-/// The interval handle is intentionally leaked via `std::mem::forget` because:
-/// 1. Leptos 0.7's `on_cleanup` requires `Send + Sync` closures
-/// 2. `gloo_timers::Interval` is `!Send` (uses browser APIs)
-/// 3. In WASM, page unload or component unmount will release resources anyway
+/// Returns a cancel function that stops the polling when called.
+/// The interval is automatically cleared when the component unmounts.
 ///
-/// For long-lived SPAs with frequent component remounts, consider using
-/// `AbortController` patterns or a global polling manager instead.
-pub fn use_polling<F, Fut>(interval_ms: u32, fetch: F)
+/// # Implementation Note
+/// Uses raw `setInterval`/`clearInterval` via web_sys to enable proper cleanup.
+/// The JS closure is leaked (unavoidable with WASM), but the interval itself
+/// is cleared on unmount, preventing continued execution.
+pub fn use_polling<F, Fut>(interval_ms: u32, fetch: F) -> impl Fn()
 where
     F: Fn() -> Fut + Clone + 'static,
     Fut: std::future::Future<Output = ()> + 'static,
 {
+    use std::sync::atomic::{AtomicI32, Ordering};
+    use std::sync::Arc;
+    use wasm_bindgen::prelude::*;
+    use wasm_bindgen::JsCast;
+
+    // Store interval ID for cleanup (-1 = no interval)
+    let interval_id = Arc::new(AtomicI32::new(-1));
+    let interval_id_for_cleanup = Arc::clone(&interval_id);
+    let interval_id_for_cancel = Arc::clone(&interval_id);
+
+    // Register cleanup to clear interval on unmount
+    on_cleanup(move || {
+        let id = interval_id_for_cleanup.load(Ordering::SeqCst);
+        if id >= 0 {
+            if let Some(window) = web_sys::window() {
+                window.clear_interval_with_handle(id);
+            }
+        }
+    });
+
     Effect::new(move || {
         let fetch = fetch.clone();
+        let interval_id = Arc::clone(&interval_id);
 
         // Initial fetch
         let fetch_init = fetch.clone();
@@ -105,17 +125,36 @@ where
             fetch_init().await;
         });
 
-        // Set up interval
-        let interval_handle = gloo_timers::callback::Interval::new(interval_ms, move || {
+        // Set up interval using web_sys for cleanup capability
+        let callback = Closure::wrap(Box::new(move || {
             let fetch = fetch.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 fetch().await;
             });
-        });
+        }) as Box<dyn FnMut()>);
 
-        // Keep interval alive - see doc comment for rationale
-        std::mem::forget(interval_handle);
+        if let Some(window) = web_sys::window() {
+            if let Ok(id) = window.set_interval_with_callback_and_timeout_and_arguments_0(
+                callback.as_ref().unchecked_ref(),
+                interval_ms as i32,
+            ) {
+                interval_id.store(id, Ordering::SeqCst);
+            }
+        }
+
+        // Closure must be leaked (WASM limitation), but interval is cleared on cleanup
+        callback.forget();
     });
+
+    // Return cancel function
+    move || {
+        let id = interval_id_for_cancel.swap(-1, Ordering::SeqCst);
+        if id >= 0 {
+            if let Some(window) = web_sys::window() {
+                window.clear_interval_with_handle(id);
+            }
+        }
+    }
 }
 
 /// Navigate hook

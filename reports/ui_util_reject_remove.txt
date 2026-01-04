@@ -1,0 +1,10 @@
+# Reject utilities analysis
+# Total: 0
+# Unreferenced (remove): 0
+# Referenced (move to Transitional): 0
+
+No utilities marked as Reject in STYLE_ALLOWLIST.md
+
+Note: The allowlist defines 'Reject' as a status, but no utilities
+currently have this status. The 'Rejected Patterns' section documents
+patterns to avoid, not actual utilities to remove.

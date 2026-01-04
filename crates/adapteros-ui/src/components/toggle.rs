@@ -21,7 +21,7 @@ pub fn Toggle(
         <div class=format!("flex items-center justify-between {}", class)>
             <div class="space-y-0.5">
                 {label.map(|l| view! {
-                    <label class="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                    <label class="label">
                         {l}
                     </label>
                 })}
@@ -77,7 +77,7 @@ pub fn Select(
     view! {
         <div class="grid w-full gap-1.5">
             {label.map(|l| view! {
-                <label class="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                <label class="label">
                     {l}
                 </label>
             })}

@@ -5,15 +5,11 @@
 dist = "../adapteros-server/static"
 # Public URL base
 public_url = "/"
-
-# WASM optimization configuration
-# Re-enabled with bulk-memory support for modern Rust WASM output
-# Expected size reduction: 20-30% (3.8MB → ~2.5-3.0MB)
-[tools.wasm_opt]
-# Enable bulk-memory feature required by Rust 1.70+ WASM output
-# -O4: aggressive optimization for both size and speed
-# --enable-bulk-memory: required for modern Rust WASM
-args = ["-O4", "--enable-bulk-memory"]
+# wasm-opt disabled in Trunk - handled by CI post-build step
+# Trunk 0.21 doesn't support --enable-bulk-memory flag required for Rust 1.70+
+# See: .github/workflows/ci.yml (leptos-wasm-build job)
+# PRD-UI-170: CI runs wasm-opt -O4 --enable-bulk-memory, asserts <3.5MB
+no_wasm_opt = true
 
 [watch]
 # Watch for changes (stylers generates CSS at cargo build time)

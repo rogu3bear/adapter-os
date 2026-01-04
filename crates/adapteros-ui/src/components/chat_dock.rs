@@ -93,7 +93,7 @@ pub fn NarrowChatDock() -> impl IntoView {
                     let unread = chat_state.get().unread_count;
                     if unread > 0 {
                         view! {
-                            <span class="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[9px] font-medium text-destructive-foreground">
+                            <span class="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-3xs font-medium text-destructive-foreground">
                                 {if unread > 9 { "9+".to_string() } else { unread.to_string() }}
                             </span>
                         }.into_any()
@@ -329,7 +329,7 @@ fn MessageList() -> impl IntoView {
                                         if is_user { "justify-end" } else { "justify-start" }
                                     )>
                                         <div class=format!(
-                                            "max-w-[85%] rounded-lg px-3 py-2 {}",
+                                            "chat-bubble-compact rounded-lg px-3 py-2 {}",
                                             if is_user {
                                                 "bg-primary text-primary-foreground"
                                             } else {
@@ -338,7 +338,7 @@ fn MessageList() -> impl IntoView {
                                         )>
                                             <p class="text-sm whitespace-pre-wrap break-words">{content}</p>
                                             <div class=format!(
-                                                "mt-1 text-[10px] {}",
+                                                "mt-1 text-2xs {}",
                                                 if is_user { "text-primary-foreground/70" } else { "text-muted-foreground" }
                                             )>
                                                 {timestamp}
@@ -607,7 +607,7 @@ pub fn MobileChatOverlay() -> impl IntoView {
                     let unread = chat_state.get().unread_count;
                     if unread > 0 {
                         view! {
-                            <span class="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-[10px] font-medium text-destructive-foreground">
+                            <span class="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-2xs font-medium text-destructive-foreground">
                                 {if unread > 9 { "9+".to_string() } else { unread.to_string() }}
                             </span>
                         }.into_any()

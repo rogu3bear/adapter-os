@@ -35,7 +35,8 @@ pub fn Training() -> impl IntoView {
     let refetch_signal = StoredValue::new(refetch_jobs);
 
     // Polling for live updates (every 5 seconds when jobs are running)
-    use_polling(5000, move || async move {
+    // Return value (stop fn) intentionally ignored - polling runs until unmount
+    let _ = use_polling(5000, move || async move {
         refetch_signal.with_value(|f| f());
     });
 
@@ -298,7 +299,8 @@ fn TrainingJobDetail(
     let refetch_signal = StoredValue::new(refetch);
 
     // Poll for updates on running jobs
-    use_polling(3000, move || async move {
+    // Return value (stop fn) intentionally ignored - polling runs until unmount
+    let _ = use_polling(3000, move || async move {
         refetch_signal.with_value(|f| f());
     });
 
@@ -909,7 +911,7 @@ fn CreateJobDialog(
                 />
 
                 // Dialog
-                <div class="fixed left-[50%] top-[50%] z-50 w-full max-w-lg translate-x-[-50%] translate-y-[-50%] border bg-background p-6 shadow-lg sm:rounded-lg">
+                <div class="dialog-content">
                     // Header
                     <div class="flex items-center justify-between mb-4">
                         <div>

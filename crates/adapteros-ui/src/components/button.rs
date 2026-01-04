@@ -16,15 +16,11 @@ pub enum ButtonVariant {
 impl ButtonVariant {
     fn class(&self) -> &'static str {
         match self {
-            Self::Primary => "bg-primary text-primary-foreground hover:bg-primary/90",
-            Self::Secondary => "bg-secondary text-secondary-foreground hover:bg-secondary/80",
-            Self::Outline => {
-                "border border-input bg-background hover:bg-accent hover:text-accent-foreground"
-            }
-            Self::Ghost => "hover:bg-accent hover:text-accent-foreground",
-            Self::Destructive => {
-                "bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            }
+            Self::Primary => "btn-primary",
+            Self::Secondary => "btn-secondary",
+            Self::Outline => "btn-outline",
+            Self::Ghost => "btn-ghost",
+            Self::Destructive => "btn-destructive",
         }
     }
 }
@@ -42,10 +38,10 @@ pub enum ButtonSize {
 impl ButtonSize {
     fn class(&self) -> &'static str {
         match self {
-            Self::Sm => "h-8 px-3 text-xs",
-            Self::Md => "h-10 px-4 py-2",
-            Self::Lg => "h-12 px-8",
-            Self::Icon => "h-10 w-10",
+            Self::Sm => "btn-sm",
+            Self::Md => "btn-md",
+            Self::Lg => "btn-lg",
+            Self::Icon => "btn-icon",
         }
     }
 }
@@ -61,15 +57,7 @@ pub fn Button(
     #[prop(optional)] on_click: Option<Callback<()>>,
     children: Children,
 ) -> impl IntoView {
-    let base_class = "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50";
-
-    let full_class = format!(
-        "{} {} {} {}",
-        base_class,
-        variant.class(),
-        size.class(),
-        class
-    );
+    let full_class = format!("btn {} {} {}", variant.class(), size.class(), class);
 
     view! {
         <button

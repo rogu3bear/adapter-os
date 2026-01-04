@@ -1882,6 +1882,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "adapteros-uds-protocol"
+version = "0.1.0"
+dependencies = [
+ "adapteros-api-types",
+ "adapteros-core",
+ "adapteros-types",
+ "insta",
+ "schemars",
+ "serde",
+ "serde_json",
+ "utoipa",
+]
+
+[[package]]
 name = "adapteros-ui"
 version = "0.1.0"
 dependencies = [
