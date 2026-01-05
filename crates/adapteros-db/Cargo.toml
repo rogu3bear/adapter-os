@@ -22,6 +22,7 @@ adapteros-artifacts = { path = "../adapteros-artifacts" }
 adapteros-single-file-adapter = { path = "../adapteros-single-file-adapter" }
 adapteros-aos = { path = "../adapteros-aos" }
 adapteros-normalization = { path = "../adapteros-normalization" }
+adapteros-diagnostics = { path = "../adapteros-diagnostics" }
 
 # Workspace dependencies
 anyhow.workspace = true

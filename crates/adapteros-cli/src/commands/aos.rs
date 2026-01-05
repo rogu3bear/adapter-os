@@ -26,9 +26,8 @@ use crate::output::OutputWriter;
 use adapteros_core::{AosError, Result};
 use adapteros_crypto::Keypair;
 use adapteros_single_file_adapter::{
-    AosPackageOptions, AosPackager, CompressionLevel, LineageInfo, LoadOptions, PackageOptions,
-    SingleFileAdapter, SingleFileAdapterLoader, SingleFileAdapterPackager,
-    SingleFileAdapterValidator, TrainingConfig,
+    CompressionLevel, LineageInfo, LoadOptions, PackageOptions, SingleFileAdapter,
+    SingleFileAdapterLoader, SingleFileAdapterPackager, SingleFileAdapterValidator, TrainingConfig,
 };
 use chrono::Utc;
 
@@ -58,7 +57,7 @@ pub enum AosCmd {
     Info(InfoArgs), // COORDINATION: Affects UI display components
     /// Migrate .aos file to current format version
     Migrate(MigrateArgs), // COORDINATION: Affects format version compatibility
-    /// Convert .aos file between formats (ZIP <-> AOS 2.0)
+    /// Convert .aos file between formats (ZIP <-> AOS binary)
     Convert(ConvertArgs), // COORDINATION: Format conversion
 }
 
@@ -96,8 +95,8 @@ pub struct CreateArgs {
     #[arg(long, default_value = "fast")]
     pub compression: String,
 
-    /// Format version (zip or aos2)
-    #[arg(long, default_value = "zip")]
+    /// Format version (zip or aos)
+    #[arg(long, default_value = "aos")]
     pub format: String,
 
     /// Hex-encoded signing key (generates new key if not provided)
@@ -178,8 +177,8 @@ pub struct ConvertArgs {
     #[arg(long)]
     pub output: PathBuf,
 
-    /// Target format (zip or aos2)
-    #[arg(long, default_value = "aos2")]
+    /// Target format (zip or aos)
+    #[arg(long, default_value = "aos")]
     pub format: String,
 
     /// Verify converted file
@@ -309,17 +308,38 @@ pub async fn create_aos(args: CreateArgs, output: &OutputWriter) -> Result<()> {
                 .await?;
         }
         "aos" => {
-            let aos_options = AosPackageOptions {
-                compress_metadata: true,
-                compress_weights: false,
-                compression_level: match compression_level {
-                    CompressionLevel::Store => 1,
-                    CompressionLevel::Fast => 3,
-                    CompressionLevel::Best => 22,
-                },
-                include_combined_weights: true,
+            // Use the adapteros-aos crate for AOS format (64-byte header)
+            use adapteros_aos::{AosWriter, BackendTag};
+            use adapteros_single_file_adapter::weights::serialize_weight_group;
+
+            // Serialize weights to safetensors
+            let weights_bytes = if let Some(ref combined) = adapter.weights.combined {
+                serialize_weight_group(combined)?
+            } else {
+                serialize_weight_group(&adapter.weights.positive)?
             };
-            AosPackager::save_with_options(&adapter, &args.output, aos_options).await?;
+
+            // Build manifest for AOS format
+            let scope_path = format!(
+                "{}/{}/default/inference",
+                adapter.manifest.category, adapter.manifest.adapter_id
+            );
+            let manifest = serde_json::json!({
+                "adapter_id": adapter.manifest.adapter_id,
+                "version": adapter.manifest.version,
+                "rank": adapter.manifest.rank,
+                "alpha": adapter.manifest.alpha,
+                "base_model": adapter.manifest.base_model,
+                "metadata": {
+                    "scope_path": scope_path,
+                    "domain": adapter.manifest.category,
+                    "group": adapter.manifest.adapter_id,
+                }
+            });
+
+            let mut writer = AosWriter::new();
+            writer.add_segment(BackendTag::Canonical, Some(scope_path), &weights_bytes)?;
+            writer.write_archive(&args.output, &manifest)?;
         }
         other => {
             return Err(AosError::Config(format!(

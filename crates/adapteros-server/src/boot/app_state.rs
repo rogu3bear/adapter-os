@@ -6,6 +6,7 @@
 use adapteros_core::AosError;
 use adapteros_db::Db;
 use adapteros_deterministic_exec::global_ledger::GlobalTickLedger;
+use adapteros_diagnostics::{DiagEnvelope, DiagnosticsConfig, DiagnosticsService};
 use adapteros_lora_worker::memory::UmaPressureMonitor;
 use adapteros_metrics_exporter::MetricsExporter;
 use adapteros_orchestrator::{FederationDaemon, TrainingService};
@@ -15,6 +16,7 @@ use adapteros_server_api::handlers::datasets::{
     resolve_dataset_root_lenient_from_strings, ENV_DATASETS_DIR,
 };
 use adapteros_server_api::handlers::workspaces::reconcile_active_models;
+use adapteros_server_api::pause_tracker::ServerPauseTracker;
 use adapteros_server_api::runtime_mode::RuntimeMode;
 use adapteros_server_api::state::BackgroundTaskTracker;
 use adapteros_server_api::storage_reconciler::spawn_storage_reconciler;
@@ -25,6 +27,7 @@ use anyhow::Result;
 use ed25519_dalek::SigningKey;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
+use tokio::sync::mpsc;
 use tracing::{info, warn};
 
 use crate::boot::BackgroundTaskSpawner;
@@ -63,7 +66,11 @@ pub async fn build_app_state(
     tick_ledger: Arc<GlobalTickLedger>,
     manifest_hash: Option<adapteros_core::B3Hash>,
     strict_mode: bool,
-) -> Result<(AppState, ShutdownCoordinator)> {
+) -> Result<(
+    AppState,
+    ShutdownCoordinator,
+    Option<mpsc::Receiver<DiagEnvelope>>,
+)> {
     info!(target: "boot", phase = 10, name = "services", "═══ BOOT PHASE 10/12: Service Initialization ═══");
 
     info!("Initializing worker health monitor");
@@ -154,7 +161,11 @@ pub async fn build_app_state(
     .with_tick_ledger(tick_ledger.clone())
     .with_health_monitor(health_monitor.clone())
     .with_background_task_tracker(Arc::clone(&background_tasks))
-    .with_federation(federation_daemon_for_state);
+    .with_federation(federation_daemon_for_state)
+    .with_pause_tracker(Arc::new(ServerPauseTracker::new()))
+    .with_inference_state_tracker(Arc::new(
+        adapteros_server_api::inference_state_tracker::InferenceStateTracker::new(),
+    ));
 
     // Wire worker signing keypair for CP->Worker authentication
     if let Some(ref keypair) = worker_signing_keypair {
@@ -308,5 +319,41 @@ pub async fn build_app_state(
         info!("Git subsystem disabled in configuration");
     }
 
-    Ok((state, shutdown_coordinator))
+    // Initialize diagnostics service if enabled in config
+    let diag_receiver = if let Some(eff_cfg) = adapteros_config::try_effective_config() {
+        if eff_cfg.diagnostics.enabled {
+            // Convert config DiagLevel to diagnostics DiagLevel via string representation
+            let level_str = format!("{:?}", eff_cfg.diagnostics.level);
+            let diag_level =
+                adapteros_diagnostics::DiagLevel::from_str_lossy(&level_str.to_lowercase());
+
+            let diag_config = DiagnosticsConfig {
+                enabled: eff_cfg.diagnostics.enabled,
+                level: diag_level,
+                channel_capacity: eff_cfg.diagnostics.channel_capacity,
+                max_events_per_run: eff_cfg.diagnostics.max_events_per_run,
+                batch_size: eff_cfg.diagnostics.batch_size,
+                batch_timeout_ms: eff_cfg.diagnostics.batch_timeout_ms,
+            };
+            let (service, receiver) = DiagnosticsService::new(diag_config);
+            info!(
+                level = ?diag_level,
+                channel_capacity = eff_cfg.diagnostics.channel_capacity,
+                max_events_per_run = eff_cfg.diagnostics.max_events_per_run,
+                batch_size = eff_cfg.diagnostics.batch_size,
+                batch_timeout_ms = eff_cfg.diagnostics.batch_timeout_ms,
+                "Diagnostics service initialized"
+            );
+            state = state.with_diagnostics_service(Arc::new(service));
+            Some(receiver)
+        } else {
+            info!("Diagnostics service disabled in configuration");
+            None
+        }
+    } else {
+        info!("Diagnostics service disabled (no effective config)");
+        None
+    };
+
+    Ok((state, shutdown_coordinator, diag_receiver))
 }

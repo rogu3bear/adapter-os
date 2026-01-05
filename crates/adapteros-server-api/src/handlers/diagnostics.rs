@@ -285,40 +285,56 @@ fn run_record_to_response(record: &DiagRunRecord) -> DiagRunResponse {
     }
 }
 
+/// Sensitive field names that should be removed from diagnostic payloads.
+/// These fields may contain user prompts, model outputs, or other PII.
+const SENSITIVE_FIELDS: &[&str] = &[
+    "prompt",
+    "prompts",
+    "system_prompt",
+    "user_prompt",
+    "output",
+    "outputs",
+    "completion",
+    "generated_text",
+    "input",
+    "response",
+    "content",
+    "text",
+    "message",
+    "messages",
+];
+
+/// Recursively sanitize a JSON value by removing sensitive fields.
+fn sanitize_recursive(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(obj) => {
+            // Remove all sensitive fields from this object
+            for field in SENSITIVE_FIELDS {
+                obj.remove(*field);
+            }
+            // Recurse into remaining values
+            for (_, v) in obj.iter_mut() {
+                sanitize_recursive(v);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            // Recurse into each array element
+            for item in arr.iter_mut() {
+                sanitize_recursive(item);
+            }
+        }
+        // Other types (strings, numbers, bools, null) don't need sanitization
+        _ => {}
+    }
+}
+
 /// Sanitize event payload to remove any prompt/output content.
 ///
 /// This ensures we never leak sensitive inference content through diagnostics.
 fn sanitize_event_payload(payload_json: &str) -> serde_json::Value {
     match serde_json::from_str::<serde_json::Value>(payload_json) {
         Ok(mut value) => {
-            // Remove known sensitive fields
-            if let Some(obj) = value.as_object_mut() {
-                // Remove any prompt/output content fields
-                obj.remove("prompt");
-                obj.remove("output");
-                obj.remove("input");
-                obj.remove("response");
-                obj.remove("content");
-                obj.remove("text");
-                obj.remove("message");
-                obj.remove("messages");
-                obj.remove("completion");
-
-                // Recursively sanitize nested objects
-                for (_, v) in obj.iter_mut() {
-                    if let Some(nested) = v.as_object_mut() {
-                        nested.remove("prompt");
-                        nested.remove("output");
-                        nested.remove("input");
-                        nested.remove("response");
-                        nested.remove("content");
-                        nested.remove("text");
-                        nested.remove("message");
-                        nested.remove("messages");
-                        nested.remove("completion");
-                    }
-                }
-            }
+            sanitize_recursive(&mut value);
             value
         }
         Err(_) => serde_json::json!({"error": "invalid_payload"}),

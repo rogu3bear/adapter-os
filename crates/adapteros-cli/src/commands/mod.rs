@@ -84,6 +84,7 @@ pub mod replay;
 pub mod replay_bundle;
 pub mod repo;
 pub mod report;
+pub mod review;
 pub mod rollback;
 pub mod router;
 #[cfg(feature = "scenarios")]

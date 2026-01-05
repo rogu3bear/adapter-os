@@ -81,6 +81,7 @@ pub struct ScanJobResult {
 pub struct ListRepositoriesQuery {
     pub page: Option<i32>,
     pub limit: Option<i32>,
+    pub status: Option<String>,
 }
 
 /// Repository list response
@@ -96,6 +97,7 @@ pub struct RepositoryInfo {
     pub path: String,
     pub languages: Vec<String>,
     pub default_branch: String,
+    pub status: String,
     pub latest_scan_commit: Option<String>,
     pub latest_scan_at: Option<String>,
     pub created_at: String,
@@ -422,6 +424,18 @@ pub async fn list_repositories(
             )
         })?;
 
+    // Filter by status if provided
+    let filtered_repos: Vec<_> = if let Some(ref status_filter) = query.status {
+        repos
+            .into_iter()
+            .filter(|r| r.status == *status_filter)
+            .collect()
+    } else {
+        repos
+    };
+
+    // Count is for total (unfiltered) - for accurate pagination we'd need a filtered count
+    // For now, return total count (pagination will need adjustment for filtered results)
     let total = state.db.count_repositories(tenant_id).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -429,7 +443,7 @@ pub async fn list_repositories(
         )
     })?;
 
-    let repo_infos: Vec<RepositoryInfo> = repos
+    let repo_infos: Vec<RepositoryInfo> = filtered_repos
         .into_iter()
         .map(|r| {
             let languages: Vec<String> = r
@@ -442,6 +456,7 @@ pub async fn list_repositories(
                 path: r.path,
                 languages,
                 default_branch: r.default_branch,
+                status: r.status,
                 latest_scan_commit: r.latest_scan_commit,
                 latest_scan_at: r.latest_scan_at,
                 created_at: r.created_at,
