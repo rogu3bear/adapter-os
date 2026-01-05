@@ -7,6 +7,7 @@ pub mod adapter_migrate_hashes;
 pub mod adapter_repair_hashes;
 pub mod adapter_swap;
 pub mod adapters;
+pub mod agent;
 pub mod aos;
 pub mod aos_impl;
 pub mod audit;

@@ -58,6 +58,7 @@ members = [
     "crates/adapteros-scenarios",
     "crates/adapteros-git",
     "crates/adapteros-deterministic-exec",
+    "crates/adapteros-agent-spawn",  # Multi-agent spawn system for parallel code modification
     "crates/adapteros-graph",
     "crates/adapteros-codegraph",
     "crates/adapteros-replay",

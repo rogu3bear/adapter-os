@@ -211,6 +211,13 @@ Examples:
     Chat(chat::ChatCommand),
 
     // ============================================================
+    // Multi-Agent Operations
+    // ============================================================
+    /// Multi-agent spawn commands for parallel code modification strategies
+    #[command(subcommand)]
+    Agent(commands::agent::AgentCommand),
+
+    // ============================================================
     // Development Commands
     // ============================================================
     /// Development environment commands (start/stop services)
@@ -1474,6 +1481,11 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             chat::handle_chat_command(cmd.clone(), &output).await?;
         }
 
+        // Multi-Agent Operations
+        Commands::Agent(cmd) => {
+            commands::agent::handle_agent_command(cmd.clone(), &output).await?;
+        }
+
         // Development Commands
         Commands::Dev { cmd } => {
             if let Some(inner) = cmd {
@@ -2206,6 +2218,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Stack(_) => "stack",
         Commands::Chat(_) => "chat",
         Commands::Dev { .. } => "dev",
+        Commands::Agent(_) => "agent",
         Commands::Scenario(_) => "scenario",
         Commands::Coreml(_) => "coreml",
         #[cfg(feature = "coreml-export")]
