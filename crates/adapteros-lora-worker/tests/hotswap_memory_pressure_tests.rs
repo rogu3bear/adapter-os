@@ -8,6 +8,8 @@
 //! - Force cleanup on high pressure
 //! - Preload success when VRAM is available
 
+#![allow(unused_mut)]
+
 use adapteros_core::B3Hash;
 use adapteros_lora_worker::{
     adapter_hotswap::AdapterTable,

@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use adapteros_server_api::handlers::{aliases, run_evidence, workspaces};
 use axum::{
     body::{to_bytes, Body},

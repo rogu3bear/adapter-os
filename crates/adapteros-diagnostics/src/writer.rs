@@ -413,9 +413,11 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         // Check sequences
-        let events = persister.events.lock().unwrap();
-        let sequences: Vec<u64> = events.iter().map(|e| e.seq).collect();
-        assert_eq!(sequences, vec![1, 2, 3, 4, 5]);
+        {
+            let events = persister.events.lock().unwrap();
+            let sequences: Vec<u64> = events.iter().map(|e| e.seq).collect();
+            assert_eq!(sequences, vec![1, 2, 3, 4, 5]);
+        }
 
         // Cleanup
         let _ = shutdown_tx.send(());

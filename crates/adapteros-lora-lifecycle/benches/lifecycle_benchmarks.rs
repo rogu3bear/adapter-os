@@ -25,6 +25,8 @@
 //! ```
 //!
 //! [source: crates/adapteros-lora-lifecycle/benches/lifecycle_benchmarks.rs]
+#![allow(dead_code)]
+#![allow(clippy::unnecessary_cast)]
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use std::time::Duration;

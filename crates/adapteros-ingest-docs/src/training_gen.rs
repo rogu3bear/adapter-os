@@ -2,6 +2,8 @@
 //!
 //! Converts document chunks into training examples for adapter fine-tuning.
 
+#![allow(clippy::default_constructed_unit_structs)]
+
 use crate::types::{DocumentChunk, IngestedDocument};
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};

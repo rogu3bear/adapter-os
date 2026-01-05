@@ -11,10 +11,7 @@
 //! - Maximum segment size hash verification
 //! - Hash verification after concurrent write
 
-use adapteros_aos::writer::{
-    compute_scope_hash, open_aos, parse_segments, AosWriter, BackendTag, AOS_MAGIC, HAS_INDEX_FLAG,
-    HEADER_SIZE, INDEX_ENTRY_SIZE,
-};
+use adapteros_aos::writer::{compute_scope_hash, parse_segments, AosWriter, BackendTag};
 use adapteros_core::{AosError, B3Hash, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

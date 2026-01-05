@@ -6,6 +6,10 @@
 //! - Helper functions for common test scenarios
 //! - Isolation mechanisms for parallel test execution
 
+#![allow(deprecated)]
+#![allow(dead_code)]
+#![allow(clippy::module_inception)]
+
 #[allow(unused_imports)]
 use adapteros_db::{AdapterRegistrationBuilder, Db, ProtectedDb, WriteCapableDb};
 #[allow(unused_imports)]

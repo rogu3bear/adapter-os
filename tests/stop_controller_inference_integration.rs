@@ -10,6 +10,10 @@
 //! - Stop policies from requests override defaults
 //! - Stop decision token indices are included in receipts
 
+#![allow(clippy::clone_on_copy)]
+#![allow(clippy::useless_vec)]
+#![allow(clippy::type_complexity)]
+
 use adapteros_api_types::inference::{StopPolicySpec, StopReasonCode};
 use adapteros_core::B3Hash;
 use adapteros_db::{Db, SqlTraceSink, TraceFinalization, TraceSink, TraceStart, TraceTokenInput};
@@ -185,6 +189,7 @@ async fn test_stop_controller_budget_max_persisted_to_receipt() -> Result<()> {
         completion_threshold_q15: 32767, // Won't trigger
         repetition_ngram: 3,
         repetition_window: 32,
+        stop_sequences: vec![],
     };
 
     let mut sim = InferenceSimulation::new(policy, 100, 200);
@@ -283,6 +288,7 @@ async fn test_stop_controller_completion_confident_persisted() -> Result<()> {
         completion_threshold_q15: 16384, // ~0.5 threshold
         repetition_ngram: 3,
         repetition_window: 32,
+        stop_sequences: vec![],
     };
 
     let mut sim = InferenceSimulation::new(policy, 10, 100);
@@ -366,6 +372,7 @@ async fn test_stop_controller_repetition_guard_persisted() -> Result<()> {
         completion_threshold_q15: 32767, // Won't trigger
         repetition_ngram: 3,
         repetition_window: 32,
+        stop_sequences: vec![],
     };
 
     let mut sim = InferenceSimulation::new(policy, 999, 1000);
@@ -445,6 +452,7 @@ async fn test_stop_controller_length_eos_persisted() -> Result<()> {
         completion_threshold_q15: 32767,
         repetition_ngram: 3,
         repetition_window: 32,
+        stop_sequences: vec![],
     };
 
     let mut sim = InferenceSimulation::new(policy, 42, 100);
@@ -529,6 +537,7 @@ async fn test_determinism_same_policy_same_receipt_digest() -> Result<()> {
         completion_threshold_q15: 24576,
         repetition_ngram: 3,
         repetition_window: 32,
+        stop_sequences: vec![],
     };
 
     // Run 1
@@ -649,6 +658,7 @@ async fn test_different_policies_different_digests() -> Result<()> {
         completion_threshold_q15: 24576,
         repetition_ngram: 3,
         repetition_window: 32,
+        stop_sequences: vec![],
     };
 
     let policy2 = StopPolicySpec {
@@ -657,6 +667,7 @@ async fn test_different_policies_different_digests() -> Result<()> {
         completion_threshold_q15: 24576,
         repetition_ngram: 3,
         repetition_window: 32,
+        stop_sequences: vec![],
     };
 
     let sim1 = InferenceSimulation::new(policy1, 100, 200);
@@ -682,6 +693,7 @@ async fn test_stop_policy_override_from_request() -> Result<()> {
         completion_threshold_q15: 16384,
         repetition_ngram: 2,
         repetition_window: 16,
+        stop_sequences: vec![],
     };
 
     let mut sim_default = InferenceSimulation::new(default_policy, 42, 100);
@@ -720,6 +732,7 @@ async fn test_stop_decision_token_index_accuracy() -> Result<()> {
         completion_threshold_q15: 32767,
         repetition_ngram: 3,
         repetition_window: 32,
+        stop_sequences: vec![],
     };
 
     let mut sim = InferenceSimulation::new(policy, 99, 100);
@@ -751,6 +764,7 @@ async fn test_stop_policy_digest_committed_to_merkle_bundle() -> Result<()> {
         completion_threshold_q15: 24576,
         repetition_ngram: 3,
         repetition_window: 32,
+        stop_sequences: vec![],
     };
 
     let mut sim = InferenceSimulation::new(policy, 100, 200);
@@ -827,6 +841,7 @@ async fn test_stop_policy_digest_committed_to_merkle_bundle() -> Result<()> {
         completion_threshold_q15: 24576,
         repetition_ngram: 3,
         repetition_window: 32,
+        stop_sequences: vec![],
     };
     let different_policy_digest = different_policy.digest();
 
@@ -916,6 +931,7 @@ async fn test_all_stop_reasons_trigger_correctly_in_integration() -> Result<()> 
             completion_threshold_q15: 32767,
             repetition_ngram: 3,
             repetition_window: 32,
+            stop_sequences: vec![],
         };
         let mut sim = InferenceSimulation::new(policy, 100, 200);
         let (_, stop, _) = sim.generate_until_stop(vec![1, 2, 3], 0.1);
@@ -930,6 +946,7 @@ async fn test_all_stop_reasons_trigger_correctly_in_integration() -> Result<()> 
             completion_threshold_q15: 16384, // ~0.5
             repetition_ngram: 3,
             repetition_window: 32,
+            stop_sequences: vec![],
         };
         let mut sim = InferenceSimulation::new(policy, 10, 100);
         let (_, stop, _) = sim.generate_until_stop(vec![1, 2, 3], 15.0); // High EOS logit
@@ -944,6 +961,7 @@ async fn test_all_stop_reasons_trigger_correctly_in_integration() -> Result<()> 
             completion_threshold_q15: 32767,
             repetition_ngram: 3,
             repetition_window: 32,
+            stop_sequences: vec![],
         };
         let mut sim = InferenceSimulation::new(policy, 999, 1000);
         let (_, stop, _) = sim.generate_until_stop(vec![1, 2, 3, 4, 5, 1, 2, 3], 0.1);
@@ -958,6 +976,7 @@ async fn test_all_stop_reasons_trigger_correctly_in_integration() -> Result<()> 
             completion_threshold_q15: 32767,
             repetition_ngram: 3,
             repetition_window: 32,
+            stop_sequences: vec![],
         };
         let mut sim = InferenceSimulation::new(policy, 42, 100);
         let (_, stop, _) = sim.generate_until_stop(vec![1, 2, 42], 0.1);

@@ -10,6 +10,8 @@
 //! All cleanup functions are designed to work for both passing and failing tests.
 
 #![allow(dead_code)]
+#![allow(clippy::type_complexity)]
+#![allow(clippy::derivable_impls)]
 
 use std::collections::HashMap;
 use std::env;

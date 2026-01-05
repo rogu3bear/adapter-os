@@ -2,6 +2,8 @@
 //!
 //! Tests that stage events are properly captured during inference.
 
+#![allow(unused_imports)]
+
 use adapteros_diagnostics::{
     DiagEnvelope, DiagEvent, DiagRunId, DiagSeverity, DiagStage, DiagnosticsConfig,
     DiagnosticsService, StageGuard,

@@ -2,6 +2,9 @@
 //! Verifies end-to-end determinism primitives: HKDF router seeds, routing
 //! ordering with Q15 gates/decision hashes, and replay metadata round-trips.
 
+#![allow(unused_mut)]
+#![allow(clippy::single_component_path_imports)]
+
 use adapteros_api_types::inference::PolicyOverrideFlags as ApiPolicyOverrideFlags;
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_db::{
@@ -189,6 +192,7 @@ async fn test_replay_metadata_round_trip() {
         execution_policy_version: Some(1),
         stop_policy_json: None,
         policy_mask_digest_b3: None,
+        utf8_healing: None,
     };
 
     db.create_replay_metadata(params)

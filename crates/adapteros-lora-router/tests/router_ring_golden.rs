@@ -8,6 +8,7 @@
 //! A golden test captures the expected output for a known input and
 //! verifies that future changes don't break the contract. These tests
 //! document the canonical format and catch regression.
+#![allow(clippy::bool_comparison)]
 //!
 //! **References:**
 //! - Router-Kernel Ring Buffer Unification

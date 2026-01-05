@@ -6,6 +6,7 @@
 //! - DirectKernels for single-backend execution
 //! - CoordinatedKernels for dual-backend execution with fallback
 //! - KernelWrapper enum unifying both execution strategies
+#![allow(clippy::items_after_test_module)]
 
 use adapteros_core::{AosError, Result};
 use adapteros_lora_kernel_api::{

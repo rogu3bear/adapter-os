@@ -46,6 +46,8 @@
 //! - Memory pool hit rate: > 80%
 //!
 //! [source: crates/adapteros-lora-kernel-mtl/benches/kernel_benchmarks.rs]
+#![allow(clippy::unit_arg)]
+#![allow(clippy::manual_div_ceil)]
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use std::time::Duration;

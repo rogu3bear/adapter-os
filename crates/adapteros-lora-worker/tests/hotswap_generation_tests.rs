@@ -11,6 +11,10 @@
 //! - Stale retry count handling on recycled generations
 //! - Generation counter leak detection
 
+#![allow(unused_imports)]
+#![allow(clippy::redundant_pattern_matching)]
+#![allow(clippy::expect_fun_call)]
+
 use adapteros_core::B3Hash;
 use adapteros_lora_worker::adapter_hotswap::AdapterTable;
 use std::sync::atomic::Ordering;

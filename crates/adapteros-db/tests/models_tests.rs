@@ -6,6 +6,7 @@
 //! - Model state management (import status, base model status)
 //! - Edge cases and error conditions
 //! - Cross-tenant isolation for tenant-scoped models
+#![allow(clippy::len_zero)]
 
 use adapteros_core::{AosError, Result};
 use adapteros_db::models::{ModelRegistrationBuilder, ModelRegistrationParams};

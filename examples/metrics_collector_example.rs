@@ -9,6 +9,8 @@
 //! For Prometheus-style metrics with histograms and gauges, see the
 //! CriticalComponentMetrics in adapteros_telemetry::metrics::critical_components.
 
+#![allow(clippy::manual_is_multiple_of)]
+
 use adapteros_telemetry::MetricsCollector;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

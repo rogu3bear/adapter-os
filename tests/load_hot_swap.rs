@@ -3,6 +3,8 @@
 //! - Training overlap: concurrent training-style load degrades latency linearly and preserves determinism.
 //! - Memory leak guard: optional 1h soak (ignored by default) to watch RSS under churn.
 
+#![allow(clippy::cloned_ref_to_slice_refs)]
+
 use adapteros_core::{constants::BYTES_PER_MB, B3Hash, Result};
 use adapteros_lora_worker::adapter_hotswap::AdapterTable;
 use adapteros_lora_worker::generation::Generator;

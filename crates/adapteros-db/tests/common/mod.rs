@@ -17,6 +17,9 @@
 //!     test_db.cleanup().await;
 //! }
 //! ```
+#![allow(dead_code)]
+#![allow(unused_imports)]
+#![allow(clippy::await_holding_lock)]
 
 pub mod assertions;
 pub mod cleanup;
@@ -24,7 +27,11 @@ pub mod db_helpers;
 pub mod factories;
 
 // Re-export commonly used items
+#[allow(unused_imports)]
 pub use assertions::{assert_adapter_fields_match, assert_adapters_equal};
+#[allow(unused_imports)]
 pub use cleanup::{cleanup_test_db, cleanup_test_files};
+#[allow(unused_imports)]
 pub use db_helpers::{create_test_db, create_test_db_with_kv, create_test_db_with_mode, TestDb};
+#[allow(unused_imports)]
 pub use factories::{TestAdapterFactory, TestStackFactory, TestTenantFactory};

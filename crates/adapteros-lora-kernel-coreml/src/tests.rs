@@ -1,12 +1,11 @@
 //! Tests for CoreML kernel implementation
+#![allow(clippy::useless_vec)]
 
 use super::*;
-use crate::export::{
-    export_coreml_adapter, validate_coreml_fusion, CoreMLExportRequest, CoreMLFusionMetadata,
-};
+use crate::export::{export_coreml_adapter, validate_coreml_fusion, CoreMLExportRequest};
 use adapteros_aos::{AosWriter, BackendTag};
 use adapteros_core::B3Hash;
-use adapteros_lora_kernel_api::{attestation, FusedKernels, IoBuffers, RouterRing};
+use adapteros_lora_kernel_api::{attestation, FusedKernels};
 use adapteros_types::CoreMLOpKind;
 use safetensors::{serialize, tensor::TensorView};
 use std::path::PathBuf;
@@ -2297,7 +2296,7 @@ async fn test_export_async_actually_times_out() {
 
 #[test]
 fn test_fusion_strict_mode_returns_error_on_mismatch() {
-    use crate::fusion::{validate_lora_shapes, FusionOptions, LoraTarget};
+    use crate::fusion::{validate_lora_shapes, LoraTarget};
 
     // Mismatched shapes
     let lora_a = vec![0.0f32; 100]; // Wrong size

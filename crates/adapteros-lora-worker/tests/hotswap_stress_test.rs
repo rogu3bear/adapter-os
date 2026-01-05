@@ -3,6 +3,8 @@
 //! These tests verify that the hot-swap system works correctly under concurrent load,
 //! including checkpoint creation, verification, and rollback scenarios.
 
+#![allow(clippy::cloned_ref_to_slice_refs)]
+
 use adapteros_core::B3Hash;
 use adapteros_lora_worker::{AdapterTable, GpuFingerprint, StackCheckpoint};
 use std::sync::Arc;

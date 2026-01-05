@@ -2,6 +2,8 @@
 //!
 //! Implements resource limits and rate limiting to prevent runaway processes.
 //! Aligns with Performance Ruleset #11 and Memory Ruleset #12 from policy enforcement.
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::manual_range_contains)]
 
 use adapteros_core::{AosError, Result};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};

@@ -271,6 +271,7 @@ async fn test_e2e_inference_with_audit_trail() {
         stop_reason_code: Some(StopReasonCode::Length),
         stop_reason_token_index: Some(10),
         stop_policy_digest_b3: None,
+        tokenizer_digest_b3: None,
     };
 
     // Start mock worker UDS server

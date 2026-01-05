@@ -3,6 +3,8 @@
 //! Provides verification methods for cross-host bundle signature chains,
 //! enabling federated replay verification across multiple hosts.
 
+#![allow(clippy::redundant_closure)]
+
 use crate::{VerifyError, VerifyResult};
 use adapteros_crypto::Keypair;
 use adapteros_db::Db;

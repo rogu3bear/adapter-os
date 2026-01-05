@@ -17,6 +17,7 @@
 //!
 //! Citation: AGENTS.md - Storage migration path validation
 //! Copyright JKCA | 2025 James KC Auchterlonie
+#![allow(deprecated)]
 
 use adapteros_db::adapters::AdapterRegistrationBuilder;
 use adapteros_db::{Db, ProtectedDb, StorageMode};

@@ -11,6 +11,9 @@
 //! - Invalid PEM format rejection
 //! - Invalid hex public key rejection
 
+#![allow(unused_imports)]
+#![allow(dead_code)]
+
 use adapteros_core::{AosError, B3Hash};
 use std::sync::Mutex;
 

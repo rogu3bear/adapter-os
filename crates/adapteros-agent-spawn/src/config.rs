@@ -281,8 +281,10 @@ mod tests {
 
     #[test]
     fn test_generate_agent_ids() {
-        let mut config = AgentSpawnConfig::default();
-        config.agent_count = 5;
+        let config = AgentSpawnConfig {
+            agent_count: 5,
+            ..Default::default()
+        };
         let ids = config.generate_agent_ids();
 
         assert_eq!(ids.len(), 5);

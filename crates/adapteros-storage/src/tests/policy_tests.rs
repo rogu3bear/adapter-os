@@ -2,6 +2,8 @@
 //!
 //! Tests for policy enforcement, constraints validation, and rule evaluation.
 
+#![allow(clippy::field_reassign_with_default)]
+
 use super::new_test_tempdir;
 use crate::policy::{
     FileOperation, StorageAction, StorageActionType, StorageCondition, StorageConditionType,

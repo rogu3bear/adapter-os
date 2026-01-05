@@ -4,6 +4,11 @@
 //! 1) Token-by-token router switching with large parallel fan-out.
 //! 2) Hot-swap churn during long generation (added below).
 
+#![allow(dead_code)]
+#![allow(clippy::cloned_ref_to_slice_refs)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::clone_on_copy)]
+
 use adapteros_core::{
     constants::BYTES_PER_MB,
     determinism::{DeterminismContext, DeterminismSource},

@@ -4,7 +4,7 @@ use adapteros_core::B3Hash;
 use adapteros_telemetry::events::{RouterCandidate, RouterDecisionEvent};
 use adapteros_telemetry::replay::{ReplayBundle, ReplayEvent};
 use adapteros_verify::{
-    create_golden_run, verify_against_golden, ComparisonConfig, GoldenRunArchive, StrictnessLevel,
+    create_golden_run, verify_against_golden, ComparisonConfig, GoldenRunArchive,
 };
 use std::fs;
 use tempfile::TempDir;

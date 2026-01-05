@@ -1,5 +1,7 @@
 //! Integration tests for Dependency Security Policy with known vulnerable dependencies
 
+#![allow(clippy::field_reassign_with_default)]
+
 use adapteros_policy::packs::{
     CveDataSource, CveEntry, CveProvider, DependencySecurityConfig, DependencySecurityPolicy,
     VulnerabilitySeverity,

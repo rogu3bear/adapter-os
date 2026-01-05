@@ -5,6 +5,8 @@
 //! - Large model support with memory pressure simulation
 //! - Adapter eviction under memory constraints
 //! - Training kernel operations
+#![allow(clippy::needless_update)]
+#![allow(clippy::useless_vec)]
 
 #[cfg(target_os = "macos")]
 mod metal_enhancement_tests {

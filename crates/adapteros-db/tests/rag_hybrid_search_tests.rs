@@ -2,6 +2,8 @@
 //!
 //! NOTE: Run with `AOS_SKIP_MIGRATION_SIGNATURES=1 cargo test` if migration signatures
 //! are not yet updated for the FTS5 migration (0204_rag_fts5_index.sql).
+#![allow(deprecated)]
+#![allow(clippy::useless_vec)]
 
 use adapteros_core::B3Hash;
 use adapteros_db::rag::{RagDocumentWrite, RagRetrievedDocument};

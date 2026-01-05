@@ -1,5 +1,8 @@
 //! CoreML export flow tests
 
+#![allow(clippy::field_reassign_with_default)]
+#![allow(unused_mut)]
+
 use std::fs;
 
 use adapteros_lora_worker::{ComputeUnits, CoreMLExportJob};

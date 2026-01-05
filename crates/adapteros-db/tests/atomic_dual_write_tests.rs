@@ -7,6 +7,9 @@
 // 2. Strict mode rolls back SQL on KV failure
 // 3. Consistency validation and repair
 // 4. Update methods handle strict mode correctly
+#![allow(deprecated)]
+#![allow(unused_imports)]
+#![allow(clippy::needless_borrows_for_generic_args)]
 
 use adapteros_core::Result;
 use adapteros_db::{

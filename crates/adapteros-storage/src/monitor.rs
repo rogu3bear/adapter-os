@@ -2,6 +2,8 @@
 //!
 //! Implements storage usage monitoring and alerting for tenant storage.
 
+#![allow(clippy::needless_borrow)]
+
 use crate::{StorageConfig, StorageUsage};
 use adapteros_core::{AosError, Result};
 use adapteros_telemetry::TelemetryWriter;

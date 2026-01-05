@@ -8,6 +8,8 @@
 //!
 //! Run with: cargo test -p adapteros-lora-worker --test worker_enforcement_tests
 
+#![allow(clippy::useless_vec)]
+
 use adapteros_api_types::inference::RouterDecision;
 use adapteros_api_types::RoutingPolicy;
 use adapteros_core::{AosError, Result};

@@ -6,6 +6,9 @@
 //! The deny_unscoped_adapter_query guard should prevent these methods from being used in any
 //! tenant-facing code path, forcing the use of tenant-scoped variants instead.
 
+#![allow(unused_imports)]
+#![allow(clippy::single_component_path_imports)]
+
 use adapteros_core::Result;
 use adapteros_db::adapters::AdapterRegistrationBuilder;
 use adapteros_db::Db;

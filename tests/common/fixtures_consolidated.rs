@@ -4,6 +4,9 @@
 //! All fixtures follow consistent naming and behavior patterns.
 
 #![allow(dead_code)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::unused_enumerate_index)]
+#![allow(clippy::clone_on_copy)]
 
 use adapteros_core::{AosError, Result};
 use adapteros_db::{users::Role, Db};

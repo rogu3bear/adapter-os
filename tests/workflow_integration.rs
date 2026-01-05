@@ -1,5 +1,7 @@
 //! Integration tests for workflow execution
 
+#![allow(clippy::len_zero)]
+
 use adapteros_core::B3Hash;
 use adapteros_lora_lifecycle::{
     LifecycleManager, MockAdapterBackend, WorkflowContext, WorkflowExecutor, WorkflowType,

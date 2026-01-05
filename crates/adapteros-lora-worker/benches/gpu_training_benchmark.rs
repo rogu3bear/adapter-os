@@ -8,6 +8,9 @@
 //!
 //! Run with: cargo bench --bench gpu_training_benchmark
 
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::len_zero)]
+
 use std::collections::HashMap;
 use std::time::Instant;
 

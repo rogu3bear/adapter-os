@@ -12,6 +12,8 @@
 //! cargo run --example lora_routing
 //! ```
 
+#![allow(clippy::let_and_return)]
+
 use adapteros_core::Result;
 fn main() -> Result<()> {
     println!("🎯 K-Sparse LoRA Routing Example\n");

@@ -7,6 +7,8 @@
 //! - Adapter strength overrides
 //! - Multiple adapters in streaming context
 
+#![allow(clippy::useless_vec)]
+
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 

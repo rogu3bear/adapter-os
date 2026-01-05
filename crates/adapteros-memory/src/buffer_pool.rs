@@ -616,6 +616,7 @@ fn current_timestamp() -> u64 {
 }
 
 #[cfg(test)]
+#[allow(clippy::len_zero)]
 mod tests {
     use super::*;
 

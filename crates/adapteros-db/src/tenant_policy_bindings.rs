@@ -2,6 +2,8 @@
 //!
 //! Manages per-tenant policy pack enable/disable state with full audit trail.
 
+#![allow(clippy::borrow_deref_ref)]
+
 use crate::policy_audit::is_audit_chain_divergence;
 use crate::tenant_policy_bindings_kv::{
     kv_to_binding, PolicyBindingKvRepository, TenantPolicyBindingKv,

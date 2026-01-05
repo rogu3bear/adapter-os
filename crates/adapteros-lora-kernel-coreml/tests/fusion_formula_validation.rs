@@ -11,6 +11,7 @@
 //! - Numerical precision checks
 
 #![cfg(any(debug_assertions, feature = "coreml-stub"))]
+#![allow(clippy::unnecessary_mut_passed)]
 
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
 use adapteros_lora_kernel_coreml::{ComputeUnits, CoreMLBackend};

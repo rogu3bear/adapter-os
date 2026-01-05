@@ -17,6 +17,9 @@
 //!
 //! [source: crates/adapteros-lora-worker/benches/stack_activation.rs]
 
+#![allow(dead_code)]
+#![allow(unused_must_use)]
+
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use std::time::Duration;
 

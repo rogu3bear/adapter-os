@@ -1,3 +1,5 @@
+#![allow(clippy::cloned_ref_to_slice_refs)]
+
 use crate::{Db, KvBackend};
 use adapteros_core::{AosError, B3Hash, Result};
 use serde::{Deserialize, Serialize};

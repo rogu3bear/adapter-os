@@ -4,6 +4,8 @@
 //! These tests verify that evidence records are properly isolated by tenant_id
 //! and that one tenant cannot access another tenant's evidence by knowing IDs.
 
+#![allow(clippy::unnecessary_cast)]
+
 use adapteros_db::{CreateEvidenceParams, Db};
 use anyhow::Result;
 

@@ -10,6 +10,12 @@
 //! Citations:
 //! - crates/adapteros-server/src/boot/invariants.rs: validate_boot_invariants, enforce_invariants
 
+#![allow(clippy::absurd_extreme_comparisons)]
+#![allow(unused_imports)]
+#![allow(dead_code)]
+#![allow(clippy::vec_init_then_push)]
+#![allow(unused_comparisons)]
+
 use adapteros_config_types::InvariantsConfig;
 use adapteros_server::boot::{
     boot_invariant_metrics, enforce_invariants, validate_boot_invariants, InvariantReport,

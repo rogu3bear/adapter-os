@@ -108,6 +108,20 @@ pub async fn initialize_security(
     // Log effective configuration at startup
     log_effective_config(&config)?;
 
+    // =========================================================================
+    // JWT Secret Validation (#163: Hardcoded insecure JWT secret)
+    // =========================================================================
+    // Validate that the JWT secret is not a placeholder value.
+    // This prevents production deployments with insecure secrets like "CHANGE_ME".
+    {
+        let cfg = config.read().map_err(|e| {
+            error!(error = %e, "Config lock poisoned during JWT validation");
+            anyhow::anyhow!("config lock poisoned during JWT validation")
+        })?;
+        let production_mode = cfg.server.production_mode || cfg.security.require_pf_deny;
+        validate_jwt_secret(&cfg.security.jwt_secret, production_mode)?;
+    }
+
     Ok(SecurityContext {
         pid_lock,
         worker_keypair,
@@ -415,6 +429,29 @@ const DEV_BYPASS_ENV_VARS: &[&str] = &[
 ];
 const ALLOW_INSECURE_FLAG: &str = "AOS_ALLOW_INSECURE_DEV_FLAGS";
 
+/// Insecure placeholder patterns that must never be used in production.
+/// These are common placeholder values that developers might forget to change.
+const INSECURE_SECRET_PATTERNS: &[&str] = &[
+    "CHANGE_ME",
+    "changeme",
+    "change-me",
+    "REPLACE_ME",
+    "replace_me",
+    "placeholder",
+    "PLACEHOLDER",
+    "secret",
+    "SECRET",
+    "your-secret-here",
+    "your_secret_here",
+    "YOUR_SECRET_HERE",
+    "xxx",
+    "XXX",
+    "test",
+    "TEST",
+    "development",
+    "DEVELOPMENT",
+];
+
 #[derive(Debug)]
 pub struct SecurityEnvValidation {
     pub passed: bool,
@@ -433,6 +470,77 @@ fn env_truthy(key: &str) -> bool {
             )
         })
         .unwrap_or(false)
+}
+
+/// Validate that the JWT secret is not a placeholder value.
+///
+/// This function checks if the JWT secret matches any known placeholder patterns
+/// that developers might forget to change before deploying to production.
+///
+/// # Arguments
+///
+/// * `jwt_secret` - The JWT secret to validate
+/// * `production_mode` - Whether the server is running in production mode
+///
+/// # Returns
+///
+/// Returns an error if the JWT secret is a placeholder and we're in production mode.
+/// In development mode, logs a warning but allows the server to start.
+pub fn validate_jwt_secret(jwt_secret: &str, production_mode: bool) -> Result<()> {
+    // Empty secret is always invalid
+    if jwt_secret.is_empty() {
+        if production_mode {
+            return Err(anyhow::anyhow!(
+                "SECURITY VIOLATION: JWT secret is empty. \
+                 Set AOS_JWT_SECRET or security.jwt_secret in config."
+            ));
+        } else {
+            warn!("JWT secret is empty (development mode, not blocking)");
+            return Ok(());
+        }
+    }
+
+    // Check for minimum length (HMAC secrets should be at least 32 bytes for HS256)
+    const MIN_SECRET_LENGTH: usize = 32;
+    if jwt_secret.len() < MIN_SECRET_LENGTH {
+        if production_mode {
+            return Err(anyhow::anyhow!(
+                "SECURITY VIOLATION: JWT secret is too short ({} chars, minimum {}). \
+                 Use a cryptographically secure random string.",
+                jwt_secret.len(),
+                MIN_SECRET_LENGTH
+            ));
+        } else {
+            warn!(
+                length = jwt_secret.len(),
+                min = MIN_SECRET_LENGTH,
+                "JWT secret is too short (development mode, not blocking)"
+            );
+        }
+    }
+
+    // Check for placeholder patterns
+    let secret_lower = jwt_secret.to_lowercase();
+    for pattern in INSECURE_SECRET_PATTERNS {
+        if secret_lower.contains(&pattern.to_lowercase()) {
+            if production_mode {
+                return Err(anyhow::anyhow!(
+                    "SECURITY VIOLATION: JWT secret contains placeholder pattern '{}'. \
+                     Replace with a cryptographically secure random string. \
+                     Generate one with: openssl rand -base64 32",
+                    pattern
+                ));
+            } else {
+                warn!(
+                    pattern = %pattern,
+                    "JWT secret contains placeholder pattern (development mode, not blocking)"
+                );
+                return Ok(());
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// Block dev bypass flags in release builds. Fails fast before any other init.

@@ -6,6 +6,8 @@
 //! - Output suppression in quiet/JSON modes
 //! - Message recording for testing
 
+#![allow(unused_imports)]
+
 use adapteros_cli::formatting::{
     format_bytes, format_duration, format_seconds, format_time_ago, truncate_hash, truncate_id,
 };

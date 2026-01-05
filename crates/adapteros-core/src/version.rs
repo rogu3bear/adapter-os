@@ -570,22 +570,10 @@ mod tests {
     #[test]
     fn test_algorithm_version_constants() {
         // Ensure algorithm version constants are at expected values
-        assert!(
-            PARSER_ALGORITHM_VERSION >= 2,
-            "PARSER_ALGORITHM_VERSION should be >= 2 (current version)"
-        );
-        assert!(
-            PATH_NORMALIZATION_VERSION >= 2,
-            "PATH_NORMALIZATION_VERSION should be >= 2 (current version)"
-        );
-        assert!(
-            HASH_ALGORITHM_VERSION >= 2,
-            "HASH_ALGORITHM_VERSION should be >= 2 (current version)"
-        );
-        assert!(
-            HKDF_ALGORITHM_VERSION >= 2,
-            "HKDF_ALGORITHM_VERSION should be >= 2 (current version)"
-        );
+        const { assert!(PARSER_ALGORITHM_VERSION >= 2) };
+        const { assert!(PATH_NORMALIZATION_VERSION >= 2) };
+        const { assert!(HASH_ALGORITHM_VERSION >= 2) };
+        const { assert!(HKDF_ALGORITHM_VERSION >= 2) };
     }
 
     #[test]

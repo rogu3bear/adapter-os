@@ -56,6 +56,7 @@ pub const LORA_TIER_MICRO_BOOST: f32 = 0.0;
 pub const TIE_BREAK_RELATIVE_EPSILON: f32 = 1e-6;
 
 #[cfg(test)]
+#[allow(clippy::assertions_on_constants)]
 mod tests {
     use super::*;
     use adapteros_core::defaults as core_defaults;

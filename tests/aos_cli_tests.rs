@@ -1,3 +1,6 @@
+#![allow(clippy::bool_comparison)]
+#![allow(clippy::needless_borrows_for_generic_args)]
+
 use std::env;
 use std::process::Command;
 

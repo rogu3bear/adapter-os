@@ -3,6 +3,8 @@
 //! - Chaos Mode: injected load jitter cannot perturb output digests.
 //! - Router variance: temperature=0.0 in deterministic mode yields hard 1/0 gates.
 
+#![allow(clippy::get_first)]
+
 use adapteros_core::{
     determinism::{DeterminismContext, DeterminismSource},
     B3Hash, Result, SeedMode,
