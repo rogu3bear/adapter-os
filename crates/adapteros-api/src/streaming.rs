@@ -138,6 +138,12 @@ pub enum StreamEvent {
     Done { finish_reason: String },
     /// Error occurred
     Error(String),
+    /// Inference paused for review
+    Paused {
+        pause_id: String,
+        inference_id: String,
+        context: Option<String>,
+    },
 }
 
 /// SSE streaming inference handler
@@ -244,6 +250,25 @@ pub async fn streaming_inference_handler<
                     )
                 });
                 return Ok::<_, Infallible>(Event::default().data(json));
+            }
+            StreamEvent::Paused {
+                pause_id,
+                inference_id,
+                context,
+            } => {
+                info!(pause_id = %pause_id, "Inference paused for review");
+                let json = serde_json::json!({
+                    "event": "paused",
+                    "pause_id": pause_id,
+                    "inference_id": inference_id,
+                    "context": context,
+                    "message": "Inference paused for human review. Submit review via /v1/reviews/submit"
+                });
+                return Ok::<_, Infallible>(
+                    Event::default()
+                        .event("paused")
+                        .data(json.to_string()),
+                );
             }
         };
 
@@ -358,6 +383,22 @@ async fn generate_streaming_response<
                 let _ = tx.send(StreamEvent::Error(error)).await;
                 saw_terminal = true;
                 break;
+            }
+            WorkerStreamEvent::Paused {
+                pause_id,
+                inference_id,
+                context,
+                ..
+            } => {
+                // Forward pause event to client - inference is blocked until review submitted
+                let _ = tx
+                    .send(StreamEvent::Paused {
+                        pause_id,
+                        inference_id,
+                        context,
+                    })
+                    .await;
+                // Don't break - inference will resume after review
             }
         }
     }

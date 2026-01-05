@@ -73,6 +73,7 @@ fn token_usage_prefers_run_receipt_over_worker_usage() {
         stop_reason_code: None,
         stop_reason_token_index: None,
         stop_policy_digest_b3: None,
+        tokenizer_digest_b3: None,
     };
 
     let resolved = InferenceCore::resolve_token_usage(&worker_response).expect("token usage");

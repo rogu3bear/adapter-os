@@ -306,6 +306,8 @@ pub struct InferencePipeline {
     max_adapter_count: u16,
     /// Performance budget tracker
     budget_tracker: BudgetTracker,
+    /// Inference pause registry for human-in-the-loop review protocol
+    pause_registry: Option<Arc<crate::inference_pause::InferencePauseRegistry>>,
 }
 
 impl InferencePipeline {
@@ -399,7 +401,17 @@ impl InferencePipeline {
             circuit_breaker,
             max_adapter_count,
             budget_tracker: BudgetTracker::new(),
+            pause_registry: None,
         })
+    }
+
+    /// Set inference pause registry for human-in-the-loop review protocol
+    pub fn with_pause_registry(
+        mut self,
+        registry: Arc<crate::inference_pause::InferencePauseRegistry>,
+    ) -> Self {
+        self.pause_registry = Some(registry);
+        self
     }
 
     fn filter_adapters(
@@ -467,6 +479,7 @@ impl InferencePipeline {
             circuit_breaker,
             max_adapter_count: Self::DEFAULT_MAX_ADAPTER_COUNT,
             budget_tracker: BudgetTracker::new(),
+            pause_registry: None,
         })
     }
 
@@ -839,6 +852,11 @@ impl InferencePipeline {
         let mut rainbow_trace: Vec<Option<String>> = Vec::new();
         let mut reasoning_transitions: Vec<ThoughtTransition> = Vec::new();
 
+        // Review trigger detector for human-in-the-loop pause/resume
+        let mut review_detector = crate::review_trigger::ReviewTriggerDetector::new(
+            crate::review_trigger::ReviewTriggerConfig::default(),
+        );
+
         info!(
             "Starting streaming inference: prompt_len={}, max_tokens={}",
             request.prompt.len(),
@@ -1108,6 +1126,35 @@ impl InferencePipeline {
                     );
                 }
             }
+
+            // Review trigger detection - pause for human review if triggered
+            if let Some(ref registry) = self.pause_registry {
+                if let Some(trigger) = review_detector.on_token(&token_text) {
+                    info!(
+                        kind = ?trigger.kind,
+                        token_index = trigger.token_index,
+                        confidence = trigger.confidence,
+                        "Review trigger detected, pausing for human review"
+                    );
+
+                    let (pause_token, _ctx) =
+                        review_detector.create_pause_token(&trigger, &request.cpid);
+                    let resume_rx = registry.register(pause_token);
+
+                    // Block until human submits review
+                    match resume_rx.await {
+                        Ok(_review) => {
+                            info!("Review submitted, resuming inference");
+                        }
+                        Err(_) => {
+                            return Err(AosError::Worker(
+                                "Review channel closed before response".to_string(),
+                            ));
+                        }
+                    }
+                }
+            }
+
             let adapter_color = adapter_bias.clone();
             rainbow_trace.push(adapter_color.clone());
             let transition_for_callback = transition.as_ref().map(|d| d.transition.clone());

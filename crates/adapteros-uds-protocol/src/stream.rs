@@ -46,6 +46,23 @@ pub enum StreamFrame {
         #[serde(skip_serializing_if = "Option::is_none")]
         code: Option<String>,
     },
+    /// Generation paused for human review
+    Paused {
+        /// Unique pause ID for resume correlation
+        pause_id: String,
+        /// Inference request ID
+        inference_id: String,
+        /// Why the pause was triggered
+        trigger_kind: String,
+        /// Context for the reviewer
+        #[serde(skip_serializing_if = "Option::is_none")]
+        context: Option<String>,
+        /// Generated text so far
+        #[serde(skip_serializing_if = "Option::is_none")]
+        text_so_far: Option<String>,
+        /// Token count at pause point
+        token_count: usize,
+    },
 }
 
 /// Worker stream events for async channel communication.
@@ -60,6 +77,21 @@ pub enum WorkerStreamEvent {
     Complete(Box<serde_json::Value>),
     /// An error occurred
     Error(String),
+    /// Generation paused for human review
+    Paused {
+        /// Unique pause ID for resume correlation
+        pause_id: String,
+        /// Inference request ID
+        inference_id: String,
+        /// Why the pause was triggered
+        trigger_kind: String,
+        /// Context for the reviewer
+        context: Option<String>,
+        /// Generated text so far
+        text_so_far: Option<String>,
+        /// Token count at pause point
+        token_count: usize,
+    },
 }
 
 impl StreamToken {
