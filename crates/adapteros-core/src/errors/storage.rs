@@ -492,7 +492,7 @@ mod tests {
             AosStorageError::Database("test".to_string()),
             AosStorageError::DatabaseOp {
                 operation: "insert".to_string(),
-                source: Box::new(std::io::Error::new(std::io::ErrorKind::Other, "test")),
+                source: Box::new(std::io::Error::other("test")),
             },
             AosStorageError::Sqlx("test".to_string()),
             AosStorageError::Sqlite("test".to_string()),

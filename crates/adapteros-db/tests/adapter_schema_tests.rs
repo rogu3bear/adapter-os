@@ -4,6 +4,7 @@
 //! - Adapter struct fields match database schema
 //! - Expired adapter cleanup works correctly
 //! - No schema drift between code and migrations
+#![allow(deprecated)]
 
 use adapteros_db::adapters::AdapterRegistrationBuilder;
 use adapteros_db::Db;

@@ -13,7 +13,12 @@
 //! Run with:
 //! - cargo test --test kv_quota_concurrent_e2e
 //! - cargo test --test kv_quota_concurrent_e2e -- --nocapture (with output)
-//! - cargo test --test kv_quota_concurrent_e2e -- --test-threads=1 (sequential)
+
+#![allow(clippy::useless_vec)]
+#![allow(clippy::unnecessary_cast)]
+#![allow(clippy::manual_flatten)]
+#![allow(dead_code)]
+#![allow(unused_imports)]
 
 use adapteros_core::AosError;
 use adapteros_lora_kernel_mtl::KvResidency;

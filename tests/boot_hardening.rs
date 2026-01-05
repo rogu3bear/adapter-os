@@ -1,3 +1,5 @@
+#![allow(clippy::collapsible_if)]
+
 use adapteros_boot::{ensure_runtime_dir, EXIT_CONFIG_ERROR};
 use adapteros_config::ConfigLoader;
 use adapteros_server::boot::{bind_error_exit_code, precheck_tcp_port, BindError};

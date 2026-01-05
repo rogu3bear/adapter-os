@@ -5,6 +5,10 @@
 //! - Tenant isolation (tenant A cannot access tenant B's exports)
 //! - Evidence inclusion gating (requires explicit auth token)
 
+#![allow(unused_variables)]
+#![allow(unused_imports)]
+#![allow(clippy::useless_vec)]
+
 use adapteros_api_types::diagnostics::{DiagBundleExportRequest, DiagBundleExportResponse};
 use adapteros_db::sqlx;
 use adapteros_db::Db;

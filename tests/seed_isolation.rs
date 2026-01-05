@@ -5,6 +5,9 @@
 //! 2. The seed isolation middleware properly resets state
 //! 3. Sequential requests on the same thread don't share seed context
 
+#![allow(clippy::bool_assert_comparison)]
+#![allow(clippy::clone_on_copy)]
+
 use adapteros_core::seed::SeedMode;
 use adapteros_core::seed_override::{
     assert_thread_local_clean, get_leaked_state_info, get_thread_seed_context,

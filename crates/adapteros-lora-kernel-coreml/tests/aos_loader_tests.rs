@@ -851,10 +851,7 @@ fn test_constants_aos_magic() {
 fn test_constants_header_sizes() {
     assert_eq!(MIN_AOS_HEADER_SIZE, 8, "Simple header is 8 bytes");
     assert_eq!(AOS_HEADER_SIZE, 268, "AOS header is 268 bytes");
-    assert!(
-        AOS_HEADER_SIZE > MIN_AOS_HEADER_SIZE,
-        "AOS header is larger"
-    );
+    const { assert!(AOS_HEADER_SIZE > MIN_AOS_HEADER_SIZE) };
 }
 
 #[test]

@@ -5,6 +5,8 @@
 //! - Signatures must be verifiable with stored public key
 //! - Key material must persist across restarts
 
+#![allow(clippy::useless_vec)]
+
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_crypto::Keypair;
 use adapteros_telemetry::verify_bundle_signature;

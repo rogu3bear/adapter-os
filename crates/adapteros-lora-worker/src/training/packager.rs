@@ -1,6 +1,7 @@
 //! Adapter packaging with safetensors and manifest generation
 //!
 //! Packages trained LoRA adapters into a format compatible with mplora-artifacts.
+#![allow(clippy::useless_vec)]
 
 use super::quantizer::{LoRAQuantizer, QuantizedLoRAWeights};
 use super::trainer::{MoETrainingConfig, TrainingConfig};

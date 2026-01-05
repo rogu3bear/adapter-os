@@ -14,6 +14,11 @@
 //! - cargo test --test kv_residency_quota_integration
 //! - cargo test --test kv_residency_quota_integration --features hardware-residency (for full E2E)
 
+#![allow(dead_code)]
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+#![allow(unused_assignments)]
+
 use adapteros_api_types::inference::KvUsageStats;
 use adapteros_core::{AosError, B3Hash};
 use adapteros_lora_worker::kv_quota::{

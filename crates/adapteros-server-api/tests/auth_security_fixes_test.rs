@@ -6,6 +6,10 @@
 //! 3. AOS_DEV_NO_AUTH restricted to debug builds
 //! 4. Clock skew leeway in JWT validation
 //! 5. Constant-time password verification
+
+#![allow(clippy::single_component_path_imports)]
+#![allow(clippy::assertions_on_constants)]
+
 use adapteros_crypto::Keypair;
 use adapteros_server_api::auth::{generate_token_ed25519, hash_password, verify_password};
 use argon2::{password_hash::SaltString, Argon2, PasswordHasher};

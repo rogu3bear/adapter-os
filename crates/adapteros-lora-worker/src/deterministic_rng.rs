@@ -4,6 +4,7 @@
 //! - MUST derive all RNG from `seed_global` and HKDF labels
 //! - MUST ensure identical inputs produce identical outputs
 //! - MUST record toolchain version strings and kernel hashes in Plan metadata
+#![allow(clippy::manual_range_contains)]
 
 use adapteros_core::{derive_seed, B3Hash, Result};
 use rand::{RngCore, SeedableRng};

@@ -7,6 +7,8 @@
 //!
 //! Citation: PRD-06 - Policy enforcement wiring
 
+#![allow(clippy::unnecessary_map_or)]
+
 mod common;
 
 use adapteros_core::Result;

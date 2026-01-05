@@ -1477,10 +1477,7 @@ mod tests {
     /// Test that HKDF algorithm version is at least 2 (current canonical version).
     #[test]
     fn test_hkdf_algorithm_version_minimum() {
-        assert!(
-            HKDF_ALGORITHM_VERSION >= 2,
-            "HKDF_ALGORITHM_VERSION must be at least 2 (current canonical version)"
-        );
+        const { assert!(HKDF_ALGORITHM_VERSION >= 2) };
     }
 
     /// Test that derive_seed produces exactly HKDF_OUTPUT_LENGTH bytes.

@@ -1,4 +1,5 @@
 //! Integration tests for lifecycle database operations
+#![allow(deprecated)]
 
 use adapteros_db::Db;
 use std::path::PathBuf;

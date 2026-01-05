@@ -5,6 +5,7 @@
 //! 2. Audit record creation on toggle
 //! 3. Default bindings for new tenants
 //! 4. Tenant isolation (one tenant's toggles don't affect another)
+#![allow(clippy::borrow_deref_ref)]
 
 use adapteros_core::{AosError, Result};
 use adapteros_db::Db;

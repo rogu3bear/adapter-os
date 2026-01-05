@@ -10,6 +10,8 @@
 //! 7. Seed operation idempotency
 //! 8. Fixture creation with invalid parameters
 
+#![allow(clippy::len_zero)]
+
 use adapteros_server_api::create_app;
 use axum::{
     body::{to_bytes, Body},

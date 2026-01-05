@@ -2,6 +2,9 @@
 //!
 //! Provides unified error detection for both SQLite and PostgreSQL backends,
 //! classifying errors into specific categories for appropriate handling.
+#![allow(clippy::items_after_test_module)]
+#![allow(clippy::clone_on_copy)]
+#![allow(clippy::io_other_error)]
 
 use adapteros_core::errors::storage::AosStorageError;
 

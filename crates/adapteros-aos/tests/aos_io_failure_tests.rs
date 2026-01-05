@@ -13,7 +13,6 @@
 //! - Permission denied handling
 
 use adapteros_aos::writer::{AosWriter, BackendTag, AOS_MAGIC, HEADER_SIZE};
-use adapteros_core::AosError;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;
@@ -56,7 +55,7 @@ fn test_file_read_empty_file() {
     let path = temp_dir.path().join("empty.aos");
 
     // Create empty file
-    fs::write(&path, &[]).unwrap();
+    fs::write(&path, []).unwrap();
 
     let result = AosWriter::read_header(&path);
     assert!(result.is_err());
@@ -189,7 +188,7 @@ fn test_write_to_directory_fails() {
         )
         .unwrap();
 
-    let result = writer.write_archive(&path, &manifest);
+    let result = writer.write_archive(path, &manifest);
     // Should fail - can't write to a directory
     assert!(result.is_err());
 }

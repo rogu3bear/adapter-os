@@ -11,8 +11,7 @@
 //! - Unicode in manifest fields
 //! - Maximum size manifest handling
 
-use adapteros_aos::writer::{AosWriter, BackendTag, AOS_MAGIC, HAS_INDEX_FLAG, HEADER_SIZE};
-use adapteros_core::AosError;
+use adapteros_aos::writer::{AosWriter, BackendTag};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;

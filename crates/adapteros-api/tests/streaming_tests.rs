@@ -6,6 +6,8 @@
 //! - Client disconnect detection
 //! - Multiple concurrent streams
 
+#![allow(clippy::single_match)]
+
 use adapteros_api::streaming::{StreamEvent, StreamingInferenceRequest};
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -139,6 +141,7 @@ async fn test_streaming_concurrent_clients() {
                         break;
                     }
                     StreamEvent::Error(_) => break,
+                    StreamEvent::Paused { .. } => {} // Handle pause events by continuing
                 }
             }
 

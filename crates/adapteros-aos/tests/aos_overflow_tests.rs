@@ -12,11 +12,9 @@
 //! - Integer underflow protection
 
 use adapteros_aos::writer::{
-    parse_segments, AosHeader, AosWriter, BackendTag, AOS_MAGIC, HAS_INDEX_FLAG, HEADER_SIZE,
-    INDEX_ENTRY_SIZE,
+    parse_segments, AosWriter, BackendTag, AOS_MAGIC, HAS_INDEX_FLAG, HEADER_SIZE, INDEX_ENTRY_SIZE,
 };
-use adapteros_core::{AosError, B3Hash, Result};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
@@ -170,7 +168,7 @@ fn test_total_archive_size_overflow_protection() {
         metadata: HashMap<String, String>,
     }
 
-    let manifest = TestManifest {
+    let _manifest = TestManifest {
         metadata: HashMap::from([("scope_path".to_string(), "test/scope".to_string())]),
     };
 
@@ -217,7 +215,10 @@ fn test_index_size_not_aligned_rejected() {
 
     // Should reject or handle gracefully
     assert!(
-        result.is_err() || parsed_header.index_size % INDEX_ENTRY_SIZE as u64 != 0,
+        result.is_err()
+            || !parsed_header
+                .index_size
+                .is_multiple_of(INDEX_ENTRY_SIZE as u64),
         "Misaligned index size should be handled"
     );
 }

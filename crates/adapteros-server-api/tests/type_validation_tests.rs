@@ -360,6 +360,7 @@ mod timestamp_consistency {
     /// Timestamps may include fractional seconds:
     /// - 2025-11-22T14:30:45.123Z (milliseconds)
     /// - 2025-11-22T14:30:45.123456Z (microseconds)
+    ///
     /// Should deserialize correctly regardless of precision
     #[test]
     fn test_fractional_seconds_handling() {

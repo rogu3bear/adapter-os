@@ -3,6 +3,8 @@
 //! Verifies serialization, deserialization, string conversion,
 //! and all enum variants for the structured failure codes.
 
+#![allow(clippy::clone_on_copy)]
+
 use adapteros_api_types::failure_code::FailureCode;
 
 #[test]

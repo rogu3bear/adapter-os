@@ -2,6 +2,7 @@
 //!
 //! These tests verify that adapter operations correctly write to both SQL and KV
 //! backends when in DualWrite mode, and that data remains consistent between stores.
+#![allow(deprecated)]
 
 use adapteros_db::adapters::{Adapter, AdapterRegistrationBuilder};
 use adapteros_db::{Db, ProtectedDb, StorageMode, WriteCapableDb};

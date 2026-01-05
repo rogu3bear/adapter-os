@@ -7,6 +7,7 @@
 //! - Test data fixtures and cleanup
 
 #![allow(dead_code)]
+#![allow(clippy::io_other_error)]
 
 use adapteros_core::{BackendKind, SeedMode};
 use adapteros_db::Db;

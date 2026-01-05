@@ -10,6 +10,11 @@
 //!
 //! Run with: cargo test -p adapteros-lora-worker --test kv_quota_worker_integration
 
+#![allow(unused_imports)]
+#![allow(dead_code)]
+#![allow(clippy::identity_op)]
+#![allow(clippy::manual_range_contains)]
+
 use adapteros_core::{constants::BYTES_PER_MB, AosError, B3Hash, Result, StandardCircuitBreaker};
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, MockKernels, RouterRing};
 use adapteros_lora_worker::{

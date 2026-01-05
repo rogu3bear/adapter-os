@@ -7,6 +7,8 @@
 //! 4. MEDIUM: Dataset validation status cleanup on error
 //! 5. MEDIUM: Checkpoint corruption prevention with atomic writes
 
+#![allow(clippy::useless_vec)]
+
 use adapteros_lora_worker::training::checkpoint::{CheckpointManager, TrainingCheckpoint};
 use adapteros_lora_worker::training::trainer::{LoRAWeights, TrainingConfig};
 use std::path::PathBuf;

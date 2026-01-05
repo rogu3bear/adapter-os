@@ -11,6 +11,8 @@
 //!
 //! See rag_common.rs lines 250-280 for the deduplication implementation.
 
+#![allow(clippy::manual_retain)]
+
 use adapteros_server_api::handlers::rag_common::parse_rag_doc_id;
 use std::collections::HashMap;
 

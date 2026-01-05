@@ -3,6 +3,8 @@
 //! Tests for CoreML, Metal, and MLX backend integration with the backend factory.
 //! Verifies correct capability detection, automatic selection, and fallback behavior.
 
+#![allow(unused_imports)]
+
 use adapteros_core::{
     backend::BackendKind,
     constants::{BYTES_PER_GB, BYTES_PER_MB},

@@ -1,3 +1,5 @@
+#![allow(clippy::too_many_arguments)]
+
 use adapteros_core::{B3Hash, Result};
 use adapteros_db::kv_migration::{MigrationDomain, MigrationOptions};
 use adapteros_db::{Db, StorageMode};

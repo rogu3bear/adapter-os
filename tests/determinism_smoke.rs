@@ -1,3 +1,6 @@
+#![allow(clippy::large_enum_variant)]
+#![allow(clippy::too_many_arguments)]
+
 use adapteros_api_types::inference::PolicyOverrideFlags;
 use adapteros_core::B3Hash;
 use adapteros_db::{Db, SqlTraceSink, TraceFinalization, TraceSink, TraceStart, TraceTokenInput};

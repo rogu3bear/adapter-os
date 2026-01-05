@@ -3,6 +3,8 @@
 //! Verifies that seed derivation is deterministic and consistent across
 //! replay sessions, ensuring exact reproducibility.
 
+#![allow(clippy::useless_vec)]
+
 use adapteros_core::B3Hash;
 use adapteros_replay::ReplaySession;
 use adapteros_telemetry::replay::RngCheckpoint;

@@ -6,10 +6,13 @@
 //! - JSON body structure on 503
 //! - Zero workers/models scenarios
 
+#![allow(clippy::len_zero)]
+#![allow(clippy::len_without_is_empty)]
+
 use adapteros_core::Result;
 use adapteros_db::Db;
 use adapteros_server_api::handlers::health::{
-    ReadyMetrics, ReadyzCheck, ReadyzChecks, ReadyzResponse,
+    ReadinessMode, ReadyMetrics, ReadyzCheck, ReadyzChecks, ReadyzResponse,
 };
 
 mod common;
@@ -177,6 +180,8 @@ fn test_readyz_response_structure() {
         boot_trace_id: String::new(),
         last_error_code: None,
         phases: Vec::new(),
+        readiness_mode: ReadinessMode::Strict,
+        boot_warnings: Vec::new(),
     };
     assert!(response.ready);
     assert!(response.checks.db.ok);
@@ -212,6 +217,8 @@ fn test_readyz_response_not_ready() {
         boot_trace_id: String::new(),
         last_error_code: None,
         phases: Vec::new(),
+        readiness_mode: ReadinessMode::Strict,
+        boot_warnings: Vec::new(),
     };
     assert!(!response.ready);
     assert!(!response.checks.db.ok);
@@ -292,6 +299,8 @@ fn test_readyz_response_serialization() {
         boot_trace_id: String::new(),
         last_error_code: None,
         phases: Vec::new(),
+        readiness_mode: ReadinessMode::Strict,
+        boot_warnings: Vec::new(),
     };
 
     let json = serde_json::to_string(&response).expect("Failed to serialize");
@@ -475,6 +484,8 @@ async fn test_readyz_structure_for_no_workers_scenario() {
         boot_trace_id: String::new(),
         last_error_code: None,
         phases: Vec::new(),
+        readiness_mode: ReadinessMode::Strict,
+        boot_warnings: Vec::new(),
     };
 
     // Verify structure
@@ -517,6 +528,8 @@ async fn test_readyz_structure_for_no_models_scenario() {
         boot_trace_id: String::new(),
         last_error_code: None,
         phases: Vec::new(),
+        readiness_mode: ReadinessMode::Strict,
+        boot_warnings: Vec::new(),
     };
 
     // Verify structure
@@ -562,6 +575,8 @@ async fn test_readyz_structure_for_db_timeout_scenario() {
         boot_trace_id: String::new(),
         last_error_code: None,
         phases: Vec::new(),
+        readiness_mode: ReadinessMode::Strict,
+        boot_warnings: Vec::new(),
     };
 
     // Verify structure
@@ -612,6 +627,8 @@ async fn test_readyz_structure_for_db_unreachable_scenario() {
         boot_trace_id: String::new(),
         last_error_code: None,
         phases: Vec::new(),
+        readiness_mode: ReadinessMode::Strict,
+        boot_warnings: Vec::new(),
     };
 
     // Verify structure
@@ -766,6 +783,8 @@ fn test_readyz_response_all_checks_failed() {
         boot_trace_id: String::new(),
         last_error_code: None,
         phases: Vec::new(),
+        readiness_mode: ReadinessMode::Strict,
+        boot_warnings: Vec::new(),
     };
 
     assert!(!response.ready);
@@ -804,6 +823,8 @@ fn test_readyz_response_json_roundtrip() {
         boot_trace_id: "trace-id".to_string(),
         last_error_code: None,
         phases: Vec::new(),
+        readiness_mode: ReadinessMode::Strict,
+        boot_warnings: Vec::new(),
     };
 
     let json = serde_json::to_string(&original).expect("Failed to serialize");

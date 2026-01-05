@@ -1,3 +1,5 @@
+#![allow(clippy::assertions_on_constants)]
+
 #[cfg(test)]
 mod kernel_buffer_layout {
     #[test]

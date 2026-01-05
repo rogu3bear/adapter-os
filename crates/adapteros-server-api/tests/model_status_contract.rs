@@ -159,6 +159,9 @@ fn minimal_request(tenant_id: &str, model_id: &str) -> InferenceRequestInternal 
         created_at: std::time::Instant::now(),
         worker_auth_token: None,
         utf8_healing: None,
+        require_step: false,
+        require_determinism: false,
+        allow_fallback: true,
     }
 }
 

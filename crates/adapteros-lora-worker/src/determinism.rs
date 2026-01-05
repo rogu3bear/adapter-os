@@ -5,6 +5,8 @@
 //! - determinism_guards_enabled to check if guards are active
 //! - determinism_violation_count to track violations
 //! - Helper functions for strict mode enforcement
+#![allow(clippy::assigning_clones)]
+#![allow(clippy::cloned_ref_to_slice_refs)]
 
 use adapteros_core::Result;
 use tracing::info;

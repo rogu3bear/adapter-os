@@ -7,6 +7,11 @@
 //! - Error handling for missing/invalid files
 //! - Signature verification
 
+#![allow(unused_variables)]
+#![allow(clippy::or_fun_call)]
+#![allow(clippy::ptr_arg)]
+#![allow(clippy::unwrap_or_default)]
+
 use adapteros_core::B3Hash;
 use adapteros_crypto::signature::Keypair;
 use adapteros_platform::common::PlatformUtils;

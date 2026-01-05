@@ -1,5 +1,7 @@
 //! Register LoRA adapter command (canonical .aos path)
 
+#![allow(deprecated)]
+
 use crate::output::OutputWriter;
 use adapteros_aos::{compute_scope_hash, open_aos, BackendTag};
 use adapteros_core::{AosError, B3Hash};

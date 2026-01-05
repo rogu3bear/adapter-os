@@ -12,6 +12,10 @@
 //! 3. Final adapter is identical to uninterrupted training
 //! 4. Corrupted checkpoints are detected and rejected
 
+#![allow(dead_code)]
+#![allow(clippy::unnecessary_map_or)]
+#![allow(unused_imports)]
+
 use std::path::PathBuf;
 
 /// Test helper to create a temp directory with test data

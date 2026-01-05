@@ -190,9 +190,9 @@ fn benchmark_compression_levels(c: &mut Criterion) {
 
 /// Benchmark compression ratio for different data types
 fn benchmark_compression_ratio(c: &mut Criterion) {
-    let mut group = c.benchmark_group("compression_ratio");
+    let group = c.benchmark_group("compression_ratio");
 
-    let _algorithms = vec![
+    let _algorithms = [
         CompressionAlgorithm::Zstd,
         CompressionAlgorithm::Gzip,
         CompressionAlgorithm::Lz4,
@@ -260,8 +260,10 @@ fn benchmark_bundle_writer(c: &mut Criterion) {
     group.bench_function("bundle_write_without_compression", |b| {
         b.iter(|| {
             let temp_dir = tempfile::tempdir_in(&tmp_root).expect("tempdir");
-            let mut config = CompressionConfig::default();
-            config.enabled = false;
+            let config = CompressionConfig {
+                enabled: false,
+                ..Default::default()
+            };
             let mut writer =
                 BundleWriter::with_compression(temp_dir.path(), 10000, 10 * 1024 * 1024, config)
                     .unwrap();

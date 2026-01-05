@@ -10,6 +10,7 @@
 //! - Evidence chain verification
 //! - CRUD operations (get, delete, count)
 //! - JSON serialization roundtrip
+#![allow(unused_imports)]
 
 use adapteros_core::evidence_envelope::{
     BundleMetadataRef, EvidenceEnvelope, InferenceReceiptRef, PolicyAuditRef,

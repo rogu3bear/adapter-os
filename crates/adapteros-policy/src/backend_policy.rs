@@ -138,6 +138,41 @@ impl BackendDowngradePolicy {
         Ok(())
     }
 
+    /// Validate that the policy does not violate audit requirements.
+    ///
+    /// This function checks for dangerous configuration that should never
+    /// be used in production:
+    /// - `allow_silent_downgrade=true` bypasses mandatory audit logging
+    ///
+    /// # Arguments
+    /// * `production_mode` - Whether the server is running in production mode
+    ///
+    /// # Returns
+    /// `Ok(())` if policy is safe, `Err` if it violates audit requirements.
+    ///
+    /// # Security
+    /// This validation is critical for compliance. Silent downgrades would
+    /// allow backend changes without audit trail, violating determinism
+    /// guarantees.
+    pub fn validate_audit_compliance(&self, production_mode: bool) -> Result<()> {
+        if self.allow_silent_downgrade {
+            if production_mode {
+                return Err(AosError::PolicyViolation(
+                    "AUDIT VIOLATION: allow_silent_downgrade=true is forbidden in production. \
+                     Silent downgrades bypass mandatory audit logging and violate determinism \
+                     guarantees. Remove this setting from your configuration."
+                        .to_string(),
+                ));
+            } else {
+                // In development mode, log a warning but allow
+                tracing::warn!(
+                    "allow_silent_downgrade=true detected - this would be blocked in production"
+                );
+            }
+        }
+        Ok(())
+    }
+
     /// Check if latency impact is acceptable.
     ///
     /// # Arguments
@@ -346,5 +381,46 @@ mod tests {
         let deserialized: BackendDowngradePolicy =
             serde_json::from_str(&json).expect("deserialize");
         assert_eq!(policy, deserialized);
+    }
+
+    // ==========================================================================
+    // Audit compliance tests (#160)
+    // ==========================================================================
+
+    #[test]
+    fn audit_compliance_passes_when_silent_downgrade_false() {
+        let policy = BackendDowngradePolicy::strict();
+        assert!(!policy.allow_silent_downgrade);
+        assert!(policy.validate_audit_compliance(true).is_ok());
+        assert!(policy.validate_audit_compliance(false).is_ok());
+    }
+
+    #[test]
+    fn audit_compliance_fails_in_production_when_silent_downgrade_true() {
+        let mut policy = BackendDowngradePolicy::strict();
+        policy.allow_silent_downgrade = true;
+
+        // Should fail in production mode
+        let err = policy.validate_audit_compliance(true).unwrap_err();
+        assert!(err.to_string().contains("AUDIT VIOLATION"));
+        assert!(err.to_string().contains("allow_silent_downgrade"));
+    }
+
+    #[test]
+    fn audit_compliance_warns_in_dev_when_silent_downgrade_true() {
+        let mut policy = BackendDowngradePolicy::strict();
+        policy.allow_silent_downgrade = true;
+
+        // Should pass in development mode (just warns)
+        assert!(policy.validate_audit_compliance(false).is_ok());
+    }
+
+    #[test]
+    fn all_factory_methods_have_silent_downgrade_false() {
+        // Verify all factory methods set allow_silent_downgrade=false
+        assert!(!BackendDowngradePolicy::strict().allow_silent_downgrade);
+        assert!(!BackendDowngradePolicy::permissive().allow_silent_downgrade);
+        assert!(!BackendDowngradePolicy::development().allow_silent_downgrade);
+        assert!(!BackendDowngradePolicy::default().allow_silent_downgrade);
     }
 }

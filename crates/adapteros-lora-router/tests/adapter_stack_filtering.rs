@@ -12,6 +12,7 @@
 //! References:
 //! - K-sparse routing: https://openreview.net/pdf?id=jqz6Msm3AF
 //! - Q15 quantization: Fixed-point representation with 15 fractional bits
+#![allow(clippy::useless_vec)]
 
 use adapteros_core::B3Hash;
 use adapteros_lora_router::{policy_mask::PolicyMask, AdapterInfo, Router, RouterWeights};

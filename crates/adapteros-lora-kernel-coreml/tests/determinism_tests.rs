@@ -2,6 +2,7 @@
 //!
 //! These tests verify that CoreML tensor operations produce bit-exact results
 //! across repeated runs, ensuring deterministic execution for AdapterOS.
+#![allow(clippy::useless_vec)]
 
 use adapteros_core::{derive_seed, B3Hash};
 use adapteros_lora_kernel_coreml::{ffi, MLTensor, TensorBridgeType};
@@ -140,9 +141,9 @@ fn test_add_determinism() {
         return;
     }
 
-    let data1 = vec![1.0f32, 2.0, 3.0, 4.0];
-    let data2 = vec![5.0f32, 6.0, 7.0, 8.0];
-    let shape = vec![2usize, 2];
+    let data1 = [1.0f32, 2.0, 3.0, 4.0];
+    let data2 = [5.0f32, 6.0, 7.0, 8.0];
+    let shape = [2usize, 2];
 
     // Run addition multiple times
     let mut results = Vec::new();
@@ -197,9 +198,9 @@ fn test_matmul_determinism() {
 
     // [1, 2]   [5, 6]   [19, 22]
     // [3, 4] x [7, 8] = [43, 50]
-    let data1 = vec![1.0f32, 2.0, 3.0, 4.0];
-    let data2 = vec![5.0f32, 6.0, 7.0, 8.0];
-    let shape = vec![2usize, 2];
+    let data1 = [1.0f32, 2.0, 3.0, 4.0];
+    let data2 = [5.0f32, 6.0, 7.0, 8.0];
+    let shape = [2usize, 2];
 
     // Run matmul multiple times
     let mut results = Vec::new();
@@ -338,7 +339,7 @@ fn test_chained_operations_determinism() {
 
         // Reshape added result for matmul compatibility
         let added_data = added.to_vec().unwrap();
-        let reshaped = MLTensor::from_floats(&added_data, &vec![2, 4]).unwrap();
+        let reshaped = MLTensor::from_floats(&added_data, &[2, 4]).unwrap();
 
         // Matmul: [2, 4] x [4, 4] -> [2, 4]
         let product = reshaped.matmul(&mat).unwrap();
@@ -377,8 +378,8 @@ fn test_swift_objcpp_softmax_equivalence() {
         return;
     }
 
-    let data = vec![1.0f32, 2.0, 3.0, 4.0];
-    let shape = vec![1usize, 4];
+    let data = [1.0f32, 2.0, 3.0, 4.0];
+    let shape = [1usize, 4];
 
     // Run via Swift bridge
     let swift_result = {
@@ -438,9 +439,9 @@ fn test_swift_objcpp_add_equivalence() {
         return;
     }
 
-    let data1 = vec![1.0f32, 2.0, 3.0, 4.0];
-    let data2 = vec![5.0f32, 6.0, 7.0, 8.0];
-    let shape = vec![2usize, 2];
+    let data1 = [1.0f32, 2.0, 3.0, 4.0];
+    let data2 = [5.0f32, 6.0, 7.0, 8.0];
+    let shape = [2usize, 2];
 
     // Run via Swift bridge
     let swift_result = {
@@ -564,9 +565,9 @@ fn test_swift_objcpp_matmul_equivalence() {
         return;
     }
 
-    let data1 = vec![1.0f32, 2.0, 3.0, 4.0];
-    let data2 = vec![5.0f32, 6.0, 7.0, 8.0];
-    let shape = vec![2usize, 2];
+    let data1 = [1.0f32, 2.0, 3.0, 4.0];
+    let data2 = [5.0f32, 6.0, 7.0, 8.0];
+    let shape = [2usize, 2];
 
     // Run via Swift bridge
     let swift_result = {

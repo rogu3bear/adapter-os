@@ -50,6 +50,6 @@ mod tests {
     fn test_feature_guards_module_loads() {
         // If this test runs, the module loaded successfully
         // (meaning no illegal feature combinations were detected)
-        assert!(true);
+        // The fact that this test compiles and runs means the feature guards passed
     }
 }

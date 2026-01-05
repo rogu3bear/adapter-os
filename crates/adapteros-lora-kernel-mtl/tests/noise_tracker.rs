@@ -1,3 +1,5 @@
+#![allow(clippy::useless_vec)]
+
 use adapteros_lora_kernel_mtl::noise_tracker::{
     create_reference_data, extract_buffer_data, NoiseTracker, NoiseTrackingConfig,
 };

@@ -360,7 +360,7 @@ mod tests {
             },
             AosNetworkError::UdsConnectionFailed {
                 path: PathBuf::from("/test"),
-                source: std::io::Error::new(std::io::ErrorKind::Other, "test"),
+                source: std::io::Error::other("test"),
             },
             AosNetworkError::WorkerNotResponding {
                 path: PathBuf::from("/test"),
@@ -444,7 +444,7 @@ mod tests {
             (
                 AosNetworkError::UdsConnectionFailed {
                     path: PathBuf::from("/sock"),
-                    source: std::io::Error::new(std::io::ErrorKind::Other, "err"),
+                    source: std::io::Error::other("err"),
                 },
                 "UDS",
             ),

@@ -5,6 +5,8 @@
 //!
 //! This addresses the gap where policy knobs were defined in types but not wired end-to-end.
 
+#![allow(clippy::needless_update)]
+
 use adapteros_api_types::{
     CreateExecutionPolicyRequest, DeterminismPolicy, GoldenPolicy, RoutingPolicy,
 };

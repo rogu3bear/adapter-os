@@ -4,6 +4,7 @@
 //! and provides Metal-specific testing infrastructure.
 
 #![cfg(target_os = "macos")]
+#![allow(clippy::manual_slice_size_calculation)]
 
 use metal::{Buffer, Device, MTLResourceOptions};
 use std::sync::Arc;

@@ -13,6 +13,10 @@
 //!
 //! Note: Router seed is used for telemetry sampling determinism, not routing decisions.
 //! Routing determinism comes from stable sorting (score desc, then index asc).
+#![allow(clippy::absurd_extreme_comparisons)]
+#![allow(clippy::needless_range_loop)]
+#![allow(clippy::redundant_pattern_matching)]
+#![allow(clippy::unnecessary_unwrap)]
 
 use adapteros_core::determinism::{DeterminismContext, DeterminismSource};
 use adapteros_core::AosError;

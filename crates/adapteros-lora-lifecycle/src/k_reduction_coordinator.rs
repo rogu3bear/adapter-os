@@ -4,6 +4,8 @@
 //! Evaluates K reduction requests from memory manager and determines
 //! which adapters to unload based on activation percentages and state.
 
+#![allow(unused_mut)]
+
 use crate::{AdapterState, AdapterStateRecord};
 use adapteros_memory::{KReductionRequest, KReductionResponse};
 use std::collections::HashMap;

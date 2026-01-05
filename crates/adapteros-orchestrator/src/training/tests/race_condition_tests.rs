@@ -3,6 +3,8 @@
 //! These tests cover cancel token races, concurrent job access,
 //! and state transition timing issues.
 
+#![allow(clippy::field_reassign_with_default)]
+
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 
