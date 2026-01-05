@@ -25,9 +25,9 @@
 //! }
 //! ```
 
+use adapteros_core::{derive_seed, derive_seed_indexed, B3Hash};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use adapteros_core::{B3Hash, derive_seed, derive_seed_indexed};
 
 /// Deterministic random number generator for testing
 pub struct DeterministicRng {
@@ -181,7 +181,10 @@ impl MockAdapterRegistry {
 
     /// Register a mock adapter
     pub fn register_adapter(&self, adapter: MockAdapter) {
-        self.adapters.lock().unwrap().insert(adapter.id.clone(), adapter);
+        self.adapters
+            .lock()
+            .unwrap()
+            .insert(adapter.id.clone(), adapter);
     }
 
     /// Get an adapter by ID
@@ -197,7 +200,11 @@ impl MockAdapterRegistry {
     /// Get top K adapters by activation score (deterministic ordering)
     pub fn get_top_adapters(&self, k: usize) -> Vec<MockAdapter> {
         let mut adapters = self.list_adapters();
-        adapters.sort_by(|a, b| b.activation_score.partial_cmp(&a.activation_score).unwrap());
+        adapters.sort_by(|a, b| {
+            b.activation_score
+                .partial_cmp(&a.activation_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         adapters.into_iter().take(k).collect()
     }
 }
@@ -237,7 +244,9 @@ impl MockEvidenceCollector {
 
     /// Get evidence for a specific source
     pub fn get_evidence_for_source(&self, source: &str) -> Vec<EvidenceItem> {
-        self.evidence.lock().unwrap()
+        self.evidence
+            .lock()
+            .unwrap()
             .iter()
             .filter(|e| e.source == source)
             .cloned()
@@ -246,7 +255,9 @@ impl MockEvidenceCollector {
 
     /// Calculate total confidence score
     pub fn total_confidence(&self) -> f32 {
-        self.evidence.lock().unwrap()
+        self.evidence
+            .lock()
+            .unwrap()
             .iter()
             .map(|e| e.confidence)
             .sum()
@@ -284,12 +295,15 @@ impl TestDataGenerator {
 
     /// Generate a deterministic vector of floats
     pub fn gen_floats(&mut self, count: usize, range: std::ops::Range<f32>) -> Vec<f32> {
-        (0..count).map(|_| {
-            self.counter += 1;
-            let derived_seed = derive_seed_indexed(&self.seed, "float", self.counter);
-            let value = u32::from_le_bytes(derived_seed[..4].try_into().unwrap()) as f32 / u32::MAX as f32;
-            range.start + value * (range.end - range.start)
-        }).collect()
+        (0..count)
+            .map(|_| {
+                self.counter += 1;
+                let derived_seed = derive_seed_indexed(&self.seed, "float", self.counter);
+                let value = u32::from_le_bytes(derived_seed[..4].try_into().unwrap()) as f32
+                    / u32::MAX as f32;
+                range.start + value * (range.end - range.start)
+            })
+            .collect()
     }
 
     /// Generate deterministic JSON data
@@ -354,4 +368,4 @@ mod tests {
         assert_eq!(gen1.gen_string(20), gen2.gen_string(20));
         assert_eq!(gen1.gen_floats(5, 0.0..1.0), gen2.gen_floats(5, 0.0..1.0));
     }
-}</code>
+}
