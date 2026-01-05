@@ -30,8 +30,10 @@ use crate::boot::BackgroundTaskSpawner;
 use crate::logging;
 use crate::shutdown::ShutdownCoordinator;
 use crate::status_writer;
+use adapteros_db::diagnostics::SqliteDiagPersister;
 use adapteros_db::kv_metrics;
 use adapteros_db::Db;
+use adapteros_diagnostics::{DiagEnvelope, DiagnosticsWriter, RunTracker, WriterConfig};
 use adapteros_server_api::boot_state::{BootStateManager, FailureReason};
 use adapteros_server_api::security::{
     cleanup_expired_ip_rules, cleanup_expired_revocations, cleanup_expired_sessions,
@@ -43,6 +45,7 @@ use adapteros_telemetry::AlertingEngine;
 use anyhow::Result;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::mpsc;
 use tokio::time::MissedTickBehavior;
 use tracing::{debug, error, info, warn};
 
@@ -85,6 +88,7 @@ pub async fn spawn_all_background_tasks(
     strict_mode: bool,
     metrics_registry: Arc<MetricsRegistry>,
     server_config: Arc<std::sync::RwLock<adapteros_server_api::config::Config>>,
+    diag_receiver: Option<mpsc::Receiver<DiagEnvelope>>,
 ) -> Result<ShutdownCoordinator> {
     // Check if we're in dev mode - skip non-essential tasks for faster startup
     let dev_mode = adapteros_server_api::is_dev_bypass_enabled();
@@ -727,6 +731,42 @@ pub async fn spawn_all_background_tasks(
             .is_ok()
         {
             info!("WAL checkpoint task started (5 minute interval)");
+        }
+        shutdown_coordinator = spawner.into_coordinator();
+    }
+
+    // Spawn diagnostics writer if receiver is available
+    if let Some(receiver) = diag_receiver {
+        let persister = SqliteDiagPersister::new_arc(db.pool().clone());
+        let run_tracker = Arc::new(RunTracker::new());
+
+        // Get writer config from effective config or use defaults
+        let writer_config = if let Some(eff_cfg) = adapteros_config::try_effective_config() {
+            WriterConfig {
+                batch_size: eff_cfg.diagnostics.batch_size,
+                batch_timeout: Duration::from_millis(eff_cfg.diagnostics.batch_timeout_ms),
+                ..Default::default()
+            }
+        } else {
+            WriterConfig::default()
+        };
+
+        let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator)
+            .with_task_tracker(Arc::clone(&background_tasks));
+        let shutdown_rx = spawner.coordinator().subscribe_shutdown();
+
+        if spawner
+            .spawn_optional(
+                "Diagnostics writer",
+                async move {
+                    let writer = DiagnosticsWriter::new(persister, writer_config, run_tracker);
+                    writer.run(receiver, shutdown_rx).await;
+                },
+                "Diagnostic events will not be persisted",
+            )
+            .is_ok()
+        {
+            info!("Diagnostics writer task started");
         }
         shutdown_coordinator = spawner.into_coordinator();
     }

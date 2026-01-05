@@ -4,7 +4,7 @@
 //! The trained adapter is automatically registered and set for owner chat.
 
 use crate::commands::training_common::{CommonTrainingArgs, TokenizerArg};
-use adapteros_config::resolve_base_model_location;
+use adapteros_config::{resolve_base_model_location, ModelConfig};
 use adapteros_core::{AosError, Result};
 use adapteros_db::Db;
 use adapteros_ingest_docs::{
@@ -276,6 +276,14 @@ impl TrainDocsArgs {
         let base_model_location = resolve_base_model_location(Some(&base_model_id), None, true)
             .map_err(|e| AosError::Validation(e.to_string()))?;
 
+        // Load model config to get hidden_size
+        let model_config_path = base_model_location.full_path.join("config.json");
+        let model_config = ModelConfig::from_config_json(&model_config_path)?;
+        info!(
+            "Model config: hidden_size={}, vocab_size={}",
+            model_config.hidden_size, model_config.vocab_size
+        );
+
         // Validate docs directory
         if !self.docs_dir.exists() {
             return Err(AosError::Validation(format!(
@@ -461,13 +469,18 @@ impl TrainDocsArgs {
 
         // === Step 3: Train LoRA Adapter ===
         info!("Step 3/4: Training LoRA adapter...");
+        // Get vocab size from tokenizer (with added tokens)
+        let vocab_size = tokenizer.get_vocab_size(true);
+        info!("Tokenizer vocab size: {}", vocab_size);
+
         let train_config = TrainingConfig {
             rank: self.common.rank,
             alpha: self.common.alpha,
             learning_rate: self.common.learning_rate,
             batch_size: self.common.batch_size,
             epochs: self.common.epochs,
-            hidden_dim: self.common.hidden_dim,
+            hidden_dim: model_config.hidden_size,
+            vocab_size,
             determinism: if self.deterministic || self.seed.is_some() {
                 Some(DeterminismConfig {
                     seed: self.seed,
@@ -543,13 +556,17 @@ impl TrainDocsArgs {
         let quantized = LoRAQuantizer::quantize_to_q15(&result.weights);
         let packager = AdapterPackager::new(&output_dir);
         let safe_adapter_id = adapter_id.replace('/', "_");
+        // Mark as synthetic since training data was generated from docs
+        let mut pkg_metadata = std::collections::HashMap::new();
+        pkg_metadata.insert("synthetic_mode".to_string(), "true".to_string());
         let packaged = packager
-            .package_aos_for_tenant(
+            .package_aos_with_metadata(
                 tenant_for_path,
                 &safe_adapter_id,
                 &quantized,
                 &train_config,
                 &base_model_id,
+                pkg_metadata,
             )
             .await?;
         info!(

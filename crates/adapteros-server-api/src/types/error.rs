@@ -177,6 +177,21 @@ pub enum InferenceError {
         /// Reason for the violation
         reason: String,
     },
+    /// Database operation failed
+    DatabaseError(String),
+    /// Adapter not loadable (different from AdapterNotFound - this means adapter exists but can't be loaded)
+    AdapterNotLoadable {
+        /// Adapter ID
+        adapter_id: String,
+        /// Reason adapter cannot be loaded
+        reason: String,
+    },
+    /// Replay operation failed
+    ReplayError(String),
+    /// Determinism validation failed
+    DeterminismError(String),
+    /// Internal server error
+    InternalError(String),
 }
 
 impl std::fmt::Display for InferenceError {
@@ -235,6 +250,15 @@ impl std::fmt::Display for InferenceError {
                 "Policy violation for tenant {} (policy: {}): {}",
                 tenant_id, policy_id, reason
             ),
+            Self::DatabaseError(msg) => write!(f, "Database error: {}", msg),
+            Self::AdapterNotLoadable { adapter_id, reason } => write!(
+                f,
+                "Adapter {} not loadable: {}",
+                adapter_id, reason
+            ),
+            Self::ReplayError(msg) => write!(f, "Replay error: {}", msg),
+            Self::DeterminismError(msg) => write!(f, "Determinism error: {}", msg),
+            Self::InternalError(msg) => write!(f, "Internal error: {}", msg),
         }
     }
 }
@@ -262,6 +286,11 @@ impl InferenceError {
             Self::WorkerIdUnavailable { .. } => StatusCode::SERVICE_UNAVAILABLE,
             Self::CacheBudgetExceeded { .. } => StatusCode::SERVICE_UNAVAILABLE,
             Self::PolicyViolation { .. } => StatusCode::FORBIDDEN,
+            Self::DatabaseError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::AdapterNotLoadable { .. } => StatusCode::SERVICE_UNAVAILABLE,
+            Self::ReplayError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::DeterminismError(_) => StatusCode::BAD_REQUEST,
+            Self::InternalError(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 
@@ -284,6 +313,11 @@ impl InferenceError {
             Self::WorkerIdUnavailable { .. } => "WORKER_ID_UNAVAILABLE",
             Self::CacheBudgetExceeded { .. } => "CACHE_BUDGET_EXCEEDED",
             Self::PolicyViolation { .. } => "POLICY_VIOLATION",
+            Self::DatabaseError(_) => "DATABASE_ERROR",
+            Self::AdapterNotLoadable { .. } => "ADAPTER_NOT_LOADABLE",
+            Self::ReplayError(_) => "REPLAY_ERROR",
+            Self::DeterminismError(_) => "DETERMINISM_ERROR",
+            Self::InternalError(_) => "INTERNAL_ERROR",
         }
     }
 
@@ -321,6 +355,11 @@ impl InferenceError {
             Self::WorkerIdUnavailable { .. } => Some(FailureCode::BackendFallback),
             Self::CacheBudgetExceeded { .. } => Some(FailureCode::OutOfMemory),
             Self::PolicyViolation { .. } => Some(FailureCode::PolicyDivergence),
+            Self::DatabaseError(_) => None,
+            Self::AdapterNotLoadable { .. } => Some(FailureCode::ModelLoadFailed),
+            Self::ReplayError(_) => None,
+            Self::DeterminismError(_) => Some(FailureCode::PolicyDivergence),
+            Self::InternalError(_) => None,
         }
     }
 }

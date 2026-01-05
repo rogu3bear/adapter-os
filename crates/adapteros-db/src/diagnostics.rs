@@ -349,7 +349,8 @@ pub async fn list_diag_runs_paginated(
     // Build the query dynamically based on filters
     // Use sequential ? bindings (not positional) for SQLite compatibility
     let mut conditions = vec!["tenant_id = ?"];
-    let mut bindings: Vec<Box<dyn std::fmt::Display + Send + Sync>> = vec![Box::new(tenant_id.to_string())];
+    let mut bindings: Vec<Box<dyn std::fmt::Display + Send + Sync>> =
+        vec![Box::new(tenant_id.to_string())];
 
     if let Some(since_val) = since {
         conditions.push("started_at_unix_ms >= ?");
@@ -898,6 +899,9 @@ fn extract_event_type(event: &DiagEvent) -> &'static str {
         DiagEvent::TieBreakApplied { .. } => "tie_break_applied",
         DiagEvent::RoutingEnd { .. } => "routing_end",
         DiagEvent::Custom { .. } => "custom",
+        DiagEvent::InferencePaused { .. } => "inference_paused",
+        DiagEvent::InferenceResumed { .. } => "inference_resumed",
+        DiagEvent::InferenceStateChanged { .. } => "inference_state_changed",
     }
 }
 

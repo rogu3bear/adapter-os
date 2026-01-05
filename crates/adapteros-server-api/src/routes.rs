@@ -2029,11 +2029,11 @@ pub fn build(state: AppState) -> Router {
         // Diagnostic runs API (tenant-safe, paginated)
         .route("/v1/diag/runs", get(handlers::diagnostics::list_diag_runs))
         .route(
-            "/v1/diag/runs/:trace_id",
+            "/v1/diag/runs/{trace_id}",
             get(handlers::diagnostics::get_diag_run),
         )
         .route(
-            "/v1/diag/runs/:trace_id/events",
+            "/v1/diag/runs/{trace_id}/events",
             get(handlers::diagnostics::list_diag_events),
         )
         .route("/v1/diag/diff", post(handlers::diagnostics::diff_diag_runs))
@@ -2047,11 +2047,11 @@ pub fn build(state: AppState) -> Router {
             post(handlers::diag_bundle::create_bundle_export),
         )
         .route(
-            "/v1/diag/bundle/:export_id",
+            "/v1/diag/bundle/{export_id}",
             get(handlers::diag_bundle::get_bundle_export),
         )
         .route(
-            "/v1/diag/bundle/:export_id/download",
+            "/v1/diag/bundle/{export_id}/download",
             get(handlers::diag_bundle::download_bundle),
         )
         // Trace routes

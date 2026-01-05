@@ -32,6 +32,7 @@ adapteros-federation = { path = "../adapteros-federation" }
 adapteros-verify = { path = "../adapteros-verify" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
+adapteros-diagnostics = { path = "../adapteros-diagnostics" }
 adapteros-types = { path = "../adapteros-types" }
 dashmap = "5.5"
 parking_lot = "0.12"
@@ -93,6 +94,8 @@ urlencoding = "2"
 safetensors = { workspace = true }
 flate2 = "1.0"
 tar = "0.4"
+zstd = { workspace = true }
+serde_jcs = { workspace = true }
 zip = "0.6"
 adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true, features = ["mlx"] }
 adapteros-lora-rag = { path = "../adapteros-lora-rag" }

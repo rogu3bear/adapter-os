@@ -3,6 +3,7 @@ use adapteros_crypto::Keypair;
 use adapteros_db::git::FileChangeEvent;
 use adapteros_db::{sqlx, Db, KvIsolationScanReport, ProtectedDb, WriteCapableDb};
 use adapteros_deterministic_exec::global_ledger::GlobalTickLedger;
+use adapteros_diagnostics::DiagnosticsService;
 use adapteros_lora_kernel_api::FusedKernels;
 use adapteros_lora_lifecycle::LifecycleManager;
 use adapteros_lora_rag::EmbeddingModel;
@@ -28,6 +29,7 @@ use crate::caching::DashboardCache;
 use crate::config::PathsConfig;
 use crate::handlers::chunked_upload::UploadSessionManager;
 use crate::idempotency::IdempotencyStore;
+use crate::pause_tracker::ServerPauseTracker;
 use crate::sse::SseEventManager;
 use crate::telemetry::{MetricsRegistry, TelemetryBuffer, TelemetrySender, TraceBuffer};
 use adapteros_registry::Registry;
@@ -785,6 +787,12 @@ pub struct AppState {
     pub idempotency_store: Arc<IdempotencyStore>,
     // Config baseline snapshot for drift detection (captured at boot)
     pub config_baseline: Arc<RwLock<Option<adapteros_config::ConfigSnapshot>>>,
+    // Diagnostics service for per-request event capture (optional, enabled via config)
+    pub diagnostics_service: Option<Arc<DiagnosticsService>>,
+    // Server-side pause tracker for forwarding reviews to workers via UDS
+    pub pause_tracker: Option<Arc<ServerPauseTracker>>,
+    // Inference state tracker for full lifecycle tracking (Running/Paused/Complete/Failed)
+    pub inference_state_tracker: Option<Arc<crate::inference_state_tracker::InferenceStateTracker>>,
 }
 
 impl AppState {
@@ -961,6 +969,12 @@ impl AppState {
             idempotency_store: Arc::new(IdempotencyStore::new()),
             // Config baseline captured at boot via with_config_baseline
             config_baseline: Arc::new(RwLock::new(None)),
+            // Diagnostics service disabled by default, set via with_diagnostics_service
+            diagnostics_service: None,
+            // Server-side pause tracker disabled by default, set via with_pause_tracker
+            pause_tracker: None,
+            // Inference state tracker disabled by default, set via with_inference_state_tracker
+            inference_state_tracker: None,
         }
     }
 
@@ -1268,6 +1282,27 @@ impl AppState {
     /// Set RAG status indicating whether embedding model is available
     pub fn with_rag_status(mut self, status: RagStatus) -> Self {
         self.rag_status = Some(status);
+        self
+    }
+
+    /// Set diagnostics service for per-request event capture
+    pub fn with_diagnostics_service(mut self, service: Arc<DiagnosticsService>) -> Self {
+        self.diagnostics_service = Some(service);
+        self
+    }
+
+    /// Set server-side pause tracker for human-in-the-loop review protocol
+    pub fn with_pause_tracker(mut self, tracker: Arc<ServerPauseTracker>) -> Self {
+        self.pause_tracker = Some(tracker);
+        self
+    }
+
+    /// Set inference state tracker for full lifecycle tracking
+    pub fn with_inference_state_tracker(
+        mut self,
+        tracker: Arc<crate::inference_state_tracker::InferenceStateTracker>,
+    ) -> Self {
+        self.inference_state_tracker = Some(tracker);
         self
     }
 

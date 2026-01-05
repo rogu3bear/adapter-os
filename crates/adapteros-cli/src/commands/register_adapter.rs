@@ -229,6 +229,11 @@ pub async fn register_aos_with_db(db: &Db, req: RegisterAosRequest) -> Result<Re
         lower.contains("legacy aos") || lower.contains("invalid aos magic")
     });
 
+    // Debug: log all validation errors
+    for (i, err) in validation.errors.iter().enumerate() {
+        tracing::debug!(error_idx = i, error_msg = %err, "Validation error");
+    }
+
     if has_legacy_error {
         warn!(
             code = "LEGACY_AOS_REJECTED",

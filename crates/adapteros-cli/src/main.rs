@@ -367,6 +367,13 @@ Examples:
     Db(commands::db::DbCommand),
 
     // ============================================================
+    // Review Management
+    // ============================================================
+    /// Human-in-the-loop review commands (list, submit, export)
+    #[command(subcommand)]
+    Review(commands::review::ReviewCommand),
+
+    // ============================================================
     // Model Management
     // ============================================================
     /// Model management commands (seed, list)
@@ -1622,6 +1629,11 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             commands::db::handle_db_command(cmd.clone(), &output).await?;
         }
 
+        // Review Management
+        Commands::Review(cmd) => {
+            commands::review::handle_review_command(cmd.clone(), &output).await?;
+        }
+
         // Model Management
         Commands::Models(cmd) => {
             commands::models::handle_models_command(cmd.clone(), &output).await?;
@@ -2297,6 +2309,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Registry(_) => "registry",
         Commands::Storage(_) => "storage",
         Commands::Db(_) => "db",
+        Commands::Review(_) => "review",
         Commands::Models(_) => "models",
         Commands::PlanBuild { .. } => "build-plan",
         Commands::ModelImport { .. } => "import-model",

@@ -33,14 +33,27 @@ impl StreamCloseReason {
     }
 }
 
-/// Emit a StreamClosed diagnostic event.
+/// Emit a StreamClosed diagnostic event with correlation to the original inference run.
 ///
 /// Should be called when an SSE stream terminates for any reason.
+///
+/// # Arguments
+/// * `state` - Application state containing diagnostics service
+/// * `request_id` - The request ID for correlation
+/// * `tenant_id` - The tenant ID
+/// * `reason` - Why the stream was closed
+/// * `run_id` - Optional run ID for correlation; if None, a new root trace is created
+/// * `trace_context` - Optional trace context for correlation; if None, a new root trace is created
+///
+/// For proper event correlation with the original inference run, both `run_id` and
+/// `trace_context` should be provided from the inference context.
 pub fn emit_stream_closed(
     state: &AppState,
     request_id: &str,
     tenant_id: &str,
     reason: StreamCloseReason,
+    run_id: Option<&DiagRunId>,
+    trace_context: Option<&TraceContext>,
 ) {
     let Some(service) = state.diagnostics_service.as_ref() else {
         return;
@@ -50,13 +63,30 @@ pub fn emit_stream_closed(
         return;
     }
 
-    let trace_context = TraceContext::new_root();
-    let run_id = DiagRunId::from_trace_context(&trace_context);
+    // Use provided trace context or create a new root (fallback for call sites without context)
+    let owned_trace_context: TraceContext;
+    let effective_trace_context = match trace_context {
+        Some(ctx) => ctx,
+        None => {
+            owned_trace_context = TraceContext::new_root();
+            &owned_trace_context
+        }
+    };
+
+    // Use provided run_id or derive from trace context
+    let owned_run_id: DiagRunId;
+    let effective_run_id = match run_id {
+        Some(id) => id.clone(),
+        None => {
+            owned_run_id = DiagRunId::from_trace_context(effective_trace_context);
+            owned_run_id
+        }
+    };
 
     let envelope = DiagEnvelope::new(
-        &trace_context,
+        effective_trace_context,
         tenant_id,
-        run_id,
+        effective_run_id,
         match reason {
             StreamCloseReason::Complete => DiagSeverity::Info,
             StreamCloseReason::ClientDisconnect => DiagSeverity::Warn,

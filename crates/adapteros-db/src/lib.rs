@@ -93,6 +93,9 @@ pub mod traits;
 // Lifecycle rules module
 pub mod lifecycle_rules;
 
+// Diagnostics persistence
+pub mod diagnostics;
+
 // Migration validation utilities
 pub mod migration_validation;
 
