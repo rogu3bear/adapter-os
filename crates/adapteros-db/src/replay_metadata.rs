@@ -864,6 +864,7 @@ mod tests {
             execution_policy_version: None,
             stop_policy_json: None,
             policy_mask_digest_b3: Some("policy-mask-123".to_string()),
+            utf8_healing: None,
         };
 
         let id = db.create_replay_metadata(params).await.unwrap();
@@ -961,6 +962,7 @@ mod tests {
             execution_policy_version: None,
             stop_policy_json: None,
             policy_mask_digest_b3: None,
+            utf8_healing: None,
         };
 
         db.create_replay_metadata(params).await.unwrap();
@@ -1023,6 +1025,7 @@ mod tests {
                 execution_policy_version: None,
                 stop_policy_json: None,
                 policy_mask_digest_b3: None,
+                utf8_healing: None,
             };
 
             db.create_replay_metadata(params).await.unwrap();
@@ -1092,6 +1095,7 @@ mod tests {
             execution_policy_version: None,
             stop_policy_json: None,
             policy_mask_digest_b3: None,
+            utf8_healing: None,
         };
 
         db.create_replay_metadata(params).await.unwrap();
@@ -1148,6 +1152,7 @@ mod tests {
             execution_policy_version: None,
             stop_policy_json: None,
             policy_mask_digest_b3: None,
+            utf8_healing: None,
         };
 
         let id = db.create_replay_metadata(params).await.unwrap();

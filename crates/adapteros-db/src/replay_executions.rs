@@ -532,6 +532,7 @@ mod tests {
             execution_policy_version: None,
             stop_policy_json: None,
             policy_mask_digest_b3: None,
+            utf8_healing: None,
         })
         .await
         .expect("Failed to create inference metadata");

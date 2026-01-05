@@ -289,7 +289,7 @@ pub struct DiagRunSummary {
     pub created_at: String,
 }
 
-/// Full diagnostic run record (includes request_hash and manifest_hash).
+/// Full diagnostic run record (matches diag_runs table schema from migrations 0272 + 0273).
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct DiagRunRecord {
     pub id: String,
@@ -347,26 +347,23 @@ pub async fn list_diag_runs_paginated(
     let limit = limit.min(200) as i64;
 
     // Build the query dynamically based on filters
-    let mut conditions = vec!["tenant_id = ?1"];
-    let mut bind_idx = 2;
+    // Use sequential ? bindings (not positional) for SQLite compatibility
+    let mut conditions = vec!["tenant_id = ?"];
+    let mut bindings: Vec<Box<dyn std::fmt::Display + Send + Sync>> = vec![Box::new(tenant_id.to_string())];
 
-    if since.is_some() {
-        conditions.push("started_at_unix_ms >= ?2");
-        bind_idx = 3;
+    if let Some(since_val) = since {
+        conditions.push("started_at_unix_ms >= ?");
+        bindings.push(Box::new(since_val));
     }
 
-    if after_cursor.is_some() {
-        conditions.push(if since.is_some() {
-            "id < ?3"
-        } else {
-            "id < ?2"
-        });
-        bind_idx = if since.is_some() { 4 } else { 3 };
+    if let Some(cursor) = after_cursor {
+        conditions.push("id < ?");
+        bindings.push(Box::new(cursor.to_string()));
     }
 
-    if status_filter.is_some() {
-        let status_cond = format!("status = ?{}", bind_idx);
-        conditions.push(Box::leak(status_cond.into_boxed_str()));
+    if let Some(status) = status_filter {
+        conditions.push("status = ?");
+        bindings.push(Box::new(status.to_string()));
     }
 
     let where_clause = conditions.join(" AND ");
@@ -384,7 +381,7 @@ pub async fn list_diag_runs_paginated(
         where_clause
     );
 
-    // Execute with dynamic bindings
+    // Execute with dynamic bindings - use raw SQL to bind all parameters
     let mut query_builder = sqlx::query_as::<_, DiagRunRecord>(&query);
     query_builder = query_builder.bind(tenant_id);
 
@@ -1218,25 +1215,26 @@ mod tests {
             .await
             .expect("Failed to create test pool");
 
-        // Run the diagnostics table migration
+        // Run the diagnostics table migrations (0272 + 0273)
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS diag_runs (
-                id TEXT PRIMARY KEY,
+                id TEXT PRIMARY KEY NOT NULL,
                 tenant_id TEXT NOT NULL,
                 trace_id TEXT NOT NULL,
                 started_at_unix_ms INTEGER NOT NULL,
                 completed_at_unix_ms INTEGER,
                 request_hash TEXT NOT NULL DEFAULT '',
                 manifest_hash TEXT,
-                decision_chain_hash TEXT,
-                backend_identity_hash TEXT,
-                model_identity_hash TEXT,
                 status TEXT NOT NULL DEFAULT 'running',
                 total_events_count INTEGER NOT NULL DEFAULT 0,
                 dropped_events_count INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
-                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                decision_chain_hash TEXT,
+                backend_identity_hash TEXT,
+                model_identity_hash TEXT,
+                adapter_stack_ids TEXT
             )
             "#,
         )
@@ -1303,21 +1301,22 @@ mod tests {
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS diag_runs (
-                id TEXT PRIMARY KEY,
+                id TEXT PRIMARY KEY NOT NULL,
                 tenant_id TEXT NOT NULL,
                 trace_id TEXT NOT NULL,
                 started_at_unix_ms INTEGER NOT NULL,
                 completed_at_unix_ms INTEGER,
                 request_hash TEXT NOT NULL DEFAULT '',
                 manifest_hash TEXT,
-                decision_chain_hash TEXT,
-                backend_identity_hash TEXT,
-                model_identity_hash TEXT,
                 status TEXT NOT NULL DEFAULT 'running',
                 total_events_count INTEGER NOT NULL DEFAULT 0,
                 dropped_events_count INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
-                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                decision_chain_hash TEXT,
+                backend_identity_hash TEXT,
+                model_identity_hash TEXT,
+                adapter_stack_ids TEXT
             )
             "#,
         )
@@ -1367,21 +1366,22 @@ mod tests {
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS diag_runs (
-                id TEXT PRIMARY KEY,
+                id TEXT PRIMARY KEY NOT NULL,
                 tenant_id TEXT NOT NULL,
                 trace_id TEXT NOT NULL,
                 started_at_unix_ms INTEGER NOT NULL,
                 completed_at_unix_ms INTEGER,
                 request_hash TEXT NOT NULL DEFAULT '',
                 manifest_hash TEXT,
-                decision_chain_hash TEXT,
-                backend_identity_hash TEXT,
-                model_identity_hash TEXT,
                 status TEXT NOT NULL DEFAULT 'running',
                 total_events_count INTEGER NOT NULL DEFAULT 0,
                 dropped_events_count INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
-                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                decision_chain_hash TEXT,
+                backend_identity_hash TEXT,
+                model_identity_hash TEXT,
+                adapter_stack_ids TEXT
             )
             "#,
         )
