@@ -317,6 +317,7 @@ dependencies = [
  "serial_test",
  "sqlx",
  "sysinfo 0.30.13",
+ "tar",
  "tempfile",
  "tokenizers 0.15.2",
  "tokio",
@@ -327,6 +328,7 @@ dependencies = [
  "uuid",
  "walkdir",
  "zip 1.1.4",
+ "zstd 0.13.3",
 ]
 
 [[package]]
@@ -481,6 +483,7 @@ dependencies = [
  "security-framework 2.11.1",
  "security-framework-sys",
  "serde",
+ "serde_jcs",
  "serde_json",
  "sha2",
  "subtle",
@@ -501,6 +504,7 @@ dependencies = [
  "adapteros-config",
  "adapteros-core",
  "adapteros-crypto",
+ "adapteros-diagnostics",
  "adapteros-lora-lifecycle",
  "adapteros-normalization",
  "adapteros-single-file-adapter",
@@ -566,6 +570,25 @@ dependencies = [
  "tokio",
  "tokio-test",
  "tracing",
+]
+
+[[package]]
+name = "adapteros-diagnostics"
+version = "0.11.0"
+dependencies = [
+ "adapteros-core",
+ "adapteros-telemetry",
+ "async-trait",
+ "blake3",
+ "dashmap 5.5.3",
+ "proptest",
+ "serde",
+ "serde_jcs",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -981,6 +1004,7 @@ version = "0.11.0"
 dependencies = [
  "adapteros-api-types",
  "adapteros-core",
+ "adapteros-diagnostics",
  "adapteros-lora-kernel-api",
  "adapteros-numerics",
  "adapteros-policy",
@@ -1466,6 +1490,7 @@ dependencies = [
  "adapteros-crypto",
  "adapteros-db",
  "adapteros-deterministic-exec",
+ "adapteros-diagnostics",
  "adapteros-federation",
  "adapteros-git",
  "adapteros-ingest-docs",
@@ -1526,6 +1551,7 @@ dependencies = [
  "adapteros-crypto",
  "adapteros-db",
  "adapteros-deterministic-exec",
+ "adapteros-diagnostics",
  "adapteros-federation",
  "adapteros-git",
  "adapteros-ingest-docs",
@@ -1589,6 +1615,7 @@ dependencies = [
  "safetensors",
  "scopeguard",
  "serde",
+ "serde_jcs",
  "serde_json",
  "serde_yaml",
  "sha1",
@@ -1617,6 +1644,7 @@ dependencies = [
  "uuid",
  "walkdir",
  "zip 0.6.6",
+ "zstd 0.13.3",
 ]
 
 [[package]]
@@ -1670,10 +1698,12 @@ dependencies = [
  "anyhow",
  "bytemuck",
  "chrono",
+ "half",
  "hex",
  "lru",
  "memmap2",
  "parking_lot",
+ "safetensors",
  "serde",
  "serde_json",
  "tempfile",
