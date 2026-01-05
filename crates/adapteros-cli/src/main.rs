@@ -921,21 +921,6 @@ Examples:
     // ============================================================
     // Documentation & Help
     // ============================================================
-    /// Run system diagnostics
-    #[command(after_help = "\
-Examples:
-  # Full system diagnostics
-  aosctl diag --full
-
-  # System checks only
-  aosctl diag --system
-
-  # Tenant-specific checks
-  aosctl diag --tenant dev
-
-  # Create diagnostic bundle
-  aosctl diag --full --bundle ./diag_bundle.zip
-")]
     /// Show backend status and capabilities
     #[command(after_help = "\
 Examples:
@@ -950,50 +935,9 @@ Examples:
 ")]
     BackendStatus(commands::backend_status::BackendStatusArgs),
 
-    /// Run diagnostics and health checks
-    #[command(after_help = "\
-Examples:
-  # Full system diagnostics
-  aosctl diag
-
-  # System checks only
-  aosctl diag --system
-
-  # Tenant-specific checks
-  aosctl diag --tenant dev
-
-  # Create diagnostic bundle
-  aosctl diag --full --bundle ./diag_bundle.zip
-")]
-    Diag {
-        /// Diagnostic profile: system, tenant, or full
-        #[arg(long, default_value = "full")]
-        profile: Option<String>,
-
-        /// Tenant ID for tenant-specific checks
-        #[arg(long)]
-        tenant: Option<String>,
-
-        /// Output JSON format
-        #[arg(long)]
-        json: bool,
-
-        /// Create diagnostic bundle
-        #[arg(long)]
-        bundle: Option<PathBuf>,
-
-        /// System checks only
-        #[arg(long, conflicts_with_all = ["tenant_only", "profile"])]
-        system: bool,
-
-        /// Tenant checks only
-        #[arg(long, conflicts_with_all = ["system", "profile"])]
-        tenant_only: bool,
-
-        /// Full diagnostics (default)
-        #[arg(long, conflicts_with_all = ["system", "tenant_only", "profile"])]
-        full: bool,
-    },
+    /// Run diagnostics, export bundles, and verify bundles
+    #[command(subcommand)]
+    Diag(diag::DiagCommand),
 
     /// Generate a log digest (WARN/ERROR summary)
     #[command(after_help = "\
@@ -1893,38 +1837,8 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         }
 
         // Documentation & Help
-        Commands::Diag {
-            profile,
-            tenant,
-            json,
-            bundle,
-            system,
-            tenant_only,
-            full,
-        } => {
-            let diag_profile = if *system {
-                diag::DiagProfile::System
-            } else if *tenant_only {
-                diag::DiagProfile::Tenant
-            } else if *full {
-                diag::DiagProfile::Full
-            } else if let Some(p) = profile {
-                match p.as_str() {
-                    "system" => diag::DiagProfile::System,
-                    "tenant" => diag::DiagProfile::Tenant,
-                    "full" => diag::DiagProfile::Full,
-                    _ => {
-                        return Err(anyhow::anyhow!(
-                            "Invalid profile: {}. Use: system, tenant, or full",
-                            p
-                        ))
-                    }
-                }
-            } else {
-                diag::DiagProfile::Full
-            };
-
-            diag::run(diag_profile, tenant.clone(), *json, bundle.clone()).await?;
+        Commands::Diag(cmd) => {
+            diag::handle_diag_command(cmd.clone(), &output).await?;
         }
 
         Commands::LogDigest(cmd) => {
@@ -2339,7 +2253,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Bootstrap { .. } => "bootstrap",
         Commands::Completions { .. } => "completions",
         Commands::Config(_) => "config",
-        Commands::Diag { .. } => "diag",
+        Commands::Diag(_) => "diag",
         Commands::LogDigest(_) => "log-digest",
         Commands::LogTriage(_) => "log-triage",
         Commands::LogPrompt(_) => "log-prompt",
@@ -2387,7 +2301,7 @@ fn get_command_name(command: &Commands) -> String {
 fn extract_tenant_from_command(command: &Commands) -> Option<String> {
     match command {
         Commands::Serve { tenant, .. } | Commands::Rollback { tenant, .. } => Some(tenant.clone()),
-        Commands::Diag { tenant, .. } => tenant.clone(),
+        Commands::Diag(diag::DiagCommand::Run { tenant, .. }) => tenant.clone(),
         Commands::Repo(commands::repo::RepoCommand::Repo(commands::repo::RepoOps::Create(
             args,
         ))) => Some(args.tenant.clone()),

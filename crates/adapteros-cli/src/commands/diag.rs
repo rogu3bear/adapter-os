@@ -1,13 +1,190 @@
 //! System diagnostics command
 
 use crate::commands::infer::uds_infer_url_string;
+use crate::output::OutputWriter;
 use adapteros_core::{AosError, Result};
 use anyhow::Context;
+use clap::Subcommand;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use std::path::{Path, PathBuf};
 use sysinfo::System;
 use tracing::{error, info, warn};
+
+/// Diagnostic command variants
+#[derive(Debug, Subcommand, Clone)]
+pub enum DiagCommand {
+    /// Run system diagnostics
+    #[command(after_help = "\
+Examples:
+  aosctl diag run --full
+  aosctl diag run --system
+  aosctl diag run --tenant dev
+  aosctl diag run --full --bundle ./diag_bundle.zip
+")]
+    Run {
+        /// Diagnostic profile: system, tenant, or full
+        #[arg(long, default_value = "full")]
+        profile: Option<String>,
+
+        /// Tenant ID for tenant-specific checks
+        #[arg(long)]
+        tenant: Option<String>,
+
+        /// Output JSON format
+        #[arg(long)]
+        json: bool,
+
+        /// Create diagnostic bundle
+        #[arg(long)]
+        bundle: Option<PathBuf>,
+
+        /// System checks only
+        #[arg(long, conflicts_with_all = ["tenant_only", "profile"])]
+        system: bool,
+
+        /// Tenant checks only
+        #[arg(long, conflicts_with_all = ["system", "profile"])]
+        tenant_only: bool,
+
+        /// Full diagnostics (default)
+        #[arg(long, conflicts_with_all = ["system", "tenant_only", "profile"])]
+        full: bool,
+    },
+
+    /// Export a signed diagnostic bundle via API
+    #[command(after_help = "\
+Examples:
+  aosctl diag export --trace-id trace-abc123 -o bundle.tar.zst
+  aosctl diag export --trace-id trace-abc123 -o bundle.zip --format zip
+  aosctl diag export --trace-id trace-abc123 -o bundle.tar.zst --include-evidence --evidence-token <token>
+")]
+    Export {
+        /// Trace ID to export
+        #[arg(long)]
+        trace_id: String,
+
+        /// Output file path
+        #[arg(short, long)]
+        output: PathBuf,
+
+        /// Bundle format: tar.zst or zip
+        #[arg(long, default_value = "tar.zst")]
+        format: String,
+
+        /// Include evidence payload (requires token)
+        #[arg(long)]
+        include_evidence: bool,
+
+        /// Evidence authorization token
+        #[arg(long)]
+        evidence_token: Option<String>,
+
+        /// API base URL
+        #[arg(long, env = "AOS_API_URL", default_value = "http://127.0.0.1:8080")]
+        base_url: String,
+    },
+
+    /// Verify a diagnostic bundle offline
+    #[command(after_help = "\
+Examples:
+  aosctl diag verify bundle.tar.zst
+  aosctl diag verify bundle.tar.zst --verbose
+")]
+    Verify {
+        /// Bundle path to verify
+        bundle: PathBuf,
+
+        /// Verbose output
+        #[arg(short, long)]
+        verbose: bool,
+    },
+}
+
+/// Handle diagnostic commands
+pub async fn handle_diag_command(cmd: DiagCommand, output: &OutputWriter) -> Result<()> {
+    match cmd {
+        DiagCommand::Run {
+            profile,
+            tenant,
+            json,
+            bundle,
+            system,
+            tenant_only,
+            full,
+        } => {
+            let diag_profile = if system {
+                DiagProfile::System
+            } else if tenant_only {
+                DiagProfile::Tenant
+            } else if full {
+                DiagProfile::Full
+            } else if let Some(p) = profile {
+                match p.as_str() {
+                    "system" => DiagProfile::System,
+                    "tenant" => DiagProfile::Tenant,
+                    "full" => DiagProfile::Full,
+                    _ => {
+                        return Err(AosError::validation(format!(
+                            "Invalid profile: {}. Use: system, tenant, or full",
+                            p
+                        )))
+                    }
+                }
+            } else {
+                DiagProfile::Full
+            };
+
+            run(diag_profile, tenant, json, bundle).await
+        }
+        DiagCommand::Export {
+            trace_id,
+            output: output_path,
+            format,
+            include_evidence,
+            evidence_token,
+            base_url,
+        } => {
+            use super::diag_bundle::{export_signed_bundle, ExportFormat};
+
+            let fmt: ExportFormat = format
+                .parse()
+                .map_err(|e: String| AosError::validation(e))?;
+            let response = export_signed_bundle(
+                &trace_id,
+                &output_path,
+                fmt,
+                include_evidence,
+                evidence_token.as_deref(),
+                &base_url,
+            )
+            .await
+            .map_err(|e| AosError::internal(e.to_string()))?;
+
+            if output.mode().is_json() {
+                output.print_json(&response)?;
+            }
+            Ok(())
+        }
+        DiagCommand::Verify { bundle, verbose } => {
+            use super::diag_bundle::{print_verification_summary, verify_bundle};
+
+            let response =
+                verify_bundle(&bundle, verbose).map_err(|e| AosError::internal(e.to_string()))?;
+
+            if output.mode().is_json() {
+                output.print_json(&response)?;
+            } else {
+                print_verification_summary(&response);
+            }
+
+            if !response.valid {
+                std::process::exit(1);
+            }
+            Ok(())
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiagProfile {
