@@ -1,21 +1,23 @@
 //! Generate diagnostic bundle for troubleshooting
 
 use anyhow::{Context, Result};
-use std::fs::{File, self};
+use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
-use zip::write::FileOptions;
+use zip::write::SimpleFileOptions;
 use zip::ZipWriter;
 
 pub async fn run(output_path: &Path, cpid: Option<&str>, full_db: bool) -> Result<()> {
     let mode = crate::output::OutputMode::from_env();
 
-    crate::output::command_header(&mode, &format!("Generating diagnostic bundle: {}", output_path.display()));
+    crate::output::command_header(
+        &mode,
+        &format!("Generating diagnostic bundle: {}", output_path.display()),
+    );
 
-    let file = File::create(output_path)
-        .context("Failed to create output file")?;
+    let file = File::create(output_path).context("Failed to create output file")?;
     let mut zip = ZipWriter::new(file);
-    let options = FileOptions::default()
+    let options = SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated)
         .unix_permissions(0o644);
 
@@ -45,7 +47,10 @@ pub async fn run(output_path: &Path, cpid: Option<&str>, full_db: bool) -> Resul
 
     // 7. Telemetry bundles
     if let Some(cpid_str) = cpid {
-        crate::output::progress(&mode, &format!("Collecting telemetry for CPID: {}", cpid_str));
+        crate::output::progress(
+            &mode,
+            &format!("Collecting telemetry for CPID: {}", cpid_str),
+        );
         collect_telemetry(&mut zip, options, cpid_str)?;
     } else {
         crate::output::progress(&mode, "Collecting recent telemetry bundles...");
@@ -58,25 +63,50 @@ pub async fn run(output_path: &Path, cpid: Option<&str>, full_db: bool) -> Resul
 
     zip.finish().context("Failed to finalize zip")?;
 
-    crate::output::result(&format!("✅ Diagnostic bundle created: {}", output_path.display()));
+    crate::output::result(&format!(
+        "✅ Diagnostic bundle created: {}",
+        output_path.display()
+    ));
     Ok(())
 }
 
-fn collect_system_info(zip: &mut ZipWriter<File>, options: FileOptions) -> Result<()> {
+fn collect_system_info(zip: &mut ZipWriter<File>, options: SimpleFileOptions) -> Result<()> {
     use sysinfo::System;
 
     let mut sys = System::new_all();
     sys.refresh_all();
 
     let mut info = String::new();
-    info.push_str(&format!("OS: {} {}\n", sysinfo::System::name().unwrap_or_default(), sysinfo::System::os_version().unwrap_or_default()));
-    info.push_str(&format!("Kernel: {}\n", sysinfo::System::kernel_version().unwrap_or_default()));
-    info.push_str(&format!("Hostname: {}\n", sysinfo::System::host_name().unwrap_or_default()));
-    info.push_str(&format!("CPU: {}\n", sys.cpus().first().map(|cpu| cpu.brand()).unwrap_or("Unknown")));
+    info.push_str(&format!(
+        "OS: {} {}\n",
+        sysinfo::System::name().unwrap_or_default(),
+        sysinfo::System::os_version().unwrap_or_default()
+    ));
+    info.push_str(&format!(
+        "Kernel: {}\n",
+        sysinfo::System::kernel_version().unwrap_or_default()
+    ));
+    info.push_str(&format!(
+        "Hostname: {}\n",
+        sysinfo::System::host_name().unwrap_or_default()
+    ));
+    info.push_str(&format!(
+        "CPU: {}\n",
+        sys.cpus()
+            .first()
+            .map(|cpu| cpu.brand())
+            .unwrap_or("Unknown")
+    ));
     info.push_str(&format!("CPU Cores: {}\n", sys.cpus().len()));
     // In sysinfo 0.30, memory is in bytes
-    info.push_str(&format!("Total Memory: {} MB\n", sys.total_memory() / 1024 / 1024));
-    info.push_str(&format!("Available Memory: {} MB\n", sys.available_memory() / 1024 / 1024));
+    info.push_str(&format!(
+        "Total Memory: {} MB\n",
+        sys.total_memory() / 1024 / 1024
+    ));
+    info.push_str(&format!(
+        "Available Memory: {} MB\n",
+        sys.available_memory() / 1024 / 1024
+    ));
     info.push_str(&format!("Uptime: {} seconds\n", System::uptime()));
 
     zip.start_file("system_info.txt", options)?;
@@ -85,12 +115,12 @@ fn collect_system_info(zip: &mut ZipWriter<File>, options: FileOptions) -> Resul
     Ok(())
 }
 
-fn collect_git_info(zip: &mut ZipWriter<File>, options: FileOptions) -> Result<()> {
+fn collect_git_info(zip: &mut ZipWriter<File>, options: SimpleFileOptions) -> Result<()> {
     let mut info = String::new();
 
     // Get current commit
     if let Ok(output) = std::process::Command::new("git")
-        .args(&["rev-parse", "HEAD"])
+        .args(["rev-parse", "HEAD"])
         .output()
     {
         if output.status.success() {
@@ -101,7 +131,7 @@ fn collect_git_info(zip: &mut ZipWriter<File>, options: FileOptions) -> Result<(
 
     // Get branch
     if let Ok(output) = std::process::Command::new("git")
-        .args(&["branch", "--show-current"])
+        .args(["branch", "--show-current"])
         .output()
     {
         if output.status.success() {
@@ -112,7 +142,7 @@ fn collect_git_info(zip: &mut ZipWriter<File>, options: FileOptions) -> Result<(
 
     // Get last 10 commits
     if let Ok(output) = std::process::Command::new("git")
-        .args(&["log", "--oneline", "-10"])
+        .args(["log", "--oneline", "-10"])
         .output()
     {
         if output.status.success() {
@@ -123,7 +153,7 @@ fn collect_git_info(zip: &mut ZipWriter<File>, options: FileOptions) -> Result<(
 
     // Get status
     if let Ok(output) = std::process::Command::new("git")
-        .args(&["status", "--short"])
+        .args(["status", "--short"])
         .output()
     {
         if output.status.success() {
@@ -140,7 +170,7 @@ fn collect_git_info(zip: &mut ZipWriter<File>, options: FileOptions) -> Result<(
     Ok(())
 }
 
-fn collect_config_files(zip: &mut ZipWriter<File>, options: FileOptions) -> Result<()> {
+fn collect_config_files(zip: &mut ZipWriter<File>, options: SimpleFileOptions) -> Result<()> {
     let config_files = vec![
         "configs/cp.toml",
         ".env",
@@ -159,12 +189,12 @@ fn collect_config_files(zip: &mut ZipWriter<File>, options: FileOptions) -> Resu
     Ok(())
 }
 
-fn collect_metal_info(zip: &mut ZipWriter<File>, options: FileOptions) -> Result<()> {
+fn collect_metal_info(zip: &mut ZipWriter<File>, options: SimpleFileOptions) -> Result<()> {
     let mut info = String::new();
 
     // Check if metallib exists and get its hash
     if let Ok(output) = std::process::Command::new("b3sum")
-        .args(&["metal/aos_kernels.metallib"])
+        .args(["metal/aos_kernels.metallib"])
         .output()
     {
         if output.status.success() {
@@ -181,7 +211,7 @@ fn collect_metal_info(zip: &mut ZipWriter<File>, options: FileOptions) -> Result
 
     // Get Xcode version
     if let Ok(output) = std::process::Command::new("xcodebuild")
-        .args(&["-version"])
+        .args(["-version"])
         .output()
     {
         if output.status.success() {
@@ -200,7 +230,7 @@ fn collect_metal_info(zip: &mut ZipWriter<File>, options: FileOptions) -> Result
 
 async fn collect_database_state(
     zip: &mut ZipWriter<File>,
-    options: FileOptions,
+    options: SimpleFileOptions,
     full_db: bool,
 ) -> Result<()> {
     // Connect to database
@@ -225,11 +255,10 @@ async fn collect_database_state(
     }
 
     // Get job counts by status
-    if let Ok(rows) = sqlx::query_as::<_, (String, i64)>(
-        "SELECT status, COUNT(*) FROM jobs GROUP BY status"
-    )
-    .fetch_all(db.pool())
-    .await
+    if let Ok(rows) =
+        sqlx::query_as::<_, (String, i64)>("SELECT status, COUNT(*) FROM jobs GROUP BY status")
+            .fetch_all(db.pool())
+            .await
     {
         info.push_str("\nJobs by status:\n");
         for (status, count) in rows {
@@ -239,7 +268,7 @@ async fn collect_database_state(
 
     // Get recent jobs
     if let Ok(rows) = sqlx::query_as::<_, (String, String, String)>(
-        "SELECT id, job_type, status FROM jobs ORDER BY created_at DESC LIMIT 20"
+        "SELECT id, job_type, status FROM jobs ORDER BY created_at DESC LIMIT 20",
     )
     .fetch_all(db.pool())
     .await
@@ -264,7 +293,7 @@ async fn collect_database_state(
     Ok(())
 }
 
-fn collect_log_files(zip: &mut ZipWriter<File>, options: FileOptions) -> Result<()> {
+fn collect_log_files(zip: &mut ZipWriter<File>, options: SimpleFileOptions) -> Result<()> {
     // Check for log files in var/
     if let Ok(entries) = fs::read_dir("var/") {
         for entry in entries.filter_map(|e| e.ok()) {
@@ -272,7 +301,9 @@ fn collect_log_files(zip: &mut ZipWriter<File>, options: FileOptions) -> Result<
             if let Some(ext) = path.extension() {
                 if ext == "log" || ext == "txt" {
                     if let Ok(content) = fs::read(&path) {
-                        let file_name = path.file_name().ok_or_else(|| anyhow::anyhow!("Invalid log file path"))?;
+                        let file_name = path
+                            .file_name()
+                            .ok_or_else(|| anyhow::anyhow!("Invalid log file path"))?;
                         let zip_path = format!("logs/{}", file_name.to_string_lossy());
                         zip.start_file(zip_path, options)?;
                         zip.write_all(&content)?;
@@ -291,7 +322,11 @@ fn collect_log_files(zip: &mut ZipWriter<File>, options: FileOptions) -> Result<
     Ok(())
 }
 
-fn collect_telemetry(zip: &mut ZipWriter<File>, options: FileOptions, cpid: &str) -> Result<()> {
+fn collect_telemetry(
+    zip: &mut ZipWriter<File>,
+    options: SimpleFileOptions,
+    cpid: &str,
+) -> Result<()> {
     let telemetry_dir = format!("var/telemetry/{}", cpid);
     if let Ok(entries) = fs::read_dir(&telemetry_dir) {
         for entry in entries.filter_map(|e| e.ok()) {
@@ -302,7 +337,9 @@ fn collect_telemetry(zip: &mut ZipWriter<File>, options: FileOptions, cpid: &str
                         let zip_path = format!(
                             "telemetry/{}/{}",
                             cpid,
-                            path.file_name().ok_or_else(|| anyhow::anyhow!("Invalid config file path"))?.to_string_lossy()
+                            path.file_name()
+                                .ok_or_else(|| anyhow::anyhow!("Invalid config file path"))?
+                                .to_string_lossy()
                         );
                         zip.start_file(zip_path, options)?;
                         zip.write_all(&content)?;
@@ -315,7 +352,7 @@ fn collect_telemetry(zip: &mut ZipWriter<File>, options: FileOptions, cpid: &str
     Ok(())
 }
 
-fn collect_recent_telemetry(zip: &mut ZipWriter<File>, options: FileOptions) -> Result<()> {
+fn collect_recent_telemetry(zip: &mut ZipWriter<File>, options: SimpleFileOptions) -> Result<()> {
     // Collect last 3 telemetry bundles
     if let Ok(entries) = fs::read_dir("var/telemetry") {
         let mut bundles: Vec<_> = entries
@@ -334,7 +371,9 @@ fn collect_recent_telemetry(zip: &mut ZipWriter<File>, options: FileOptions) -> 
         for entry in bundles.iter().take(3) {
             let path = entry.path();
             if let Ok(content) = fs::read(&path) {
-                let file_name = path.file_name().ok_or_else(|| anyhow::anyhow!("Invalid telemetry file path"))?;
+                let file_name = path
+                    .file_name()
+                    .ok_or_else(|| anyhow::anyhow!("Invalid telemetry file path"))?;
                 let zip_path = format!("telemetry/recent/{}", file_name.to_string_lossy());
                 zip.start_file(zip_path, options)?;
                 zip.write_all(&content)?;
@@ -345,7 +384,10 @@ fn collect_recent_telemetry(zip: &mut ZipWriter<File>, options: FileOptions) -> 
             if let Ok(content) = fs::read(&sig_path) {
                 let zip_path = format!(
                     "telemetry/recent/{}",
-                    sig_path.file_name().ok_or_else(|| anyhow::anyhow!("Invalid signature file path"))?.to_string_lossy()
+                    sig_path
+                        .file_name()
+                        .ok_or_else(|| anyhow::anyhow!("Invalid signature file path"))?
+                        .to_string_lossy()
                 );
                 zip.start_file(zip_path, options)?;
                 zip.write_all(&content)?;
@@ -356,13 +398,15 @@ fn collect_recent_telemetry(zip: &mut ZipWriter<File>, options: FileOptions) -> 
     Ok(())
 }
 
-fn collect_alerts(zip: &mut ZipWriter<File>, options: FileOptions) -> Result<()> {
+fn collect_alerts(zip: &mut ZipWriter<File>, options: SimpleFileOptions) -> Result<()> {
     if let Ok(entries) = fs::read_dir("var/alerts") {
         for entry in entries.filter_map(|e| e.ok()) {
             let path = entry.path();
             if path.is_file() {
                 if let Ok(content) = fs::read(&path) {
-                    let file_name = path.file_name().ok_or_else(|| anyhow::anyhow!("Invalid alert file path"))?;
+                    let file_name = path
+                        .file_name()
+                        .ok_or_else(|| anyhow::anyhow!("Invalid alert file path"))?;
                     let zip_path = format!("alerts/{}", file_name.to_string_lossy());
                     zip.start_file(zip_path, options)?;
                     zip.write_all(&content)?;
@@ -384,7 +428,7 @@ use adapteros_api_types::diagnostics::{
 use adapteros_core::B3Hash;
 use adapteros_crypto::{PublicKey, Signature};
 use std::io::Read;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, warn};
 
 /// Export format options.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -417,7 +461,10 @@ pub async fn export_signed_bundle(
     use reqwest::Client;
 
     let mode = crate::output::OutputMode::from_env();
-    crate::output::command_header(&mode, &format!("Exporting signed bundle for trace: {}", trace_id));
+    crate::output::command_header(
+        &mode,
+        &format!("Exporting signed bundle for trace: {}", trace_id),
+    );
 
     // Validate evidence authorization
     if include_evidence && evidence_token.is_none() {
@@ -462,15 +509,16 @@ pub async fn export_signed_bundle(
         anyhow::bail!("Bundle creation failed ({}): {}", status, error_text);
     }
 
-    let bundle_response: DiagBundleExportResponse = response
-        .json()
-        .await
-        .context("Failed to parse response")?;
+    let bundle_response: DiagBundleExportResponse =
+        response.json().await.context("Failed to parse response")?;
 
-    crate::output::progress(&mode, &format!(
-        "Bundle created: {} ({} bytes)",
-        bundle_response.export_id, bundle_response.size_bytes
-    ));
+    crate::output::progress(
+        &mode,
+        &format!(
+            "Bundle created: {} ({} bytes)",
+            bundle_response.export_id, bundle_response.size_bytes
+        ),
+    );
 
     // Download the bundle
     let download_url = format!("{}{}", base_url, bundle_response.download_url);
@@ -518,7 +566,10 @@ pub async fn export_signed_bundle(
 /// Verify a diagnostic bundle offline.
 pub fn verify_bundle(bundle_path: &Path, verbose: bool) -> Result<DiagBundleVerifyResponse> {
     let mode = crate::output::OutputMode::from_env();
-    crate::output::command_header(&mode, &format!("Verifying bundle: {}", bundle_path.display()));
+    crate::output::command_header(
+        &mode,
+        &format!("Verifying bundle: {}", bundle_path.display()),
+    );
 
     // Check file exists
     if !bundle_path.exists() {
@@ -526,10 +577,8 @@ pub fn verify_bundle(bundle_path: &Path, verbose: bool) -> Result<DiagBundleVeri
     }
 
     // Read bundle file
-    let bundle_data = fs::read(bundle_path).context(format!(
-        "Failed to read bundle {}",
-        bundle_path.display()
-    ))?;
+    let bundle_data = fs::read(bundle_path)
+        .context(format!("Failed to read bundle {}", bundle_path.display()))?;
 
     let bundle_hash = B3Hash::hash(&bundle_data);
     crate::output::progress(&mode, &format!("Bundle hash: {}", bundle_hash.to_hex()));
@@ -666,7 +715,9 @@ fn extract_file_from_bundle(bundle_data: &[u8], file_name: &str) -> Result<Vec<u
 
             if path.to_string_lossy() == file_name {
                 let mut data = Vec::new();
-                entry.read_to_end(&mut data).context(format!("Failed to read file {}", file_name))?;
+                entry
+                    .read_to_end(&mut data)
+                    .context(format!("Failed to read file {}", file_name))?;
                 return Ok(data);
             }
         }
@@ -679,7 +730,8 @@ fn extract_file_from_bundle(bundle_data: &[u8], file_name: &str) -> Result<Vec<u
     if let Ok(mut archive) = zip::ZipArchive::new(cursor) {
         if let Ok(mut file) = archive.by_name(file_name) {
             let mut data = Vec::new();
-            file.read_to_end(&mut data).context(format!("Failed to read file {}", file_name))?;
+            file.read_to_end(&mut data)
+                .context(format!("Failed to read file {}", file_name))?;
             return Ok(data);
         }
 
@@ -760,17 +812,20 @@ fn verify_bundle_signature(bundle_data: &[u8], bundle_hash: &B3Hash) -> Result<b
                     .as_slice()
                     .try_into()
                     .map_err(|_| anyhow::anyhow!("Invalid public key length"))?,
-            ).context("Invalid public key")?;
+            )
+            .context("Invalid public key")?;
 
             let signature = Signature::from_bytes(
                 signature_bytes
                     .as_slice()
                     .try_into()
                     .map_err(|_| anyhow::anyhow!("Invalid signature length"))?,
-            ).context("Invalid signature")?;
+            )
+            .context("Invalid signature")?;
 
             // Build message: bundle_hash || merkle_root
-            let merkle_root = B3Hash::from_hex(merkle_root_hex).context("Invalid merkle root hex")?;
+            let merkle_root =
+                B3Hash::from_hex(merkle_root_hex).context("Invalid merkle root hex")?;
             let mut message = Vec::new();
             message.extend_from_slice(bundle_hash.as_bytes());
             message.extend_from_slice(merkle_root.as_bytes());
@@ -817,12 +872,44 @@ pub fn print_verification_summary(response: &DiagBundleVerifyResponse) {
     println!("Bundle Verification Summary");
     println!("═════════════════════════════════════════════════════════════");
 
-    let status = if response.valid { "✓ VALID" } else { "✗ INVALID" };
+    let status = if response.valid {
+        "✓ VALID"
+    } else {
+        "✗ INVALID"
+    };
     println!("  Status: {}", status);
-    println!("  Signature: {}", if response.result.signature_valid { "✓" } else { "✗" });
-    println!("  Manifest Hash: {}", if response.result.manifest_hash_valid { "✓" } else { "✗" });
-    println!("  File Hashes: {}", if response.result.files_hash_valid { "✓" } else { "✗" });
-    println!("  Merkle Root: {}", if response.result.merkle_root_valid { "✓" } else { "✗" });
+    println!(
+        "  Signature: {}",
+        if response.result.signature_valid {
+            "✓"
+        } else {
+            "✗"
+        }
+    );
+    println!(
+        "  Manifest Hash: {}",
+        if response.result.manifest_hash_valid {
+            "✓"
+        } else {
+            "✗"
+        }
+    );
+    println!(
+        "  File Hashes: {}",
+        if response.result.files_hash_valid {
+            "✓"
+        } else {
+            "✗"
+        }
+    );
+    println!(
+        "  Merkle Root: {}",
+        if response.result.merkle_root_valid {
+            "✓"
+        } else {
+            "✗"
+        }
+    );
     println!("  Files Verified: {}", response.result.files_verified);
     println!("  Events Verified: {}", response.result.events_verified);
 
@@ -834,4 +921,3 @@ pub fn print_verification_summary(response: &DiagBundleVerifyResponse) {
         }
     }
 }
-

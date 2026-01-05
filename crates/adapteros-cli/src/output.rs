@@ -352,6 +352,11 @@ pub fn progress(mode: &OutputMode, msg: &str) {
     }
 }
 
+/// Print a result message (convenience function for legacy code)
+pub fn result(msg: &str) {
+    println!("{}", msg);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

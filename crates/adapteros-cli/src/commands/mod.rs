@@ -33,6 +33,7 @@ pub mod db;
 pub mod deploy;
 pub mod dev;
 pub mod diag;
+pub mod diag_bundle;
 pub mod diag_health;
 pub mod doctor;
 pub mod drift_check;
