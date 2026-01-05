@@ -1,7 +1,7 @@
 //! Format detection for .aos files
 //!
-//! Detects whether a file is in ZIP format (v1) or AOS format (v2)
-//! by examining magic bytes.
+//! Detects whether a file is in ZIP format (legacy) or AOS format
+//! (64-byte header with segment index).
 
 use adapteros_core::{AosError, Result};
 use std::fs::File;
@@ -14,10 +14,10 @@ const AOS_MAGIC: [u8; 4] = *b"AOS\x00";
 /// Format version enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FormatVersion {
-    /// ZIP-based format (v1)
+    /// ZIP-based format (legacy)
     ZipV1,
-    /// Memory-mappable AOS format (v2)
-    AosV2,
+    /// AOS format (64-byte header with segment index)
+    Aos,
 }
 
 /// Detect format version by examining magic bytes
@@ -32,7 +32,7 @@ pub fn detect_format<P: AsRef<Path>>(path: P) -> Result<FormatVersion> {
         .map_err(|e| AosError::Io(format!("Failed to read file metadata: {}", e)))?;
     let file_size = metadata.len() as usize;
 
-    // Need at least 4 bytes for ZIP format detection
+    // Need at least 4 bytes for format detection
     if file_size < 4 {
         return Err(AosError::Parse(format!(
             "File too short for format detection: {} bytes, need at least 4",
@@ -40,33 +40,25 @@ pub fn detect_format<P: AsRef<Path>>(path: P) -> Result<FormatVersion> {
         )));
     }
 
-    // Read at least 4 bytes for format detection
+    // Read 4 bytes for format detection
     let mut magic = [0u8; 4];
     file.read_exact(&mut magic)
         .map_err(|e| AosError::Io(format!("Failed to read magic bytes: {}", e)))?;
 
     // Check for ZIP format (PK\x03\x04)
-    if &magic == b"PK\x03\x04" {
+    if magic == *b"PK\x03\x04" {
         return Ok(FormatVersion::ZipV1);
     }
 
-    // Check for AOS format if file is large enough (AOS\0\x00\x00\x00\x00)
-    if file_size >= 8 {
-        let mut remaining = [0u8; 4];
-        file.read_exact(&mut remaining)
-            .map_err(|e| AosError::Io(format!("Failed to read magic bytes: {}", e)))?;
-
-        if magic == AOS_MAGIC && &remaining == b"\x00\x00\x00\x00" {
-            return Ok(FormatVersion::AosV2);
-        }
+    // Check for AOS format ("AOS\0" magic)
+    if magic == AOS_MAGIC {
+        return Ok(FormatVersion::Aos);
     }
 
-    let read_bytes = if file_size >= 8 { 8 } else { 4 };
     Err(AosError::Parse(format!(
-        "Unknown file format: expected ZIP (PK\\x03\\x04) or AOS (AOS\\0\\x00\\x00\\x00\\x00) magic bytes, got {:?} (file size: {} bytes, read {} bytes)",
-        &magic,
-        file_size,
-        read_bytes
+        "Unknown file format: expected ZIP (PK\\x03\\x04) or AOS (AOS\\0) magic bytes, got {:?} (file size: {} bytes)",
+        magic,
+        file_size
     )))
 }
 
@@ -97,12 +89,12 @@ mod tests {
     #[test]
     fn test_detect_aos_format() {
         let mut file = new_test_tempfile();
-        // Write AOS magic bytes
-        file.write_all(b"AOS\x00\x00\x00\x00\x00").unwrap();
+        // Write AOS magic bytes (4 bytes) followed by flags
+        file.write_all(b"AOS\x00\x01\x00\x00\x00").unwrap();
         file.flush().unwrap();
 
         let format = detect_format(file.path()).unwrap();
-        assert_eq!(format, FormatVersion::AosV2);
+        assert_eq!(format, FormatVersion::Aos);
     }
 
     #[test]
@@ -133,7 +125,7 @@ mod tests {
     #[test]
     fn test_detect_unknown_4_byte_format() {
         let mut file = new_test_tempfile();
-        // Write 4 bytes that don't match ZIP magic
+        // Write 4 bytes that don't match ZIP or AOS magic
         file.write_all(b"ABCD").unwrap();
         file.flush().unwrap();
 
@@ -149,11 +141,11 @@ mod tests {
     #[test]
     fn test_detect_aos_with_extra_data() {
         let mut file = new_test_tempfile();
-        // Write AOS magic bytes followed by some extra data
-        file.write_all(b"AOS\x00\x00\x00\x00\x00EXTRA").unwrap();
+        // Write AOS magic bytes (4 bytes) + flags + extra data
+        file.write_all(b"AOS\x00\x01\x00\x00\x00EXTRA").unwrap();
         file.flush().unwrap();
 
         let format = detect_format(file.path()).unwrap();
-        assert_eq!(format, FormatVersion::AosV2);
+        assert_eq!(format, FormatVersion::Aos);
     }
 }
