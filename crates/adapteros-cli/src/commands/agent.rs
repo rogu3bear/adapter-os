@@ -13,12 +13,10 @@ use tracing::info;
 #[derive(Debug, Subcommand, Clone)]
 pub enum AgentCommand {
     /// Spawn multiple agents to plan code modifications
-    #[command(
-        after_help = "Examples:\n  \
+    #[command(after_help = "Examples:\n  \
             aosctl agent spawn --task 'Add error handling'\n  \
             aosctl agent spawn --task-file ./task.md --agents 25\n  \
-            aosctl agent spawn --task 'Refactor' --strategy semantic --output plan.json"
-    )]
+            aosctl agent spawn --task 'Refactor' --strategy semantic --output plan.json")]
     Spawn {
         /// Task description or objective
         #[arg(long, conflicts_with = "task_file")]
@@ -161,7 +159,7 @@ async fn handle_spawn(
     target: PathBuf,
     output_file: Option<PathBuf>,
     deterministic: bool,
-    seed: Option<String>,
+    _seed: Option<String>,
     timeout: u64,
     dry_run: bool,
     output: &OutputWriter,
@@ -174,8 +172,8 @@ async fn handle_spawn(
             .await
             .map_err(|e| adapteros_core::AosError::Io(format!("Failed to read task file: {}", e)))?
     } else {
-        return Err(adapteros_core::AosError::InvalidInput(
-            "Either --task or --task-file must be specified".into(),
+        return Err(adapteros_core::AosError::validation(
+            "Either --task or --task-file must be specified",
         ));
     };
 
@@ -245,18 +243,18 @@ async fn handle_status(session_id: String, json: bool, output: &OutputWriter) ->
             "error": "Session not found"
         }))?;
     } else {
-        output.error(&format!("Session {} not found", session_id));
+        output.error(format!("Session {} not found", session_id));
     }
     Ok(())
 }
 
 /// Handle cancel command
 async fn handle_cancel(session_id: String, force: bool, output: &OutputWriter) -> Result<()> {
-    output.info(&format!(
+    output.info(format!(
         "Canceling session {} (force: {})",
         session_id, force
     ));
-    output.error(&format!("Session {} not found", session_id));
+    output.error(format!("Session {} not found", session_id));
     Ok(())
 }
 
@@ -264,7 +262,7 @@ async fn handle_cancel(session_id: String, force: bool, output: &OutputWriter) -
 async fn handle_worker(
     agent_id: String,
     socket: PathBuf,
-    seed: String,
+    _seed: String,
     _output: &OutputWriter,
 ) -> Result<()> {
     info!(

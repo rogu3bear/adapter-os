@@ -52,14 +52,12 @@ mod tests {
             dataset_id: "ds-001".to_string(),
             total_files: 10,
             verified_files: 8,
-            mismatches: vec![
-                DatasetFileMismatch {
-                    file_name: "data.jsonl".to_string(),
-                    file_path: "/data/ds-001/data.jsonl".to_string(),
-                    expected_hash: "a".repeat(64),
-                    actual_hash: "b".repeat(64),
-                },
-            ],
+            mismatches: vec![DatasetFileMismatch {
+                file_name: "data.jsonl".to_string(),
+                file_path: "/data/ds-001/data.jsonl".to_string(),
+                expected_hash: "a".repeat(64),
+                actual_hash: "b".repeat(64),
+            }],
             is_valid: false,
         };
         assert!(!result.is_valid);
