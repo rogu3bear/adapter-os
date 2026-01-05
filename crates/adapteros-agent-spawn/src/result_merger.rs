@@ -7,7 +7,7 @@ use crate::error::{AgentSpawnError, Result};
 use crate::protocol::{FileModification, ModificationType, TaskProposal};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tracing::info;
 
 /// Strategy for resolving conflicts
@@ -158,7 +158,9 @@ pub struct ResultMerger {
 impl ResultMerger {
     /// Create a new result merger
     pub fn new(conflict_resolution: ConflictResolution) -> Self {
-        Self { conflict_resolution }
+        Self {
+            conflict_resolution,
+        }
     }
 
     /// Merge all proposals into a unified plan
@@ -270,9 +272,9 @@ impl ResultMerger {
             "Merge complete"
         );
 
-        if plan.unresolved_conflicts.is_empty() {
-            Ok(plan)
-        } else if self.conflict_resolution == ConflictResolution::RequireReview {
+        if plan.unresolved_conflicts.is_empty()
+            || self.conflict_resolution == ConflictResolution::RequireReview
+        {
             Ok(plan)
         } else {
             Err(AgentSpawnError::UnresolvableConflict {
@@ -284,24 +286,23 @@ impl ResultMerger {
     /// Detect if there's a conflict for a file
     fn detect_conflict(
         &self,
-        file_path: &PathBuf,
+        file_path: &Path,
         mods: &[(usize, &FileModification, &TaskProposal)],
     ) -> Option<ConflictReport> {
         // Check for conflicting modification types
         let types: Vec<_> = mods.iter().map(|(_, m, _)| m.modification_type).collect();
 
-        let conflict_type = if types.contains(&ModificationType::Delete) {
-            if types
-                .iter()
-                .any(|t| *t == ModificationType::Modify || *t == ModificationType::Create)
-            {
+        let has_delete = types.contains(&ModificationType::Delete);
+        let has_create = types.contains(&ModificationType::Create);
+        let has_modify = types.contains(&ModificationType::Modify);
+
+        let conflict_type = if has_delete {
+            if has_modify || has_create {
                 Some(ConflictType::DeleteModifyConflict)
             } else {
                 None // Multiple deletes are not a conflict
             }
-        } else if types.contains(&ModificationType::Create)
-            && types.iter().any(|t| *t == ModificationType::Modify)
-        {
+        } else if has_create && has_modify {
             Some(ConflictType::CreateModifyConflict)
         } else if mods.len() > 1 && types.iter().all(|t| *t == ModificationType::Modify) {
             // Check for overlapping line ranges
@@ -317,7 +318,7 @@ impl ResultMerger {
         };
 
         conflict_type.map(|ct| ConflictReport {
-            file_path: file_path.clone(),
+            file_path: file_path.to_path_buf(),
             proposals: mods
                 .iter()
                 .map(|(_, _, p)| ProposalRef {
@@ -333,14 +334,8 @@ impl ResultMerger {
     }
 
     /// Check if any line ranges overlap
-    fn has_overlapping_ranges(
-        &self,
-        mods: &[(usize, &FileModification, &TaskProposal)],
-    ) -> bool {
-        let ranges: Vec<_> = mods
-            .iter()
-            .filter_map(|(_, m, _)| m.line_range)
-            .collect();
+    fn has_overlapping_ranges(&self, mods: &[(usize, &FileModification, &TaskProposal)]) -> bool {
+        let ranges: Vec<_> = mods.iter().filter_map(|(_, m, _)| m.line_range).collect();
 
         for i in 0..ranges.len() {
             for j in (i + 1)..ranges.len() {

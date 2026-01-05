@@ -157,6 +157,8 @@ impl InvariantReport {
 /// | `SEC-002` | Dual-write strict mode required in production | Yes |
 /// | `SEC-003` | Executor must have manifest-derived seed in production | Yes |
 /// | `SEC-004` | Hardware attestation fallback warning | No (warning) |
+/// | `SEC-005` | Cookie security settings in production | Yes |
+/// | `SEC-015` | Signature bypass env var must not be set in production | Yes |
 pub fn validate_boot_invariants(
     config: &Arc<RwLock<Config>>,
     executor_manifest_hash_present: bool,
@@ -318,6 +320,103 @@ pub fn validate_boot_invariants(
     }
 
     // =========================================================================
+    // CFG-001: Reject default var/ paths when AOS_VAR_DIR is set
+    // =========================================================================
+    {
+        let env_var_dir = std::env::var("AOS_VAR_DIR").ok();
+        let override_active = env_var_dir
+            .as_deref()
+            .map(|val| {
+                let trimmed = val.trim();
+                !trimmed.is_empty() && trimmed != "var" && trimmed != "./var"
+            })
+            .unwrap_or(false);
+
+        if override_active {
+            let mut offenders: Vec<String> = Vec::new();
+            let mut check = |label: &str, value: &str| {
+                if uses_default_var_path(value) {
+                    offenders.push(format!("{}={}", label, value));
+                }
+            };
+
+            check("db.path", &cfg.db.path);
+            check("db.kv_path", &cfg.db.kv_path);
+            if let Some(path) = cfg.db.kv_tantivy_path.as_deref() {
+                check("db.kv_tantivy_path", path);
+            }
+
+            check("paths.artifacts_root", &cfg.paths.artifacts_root);
+            check("paths.bundles_root", &cfg.paths.bundles_root);
+            check("paths.adapters_root", &cfg.paths.adapters_root);
+            check("paths.plan_dir", &cfg.paths.plan_dir);
+            check("paths.datasets_root", &cfg.paths.datasets_root);
+            check("paths.documents_root", &cfg.paths.documents_root);
+
+            check("alerting.alert_dir", &cfg.alerting.alert_dir);
+            if let Some(path) = cfg.logging.log_dir.as_deref() {
+                check("logging.log_dir", path);
+            }
+            if let Some(path) = cfg.security.key_file_path.as_deref() {
+                check("security.key_file_path", path);
+            }
+            if let Some(path) = cfg.server.uds_socket.as_deref() {
+                check("server.uds_socket", path);
+            }
+
+            if offenders.is_empty() {
+                report.record_pass();
+            } else {
+                report.record_violation(InvariantViolation {
+                    id: "CFG-001",
+                    message: format!(
+                        "Default var/ paths still configured while AOS_VAR_DIR is set: {}",
+                        offenders.join(", ")
+                    ),
+                    is_fatal: true,
+                    remediation: "Rebase paths under AOS_VAR_DIR or remove default var/ references",
+                });
+            }
+        } else {
+            report.record_pass();
+        }
+    }
+
+    // =========================================================================
+    // SEC-015: Signature bypass must not be requested in production
+    // =========================================================================
+    // Enforced: adapteros-crypto/src/bundle_sign.rs (compile-time gate)
+    // Violation: AOS_DEV_SIGNATURE_BYPASS=1 in production build
+    // Note: The env var is already ignored in release builds via #[cfg(debug_assertions)],
+    //       but this check provides defense-in-depth and clear logging.
+    if invariants_config.disable_sec_015_signature_bypass {
+        report.record_skip("SEC-015");
+    } else {
+        let sig_bypass_requested = std::env::var("AOS_DEV_SIGNATURE_BYPASS")
+            .ok()
+            .map(|v| {
+                matches!(
+                    v.trim().to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on"
+                )
+            })
+            .unwrap_or(false);
+
+        if production && sig_bypass_requested {
+            report.record_violation(InvariantViolation {
+                id: "SEC-015",
+                message: "AOS_DEV_SIGNATURE_BYPASS is set but production mode is enabled"
+                    .to_string(),
+                is_fatal: true,
+                remediation:
+                    "Remove AOS_DEV_SIGNATURE_BYPASS environment variable or disable production_mode",
+            });
+        } else {
+            report.record_pass();
+        }
+    }
+
+    // =========================================================================
     // TODO: Remaining invariants to implement (28 more from analysis)
     // =========================================================================
     // See: ~/.claude/plans/vivid-imagining-rocket.md for full details
@@ -361,6 +460,17 @@ pub fn validate_boot_invariants(
     // - LIF-004: Connection pool drain (boot/database.rs) - FAILS OPEN
 
     report
+}
+
+fn uses_default_var_path(raw: &str) -> bool {
+    let trimmed = raw.trim();
+    if let Some(rest) = trimmed.strip_prefix("sqlite://") {
+        let (path, _) = rest.split_once('?').unwrap_or((rest, ""));
+        return uses_default_var_path(path);
+    }
+
+    let candidate = trimmed.strip_prefix("./").unwrap_or(trimmed);
+    candidate == "var" || candidate.starts_with("var/")
 }
 
 /// Evaluates invariant report and fails if fatal violations exist in production.

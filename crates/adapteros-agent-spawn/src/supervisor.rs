@@ -80,10 +80,7 @@ impl AgentSupervisor {
 
     /// Spawn all configured agents
     pub async fn spawn_all(&self) -> Result<()> {
-        info!(
-            agent_count = self.agent_ids.len(),
-            "Spawning all agents"
-        );
+        info!(agent_count = self.agent_ids.len(), "Spawning all agents");
 
         let spawn_timeout = Duration::from_secs(self.config.spawn_timeout_secs);
 
@@ -279,11 +276,8 @@ impl AgentSupervisor {
         // Wait for barrier (agents will call barrier.wait() in response)
         // In a real implementation, we'd have the orchestrator wait at the barrier too
         let timeout = Duration::from_secs(self.config.barrier_timeout_secs);
-        let barrier_result = tokio::time::timeout(
-            timeout,
-            self.wait_for_barrier_responses(tick, barrier_id),
-        )
-        .await;
+        let barrier_result =
+            tokio::time::timeout(timeout, self.wait_for_barrier_responses(tick, barrier_id)).await;
 
         match barrier_result {
             Ok(Ok(())) => {
@@ -296,10 +290,8 @@ impl AgentSupervisor {
                     .agents
                     .read()
                     .keys()
+                    .filter(|id| self.barrier.agent_tick(id).is_none_or(|t| t < tick))
                     .cloned()
-                    .filter(|id| {
-                        self.barrier.agent_tick(id).map_or(true, |t| t < tick)
-                    })
                     .collect();
 
                 Err(AgentSpawnError::barrier_timeout(tick, missing))
@@ -365,7 +357,10 @@ impl AgentSupervisor {
 
         let failed = results.iter().filter(|r| r.is_err()).count();
         if failed > 0 {
-            warn!(failed_count = failed, "Some agents failed to shutdown gracefully");
+            warn!(
+                failed_count = failed,
+                "Some agents failed to shutdown gracefully"
+            );
         }
 
         info!("All agents shutdown complete");

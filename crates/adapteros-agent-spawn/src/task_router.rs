@@ -5,8 +5,9 @@
 use crate::config::DistributionStrategy;
 use crate::error::{AgentSpawnError, Result};
 use crate::protocol::{TaskAssignment, TaskConstraints, TaskScope};
+use std::cmp::Reverse;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tracing::{debug, info};
 
 /// High-level planning task
@@ -55,7 +56,12 @@ impl PlanningTask {
     fn compute_id(objective: &str) -> [u8; 32] {
         let mut hasher = blake3::Hasher::new();
         hasher.update(objective.as_bytes());
-        hasher.update(&chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0).to_le_bytes());
+        hasher.update(
+            &chrono::Utc::now()
+                .timestamp_nanos_opt()
+                .unwrap_or(0)
+                .to_le_bytes(),
+        );
         *hasher.finalize().as_bytes()
     }
 
@@ -151,7 +157,7 @@ impl TaskRouter {
 
         let assignments: Vec<_> = agent_ids
             .iter()
-            .zip(scopes.into_iter())
+            .zip(scopes)
             .enumerate()
             .map(|(seq, (agent_id, scope))| {
                 let task_id = self.compute_subtask_id(&task.id, agent_id);
@@ -207,16 +213,16 @@ impl TaskRouter {
         &self,
         files: &[PathBuf],
         agent_count: usize,
-        root_dir: &PathBuf,
+        root_dir: &Path,
     ) -> Result<Vec<TaskScope>> {
-        let chunk_size = (files.len() + agent_count - 1) / agent_count;
+        let chunk_size = files.len().div_ceil(agent_count);
 
         let scopes: Vec<_> = files
             .chunks(chunk_size.max(1))
             .map(|chunk| TaskScope {
                 owned_files: chunk.to_vec(),
                 context_files: vec![],
-                root_dir: root_dir.clone(),
+                root_dir: root_dir.to_path_buf(),
                 ast_nodes: None,
                 semantic_scope: None,
             })
@@ -228,7 +234,7 @@ impl TaskRouter {
             result.push(TaskScope {
                 owned_files: vec![],
                 context_files: vec![],
-                root_dir: root_dir.clone(),
+                root_dir: root_dir.to_path_buf(),
                 ast_nodes: None,
                 semantic_scope: None,
             });
@@ -242,7 +248,7 @@ impl TaskRouter {
         &self,
         files: &[PathBuf],
         agent_count: usize,
-        root_dir: &PathBuf,
+        root_dir: &Path,
     ) -> Result<Vec<TaskScope>> {
         let mut buckets: Vec<Vec<PathBuf>> = vec![vec![]; agent_count];
 
@@ -255,7 +261,7 @@ impl TaskRouter {
             .map(|owned_files| TaskScope {
                 owned_files,
                 context_files: vec![],
-                root_dir: root_dir.clone(),
+                root_dir: root_dir.to_path_buf(),
                 ast_nodes: None,
                 semantic_scope: None,
             })
@@ -268,7 +274,7 @@ impl TaskRouter {
         files: &[PathBuf],
         context: &CodebaseContext,
         agent_count: usize,
-        root_dir: &PathBuf,
+        root_dir: &Path,
     ) -> Result<Vec<TaskScope>> {
         // If we have pre-computed clusters, use them
         if !context.clusters.is_empty() {
@@ -292,14 +298,14 @@ impl TaskRouter {
         &self,
         clusters: &[Vec<PathBuf>],
         agent_count: usize,
-        root_dir: &PathBuf,
+        root_dir: &Path,
     ) -> Result<Vec<TaskScope>> {
         let mut buckets: Vec<Vec<PathBuf>> = vec![vec![]; agent_count];
         let mut bucket_sizes: Vec<usize> = vec![0; agent_count];
 
         // Sort clusters by size (largest first) for better load balancing
         let mut sorted_clusters: Vec<_> = clusters.iter().collect();
-        sorted_clusters.sort_by(|a, b| b.len().cmp(&a.len()));
+        sorted_clusters.sort_by_key(|c| Reverse(c.len()));
 
         // Assign clusters to the smallest bucket (greedy bin packing)
         for cluster in sorted_clusters {
@@ -319,7 +325,7 @@ impl TaskRouter {
             .map(|owned_files| TaskScope {
                 owned_files,
                 context_files: vec![],
-                root_dir: root_dir.clone(),
+                root_dir: root_dir.to_path_buf(),
                 ast_nodes: None,
                 semantic_scope: None,
             })
@@ -355,7 +361,7 @@ impl TaskRouter {
         );
 
         let files = &failed_assignment.scope.owned_files;
-        let chunk_size = (files.len() + remaining_agents.len() - 1) / remaining_agents.len();
+        let chunk_size = files.len().div_ceil(remaining_agents.len());
 
         let reassignments: Vec<_> = remaining_agents
             .iter()
@@ -401,22 +407,23 @@ mod tests {
     fn test_file_ownership_distribution() {
         let router = TaskRouter::new(DistributionStrategy::FileOwnership);
 
-        let files: Vec<PathBuf> = (0..10).map(|i| PathBuf::from(format!("file{}.rs", i))).collect();
+        let files: Vec<PathBuf> = (0..10)
+            .map(|i| PathBuf::from(format!("file{}.rs", i)))
+            .collect();
 
         let context = CodebaseContext::from_files(files.clone());
         let task = PlanningTask::new("Test").with_target_files(files);
 
         let agent_ids: Vec<String> = (0..3).map(|i| format!("agent-{:02}", i)).collect();
 
-        let assignments = router.create_assignments(&task, &context, &agent_ids).unwrap();
+        let assignments = router
+            .create_assignments(&task, &context, &agent_ids)
+            .unwrap();
 
         assert_eq!(assignments.len(), 3);
 
         // All files should be assigned
-        let total_files: usize = assignments
-            .iter()
-            .map(|a| a.scope.owned_files.len())
-            .sum();
+        let total_files: usize = assignments.iter().map(|a| a.scope.owned_files.len()).sum();
         assert_eq!(total_files, 10);
     }
 
@@ -424,14 +431,18 @@ mod tests {
     fn test_round_robin_distribution() {
         let router = TaskRouter::new(DistributionStrategy::RoundRobin);
 
-        let files: Vec<PathBuf> = (0..6).map(|i| PathBuf::from(format!("file{}.rs", i))).collect();
+        let files: Vec<PathBuf> = (0..6)
+            .map(|i| PathBuf::from(format!("file{}.rs", i)))
+            .collect();
 
         let context = CodebaseContext::from_files(files.clone());
         let task = PlanningTask::new("Test").with_target_files(files);
 
         let agent_ids: Vec<String> = (0..3).map(|i| format!("agent-{:02}", i)).collect();
 
-        let assignments = router.create_assignments(&task, &context, &agent_ids).unwrap();
+        let assignments = router
+            .create_assignments(&task, &context, &agent_ids)
+            .unwrap();
 
         // Each agent should have 2 files with round-robin
         for assignment in &assignments {
@@ -443,7 +454,9 @@ mod tests {
     fn test_rebalance() {
         let router = TaskRouter::new(DistributionStrategy::FileOwnership);
 
-        let files: Vec<PathBuf> = (0..6).map(|i| PathBuf::from(format!("file{}.rs", i))).collect();
+        let files: Vec<PathBuf> = (0..6)
+            .map(|i| PathBuf::from(format!("file{}.rs", i)))
+            .collect();
 
         let failed_assignment = TaskAssignment {
             task_id: [1u8; 32],

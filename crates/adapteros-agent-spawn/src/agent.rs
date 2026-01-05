@@ -82,10 +82,7 @@ impl AgentHandle {
             .unwrap_or_else(|| std::env::current_exe().unwrap_or_else(|_| PathBuf::from("aosctl")));
 
         // Spawn the agent process
-        let global_seed_hex = config
-            .global_seed
-            .map(|s| hex::encode(s))
-            .unwrap_or_default();
+        let global_seed_hex = config.global_seed.map(hex::encode).unwrap_or_default();
 
         let child = Command::new(&agent_binary)
             .arg("agent")
@@ -237,7 +234,10 @@ impl AgentHandle {
                 debug!(agent_id = %self.id, response_type = ?std::mem::discriminant(&response), "Received response from agent");
                 Ok(response)
             }
-            Ok(Err(e)) => Err(AgentSpawnError::communication_failed(&self.id, e.to_string())),
+            Ok(Err(e)) => Err(AgentSpawnError::communication_failed(
+                &self.id,
+                e.to_string(),
+            )),
             Err(_) => Err(AgentSpawnError::timeout(
                 format!("receiving from agent {}", self.id),
                 timeout.as_secs(),
@@ -246,11 +246,7 @@ impl AgentHandle {
     }
 
     /// Send a request and wait for response
-    pub async fn request(
-        &self,
-        request: AgentRequest,
-        timeout: Duration,
-    ) -> Result<AgentResponse> {
+    pub async fn request(&self, request: AgentRequest, timeout: Duration) -> Result<AgentResponse> {
         self.send(request).await?;
         self.recv(timeout).await
     }
@@ -260,9 +256,9 @@ impl AgentHandle {
         let mut child_guard = self.child.lock().await;
         if let Some(ref mut child) = *child_guard {
             match child.try_wait() {
-                Ok(None) => true,  // Still running
+                Ok(None) => true,     // Still running
                 Ok(Some(_)) => false, // Exited
-                Err(_) => false,   // Error checking
+                Err(_) => false,      // Error checking
             }
         } else {
             false

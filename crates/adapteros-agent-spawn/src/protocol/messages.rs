@@ -11,7 +11,7 @@ use std::path::PathBuf;
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AgentRequest {
     /// Assign a task chunk to the agent
-    AssignTask(TaskAssignment),
+    AssignTask(Box<TaskAssignment>),
 
     /// Request current status
     StatusQuery,

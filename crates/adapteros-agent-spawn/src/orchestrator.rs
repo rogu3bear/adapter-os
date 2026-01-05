@@ -9,7 +9,7 @@ use crate::protocol::{AgentRequest, AgentResponse, TaskAssignment, TaskProposal}
 use crate::result_merger::{ConflictResolution, ResultMerger, UnifiedPlan};
 use crate::supervisor::AgentSupervisor;
 use crate::task_router::{CodebaseContext, PlanningTask, TaskRouter};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -81,9 +81,7 @@ pub struct AgentOrchestrator {
 impl AgentOrchestrator {
     /// Create a new orchestrator
     pub fn new(config: AgentSpawnConfig) -> Result<Self> {
-        config
-            .validate()
-            .map_err(|e| AgentSpawnError::config_error(e))?;
+        config.validate().map_err(AgentSpawnError::config_error)?;
 
         let supervisor = AgentSupervisor::new(config.clone());
         let router = TaskRouter::new(config.distribution_strategy);
@@ -101,9 +99,7 @@ impl AgentOrchestrator {
 
     /// Create an orchestrator with custom merger
     pub fn with_merger(config: AgentSpawnConfig, merger: ResultMerger) -> Result<Self> {
-        config
-            .validate()
-            .map_err(|e| AgentSpawnError::config_error(e))?;
+        config.validate().map_err(AgentSpawnError::config_error)?;
 
         let supervisor = AgentSupervisor::new(config.clone());
         let router = TaskRouter::new(config.distribution_strategy);
@@ -145,9 +141,9 @@ impl AgentOrchestrator {
 
         // Phase 4: Create and distribute task assignments
         self.phase = OrchestratorPhase::DistributingTasks;
-        let assignments = self
-            .router
-            .create_assignments(&task, &context, self.supervisor.agent_ids())?;
+        let assignments =
+            self.router
+                .create_assignments(&task, &context, self.supervisor.agent_ids())?;
 
         self.distribute_tasks(&assignments).await?;
 
@@ -197,7 +193,8 @@ impl AgentOrchestrator {
             task.target_files.clone()
         } else {
             // Walk the directory tree
-            self.walk_directory(&task.root_dir, &task.exclude_patterns).await?
+            self.walk_directory(&task.root_dir, &task.exclude_patterns)
+                .await?
         };
 
         debug!(file_count = files.len(), "Found files for analysis");
@@ -251,12 +248,12 @@ impl AgentOrchestrator {
     }
 
     /// Check if a file is a code file
-    fn is_code_file(path: &PathBuf) -> bool {
+    fn is_code_file(path: &Path) -> bool {
         let extensions = [
-            "rs", "py", "js", "ts", "jsx", "tsx", "go", "java", "c", "cpp", "h", "hpp", "cs",
-            "rb", "swift", "kt", "scala", "clj", "ex", "exs", "hs", "ml", "fs", "sh", "bash",
-            "zsh", "yaml", "yml", "json", "toml", "xml", "html", "css", "scss", "less", "sql",
-            "md", "txt",
+            "rs", "py", "js", "ts", "jsx", "tsx", "go", "java", "c", "cpp", "h", "hpp", "cs", "rb",
+            "swift", "kt", "scala", "clj", "ex", "exs", "hs", "ml", "fs", "sh", "bash", "zsh",
+            "yaml", "yml", "json", "toml", "xml", "html", "css", "scss", "less", "sql", "md",
+            "txt",
         ];
 
         path.extension()
@@ -276,7 +273,7 @@ impl AgentOrchestrator {
             let agent_id = format!("agent-{:02}", assignment.sequence);
 
             if let Some(handle) = self.supervisor.get_agent(&agent_id) {
-                let request = AgentRequest::AssignTask(assignment.clone());
+                let request = AgentRequest::AssignTask(Box::new(assignment.clone()));
 
                 if let Err(e) = handle.send(request).await {
                     warn!(agent_id = %agent_id, error = %e, "Failed to send task to agent");
@@ -387,15 +384,9 @@ mod tests {
     fn test_is_code_file() {
         assert!(AgentOrchestrator::is_code_file(&PathBuf::from("test.rs")));
         assert!(AgentOrchestrator::is_code_file(&PathBuf::from("test.py")));
-        assert!(AgentOrchestrator::is_code_file(&PathBuf::from(
-            "test.toml"
-        )));
-        assert!(!AgentOrchestrator::is_code_file(&PathBuf::from(
-            "test.exe"
-        )));
-        assert!(!AgentOrchestrator::is_code_file(&PathBuf::from(
-            "test.png"
-        )));
+        assert!(AgentOrchestrator::is_code_file(&PathBuf::from("test.toml")));
+        assert!(!AgentOrchestrator::is_code_file(&PathBuf::from("test.exe")));
+        assert!(!AgentOrchestrator::is_code_file(&PathBuf::from("test.png")));
     }
 
     #[test]

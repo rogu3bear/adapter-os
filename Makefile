@@ -27,7 +27,7 @@ dev: ## Run control plane in dev mode (auth bypass available, no prod hardening)
 	AOS_DEV_NO_AUTH=$(NO_AUTH) cargo run -p adapteros-server -- --config configs/cp.toml
 
 dev-no-auth: ## Run control plane in dev mode with authentication disabled (debug-only)
-	AOS_VAR_DIR=/tmp/adapteros/var AOS_SERVER_PORT=18080 NO_AUTH=1 $(MAKE) dev
+	AOS_VAR_DIR=target/aos-var AOS_SERVER_PORT=18080 NO_AUTH=1 $(MAKE) dev
 
 prepare: ## Prepare build environment: stop services, clean ports
 	@echo "🧹 Preparing build environment (stopping services, cleaning ports)..."

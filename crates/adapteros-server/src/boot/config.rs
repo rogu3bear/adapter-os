@@ -79,6 +79,7 @@ pub async fn initialize_config(cli: &Cli) -> Result<ConfigContext> {
         }
     };
     std::env::set_var("AOS_VAR_DIR", &runtime_dir.path);
+    let effective_var_base = runtime_dir.path.clone();
     if runtime_dir.used_fallback {
         eprintln!(
             "WARNING: {} is not writable; using ephemeral runtime dir at {}",
@@ -198,6 +199,11 @@ pub async fn initialize_config(cli: &Cli) -> Result<ConfigContext> {
         logging::initialize_logging(&cfg.logging, &cfg.otel)
             .map_err(|e| anyhow::anyhow!("Failed to initialize logging: {}", e))?
     };
+    info!(
+        aos_var_dir = %preferred_var_dir,
+        effective_var_base = %effective_var_base.display(),
+        "Runtime var base resolved"
+    );
 
     // Derive effective JWT mode and session lifetime from auth config
     {
