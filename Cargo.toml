@@ -304,7 +304,7 @@ prometheus = "0.14"
 opentelemetry = { version = "0.28", default-features = false, features = ["trace"] }
 opentelemetry_sdk = { version = "0.28", default-features = false, features = ["trace", "rt-tokio"] }
 opentelemetry-otlp = { version = "0.28", default-features = false, features = ["trace", "grpc-tonic", "http-proto", "reqwest-client"] }
-tracing-opentelemetry = "0.29"
+tracing-opentelemetry = "0.32"
 
 # Code Analysis
 tree-sitter = "0.20"
