@@ -24,6 +24,33 @@
 //! let dataset_id = db.create_training_dataset_from_params(&params).await?;
 //! ```
 
+// Submodules
+mod integrity;
+mod snapshot;
+mod trust;
+mod types;
+mod validation;
+
+// Public re-exports
+pub use integrity::{DatasetFileMismatch, DatasetIntegrityResult};
+pub use snapshot::{
+    DatasetSnapshotVerification, SnapshotDatasetForRunParams, TrainingRunDatasetSnapshot,
+};
+pub use types::{
+    AdapterSessionMembership, AdapterTrainingLineage, CreateDatasetFileParams,
+    CreateDatasetHashInputsParams, CreateEvidenceParams, DatasetAdapterLink,
+    DatasetCollectionSession, DatasetFile, DatasetHashInputs, DatasetSessionMembership,
+    DatasetStatistics, DatasetVersionOverride, DatasetVersionValidation, EvidenceEntry,
+    EvidenceFilter, TrainingDataset, TrainingDatasetVersion,
+};
+pub use validation::{
+    validate_category, validate_format, validate_hash_b3, validate_status, VALID_CATEGORIES,
+    VALID_FORMATS, VALID_STATUSES,
+};
+
+// Internal imports from submodules
+use trust::{derive_overall_safety_status, derive_trust_state};
+
 use crate::constants::{
     DATASET_SCAN_ROOT_COLUMNS, TRAINING_DATASET_COLUMNS, TRAINING_DATASET_ROW_COLUMNS,
 };
@@ -39,58 +66,6 @@ use serde_json::{Map, Value};
 use sqlx::{Sqlite, Transaction};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
-
-// ============================================================================
-// Dataset Format and Status Validation
-// ============================================================================
-
-/// Valid dataset format types
-pub const VALID_FORMATS: &[&str] = &["patches", "jsonl", "txt", "custom", "parquet", "csv"];
-
-/// Valid dataset status values
-pub const VALID_STATUSES: &[&str] = &["uploaded", "processing", "ready", "failed"];
-
-/// Validate dataset format
-pub fn validate_format(format: &str) -> Result<()> {
-    if VALID_FORMATS.contains(&format) {
-        Ok(())
-    } else {
-        Err(AosError::Validation(format!(
-            "Invalid dataset format '{}'. Must be one of: {}",
-            format,
-            VALID_FORMATS.join(", ")
-        )))
-    }
-}
-
-/// Validate dataset status
-pub fn validate_status(status: &str) -> Result<()> {
-    if VALID_STATUSES.contains(&status) {
-        Ok(())
-    } else {
-        Err(AosError::Validation(format!(
-            "Invalid dataset status '{}'. Must be one of: {}",
-            status,
-            VALID_STATUSES.join(", ")
-        )))
-    }
-}
-
-/// Validate BLAKE3 hash format (64 hex characters)
-pub fn validate_hash_b3(hash: &str) -> Result<()> {
-    if hash.len() != 64 {
-        return Err(AosError::Validation(format!(
-            "Invalid hash_b3 length: expected 64 hex characters, got {}",
-            hash.len()
-        )));
-    }
-    if !hash.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(AosError::Validation(
-            "Invalid hash_b3: must contain only hexadecimal characters".to_string(),
-        ));
-    }
-    Ok(())
-}
 
 // Normalization functions imported from adapteros_normalization crate
 
@@ -727,270 +702,13 @@ impl CreateDatasetParamsBuilder {
 }
 
 // ============================================================================
-// Dataset Snapshot Types for Training Run Integrity
+// Helper Functions
 // ============================================================================
 
-/// Parameters for snapshotting a dataset for a training run
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SnapshotDatasetForRunParams {
-    /// Dataset ID to snapshot
-    pub dataset_id: String,
-    /// Optional tenant ID for isolation
-    pub tenant_id: Option<String>,
-    /// Whether to verify file integrity during snapshot
-    pub verify_integrity: bool,
-    /// Whether to require trusted status
-    pub require_trusted: bool,
-}
-
-/// Snapshot of dataset state at training run initiation
-///
-/// Captures immutable dataset metadata for reproducibility and audit.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TrainingRunDatasetSnapshot {
-    /// Dataset ID
-    pub dataset_id: String,
-    /// Dataset version ID
-    pub dataset_version_id: String,
-    /// BLAKE3 hash of the version
-    pub version_hash_b3: String,
-    /// Trust state at snapshot time
-    pub trust_state_at_snapshot: String,
-    /// Validation status at snapshot time
-    pub validation_status_at_snapshot: String,
-    /// When the snapshot was taken
-    pub snapshot_timestamp: String,
-    /// Storage path at snapshot time
-    pub storage_path: String,
-    /// Version number
-    pub version_number: i64,
-    /// Manifest JSON if available
-    pub manifest_json: Option<String>,
-}
-
-/// Result of verifying a dataset snapshot against current state
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DatasetSnapshotVerification {
-    /// Dataset version ID
-    pub dataset_version_id: String,
-    /// Original snapshot timestamp
-    pub snapshot_timestamp: String,
-    /// Whether the snapshot is still valid (no changes)
-    pub is_valid: bool,
-    /// List of detected changes since snapshot
-    pub changes: Vec<String>,
-    /// When verification was performed
-    pub verified_at: String,
-}
-
-// ============================================================================
-// Core Types
-// ============================================================================
-
-/// Derive aggregate safety status from individual signals.
-fn derive_overall_safety_status(
-    pii_status: &str,
-    toxicity_status: &str,
-    leak_status: &str,
-    anomaly_status: &str,
-) -> String {
-    let signals = [pii_status, toxicity_status, leak_status, anomaly_status];
-    if signals
-        .iter()
-        .any(|s| s.eq_ignore_ascii_case("block") || s.eq_ignore_ascii_case("unsafe"))
-    {
-        "block".to_string()
-    } else if signals.iter().any(|s| s.eq_ignore_ascii_case("warn")) {
-        "warn".to_string()
-    } else if signals.iter().all(|s| s.eq_ignore_ascii_case("unknown")) {
-        "unknown".to_string()
-    } else {
-        "clean".to_string()
-    }
-}
-
-/// Derive trust_state for a dataset version.
-///
-/// Canonical semantics:
-/// - `allowed`: validation passed and no safety warnings.
-/// - `allowed_with_warning`: validation passed but at least one safety signal warned.
-/// - `needs_approval`: validation is pending/validating or any safety signal is unresolved.
-/// - `blocked`: validation failed/invalid or any safety signal blocked.
-/// - `unknown`: trust not evaluated (explicit `validation_status == unknown`).
-///
-/// Training gates block `blocked`, `needs_approval`, and `unknown`. Adapter trust
-/// aggregates per-dataset trust using `map_dataset_trust_to_adapter_trust` in
-/// `adapter_repositories.rs` (priority: blocked > warn > unknown > allowed).
-fn derive_trust_state(
-    validation_status: &str,
-    pii_status: &str,
-    toxicity_status: &str,
-    leak_status: &str,
-    anomaly_status: &str,
-    override_state: Option<&str>,
-) -> String {
-    if let Some(ov) = override_state {
-        return ov.trim().to_ascii_lowercase();
-    }
-
-    let validation_lower = validation_status.trim().to_ascii_lowercase();
-    if validation_lower == "invalid" || validation_lower == "failed" {
-        return "blocked".to_string();
-    }
-
-    let safety_block = [pii_status, toxicity_status, leak_status, anomaly_status]
-        .iter()
-        .any(|s| s.eq_ignore_ascii_case("block") || s.eq_ignore_ascii_case("unsafe"));
-    if safety_block {
-        return "blocked".to_string();
-    }
-
-    let safety_warn = [pii_status, toxicity_status, leak_status, anomaly_status]
-        .iter()
-        .any(|s| s.eq_ignore_ascii_case("warn"));
-
-    let safety_unknown = [pii_status, toxicity_status, leak_status, anomaly_status]
-        .iter()
-        .any(|s| s.eq_ignore_ascii_case("unknown"));
-
-    if validation_lower == "unknown" {
-        return "unknown".to_string();
-    }
-
-    if validation_lower == "pending" || validation_lower == "validating" {
-        return "needs_approval".to_string();
-    }
-
-    if safety_unknown {
-        return "needs_approval".to_string();
-    }
-
-    if safety_warn {
-        "allowed_with_warning".to_string()
-    } else {
-        "allowed".to_string()
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct TrainingDataset {
-    pub id: String,
-    pub name: String,
-    pub description: Option<String>,
-    pub file_count: i32,
-    pub total_size_bytes: i64,
-    pub format: String,
-    pub hash_b3: String,
-    pub dataset_hash_b3: String,
-    pub storage_path: String,
-    pub status: String,
-    pub validation_status: String,
-    pub validation_errors: Option<String>,
-    pub metadata_json: Option<String>,
-    pub created_by: Option<String>,
-    pub created_at: String,
-    pub updated_at: String,
-    // Dataset Lab extensions for enhanced metadata tracking
-    pub dataset_type: Option<String>,
-    pub purpose: Option<String>,
-    pub source_location: Option<String>,
-    pub collection_method: Option<String>,
-    pub ownership: Option<String>,
-    pub tenant_id: Option<String>,
-    pub workspace_id: Option<String>,
-    // Hash repair tracking (added in migration 0239)
-    pub hash_needs_recompute: i32,
-    pub hash_algorithm_version: i32,
-    // Repository slug for filtering datasets by source repo (e.g., "org/repo-name")
-    pub repo_slug: Option<String>,
-    // Branch run tracking (added in migration 0248)
-    pub branch: Option<String>,
-    pub commit_sha: Option<String>,
-    // Session lineage fields (migration 0256)
-    pub session_id: Option<String>,
-    pub session_name: Option<String>,
-    pub session_tags: Option<String>,
-    // Scope metadata fields (migration 0257)
-    pub scope_repo_id: Option<String>,
-    pub scope_repo: Option<String>,
-    pub scope_scan_root: Option<String>,
-    pub scope_remote_url: Option<String>,
-    // Aggregate metrics (migration 0259)
-    pub scan_root_count: Option<i32>,
-    pub total_scan_root_files: Option<i32>,
-    pub total_scan_root_bytes: Option<i64>,
-    pub scan_roots_content_hash: Option<String>,
-    pub scan_roots_updated_at: Option<String>,
-}
-
-// ============================================================================
-// Adapter Training Lineage (migration 0258)
-// ============================================================================
-
-/// Adapter training lineage record for reverse lookups
-///
-/// Enables queries like:
-/// - "Which adapters were trained on this dataset version?"
-/// - "Which dataset versions contributed to this adapter?"
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct AdapterTrainingLineage {
-    pub id: String,
-    pub adapter_id: String,
-    pub dataset_id: String,
-    pub dataset_version_id: Option<String>,
-    pub training_job_id: Option<String>,
-    pub dataset_hash_b3_at_training: Option<String>,
-    pub role: String,
-    pub weight: Option<f64>,
-    pub ordinal: i32,
-    pub tenant_id: Option<String>,
-    pub created_at: String,
-    pub created_by: Option<String>,
-    pub metadata_json: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct DatasetCollectionSession {
-    pub id: String,
-    pub name: String,
-    pub tags: Option<String>,
-    pub description: Option<String>,
-    pub status: String,
-    pub parent_session_id: Option<String>,
-    pub external_correlation_id: Option<String>,
-    pub dataset_count: i64,
-    pub adapter_count: i64,
-    pub started_at: String,
-    pub ended_at: Option<String>,
-    pub duration_seconds: Option<f64>,
-    pub initiated_by: Option<String>,
-    pub tenant_id: Option<String>,
-    pub error_message: Option<String>,
-    pub error_details: Option<String>,
-    pub metadata_json: Option<String>,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct DatasetSessionMembership {
-    pub id: String,
-    pub session_id: String,
-    pub dataset_id: String,
-    pub operation_type: String,
-    pub ordinal: i32,
-    pub added_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct AdapterSessionMembership {
-    pub id: String,
-    pub session_id: String,
-    pub adapter_id: String,
-    pub operation_type: String,
-    pub ordinal: i32,
-    pub added_at: String,
-}
+// Note: Snapshot types moved to snapshot.rs
+// Note: Trust derivation functions moved to trust.rs
+// Note: Core types moved to types.rs
+// Note: All type definitions now in types.rs - keeping merge_metadata_with_category helper below
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct DatasetHashInputs {
