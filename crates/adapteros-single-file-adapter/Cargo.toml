@@ -25,6 +25,8 @@ parking_lot = { workspace = true }
 lru = "0.12"
 zstd = "0.13"
 bytemuck = { version = "1.14", features = ["derive"] }
+safetensors = { workspace = true }
+half = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
