@@ -91,6 +91,7 @@ members = [
     "crates/adapteros-secure-fs",
     "crates/adapteros-ui",  # Leptos UI frontend
     "crates/adapteros-uds-protocol",  # UDS protocol types for CP ↔ worker communication
+    "crates/adapteros-diagnostics",  # Diagnostic event contract and producer API
 ]
 
 [workspace.package]
@@ -197,6 +198,9 @@ anyhow = "1.0"
 thiserror = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+
+# Concurrency
+dashmap = "5.5"
 
 # Crypto
 blake3 = "1.5"
