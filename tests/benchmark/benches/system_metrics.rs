@@ -1,13 +1,13 @@
 #![cfg(all(test, feature = "extended-tests"))]
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use adapteros_benchmarks::*;
-use adapteros_system_metrics::{SystemMetricsCollector, MetricsBuffer, AlertingEngine};
-use adapteros_telemetry::{TelemetryCollector, TelemetryBuffer};
-use adapteros_policy::{PolicyEngine, PolicyContext};
 use adapteros_deterministic_exec::DeterministicExecutor;
+use adapteros_policy::{PolicyContext, PolicyEngine};
+use adapteros_system_metrics::{AlertingEngine, MetricsBuffer, SystemMetricsCollector};
+use adapteros_telemetry::{TelemetryBuffer, TelemetryCollector};
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use std::sync::Arc;
-use tokio::runtime::Runtime;
 use std::time::{Duration, Instant};
+use tokio::runtime::Runtime;
 
 /// Benchmark system metrics collection
 fn bench_system_metrics_collection(c: &mut Criterion) {
@@ -81,7 +81,8 @@ fn bench_telemetry_processing(c: &mut Criterion) {
         // Benchmark telemetry event creation
         c.bench_function("telemetry_event_creation", |b| {
             b.iter(|| {
-                let event = telemetry.create_event("benchmark_test", "performance_measurement")
+                let event = telemetry
+                    .create_event("benchmark_test", "performance_measurement")
                     .with_metric("duration_ns", 1000000u64)
                     .with_tag("category", "kernel")
                     .build();
@@ -94,7 +95,8 @@ fn bench_telemetry_processing(c: &mut Criterion) {
             b.iter(|| {
                 let mut events = Vec::new();
                 for i in 0..100 {
-                    let event = telemetry.create_event("batch_test", "performance_measurement")
+                    let event = telemetry
+                        .create_event("batch_test", "performance_measurement")
                         .with_metric("iteration", i as u64)
                         .with_metric("timestamp", chrono::Utc::now().timestamp() as u64)
                         .build();
@@ -111,7 +113,8 @@ fn bench_telemetry_processing(c: &mut Criterion) {
             b.iter(|| {
                 // Simulate collecting telemetry over time
                 for i in 0..1000 {
-                    let event = telemetry.create_event("aggregation_test", "metric_collection")
+                    let event = telemetry
+                        .create_event("aggregation_test", "metric_collection")
                         .with_metric("value", (i % 100) as u64)
                         .with_tag("source", "benchmark")
                         .build();
@@ -154,7 +157,8 @@ fn bench_policy_evaluation(c: &mut Criterion) {
         c.bench_function("policy_evaluation_batch_10", |b| {
             b.iter(|| {
                 let contexts = vec![context.clone(); 10];
-                let results: Vec<_> = contexts.iter()
+                let results: Vec<_> = contexts
+                    .iter()
                     .map(|ctx| policy_engine.evaluate(ctx).unwrap())
                     .collect();
                 black_box(results);
@@ -195,13 +199,15 @@ fn bench_deterministic_execution(c: &mut Criterion) {
         // Benchmark deterministic execution with simple computation
         c.bench_function("deterministic_execution_simple", |b| {
             b.iter(|| {
-                let result = executor.execute_deterministic(|| {
-                    let mut sum = 0u64;
-                    for i in 0..1000 {
-                        sum = sum.wrapping_add(i);
-                    }
-                    sum
-                }).unwrap();
+                let result = executor
+                    .execute_deterministic(|| {
+                        let mut sum = 0u64;
+                        for i in 0..1000 {
+                            sum = sum.wrapping_add(i);
+                        }
+                        sum
+                    })
+                    .unwrap();
                 black_box(result);
             })
         });
@@ -209,17 +215,19 @@ fn bench_deterministic_execution(c: &mut Criterion) {
         // Benchmark deterministic execution with complex computation
         c.bench_function("deterministic_execution_complex", |b| {
             b.iter(|| {
-                let result = executor.execute_deterministic(|| {
-                    // Simulate complex computation with multiple steps
-                    let mut data = vec![0u8; 10000];
-                    for (i, val) in data.iter_mut().enumerate() {
-                        *val = ((i * 7 + 13) % 256) as u8;
-                    }
+                let result = executor
+                    .execute_deterministic(|| {
+                        // Simulate complex computation with multiple steps
+                        let mut data = vec![0u8; 10000];
+                        for (i, val) in data.iter_mut().enumerate() {
+                            *val = ((i * 7 + 13) % 256) as u8;
+                        }
 
-                    // Hash the result for determinism verification
-                    let hash = adapteros_core::B3Hash::hash(&data);
-                    hash
-                }).unwrap();
+                        // Hash the result for determinism verification
+                        let hash = adapteros_core::B3Hash::hash(&data);
+                        hash
+                    })
+                    .unwrap();
                 black_box(result);
             })
         });
@@ -298,12 +306,16 @@ fn bench_evidence_processing(c: &mut Criterion) {
         c.bench_function("evidence_ranking_top_k", |b| {
             b.iter(|| {
                 let k = 100;
-                let mut indexed_scores: Vec<(usize, f32)> = evidence_scores.iter().enumerate()
+                let mut indexed_scores: Vec<(usize, f32)> = evidence_scores
+                    .iter()
+                    .enumerate()
                     .map(|(i, &score)| (i, score))
                     .collect();
 
                 // Partial sort to find top K
-                indexed_scores.select_nth_unstable_by(k, |a, b| b.1.partial_cmp(&a.1).unwrap());
+                indexed_scores.select_nth_unstable_by(k, |a, b| {
+                    b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
+                });
 
                 let top_k: Vec<_> = indexed_scores.into_iter().take(k).collect();
                 black_box(top_k);
