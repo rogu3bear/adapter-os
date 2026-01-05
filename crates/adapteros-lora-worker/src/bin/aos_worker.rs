@@ -28,6 +28,7 @@ use adapteros_lora_worker::{
         BaseModelPinConfig, SelectionContext,
     },
     health::{HealthEvent, HealthTick},
+    inference_pause::InferencePauseRegistry,
     model_handle_cache::ModelHandle,
     model_key::{ModelCacheIdentity, ModelKey},
     panic_utils::{
@@ -2051,6 +2052,10 @@ async fn run_worker() -> Result<()> {
             );
         }
     }
+
+    // Wire inference pause registry for human-in-the-loop review protocol
+    let pause_registry = Arc::new(InferencePauseRegistry::new());
+    let worker = worker.with_pause_registry(pause_registry);
 
     let worker = Arc::new(Mutex::new(worker));
     let drain_flag = Arc::new(AtomicBool::new(false));

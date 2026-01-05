@@ -355,6 +355,74 @@ pub enum DiagEvent {
         #[serde(skip_serializing_if = "Option::is_none")]
         duration_us: Option<u64>,
     },
+
+    // =========================================================================
+    // Human-in-the-Loop Review Events
+    // =========================================================================
+    //
+    // These events track inference pause/resume for human review workflow.
+    // Used for audit trail and pause duration metrics.
+    //
+    /// Inference paused for human review
+    ///
+    /// Emitted when inference is paused and registered with the pause tracker.
+    InferencePaused {
+        /// Unique pause ID for resume correlation
+        pause_id: String,
+        /// Inference request ID being paused
+        inference_id: String,
+        /// Type of pause (review_needed, policy_approval, etc.)
+        pause_kind: String,
+        /// Trigger that caused the pause (explicit_tag, uncertainty_signal, etc.)
+        #[serde(skip_serializing_if = "Option::is_none")]
+        trigger_kind: Option<String>,
+        /// Hash of review context (NOT raw content for determinism)
+        context_hash: B3Hash,
+        /// Token count at pause time
+        token_count: u32,
+    },
+
+    /// Inference resumed after human review
+    ///
+    /// Emitted when a review is submitted and inference resumes.
+    InferenceResumed {
+        /// Pause ID that was resumed
+        pause_id: String,
+        /// Inference request ID being resumed
+        inference_id: String,
+        /// Who provided the review
+        reviewer: String,
+        /// Review assessment (approved, needs_changes, rejected, etc.)
+        assessment: String,
+        /// Hash of review content (NOT raw content for determinism)
+        review_hash: B3Hash,
+        /// How long inference was paused (microseconds)
+        pause_duration_us: u64,
+        /// Number of issues found in review
+        issue_count: u32,
+        /// Whether resumed successfully
+        success: bool,
+    },
+
+    /// Inference state changed (lifecycle tracking)
+    ///
+    /// Emitted when inference transitions between states (Running/Paused/Complete/Failed/Cancelled).
+    /// Supplements RunStarted/RunFinished with finer-grained state tracking.
+    InferenceStateChanged {
+        /// Inference request ID
+        inference_id: String,
+        /// Previous state (serialized)
+        from_state: String,
+        /// New state (serialized)
+        to_state: String,
+        /// Duration in previous state (microseconds)
+        state_duration_us: u64,
+        /// Total inference duration so far (microseconds)
+        total_duration_us: u64,
+        /// Optional error code if transitioning to Failed
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error_code: Option<String>,
+    },
 }
 
 /// Envelope wrapping a diagnostic event with metadata.

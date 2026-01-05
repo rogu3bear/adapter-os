@@ -105,6 +105,7 @@ impl DiagRunContext {
     }
 
     /// Create a stage guard for the given stage.
+    #[allow(dead_code)]
     pub fn stage_guard(&self, stage: DiagStage) -> StageGuard {
         StageGuard::new(
             Arc::clone(&self.service),
@@ -127,11 +128,15 @@ pub fn extract_error_code(error: &crate::types::InferenceError) -> &'static str 
         InferenceError::WorkerError(_) => "E2002",
         InferenceError::Timeout(_) => "E2003",
         InferenceError::RoutingBypass(_) => "E2004",
+        InferenceError::BackpressureError(_) => "E2005",
+        InferenceError::NoCompatibleWorker { .. } => "E2006",
+        InferenceError::WorkerDegraded { .. } => "E2007",
         InferenceError::ClientClosed(_) => "E3001",
         InferenceError::DatabaseError(_) => "E4001",
         InferenceError::RagError(_) => "E5001",
         InferenceError::ModelNotReady(_) => "E6001",
         InferenceError::AdapterNotLoadable { .. } => "E6002",
+        InferenceError::AdapterNotFound(_) => "E6003",
         InferenceError::ReplayError(_) => "E7001",
         InferenceError::DeterminismError(_) => "E8001",
         InferenceError::CacheBudgetExceeded { .. } => "E9001",
@@ -151,11 +156,15 @@ pub fn suggest_recovery(error: &crate::types::InferenceError) -> Option<&'static
         InferenceError::WorkerError(_) => Some("Check worker logs for details"),
         InferenceError::Timeout(_) => Some("Retry with shorter max_tokens or timeout"),
         InferenceError::RoutingBypass(_) => Some("Use standard routing path"),
+        InferenceError::BackpressureError(_) => Some("Wait for memory pressure to reduce"),
+        InferenceError::NoCompatibleWorker { .. } => Some("Check manifest compatibility"),
+        InferenceError::WorkerDegraded { .. } => Some("Retry or wait for full worker availability"),
         InferenceError::ClientClosed(_) => None, // Client disconnect, no recovery
         InferenceError::DatabaseError(_) => Some("Check database connectivity"),
         InferenceError::RagError(_) => Some("Verify RAG collection exists"),
         InferenceError::ModelNotReady(_) => Some("Wait for model loading to complete"),
         InferenceError::AdapterNotLoadable { .. } => Some("Check adapter lifecycle state"),
+        InferenceError::AdapterNotFound(_) => Some("Verify adapter ID exists"),
         InferenceError::ReplayError(_) => Some("Verify replay metadata"),
         InferenceError::DeterminismError(_) => Some("Provide required seed parameter"),
         InferenceError::CacheBudgetExceeded { .. } => {

@@ -38,6 +38,7 @@ use adapteros_lora_kernel_api::{attestation, FusedKernels, IoBuffers, RouterRing
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Once;
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
@@ -47,16 +48,20 @@ use tracing::{debug, error, info, warn};
 use crate::coreml::{self, Array, Model, ModelMetadata as CoreMLModelMeta};
 
 static COREML_INIT: Once = Once::new();
-static mut COREML_AVAILABLE: bool = false;
+/// CoreML availability flag. Uses `AtomicBool` to allow safe concurrent reads
+/// after one-time initialization via `Once`. Ordering::Acquire on reads pairs
+/// with Ordering::Release on the write to ensure the flag is visible after init.
+static COREML_AVAILABLE: AtomicBool = AtomicBool::new(false);
 
 /// Initialize CoreML backend
 #[cfg(feature = "coreml-backend")]
 pub fn init_coreml() -> Result<()> {
     let mut init_result = Ok(());
 
-    COREML_INIT.call_once(|| unsafe {
+    COREML_INIT.call_once(|| {
         if coreml::is_available() {
-            COREML_AVAILABLE = true;
+            // Release ordering ensures the write is visible to subsequent Acquire loads
+            COREML_AVAILABLE.store(true, Ordering::Release);
             info!(
                 version = %coreml::version(),
                 "CoreML backend initialized successfully"
@@ -73,7 +78,8 @@ pub fn init_coreml() -> Result<()> {
 /// Check if CoreML backend is available
 #[cfg(feature = "coreml-backend")]
 pub fn is_coreml_available() -> bool {
-    unsafe { COREML_AVAILABLE }
+    // Acquire ordering synchronizes with the Release store in init_coreml()
+    COREML_AVAILABLE.load(Ordering::Acquire)
 }
 
 /// Check if Neural Engine is available (detected via CPU brand)
