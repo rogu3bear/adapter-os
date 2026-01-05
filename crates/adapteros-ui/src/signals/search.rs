@@ -100,26 +100,35 @@ impl SearchContext {
         let ctx = self.clone();
         let timer_id = set_timeout(
             move || {
-                ctx.execute_search(&query);
+                // Spawn async search
+                wasm_bindgen_futures::spawn_local(async move {
+                    ctx.execute_search(&query).await;
+                });
             },
             150, // 150ms debounce
         );
         self.debounce_timer.set(Some(timer_id));
     }
 
-    /// Execute the actual search
-    fn execute_search(&self, query: &str) {
+    /// Execute the actual search via server API
+    async fn execute_search(&self, query: &str) {
         let mut all_results = Vec::new();
 
-        // Search pages and actions
+        // Search pages and actions (local - fast)
         self.search_index.with_value(|index| {
             all_results.extend(index.search(query));
         });
 
-        // Search cached entities
-        self.entity_cache.with_value(|cache| {
-            all_results.extend(cache.search_adapters(query));
-        });
+        // Search adapters and entities via server API
+        let api_results = self
+            .entity_cache
+            .with_value(|cache| {
+                let cache = cache.clone();
+                let query = query.to_string();
+                async move { cache.search(&query, Some(20)).await }
+            })
+            .await;
+        all_results.extend(api_results);
 
         // Sort by score descending
         all_results.sort_by(|a, b| {
@@ -182,14 +191,12 @@ impl SearchContext {
         self.recent_items_signal.set(Vec::new());
     }
 
-    /// Fetch entities for search (call when palette opens)
+    /// Prefetch is no longer needed - server handles search
+    ///
+    /// Kept for API compatibility but does nothing.
+    #[allow(dead_code)]
     pub fn prefetch_entities(&self) {
-        self.entity_cache.with_value(|cache| {
-            let cache = cache.clone();
-            wasm_bindgen_futures::spawn_local(async move {
-                cache.ensure_adapters().await;
-            });
-        });
+        // No-op: Server-side search means we don't need to prefetch all entities
     }
 }
 

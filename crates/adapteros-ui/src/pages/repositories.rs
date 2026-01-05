@@ -27,11 +27,18 @@ pub fn Repositories() -> impl IntoView {
     // Dialog states
     let register_dialog_open = RwSignal::new(false);
 
-    // Fetch repositories
-    let (repos, refetch_repos) =
-        use_api_resource(
-            move |client: Arc<ApiClient>| async move { client.list_repositories().await },
-        );
+    // Fetch repositories with server-side filtering
+    let (repos, refetch_repos) = use_api_resource(move |client: Arc<ApiClient>| {
+        let filter = status_filter.get();
+        async move {
+            let status = if filter.is_empty() {
+                None
+            } else {
+                Some(filter.as_str())
+            };
+            client.list_repositories(status).await
+        }
+    });
 
     // Dynamic class for left panel width
     let left_panel_class = move || {
@@ -75,14 +82,10 @@ pub fn Repositories() -> impl IntoView {
                             }.into_any()
                         }
                         LoadingState::Loaded(data) => {
-                            let filter = status_filter.get();
-                            let filtered_repos: Vec<_> = data.repositories.iter()
-                                .filter(|r| filter.is_empty() || r.status == filter)
-                                .cloned()
-                                .collect();
+                            // Repositories are already filtered server-side
                             view! {
                                 <RepositoryList
-                                    repos=filtered_repos
+                                    repos=data.repositories.clone()
                                     selected_id=selected_repo_id
                                 />
                             }.into_any()

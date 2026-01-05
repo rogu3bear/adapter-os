@@ -91,27 +91,32 @@ impl AuthAction {
     }
 
     /// Login with credentials
+    ///
+    /// Server sets httpOnly cookies automatically on successful login.
     pub async fn login(&self, username: &str, password: &str) -> Result<(), ApiError> {
         self.state.set(AuthState::Loading);
 
         match self.client.login(username, password).await {
-            Ok(response) => {
-                // Store token
-                self.client.set_token(Some(response.token.clone()));
+            Ok(_response) => {
+                // Server has set httpOnly auth cookies automatically
+                // Mark client as authenticated
+                self.client.set_auth_status(true);
 
-                // Fetch user info
+                // Fetch user info to confirm auth
                 match self.client.me().await {
                     Ok(user) => {
                         self.state.set(AuthState::Authenticated(Box::new(user)));
                         Ok(())
                     }
                     Err(e) => {
+                        self.client.clear_auth_status();
                         self.state.set(AuthState::Error(e.to_string()));
                         Err(e)
                     }
                 }
             }
             Err(e) => {
+                self.client.clear_auth_status();
                 self.state.set(AuthState::Error(e.to_string()));
                 Err(e)
             }
@@ -119,29 +124,33 @@ impl AuthAction {
     }
 
     /// Logout
+    ///
+    /// Calls server to clear httpOnly cookies.
     pub async fn logout(&self) {
         let _ = self.client.logout().await;
-        self.client.set_token(None);
+        self.client.clear_auth_status();
         self.state.set(AuthState::Unauthenticated);
     }
 
     /// Check current auth status
+    ///
+    /// Verifies authentication by calling /v1/auth/me endpoint.
+    /// With httpOnly cookies, we can't check the token directly.
     pub async fn check_auth(&self) {
         self.state.set(AuthState::Loading);
 
-        if !self.client.is_authenticated() {
-            self.state.set(AuthState::Unauthenticated);
-            return;
-        }
-
+        // Try to get user info - will succeed if we have valid auth cookies
         match self.client.me().await {
             Ok(user) => {
+                self.client.set_auth_status(true);
                 self.state.set(AuthState::Authenticated(Box::new(user)));
             }
             Err(ApiError::Unauthorized) => {
+                self.client.clear_auth_status();
                 self.state.set(AuthState::Unauthenticated);
             }
             Err(e) => {
+                self.client.clear_auth_status();
                 self.state.set(AuthState::Error(e.to_string()));
             }
         }
