@@ -513,10 +513,15 @@ fn ChatInput() -> impl IntoView {
 
     // Create derived signal for loading state (fixes reactive tracking warning)
     let is_loading = Memo::new(move |_| chat_state.get().loading);
+    let can_send = Memo::new(move |_| !message.get().trim().is_empty() && !is_loading.get());
 
     let do_send = {
         let action = chat_action.clone();
+        let is_loading = is_loading.clone();
         move || {
+            if is_loading.get() {
+                return;
+            }
             let msg = message.get();
             if !msg.trim().is_empty() {
                 let action = action.clone();
@@ -541,7 +546,9 @@ fn ChatInput() -> impl IntoView {
                 class="space-y-2"
                 on:submit=move |ev: web_sys::SubmitEvent| {
                     ev.prevent_default();
-                    do_send();
+                    if can_send.get() {
+                        do_send();
+                    }
                 }
             >
                 <Textarea
@@ -551,14 +558,18 @@ fn ChatInput() -> impl IntoView {
                     class="resize-none".to_string()
                 />
                 <div class="flex justify-end">
-                    {move || view! {
-                        <Button
-                            size=ButtonSize::Sm
-                            loading=is_loading.get()
-                            on_click=send_callback.clone()
-                        >
-                            "Send"
-                        </Button>
+                    {move || {
+                        let disabled = !can_send.get();
+                        view! {
+                            <Button
+                                size=ButtonSize::Sm
+                                loading=is_loading.get()
+                                disabled=disabled
+                                on_click=send_callback.clone()
+                            >
+                                "Send"
+                            </Button>
+                        }
                     }}
                 </div>
             </form>

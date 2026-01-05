@@ -9,7 +9,7 @@ use crate::components::{
 };
 use crate::hooks::{use_api_resource, use_polling, LoadingState};
 use crate::validation::{rules, use_form_errors, validate_field, ValidationRule};
-use adapteros_api_types::TrainingJobResponse;
+use adapteros_api_types::{TrainingJobResponse, TrainingListParams};
 use leptos::prelude::*;
 use std::sync::Arc;
 
@@ -25,11 +25,21 @@ pub fn Training() -> impl IntoView {
     // Dialog open state
     let create_dialog_open = RwSignal::new(false);
 
-    // Fetch training jobs
-    let (jobs, refetch_jobs) =
-        use_api_resource(
-            move |client: Arc<ApiClient>| async move { client.list_training_jobs().await },
-        );
+    // Fetch training jobs with server-side filtering
+    let (jobs, refetch_jobs) = use_api_resource(move |client: Arc<ApiClient>| {
+        let filter = status_filter.get();
+        async move {
+            let params = if filter.is_empty() {
+                None
+            } else {
+                Some(TrainingListParams {
+                    status: Some(filter),
+                    ..Default::default()
+                })
+            };
+            client.list_training_jobs(params.as_ref()).await
+        }
+    });
 
     // Store refetch in a signal for sharing
     let refetch_signal = StoredValue::new(refetch_jobs);
@@ -89,14 +99,10 @@ pub fn Training() -> impl IntoView {
                                 }.into_any()
                             }
                             LoadingState::Loaded(data) => {
-                                let filter = status_filter.get();
-                                let filtered_jobs: Vec<_> = data.jobs.iter()
-                                    .filter(|j| filter.is_empty() || j.status == filter)
-                                    .cloned()
-                                    .collect();
+                                // Jobs are already filtered server-side
                                 view! {
                                     <TrainingJobList
-                                        jobs=filtered_jobs
+                                        jobs=data.jobs.clone()
                                         selected_id=selected_job_id
                                         on_select=on_job_select
                                     />

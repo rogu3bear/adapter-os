@@ -429,18 +429,15 @@ fn get_default_api_endpoint() -> String {
     crate::api::api_base_url()
 }
 
-/// Get stored auth token
+/// Get auth token info for display
+///
+/// With httpOnly cookie-based auth, we can't read the token directly.
+/// Returns a placeholder indicating secure cookie storage.
 fn get_stored_token() -> Option<String> {
-    #[cfg(target_arch = "wasm32")]
-    {
-        web_sys::window()
-            .and_then(|w| w.local_storage().ok().flatten())
-            .and_then(|s| s.get_item("auth_token").ok().flatten())
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        None
-    }
+    // Auth tokens are now stored in httpOnly cookies for security.
+    // We can't read them from JavaScript, which is the point.
+    // Return a placeholder to indicate auth is via secure cookies.
+    Some("[Stored in secure httpOnly cookie]".to_string())
 }
 
 /// Mask token for display

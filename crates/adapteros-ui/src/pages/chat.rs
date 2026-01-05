@@ -111,14 +111,23 @@ type AbortControllerCell = SendWrapper<Rc<RefCell<Option<AbortController>>>>;
 pub fn ChatSession() -> impl IntoView {
     let params = use_params_map();
     let session_id = move || params.get().get("session_id").unwrap_or_default();
+    let session_label = move || {
+        let id = session_id();
+        if id.is_empty() {
+            "unspecified".to_string()
+        } else {
+            id
+        }
+    };
 
     let message = RwSignal::new(String::new());
     let messages: RwSignal<Vec<ChatMessage>> = RwSignal::new(vec![]);
     let loading = RwSignal::new(false);
     let streaming = RwSignal::new(false);
     let error = RwSignal::new(Option::<String>::None);
-    let selected_trace = RwSignal::new(Option::<String>::None);
-    let show_trace_panel = RwSignal::new(false);
+    let active_trace = RwSignal::new(Option::<String>::None);
+    let is_busy = Memo::new(move |_| loading.get() || streaming.get());
+    let can_send = Memo::new(move |_| !message.get().trim().is_empty() && !is_busy.get());
 
     // Store the AbortController wrapped in SendWrapper for thread safety
     // This is safe because WASM is single-threaded
@@ -144,143 +153,163 @@ pub fn ChatSession() -> impl IntoView {
     });
 
     // Use a Callback for the send action with SSE streaming
-    let do_send = Callback::new(move |_: ()| {
-        let msg = message.get();
-        if msg.trim().is_empty() {
-            return;
-        }
+    let do_send = {
+        let is_busy = is_busy.clone();
+        Callback::new(move |_: ()| {
+            if is_busy.get() {
+                return;
+            }
+            let msg = message.get();
+            if msg.trim().is_empty() {
+                return;
+            }
 
-        // Add user message
-        messages.update(|msgs| {
-            msgs.push(ChatMessage {
-                role: "user".to_string(),
-                content: msg.clone(),
-                is_streaming: false,
-                trace_id: None,
-                latency_ms: None,
-                token_count: None,
-                prompt_tokens: None,
-                completion_tokens: None,
+            // Add user message
+            messages.update(|msgs| {
+                msgs.push(ChatMessage {
+                    role: "user".to_string(),
+                    content: msg.clone(),
+                    is_streaming: false,
+                    trace_id: None,
+                    latency_ms: None,
+                    token_count: None,
+                    prompt_tokens: None,
+                    completion_tokens: None,
+                });
             });
-        });
 
-        message.set(String::new());
-        loading.set(true);
-        streaming.set(true);
-        error.set(None);
+            message.set(String::new());
+            loading.set(true);
+            streaming.set(true);
+            error.set(None);
 
-        // Build conversation context
-        let conversation = messages.get();
-        let prompt = conversation
-            .iter()
-            .map(|m| format!("{}: {}", m.role, m.content))
-            .collect::<Vec<_>>()
-            .join("\n\n");
+            // Build conversation context
+            let conversation = messages.get();
+            let prompt = conversation
+                .iter()
+                .map(|m| format!("{}: {}", m.role, m.content))
+                .collect::<Vec<_>>()
+                .join("\n\n");
 
-        // Add a placeholder assistant message for streaming
-        messages.update(|msgs| {
-            msgs.push(ChatMessage {
-                role: "assistant".to_string(),
-                content: String::new(),
-                is_streaming: true,
-                trace_id: None,
-                latency_ms: None,
-                token_count: None,
-                prompt_tokens: None,
-                completion_tokens: None,
+            // Add a placeholder assistant message for streaming
+            messages.update(|msgs| {
+                msgs.push(ChatMessage {
+                    role: "assistant".to_string(),
+                    content: String::new(),
+                    is_streaming: true,
+                    trace_id: None,
+                    latency_ms: None,
+                    token_count: None,
+                    prompt_tokens: None,
+                    completion_tokens: None,
+                });
             });
-        });
 
-        // Get the auth token from localStorage
-        let auth_token = get_auth_token();
+            // Create AbortController for this request
+            let controller = AbortController::new().ok();
+            let signal = controller.as_ref().map(|c| c.signal());
 
-        // Create AbortController for this request
-        let controller = AbortController::new().ok();
-        let signal = controller.as_ref().map(|c| c.signal());
+            // Store the controller in the signal
+            let cell = abort_controller.get();
+            *cell.borrow_mut() = controller;
 
-        // Store the controller in the signal
-        let cell = abort_controller.get();
-        *cell.borrow_mut() = controller;
+            wasm_bindgen_futures::spawn_local(async move {
+                let request = StreamingInferRequest {
+                    prompt,
+                    max_tokens: Some(1024),
+                    temperature: Some(0.7),
+                    adapters: None,
+                };
 
-        wasm_bindgen_futures::spawn_local(async move {
-            let request = StreamingInferRequest {
-                prompt,
-                max_tokens: Some(1024),
-                temperature: Some(0.7),
-                adapters: None,
-            };
-
-            match stream_inference(&request, auth_token.as_deref(), messages, signal.as_ref()).await
-            {
-                Ok(trace_info) => {
-                    // Mark the last message as no longer streaming and add trace info
-                    messages.update(|msgs| {
-                        if let Some(last) = msgs.last_mut() {
-                            if last.role == "assistant" {
-                                last.is_streaming = false;
-                                last.trace_id = trace_info.trace_id;
-                                last.latency_ms = trace_info.latency_ms;
-                                last.token_count = trace_info.token_count;
-                                last.prompt_tokens = trace_info.prompt_tokens;
-                                last.completion_tokens = trace_info.completion_tokens;
-                            }
-                        }
-                    });
-                }
-                Err(e) => {
-                    // Check if the error is an AbortError - if so, handle gracefully
-                    if is_abort_error(&e) {
-                        // Stream was cancelled by user - mark message as no longer streaming
+                match stream_inference(&request, messages, signal.as_ref()).await {
+                    Ok(trace_info) => {
+                        // Mark the last message as no longer streaming and add trace info
                         messages.update(|msgs| {
                             if let Some(last) = msgs.last_mut() {
                                 if last.role == "assistant" {
                                     last.is_streaming = false;
+                                    last.trace_id = trace_info.trace_id;
+                                    last.latency_ms = trace_info.latency_ms;
+                                    last.token_count = trace_info.token_count;
+                                    last.prompt_tokens = trace_info.prompt_tokens;
+                                    last.completion_tokens = trace_info.completion_tokens;
                                 }
                             }
                         });
-                    } else {
-                        // Remove the empty assistant message on error
-                        messages.update(|msgs| {
-                            if let Some(last) = msgs.last() {
-                                if last.role == "assistant" && last.content.is_empty() {
-                                    msgs.pop();
+                    }
+                    Err(e) => {
+                        // Check if the error is an AbortError - if so, handle gracefully
+                        if is_abort_error(&e) {
+                            // Stream was cancelled by user - mark message as no longer streaming
+                            messages.update(|msgs| {
+                                if let Some(last) = msgs.last_mut() {
+                                    if last.role == "assistant" {
+                                        last.is_streaming = false;
+                                    }
                                 }
-                            }
-                        });
-                        error.set(Some(e));
+                            });
+                        } else {
+                            // Remove the empty assistant message on error
+                            messages.update(|msgs| {
+                                if let Some(last) = msgs.last() {
+                                    if last.role == "assistant" && last.content.is_empty() {
+                                        msgs.pop();
+                                    }
+                                }
+                            });
+                            error.set(Some(e));
+                        }
                     }
                 }
-            }
 
-            loading.set(false);
-            streaming.set(false);
-            // Clear the abort controller
-            let cell = abort_controller.get();
-            *cell.borrow_mut() = None;
-        });
-    });
+                loading.set(false);
+                streaming.set(false);
+                // Clear the abort controller
+                let cell = abort_controller.get();
+                *cell.borrow_mut() = None;
+            });
+        })
+    };
 
     view! {
-        <div class="p-6 flex h-[calc(100vh-8rem)] flex-col">
+        <div class="p-6 flex h-[calc(100vh-8rem)] flex-col gap-4">
             // Header
-            <div class="flex items-center justify-between border-b pb-4">
+            <div class="flex flex-wrap items-start justify-between gap-3 border-b pb-4">
+                <div class="space-y-1">
                     <h1 class="text-xl font-semibold">"Chat Session"</h1>
-                    <div class="flex items-center gap-2">
-                        {move || {
-                            if streaming.get() {
-                                view! {
-                                    <span class="text-xs text-green-500 animate-pulse">"Streaming..."</span>
-                                }.into_any()
-                            } else {
-                                view! { <span></span> }.into_any()
-                            }
-                        }}
-                        <span class="text-sm text-muted-foreground">{session_id}</span>
+                    <div class="flex items-center gap-2 text-xs text-muted-foreground">
+                        <span class="uppercase tracking-wide">"Session"</span>
+                        <span class="font-mono">{session_label}</span>
                     </div>
                 </div>
+                <div class="flex items-center gap-2">
+                    {move || {
+                        if error.get().is_some() {
+                            view! {
+                                <span class="rounded-full bg-destructive/10 px-2 py-1 text-xs font-medium text-destructive">
+                                    "Error"
+                                </span>
+                            }.into_any()
+                        } else if streaming.get() {
+                            view! {
+                                <span class="rounded-full bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-500">
+                                    "Streaming"
+                                </span>
+                            }.into_any()
+                        } else {
+                            view! {
+                                <span class="rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground">
+                                    "Ready"
+                                </span>
+                            }.into_any()
+                        }
+                    }}
+                </div>
+            </div>
 
-                // Messages
-                <div class="flex-1 overflow-y-auto py-4">
+            // Messages
+            <div class="flex-1 overflow-y-auto rounded-lg border bg-card">
+                <div class="p-4">
                     {move || {
                         let msgs = messages.get();
                         if msgs.is_empty() {
@@ -291,7 +320,7 @@ pub fn ChatSession() -> impl IntoView {
                             }.into_any()
                         } else {
                             view! {
-                                <div class="space-y-4">
+                                <div class="space-y-5">
                                     {msgs
                                         .into_iter()
                                         .map(|msg| {
@@ -302,21 +331,28 @@ pub fn ChatSession() -> impl IntoView {
                                             let token_count = msg.token_count;
                                             let prompt_tokens = msg.prompt_tokens;
                                             let completion_tokens = msg.completion_tokens;
+                                            let role_label = if is_user { "You" } else { "Assistant" };
                                             view! {
                                                 <div class=format!(
                                                     "flex {}",
                                                     if is_user { "justify-end" } else { "justify-start" }
                                                 )>
-                                                    <div class="flex flex-col gap-1 chat-bubble">
+                                                    <div class=format!(
+                                                        "flex flex-col gap-1 chat-bubble {}",
+                                                        if is_user { "items-end" } else { "items-start" }
+                                                    )>
+                                                        <span class="text-2xs uppercase tracking-wide text-muted-foreground">
+                                                            {role_label}
+                                                        </span>
                                                         <div class=format!(
-                                                            "rounded-lg px-4 py-2 {}",
+                                                            "rounded-lg px-4 py-2 shadow-sm {}",
                                                             if is_user {
                                                                 "bg-primary text-primary-foreground"
                                                             } else {
                                                                 "bg-muted"
                                                             }
                                                         )>
-                                                            <p class="whitespace-pre-wrap">
+                                                            <p class="text-sm whitespace-pre-wrap break-words">
                                                                 {msg.content.clone()}
                                                                 {if is_streaming && !msg.content.is_empty() {
                                                                     view! { <span class="animate-pulse">"_"</span> }.into_any()
@@ -337,8 +373,7 @@ pub fn ChatSession() -> impl IntoView {
                                                                         trace_id=tid.clone()
                                                                         latency_ms=latency
                                                                         on_click=Callback::new(move |id: String| {
-                                                                            selected_trace.set(Some(id));
-                                                                            show_trace_panel.set(true);
+                                                                            active_trace.set(Some(id));
                                                                         })
                                                                     />
                                                                     {token_count.map(|tc| {
@@ -364,75 +399,73 @@ pub fn ChatSession() -> impl IntoView {
                         }
                     }}
                 </div>
+            </div>
 
-                // Trace panel (modal overlay)
-                {move || {
-                    if show_trace_panel.get() {
-                        selected_trace.get().map(|tid| {
-                            view! {
-                                <TracePanel
-                                    trace_id=tid.clone()
-                                    on_close=Callback::new(move |_| {
-                                        show_trace_panel.set(false);
-                                        selected_trace.set(None);
-                                    })
-                                />
-                            }
-                        })
-                    } else {
-                        None
-                    }
-                }}
-
-                // Error display
-                {move || {
-                    error.get().map(|e| view! {
-                        <div class="rounded-md bg-destructive/10 border border-destructive p-3 mb-4">
-                            <p class="text-sm text-destructive">{e}</p>
-                        </div>
-                    })
-                }}
-
-                // Input
-                <div class="border-t pt-4">
-                    <form
-                        class="flex gap-4"
-                        on:submit=move |ev: web_sys::SubmitEvent| {
-                            ev.prevent_default();
-                            if !loading.get() {
-                                do_send.run(());
-                            }
-                        }
-                    >
-                        <Textarea
-                            value=message
-                            placeholder="Type your message...".to_string()
-                            class="flex-1".to_string()
-                            rows=2
+            // Trace panel (modal overlay)
+            {move || {
+                active_trace.get().map(|tid| {
+                    view! {
+                        <TracePanel
+                            trace_id=tid.clone()
+                            on_close=Callback::new(move |_| {
+                                active_trace.set(None);
+                            })
                         />
-                        {move || {
-                            if streaming.get() {
-                                view! {
-                                    <Button
-                                        on_click=do_cancel
-                                        class="bg-destructive hover:bg-destructive/90".to_string()
-                                    >
-                                        "Stop"
-                                    </Button>
-                                }.into_any()
-                            } else {
-                                view! {
-                                    <Button
-                                        loading=loading.get()
-                                        on_click=do_send
-                                    >
-                                        "Send"
-                                    </Button>
-                                }.into_any()
-                            }
-                        }}
-                    </form>
-                </div>
+                    }
+                })
+            }}
+
+            // Error display
+            {move || {
+                error.get().map(|e| view! {
+                    <div class="rounded-md bg-destructive/10 border border-destructive p-3 mb-4">
+                        <p class="text-sm text-destructive">{e}</p>
+                    </div>
+                })
+            }}
+
+            // Input
+            <div class="border-t pt-4">
+                <form
+                    class="flex items-end gap-4"
+                    on:submit=move |ev: web_sys::SubmitEvent| {
+                        ev.prevent_default();
+                        if can_send.get() {
+                            do_send.run(());
+                        }
+                    }
+                >
+                    <Textarea
+                        value=message
+                        placeholder="Type your message...".to_string()
+                        class="flex-1".to_string()
+                        rows=2
+                    />
+                    {move || {
+                        if streaming.get() {
+                            view! {
+                                <Button
+                                    on_click=do_cancel
+                                    class="bg-destructive hover:bg-destructive/90".to_string()
+                                >
+                                    "Stop"
+                                </Button>
+                            }.into_any()
+                        } else {
+                            let disabled = !can_send.get();
+                            view! {
+                                <Button
+                                    loading=loading.get()
+                                    disabled=disabled
+                                    on_click=do_send
+                                >
+                                    "Send"
+                                </Button>
+                            }.into_any()
+                        }
+                    }}
+                </form>
+            </div>
         </div>
     }
 }
@@ -454,11 +487,22 @@ struct ChatMessage {
     completion_tokens: Option<u32>,
 }
 
-/// Get auth token from localStorage
-fn get_auth_token() -> Option<String> {
+/// Get CSRF token from cookies (csrf_token is not httpOnly)
+fn get_csrf_token() -> Option<String> {
+    use wasm_bindgen::JsCast;
     web_sys::window()
-        .and_then(|w| w.local_storage().ok().flatten())
-        .and_then(|s| s.get_item("auth_token").ok().flatten())
+        .and_then(|w| w.document())
+        .and_then(|d| d.dyn_into::<web_sys::HtmlDocument>().ok())
+        .and_then(|d| d.cookie().ok())
+        .and_then(|cookies| {
+            for cookie in cookies.split(';') {
+                let cookie = cookie.trim();
+                if let Some(token) = cookie.strip_prefix("csrf_token=") {
+                    return Some(token.to_string());
+                }
+            }
+            None
+        })
 }
 
 /// Format token display with breakdown if available
@@ -500,13 +544,13 @@ struct StreamTraceInfo {
 /// This function connects to the streaming inference endpoint and
 /// accumulates tokens into the assistant message in real-time.
 /// Accepts an optional AbortSignal for cancellation support.
+/// Uses httpOnly cookie-based auth with CSRF protection.
 async fn stream_inference(
     request: &StreamingInferRequest,
-    auth_token: Option<&str>,
     messages: RwSignal<Vec<ChatMessage>>,
     abort_signal: Option<&AbortSignal>,
 ) -> Result<StreamTraceInfo, String> {
-    let url = format!("{}/v1/infer/stream", api_base_url());
+    let url = format!("{}/api/v1/infer/stream", api_base_url());
 
     let body = serde_json::to_string(request)
         .map_err(|e| format!("Failed to serialize request: {}", e))?;
@@ -516,6 +560,8 @@ async fn stream_inference(
     opts.set_method("POST");
     opts.set_mode(RequestMode::Cors);
     opts.set_body(&JsValue::from_str(&body));
+    // Include credentials to send httpOnly cookies
+    opts.set_credentials(web_sys::RequestCredentials::Include);
 
     // Set the abort signal if provided
     if let Some(signal) = abort_signal {
@@ -536,11 +582,12 @@ async fn stream_inference(
         .set("Accept", "text/event-stream")
         .map_err(|e| format!("Failed to set Accept header: {:?}", e))?;
 
-    if let Some(token) = auth_token {
+    // Add CSRF token for mutation (POST request)
+    if let Some(csrf_token) = get_csrf_token() {
         request_obj
             .headers()
-            .set("Authorization", &format!("Bearer {}", token))
-            .map_err(|e| format!("Failed to set Authorization header: {:?}", e))?;
+            .set("X-CSRF-Token", &csrf_token)
+            .map_err(|e| format!("Failed to set CSRF header: {:?}", e))?;
     }
 
     // Fetch the response

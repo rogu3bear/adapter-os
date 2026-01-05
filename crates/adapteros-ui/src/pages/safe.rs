@@ -70,7 +70,7 @@ pub fn Safe() -> impl IntoView {
                     </h2>
                     <div class="space-y-2 font-mono text-sm">
                         <InfoRow label="Items Count" value=storage_info.items_count.to_string()/>
-                        <InfoRow label="Auth Token Present" value=if storage_info.has_auth_token { "Yes".to_string() } else { "No".to_string() }/>
+                        <InfoRow label="Legacy Auth Token (should be No)" value=if storage_info.has_auth_token { "Yes (INSECURE)".to_string() } else { "No (Using secure cookies)".to_string() }/>
                     </div>
                 </div>
 
@@ -377,13 +377,17 @@ fn get_storage_info() -> StorageInfo {
 
         if let Some(storage) = storage {
             let items_count = storage.length().unwrap_or(0) as usize;
-            let has_auth_token = storage.get_item("aos_auth_token").ok().flatten().is_some()
+            // Auth tokens are now in httpOnly cookies, not localStorage
+            // We can check for legacy tokens that should not exist
+            let has_legacy_token = storage.get_item("aos_auth_token").ok().flatten().is_some()
                 || storage.get_item("auth_token").ok().flatten().is_some()
                 || storage.get_item("token").ok().flatten().is_some();
 
             StorageInfo {
                 items_count,
-                has_auth_token,
+                // has_auth_token now indicates if LEGACY tokens exist (should be false)
+                // Auth is now via httpOnly cookies which can't be read from JS
+                has_auth_token: has_legacy_token,
             }
         } else {
             StorageInfo {

@@ -37,37 +37,23 @@ impl ApiClient {
         }
     }
 
-    /// Load auth token from localStorage
+    /// Initialize in-memory auth state.
+    ///
+    /// Note: Auth tokens are managed via httpOnly cookies, not localStorage.
+    /// This method returns None as the initial state; auth status is
+    /// tracked in-memory via `set_auth_status`.
     fn load_token() -> Option<String> {
-        #[cfg(target_arch = "wasm32")]
-        {
-            web_sys::window()
-                .and_then(|w| w.local_storage().ok().flatten())
-                .and_then(|s| s.get_item("auth_token").ok().flatten())
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            None
-        }
+        None
     }
 
-    /// Set authentication token
+    /// Set in-memory authentication token state.
+    ///
+    /// Note: This only updates in-memory state for tracking auth status.
+    /// Actual authentication is handled via httpOnly cookies set by the server.
+    /// No localStorage persistence is performed.
     pub fn set_token(&self, token: Option<String>) {
         if let Ok(mut guard) = self.auth_token.write() {
-            *guard = token.clone();
-        }
-
-        // Persist to localStorage
-        #[cfg(target_arch = "wasm32")]
-        if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
-            match &token {
-                Some(t) => {
-                    let _ = storage.set_item("auth_token", t);
-                }
-                None => {
-                    let _ = storage.remove_item("auth_token");
-                }
-            }
+            *guard = token;
         }
     }
 
@@ -78,6 +64,27 @@ impl ApiClient {
             .ok()
             .map(|t| t.is_some())
             .unwrap_or(false)
+    }
+
+    /// Mark client as authenticated (for httpOnly cookie auth)
+    ///
+    /// With httpOnly cookies, the browser handles auth automatically.
+    /// This sets a placeholder to track authenticated state locally.
+    pub fn set_auth_status(&self, authenticated: bool) {
+        if authenticated {
+            // Set a placeholder to indicate authenticated state
+            self.set_token(Some("cookie_auth".to_string()));
+        } else {
+            self.set_token(None);
+        }
+    }
+
+    /// Clear authentication status
+    ///
+    /// Clears local auth state. Server-side logout should also be called
+    /// to clear httpOnly cookies.
+    pub fn clear_auth_status(&self) {
+        self.set_token(None);
     }
 
     /// Build a request with common headers
@@ -287,11 +294,41 @@ impl ApiClient {
 
     // --- Training ---
 
-    /// List training jobs
+    /// List training jobs with optional filtering
     pub async fn list_training_jobs(
         &self,
+        params: Option<&adapteros_api_types::TrainingListParams>,
     ) -> ApiResult<adapteros_api_types::TrainingJobListResponse> {
-        self.get("/v1/training/jobs").await
+        let path = match params {
+            Some(p) => {
+                let mut query_parts = Vec::new();
+                if let Some(ref status) = p.status {
+                    query_parts.push(format!("status={}", status));
+                }
+                if let Some(page) = p.page {
+                    query_parts.push(format!("page={}", page));
+                }
+                if let Some(page_size) = p.page_size {
+                    query_parts.push(format!("page_size={}", page_size));
+                }
+                if let Some(ref adapter_name) = p.adapter_name {
+                    query_parts.push(format!("adapter_name={}", adapter_name));
+                }
+                if let Some(ref template_id) = p.template_id {
+                    query_parts.push(format!("template_id={}", template_id));
+                }
+                if let Some(ref dataset_id) = p.dataset_id {
+                    query_parts.push(format!("dataset_id={}", dataset_id));
+                }
+                if query_parts.is_empty() {
+                    "/v1/training/jobs".to_string()
+                } else {
+                    format!("/v1/training/jobs?{}", query_parts.join("&"))
+                }
+            }
+            None => "/v1/training/jobs".to_string(),
+        };
+        self.get(&path).await
     }
 
     /// Get training job details
@@ -501,9 +538,16 @@ impl ApiClient {
 
     // --- Repositories ---
 
-    /// List all repositories
-    pub async fn list_repositories(&self) -> ApiResult<RepositoryListResponse> {
-        self.get("/v1/repositories").await
+    /// List all repositories with optional status filter
+    pub async fn list_repositories(
+        &self,
+        status: Option<&str>,
+    ) -> ApiResult<RepositoryListResponse> {
+        let path = match status {
+            Some(s) => format!("/v1/repositories?status={}", s),
+            None => "/v1/repositories".to_string(),
+        };
+        self.get(&path).await
     }
 
     /// Get repository details by ID
@@ -607,6 +651,76 @@ impl ApiClient {
     /// Get compliance audit report
     pub async fn get_compliance_audit(&self) -> ApiResult<ComplianceAuditResponse> {
         self.get("/v1/audit/compliance").await
+    }
+
+    // --- Diagnostics ---
+
+    /// List diagnostic runs with filtering
+    pub async fn list_diag_runs(
+        &self,
+        query: &adapteros_api_types::diagnostics::ListDiagRunsQuery,
+    ) -> ApiResult<adapteros_api_types::diagnostics::ListDiagRunsResponse> {
+        let mut path = "/v1/diag/runs?".to_string();
+        let mut params = Vec::new();
+
+        if let Some(since) = query.since {
+            params.push(format!("since={}", since));
+        }
+        if let Some(limit) = query.limit {
+            params.push(format!("limit={}", limit));
+        }
+        if let Some(ref after) = query.after {
+            params.push(format!("after={}", after));
+        }
+        if let Some(ref status) = query.status {
+            params.push(format!("status={}", status));
+        }
+
+        path.push_str(&params.join("&"));
+        self.get(&path).await
+    }
+
+    /// Compare two diagnostic runs to find deterministic divergence
+    pub async fn diff_diag_runs(
+        &self,
+        request: &adapteros_api_types::diagnostics::DiagDiffRequest,
+    ) -> ApiResult<adapteros_api_types::diagnostics::DiagDiffResponse> {
+        self.post("/v1/diag/diff", request).await
+    }
+
+    /// Export a diagnostic run with all events and timing
+    pub async fn export_diag_run(
+        &self,
+        run_id: &str,
+    ) -> ApiResult<adapteros_api_types::diagnostics::DiagExportResponse> {
+        self.get(&format!("/v1/diag/runs/{}/export", run_id)).await
+    }
+
+    // --- Search ---
+
+    /// Global search across entities
+    pub async fn search(
+        &self,
+        query: &str,
+        scope: Option<&str>,
+        limit: Option<u32>,
+    ) -> ApiResult<SearchResponse> {
+        // Simple URL encoding for search query
+        let encoded_query = query
+            .replace('%', "%25")
+            .replace(' ', "%20")
+            .replace('&', "%26")
+            .replace('=', "%3D")
+            .replace('+', "%2B")
+            .replace('#', "%23");
+        let mut path = format!("/v1/search?q={}", encoded_query);
+        if let Some(s) = scope {
+            path.push_str(&format!("&scope={}", s));
+        }
+        if let Some(l) = limit {
+            path.push_str(&format!("&limit={}", l));
+        }
+        self.get(&path).await
     }
 
     // --- Documents ---
@@ -1615,6 +1729,40 @@ pub struct ProcessDocumentResponse {
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+}
+
+// ============================================================================
+// Search types
+// ============================================================================
+
+/// Search result item
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SearchResultItem {
+    /// Result type: "adapter", "page", etc.
+    pub result_type: String,
+    /// Unique ID
+    pub id: String,
+    /// Display title
+    pub title: String,
+    /// Subtitle/description
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subtitle: Option<String>,
+    /// Link/path to navigate to
+    pub path: String,
+    /// Relevance score (0.0 - 1.0)
+    pub score: f32,
+}
+
+/// Search response
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SearchResponse {
+    /// Search results
+    pub results: Vec<SearchResultItem>,
+    /// Total count (may be approximate)
+    pub total: u32,
+    /// Query execution time in milliseconds
+    #[serde(default)]
+    pub took_ms: u64,
 }
 
 // ============================================================================
