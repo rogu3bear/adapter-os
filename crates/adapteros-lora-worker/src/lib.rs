@@ -138,6 +138,7 @@ pub mod generation;
 pub mod health;
 mod inference_management;
 pub mod inference_metrics;
+pub mod inference_pause;
 pub mod inference_pipeline;
 pub mod kv_quota;
 pub mod kvcache;
@@ -161,6 +162,7 @@ pub mod prefix_kv_cache;
 pub mod reasoning_router;
 pub mod request_pinner;
 pub mod resource_monitor;
+pub mod review_trigger;
 pub mod router_bridge;
 pub mod services;
 pub mod signal;
@@ -987,6 +989,8 @@ pub struct Worker<K: FusedKernels + StrictnessControl + Send + Sync + 'static> {
     worker_id: u32,
     /// Critical component metrics for Prometheus export
     critical_metrics: Option<Arc<CriticalComponentMetrics>>,
+    /// Inference pause registry for human-in-the-loop review protocol
+    pause_registry: Option<Arc<inference_pause::InferencePauseRegistry>>,
 }
 
 impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
@@ -1363,7 +1367,17 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             inference_cancellations,
             worker_id,
             critical_metrics,
+            pause_registry: None,
         })
+    }
+
+    /// Set inference pause registry for human-in-the-loop review protocol
+    pub fn with_pause_registry(
+        mut self,
+        registry: Arc<inference_pause::InferencePauseRegistry>,
+    ) -> Self {
+        self.pause_registry = Some(registry);
+        self
     }
 
     /// Start background GPU verification task
@@ -2987,6 +3001,11 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         let mut pending_hotswap: Option<u16> = None;
         let mut reasoning_swap_guard = ReasoningSwapGuard::new(MAX_REASONING_SWAPS);
 
+        // Review trigger detector for human-in-the-loop pause/resume
+        let mut review_detector = review_trigger::ReviewTriggerDetector::new(
+            review_trigger::ReviewTriggerConfig::default(),
+        );
+
         for step in 0..max_tokens_remaining {
             let step_with_free = free_token_offset + step;
             self.check_inference_cancelled(
@@ -3370,6 +3389,54 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                     }
                     Err(e) => {
                         warn!(error = %e, "Failed to decode streaming token");
+                    }
+                }
+            }
+
+            // Review trigger detection - pause for human review if triggered
+            if let Some(ref registry) = self.pause_registry {
+                if let Ok(token_text) = self.tokenizer.decode(&[next_token]) {
+                    if let Some(trigger) = review_detector.on_token(&token_text) {
+                        info!(
+                            kind = ?trigger.kind,
+                            token_index = trigger.token_index,
+                            confidence = trigger.confidence,
+                            "Review trigger detected, pausing for human review"
+                        );
+
+                        let (pause_token, ctx) =
+                            review_detector.create_pause_token(&trigger, &request.cpid);
+                        let pause_id = pause_token.pause_id.clone();
+                        let resume_rx = registry.register(pause_token);
+
+                        // Emit Paused event via stream to notify server
+                        if let Some(ref tx) = stream_tx {
+                            let text_so_far = self.tokenizer.decode(&generated_tokens).ok();
+                            let paused_event = WorkerStreamEvent::Paused {
+                                pause_id: pause_id.clone(),
+                                inference_id: request.cpid.clone(),
+                                trigger_kind: format!("{:?}", trigger.kind),
+                                context: ctx.question.clone(),
+                                text_so_far,
+                                token_count: generated_tokens.len(),
+                            };
+                            if tx.send(paused_event).await.is_err() {
+                                warn!("Failed to send Paused event to stream");
+                            }
+                        }
+
+                        // Block until human submits review via UDS
+                        info!(pause_id = %pause_id, "Waiting for human review...");
+                        match resume_rx.await {
+                            Ok(_review) => {
+                                info!(pause_id = %pause_id, "Review submitted, resuming inference");
+                            }
+                            Err(_) => {
+                                return Err(AosError::Worker(
+                                    "Review channel closed before response".to_string(),
+                                ));
+                            }
+                        }
                     }
                 }
             }

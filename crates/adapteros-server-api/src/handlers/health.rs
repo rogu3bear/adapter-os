@@ -165,10 +165,7 @@ pub struct BootPhaseDuration {
         (status = 503, description = "Service is not ready", body = ReadyzResponse)
     )
 )]
-#[allow(unused_assignments)] // ready is initialized but always overwritten before use
 pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
-    let mut ready = true;
-
     let mut db_check = ReadyzCheck {
         ok: true,
         hint: None,
@@ -206,7 +203,6 @@ pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
 
     // Check boot state - only return ready if in Ready state
     let Some(ref boot_state) = state.boot_state else {
-        ready = false;
         worker_check.ok = false;
         worker_check.hint = Some("boot state manager not configured".to_string());
 
@@ -220,7 +216,7 @@ pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
         return (
             status_code,
             Json(ReadyzResponse {
-                ready,
+                ready: false,
                 checks: ReadyzChecks {
                     db: db_check,
                     worker: worker_check,
@@ -442,7 +438,7 @@ pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
     // - Strict: all checks must pass
     // - Relaxed: skip specified checks (e.g., worker check when skip_worker_check is set)
     // - DevBypass: all checks informational only
-    ready = match &readiness_mode {
+    let ready = match &readiness_mode {
         ReadinessMode::Strict => db_check.ok && worker_check.ok && models_seeded_check.ok,
         ReadinessMode::Relaxed { relaxed_checks } => {
             // Start with db check (always required)

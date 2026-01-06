@@ -398,3 +398,15 @@ cargo clippy --workspace -- -D warnings
 - `configs/`: Runtime configuration
 - `tests/`: Workspace-level integration tests
 - `scripts/`: Build and utility scripts
+- `docs/`: Architecture documentation
+
+## Human-in-the-Loop Review
+
+AdapterOS supports a review workflow where the system surfaces items needing human review (inference pauses, dataset safety gates, promotion approvals). External reviewers—including AI assistants like Claude Code—can provide structured feedback.
+
+See `docs/REVIEW_WORKFLOW.md` for the full architecture.
+
+Key entry points:
+- **Review types**: `crates/adapteros-api-types/src/review.rs`
+- **Promotion workflow**: `crates/adapteros-db/src/promotions.rs`
+- **Quarantine system**: `crates/adapteros-policy/src/quarantine.rs`

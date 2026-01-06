@@ -193,6 +193,21 @@ pub enum WorkerStreamEvent {
     Token(StreamToken),
     Complete(Box<crate::InferenceResponse>),
     Error(String),
+    /// Inference paused for human review
+    Paused {
+        /// Unique pause ID for resume correlation
+        pause_id: String,
+        /// Inference request ID
+        inference_id: String,
+        /// Why the pause was triggered
+        trigger_kind: String,
+        /// Context for the reviewer
+        context: Option<String>,
+        /// Generated text so far
+        text_so_far: Option<String>,
+        /// Token count at pause point
+        token_count: usize,
+    },
 }
 
 /// Patch proposal response with patches and citations

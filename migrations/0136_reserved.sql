@@ -1,0 +1,3 @@
+-- Reserved for future auth schema changes
+-- This placeholder maintains sequence completeness
+-- See migrations/README.md for details

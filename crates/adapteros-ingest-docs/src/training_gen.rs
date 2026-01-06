@@ -359,7 +359,7 @@ mod tests {
             .build()
             .expect("wordlevel model");
         let mut tokenizer = Tokenizer::new(model);
-        tokenizer.with_pre_tokenizer(Whitespace::default());
+        tokenizer.with_pre_tokenizer(Whitespace);
         Arc::new(tokenizer)
     }
 }

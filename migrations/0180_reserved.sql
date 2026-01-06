@@ -1,0 +1,3 @@
+-- Reserved for future federation features
+-- This placeholder maintains sequence completeness
+-- See migrations/README.md for details

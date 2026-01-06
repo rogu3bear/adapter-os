@@ -12,7 +12,7 @@
 //! - In-flight request counter for graceful shutdown
 //! - Drain timeout for connection draining
 //!
-//! It also generates and writes the boot report to `var/run/boot_report.json` for
+//! It also generates and writes the boot report to `AOS_VAR_DIR/run/boot_report.json` for
 //! external monitoring and verification of server readiness.
 
 use adapteros_boot::BootReport;
@@ -21,6 +21,7 @@ use adapteros_server_api::config::Config;
 use adapteros_server_api::routes;
 use adapteros_server_api::AppState;
 use anyhow::Result;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
@@ -154,7 +155,7 @@ pub async fn finalize_boot(
     })
 }
 
-/// Writes the boot report to `var/run/boot_report.json`.
+/// Writes the boot report to `AOS_VAR_DIR/run/boot_report.json`.
 ///
 /// The boot report contains:
 /// - Config hash (SHA-256 of serialized config)
@@ -181,6 +182,8 @@ pub fn write_boot_report(
     worker_keypair: Option<&ed25519_dalek::SigningKey>,
     strict_mode: bool,
 ) -> Result<()> {
+    let report_path = resolve_boot_report_path()?;
+
     // Serialize config for hashing. Handle errors explicitly instead of silently
     // producing an empty hash which would mask config issues.
     let config_bytes = {
@@ -217,27 +220,89 @@ pub fn write_boot_report(
     report.emit_log();
 
     // Write to file
-    let report_path = "var/run/boot_report.json";
-    match report.write_to_file(report_path) {
+    if let Some(parent) = report_path.parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            if strict_mode {
+                error!(
+                    error = %e,
+                    path = %report_path.display(),
+                    "STRICT MODE: Failed to create boot report directory"
+                );
+                return Err(anyhow::anyhow!(
+                    "Strict mode requires boot report directory at {}",
+                    report_path.display()
+                ));
+            }
+            warn!(
+                error = %e,
+                path = %report_path.display(),
+                "Failed to create boot report directory"
+            );
+        }
+    }
+
+    let report_path_str = report_path.to_string_lossy();
+    match report.write_to_file(&report_path_str) {
         Ok(()) => {
-            info!(path = %report_path, "Boot report written");
+            info!(path = %report_path.display(), "Boot report written");
             Ok(())
         }
         Err(e) => {
             if strict_mode {
                 error!(
                     error = %e,
-                    path = %report_path,
+                    path = %report_path.display(),
                     "STRICT MODE: Failed to write boot report"
                 );
                 Err(anyhow::anyhow!(
                     "Strict mode requires boot report at {}",
-                    report_path
+                    report_path.display()
                 ))
             } else {
-                warn!(error = %e, path = %report_path, "Failed to write boot report");
+                warn!(
+                    error = %e,
+                    path = %report_path.display(),
+                    "Failed to write boot report"
+                );
                 Ok(())
             }
         }
     }
+}
+
+fn resolve_boot_report_path() -> Result<PathBuf> {
+    let var_base = std::env::var("AOS_VAR_DIR").unwrap_or_else(|_| "var".to_string());
+    let report_dir = PathBuf::from(&var_base).join("run");
+    let report_path = report_dir.join("boot_report.json");
+
+    enforce_no_default_var_write(&report_path)?;
+
+    Ok(report_path)
+}
+
+fn enforce_no_default_var_write(report_path: &Path) -> Result<()> {
+    let Some(env_val) = std::env::var("AOS_VAR_DIR").ok() else {
+        return Ok(());
+    };
+    let trimmed = env_val.trim();
+    if trimmed.is_empty() || trimmed == "var" || trimmed == "./var" {
+        return Ok(());
+    }
+
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let default_var = cwd.join("var");
+    let resolved = if report_path.is_absolute() {
+        report_path.to_path_buf()
+    } else {
+        cwd.join(report_path)
+    };
+
+    if resolved.starts_with(&default_var) {
+        return Err(anyhow::anyhow!(
+            "boot report path resolves under default var/ while AOS_VAR_DIR is set: {}",
+            resolved.display()
+        ));
+    }
+
+    Ok(())
 }

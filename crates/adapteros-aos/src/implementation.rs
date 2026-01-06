@@ -419,10 +419,7 @@ mod tests {
     #[test]
     fn test_read_u64_as_usize_small_value() {
         let value = 42u64.to_le_bytes();
-        assert_eq!(
-            read_u64_as_usize(&value, "index offset").unwrap(),
-            42
-        );
+        assert_eq!(read_u64_as_usize(&value, "index offset").unwrap(), 42);
     }
 
     #[test]

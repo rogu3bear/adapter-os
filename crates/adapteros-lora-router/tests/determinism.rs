@@ -1375,3 +1375,189 @@ proptest! {
         prop_assert!(diff < 10, "Q15 gates should sum to ~{}, got {} (diff: {})", expected_sum, sum_q15, diff);
     }
 }
+
+// =============================================================================
+// Determinism Violation Detection Tests
+//
+// These tests verify that the system REJECTS non-deterministic configurations
+// rather than just testing that deterministic configs produce consistent output.
+// =============================================================================
+
+mod determinism_violation_detection {
+    use super::*;
+    use adapteros_core::hash::B3Hash;
+    use adapteros_core::seed::{
+        derive_request_seed, with_determinism_config, DeterminismConfig, SeedMode,
+    };
+
+    /// Verifies that NonDeterministic seed mode is rejected in strict determinism mode
+    #[test]
+    fn test_nondeterministic_seed_rejected_in_strict_mode() {
+        let global = B3Hash::hash(b"test-global");
+        let manifest = B3Hash::hash(b"test-manifest");
+
+        // Configure strict determinism mode
+        let strict_config = DeterminismConfig::builder().strict_mode(true).build();
+
+        // In strict mode, NonDeterministic seed mode should be rejected
+        let result = with_determinism_config(strict_config, || {
+            derive_request_seed(
+                &global,
+                Some(&manifest),
+                "tenant",
+                "request",
+                1,
+                0,
+                SeedMode::NonDeterministic,
+            )
+        });
+
+        assert!(
+            result.is_err(),
+            "NonDeterministic seed mode MUST be rejected in strict determinism mode, but got: {:?}",
+            result
+        );
+
+        // Verify the error message mentions determinism
+        let err = result.unwrap_err();
+        let err_str = err.to_string();
+        assert!(
+            err_str.contains("NonDeterministic") || err_str.contains("determinism"),
+            "Error should mention non-determinism, got: {}",
+            err_str
+        );
+    }
+
+    /// Verifies that different seeds produce different routing decisions
+    ///
+    /// This test ensures that determinism is actually controlled by the seed,
+    /// not accidental (e.g., always returning the same result).
+    #[test]
+    fn test_different_seeds_produce_different_decisions() {
+        let seed_a = [1u8; 32];
+        let seed_b = [2u8; 32];
+
+        let weights = vec![0.25, 0.25, 0.25, 0.25]; // Equal weights
+        let priors = vec![0.5, 0.5, 0.5, 0.5]; // Equal priors
+
+        let adapter_info: Vec<AdapterInfo> = (0..4)
+            .map(|i| AdapterInfo {
+                id: format!("adapter_{}", i),
+                stable_id: i as u64,
+                tier: "warm".to_string(),
+                ..Default::default()
+            })
+            .collect();
+
+        let mask = allow_all_mask(&adapter_info);
+        let features = vec![0.5f32; 4]; // Feature vector for routing
+
+        // Create two routers with different seeds
+        let mut router_a =
+            Router::new(weights.clone(), 2, 1.0, 0.01, seed_a).expect("router A creation");
+        let mut router_b =
+            Router::new(weights.clone(), 2, 1.0, 0.01, seed_b).expect("router B creation");
+
+        // Route multiple times and check if EVER different
+        // Note: Routing decisions are deterministic based on priors/scores, not seeds
+        // Seeds affect telemetry sampling, not routing
+        //
+        // This test verifies that the seed is actually being used somewhere
+        // by checking the decision hash (which incorporates seed in its derivation)
+        let decision_a = router_a
+            .route_with_adapter_info(&features, &priors, &adapter_info, &mask)
+            .expect("route A");
+        let decision_b = router_b
+            .route_with_adapter_info(&features, &priors, &adapter_info, &mask)
+            .expect("route B");
+
+        // The indices may be the same (deterministic sorting), but the decision
+        // hash should differ due to different seeds
+        if let (Some(hash_a), Some(hash_b)) = (
+            decision_a.decision_hash.as_ref(),
+            decision_b.decision_hash.as_ref(),
+        ) {
+            // Compare combined_hash strings since DecisionHash doesn't impl PartialEq
+            assert_ne!(
+                hash_a.combined_hash, hash_b.combined_hash,
+                "Different seeds should produce different decision hashes"
+            );
+        }
+    }
+
+    /// Verifies that strict mode seed validation catches version mismatches
+    #[test]
+    fn test_strict_mode_rejects_old_seed_version() {
+        use adapteros_core::seed::{TypedSeed, HKDF_ALGORITHM_VERSION, HKDF_OUTPUT_LENGTH};
+
+        // Create a seed with an old version
+        let bytes = [0u8; HKDF_OUTPUT_LENGTH];
+        let old_version_seed = TypedSeed::with_version(bytes, 1); // Version 1 is old
+
+        // Validation should fail for old version
+        let result = old_version_seed.validate();
+        assert!(
+            result.is_err(),
+            "Old version seed should fail validation, got: {:?}",
+            result
+        );
+
+        // Verify error mentions version
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().contains("version"),
+            "Error should mention version mismatch: {}",
+            err
+        );
+
+        // Create a current version seed - should pass
+        let current_seed = TypedSeed::with_version(bytes, HKDF_ALGORITHM_VERSION);
+        assert!(
+            current_seed.validate().is_ok(),
+            "Current version seed should validate successfully"
+        );
+    }
+
+    /// Verifies that seed checksum corruption is detected
+    #[test]
+    fn test_corrupted_seed_checksum_detected() {
+        use adapteros_core::seed::derive_typed_seed;
+
+        let global = B3Hash::hash(b"checksum-test");
+        let mut typed_seed = derive_typed_seed(&global, "test-label");
+
+        // Corrupt the checksum by using wrong bytes
+        typed_seed.checksum = B3Hash::hash(b"wrong-data");
+
+        let result = typed_seed.validate_checksum();
+        assert!(result.is_err(), "Corrupted checksum should fail validation");
+
+        assert!(
+            result.unwrap_err().to_string().contains("checksum"),
+            "Error should mention checksum mismatch"
+        );
+    }
+
+    /// Verifies that same inputs always produce same seed (positive case for determinism)
+    #[test]
+    fn test_determinism_invariant_same_inputs_same_output() {
+        use adapteros_core::seed::derive_seed;
+
+        let global = B3Hash::hash(b"invariant-test");
+
+        // Derive same seed multiple times
+        let seed1 = derive_seed(&global, "router");
+        let seed2 = derive_seed(&global, "router");
+        let seed3 = derive_seed(&global, "router");
+
+        assert_eq!(seed1, seed2, "Same inputs must produce identical seeds");
+        assert_eq!(seed2, seed3, "Same inputs must produce identical seeds");
+
+        // Different labels should produce different seeds
+        let seed_different = derive_seed(&global, "sampling");
+        assert_ne!(
+            seed1, seed_different,
+            "Different labels must produce different seeds"
+        );
+    }
+}

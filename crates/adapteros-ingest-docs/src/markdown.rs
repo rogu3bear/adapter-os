@@ -2,7 +2,7 @@ use crate::chunker::DocumentChunker;
 use crate::types::{DocumentSource, IngestedDocument};
 use crate::utils::{finalize_chunks, normalize_whitespace};
 use adapteros_core::{AosError, B3Hash, Result};
-use pulldown_cmark::{Event, Options, Parser, Tag};
+use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use std::path::{Path, PathBuf};
 
 const MAX_MARKDOWN_BYTES: usize = 5 * 1024 * 1024; // 5 MiB input cap
@@ -105,7 +105,7 @@ fn render_markdown(markdown: &str) -> Result<String> {
                     buffer.push('\n');
                 }
             }
-            Event::Start(Tag::Heading(..)) | Event::Start(Tag::Paragraph) => {
+            Event::Start(Tag::Heading { .. }) | Event::Start(Tag::Paragraph) => {
                 if !buffer.is_empty() && !buffer.ends_with('\n') {
                     buffer.push('\n');
                 }
@@ -117,7 +117,7 @@ fn render_markdown(markdown: &str) -> Result<String> {
                     )));
                 }
             }
-            Event::End(Tag::Heading(..)) | Event::End(Tag::Paragraph) => {
+            Event::End(TagEnd::Heading(_)) | Event::End(TagEnd::Paragraph) => {
                 if !buffer.ends_with('\n') {
                     buffer.push('\n');
                 }
@@ -135,7 +135,7 @@ fn render_markdown(markdown: &str) -> Result<String> {
                     )));
                 }
             }
-            Event::End(Tag::List(_)) => {
+            Event::End(TagEnd::List(_)) => {
                 if !buffer.ends_with('\n') {
                     buffer.push('\n');
                 }
@@ -154,7 +154,7 @@ fn render_markdown(markdown: &str) -> Result<String> {
                     )));
                 }
             }
-            Event::End(Tag::Item) => {
+            Event::End(TagEnd::Item) => {
                 if !buffer.ends_with('\n') {
                     buffer.push('\n');
                 }

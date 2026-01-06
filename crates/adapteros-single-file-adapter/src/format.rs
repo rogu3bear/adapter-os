@@ -119,20 +119,26 @@ impl CompressionLevel {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AdapterManifest {
     /// .aos format version (for binary compatibility checks)
+    #[serde(default = "default_format_version")]
     pub format_version: u8,
     /// Manifest schema version (semantic versioning, e.g., "1.0.0")
     /// Used for backward-compatible JSON structure evolution
     #[serde(default = "default_schema_version")]
     pub schema_version: String,
+    #[serde(default)]
     pub adapter_id: String,
     /// Content hash: BLAKE3(manifest_json + weights_bytes)
     /// This is the canonical identity for the adapter across systems
     #[serde(default)]
     pub content_hash: Option<String>,
+    #[serde(default = "default_version")]
     pub version: String,
+    #[serde(default = "default_rank")]
     pub rank: u32,
+    #[serde(default = "default_alpha")]
     pub alpha: f32,
     /// Base model name (e.g., "qwen2.5-7b")
+    #[serde(default)]
     pub base_model: String,
     /// Base model ID (FK reference to models.id for validation)
     #[serde(default)]
@@ -143,33 +149,82 @@ pub struct AdapterManifest {
     /// Quantization format: "q15", "f16", "f32", etc.
     #[serde(default)]
     pub quantization: Option<String>,
+    #[serde(default)]
     pub category: String,
+    #[serde(default)]
     pub scope: String,
+    #[serde(default)]
     pub tier: String,
     #[serde(default = "default_recommended_for_moe")]
     pub recommended_for_moe: bool,
+    #[serde(default)]
     pub target_modules: Vec<String>,
+    #[serde(default)]
     pub created_at: String,
+    #[serde(default)]
     pub weights_hash: String,
+    #[serde(default)]
     pub training_data_hash: String,
     /// Optional per-layer BLAKE3 hashes keyed by canonical logical layer path
     /// (e.g., "transformer.layer_12.attn.q_proj.lora_A"). Backward-compatible:
-    /// absent for older manifests.
+    /// absent for older manifests. Accepts either string hashes or {hash, tensor_name} objects.
     #[serde(default)]
-    pub per_layer_hashes: Option<HashMap<String, String>>,
+    pub per_layer_hashes: Option<HashMap<String, serde_json::Value>>,
     /// Compression method used for weights
     #[serde(default)]
     pub compression_method: String,
     /// Weight group configuration
+    #[serde(default)]
     pub weight_groups: WeightGroupConfig,
     /// Full training provenance (embedded for portability)
     #[serde(default)]
     pub provenance: Option<ProvenanceData>,
+    #[serde(default)]
     pub metadata: HashMap<String, String>,
+    /// Training configuration (from packager)
+    #[serde(default)]
+    pub training_config: Option<serde_json::Value>,
+    /// CoreML placement configuration
+    #[serde(default)]
+    pub coreml_placement: Option<serde_json::Value>,
+    /// Synthetic mode flag
+    #[serde(default)]
+    pub synthetic_mode: Option<bool>,
+    /// Determinism level
+    #[serde(default)]
+    pub determinism: Option<String>,
+    /// Gate Q15 denominator
+    #[serde(default)]
+    pub gate_q15_denominator: Option<u32>,
+    /// Kernel version
+    #[serde(default)]
+    pub kernel_version: Option<String>,
+    /// Training backend
+    #[serde(default)]
+    pub training_backend: Option<String>,
+    /// Base model hash
+    #[serde(default)]
+    pub base_model_hash: Option<String>,
+}
+
+fn default_format_version() -> u8 {
+    AOS_FORMAT_VERSION
 }
 
 fn default_schema_version() -> String {
     MANIFEST_SCHEMA_VERSION.to_string()
+}
+
+fn default_version() -> String {
+    "1.0.0".to_string()
+}
+
+fn default_rank() -> u32 {
+    16
+}
+
+fn default_alpha() -> f32 {
+    32.0
 }
 
 fn default_recommended_for_moe() -> bool {
@@ -404,6 +459,15 @@ impl SingleFileAdapter {
             weight_groups: WeightGroupConfig::default(),
             provenance: options.provenance,
             metadata,
+            // Optional fields from packager manifest
+            training_config: None,
+            coreml_placement: None,
+            synthetic_mode: None,
+            determinism: None,
+            gate_q15_denominator: None,
+            kernel_version: None,
+            training_backend: None,
+            base_model_hash: None,
         };
 
         let mut adapter = Self {

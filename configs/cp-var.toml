@@ -23,7 +23,11 @@ session_lifetime = 43200
 # MUST be true in production!
 require_pf_deny = false
 mtls_required = false
-jwt_secret = "CHANGE_ME_IN_PRODUCTION_USE_64_CHAR_RANDOM_STRING_HERE_XXXXXXXXX"
+# SECURITY: JWT secret MUST be set via environment variable in production!
+# Generate with: openssl rand -base64 64
+# Set: AOS_SECURITY_JWT_SECRET=<your-64-char-random-string>
+# The placeholder below is for local development only and will be rejected in production mode.
+jwt_secret = "DEV_ONLY_NOT_FOR_PRODUCTION_CHANGE_VIA_ENV_VAR_AOS_SECURITY_JWT"
 jwt_mode = "hmac"
 dev_login_enabled = true
 
@@ -87,7 +91,10 @@ max_concurrent_training_jobs = 5
 
 [metrics]
 enabled = true
-bearer_token = "CHANGE_ME_METRICS_TOKEN_32_CHARS_MIN"
+# SECURITY: Metrics bearer token MUST be set via environment variable in production!
+# Generate with: openssl rand -base64 32
+# Set: AOS_METRICS_BEARER_TOKEN=<your-32-char-random-string>
+bearer_token = "DEV_ONLY_METRICS_TOKEN_NOT_FOR_PRODUCTION"
 include_histogram = true
 histogram_buckets = [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0]
 

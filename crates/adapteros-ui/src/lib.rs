@@ -43,6 +43,66 @@ use components::{AuthProvider, CommandPalette, ProtectedRoute, Shell};
 use signals::{provide_chat_context, provide_notifications_context, provide_search_context};
 use std::sync::Arc;
 
+/// Pre-compiled regex patterns for sensitive data redaction.
+///
+/// Using OnceLock ensures patterns are compiled exactly once,
+/// avoiding the overhead of regex compilation on every call.
+struct RedactionPatterns {
+    bearer: regex_lite::Regex,
+    jwt: regex_lite::Regex,
+    key_value: Vec<(regex_lite::Regex, &'static str)>,
+}
+
+impl RedactionPatterns {
+    fn new() -> Self {
+        Self {
+            // Matches: "Bearer eyJ..." or "bearer abc123..."
+            bearer: regex_lite::Regex::new(r"(?i)Bearer\s+[A-Za-z0-9\-_\.]+").unwrap(),
+            // Matches standalone JWTs (base64.base64.base64)
+            jwt: regex_lite::Regex::new(r"eyJ[A-Za-z0-9\-_]+\.eyJ[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+")
+                .unwrap(),
+            // Key=value patterns for sensitive keys
+            key_value: vec![
+                (
+                    regex_lite::Regex::new(r"(?i)jwt\s*=\s*[^\s&]+").unwrap(),
+                    "jwt=[REDACTED]",
+                ),
+                (
+                    regex_lite::Regex::new(r"(?i)auth_token\s*=\s*[^\s&]+").unwrap(),
+                    "auth_token=[REDACTED]",
+                ),
+                (
+                    regex_lite::Regex::new(r"(?i)password\s*=\s*[^\s&]+").unwrap(),
+                    "password=[REDACTED]",
+                ),
+                (
+                    regex_lite::Regex::new(r"(?i)api_key\s*=\s*[^\s&]+").unwrap(),
+                    "api_key=[REDACTED]",
+                ),
+                (
+                    regex_lite::Regex::new(r"(?i)secret\s*=\s*[^\s&]+").unwrap(),
+                    "secret=[REDACTED]",
+                ),
+                (
+                    regex_lite::Regex::new(r"(?i)access_token\s*=\s*[^\s&]+").unwrap(),
+                    "access_token=[REDACTED]",
+                ),
+                (
+                    regex_lite::Regex::new(r"(?i)refresh_token\s*=\s*[^\s&]+").unwrap(),
+                    "refresh_token=[REDACTED]",
+                ),
+                (
+                    regex_lite::Regex::new(r"(?i)Authorization:\s*[^\r\n]+").unwrap(),
+                    "Authorization: [REDACTED]",
+                ),
+            ],
+        }
+    }
+}
+
+/// Static storage for pre-compiled redaction patterns.
+static REDACTION_PATTERNS: std::sync::OnceLock<RedactionPatterns> = std::sync::OnceLock::new();
+
 /// PRD-UI-000: Redact sensitive information from panic messages.
 ///
 /// Scrubs Bearer tokens, JWTs, passwords, and auth tokens from error messages
@@ -57,43 +117,26 @@ use std::sync::Arc;
 /// - `api_key=<value>` -> `api_key=[REDACTED]`
 /// - `secret=<value>` -> `secret=[REDACTED]`
 pub fn redact_sensitive_info(message: &str) -> String {
+    let patterns = REDACTION_PATTERNS.get_or_init(RedactionPatterns::new);
+
     let mut result = message.to_string();
 
     // Redact Bearer tokens (handles both header format and inline)
-    // Matches: "Bearer eyJ..." or "bearer abc123..."
-    let bearer_re = regex_lite::Regex::new(r"(?i)Bearer\s+[A-Za-z0-9\-_\.]+").unwrap();
-    result = bearer_re
+    result = patterns
+        .bearer
         .replace_all(&result, "Bearer [REDACTED]")
         .to_string();
 
     // Redact JWT patterns (base64.base64.base64)
     // This catches standalone JWTs that might not have Bearer prefix
-    let jwt_re =
-        regex_lite::Regex::new(r"eyJ[A-Za-z0-9\-_]+\.eyJ[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+").unwrap();
-    result = jwt_re.replace_all(&result, "[REDACTED_JWT]").to_string();
+    result = patterns
+        .jwt
+        .replace_all(&result, "[REDACTED_JWT]")
+        .to_string();
 
     // Redact key=value patterns for sensitive keys
-    let patterns = [
-        (r"(?i)jwt\s*=\s*[^\s&]+", "jwt=[REDACTED]"),
-        (r"(?i)auth_token\s*=\s*[^\s&]+", "auth_token=[REDACTED]"),
-        (r"(?i)password\s*=\s*[^\s&]+", "password=[REDACTED]"),
-        (r"(?i)api_key\s*=\s*[^\s&]+", "api_key=[REDACTED]"),
-        (r"(?i)secret\s*=\s*[^\s&]+", "secret=[REDACTED]"),
-        (r"(?i)access_token\s*=\s*[^\s&]+", "access_token=[REDACTED]"),
-        (
-            r"(?i)refresh_token\s*=\s*[^\s&]+",
-            "refresh_token=[REDACTED]",
-        ),
-        (
-            r"(?i)Authorization:\s*[^\r\n]+",
-            "Authorization: [REDACTED]",
-        ),
-    ];
-
-    for (pattern, replacement) in patterns {
-        if let Ok(re) = regex_lite::Regex::new(pattern) {
-            result = re.replace_all(&result, replacement).to_string();
-        }
+    for (re, replacement) in &patterns.key_value {
+        result = re.replace_all(&result, *replacement).to_string();
     }
 
     result
@@ -137,12 +180,17 @@ pub fn App() -> impl IntoView {
                         <Route path=path!("/documents/:id") view=|| view! { <ProtectedRoute><Shell><pages::DocumentDetail/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/admin") view=|| view! { <ProtectedRoute><Shell><pages::Admin/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/audit") view=|| view! { <ProtectedRoute><Shell><pages::Audit/></Shell></ProtectedRoute> }/>
+                        <Route path=path!("/runs") view=|| view! { <ProtectedRoute><Shell><pages::FlightRecorder/></Shell></ProtectedRoute> }/>
+                        <Route path=path!("/runs/:id") view=|| view! { <ProtectedRoute><Shell><pages::FlightRecorderDetail/></Shell></ProtectedRoute> }/>
+                        <Route path=path!("/diff") view=|| view! { <ProtectedRoute><Shell><pages::Diff/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/workers") view=|| view! { <ProtectedRoute><Shell><pages::Workers/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/workers/:id") view=|| view! { <ProtectedRoute><Shell><pages::WorkerDetail/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/repositories") view=|| view! { <ProtectedRoute><Shell><pages::Repositories/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/repositories/:id") view=|| view! { <ProtectedRoute><Shell><pages::RepositoryDetail/></Shell></ProtectedRoute> }/>
                         // PRD-UI-000: Safe mode route (no auth required, no API calls)
                         <Route path=path!("/safe") view=pages::Safe/>
+                        // PRD-UI-003: Style audit (dev tool, no sensitive data)
+                        <Route path=path!("/style-audit") view=pages::StyleAudit/>
                     </Routes>
                         // Global Command Palette overlay
                         <CommandPalette/>
@@ -176,10 +224,16 @@ fn SearchProvider(children: Children) -> impl IntoView {
 // PRD-UI-000: JS interop for boot diagnostics
 #[wasm_bindgen::prelude::wasm_bindgen]
 extern "C" {
+    /// Signal that WASM compilation is complete (called when wasm_bindgen start runs)
+    #[wasm_bindgen(js_name = "aosWasmCompileDone")]
+    fn signal_wasm_compile_done();
+    /// Signal that WASM runtime is initialized (panic hooks, tracing set up)
     #[wasm_bindgen(js_name = "aosSignalWasmLoaded")]
     fn signal_wasm_loaded();
+    /// Signal that the Leptos app has been mounted to the DOM
     #[wasm_bindgen(js_name = "aosSignalMounted")]
     fn signal_mounted();
+    /// Show a panic overlay with error message and stack trace
     #[wasm_bindgen(js_name = "aosShowPanic")]
     fn show_panic(message: &str, stack_trace: &str);
 }
@@ -235,12 +289,24 @@ fn set_dom_panic_hook() {
 
 #[wasm_bindgen::prelude::wasm_bindgen(start)]
 pub fn mount() {
+    // PRD-UI-000: Signal that WASM binary is compiled and executing
+    signal_wasm_compile_done();
+
+    // Set up panic hooks
     console_error_panic_hook::set_once();
     set_dom_panic_hook();
-    signal_wasm_loaded();
+
+    // Initialize tracing
     tracing_wasm::set_as_global_default();
+
+    // PRD-UI-000: Signal runtime is initialized
+    signal_wasm_loaded();
     web_sys::console::log_1(&"[mount] Starting app mount...".into());
+
+    // Mount the Leptos app
     leptos::mount::mount_to_body(App);
+
+    // PRD-UI-000: Signal app is mounted (triggers backend health check)
     signal_mounted();
     web_sys::console::log_1(&"[mount] App mounted successfully".into());
 }

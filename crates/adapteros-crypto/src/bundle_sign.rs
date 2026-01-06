@@ -175,13 +175,43 @@ pub fn sign_and_save_bundle(
 
 /// Check if signature bypass is enabled via environment variable.
 ///
-/// SECURITY: This should only be used in development/testing environments.
-/// Set `AOS_DEV_SIGNATURE_BYPASS=1` to enable bypass mode.
+/// SECURITY: This is ONLY available in debug builds. In release builds,
+/// this function always returns false regardless of environment variables.
+/// Set `AOS_DEV_SIGNATURE_BYPASS=1` to enable bypass mode in debug builds.
 /// Even with bypass enabled, warnings are always logged.
+#[cfg(debug_assertions)]
 fn is_signature_bypass_enabled() -> bool {
-    std::env::var("AOS_DEV_SIGNATURE_BYPASS")
-        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-        .unwrap_or(false)
+    use std::sync::OnceLock;
+    static BYPASS: OnceLock<bool> = OnceLock::new();
+    *BYPASS.get_or_init(|| {
+        let enabled = std::env::var("AOS_DEV_SIGNATURE_BYPASS")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+        if enabled {
+            tracing::warn!(
+                target: "security.bundle",
+                "AOS_DEV_SIGNATURE_BYPASS enabled (debug build only)"
+            );
+        }
+        enabled
+    })
+}
+
+/// In release builds, signature bypass is NEVER enabled.
+/// The environment variable is ignored entirely for security.
+#[cfg(not(debug_assertions))]
+fn is_signature_bypass_enabled() -> bool {
+    use std::sync::OnceLock;
+    static LOGGED: OnceLock<()> = OnceLock::new();
+    LOGGED.get_or_init(|| {
+        if std::env::var("AOS_DEV_SIGNATURE_BYPASS").is_ok() {
+            tracing::error!(
+                target: "security.bundle",
+                "AOS_DEV_SIGNATURE_BYPASS detected in RELEASE build - IGNORED for security"
+            );
+        }
+    });
+    false // Always false in release builds
 }
 
 /// Verify bundle signature from file

@@ -33,6 +33,27 @@ use uuid::Uuid;
 
 /// Maximum document size (100MB)
 const MAX_DOCUMENT_SIZE: usize = 100 * 1024 * 1024;
+
+/// Query parameters for listing documents
+#[derive(Debug, Clone, Default, Deserialize, utoipa::IntoParams)]
+pub struct DocumentListParams {
+    /// Filter by status (e.g., "indexed", "processing", "failed")
+    pub status: Option<String>,
+    /// Page number (1-indexed)
+    #[serde(default = "default_page")]
+    pub page: u32,
+    /// Items per page
+    #[serde(default = "default_limit")]
+    pub limit: u32,
+}
+
+fn default_page() -> u32 {
+    1
+}
+
+fn default_limit() -> u32 {
+    20
+}
 #[cfg(feature = "embeddings")]
 const EMBEDDING_MAX_RETRIES: usize = 3;
 #[cfg(feature = "embeddings")]
@@ -302,11 +323,12 @@ pub async fn upload_document(
     }))
 }
 
-/// List documents with pagination
+/// List documents with pagination and optional status filter
 #[utoipa::path(
     get,
     path = "/v1/documents",
     params(
+        ("status" = Option<String>, Query, description = "Filter by status (indexed, processing, failed)"),
         ("page" = Option<u32>, Query, description = "Page number (1-indexed)"),
         ("limit" = Option<u32>, Query, description = "Items per page")
     ),
@@ -319,7 +341,7 @@ pub async fn upload_document(
 pub async fn list_documents(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
-    Query(pagination): Query<adapteros_api_types::PaginationParams>,
+    Query(params): Query<DocumentListParams>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // Check permission
     require_permission(&claims, Permission::DatasetView)?;
@@ -327,22 +349,42 @@ pub async fn list_documents(
     // Validate tenant isolation
     validate_tenant_isolation(&claims, &claims.tenant_id)?;
 
-    let offset = (pagination.page.saturating_sub(1)) * pagination.limit;
-    let (documents, total) = state
+    // Fetch all documents for this tenant (pagination applied after filtering)
+    let (all_documents, _) = state
         .db
-        .list_documents_paginated(&claims.tenant_id, pagination.limit as i64, offset as i64)
+        .list_documents_paginated(&claims.tenant_id, i64::MAX, 0)
         .await
         .map_err(db_error)?;
 
-    let data: Vec<DocumentResponse> = documents.into_iter().map(DocumentResponse::from).collect();
+    // Apply status filter if provided
+    let filtered: Vec<_> = if let Some(ref status) = params.status {
+        all_documents
+            .into_iter()
+            .filter(|d| d.status == *status)
+            .collect()
+    } else {
+        all_documents
+    };
 
-    let pages = ((total as f64) / (pagination.limit as f64)).ceil() as u32;
+    let total = filtered.len() as u64;
+
+    // Apply pagination to filtered results
+    let offset = (params.page.saturating_sub(1) * params.limit) as usize;
+    let limit = params.limit as usize;
+    let data: Vec<DocumentResponse> = filtered
+        .into_iter()
+        .skip(offset)
+        .take(limit)
+        .map(DocumentResponse::from)
+        .collect();
+
+    let pages = ((total as f64) / (params.limit as f64)).ceil() as u32;
     let response = adapteros_api_types::PaginatedResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         data,
-        total: total as u64,
-        page: pagination.page,
-        limit: pagination.limit,
+        total,
+        page: params.page,
+        limit: params.limit,
         pages,
     };
 

@@ -30,11 +30,25 @@ async fn spa_fallback(uri: Uri) -> impl IntoResponse {
     if uri.path().starts_with("/api/") || uri.path().starts_with("/v1/") {
         return (StatusCode::NOT_FOUND, "Not Found").into_response();
     }
+
+    // Check if this is a static asset (CSS, JS, WASM, etc.) before SPA fallback
+    let path = uri.path().trim_start_matches('/');
+    if let Some(content) = Assets::get(path) {
+        let mime = mime_guess::from_path(path).first_or_octet_stream();
+        return Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, mime.as_ref())
+            .header(header::CACHE_CONTROL, "public, max-age=31536000, immutable")
+            .body(Body::from(content.data.into_owned()))
+            .expect("Failed to build response for static asset")
+            .into_response();
+    }
+
     index_handler().await.into_response()
 }
 
 async fn index_handler() -> impl IntoResponse {
-    match Assets::get("index.html") {
+    match <Assets as RustEmbed>::get("index.html") {
         Some(content) => Html(content.data.into_owned()).into_response(),
         None => (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -47,7 +61,7 @@ async fn index_handler() -> impl IntoResponse {
 async fn static_handler(uri: Uri) -> impl IntoResponse {
     let path = uri.path().trim_start_matches('/');
 
-    match Assets::get(path) {
+    match <Assets as RustEmbed>::get(path) {
         Some(content) => {
             let mime = mime_guess::from_path(path).first_or_octet_stream();
 

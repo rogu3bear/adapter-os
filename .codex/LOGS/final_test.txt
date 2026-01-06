@@ -1,0 +1,1459 @@
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+test tests::test_add_numbers ... ok
+test tests::test_deterministic_function ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 4 tests
+test metal_tests::test_metal_adapter_unload ... ok
+test metal_tests::test_metal_adapter_load ... ok
+test metal_tests::test_metal_adapter_idempotent ... ok
+test metal_tests::test_metal_multiple_adapters ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 3 tests
+test aos_help_exits_successfully ... ok
+test aos_start_backend_dry_run ... ok
+test aos_status_json_is_structured ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 7 tests
+test test_default_health_check_returns_degraded ... ok
+test test_default_verify_gpu_fingerprint_returns_error ... ok
+test test_default_store_gpu_fingerprint_returns_error ... ok
+test test_metal_kernels_gpu_fingerprint_not_deceptive ... ok
+test test_metal_kernels_has_real_metrics ... ok
+test test_metal_kernels_has_real_health_check ... ok
+test test_metal_kernels_has_real_load_adapter ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+
+running 3 tests
+test boot_phase_variants_match_expected ... ok
+test boot_state_is_single_source ... ok
+test boot_state_serde_stability ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 6 tests
+test port_conflict_maps_to_exit_code ... ok
+test missing_manifest_returns_error ... ok
+test invalid_env_value_uses_default ... ok
+test invalid_manifest_returns_error ... ok
+test read_only_dir_switches_to_fallback ... ok
+test disk_full_switches_to_fallback ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 15 tests
+test test_blake3_deterministic ... ok
+test test_blake3_multi_hash_integrity ... ok
+test test_hash_hex_roundtrip ... ok
+test test_cas_load_nonexistent ... ok
+test test_cas_empty_data ... ok
+test test_cas_exists_check ... ok
+test test_cas_store_returns_blake3_hash ... ok
+test test_cas_detects_partial_corruption ... ok
+test test_cas_atomic_write ... ok
+test test_cas_load_verifies_hash_success ... ok
+test test_cas_load_fails_on_tampered_data ... ok
+test test_cas_class_isolation ... ok
+test test_cas_different_content_different_hash ... ok
+test test_adapter_bundle_integrity_workflow ... ok
+test test_cas_large_data ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+test test_cross_platform_determinism ... ignored, Not yet implemented - requires reference outputs and multi-platform CI
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 4 tests
+test test_router_seed_derivation_and_policy_hooks ... ok
+test test_router_ordering_and_q15_gates_are_stable ... ok
+test test_replay_metadata_round_trip ... ok
+test reasoning_swap_flow_is_deterministic_and_traced ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.31s
+
+
+running 7 tests
+test test_greedy_always_deterministic ... ok
+test test_hkdf_seed_derivation_determinism ... ok
+test test_full_pipeline_determinism ... ok
+test test_low_temperature_near_deterministic ... ok
+test test_generator_domain_separation ... ok
+test test_generator_determinism_three_runs ... ok
+test test_router_determinism_with_decision_hash ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+test determinism_smoke_fixtures_hold ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+test start_help_is_available ... ok
+test start_status_reports ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+
+running 8 tests
+test test_document_processing_failure_recovery ... ok
+test test_stale_recovery_with_no_stale_documents ... ok
+test test_get_retryable_documents ... ok
+test test_lock_acquisition_respects_document_state ... ok
+test test_stale_processing_recovery ... ok
+test test_concurrent_processing_lock_acquisition ... ok
+test test_stale_recovery_tenant_isolation ... ok
+test test_document_processing_success_path ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 31.16s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 20 tests
+test common::fixtures::tests::test_dataset_fixtures ... ok
+test common::fixtures::tests::test_auth_fixtures ... ok
+test common::fixtures::tests::test_adapter_fixtures ... ok
+test common::fixtures::tests::test_multiple_fixtures ... ok
+test common::fixtures::tests::test_inference_fixtures ... ok
+test common::fixtures::tests::test_fixture_merge ... ok
+test common::fixtures_consolidated::tests::test_assertions_approx_eq ... ok
+test common::fixtures::tests::test_policy_fixtures ... ok
+test common::fixtures_consolidated::tests::test_assertions_approx_eq_fails - should panic ... ok
+test test_adapter_pinning_lifecycle ... ok
+test common::test_harness::tests::test_harness_authentication ... ok
+test test_complete_adapter_lifecycle ... ok
+test common::fixtures_consolidated::tests::test_db_builder_default ... ok
+test test_adapter_state_transitions ... ok
+test common::test_harness::tests::test_harness_training_job_creation ... ok
+test common::fixtures_consolidated::tests::test_adapter_factory ... ok
+test common::test_harness::tests::test_harness_adapter_creation ... ok
+test common::test_harness::tests::test_harness_initialization ... ok
+test common::test_harness::tests::test_harness_dataset_creation ... ok
+test test_adapter_activation_tracking ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 33.11s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 17 tests
+test mlx_ffi_tests::test_mlx_ffi_determinism ... ignored, Requires TEST_MLX_MODEL_PATH environment variable
+test mlx_ffi_tests::test_mlx_ffi_forward ... ignored, Requires TEST_MLX_MODEL_PATH environment variable
+test mlx_ffi_tests::test_mlx_ffi_model_load ... ignored, Requires TEST_MLX_MODEL_PATH environment variable
+test test_legacy_device_name_detection ... ok
+test test_generate_text_complete_forwards_to_full ... ok
+test test_mock_kernels_attestation ... ok
+test test_mock_kernels_device_name ... ok
+test test_mock_kernels_not_text_generation ... ok
+test test_mock_text_gen_kernel_generate_text_complete ... ok
+test test_mock_kernels_produces_valid_logits ... ok
+test test_mock_kernels_deterministic ... ok
+test test_mock_text_gen_kernel_run_step_returns_error ... ok
+test test_mock_text_gen_kernel_supports_text_generation ... ok
+test test_supports_streaming_text_generation_forwards ... ok
+test test_worker_style_text_gen_detection ... ok
+test test_mock_kernels_adapter_configurations ... ok
+test test_mock_kernels_multi_step ... ok
+
+test result: ok. 14 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 22 tests
+test common::fixtures_consolidated::tests::test_assertions_approx_eq ... ok
+test common::fixtures::tests::test_dataset_fixtures ... ok
+test common::fixtures::tests::test_auth_fixtures ... ok
+test common::fixtures::tests::test_inference_fixtures ... ok
+test common::fixtures::tests::test_adapter_fixtures ... ok
+test common::fixtures::tests::test_multiple_fixtures ... ok
+test common::fixtures::tests::test_policy_fixtures ... ok
+test common::fixtures::tests::test_fixture_merge ... ok
+test common::fixtures_consolidated::tests::test_assertions_approx_eq_fails - should panic ... ok
+test common::test_harness::tests::test_harness_initialization ... ok
+test common::test_harness::tests::test_harness_dataset_creation ... ok
+test common::test_harness::tests::test_harness_training_job_creation ... ok
+test test_operator_can_load_adapter ... ok
+test test_tenant_isolation ... ok
+test test_audit_log_captures_all_actions ... ok
+test test_viewer_cannot_delete_adapter ... ok
+test common::fixtures_consolidated::tests::test_adapter_factory ... ok
+test common::test_harness::tests::test_harness_authentication ... ok
+test common::fixtures_consolidated::tests::test_db_builder_default ... ok
+test common::test_harness::tests::test_harness_adapter_creation ... ok
+test test_multi_user_rbac_permissions ... ok
+test test_role_hierarchy ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 41.19s
+
+
+running 26 tests
+test common::fixtures::tests::test_inference_fixtures ... ok
+test common::fixtures::tests::test_auth_fixtures ... ok
+test common::fixtures::tests::test_dataset_fixtures ... ok
+test common::fixtures::tests::test_adapter_fixtures ... ok
+test common::fixtures_consolidated::tests::test_assertions_approx_eq ... ok
+test common::fixtures::tests::test_policy_fixtures ... ok
+test common::fixtures::tests::test_multiple_fixtures ... ok
+test common::fixtures::tests::test_fixture_merge ... ok
+test test_create_session_with_pinned_adapters ... ignored, Foreign key constraint investigation needed - chat_sessions schema change
+test test_graceful_degradation_all_pins_unavailable ... ok
+test common::fixtures_consolidated::tests::test_assertions_approx_eq_fails - should panic ... ok
+test test_graceful_degradation_no_fallback_when_all_available ... ok
+test test_graceful_degradation_partial_pins_available ... ok
+test test_graceful_degradation_http_200_behavior ... ok
+test test_inference_result_omits_none_pinned_fields ... ok
+test test_inference_result_has_pinned_adapter_fields ... ok
+test test_telemetry_event_structure_for_missing_pins ... ok
+test common::fixtures_consolidated::tests::test_adapter_factory ... ok
+test common::test_harness::tests::test_harness_authentication ... ok
+test common::test_harness::tests::test_harness_adapter_creation ... ok
+test common::test_harness::tests::test_harness_dataset_creation ... ok
+test test_session_explicit_pins_override_tenant_default ... ok
+test common::test_harness::tests::test_harness_initialization ... ok
+test common::fixtures_consolidated::tests::test_db_builder_default ... ok
+test test_session_inherits_tenant_default_pinned_adapters ... ok
+test common::test_harness::tests::test_harness_training_job_creation ... ok
+
+test result: ok. 25 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 33.51s
+
+
+running 27 tests
+test common::fixtures::tests::test_auth_fixtures ... ok
+test common::fixtures::tests::test_adapter_fixtures ... ok
+test common::fixtures::tests::test_inference_fixtures ... ok
+test common::fixtures_consolidated::tests::test_assertions_approx_eq ... ok
+test common::fixtures::tests::test_policy_fixtures ... ok
+test common::fixtures::tests::test_dataset_fixtures ... ok
+test common::fixtures::tests::test_multiple_fixtures ... ok
+test common::fixtures::tests::test_fixture_merge ... ok
+test common::fixtures_consolidated::tests::test_assertions_approx_eq_fails - should panic ... ok
+test common::fixtures_consolidated::tests::test_adapter_factory ... ok
+test test_telemetry_policy_enforcement ... ok
+test test_evidence_policy_enforcement ... ok
+test test_all_23_canonical_policies ... ok
+test common::test_harness::tests::test_harness_dataset_creation ... ok
+test common::fixtures_consolidated::tests::test_db_builder_default ... ok
+test common::test_harness::tests::test_harness_training_job_creation ... ok
+test common::test_harness::tests::test_harness_authentication ... ok
+test test_router_policy_enforcement ... ok
+test common::test_harness::tests::test_harness_initialization ... ok
+test test_input_validation_policy ... ok
+test test_egress_policy_enforcement ... ok
+test test_naming_policy_enforcement ... ok
+test common::test_harness::tests::test_harness_adapter_creation ... ok
+test test_policy_validation_endpoint ... ok
+test test_determinism_policy_enforcement ... ok
+test test_typed_errors_policy ... ok
+test test_tenant_isolation_policy ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 46.84s
+
+
+running 23 tests
+test common::fixtures_consolidated::tests::test_assertions_approx_eq ... ok
+test common::fixtures::tests::test_auth_fixtures ... ok
+test common::fixtures::tests::test_inference_fixtures ... ok
+test common::fixtures::tests::test_policy_fixtures ... ok
+test common::fixtures::tests::test_dataset_fixtures ... ok
+test common::fixtures::tests::test_multiple_fixtures ... ok
+test common::fixtures::tests::test_adapter_fixtures ... ok
+test common::fixtures::tests::test_fixture_merge ... ok
+test common::fixtures_consolidated::tests::test_assertions_approx_eq_fails - should panic ... ok
+test common::fixtures_consolidated::tests::test_db_builder_default ... ok
+test test_database_connection_pool_stress ... ok
+test common::fixtures_consolidated::tests::test_adapter_factory ... ok
+test common::test_harness::tests::test_harness_initialization ... ok
+test common::test_harness::tests::test_harness_training_job_creation ... ok
+test test_simultaneous_training_jobs ... ok
+test common::test_harness::tests::test_harness_adapter_creation ... ok
+test common::test_harness::tests::test_harness_authentication ... ok
+test test_memory_pressure_simulation ... ok
+test test_consistent_results_under_load ... ok
+test test_concurrent_inference_requests ... ok
+test common::test_harness::tests::test_harness_dataset_creation ... ok
+test test_no_deadlocks_under_load ... ok
+test test_rapid_adapter_registration ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 44.03s
+
+
+running 21 tests
+test common::fixtures::tests::test_policy_fixtures ... ok
+test common::fixtures::tests::test_inference_fixtures ... ok
+test common::fixtures::tests::test_dataset_fixtures ... ok
+test common::fixtures::tests::test_auth_fixtures ... ok
+test common::fixtures::tests::test_multiple_fixtures ... ok
+test common::fixtures::tests::test_adapter_fixtures ... ok
+test common::fixtures_consolidated::tests::test_assertions_approx_eq ... ok
+test common::fixtures::tests::test_fixture_merge ... ok
+test test_complete_training_workflow ... ignored, Dataset listing issue investigation needed
+test common::fixtures_consolidated::tests::test_assertions_approx_eq_fails - should panic ... ok
+test common::test_harness::tests::test_harness_dataset_creation ... ok
+test common::fixtures_consolidated::tests::test_adapter_factory ... ok
+test common::test_harness::tests::test_harness_initialization ... ok
+test common::fixtures_consolidated::tests::test_db_builder_default ... ok
+test test_training_job_states ... ok
+test common::test_harness::tests::test_harness_training_job_creation ... ok
+test common::test_harness::tests::test_harness_authentication ... ok
+test test_dataset_validation ... ok
+test test_training_progress_tracking ... ok
+test test_training_job_cancellation ... ok
+test common::test_harness::tests::test_harness_adapter_creation ... ok
+
+test result: ok. 20 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 31.47s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 35 tests
+test cli_error_codes::test_aos_error_ecode_mapping ... ok
+test cli_error_codes::test_cli_error_code_categories ... ok
+test cli_error_codes::test_cli_error_code_display_format ... ok
+test cli_error_codes::test_cli_error_code_lookup ... ok
+test cli_error_codes::test_cli_error_codes_unique ... ok
+test cli_error_codes::test_exit_code_categories ... ok
+test cli_error_codes::test_exit_code_from_aos_error ... ok
+test cli_error_codes::test_exit_code_numeric_ranges ... ok
+test cli_error_codes::test_exit_code_to_i32 ... ok
+test cross_crate_compatibility::test_aos_error_to_error_response_cycle ... ok
+test cross_crate_compatibility::test_error_context_preservation ... ok
+test cross_crate_compatibility::test_db_error_class_and_failure_code_alignment ... ok
+test cross_crate_compatibility::test_storage_error_to_error_response ... ok
+test cross_crate_compatibility::test_failure_code_embedding_and_extraction ... ok
+test error_message_quality::test_cli_error_code_fix_quality ... ok
+test error_message_quality::test_error_message_capitalization ... ok
+test error_message_quality::test_error_messages_no_trailing_period ... ok
+test error_message_quality::test_failure_code_str_format_quality ... ok
+test error_propagation::test_aos_error_to_api_response_conversion ... ok
+test error_propagation::test_cache_error_propagation ... ok
+test error_propagation::test_db_error_classification_consistency ... ok
+test error_propagation::test_migration_error_propagation ... ok
+test error_propagation::test_storage_error_context_preservation ... ok
+test error_propagation::test_dual_write_error_propagation ... ok
+test error_serialization::test_error_response_json_round_trip ... ok
+test error_serialization::test_all_failure_codes_serde ... ok
+test error_serialization::test_error_response_schema_version ... ok
+test error_serialization::test_error_response_structured_details ... ok
+test error_serialization::test_error_response_with_failure_code_round_trip ... ok
+test error_serialization::test_failure_code_serde_format ... ok
+test failure_code_consistency::test_error_response_auto_parse_failure_code ... ok
+test failure_code_consistency::test_failure_code_format ... ok
+test failure_code_consistency::test_failure_code_in_error_response ... ok
+test failure_code_consistency::test_failure_code_retryable_consistency ... ok
+test failure_code_consistency::test_failure_code_round_trip ... ok
+
+test result: ok. 35 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 52 tests
+test chaos_integration::test_io_error_conversion ... ok
+test chaos_integration::test_json_error_conversion ... ok
+test circuit_breaker_error_recovery::test_circuit_breaker_starts_closed ... ok
+test circuit_breaker_error_recovery::test_circuit_breaker_metrics ... ok
+test circuit_breaker_error_recovery::test_circuit_opens_on_failures ... ok
+test chaos_integration::test_cascading_failure_isolation ... ok
+test chaos_integration::test_error_preservation_across_async ... ok
+test database_crypto_errors::test_crypto_error ... ok
+test concurrent_error_scenarios::test_barrier_synchronized_errors ... ok
+test database_crypto_errors::test_database_error ... ok
+test concurrent_error_scenarios::test_error_accumulation_under_load ... ok
+test database_crypto_errors::test_encryption_errors ... ok
+test database_crypto_errors::test_sealed_data_error ... ok
+test error_context_chaining::test_context_attachment ... ok
+test error_context_chaining::test_context_display_formatting ... ok
+test error_type_construction::test_error_variants ... ok
+test error_type_construction::test_circuit_breaker_errors ... ok
+test error_type_construction::test_feature_disabled_error ... ok
+test error_context_chaining::test_context_chaining ... ok
+test error_type_construction::test_policy_hash_mismatch ... ok
+test error_type_construction::test_rng_error ... ok
+test error_type_construction::test_timeout_error ... ok
+test error_type_construction::test_worker_not_responding_error ... ok
+test circuit_breaker_error_recovery::test_concurrent_circuit_breaker_access ... ok
+test hash_verification_failures::test_adapter_hash_mismatch_error ... ok
+test hash_verification_failures::test_corrupted_data_detection ... ok
+test hash_verification_failures::test_hash_creation_and_equality ... ok
+test hash_verification_failures::test_hash_multi_equivalence ... ok
+test hash_verification_failures::test_hex_roundtrip ... ok
+test hash_verification_failures::test_short_hex_display ... ok
+test hash_verification_failures::test_invalid_hex_handling ... ok
+test hash_verification_failures::test_zero_hash ... ok
+test invalid_manifest_handling::test_aos_format_validation ... ok
+test invalid_manifest_handling::test_empty_manifest_bytes ... ok
+test invalid_manifest_handling::test_invalid_manifest_error ... ok
+test invalid_manifest_handling::test_manifest_invalid_types ... ok
+test invalid_manifest_handling::test_manifest_missing_fields ... ok
+test memory_and_resource_errors::test_memory_error ... ok
+test memory_and_resource_errors::test_memory_pressure_error ... ok
+test memory_and_resource_errors::test_resource_exhaustion_error ... ok
+test memory_and_resource_errors::test_unavailable_error ... ok
+test policy_security_errors::test_determinism_violation ... ok
+test policy_security_errors::test_egress_violation ... ok
+test policy_security_errors::test_isolation_violation ... ok
+test policy_security_errors::test_policy_violation ... ok
+test policy_security_errors::test_quarantine_error ... ok
+test hash_verification_failures::test_hash_file ... ok
+test concurrent_error_scenarios::test_rapid_error_generation ... ok
+test circuit_breaker_error_recovery::test_circuit_closes_after_recovery ... ok
+test circuit_breaker_error_recovery::test_half_open_transition ... ok
+test metal_gpu_recovery::test_metal_command_buffer_failure_recovery ... ok
+test metal_gpu_recovery::test_metal_multiple_failure_recovery_cycles ... ok
+
+test result: ok. 52 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+
+running 12 tests
+test test_chain_divergence_detection ... ok
+test test_envelope_query_filters ... ok
+test test_envelope_storage_during_inference ... ok
+test test_audit_chain_verification ... ok
+test test_policy_envelope_creation ... ok
+test test_canonical_bytes_determinism ... ok
+test test_inference_to_envelope_flow ... ok
+test test_mixed_evidence_chain ... ok
+test test_telemetry_envelope_creation ... ok
+test test_envelope_verification ... ok
+test test_receipt_digest_includes_envelope_ref ... ok
+test test_envelope_chain_linking ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 35.64s
+
+
+running 6 tests
+test test_worker_crash_during_hotswap ... ok
+test test_worker_crash_during_adapter_load ... ok
+test test_worker_crash_during_inference ... ok
+test test_multiple_crash_recovery_cycles ... ok
+test test_crash_with_concurrent_operations ... ok
+test test_executor_crash_recovery ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 7 tests
+test test_domain_separation ... ok
+test test_different_manifests_produce_different_seeds ... ok
+test test_fallback_seed_determinism ... ok
+test test_seed_reproducibility_across_runs ... ok
+test test_manifest_vs_default_seed_differ ... ok
+test test_manifest_based_executor_seeding ... ok
+test test_manifest_validation_catches_invalid ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 11 tests
+test test_consensus_voting ... ignored, Pending federation API updates [tracking: STAB-IGN-0174]
+test test_federation_state_sync ... ignored, Pending federation API updates [tracking: STAB-IGN-0182]
+test test_multi_peer_coordination ... ignored, Pending federation API updates [tracking: STAB-IGN-0176]
+test test_network_partition ... ignored, Pending federation API updates [tracking: STAB-IGN-0175]
+test test_peer_deregistration ... ignored, Pending federation API updates [tracking: STAB-IGN-0178]
+test test_peer_discovery ... ignored, Pending federation API updates [tracking: STAB-IGN-0172]
+test test_peer_health_check ... ignored, Pending federation API updates [tracking: STAB-IGN-0173]
+test test_peer_quarantine ... ignored, Pending federation API updates [tracking: STAB-IGN-0181]
+test test_peer_reconnection ... ignored, Pending federation API updates [tracking: STAB-IGN-0179]
+test test_peer_registration ... ignored, Pending federation API updates [tracking: STAB-IGN-0177]
+test test_peer_timeout ... ignored, Pending federation API updates [tracking: STAB-IGN-0180]
+
+test result: ok. 0 passed; 0 failed; 11 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+test replayed_handshake_token_is_rejected ... ok
+test discovery_handshake_rejects_clock_drift ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.22s
+
+
+running 14 tests
+test test_adapter_set_exact_match ... ok
+test test_adapter_set_order_preserved ... ok
+test test_adapter_set_selection_changed ... ok
+test test_drift_result_classification ... ok
+test test_gate_epsilon_beyond_tolerance_warning ... ok
+test test_gate_epsilon_within_tolerance_passes ... ok
+test test_routing_decisions_adapter_selection_drift ... ok
+test test_routing_decisions_exact_match ... ok
+test test_routing_decisions_step_count_drift ... ok
+test test_simulated_inference_with_adapter_drift ... ok
+test test_statistical_strictness_more_tolerant ... ok
+test test_simulated_inference_drift_detection ... ok
+test test_empty_baselines_graceful ... ok
+2026-01-05T18:02:49.621455Z  INFO golden_drift_ci: No baselines directory found at "golden_runs/baselines", skipping
+test test_routing_matches_golden_baselines ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+test streaming_swap_attempt_is_deterministic ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.95s
+
+
+running 1 test
+test test_kv_cache_reset_on_swap ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+test kernel_buffer_layout::placeholder ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 10 tests
+test test_concurrent_requests_shared_quota_no_races ... ok
+test test_concurrent_rollbacks_no_corruption ... ok
+test test_failed_requests_dont_poison_quota_state ... ok
+test test_multi_tenant_quota_isolation_concurrent_load ... ok
+test test_hot_cold_promotion_no_race_with_eviction ... ok
+test test_eviction_under_concurrent_memory_pressure ... ok
+test test_reservation_timeout_cleanup_concurrent ... ok
+test test_stress_many_concurrent_small_allocations ... ok
+test test_peak_concurrency_maximum_simultaneous_operations ... ok
+test test_quota_enforcement_simultaneous_inference_simulation ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+
+running 15 tests
+test test_concurrent_requests_with_quota_enforcement ... ignored, Requires hardware-residency feature and Metal backend [tracking: STAB-IGN-0230]
+test test_hot_promotion_on_frequent_access ... ok
+test test_eviction_counter_tracking_during_session ... ok
+test test_hot_entries_protected_from_eviction ... ok
+test test_kv_quota_enforced_during_simulated_inference ... ok
+test test_quota_exceeded_does_not_poison_existing_allocations ... ok
+test test_quota_usage_percentage_calculation ... ok
+test test_receipt_contains_kv_usage_stats_e2e ... ignored, Requires hardware-residency feature and Metal backend [tracking: STAB-IGN-0229]
+test test_residency_promotion_in_real_inference ... ignored, Requires hardware-residency feature and Metal backend [tracking: STAB-IGN-0228]
+test test_worker_enforces_kv_quota_during_inference ... ignored, Requires hardware-residency feature and Metal backend [tracking: STAB-IGN-0227]
+test test_receipt_backward_compatibility ... ok
+test test_reservation_timeout_and_cleanup ... ok
+test test_many_small_allocations ... ok
+test test_rapid_allocation_release_cycles ... ok
+test test_receipt_includes_kv_usage_stats ... ok
+
+test result: ok. 11 passed; 0 failed; 4 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 11 tests
+test test_eviction_counter_tracking ... ok
+test test_active_kv_entries_never_evicted_under_pressure ... ok
+test test_kv_quota_usage_percentage_calculation ... ok
+test test_per_tenant_kv_quota_enforced_with_reservations ... ok
+test test_kv_residency_frequency_promotion_constants ... ok
+test test_kv_quota_and_residency_fields_committed_to_receipt_and_merkle_bundle ... ok
+test test_quota_exceeded_returns_error_and_does_not_poison_cache ... ok
+test test_reservation_rollback_restores_quota ... ok
+test test_unlimited_quota_allows_any_reservation ... ok
+test test_hot_kv_buffers_marked_non_purgeable_when_supported ... ok
+test test_purgeable_state_round_trip ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+
+
+running 12 tests
+test lifecycle_tests::test_shutdown_config_defaults ... ok
+test lifecycle_tests::test_shutdown_coordinator_creation ... ok
+test lifecycle_tests::test_lifecycle_hooks_after_shutdown ... ok
+test lifecycle_tests::test_lifecycle_hooks_before_startup ... ok
+test lifecycle_tests::test_lifecycle_hooks_register_and_retrieve ... ok
+test lifecycle_tests::test_lifecycle_hooks_before_shutdown ... ok
+test lifecycle_tests::test_lifecycle_hooks_after_startup ... ok
+test lifecycle_tests::test_lifecycle_phases_independence ... ok
+test lifecycle_tests::test_lifecycle_hooks_multiple_phases ... ok
+test lifecycle_tests::test_shutdown_coordinator_graceful ... ok
+test lifecycle_tests::test_shutdown_coordinator_critical_failure ... ok
+test lifecycle_tests::test_shutdown_coordinator_timeout ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 3 tests
+test thundering_herd_memory_leak_sentinel ... ignored, 1h soak; run manually under valgrind or profiler
+test concurrent_training_load_degrades_linearly ... ok
+test thundering_herd_p99_under_200ms_and_deterministic ... ok
+
+test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 13.55s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 9 tests
+test test_mock_kernels_attestation ... ok
+test test_mock_kernels_basic_functionality ... ok
+test test_mock_kernels_gpu_verification_not_supported ... ok
+test test_mock_kernels_hot_swap_not_supported ... ok
+test test_mock_kernels_determinism ... ok
+test test_mock_kernels_memory_footprint_no_op ... ok
+test test_mock_kernels_multiple_steps ... ok
+test test_router_ring_with_mock_kernels ... ok
+test test_mock_kernels_run_step ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 5 tests
+test test_policy_enforcement_basic ... ignored, Pending policy API updates [tracking: STAB-IGN-0197]
+test test_policy_enforcement_determinism ... ignored, Pending policy API updates [tracking: STAB-IGN-0198]
+test test_policy_enforcement_egress ... ignored, Pending policy API updates [tracking: STAB-IGN-0199]
+test test_policy_enforcement_evidence ... ignored, Pending policy API updates [tracking: STAB-IGN-0200]
+test test_policy_enforcement_routing ... ignored, Pending policy API updates [tracking: STAB-IGN-0201]
+
+test result: ok. 0 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 23 tests
+test test_model_cache_identity_v2_different_fields_different_bytes ... ok
+test test_model_cache_identity_v2_canonical_bytes_deterministic ... ok
+test test_prefix_kv_cache_eviction_under_memory_pressure ... ok
+test test_prefix_kv_cache_hit_miss_metrics ... ok
+test test_prefix_kv_cache_invalidation_on_template_change ... ok
+test test_prefix_kv_cache_lru_eviction ... ok
+test test_prefix_kv_cache_eviction_respects_refcount ... ok
+test test_prefix_kv_cache_stats_accuracy ... ok
+test test_prefix_kv_cache_stats_hit_rate ... ok
+test test_prefix_kv_cache_tenant_isolation ... ok
+test test_prefix_kv_cache_miss_does_not_poison_cache_on_error ... ok
+test test_prefix_kv_key_binds_model_cache_identity_v2_and_tokenizer_hash ... ok
+test test_prefix_kv_entry_refcount_tracking ... ok
+test test_prefix_kv_key_changes_on_context_digest_change ... ok
+test test_prefix_kv_key_changes_on_tokenizer_hash_change ... ok
+test test_prefix_token_encoding_deterministic ... ok
+test test_prefix_token_encoding_different_tokens_different_output ... ok
+test test_prefix_kv_cache_singleflight_under_concurrent_misses ... ok
+test test_prefix_kv_receipt_fields_persistence ... ok
+test test_prefix_resolver_integration ... ok
+test test_prefix_resolver_fallback_to_system ... ok
+test test_prefix_template_tenant_isolation ... ok
+test test_prefix_template_crud_integration ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.06s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 18 tests
+test common::fixtures::tests::test_policy_fixtures ... ok
+test common::fixtures::tests::test_dataset_fixtures ... ok
+test common::fixtures::tests::test_inference_fixtures ... ok
+test common::fixtures::tests::test_auth_fixtures ... ok
+test common::fixtures::tests::test_adapter_fixtures ... ok
+test common::fixtures::tests::test_multiple_fixtures ... ok
+test common::fixtures_consolidated::tests::test_assertions_approx_eq ... ok
+test common::fixtures::tests::test_fixture_merge ... ok
+test common::fixtures_consolidated::tests::test_assertions_approx_eq_fails - should panic ... ok
+test common::fixtures_consolidated::tests::test_adapter_factory ... ok
+test empty_prompt_returns_bad_request ... ok
+test common::test_harness::tests::test_harness_training_job_creation ... ok
+test common::test_harness::tests::test_harness_initialization ... ok
+test common::fixtures_consolidated::tests::test_db_builder_default ... ok
+test common::test_harness::tests::test_harness_authentication ... ok
+test common::test_harness::tests::test_harness_adapter_creation ... ok
+test common::test_harness::tests::test_harness_dataset_creation ... ok
+test huge_context_returns_clear_error ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 32.71s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 6 tests
+test test_tier_boosts ... ok
+test test_features_affect_ranking_with_varied_priors ... ok
+test test_orthogonality_penalty_reduces_similar_selection ... ok
+test test_per_adapter_scores_differ ... ok
+test test_old_route_method_is_broken ... ok
+test test_framework_matching_boosts_score ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 4 tests
+test empty_router_config_abstains ... ok
+test low_scores_trigger_abstention ... ok
+test rejects_nan_embeddings ... ok
+test tie_breaks_use_adapter_index_for_identical_scores ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 12 tests
+test test_decision_to_router_ring_preserves_gates ... ok
+test test_e2e_router_to_worker_flow ... ok
+test test_adapter_strength_scaling ... ok
+test test_empty_decision ... ok
+test test_max_k_decision ... ok
+test test_out_of_bounds_adapter_index ... ok
+test test_negative_q15_gates ... ok
+test test_q15_denominator_constant ... ok
+test test_q15_to_f32_conversion ... ok
+test test_router_produces_q15_gates ... ok
+test test_router_ring_preserves_decision_order ... ok
+test test_router_ring_zero_fill ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+test scripts_are_listed_in_inventory_or_deprecations ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+test deprecated_scripts_are_shims ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 34 tests
+test access_control_tests::test_acl_enforcement_for_file_access ... ok
+test access_control_tests::test_admin_override_is_logged ... ok
+test access_control_tests::test_all_permission_changes_are_audited ... ok
+test access_control_tests::test_api_key_permissions_are_restrictive ... ok
+test access_control_tests::test_audit_logs_are_immutable ... ok
+test access_control_tests::test_audit_logs_retained_for_required_duration ... ok
+test access_control_tests::test_blocked_user_access_denied ... ok
+test access_control_tests::test_capability_based_access_enforcement ... ok
+test access_control_tests::test_domain_separation_in_permissions ... ok
+test access_control_tests::test_cross_tenant_escape_prevented ... ok
+test access_control_tests::test_encryption_keys_isolated_per_tenant ... ok
+test access_control_tests::test_field_level_access_control ... ok
+test access_control_tests::test_group_membership_verified_for_access ... ok
+test access_control_tests::test_least_privilege_principle_enforced ... ok
+test access_control_tests::test_no_hardcoded_credentials_in_code ... ok
+test access_control_tests::test_no_implicit_permission_grants ... ok
+test access_control_tests::test_parent_directory_permissions_not_inherited_unsafely ... ok
+test access_control_tests::test_permission_check_fails_securely ... ok
+test access_control_tests::test_permission_delegation_is_bounded ... ok
+test access_control_tests::test_permission_elevation_requires_reauthentication ... ok
+test access_control_tests::test_privilege_separation_across_processes ... ok
+test access_control_tests::test_rate_limiting_on_failed_access_attempts ... ok
+test access_control_tests::test_rbac_matrix_is_complete ... ok
+test access_control_tests::test_read_only_permissions_cannot_modify ... ok
+test access_control_tests::test_role_boundaries_are_enforced ... ok
+test access_control_tests::test_secrets_stored_securely ... ok
+test access_control_tests::test_sensitive_operations_isolated_to_uds ... ok
+test access_control_tests::test_sensitive_operations_require_mfa ... ok
+test access_control_tests::test_service_account_has_minimal_permissions ... ok
+test access_control_tests::test_session_expiration_enforces_reauthentication ... ok
+test access_control_tests::test_temporary_permissions_expire_automatically ... ok
+test access_control_tests::test_tenant_isolation_cannot_access_other_tenant_files ... ok
+test access_control_tests::test_tenant_resource_quotas_enforced ... ok
+test access_control_tests::test_webhook_calls_are_authenticated ... ok
+
+test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 31 tests
+test test_adapter_id_determinism ... ok
+test test_adapter_dir_path_canonicalization ... ok
+test test_adapter_id_u16_boundary_cases ... ok
+test test_buffer_bounds_validation_concept ... ok
+test test_checkpoint_tamper_detection ... ok
+test test_cross_layer_hash_includes_gpu_state ... ok
+test test_e2e_stack_integrity ... ok
+test test_ffi_handle_validation_concept ... ok
+test test_gpu_fingerprint_tampering_detection ... ok
+test test_gpu_buffer_fingerprint_creation ... ok
+test test_hash_concatenation_equivalence ... ok
+test test_hash_multi_ordering ... ok
+test test_hash_representation_bijective ... ok
+test test_hkdf_domain_separation ... ok
+test test_hkdf_entropy_quality ... ok
+test test_hkdf_manifest_isolation ... ok
+test test_safe_slice_bounds ... ok
+test test_seed_derivation_full_context_isolation ... ok
+test test_seed_registry_clearing ... ok
+test test_seed_reuse_prevention ... ok
+test test_stack_hash_determinism ... ok
+test test_zero_hash_distinguishable ... ok
+test test_adapter_id_collision_resistance ... ok
+test test_hkdf_indexed_seed_uniqueness ... ok
+test test_multi_tenant_acl ... ok
+test test_acl_inheritance ... ok
+test test_acl_unauthorized_swap_prevention ... ok
+test test_circular_dependency_prevention ... ok
+test test_blake3_collision_resistance_sample ... ok
+test stress_test_rapid_seed_derivation ... ok
+test stress_test_hash_throughput ... ok
+
+test result: ok. 31 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+
+running 14 tests
+test test_constant_time_operations ... ok
+test test_dependency_audit ... ok
+test test_secret_zeroization ... ok
+test test_input_validation ... ok
+test test_serialization_security ... ok
+test test_error_information_leakage ... ok
+test test_cryptographic_operations_validity ... ok
+test test_security_test_coverage ... ok
+test test_suite_summary ... ok
+test test_hkdf_seeding ... ok
+test test_signature_tampering_detection ... ok
+test test_concurrent_signing_safety ... ok
+test test_no_unsafe_in_public_api ... ok
+test test_no_panics_in_crypto ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+
+running 26 tests
+test security_regression_tests::test_allowed_extension_enforcement ... ok
+test security_regression_tests::test_blocked_extension_enforcement ... ok
+test security_regression_tests::test_circular_symlink_detection ... ok
+test security_regression_tests::test_authenticated_encryption_usage ... ok
+test security_regression_tests::test_concurrent_operation_safety ... ok
+test security_regression_tests::test_constant_time_operations ... ok
+test security_regression_tests::test_empty_data_handling ... ok
+test security_regression_tests::test_deterministic_crypto_operations ... ok
+test security_regression_tests::test_hkdf_domain_separation ... ok
+test security_regression_tests::test_key_generation_randomness ... ok
+test security_regression_tests::test_large_data_handling ... ok
+test security_regression_tests::test_mandatory_access_control ... ok
+test security_regression_tests::test_multi_tenant_isolation ... ok
+test security_regression_tests::test_nonce_reuse_prevention ... ok
+test security_regression_tests::test_path_depth_dos_protection ... ok
+test security_regression_tests::test_path_traversal_attack_vectors_blocked ... ok
+test security_regression_tests::test_public_key_validation ... ok
+test security_regression_tests::test_safe_relative_path_handling ... ok
+test security_regression_tests::test_secret_key_confidentiality ... ok
+test security_regression_tests::test_secure_file_permission_enforcement ... ok
+test security_regression_tests::test_signature_forgery_prevention ... ok
+test security_regression_tests::test_signature_size_validation ... ok
+test security_regression_tests::test_signature_verification_determinism ... ok
+test security_regression_tests::test_size_limit_overflow_safety ... ok
+test security_regression_tests::test_symlink_attack_prevention ... ok
+test security_regression_tests::test_system_path_protection ... ok
+
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 10 tests
+test test_assert_clean_passes_when_clean ... ok
+test test_leaked_state_info ... ok
+test test_guard_restores_previous_state ... ok
+test test_middleware_simulation ... ok
+test test_reproducible_seed_derivation ... ok
+test test_cross_thread_isolation ... ok
+test test_reset_clears_seed_context ... ok
+test test_assert_clean_panics_when_dirty - should panic ... ok
+test test_sequential_request_isolation ... ok
+test test_tenant_isolation_produces_different_seeds ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 17 tests
+test common::fixtures::tests::test_dataset_fixtures ... ok
+test common::fixtures::tests::test_inference_fixtures ... ok
+test common::fixtures::tests::test_fixture_merge ... ok
+test common::fixtures_consolidated::tests::test_assertions_approx_eq ... ok
+test common::fixtures::tests::test_adapter_fixtures ... ok
+test common::fixtures::tests::test_multiple_fixtures ... ok
+test common::fixtures::tests::test_auth_fixtures ... ok
+test common::fixtures::tests::test_policy_fixtures ... ok
+test common::fixtures_consolidated::tests::test_assertions_approx_eq_fails - should panic ... ok
+test common::fixtures_consolidated::tests::test_adapter_factory ... ok
+test common::test_harness::tests::test_harness_dataset_creation ... ok
+test common::test_harness::tests::test_harness_authentication ... ok
+test golden_path_inference_over_uds ... ok
+test common::test_harness::tests::test_harness_adapter_creation ... ok
+test common::test_harness::tests::test_harness_training_job_creation ... ok
+test common::fixtures_consolidated::tests::test_db_builder_default ... ok
+test common::test_harness::tests::test_harness_initialization ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 31.06s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 7 tests
+test test_ed25519_key_length_requirements ... ok
+test test_empty_public_key_handling ... ok
+test test_invalid_hex_rejected ... ok
+test test_key_id_computation_deterministic ... ok
+test test_public_key_length_validation ... ok
+test test_key_id_uniqueness ... ok
+test test_signature_length_validation ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 5 tests
+test test_debug_mode_allows_warnings ... ok
+test test_env_var_precedence ... ok
+test test_production_constraints_enforced_together ... ok
+test test_production_mode_blocks_skip_flags ... ok
+test test_production_mode_env_var_parsing ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 6 tests
+test test_future_timestamp_accepted ... ok
+test test_system_time_to_microseconds ... ok
+test test_zero_timestamp_handling ... ok
+test test_timestamp_u64_serialization ... ok
+test test_microsecond_precision ... ok
+test test_timestamp_ordering_in_chain ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+test test_sqlx_offline_compilation ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 10 tests
+test test_stop_policy_override_from_request ... ok
+test test_different_policies_different_digests ... ok
+test test_stop_decision_token_index_accuracy ... ok
+test test_all_stop_reasons_trigger_correctly_in_integration ... ok
+test test_stop_controller_completion_confident_persisted ... ok
+test test_stop_controller_length_eos_persisted ... ok
+test test_stop_controller_repetition_guard_persisted ... ok
+test test_stop_controller_budget_max_persisted_to_receipt ... ok
+test test_stop_policy_digest_committed_to_merkle_bundle ... ok
+test test_determinism_same_policy_same_receipt_digest ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 3 tests
+test deterministic_router_zero_temperature_has_zero_entropy ... ok
+test kaleidoscope_router_switch_is_deterministic ... ok
+test chaos_mode_jitter_preserves_output_digest ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.82s
+
+
+running 2 tests
+test hot_swap_churn_stays_deterministic_and_fast ... ok
+test token_by_token_router_switch_is_deterministic_across_parallel_runs ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 10 tests
+test test_invalid_signature_format ... ok
+test test_invalid_public_key_format ... ok
+test test_wrong_public_key_fails_verification ... ok
+test test_tampered_merkle_root_fails_verification ... ok
+test test_artifacts_ruleset_13_compliance ... ok
+test test_multiple_bundles_same_key ... ok
+test test_bundle_signature_roundtrip ... ok
+test test_key_file_permissions ... ok
+test test_signing_key_persistence ... ok
+test test_signature_verification_deterministic ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 11 tests
+test checkpoint_creation::test_checkpoint_created_during_training ... ignored, requires training infrastructure - run with: cargo test training_resume_e2e -- --ignored
+test checkpoint_creation::test_checkpoint_format_valid ... ignored, requires training infrastructure - run with: cargo test training_resume_e2e -- --ignored
+test checkpoint_integrity::test_checkpoint_config_mismatch_rejected ... ignored, requires training infrastructure - run with: cargo test training_resume_e2e -- --ignored
+test checkpoint_integrity::test_checkpoint_schema_mismatch_detected ... ignored, requires training infrastructure - run with: cargo test training_resume_e2e -- --ignored
+test checkpoint_integrity::test_corrupted_checkpoint_rejected ... ignored, requires training infrastructure - run with: cargo test training_resume_e2e -- --ignored
+test integration::test_training_resume_full_cycle ... ignored, requires MLX backend - run with: cargo test --features mlx training_resume_e2e -- --ignored
+test resume_training::test_resume_determinism ... ignored, requires training infrastructure - run with: cargo test training_resume_e2e -- --ignored
+test resume_training::test_resume_from_checkpoint ... ignored, requires training infrastructure - run with: cargo test training_resume_e2e -- --ignored
+test resume_training::test_resume_no_checkpoint_starts_fresh ... ignored, requires training infrastructure - run with: cargo test training_resume_e2e -- --ignored
+test train_docs_resume::test_train_docs_dry_run_no_checkpoint ... ignored, requires training infrastructure - run with: cargo test training_resume_e2e -- --ignored
+test train_docs_resume::test_train_docs_resume ... ignored, requires training infrastructure - run with: cargo test training_resume_e2e -- --ignored
+
+test result: ok. 0 passed; 0 failed; 11 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 6 tests
+test test_example_pattern_for_new_types ... ok
+test test_suite_provides_comprehensive_validation ... ok
+test type_validation::test_utils::tests::test_snake_case_validation ... ok
+test type_validation::test_utils::tests::test_validate_snake_case_fields ... ok
+test test_all_test_utilities_available ... ok
+test test_type_validation_suite_integration ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 5 tests
+test test_workflow_type_serialization ... ok
+test test_workflow_execution_parallel ... ok
+test test_lifecycle_manager_workflow_integration ... ok
+test test_workflow_execution_upstream_downstream ... ok
+test test_workflow_execution_sequential ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+test tests::test_metrics_collector_example ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 30 tests
+test agent::tests::test_agent_state_conversion ... ok
+test config::tests::test_builder ... ok
+test config::tests::test_default_config ... ok
+test config::tests::test_agent_paths ... ok
+test config::tests::test_distribution_strategy_parse ... ok
+test config::tests::test_validation ... ok
+test error::tests::test_error_from_io ... ok
+test config::tests::test_generate_agent_ids ... ok
+test error::tests::test_error_display ... ok
+test error::tests::test_error_recoverable ... ok
+test orchestrator::tests::test_invalid_config ... ok
+test orchestrator::tests::test_is_code_file ... ok
+test orchestrator::tests::test_orchestrator_creation ... ok
+test protocol::handshake::tests::test_handshake_response_accepted ... ok
+test protocol::handshake::tests::test_handshake_response_rejected ... ok
+test protocol::handshake::tests::test_handshake_request ... ok
+test protocol::handshake::tests::test_serialization ... ok
+test protocol::messages::tests::test_agent_request_serialization ... ok
+test protocol::messages::tests::test_agent_state ... ok
+test protocol::messages::tests::test_proposal_hash ... ok
+test protocol::messages::tests::test_task_assignment_serialization ... ok
+test result_merger::tests::test_merge_no_conflict ... ok
+test result_merger::tests::test_merge_require_review ... ok
+test result_merger::tests::test_merge_with_conflict_resolution ... ok
+test result_merger::tests::test_unified_plan_hash ... ok
+test supervisor::tests::test_supervisor_creation ... ok
+test task_router::tests::test_file_ownership_distribution ... ok
+test task_router::tests::test_planning_task_creation ... ok
+test task_router::tests::test_rebalance ... ok
+test task_router::tests::test_round_robin_distribution ... ok
+
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 3 tests
+test writer::tests::test_header_size_is_64_bytes ... ok
+test writer::tests::test_magic_validation ... ok
+test writer::tests::test_write_and_read_archive_with_segments ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 15 tests
+test test_aos_scope_hash_validation ... ok
+test test_aos_corrupt_missing_index_flag ... ok
+test test_aos_corrupt_invalid_backend_tag ... ok
+test test_aos_corrupt_truncated_header ... ok
+test test_aos_corrupt_magic_bytes ... ok
+test test_aos_corrupt_segment_beyond_file ... ok
+test test_aos_corrupt_index_overlap ... ok
+test test_aos_index_alignment ... ok
+test test_aos_reserved_bytes_validation ... ok
+test test_aos_segment_selection_fallback ... ok
+test test_aos_format_valid_archive ... ok
+test test_aos_multiple_segments_same_scope ... ok
+test test_aos_corrupt_hash_mismatch ... ok
+test test_aos_open_file_view ... ok
+test test_aos_segment_selection_by_backend ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+
+running 6 tests
+test test_scope_hash_computation ... ok
+test test_zero_length_segment_hash ... ok
+test test_hash_collision_resistance ... ok
+test test_scope_hash_mismatch_with_manifest ... FAILED
+test test_weights_hash_mismatch_detection ... ok
+test test_multi_segment_independent_hash_verification ... ok
+
+failures:
+
+---- test_scope_hash_mismatch_with_manifest stdout ----
+Error: Validation("Corrupted / needs retrain: segment scope hash does not match manifest scope_path")
+
+
+failures:
+    test_scope_hash_mismatch_with_manifest
+
+test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+

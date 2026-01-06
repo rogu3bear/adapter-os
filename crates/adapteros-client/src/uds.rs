@@ -460,51 +460,6 @@ pub struct CancelTrainingResponse {
     pub stopped_at_epoch: Option<u32>,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn test_uds_client_creation() {
-        let client = UdsClient::new(Duration::from_secs(5));
-        assert_eq!(client.timeout, Duration::from_secs(5));
-    }
-
-    #[tokio::test]
-    async fn test_uds_client_default() {
-        let client = UdsClient::default();
-        assert_eq!(client.timeout, Duration::from_secs(30));
-    }
-
-    #[tokio::test]
-    async fn test_signal_structure() {
-        let signal = Signal {
-            signal_type: "adapter_activate".to_string(),
-            timestamp: 1234567890,
-            payload: serde_json::json!({"adapter_id": "test-adapter"}),
-            priority: "normal".to_string(),
-            trace_id: Some("trace-123".to_string()),
-        };
-
-        // Test serialization
-        let json = serde_json::to_string(&signal).unwrap();
-        assert!(json.contains("adapter_activate"));
-        assert!(json.contains("test-adapter"));
-
-        // Test deserialization
-        let deserialized: Signal = serde_json::from_str(&json).unwrap();
-        assert_eq!(deserialized.signal_type, "adapter_activate");
-        assert_eq!(deserialized.trace_id, Some("trace-123".to_string()));
-    }
-
-    #[tokio::test]
-    async fn test_connection_pool_creation() {
-        // This test would require a real UDS socket, so we'll just test the structure
-        let client = UdsClient::new(Duration::from_secs(5));
-        assert_eq!(client.timeout, Duration::from_secs(5));
-    }
-}
-
 impl AdapterOSClient for UdsClient {
     // Health & Auth
     async fn health(&self) -> Result<HealthResponse> {
@@ -802,5 +757,50 @@ impl AdapterOSClient for UdsClient {
         Err(anyhow::anyhow!(
             "UDS clients don't support metrics dashboard"
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_uds_client_creation() {
+        let client = UdsClient::new(Duration::from_secs(5));
+        assert_eq!(client.timeout, Duration::from_secs(5));
+    }
+
+    #[tokio::test]
+    async fn test_uds_client_default() {
+        let client = UdsClient::default();
+        assert_eq!(client.timeout, Duration::from_secs(30));
+    }
+
+    #[tokio::test]
+    async fn test_signal_structure() {
+        let signal = Signal {
+            signal_type: "adapter_activate".to_string(),
+            timestamp: 1234567890,
+            payload: serde_json::json!({"adapter_id": "test-adapter"}),
+            priority: "normal".to_string(),
+            trace_id: Some("trace-123".to_string()),
+        };
+
+        // Test serialization
+        let json = serde_json::to_string(&signal).unwrap();
+        assert!(json.contains("adapter_activate"));
+        assert!(json.contains("test-adapter"));
+
+        // Test deserialization
+        let deserialized: Signal = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.signal_type, "adapter_activate");
+        assert_eq!(deserialized.trace_id, Some("trace-123".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_connection_pool_creation() {
+        // This test would require a real UDS socket, so we'll just test the structure
+        let client = UdsClient::new(Duration::from_secs(5));
+        assert_eq!(client.timeout, Duration::from_secs(5));
     }
 }

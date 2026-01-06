@@ -277,7 +277,7 @@ fn PolicyDetailContent(policy: PolicyPackResponse) -> impl IntoView {
                 </div>
                 <div class="flex justify-between">
                     <span class="text-muted-foreground">"Hash (BLAKE3)"</span>
-                    <span class="font-mono text-xs truncate max-w-[200px]" title=policy.hash_b3.clone()>
+                    <span class="font-mono text-xs truncate max-w-truncate" title=policy.hash_b3.clone()>
                         {policy.hash_b3.clone()}
                     </span>
                 </div>

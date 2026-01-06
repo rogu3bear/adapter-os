@@ -4,17 +4,23 @@ use leptos::prelude::*;
 
 /// Warning banner with amber styling.
 #[component]
-pub fn WarningBanner(children: Children) -> impl IntoView {
+pub fn WarningBanner(#[prop(into)] title: String, #[prop(into)] message: String) -> impl IntoView {
     view! {
-        <div class="banner banner-warning">{children()}</div>
+        <div class="banner banner-warning">
+            <strong>{title}</strong>
+            <span>{message}</span>
+        </div>
     }
 }
 
 /// Info banner with blue styling.
 #[component]
-pub fn InfoBanner(children: Children) -> impl IntoView {
+pub fn InfoBanner(#[prop(into)] title: String, #[prop(into)] message: String) -> impl IntoView {
     view! {
-        <div class="banner banner-info">{children()}</div>
+        <div class="banner banner-info">
+            <strong>{title}</strong>
+            <span>{message}</span>
+        </div>
     }
 }
 

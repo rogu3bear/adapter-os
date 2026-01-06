@@ -1,0 +1,64 @@
+warning: adapteros-lora-kernel-mtl@0.11.0: Kernel hash: 80cde3dd76f17f8e4de951368e60bb2daa006cc40454fe2e81d7cb311643723a
+   Compiling adapteros-db v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-db)
+    Finished `test` profile [optimized + debuginfo] target(s) in 3.13s
+     Running benches/kv_vs_sql.rs (target/debug/deps/kv_vs_sql-09b98de3aec96ca6)
+Gnuplot not found, using plotters backend
+Testing get_adapter/sql_only/get
+Success
+Testing get_adapter/kv_only/get
+Success
+Testing get_adapter/dual_write/get
+Success
+Testing get_adapter/kv_primary/get
+Success
+
+Testing list_adapters_10/sql_only/list
+Success
+Testing list_adapters_10/kv_only/list
+Success
+Testing list_adapters_10/dual_write/list
+Success
+Testing list_adapters_10/kv_primary/list
+Success
+
+Testing list_adapters_50/sql_only/list
+Success
+Testing list_adapters_50/kv_only/list
+Success
+Testing list_adapters_50/dual_write/list
+Success
+Testing list_adapters_50/kv_primary/list
+Success
+
+Testing list_adapters_100/sql_only/list
+Success
+Testing list_adapters_100/kv_only/list
+Success
+Testing list_adapters_100/dual_write/list
+Success
+Testing list_adapters_100/kv_primary/list
+Success
+
+Testing register_adapter/sql_only/write
+Success
+Testing register_adapter/kv_only/write
+Success
+Testing register_adapter/dual_write/write
+Success
+Testing register_adapter/kv_primary/write
+Success
+
+Testing update_adapter_state/sql_only/update
+Success
+Testing update_adapter_state/kv_only/update
+Success
+Testing update_adapter_state/dual_write/update
+Success
+Testing update_adapter_state/kv_primary/update
+Success
+
+Testing adapter_lineage/sql_only/lineage
+Success
+Testing adapter_lineage/kv_only/lineage
+Success
+

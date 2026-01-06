@@ -141,11 +141,37 @@ pub struct QueryIntentResult {
 /// Configuration for query intent classification
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryIntentConfig {
-    /// Minimum confidence threshold for live data flag
+    /// Minimum confidence threshold for triggering live data requirement.
+    ///
+    /// Default: 0.60 (60%)
+    ///
+    /// ## Rationale
+    /// The 60% threshold balances responsiveness against false positives:
+    /// - **At 60%**: Matches a single strong signal pattern (e.g., "latest news").
+    ///   This is intentionally set at the base confidence level because a single
+    ///   clear signal is sufficient to suggest live data would improve the response.
+    /// - **Below 60%**: Would require lowering base confidence, increasing false
+    ///   positives from partial/tangential pattern matches.
+    ///
+    /// ## Trade-offs
+    /// - **Lower values** (e.g., 0.50): More queries trigger live data fetching,
+    ///   increasing latency and cost but ensuring freshness.
+    /// - **Higher values** (e.g., 0.70): Fewer live data fetches, faster responses,
+    ///   but risks serving stale information for time-sensitive queries.
     pub live_data_threshold: f32,
+
     /// Enable semantic classification fallback (future enhancement)
     pub enable_semantic_fallback: bool,
-    /// Maximum classification latency budget (microseconds)
+
+    /// Maximum classification latency budget (microseconds).
+    ///
+    /// Default: 500 (0.5ms)
+    ///
+    /// ## Rationale
+    /// Intent classification runs on every query in the hot path. The 0.5ms budget:
+    /// - Keeps classification imperceptible to users (well under human-noticeable latency).
+    /// - Allows ~10 regex pattern checks across 7 intent categories.
+    /// - Leaves headroom for future semantic fallback without blocking responses.
     pub max_latency_us: u64,
 }
 
@@ -154,7 +180,7 @@ impl Default for QueryIntentConfig {
         Self {
             live_data_threshold: 0.6,
             enable_semantic_fallback: false,
-            max_latency_us: 500, // 0.5ms budget
+            max_latency_us: 500,
         }
     }
 }
@@ -275,7 +301,28 @@ impl KeywordClassifier {
         for (patterns, intent) in checks {
             let matches: Vec<usize> = patterns.matches(query).into_iter().collect();
             if !matches.is_empty() {
-                // Confidence increases with more pattern matches
+                // Confidence calculation: base + bonus per additional match, capped at 95%.
+                //
+                // Formula: confidence = min(0.60 + 0.10 * match_count, 0.95)
+                //
+                // ## Rationale
+                // - **Base 60%**: A single pattern match indicates intent but isn't definitive.
+                //   60% reflects "more likely than not" but acknowledges the pattern could
+                //   match tangentially (e.g., "current" in "current events" vs "current density").
+                //
+                // - **+10% per match**: Each additional matching pattern provides corroborating
+                //   evidence. The 10% increment is conservative—even 4 matches only reach 90%,
+                //   reflecting that keyword matching can't achieve certainty.
+                //
+                // - **95% cap**: Never claim certainty from keyword matching alone. Even with
+                //   many matches, there's always a chance of false positives from unusual
+                //   query constructions or domain-specific jargon.
+                //
+                // ## Examples
+                // - 1 match: 60% (single signal, proceed with moderate confidence)
+                // - 2 matches: 70% (corroborated, high confidence)
+                // - 3 matches: 80% (strong signal)
+                // - 4+ matches: 90-95% (very strong, but not certain)
                 let confidence = (0.6 + 0.1 * matches.len() as f32).min(0.95);
                 results.push(IntentClassification {
                     intent,

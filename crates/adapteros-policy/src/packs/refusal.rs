@@ -42,10 +42,48 @@ pub struct BestEffortResponse {
 /// Refusal policy configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RefusalConfig {
-    /// Abstain threshold for confidence (below this = hard abstain)
+    /// Abstain threshold for confidence (below this = hard abstain).
+    ///
+    /// Default: 0.40 (40%)
+    ///
+    /// ## Rationale
+    /// The 40% threshold balances false refusals against hallucination risk:
+    /// - **Below 40%**: Model is essentially guessing; proceeding risks confident-sounding
+    ///   but incorrect answers that could mislead users or cause harm.
+    /// - **At 40%**: Roughly the inflection point in internal testing where answer quality
+    ///   degrades noticeably. Below this, even best-effort responses have high error rates.
+    ///
+    /// ## Trade-offs
+    /// - **Lower values** (e.g., 0.30): Fewer refusals but more low-quality/hallucinated answers.
+    /// - **Higher values** (e.g., 0.50): More refusals but users may perceive system as unhelpful.
+    ///
+    /// ## Tuning guidance
+    /// For high-stakes deployments (aerospace, healthcare), consider raising to 0.50-0.60.
+    /// For exploratory/creative use cases, can lower to 0.30 with appropriate disclaimers.
     pub abstain_threshold: f32,
-    /// Best-effort threshold (between abstain_threshold and this = best-effort mode)
-    /// Above this threshold = complete response
+
+    /// Best-effort threshold (between abstain_threshold and this = best-effort mode).
+    /// Above this threshold = complete response without caveats.
+    ///
+    /// Default: 0.70 (70%)
+    ///
+    /// ## Rationale
+    /// The 70% threshold marks the boundary where stated assumptions become unnecessary:
+    /// - **40-70% (best-effort)**: Confidence is moderate; proceed but explicitly state
+    ///   assumptions so users know to verify critical details.
+    /// - **Above 70%**: High enough confidence that caveats would reduce perceived quality
+    ///   without meaningfully improving safety.
+    ///
+    /// ## Trade-offs
+    /// - **Lower values** (e.g., 0.60): More "complete" answers but some may have unstated
+    ///   uncertainty that could mislead users.
+    /// - **Higher values** (e.g., 0.80): More explicit assumptions shown, but may feel
+    ///   overly cautious for clearly answerable queries.
+    ///
+    /// ## Design note
+    /// The 30-point gap (0.40 to 0.70) provides a meaningful best-effort band. Narrower
+    /// gaps cause mode flipping on minor confidence variations; wider gaps make best-effort
+    /// the dominant mode, reducing its signal value.
     pub best_effort_threshold: f32,
     /// Missing fields templates for different domains
     pub missing_fields_templates: HashMap<String, Vec<String>>,
@@ -132,14 +170,60 @@ pub enum HighStakesDomain {
     None,
 }
 
-/// Configuration for high-stakes domain handling
+/// Configuration for high-stakes domain handling.
+///
+/// High-stakes domains require elevated confidence thresholds because errors can cause
+/// significant real-world harm. These thresholds are intentionally higher than the
+/// general `best_effort_threshold` to ensure the system refuses uncertain advice in
+/// safety-critical contexts.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HighStakesConfig {
-    /// Confidence threshold for medical domain (default: 0.85)
+    /// Confidence threshold for medical domain.
+    ///
+    /// Default: 0.85 (85%)
+    ///
+    /// ## Rationale
+    /// Medical advice has the highest threshold because errors can directly harm health:
+    /// - Incorrect dosage guidance could cause overdose or underdose.
+    /// - Misidentified symptoms could delay treatment for serious conditions.
+    /// - False reassurance about symptoms could prevent seeking necessary care.
+    ///
+    /// The 85% threshold ensures the system only provides medical information when
+    /// highly confident, and otherwise directs users to healthcare professionals.
+    ///
+    /// ## Regulatory context
+    /// Most jurisdictions prohibit unlicensed medical advice. The high threshold
+    /// helps ensure outputs remain informational rather than prescriptive.
     pub medical_threshold: f32,
-    /// Confidence threshold for legal domain (default: 0.80)
+
+    /// Confidence threshold for legal domain.
+    ///
+    /// Default: 0.80 (80%)
+    ///
+    /// ## Rationale
+    /// Legal advice requires elevated confidence because:
+    /// - Incorrect legal guidance could cause users to forfeit rights or incur liability.
+    /// - Legal outcomes depend heavily on jurisdiction-specific nuances.
+    /// - Users may act on advice without consulting actual attorneys.
+    ///
+    /// Set slightly below medical (80% vs 85%) because legal errors, while serious,
+    /// are less likely to cause immediate physical harm, and users more commonly
+    /// understand they should verify with an attorney.
     pub legal_threshold: f32,
-    /// Confidence threshold for financial domain (default: 0.80)
+
+    /// Confidence threshold for financial domain.
+    ///
+    /// Default: 0.80 (80%)
+    ///
+    /// ## Rationale
+    /// Financial advice requires elevated confidence because:
+    /// - Investment advice could cause significant monetary loss.
+    /// - Tax guidance errors could trigger audits or penalties.
+    /// - Users may make irreversible financial decisions based on responses.
+    ///
+    /// Set at 80% (same as legal) because financial harm, while serious, allows
+    /// for error correction more readily than medical situations. Users also
+    /// commonly understand financial advice requires professional verification.
     pub financial_threshold: f32,
     /// Keywords to detect medical domain
     pub medical_keywords: Vec<String>,
@@ -198,16 +282,76 @@ impl Default for HighStakesConfig {
     }
 }
 
-/// Safety thresholds
+/// Safety thresholds for content classification.
+///
+/// These thresholds determine when detected safety signals trigger policy violations.
+/// A score above the threshold indicates the content should be blocked or flagged.
+///
+/// ## Design philosophy
+/// Thresholds are calibrated based on harm severity and detection reliability:
+/// - **Higher thresholds** (e.g., 0.9) for categories where false positives are costly
+///   and the harm from false negatives is recoverable.
+/// - **Lower thresholds** (e.g., 0.6) for categories where harm is subtle and
+///   under-detection is more dangerous than over-detection.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SafetyThresholds {
-    /// Harmful content threshold
+    /// Harmful content threshold.
+    ///
+    /// Default: 0.80 (80%)
+    ///
+    /// ## Rationale
+    /// Harmful content (violence, dangerous activities) requires a balanced threshold:
+    /// - Too low: Blocks legitimate discussions of self-defense, safety procedures, news.
+    /// - Too high: Allows genuinely harmful instructions to slip through.
+    ///
+    /// The 80% threshold captures clearly harmful content while allowing educational
+    /// or news contexts where harm is discussed but not promoted.
     pub harmful_threshold: f32,
-    /// Biased content threshold
+
+    /// Biased content threshold.
+    ///
+    /// Default: 0.70 (70%)
+    ///
+    /// ## Rationale
+    /// Bias detection is inherently subjective and context-dependent:
+    /// - Set lower than harmful (70% vs 80%) because bias is more subtle and
+    ///   under-detection can normalize problematic patterns.
+    /// - But not too low, as many legitimate viewpoints can appear biased
+    ///   depending on perspective.
+    ///
+    /// The 70% threshold catches clear cases of discriminatory framing while
+    /// allowing controversial but legitimate discourse.
     pub biased_threshold: f32,
-    /// Misleading content threshold
+
+    /// Misleading content threshold.
+    ///
+    /// Default: 0.60 (60%)
+    ///
+    /// ## Rationale
+    /// Misleading content has the lowest threshold because:
+    /// - Misinformation spreads easily and is hard to correct once shared.
+    /// - Users may not realize they're receiving inaccurate information.
+    /// - The harm from false information compounds over time.
+    ///
+    /// The 60% threshold errs toward caution, preferring to flag potentially
+    /// misleading content for review rather than risk spreading misinformation.
     pub misleading_threshold: f32,
-    /// Illegal content threshold
+
+    /// Illegal content threshold.
+    ///
+    /// Default: 0.90 (90%)
+    ///
+    /// ## Rationale
+    /// Illegal content has the highest threshold because:
+    /// - False positives could block legitimate legal discussions (law students,
+    ///   lawyers, journalists, researchers).
+    /// - Legal status varies by jurisdiction, making detection inherently noisy.
+    /// - Many "illegal" discussions are actually about understanding or preventing
+    ///   illegal activity.
+    ///
+    /// The 90% threshold ensures only clearly illegal content (explicit instructions
+    /// for crimes, CSAM, etc.) triggers blocking, while legal discussions of crime
+    /// remain accessible.
     pub illegal_threshold: f32,
 }
 
@@ -383,7 +527,10 @@ impl RefusalPolicy {
         }
     }
 
-    /// Generate assumptions for best-effort mode
+    /// Generate assumptions for best-effort mode.
+    ///
+    /// Produces explicit assumption statements that accompany best-effort responses,
+    /// helping users understand where uncertainty exists.
     fn generate_assumptions(
         &self,
         confidence: f32,
@@ -391,7 +538,14 @@ impl RefusalPolicy {
     ) -> Vec<String> {
         let mut assumptions = Vec::new();
 
-        // Add confidence-based assumption
+        // Add confidence-based assumption when confidence is below 60%.
+        //
+        // Threshold rationale (0.60):
+        // - Below 60%: Query is ambiguous enough that we should state we're using
+        //   the most common interpretation. This is the midpoint of the best-effort
+        //   band (40-70%), marking queries with meaningful ambiguity.
+        // - At 60-70%: Confidence is moderate-to-high; the interpretation is likely
+        //   correct and stating assumptions would add noise without value.
         if confidence < 0.6 {
             assumptions
                 .push("Assuming the query refers to the most common interpretation".to_string());

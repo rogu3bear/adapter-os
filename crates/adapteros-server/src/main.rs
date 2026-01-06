@@ -246,7 +246,7 @@ async fn main() -> Result<()> {
         // =====================================================================
         // Phase 10a: Application State
         // =====================================================================
-        let (state, shutdown_coordinator) = build_app_state(
+        let (state, shutdown_coordinator, diag_receiver) = build_app_state(
             db_ctx.db.clone(),
             api_config,
             config_ctx.server_config.clone(),
@@ -278,6 +278,7 @@ async fn main() -> Result<()> {
             cli.strict,
             state.metrics_registry.clone(),
             config_ctx.server_config.clone(),
+            diag_receiver,
         )
         .await
         .map_err(|e| {

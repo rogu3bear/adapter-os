@@ -2,7 +2,7 @@
 //!
 //! Global chat state that persists across page navigation.
 
-use crate::api::{ApiClient, ApiError, InferenceRequest};
+use crate::api::{api_base_url, ApiClient, ApiError, InferenceRequest};
 use chrono::{DateTime, Utc};
 use leptos::prelude::*;
 use std::sync::Arc;
@@ -166,6 +166,9 @@ impl ChatAction {
         if content.trim().is_empty() {
             return Ok(());
         }
+        if self.state.get_untracked().loading {
+            return Ok(());
+        }
 
         // Add user message
         self.state.update(|s| {
@@ -299,6 +302,7 @@ impl ChatAction {
         self.state.update(|s| {
             s.messages.clear();
             s.error = None;
+            s.unread_count = 0;
         });
     }
 
@@ -324,7 +328,8 @@ pub type ChatContext = (ReadSignal<ChatState>, ChatAction);
 /// Provide chat context to the application
 pub fn provide_chat_context() {
     web_sys::console::log_1(&"[ChatContext] Initializing...".into());
-    let client = Arc::new(ApiClient::new());
+    let base_url = format!("{}/api", api_base_url().trim_end_matches('/'));
+    let client = Arc::new(ApiClient::with_base_url(base_url));
     web_sys::console::log_1(&"[ChatContext] Client created".into());
     let state = RwSignal::new(ChatState::default());
     web_sys::console::log_1(&"[ChatContext] State created".into());
