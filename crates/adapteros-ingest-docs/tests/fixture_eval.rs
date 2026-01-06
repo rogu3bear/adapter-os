@@ -154,7 +154,7 @@ fn tokenizer_from_fixtures(fixture_paths: &[PathBuf]) -> Result<Arc<Tokenizer>> 
         .map_err(|e| AosError::Validation(format!("Failed to build tokenizer: {e}")))?;
 
     let mut tokenizer = Tokenizer::new(model);
-    tokenizer.with_pre_tokenizer(Whitespace::default());
+    tokenizer.with_pre_tokenizer(Whitespace);
     Ok(Arc::new(tokenizer))
 }
 

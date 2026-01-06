@@ -45,7 +45,7 @@ fn main() {
 
     // Define memory limits
     let limits = MemoryLimits::new(
-        1 * 1024 * 1024 * 1024, // 1 GB VRAM
+        1024 * 1024 * 1024,     // 1 GB VRAM
         2 * 1024 * 1024 * 1024, // 2 GB system RAM
         0.15,                   // 15% headroom
     );
