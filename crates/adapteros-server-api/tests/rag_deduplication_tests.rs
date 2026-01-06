@@ -245,7 +245,7 @@ fn test_deduplication_works_with_multiple_documents() {
     }
 
     // Sort by score DESC (simulates pre-sorted retrieval results)
-    results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+    results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
 
     // Apply deduplication with max_chunks_per_document = 2
     let deduplicated = apply_chunk_deduplication(results, 2);
@@ -293,7 +293,7 @@ fn test_deduplication_single_chunk_limit() {
     }
 
     // Sort by score DESC
-    results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+    results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
 
     // Apply deduplication with max_chunks_per_document = 1 (single chunk per document)
     let deduplicated = apply_chunk_deduplication(results, 1);
