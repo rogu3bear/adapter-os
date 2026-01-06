@@ -1,63 +1,80 @@
-# PRD: KV Backend Migration Testing
+# PRD: Complete KV Backend Migration Testing
 
 **Status:** Draft
 **Last Updated:** 2026-01-05
 **Owner:** Engineering
+**Related Docs:** `crates/adapteros-db/tests/atomic_dual_write_tests.rs`, `.github/workflows/ci.yml`
 
 ---
 
-## Problem
+## 1. Summary
 
-The KV backend (redb) migration path (SqlOnly -> DualWrite -> KvPrimary) lacks a single end-to-end test that exercises the full workflow and validates rollback behavior under KV failures. Current tests cover individual behaviors but do not provide a cohesive migration workflow, and there is no CI job dedicated to KV migration coverage.
+The KV backend (redb) is intended to support a phased migration from SQLite, but end-to-end tests for the migration workflow are ignored. This PRD defines the test coverage and CI wiring required to validate SqlOnly -> DualWrite -> KvPrimary transitions.
 
-## Non-Goals
+---
 
-- Completing the full SqlOnly -> KvOnly cutover.
-- Performance tuning beyond a baseline KV read benchmark.
-- Reworking the storage architecture or migration tooling.
+## 2. Problem Statement
 
-## Proposed Approach
+Migration to the KV backend lacks integration tests for atomic dual-write behavior and KV fallback. As a result, regressions can slip into production without confidence in the migration workflow.
 
-1. **Migration workflow test (Phase 1):**
-   - Add an integration test that walks SqlOnly -> DualWrite -> KvPrimary using the existing `Db` storage mode APIs and KV helpers.
-   - Verify SqlOnly does not write to KV, DualWrite writes to both, and KvPrimary reads succeed for KV-backed data.
+---
 
-2. **Strict rollback test (Phase 1):**
-   - Add a test-only KV backend wrapper that injects write failures.
-   - Run DualWrite in strict mode and confirm SQL rollbacks when KV writes fail.
+## 3. Goals
 
-3. **CI coverage (Phase 2):**
-   - Add or formalize a `kv-backend` feature flag in `adapteros-db` if needed.
-   - Add a CI job that runs KV tests (including ignored tests, if any) with KV backend enabled.
+- Enable deterministic integration tests for each storage mode.
+- Validate atomic rollback when KV writes fail.
+- Verify KV read fallback behavior during KvPrimary mode.
+- Ensure CI executes KV backend tests.
 
-4. **Benchmark (Phase 2):**
-   - Extend the existing KV vs SQL benchmark to enforce a baseline threshold for adapter lookup.
+---
 
-## Acceptance Criteria
+## 4. Non-Goals
 
-### Phase 1 (this PRD slice)
-- Migration workflow test covers SqlOnly -> DualWrite -> KvPrimary behavior in a single test.
-- Strict dual-write rollback test verifies SQL does not commit when KV writes fail.
+- Production rollout of KvPrimary mode.
+- Performance tuning of redb beyond baseline benchmarks.
+- Replacing existing SQLite tests.
 
-### Phase 2 (follow-up tasks)
-- `cargo test -p adapteros-db --features kv-backend -- --ignored` passes.
-- CI runs KV migration tests on every PR.
-- KV read benchmark is documented and tracked (target: <1ms for adapter lookup).
+---
 
-## Test Plan
+## 5. Proposed Approach
 
-- `cargo test -p adapteros-db --test atomic_dual_write_tests`
-- `cargo test -p adapteros-db --test kv_integration`
-- Future: `cargo test -p adapteros-db --features kv-backend -- --ignored`
+- Un-ignore KV migration tests and run them behind `kv-backend` feature.
+- Add a test helper to set up temporary KV stores for dual-write tests.
+- Add explicit failure injection hooks for KV write errors (test-only).
+- Add a CI job that runs KV tests on supported runners.
 
-## Rollout Plan
+---
 
-1. Land Phase 1 tests in default test suite.
-2. Add CI job for KV migration tests behind feature gating.
-3. Monitor test runtime and failure rate; adjust gating or timeouts as needed.
-4. Add benchmark threshold and track regressions over time.
+## 6. Acceptance Criteria
 
-## Risks and Open Questions
+- `cargo test -p adapteros-db --features kv-backend -- --ignored` passes in CI.
+- Migration workflow test covers SqlOnly, DualWrite (best-effort and strict), and KvPrimary.
+- Atomic rollback is verified when KV writes fail.
+- KV fallback reads are exercised when KV is unavailable.
 
-- The repo currently lacks an explicit `kv-backend` feature flag; confirm intended gating strategy.
-- Injected KV failure tests rely on a test-only backend wrapper; validate this aligns with storage error semantics.
+---
+
+## 7. Test Plan
+
+- Integration test for full migration workflow with a temp redb store.
+- Negative test for KV write failure to ensure SQL rollback.
+- Benchmark test to compare KV read latency against SQLite (target <1 ms for adapter lookup).
+
+---
+
+## 8. Rollout Plan
+
+1. Land test-only KV failure injection and helper utilities.
+2. Enable KV migration tests in CI with feature flag.
+3. Monitor CI stability and adjust timeouts/fixtures if needed.
+
+---
+
+## 9. Follow-up Tasks (Tracked)
+
+- TASK-1: Implement migration workflow integration test.
+  - Acceptance: asserts all four migration phases and data consistency.
+- TASK-2: Add KV failure injection for dual-write strict mode.
+  - Acceptance: SQL rollback verified on simulated KV error.
+- TASK-3: Add CI job for `kv-backend` tests.
+  - Acceptance: CI runs tests on every PR with feature enabled.
