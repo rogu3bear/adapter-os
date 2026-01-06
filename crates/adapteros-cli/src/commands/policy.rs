@@ -201,13 +201,13 @@ fn list_policy_packs(only_implemented: bool, format: OutputFormat) -> Result<()>
 fn explain_policy_pack(policy_ref: &str) -> Result<()> {
     // Try to parse as ID number first, then as name
     let policy_id = if let Ok(id) = policy_ref.parse::<usize>() {
-        if !(1..=25).contains(&id) {
+        if !(1..=29).contains(&id) {
             return Err(adapteros_core::AosError::Validation(
-                "Policy ID must be between 1 and 25".to_string(),
+                "Policy ID must be between 1 and 29".to_string(),
             ));
         }
         PolicyId::try_from(id as u8).map_err(|_| {
-            adapteros_core::AosError::Validation("Policy ID must be between 1 and 25".to_string())
+            adapteros_core::AosError::Validation("Policy ID must be between 1 and 29".to_string())
         })?
     } else {
         // Try to match by name (case-insensitive)
@@ -285,13 +285,13 @@ fn enforce_policies(pack: Option<&str>, all: bool, dry_run: bool) -> Result<()> 
 fn parse_policy_id(policy_ref: &str) -> Result<PolicyId> {
     // Try to parse as ID number first, then as name
     if let Ok(id) = policy_ref.parse::<usize>() {
-        if !(1..=25).contains(&id) {
+        if !(1..=29).contains(&id) {
             return Err(adapteros_core::AosError::Validation(
-                "Policy ID must be between 1 and 25".to_string(),
+                "Policy ID must be between 1 and 29".to_string(),
             ));
         }
         PolicyId::try_from(id as u8).map_err(|_| {
-            adapteros_core::AosError::Validation("Policy ID must be between 1 and 25".to_string())
+            adapteros_core::AosError::Validation("Policy ID must be between 1 and 29".to_string())
         })
     } else {
         let name_lower = policy_ref.to_lowercase();
