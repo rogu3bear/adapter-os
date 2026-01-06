@@ -1527,6 +1527,26 @@ impl FusedKernels for MetalKernels {
             build_timestamp: m.build_timestamp,
         });
 
+        // Verify metallib hash at runtime (PR-006)
+        let actual_hash = adapteros_core::B3Hash::hash(crate::METALLIB_BYTES);
+        let metallib_verified = actual_hash == metallib_hash;
+
+        if !metallib_verified {
+            // Log but don't fail - attestation reports mismatch
+            tracing::error!(
+                expected = %metallib_hash.to_short_hex(),
+                actual = %actual_hash.to_short_hex(),
+                counter.metallib_hash_mismatch_total = 1,
+                "METALLIB HASH MISMATCH - determinism verification failed"
+            );
+        } else {
+            tracing::info!(
+                hash = %actual_hash.to_short_hex(),
+                counter.metallib_verified_loads_total = 1,
+                "Metallib hash verified"
+            );
+        }
+
         // Metal backend uses HKDF seeding
         let rng_seed_method = attestation::RngSeedingMethod::HkdfSeeded;
 
@@ -1539,15 +1559,25 @@ impl FusedKernels for MetalKernels {
         // Metal backend is deterministic by design
         let deterministic = true;
 
+        // Determinism level depends on verification status
+        let determinism_level = if metallib_verified {
+            attestation::DeterminismLevel::BitExact
+        } else {
+            attestation::DeterminismLevel::BoundedTolerance
+        };
+
         Ok(attestation::DeterminismReport {
             backend_type: attestation::BackendType::Metal,
             metallib_hash: Some(metallib_hash),
+            metallib_verified,
             manifest,
             rng_seed_method,
             floating_point_mode,
-            determinism_level: attestation::DeterminismLevel::BitExact,
+            determinism_level,
             compiler_flags,
             deterministic,
+            runtime_version: None, // Could be populated from xcrun --show-sdk-version
+            device_id: Some(self.device.name().to_string()),
         })
     }
 

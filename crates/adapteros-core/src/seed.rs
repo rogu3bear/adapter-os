@@ -299,6 +299,84 @@ impl std::fmt::Display for TypedSeed {
     }
 }
 
+// =============================================================================
+// Seed Digest and Lineage for Receipt Binding (PR-004)
+// =============================================================================
+
+/// Compute a digest of a seed for receipt binding.
+///
+/// This produces a BLAKE3 hash of the seed bytes, suitable for
+/// inclusion in receipts without exposing the raw seed.
+///
+/// # Security Note
+///
+/// The digest is one-way: the original seed cannot be recovered.
+/// However, if an attacker knows the seed, they can verify the digest.
+/// This is acceptable since the digest is for binding, not secrecy.
+pub fn compute_seed_digest(seed: &[u8; 32]) -> B3Hash {
+    B3Hash::hash(seed)
+}
+
+/// Compute a seed digest from a TypedSeed.
+pub fn compute_typed_seed_digest(seed: &TypedSeed) -> B3Hash {
+    B3Hash::hash(seed.bytes())
+}
+
+/// Seed lineage information for receipt binding.
+///
+/// Captures the cryptographic binding between a receipt and its seed
+/// derivation context, enabling detection of seed manipulation without
+/// exposing raw seed material.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SeedLineage {
+    /// BLAKE3 digest of the request seed (never raw seed)
+    pub root_seed_digest: B3Hash,
+    /// Seed mode used for derivation
+    pub seed_mode: SeedMode,
+    /// Whether seed was derived from manifest hash
+    pub has_manifest_binding: bool,
+    /// HKDF algorithm version used
+    pub hkdf_version: u32,
+}
+
+impl SeedLineage {
+    /// Create seed lineage from a TypedSeed and derivation context.
+    pub fn from_typed_seed(seed: &TypedSeed, mode: SeedMode, has_manifest: bool) -> Self {
+        Self {
+            root_seed_digest: compute_typed_seed_digest(seed),
+            seed_mode: mode,
+            has_manifest_binding: has_manifest,
+            hkdf_version: seed.version,
+        }
+    }
+
+    /// Create seed lineage from raw seed bytes.
+    pub fn from_raw_seed(seed: &[u8; 32], mode: SeedMode, has_manifest: bool) -> Self {
+        Self {
+            root_seed_digest: compute_seed_digest(seed),
+            seed_mode: mode,
+            has_manifest_binding: has_manifest,
+            hkdf_version: HKDF_ALGORITHM_VERSION,
+        }
+    }
+
+    /// Verify that a seed matches this lineage.
+    pub fn verify_seed(&self, seed: &[u8; 32]) -> bool {
+        let digest = B3Hash::hash(seed);
+        digest == self.root_seed_digest
+    }
+
+    /// Verify that a typed seed matches this lineage.
+    pub fn verify_typed_seed(&self, seed: &TypedSeed) -> bool {
+        self.verify_seed(seed.bytes())
+    }
+
+    /// Get the root seed digest as a hex string.
+    pub fn digest_hex(&self) -> String {
+        self.root_seed_digest.to_hex()
+    }
+}
+
 /// Derive a typed seed with version tracking and checksum validation.
 ///
 /// This is the preferred method for seed derivation when the seed will be
@@ -1633,6 +1711,122 @@ mod tests {
         assert!(
             deserialized.validate().is_ok(),
             "Deserialized seed must validate"
+        );
+    }
+
+    // =========================================================================
+    // SeedLineage Tests (PR-004)
+    // =========================================================================
+
+    #[test]
+    fn test_seed_digest_deterministic() {
+        let seed = [42u8; 32];
+        let digest1 = compute_seed_digest(&seed);
+        let digest2 = compute_seed_digest(&seed);
+        assert_eq!(digest1, digest2, "Same seed must produce same digest");
+    }
+
+    #[test]
+    fn test_different_seeds_different_digests() {
+        let seed1 = [1u8; 32];
+        let seed2 = [2u8; 32];
+        let digest1 = compute_seed_digest(&seed1);
+        let digest2 = compute_seed_digest(&seed2);
+        assert_ne!(
+            digest1, digest2,
+            "Different seeds must produce different digests"
+        );
+    }
+
+    #[test]
+    fn test_seed_lineage_from_typed_seed() {
+        let global = B3Hash::hash(b"lineage-test");
+        let typed_seed = derive_typed_seed(&global, "lineage");
+        let lineage = SeedLineage::from_typed_seed(&typed_seed, SeedMode::Strict, true);
+
+        assert_eq!(lineage.seed_mode, SeedMode::Strict);
+        assert!(lineage.has_manifest_binding);
+        assert_eq!(lineage.hkdf_version, HKDF_ALGORITHM_VERSION);
+    }
+
+    #[test]
+    fn test_seed_lineage_from_raw_seed() {
+        let seed = [42u8; 32];
+        let lineage = SeedLineage::from_raw_seed(&seed, SeedMode::BestEffort, false);
+
+        assert_eq!(lineage.seed_mode, SeedMode::BestEffort);
+        assert!(!lineage.has_manifest_binding);
+        assert_eq!(lineage.hkdf_version, HKDF_ALGORITHM_VERSION);
+    }
+
+    #[test]
+    fn test_seed_lineage_verification() {
+        let seed = [42u8; 32];
+        let lineage = SeedLineage::from_raw_seed(&seed, SeedMode::Strict, true);
+
+        assert!(lineage.verify_seed(&seed), "Lineage should verify matching seed");
+        assert!(
+            !lineage.verify_seed(&[0u8; 32]),
+            "Lineage should reject non-matching seed"
+        );
+    }
+
+    #[test]
+    fn test_seed_lineage_typed_verification() {
+        let global = B3Hash::hash(b"typed-lineage-test");
+        let typed_seed = derive_typed_seed(&global, "verification");
+        let lineage = SeedLineage::from_typed_seed(&typed_seed, SeedMode::Strict, true);
+
+        assert!(
+            lineage.verify_typed_seed(&typed_seed),
+            "Lineage should verify matching typed seed"
+        );
+
+        let other_typed = derive_typed_seed(&global, "other-label");
+        assert!(
+            !lineage.verify_typed_seed(&other_typed),
+            "Lineage should reject different typed seed"
+        );
+    }
+
+    #[test]
+    fn test_seed_lineage_serialization() {
+        let seed = [42u8; 32];
+        let lineage = SeedLineage::from_raw_seed(&seed, SeedMode::Strict, true);
+
+        let json = serde_json::to_string(&lineage).expect("serialize lineage");
+        let deserialized: SeedLineage = serde_json::from_str(&json).expect("deserialize lineage");
+
+        assert_eq!(
+            lineage.root_seed_digest, deserialized.root_seed_digest,
+            "Digest must survive serialization"
+        );
+        assert_eq!(lineage.seed_mode, deserialized.seed_mode);
+        assert_eq!(lineage.has_manifest_binding, deserialized.has_manifest_binding);
+        assert_eq!(lineage.hkdf_version, deserialized.hkdf_version);
+    }
+
+    #[test]
+    fn test_seed_lineage_digest_hex() {
+        let seed = [42u8; 32];
+        let lineage = SeedLineage::from_raw_seed(&seed, SeedMode::Strict, true);
+        let hex = lineage.digest_hex();
+
+        assert_eq!(hex.len(), 64, "BLAKE3 hex should be 64 chars");
+        assert!(hex.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn test_typed_seed_digest_matches_raw() {
+        let raw_seed = [42u8; 32];
+        let typed_seed = TypedSeed::new(raw_seed);
+
+        let raw_digest = compute_seed_digest(&raw_seed);
+        let typed_digest = compute_typed_seed_digest(&typed_seed);
+
+        assert_eq!(
+            raw_digest, typed_digest,
+            "Raw and typed digests must match for same bytes"
         );
     }
 }

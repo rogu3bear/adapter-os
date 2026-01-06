@@ -180,6 +180,7 @@ impl FusedKernels for MlxRsBackend {
         let report = DeterminismReport {
             backend_type: BackendType::MLX,
             metallib_hash: self.manifest_hash,
+            metallib_verified: false,
             manifest: None,
             rng_seed_method: rng_method,
             floating_point_mode: FloatingPointMode::Deterministic,
@@ -190,6 +191,8 @@ impl FusedKernels for MlxRsBackend {
             },
             compiler_flags: vec![],
             deterministic: seeded,
+            runtime_version: Some("mlx-rs".to_string()),
+            device_id: Some(self.device.clone()),
         };
 
         tracing::info!(

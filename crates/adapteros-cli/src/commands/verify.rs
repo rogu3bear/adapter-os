@@ -113,6 +113,44 @@ pub enum VerifyCommand {
         #[arg(long, default_value = "./var/cp.db")]
         database: PathBuf,
     },
+
+    /// Verify audit chain integrity (policy audit + evidence envelopes)
+    #[command(after_help = r#"Examples:
+  # Verify all audit chains
+  aosctl verify chains
+
+  # Verify only policy audit chains
+  aosctl verify chains --policy-only
+
+  # Verify only evidence envelope chains
+  aosctl verify chains --evidence-only
+
+  # Filter to specific tenant
+  aosctl verify chains --tenant-id my-tenant
+
+  # Exit with error if any divergence detected (for CI)
+  aosctl verify chains --fail-on-divergence
+
+  # JSON output
+  aosctl verify chains --json
+"#)]
+    Chains {
+        /// Only verify policy audit chains
+        #[arg(long)]
+        policy_only: bool,
+
+        /// Only verify evidence envelope chains
+        #[arg(long)]
+        evidence_only: bool,
+
+        /// Filter to specific tenant
+        #[arg(long)]
+        tenant_id: Option<String>,
+
+        /// Fail command if any divergence detected (exit code 1)
+        #[arg(long, default_value = "false")]
+        fail_on_divergence: bool,
+    },
 }
 
 /// Run bundle verification (public entry point for Commands::Verify)
@@ -159,6 +197,12 @@ pub async fn handle_verify_command(cmd: VerifyCommand, output: &OutputWriter) ->
             use crate::commands::federation;
             federation::verify_federation(&bundle_dir, &database, output).await
         }
+        VerifyCommand::Chains {
+            policy_only,
+            evidence_only,
+            tenant_id,
+            fail_on_divergence,
+        } => verify_audit_chains(policy_only, evidence_only, tenant_id, fail_on_divergence, output).await,
     }
 }
 
@@ -639,4 +683,161 @@ fn load_fusion_metadata(path: &Path) -> Result<B3Hash> {
         .fused_manifest_hash
         .ok_or_else(|| anyhow::anyhow!("Fusion metadata missing fused_manifest_hash"))?;
     B3Hash::from_hex(&hash_hex).map_err(|e| anyhow::anyhow!("Invalid fused hash: {}", e))
+}
+
+/// Verify audit chain integrity (policy audit + evidence envelopes)
+///
+/// Checks all audit chains for tampering or divergence:
+/// - Policy audit decision chains (per-tenant BLAKE3 chain)
+/// - Evidence envelope chains (per-tenant+scope chain)
+async fn verify_audit_chains(
+    policy_only: bool,
+    evidence_only: bool,
+    tenant_filter: Option<String>,
+    fail_on_divergence: bool,
+    output: &OutputWriter,
+) -> Result<()> {
+    use adapteros_db::Db;
+
+    output.section("Audit Chain Verification");
+
+    let db = Db::connect_env()
+        .await
+        .context("Failed to connect to database")?;
+
+    let mut any_divergence = false;
+    let mut total_policy_checked = 0usize;
+    let mut total_evidence_checked = 0usize;
+
+    // Verify policy audit chains
+    if !evidence_only {
+        output.info("Verifying policy audit chains...");
+
+        let results = db
+            .verify_all_policy_audit_chains()
+            .await
+            .context("Failed to verify policy audit chains")?;
+
+        let mut policy_results = Vec::new();
+
+        for (tenant_id, result) in &results {
+            if let Some(ref filter) = tenant_filter {
+                if tenant_id != filter {
+                    continue;
+                }
+            }
+
+            total_policy_checked += 1;
+
+            if result.divergence_detected {
+                any_divergence = true;
+                output.error(format!(
+                    "DIVERGENCE: tenant={} sequence={} entries={} error={}",
+                    tenant_id,
+                    result.first_invalid_sequence.unwrap_or(0),
+                    result.entries_checked,
+                    result.error_message.as_deref().unwrap_or("unknown")
+                ));
+            } else {
+                output.success(format!(
+                    "OK: tenant={} entries_checked={} duration={}ms",
+                    tenant_id, result.entries_checked, result.duration_ms
+                ));
+            }
+
+            policy_results.push(serde_json::json!({
+                "tenant_id": tenant_id,
+                "is_valid": result.is_valid,
+                "entries_checked": result.entries_checked,
+                "divergence_detected": result.divergence_detected,
+                "first_invalid_sequence": result.first_invalid_sequence,
+                "error_message": result.error_message,
+                "duration_ms": result.duration_ms,
+            }));
+        }
+
+        if output.is_json() {
+            output.json(&serde_json::json!({
+                "type": "policy_audit",
+                "chains_verified": policy_results.len(),
+                "results": policy_results,
+            }))?;
+        }
+    }
+
+    // Verify evidence envelope chains
+    if !policy_only {
+        output.blank();
+        output.info("Verifying evidence envelope chains...");
+
+        let results = db
+            .verify_all_evidence_chains()
+            .await
+            .context("Failed to verify evidence chains")?;
+
+        let mut evidence_results = Vec::new();
+
+        for result in &results {
+            if let Some(ref filter) = tenant_filter {
+                if &result.tenant_id != filter {
+                    continue;
+                }
+            }
+
+            total_evidence_checked += 1;
+
+            if result.divergence_detected {
+                any_divergence = true;
+                output.error(format!(
+                    "DIVERGENCE: tenant={} scope={:?} index={} envelopes={} error={}",
+                    result.tenant_id,
+                    result.scope,
+                    result.first_invalid_index.unwrap_or(0),
+                    result.envelopes_checked,
+                    result.error_message.as_deref().unwrap_or("unknown")
+                ));
+            } else if result.envelopes_checked > 0 {
+                output.success(format!(
+                    "OK: tenant={} scope={:?} envelopes_checked={} duration={}ms",
+                    result.tenant_id, result.scope, result.envelopes_checked, result.duration_ms
+                ));
+            }
+
+            evidence_results.push(serde_json::json!({
+                "tenant_id": result.tenant_id,
+                "scope": format!("{:?}", result.scope),
+                "is_valid": result.is_valid,
+                "envelopes_checked": result.envelopes_checked,
+                "divergence_detected": result.divergence_detected,
+                "first_invalid_index": result.first_invalid_index,
+                "error_message": result.error_message,
+                "duration_ms": result.duration_ms,
+            }));
+        }
+
+        if output.is_json() {
+            output.json(&serde_json::json!({
+                "type": "evidence_envelope",
+                "chains_verified": evidence_results.len(),
+                "results": evidence_results,
+            }))?;
+        }
+    }
+
+    // Summary
+    output.blank();
+    output.section("Summary");
+    output.kv("Policy chains verified", &total_policy_checked.to_string());
+    output.kv("Evidence chains verified", &total_evidence_checked.to_string());
+
+    if any_divergence {
+        output.error("DIVERGENCE DETECTED - audit chain integrity compromised");
+        if fail_on_divergence {
+            return Err(anyhow::anyhow!("Audit chain divergence detected"));
+        }
+    } else {
+        output.success("All audit chains verified successfully");
+    }
+
+    Ok(())
 }

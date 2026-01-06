@@ -5,6 +5,7 @@
 //! - Root hash computation and verification
 //! - Chain linkage verification
 //! - Ed25519 signature verification (requires `evidence-signing` feature)
+//! - Ingestion validation (PR-005)
 //!
 //! # Example
 //!
@@ -20,6 +21,430 @@ use crate::evidence_envelope::{EvidenceEnvelope, EvidenceScope, EVIDENCE_ENVELOP
 use crate::{AosError, B3Hash, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+// =============================================================================
+// Ingestion Validation Types and Functions (PR-005)
+// =============================================================================
+
+/// Result of evidence envelope ingestion validation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IngestionValidationResult {
+    /// Whether validation passed
+    pub is_valid: bool,
+    /// List of validation errors (empty if valid)
+    pub errors: Vec<IngestionError>,
+    /// Non-fatal warnings
+    pub warnings: Vec<String>,
+    /// Computed root hash (if computable)
+    pub computed_root: Option<B3Hash>,
+}
+
+impl IngestionValidationResult {
+    /// Create a successful validation result.
+    pub fn success(computed_root: Option<B3Hash>) -> Self {
+        Self {
+            is_valid: true,
+            errors: Vec::new(),
+            warnings: Vec::new(),
+            computed_root,
+        }
+    }
+
+    /// Create a failed validation result with the given errors.
+    pub fn failure(errors: Vec<IngestionError>) -> Self {
+        Self {
+            is_valid: false,
+            errors,
+            warnings: Vec::new(),
+            computed_root: None,
+        }
+    }
+}
+
+/// Specific error types for ingestion validation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", content = "details")]
+pub enum IngestionError {
+    /// Schema version not supported
+    UnsupportedSchema { version: u8, max_supported: u8 },
+
+    /// Root hash mismatch (tampered payload)
+    RootMismatch { claimed: String, computed: String },
+
+    /// Signature validation failed
+    SignatureInvalid { reason: String },
+
+    /// Signature missing when required
+    SignatureMissing,
+
+    /// Payload reference missing for claimed scope
+    PayloadMissing { scope: String },
+
+    /// Payload reference present for wrong scope
+    PayloadScopeMismatch { claimed: String, present: String },
+
+    /// Chain linkage invalid
+    ChainLinkageInvalid { reason: String },
+
+    /// Previous root mismatch
+    PreviousRootMismatch {
+        expected: Option<String>,
+        claimed: Option<String>,
+    },
+
+    /// Tenant ID mismatch with payload
+    TenantMismatch { envelope: String, payload: String },
+
+    /// Timestamp in future (beyond allowed skew)
+    TimestampInFuture { timestamp: String },
+
+    /// Key ID doesn't match public key
+    KeyIdMismatch { computed: String, claimed: String },
+
+    /// Empty tenant ID
+    EmptyTenantId,
+
+    /// Multiple payload refs populated
+    MultiplePayloads { count: usize },
+}
+
+impl std::fmt::Display for IngestionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnsupportedSchema {
+                version,
+                max_supported,
+            } => {
+                write!(
+                    f,
+                    "Schema version {} not supported (max: {})",
+                    version, max_supported
+                )
+            }
+            Self::RootMismatch { claimed, computed } => {
+                write!(f, "Root mismatch: claimed {} != computed {}", claimed, computed)
+            }
+            Self::SignatureInvalid { reason } => write!(f, "Invalid signature: {}", reason),
+            Self::SignatureMissing => write!(f, "Signature required but missing"),
+            Self::PayloadMissing { scope } => write!(f, "Payload missing for scope {}", scope),
+            Self::PayloadScopeMismatch { claimed, present } => {
+                write!(
+                    f,
+                    "Scope mismatch: claimed {} but payload is {}",
+                    claimed, present
+                )
+            }
+            Self::ChainLinkageInvalid { reason } => {
+                write!(f, "Chain linkage invalid: {}", reason)
+            }
+            Self::PreviousRootMismatch { expected, claimed } => {
+                write!(
+                    f,
+                    "Previous root mismatch: expected {:?}, claimed {:?}",
+                    expected, claimed
+                )
+            }
+            Self::TenantMismatch { envelope, payload } => {
+                write!(
+                    f,
+                    "Tenant mismatch: envelope={} payload={}",
+                    envelope, payload
+                )
+            }
+            Self::TimestampInFuture { timestamp } => {
+                write!(f, "Timestamp in future: {}", timestamp)
+            }
+            Self::KeyIdMismatch { computed, claimed } => {
+                write!(
+                    f,
+                    "Key ID mismatch: computed {} != claimed {}",
+                    computed, claimed
+                )
+            }
+            Self::EmptyTenantId => write!(f, "Tenant ID is empty"),
+            Self::MultiplePayloads { count } => {
+                write!(
+                    f,
+                    "Multiple payload refs populated (expected 1, found {})",
+                    count
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for IngestionError {}
+
+/// Validate an evidence envelope for ingestion (PR-005).
+///
+/// Performs comprehensive validation including:
+/// 1. Schema version check
+/// 2. Tenant ID presence
+/// 3. Payload presence and scope matching
+/// 4. Root hash recomputation and verification
+/// 5. Signature validation (if required)
+/// 6. Key ID verification (if public key present)
+/// 7. Timestamp sanity check
+///
+/// Does NOT check chain linkage (requires DB state) - use `ingestion_validate_chain_linkage`
+/// separately for that.
+pub fn validate_for_ingestion(
+    envelope: &EvidenceEnvelope,
+    require_signature: bool,
+    max_timestamp_skew_secs: i64,
+) -> IngestionValidationResult {
+    let mut errors = Vec::new();
+    let mut warnings = Vec::new();
+
+    // 1. Schema version check
+    if envelope.schema_version > EVIDENCE_ENVELOPE_SCHEMA_VERSION {
+        errors.push(IngestionError::UnsupportedSchema {
+            version: envelope.schema_version,
+            max_supported: EVIDENCE_ENVELOPE_SCHEMA_VERSION,
+        });
+    }
+
+    // 2. Tenant ID presence
+    if envelope.tenant_id.is_empty() {
+        errors.push(IngestionError::EmptyTenantId);
+    }
+
+    // 3. Verify exactly one payload ref is populated
+    let payload_count = [
+        envelope.bundle_metadata_ref.is_some(),
+        envelope.policy_audit_ref.is_some(),
+        envelope.inference_receipt_ref.is_some(),
+    ]
+    .iter()
+    .filter(|&&b| b)
+    .count();
+
+    if payload_count != 1 {
+        if payload_count == 0 {
+            errors.push(IngestionError::PayloadMissing {
+                scope: envelope.scope.as_str().to_string(),
+            });
+        } else {
+            errors.push(IngestionError::MultiplePayloads { count: payload_count });
+        }
+    }
+
+    // 4. Verify payload matches scope
+    let payload_scope = detect_payload_scope(envelope);
+    match payload_scope {
+        Some(scope) if scope != envelope.scope => {
+            errors.push(IngestionError::PayloadScopeMismatch {
+                claimed: envelope.scope.as_str().to_string(),
+                present: scope.as_str().to_string(),
+            });
+        }
+        None if payload_count > 0 => {
+            // Payload exists but scope detection failed - shouldn't happen
+            warnings.push("Payload present but scope detection failed".to_string());
+        }
+        _ => {}
+    }
+
+    // 5. Recompute and verify root hash
+    let computed_root = compute_envelope_root(envelope);
+    if let Some(ref computed) = computed_root {
+        if computed != &envelope.root {
+            errors.push(IngestionError::RootMismatch {
+                claimed: envelope.root.to_hex(),
+                computed: computed.to_hex(),
+            });
+        }
+    }
+
+    // 6. Signature validation
+    if require_signature {
+        if envelope.signature.is_empty() {
+            errors.push(IngestionError::SignatureMissing);
+        } else {
+            // Signature verification requires ed25519 library
+            // For now, just verify signature is valid hex of correct length
+            match hex::decode(&envelope.signature) {
+                Ok(sig_bytes) if sig_bytes.len() != 64 => {
+                    errors.push(IngestionError::SignatureInvalid {
+                        reason: format!("Signature must be 64 bytes, got {}", sig_bytes.len()),
+                    });
+                }
+                Err(e) => {
+                    errors.push(IngestionError::SignatureInvalid {
+                        reason: format!("Invalid hex encoding: {}", e),
+                    });
+                }
+                _ => {
+                    // Valid format; cryptographic verification would go here
+                    // For now, emit warning that crypto verification is not yet implemented
+                    warnings.push("Signature format valid; cryptographic verification pending".to_string());
+                }
+            }
+        }
+    }
+
+    // 7. Key ID verification (if public key present)
+    if !envelope.public_key.is_empty() && !envelope.key_id.is_empty() {
+        let computed_key_id = compute_key_id_from_pubkey_hex(&envelope.public_key);
+        if computed_key_id != envelope.key_id {
+            errors.push(IngestionError::KeyIdMismatch {
+                computed: computed_key_id,
+                claimed: envelope.key_id.clone(),
+            });
+        }
+    }
+
+    // 8. Timestamp sanity (not too far in future)
+    if let Ok(ts) = chrono::DateTime::parse_from_rfc3339(&envelope.created_at) {
+        let now = chrono::Utc::now();
+        let max_future = now + chrono::Duration::seconds(max_timestamp_skew_secs);
+        if ts > max_future {
+            errors.push(IngestionError::TimestampInFuture {
+                timestamp: envelope.created_at.clone(),
+            });
+        }
+    }
+
+    IngestionValidationResult {
+        is_valid: errors.is_empty(),
+        errors,
+        warnings,
+        computed_root,
+    }
+}
+
+/// Detect which payload reference is present in the envelope.
+fn detect_payload_scope(envelope: &EvidenceEnvelope) -> Option<EvidenceScope> {
+    if envelope.bundle_metadata_ref.is_some() {
+        Some(EvidenceScope::Telemetry)
+    } else if envelope.policy_audit_ref.is_some() {
+        Some(EvidenceScope::Policy)
+    } else if envelope.inference_receipt_ref.is_some() {
+        Some(EvidenceScope::Inference)
+    } else {
+        None
+    }
+}
+
+/// Compute envelope root from payload reference (standalone function).
+pub fn compute_envelope_root(envelope: &EvidenceEnvelope) -> Option<B3Hash> {
+    match envelope.scope {
+        EvidenceScope::Telemetry => envelope.bundle_metadata_ref.as_ref().map(|r| {
+            B3Hash::hash_multi(&[r.bundle_hash.as_bytes(), r.merkle_root.as_bytes()])
+        }),
+        EvidenceScope::Policy => envelope.policy_audit_ref.as_ref().map(|r| r.entry_hash),
+        EvidenceScope::Inference => {
+            envelope.inference_receipt_ref.as_ref().map(|r| r.receipt_digest)
+        }
+    }
+}
+
+/// Compute key ID from public key hex string.
+///
+/// Key ID is "key-" + first 32 hex characters of BLAKE3(pubkey).
+fn compute_key_id_from_pubkey_hex(pubkey_hex: &str) -> String {
+    if let Ok(bytes) = hex::decode(pubkey_hex) {
+        let hash = B3Hash::hash(&bytes);
+        // Key ID is "key-" + first 32 hex chars (16 bytes / 128 bits)
+        format!("key-{}", &hash.to_hex()[..32])
+    } else {
+        String::new()
+    }
+}
+
+/// Validate chain linkage against known chain tail (PR-005).
+///
+/// This is separate from `validate_for_ingestion` because it requires
+/// database state (the current chain tail).
+///
+/// # Arguments
+/// * `envelope` - The envelope being validated
+/// * `chain_tail` - The current chain tail (root, sequence) or None if chain is empty
+///
+/// # Returns
+/// * `None` if linkage is valid
+/// * `Some(error)` if linkage is invalid
+pub fn ingestion_validate_chain_linkage(
+    envelope: &EvidenceEnvelope,
+    chain_tail: Option<(B3Hash, i64)>,
+) -> Option<IngestionError> {
+    match (&chain_tail, &envelope.previous_root) {
+        // First envelope: must have no previous_root
+        (None, Some(claimed)) => Some(IngestionError::ChainLinkageInvalid {
+            reason: format!(
+                "First envelope in chain cannot have previous_root (claimed: {})",
+                claimed.to_hex()
+            ),
+        }),
+
+        // Subsequent envelope: must reference tail root
+        (Some((tail_root, _)), None) => Some(IngestionError::PreviousRootMismatch {
+            expected: Some(tail_root.to_hex()),
+            claimed: None,
+        }),
+
+        (Some((tail_root, _)), Some(claimed)) if tail_root != claimed => {
+            Some(IngestionError::PreviousRootMismatch {
+                expected: Some(tail_root.to_hex()),
+                claimed: Some(claimed.to_hex()),
+            })
+        }
+
+        // Valid: first envelope with no previous, or correct linkage
+        _ => None,
+    }
+}
+
+/// Categorize errors for metrics labeling.
+pub fn categorize_ingestion_errors(errors: &[IngestionError]) -> &'static str {
+    if errors
+        .iter()
+        .any(|e| matches!(e, IngestionError::RootMismatch { .. }))
+    {
+        "root_mismatch"
+    } else if errors
+        .iter()
+        .any(|e| matches!(e, IngestionError::SignatureInvalid { .. }))
+    {
+        "signature_invalid"
+    } else if errors
+        .iter()
+        .any(|e| matches!(e, IngestionError::SignatureMissing))
+    {
+        "signature_missing"
+    } else if errors
+        .iter()
+        .any(|e| matches!(e, IngestionError::PayloadMissing { .. }))
+    {
+        "payload_missing"
+    } else if errors
+        .iter()
+        .any(|e| matches!(e, IngestionError::PayloadScopeMismatch { .. }))
+    {
+        "scope_mismatch"
+    } else if errors
+        .iter()
+        .any(|e| matches!(e, IngestionError::ChainLinkageInvalid { .. }))
+    {
+        "chain_linkage"
+    } else if errors
+        .iter()
+        .any(|e| matches!(e, IngestionError::PreviousRootMismatch { .. }))
+    {
+        "previous_root"
+    } else if errors
+        .iter()
+        .any(|e| matches!(e, IngestionError::UnsupportedSchema { .. }))
+    {
+        "unsupported_schema"
+    } else {
+        "other"
+    }
+}
+
+// =============================================================================
+// Original Evidence Verifier Types
+// =============================================================================
 
 /// Error code for evidence chain divergence
 pub const EVIDENCE_CHAIN_DIVERGED_CODE: &str = "EVIDENCE_CHAIN_DIVERGED";
@@ -632,5 +1057,280 @@ mod tests {
 
         let other_err = AosError::Validation("other error".to_string());
         assert!(!is_evidence_chain_divergence(&other_err));
+    }
+
+    // =========================================================================
+    // PR-005 Ingestion Validation Tests
+    // =========================================================================
+
+    #[test]
+    fn test_ingestion_valid_telemetry_envelope() {
+        let envelope =
+            EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);
+
+        let result = validate_for_ingestion(&envelope, false, 300);
+        assert!(result.is_valid, "Valid envelope should pass: {:?}", result.errors);
+        assert!(result.errors.is_empty());
+        assert!(result.computed_root.is_some());
+    }
+
+    #[test]
+    fn test_ingestion_valid_policy_envelope() {
+        let envelope =
+            EvidenceEnvelope::new_policy("tenant-1".to_string(), sample_policy_ref(), None);
+
+        let result = validate_for_ingestion(&envelope, false, 300);
+        assert!(result.is_valid, "Valid envelope should pass: {:?}", result.errors);
+    }
+
+    #[test]
+    fn test_ingestion_valid_inference_envelope() {
+        let envelope =
+            EvidenceEnvelope::new_inference("tenant-1".to_string(), sample_inference_ref(), None);
+
+        let result = validate_for_ingestion(&envelope, false, 300);
+        assert!(result.is_valid, "Valid envelope should pass: {:?}", result.errors);
+    }
+
+    #[test]
+    fn test_ingestion_root_mismatch() {
+        let mut envelope =
+            EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);
+        envelope.root = B3Hash::hash(b"wrong-root");
+
+        let result = validate_for_ingestion(&envelope, false, 300);
+        assert!(!result.is_valid);
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| matches!(e, IngestionError::RootMismatch { .. })));
+    }
+
+    #[test]
+    fn test_ingestion_missing_payload() {
+        let mut envelope =
+            EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);
+        envelope.bundle_metadata_ref = None;
+
+        let result = validate_for_ingestion(&envelope, false, 300);
+        assert!(!result.is_valid);
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| matches!(e, IngestionError::PayloadMissing { .. })));
+    }
+
+    #[test]
+    fn test_ingestion_scope_mismatch() {
+        let mut envelope =
+            EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);
+        envelope.scope = EvidenceScope::Inference; // Wrong scope
+
+        let result = validate_for_ingestion(&envelope, false, 300);
+        assert!(!result.is_valid);
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| matches!(e, IngestionError::PayloadScopeMismatch { .. })));
+    }
+
+    #[test]
+    fn test_ingestion_empty_tenant_id() {
+        let mut envelope =
+            EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);
+        envelope.tenant_id = String::new();
+
+        let result = validate_for_ingestion(&envelope, false, 300);
+        assert!(!result.is_valid);
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| matches!(e, IngestionError::EmptyTenantId)));
+    }
+
+    #[test]
+    fn test_ingestion_signature_required_missing() {
+        let envelope =
+            EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);
+
+        let result = validate_for_ingestion(&envelope, true, 300);
+        assert!(!result.is_valid);
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| matches!(e, IngestionError::SignatureMissing)));
+    }
+
+    #[test]
+    fn test_ingestion_unsupported_schema() {
+        let mut envelope =
+            EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);
+        envelope.schema_version = 99;
+
+        let result = validate_for_ingestion(&envelope, false, 300);
+        assert!(!result.is_valid);
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| matches!(e, IngestionError::UnsupportedSchema { .. })));
+    }
+
+    #[test]
+    fn test_ingestion_timestamp_in_future() {
+        let mut envelope =
+            EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);
+        let future = chrono::Utc::now() + chrono::Duration::hours(1);
+        envelope.created_at = future.to_rfc3339();
+
+        let result = validate_for_ingestion(&envelope, false, 300);
+        assert!(!result.is_valid);
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| matches!(e, IngestionError::TimestampInFuture { .. })));
+    }
+
+    #[test]
+    fn test_ingestion_key_id_mismatch() {
+        let mut envelope =
+            EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);
+        envelope.public_key = hex::encode([1u8; 32]);
+        envelope.key_id = "key-wrong".to_string();
+
+        let result = validate_for_ingestion(&envelope, false, 300);
+        assert!(!result.is_valid);
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| matches!(e, IngestionError::KeyIdMismatch { .. })));
+    }
+
+    #[test]
+    fn test_ingestion_chain_linkage_first_envelope_valid() {
+        let envelope =
+            EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);
+        let error = ingestion_validate_chain_linkage(&envelope, None);
+        assert!(error.is_none(), "First envelope should be valid");
+    }
+
+    #[test]
+    fn test_ingestion_chain_linkage_first_envelope_with_previous_invalid() {
+        let mut envelope =
+            EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);
+        envelope.previous_root = Some(B3Hash::hash(b"unexpected"));
+
+        let error = ingestion_validate_chain_linkage(&envelope, None);
+        assert!(matches!(
+            error,
+            Some(IngestionError::ChainLinkageInvalid { .. })
+        ));
+    }
+
+    #[test]
+    fn test_ingestion_chain_linkage_subsequent_envelope_valid() {
+        let tail_root = B3Hash::hash(b"tail");
+        let mut envelope =
+            EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);
+        envelope.previous_root = Some(tail_root);
+
+        let error = ingestion_validate_chain_linkage(&envelope, Some((tail_root, 1)));
+        assert!(error.is_none(), "Correct linkage should be valid");
+    }
+
+    #[test]
+    fn test_ingestion_chain_linkage_subsequent_envelope_missing_previous() {
+        let tail_root = B3Hash::hash(b"tail");
+        let envelope =
+            EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);
+
+        let error = ingestion_validate_chain_linkage(&envelope, Some((tail_root, 1)));
+        assert!(matches!(
+            error,
+            Some(IngestionError::PreviousRootMismatch { .. })
+        ));
+    }
+
+    #[test]
+    fn test_ingestion_chain_linkage_subsequent_envelope_wrong_previous() {
+        let tail_root = B3Hash::hash(b"tail");
+        let mut envelope =
+            EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);
+        envelope.previous_root = Some(B3Hash::hash(b"wrong"));
+
+        let error = ingestion_validate_chain_linkage(&envelope, Some((tail_root, 1)));
+        assert!(matches!(
+            error,
+            Some(IngestionError::PreviousRootMismatch { .. })
+        ));
+    }
+
+    #[test]
+    fn test_categorize_ingestion_errors() {
+        assert_eq!(
+            categorize_ingestion_errors(&[IngestionError::RootMismatch {
+                claimed: "a".into(),
+                computed: "b".into()
+            }]),
+            "root_mismatch"
+        );
+        assert_eq!(
+            categorize_ingestion_errors(&[IngestionError::SignatureInvalid {
+                reason: "test".into()
+            }]),
+            "signature_invalid"
+        );
+        assert_eq!(
+            categorize_ingestion_errors(&[IngestionError::SignatureMissing]),
+            "signature_missing"
+        );
+        assert_eq!(
+            categorize_ingestion_errors(&[IngestionError::PayloadMissing {
+                scope: "telemetry".into()
+            }]),
+            "payload_missing"
+        );
+        assert_eq!(
+            categorize_ingestion_errors(&[IngestionError::EmptyTenantId]),
+            "other"
+        );
+    }
+
+    #[test]
+    fn test_compute_envelope_root_telemetry() {
+        let envelope =
+            EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);
+        let computed = compute_envelope_root(&envelope);
+        assert!(computed.is_some());
+        assert_eq!(computed.unwrap(), envelope.root);
+    }
+
+    #[test]
+    fn test_compute_envelope_root_policy() {
+        let envelope =
+            EvidenceEnvelope::new_policy("tenant-1".to_string(), sample_policy_ref(), None);
+        let computed = compute_envelope_root(&envelope);
+        assert!(computed.is_some());
+        assert_eq!(computed.unwrap(), envelope.root);
+    }
+
+    #[test]
+    fn test_compute_envelope_root_inference() {
+        let envelope =
+            EvidenceEnvelope::new_inference("tenant-1".to_string(), sample_inference_ref(), None);
+        let computed = compute_envelope_root(&envelope);
+        assert!(computed.is_some());
+        assert_eq!(computed.unwrap(), envelope.root);
+    }
+
+    #[test]
+    fn test_ingestion_error_display() {
+        let err = IngestionError::RootMismatch {
+            claimed: "abc".to_string(),
+            computed: "xyz".to_string(),
+        };
+        assert!(err.to_string().contains("Root mismatch"));
+
+        let err = IngestionError::SignatureMissing;
+        assert!(err.to_string().contains("Signature required"));
     }
 }

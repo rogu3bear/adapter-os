@@ -63,6 +63,15 @@ pub struct ChainVerificationResult {
     pub first_invalid_sequence: Option<i64>,
     /// Description of the first validation failure
     pub error_message: Option<String>,
+    /// Whether divergence was detected (tampered entries)
+    #[serde(default)]
+    pub divergence_detected: bool,
+    /// Tenant ID this result pertains to (when verifying specific tenant)
+    #[serde(default)]
+    pub tenant_id: Option<String>,
+    /// Duration of verification in milliseconds
+    #[serde(default)]
+    pub duration_ms: u64,
 }
 
 /// Filters for querying policy decisions
@@ -435,6 +444,9 @@ impl Db {
                 entries_checked: 0,
                 first_invalid_sequence: None,
                 error_message: None,
+                divergence_detected: false,
+                tenant_id: tenant_id.map(|s| s.to_string()),
+                duration_ms: 0,
             });
         }
 
@@ -471,6 +483,9 @@ impl Db {
                 entries_checked: 0,
                 first_invalid_sequence: None,
                 error_message: None,
+                divergence_detected: false,
+                tenant_id: tenant_id.map(|s| s.to_string()),
+                duration_ms: 0,
             });
         }
 
@@ -512,6 +527,9 @@ impl Db {
                             prev_seq + 1,
                             decision.chain_sequence
                         )),
+                        divergence_detected: true,
+                        tenant_id: Some(tenant.clone()),
+                        duration_ms: 0,
                     });
                 }
 
@@ -530,6 +548,9 @@ impl Db {
                             entries_checked: total_checked,
                             first_invalid_sequence: Some(decision.chain_sequence),
                             error_message: Some("Previous hash mismatch".to_string()),
+                            divergence_detected: true,
+                            tenant_id: Some(tenant.clone()),
+                            duration_ms: 0,
                         });
                     }
                 } else if decision.previous_hash.is_some() {
@@ -543,6 +564,9 @@ impl Db {
                         entries_checked: total_checked,
                         first_invalid_sequence: Some(decision.chain_sequence),
                         error_message: Some("First entry has non-null previous_hash".to_string()),
+                        divergence_detected: true,
+                        tenant_id: Some(tenant.clone()),
+                        duration_ms: 0,
                     });
                 }
 
@@ -578,6 +602,9 @@ impl Db {
                         entries_checked: total_checked,
                         first_invalid_sequence: Some(decision.chain_sequence),
                         error_message: Some("Entry hash mismatch - possible tampering".to_string()),
+                        divergence_detected: true,
+                        tenant_id: Some(tenant.clone()),
+                        duration_ms: 0,
                     });
                 }
 
@@ -592,7 +619,72 @@ impl Db {
             entries_checked: total_checked,
             first_invalid_sequence: None,
             error_message: None,
+            divergence_detected: false,
+            tenant_id: tenant_id.map(|s| s.to_string()),
+            duration_ms: 0,
         })
+    }
+
+    /// Verify policy audit chains for all tenants
+    ///
+    /// Returns a map of tenant_id -> verification result, continuing to check
+    /// all tenants even if some have diverged. This allows operators to see
+    /// the full scope of any chain integrity issues across the system.
+    ///
+    /// # Returns
+    /// BTreeMap where keys are tenant IDs and values are verification results
+    ///
+    /// # Example
+    /// ```no_run
+    /// use adapteros_db::Db;
+    ///
+    /// # async fn example(db: &Db) -> anyhow::Result<()> {
+    /// let results = db.verify_all_policy_audit_chains().await?;
+    /// for (tenant_id, result) in &results {
+    ///     if result.divergence_detected {
+    ///         eprintln!("ALERT: Tenant {} has divergent audit chain at sequence {}",
+    ///             tenant_id, result.first_invalid_sequence.unwrap_or(0));
+    ///     }
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn verify_all_policy_audit_chains(
+        &self,
+    ) -> Result<std::collections::BTreeMap<String, ChainVerificationResult>> {
+        use std::collections::BTreeMap;
+
+        // Get distinct tenant IDs
+        let tenants: Vec<String> = sqlx::query_scalar(
+            "SELECT DISTINCT tenant_id FROM policy_audit_decisions ORDER BY tenant_id",
+        )
+        .fetch_all(self.pool())
+        .await
+        .db_err("fetch distinct tenant IDs for policy audit")?;
+
+        let mut results = BTreeMap::new();
+
+        for tenant_id in tenants {
+            let start = std::time::Instant::now();
+            let mut result = self
+                .verify_policy_audit_chain(Some(&tenant_id))
+                .await?;
+            result.duration_ms = start.elapsed().as_millis() as u64;
+            result.tenant_id = Some(tenant_id.clone());
+
+            if result.divergence_detected {
+                tracing::error!(
+                    tenant_id = %tenant_id,
+                    first_invalid_sequence = ?result.first_invalid_sequence,
+                    error_message = ?result.error_message,
+                    "Policy audit chain divergence detected"
+                );
+            }
+
+            results.insert(tenant_id, result);
+        }
+
+        Ok(results)
     }
 
     /// Query policy decisions with filters

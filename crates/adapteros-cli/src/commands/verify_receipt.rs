@@ -22,6 +22,17 @@ const DEFAULT_BUNDLE_FILENAMES: &[&str] = &[
     "inference_trace.json",
 ];
 
+/// Receipt schema versions
+pub const RECEIPT_SCHEMA_V1: u8 = 1;
+pub const RECEIPT_SCHEMA_V2: u8 = 2;
+/// V3: Adds seed digest for determinism binding (PR-004)
+pub const RECEIPT_SCHEMA_V3: u8 = 3;
+pub const RECEIPT_SCHEMA_CURRENT: u8 = RECEIPT_SCHEMA_V3;
+
+fn default_schema_version() -> u8 {
+    RECEIPT_SCHEMA_V1
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ReceiptBundle {
     #[serde(default)]
@@ -40,6 +51,12 @@ struct ReceiptBundle {
     expected_backend: Option<String>,
     #[serde(default)]
     expected_kernel_version: Option<String>,
+    /// Backend used for inference (v2+)
+    #[serde(default)]
+    backend_used: Option<String>,
+    /// Backend attestation hash for determinism binding (v2+)
+    #[serde(default)]
+    backend_attestation_b3_hex: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -87,6 +104,24 @@ struct ReceiptDigests {
     logical_output_tokens: u32,
     #[serde(default)]
     billed_output_tokens: u32,
+    /// Receipt schema version (defaults to 1 for backward compatibility)
+    #[serde(default = "default_schema_version")]
+    schema_version: u8,
+    /// Backend used for inference (v2+)
+    #[serde(default)]
+    backend_used: Option<String>,
+    /// Backend attestation hash for determinism binding (v2+)
+    #[serde(default)]
+    backend_attestation_b3_hex: Option<String>,
+    /// Root seed digest for determinism binding (v3+)
+    #[serde(default)]
+    root_seed_digest_hex: Option<String>,
+    /// Seed mode used for derivation (v3+)
+    #[serde(default)]
+    seed_mode: Option<String>,
+    /// Whether manifest was used in seed derivation (v3+)
+    #[serde(default)]
+    has_manifest_binding: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -98,6 +133,16 @@ pub enum ReasonCode {
     PolicyMismatch,
     BackendMismatch,
     SignatureInvalid,
+    /// Backend attestation hash mismatch (v2+)
+    BackendAttestationMismatch,
+    /// Unknown or unsupported schema version
+    SchemaVersionUnsupported,
+    /// Seed digest mismatch - seed was substituted (v3+)
+    SeedDigestMismatch,
+    /// Seed mode violation - receipt claims different mode (v3+)
+    SeedModeViolation,
+    /// Missing required seed digest (when --require-seed-digest is set)
+    SeedDigestMissing,
 }
 
 impl ReasonCode {
@@ -109,6 +154,11 @@ impl ReasonCode {
             ReasonCode::PolicyMismatch => "POLICY_MISMATCH",
             ReasonCode::BackendMismatch => "BACKEND_MISMATCH",
             ReasonCode::SignatureInvalid => "SIGNATURE_INVALID",
+            ReasonCode::BackendAttestationMismatch => "BACKEND_ATTESTATION_MISMATCH",
+            ReasonCode::SchemaVersionUnsupported => "SCHEMA_VERSION_UNSUPPORTED",
+            ReasonCode::SeedDigestMismatch => "SEED_DIGEST_MISMATCH",
+            ReasonCode::SeedModeViolation => "SEED_MODE_VIOLATION",
+            ReasonCode::SeedDigestMissing => "SEED_DIGEST_MISSING",
         }
     }
 }
@@ -313,8 +363,208 @@ fn verify_signature(
     Ok((true, Some(verified)))
 }
 
+/// Verify seed binding if expected seed is provided.
+///
+/// Returns a reason code if verification fails, None if it passes or cannot be verified.
+fn verify_seed_binding(
+    bundle: &ReceiptBundle,
+    expected_seed: Option<&[u8; 32]>,
+) -> Option<ReasonCode> {
+    // Only verify if we have expected seed
+    let Some(expected) = expected_seed else {
+        return None;
+    };
+
+    let Some(ref claimed_digest) = bundle.receipt.root_seed_digest_hex else {
+        // Receipt doesn't claim a seed - can't verify (might be older schema)
+        return None;
+    };
+
+    // Compute expected digest
+    let expected_digest = B3Hash::hash(expected);
+    let expected_hex = expected_digest.to_hex();
+
+    if &expected_hex != claimed_digest {
+        Some(ReasonCode::SeedDigestMismatch)
+    } else {
+        None
+    }
+}
+
+/// Options for receipt verification with seed requirements.
+#[derive(Debug, Default)]
+pub struct VerifyOptions {
+    /// Expected seed for digest verification (32 bytes)
+    pub expected_seed: Option<[u8; 32]>,
+    /// Require seed digest in receipt (fail if missing)
+    pub require_seed_digest: bool,
+    /// Expected seed mode (e.g., "strict", "best_effort")
+    pub expected_seed_mode: Option<String>,
+}
+
+/// Verify a bundle with additional options.
+fn verify_bundle_with_options(
+    bundle: &ReceiptBundle,
+    options: &VerifyOptions,
+) -> Result<ReceiptVerificationReport> {
+    let mut report = verify_bundle(bundle)?;
+
+    // Verify seed binding if expected seed provided
+    if let Some(reason) = verify_seed_binding(bundle, options.expected_seed.as_ref()) {
+        push_reason(&mut report.reasons, reason);
+    }
+
+    // Check seed digest requirement
+    if options.require_seed_digest && bundle.receipt.root_seed_digest_hex.is_none() {
+        push_reason(&mut report.reasons, ReasonCode::SeedDigestMissing);
+    }
+
+    // Check seed mode if expected
+    if let Some(ref expected_mode) = options.expected_seed_mode {
+        if let Some(ref actual_mode) = bundle.receipt.seed_mode {
+            if actual_mode.to_lowercase() != expected_mode.to_lowercase() {
+                push_reason(&mut report.reasons, ReasonCode::SeedModeViolation);
+            }
+        } else if bundle.receipt.schema_version >= RECEIPT_SCHEMA_V3 {
+            // V3+ should have seed mode
+            push_reason(&mut report.reasons, ReasonCode::SeedModeViolation);
+        }
+    }
+
+    Ok(report)
+}
+
+/// Compute receipt digest based on schema version
+///
+/// V1 (original): context_digest + run_head + output_digest + token counts
+/// V2 (with backend): V1 fields + schema_version + backend_used + backend_attestation
+/// V3 (with seed): V2 fields + seed_digest + seed_mode + has_manifest_binding
+fn compute_receipt_digest(
+    context_digest: &B3Hash,
+    run_head: &B3Hash,
+    output_digest: &B3Hash,
+    receipt: &ReceiptDigests,
+    bundle: &ReceiptBundle,
+) -> B3Hash {
+    match receipt.schema_version {
+        RECEIPT_SCHEMA_V1 => {
+            // V1: Original digest without backend fields
+            B3Hash::hash_multi(&[
+                context_digest.as_bytes(),
+                run_head.as_bytes(),
+                output_digest.as_bytes(),
+                &receipt.logical_prompt_tokens.to_le_bytes(),
+                &receipt.prefix_cached_token_count.to_le_bytes(),
+                &receipt.billed_input_tokens.to_le_bytes(),
+                &receipt.logical_output_tokens.to_le_bytes(),
+                &receipt.billed_output_tokens.to_le_bytes(),
+            ])
+        }
+        RECEIPT_SCHEMA_V2 => {
+            // V2: Include backend identity
+            let backend_bytes = bundle
+                .backend_used
+                .as_deref()
+                .unwrap_or("")
+                .as_bytes();
+
+            let attestation_bytes = bundle
+                .backend_attestation_b3_hex
+                .as_ref()
+                .and_then(|h| hex::decode(h).ok())
+                .unwrap_or_default();
+
+            B3Hash::hash_multi(&[
+                context_digest.as_bytes(),
+                run_head.as_bytes(),
+                output_digest.as_bytes(),
+                &receipt.logical_prompt_tokens.to_le_bytes(),
+                &receipt.prefix_cached_token_count.to_le_bytes(),
+                &receipt.billed_input_tokens.to_le_bytes(),
+                &receipt.logical_output_tokens.to_le_bytes(),
+                &receipt.billed_output_tokens.to_le_bytes(),
+                // V2 additions
+                &[RECEIPT_SCHEMA_V2], // Schema version byte
+                &(backend_bytes.len() as u32).to_le_bytes(),
+                backend_bytes,
+                &(attestation_bytes.len() as u32).to_le_bytes(),
+                &attestation_bytes,
+            ])
+        }
+        RECEIPT_SCHEMA_V3 => {
+            // V3: Include backend identity + seed lineage
+            let backend_bytes = bundle
+                .backend_used
+                .as_deref()
+                .unwrap_or("")
+                .as_bytes();
+
+            let attestation_bytes = bundle
+                .backend_attestation_b3_hex
+                .as_ref()
+                .and_then(|h| hex::decode(h).ok())
+                .unwrap_or_default();
+
+            // Seed lineage fields (v3)
+            let seed_digest_bytes = receipt
+                .root_seed_digest_hex
+                .as_ref()
+                .and_then(|h| hex::decode(h).ok())
+                .unwrap_or_else(|| vec![0u8; 32]);
+
+            let seed_mode_bytes = receipt
+                .seed_mode
+                .as_deref()
+                .unwrap_or("unknown")
+                .as_bytes();
+
+            let manifest_binding_byte = if receipt.has_manifest_binding.unwrap_or(false) {
+                [1u8]
+            } else {
+                [0u8]
+            };
+
+            B3Hash::hash_multi(&[
+                context_digest.as_bytes(),
+                run_head.as_bytes(),
+                output_digest.as_bytes(),
+                &receipt.logical_prompt_tokens.to_le_bytes(),
+                &receipt.prefix_cached_token_count.to_le_bytes(),
+                &receipt.billed_input_tokens.to_le_bytes(),
+                &receipt.logical_output_tokens.to_le_bytes(),
+                &receipt.billed_output_tokens.to_le_bytes(),
+                // V2 additions (included in V3)
+                &[RECEIPT_SCHEMA_V3], // Schema version byte
+                &(backend_bytes.len() as u32).to_le_bytes(),
+                backend_bytes,
+                &(attestation_bytes.len() as u32).to_le_bytes(),
+                &attestation_bytes,
+                // V3 additions: seed lineage
+                &seed_digest_bytes,
+                &(seed_mode_bytes.len() as u32).to_le_bytes(),
+                seed_mode_bytes,
+                &manifest_binding_byte,
+            ])
+        }
+        _ => {
+            // Unknown schema - return zero hash, will trigger mismatch
+            tracing::warn!(
+                schema_version = receipt.schema_version,
+                "Unknown receipt schema version"
+            );
+            B3Hash::zero()
+        }
+    }
+}
+
 fn verify_bundle(bundle: &ReceiptBundle) -> Result<ReceiptVerificationReport> {
     let mut reasons: Vec<ReasonCode> = Vec::new();
+
+    // Validate schema version
+    if bundle.receipt.schema_version > RECEIPT_SCHEMA_CURRENT {
+        push_reason(&mut reasons, ReasonCode::SchemaVersionUnsupported);
+    }
+
     let computed_context = compute_context_digest(&bundle.context)?;
 
     let expected_context_hex = bundle
@@ -370,6 +620,31 @@ fn verify_bundle(bundle: &ReceiptBundle) -> Result<ReceiptVerificationReport> {
                 .unwrap_or(true)
         }) {
             push_reason(&mut reasons, ReasonCode::BackendMismatch);
+        }
+    }
+
+    // V2+ backend verification: check bundle.backend_used matches all tokens
+    if bundle.receipt.schema_version >= RECEIPT_SCHEMA_V2 {
+        if let Some(ref expected_backend) = bundle.backend_used {
+            let expected_backend_lower = expected_backend.to_lowercase();
+            if bundle.tokens.iter().any(|t| {
+                t.backend_id
+                    .as_ref()
+                    .map(|b| b.to_lowercase() != expected_backend_lower)
+                    .unwrap_or(false)
+            }) {
+                push_reason(&mut reasons, ReasonCode::BackendMismatch);
+            }
+        }
+
+        // Verify attestation consistency between bundle and receipt
+        if let (Some(ref bundle_att), Some(ref receipt_att)) = (
+            &bundle.backend_attestation_b3_hex,
+            &bundle.receipt.backend_attestation_b3_hex,
+        ) {
+            if bundle_att != receipt_att {
+                push_reason(&mut reasons, ReasonCode::BackendAttestationMismatch);
+            }
         }
     }
 
@@ -439,16 +714,14 @@ fn verify_bundle(bundle: &ReceiptBundle) -> Result<ReceiptVerificationReport> {
         push_reason(&mut reasons, ReasonCode::OutputMismatch);
     }
 
-    let receipt_digest = B3Hash::hash_multi(&[
-        computed_context.as_bytes(),
-        run_head.as_bytes(),
-        output_digest.as_bytes(),
-        &bundle.receipt.logical_prompt_tokens.to_le_bytes(),
-        &bundle.receipt.prefix_cached_token_count.to_le_bytes(),
-        &bundle.receipt.billed_input_tokens.to_le_bytes(),
-        &bundle.receipt.logical_output_tokens.to_le_bytes(),
-        &bundle.receipt.billed_output_tokens.to_le_bytes(),
-    ]);
+    // Use schema-aware receipt digest computation
+    let receipt_digest = compute_receipt_digest(
+        &computed_context,
+        &run_head,
+        &output_digest,
+        &bundle.receipt,
+        bundle,
+    );
     let expected_receipt =
         B3Hash::from_hex(&bundle.receipt.receipt_digest_hex).with_context(|| {
             format!(
@@ -599,15 +872,60 @@ async fn fetch_online_bundle(trace_id: &str, server_url: &str) -> Result<Receipt
     parse_bundle_from_str(&body).context("Failed to decode receipt payload")
 }
 
+/// Parse a hex string into a 32-byte seed array.
+pub fn parse_seed_hex(hex_str: &str) -> Result<[u8; 32]> {
+    let bytes = hex::decode(hex_str).context("Invalid hex encoding for expected seed")?;
+    if bytes.len() != 32 {
+        bail!("Expected seed must be 32 bytes (64 hex chars), got {} bytes", bytes.len());
+    }
+    let mut arr = [0u8; 32];
+    arr.copy_from_slice(&bytes);
+    Ok(arr)
+}
+
 pub async fn run(
     bundle: Option<&Path>,
     online_trace: Option<&str>,
     server_url: &str,
     output: &OutputWriter,
 ) -> Result<()> {
+    run_with_seed_options(bundle, online_trace, server_url, output, None, false, None).await
+}
+
+/// Run receipt verification with seed verification options.
+///
+/// # Arguments
+/// * `bundle` - Path to receipt bundle file
+/// * `online_trace` - Trace ID for online verification
+/// * `server_url` - Server URL for online verification
+/// * `output` - Output writer
+/// * `expected_seed_hex` - Optional hex-encoded expected seed (64 chars)
+/// * `require_seed_digest` - Require seed digest in receipt (fail if missing)
+/// * `expected_seed_mode` - Optional expected seed mode ("strict", "best_effort")
+pub async fn run_with_seed_options(
+    bundle: Option<&Path>,
+    online_trace: Option<&str>,
+    server_url: &str,
+    output: &OutputWriter,
+    expected_seed_hex: Option<&str>,
+    require_seed_digest: bool,
+    expected_seed_mode: Option<&str>,
+) -> Result<()> {
     if bundle.is_none() && online_trace.is_none() {
         bail!("provide --bundle or --online <trace_id> to verify a receipt");
     }
+
+    // Parse expected seed if provided
+    let expected_seed = match expected_seed_hex {
+        Some(hex) => Some(parse_seed_hex(hex)?),
+        None => None,
+    };
+
+    let options = VerifyOptions {
+        expected_seed,
+        require_seed_digest,
+        expected_seed_mode: expected_seed_mode.map(|s| s.to_string()),
+    };
 
     let bundle = if let Some(trace_id) = online_trace {
         if output.is_verbose() {
@@ -623,7 +941,8 @@ pub async fn run(
         )?;
         load_bundle(&bundle_path)?
     };
-    let report = verify_bundle(&bundle)?;
+
+    let report = verify_bundle_with_options(&bundle, &options)?;
 
     render_report(&report, output)?;
 
@@ -762,9 +1081,18 @@ mod tests {
                 billed_input_tokens,
                 logical_output_tokens,
                 billed_output_tokens,
+                // V1 schema - no backend/seed fields
+                schema_version: RECEIPT_SCHEMA_V1,
+                backend_used: None,
+                backend_attestation_b3_hex: None,
+                root_seed_digest_hex: None,
+                seed_mode: None,
+                has_manifest_binding: None,
             },
             expected_backend: Some("coreml".to_string()),
             expected_kernel_version: Some("k1".to_string()),
+            backend_used: None,
+            backend_attestation_b3_hex: None,
         };
 
         let bundle_path = dir.join("receipt_bundle.json");
@@ -810,5 +1138,207 @@ mod tests {
             "expected TRACE_TAMPER in reasons"
         );
         assert!(!report.run_head_hash.matches);
+    }
+
+    // =========================================================================
+    // V3 Seed Digest Tests (PR-004)
+    // =========================================================================
+
+    #[test]
+    fn test_seed_digest_verification_passes() {
+        let seed = [42u8; 32];
+        let seed_digest = B3Hash::hash(&seed);
+
+        let bundle = ReceiptBundle {
+            version: Some("aos-receipt-v3".to_string()),
+            trace_id: "trace-seed-test".to_string(),
+            tenant_id: "tenant-test".to_string(),
+            request_id: None,
+            context_digest_hex: None,
+            context: ReceiptContext {
+                tenant_namespace: "tenant-test".to_string(),
+                stack_hash_hex: B3Hash::zero().to_hex(),
+                prompt_tokens: vec![],
+                policy_mask_digest_hex: None,
+                context_digest_hex: None,
+            },
+            tokens: vec![],
+            output_tokens: vec![],
+            receipt: ReceiptDigests {
+                run_head_hash_hex: B3Hash::zero().to_hex(),
+                output_digest_hex: B3Hash::zero().to_hex(),
+                receipt_digest_hex: B3Hash::zero().to_hex(),
+                signature_b64: None,
+                public_key_hex: None,
+                logical_prompt_tokens: 0,
+                prefix_cached_token_count: 0,
+                billed_input_tokens: 0,
+                logical_output_tokens: 0,
+                billed_output_tokens: 0,
+                schema_version: RECEIPT_SCHEMA_V3,
+                backend_used: None,
+                backend_attestation_b3_hex: None,
+                root_seed_digest_hex: Some(seed_digest.to_hex()),
+                seed_mode: Some("strict".to_string()),
+                has_manifest_binding: Some(true),
+            },
+            expected_backend: None,
+            expected_kernel_version: None,
+            backend_used: None,
+            backend_attestation_b3_hex: None,
+        };
+
+        // Verify with correct seed
+        let reason = verify_seed_binding(&bundle, Some(&seed));
+        assert!(reason.is_none(), "Correct seed should pass verification");
+
+        // Verify with wrong seed
+        let wrong_seed = [0u8; 32];
+        let reason = verify_seed_binding(&bundle, Some(&wrong_seed));
+        assert!(
+            matches!(reason, Some(ReasonCode::SeedDigestMismatch)),
+            "Wrong seed should trigger SeedDigestMismatch"
+        );
+    }
+
+    #[test]
+    fn test_seed_digest_not_required_for_v1() {
+        let dir = new_test_tempdir();
+        let bundle_path = write_bundle(dir.path(), false);
+
+        // Load the V1 bundle
+        let bundle = load_bundle(&bundle_path).expect("load bundle");
+
+        // Verify with options requiring seed digest
+        let options = VerifyOptions {
+            expected_seed: None,
+            require_seed_digest: false, // V1 doesn't require it
+            expected_seed_mode: None,
+        };
+        let report = verify_bundle_with_options(&bundle, &options).expect("verify");
+
+        // V1 bundles should still pass basic verification
+        assert!(
+            report.reasons.is_empty(),
+            "V1 bundle should pass when seed_digest not required"
+        );
+    }
+
+    #[test]
+    fn test_require_seed_digest_flag() {
+        let dir = new_test_tempdir();
+        let bundle_path = write_bundle(dir.path(), false);
+
+        // Load the V1 bundle (no seed digest)
+        let bundle = load_bundle(&bundle_path).expect("load bundle");
+
+        // Verify with require_seed_digest = true
+        let options = VerifyOptions {
+            expected_seed: None,
+            require_seed_digest: true,
+            expected_seed_mode: None,
+        };
+        let report = verify_bundle_with_options(&bundle, &options).expect("verify");
+
+        // Should fail because V1 has no seed digest
+        assert!(
+            report
+                .reasons
+                .iter()
+                .any(|r| matches!(r, ReasonCode::SeedDigestMissing)),
+            "Should fail when seed digest required but missing"
+        );
+    }
+
+    #[test]
+    fn test_parse_seed_hex() {
+        // Valid 32-byte seed
+        let hex = "2a".repeat(32);
+        let seed = parse_seed_hex(&hex).expect("valid hex");
+        assert_eq!(seed, [0x2a; 32]);
+
+        // Invalid: wrong length
+        let short_hex = "2a".repeat(16);
+        assert!(parse_seed_hex(&short_hex).is_err());
+
+        // Invalid: not hex
+        let invalid_hex = "zz".repeat(32);
+        assert!(parse_seed_hex(&invalid_hex).is_err());
+    }
+
+    #[test]
+    fn test_v3_receipt_digest_includes_seed() {
+        let context_digest = B3Hash::hash(b"context");
+        let run_head = B3Hash::hash(b"run_head");
+        let output_digest = B3Hash::hash(b"output");
+
+        let seed1 = [1u8; 32];
+        let seed2 = [2u8; 32];
+
+        let make_receipt = |seed: &[u8; 32]| ReceiptDigests {
+            run_head_hash_hex: run_head.to_hex(),
+            output_digest_hex: output_digest.to_hex(),
+            receipt_digest_hex: String::new(),
+            signature_b64: None,
+            public_key_hex: None,
+            logical_prompt_tokens: 10,
+            prefix_cached_token_count: 0,
+            billed_input_tokens: 10,
+            logical_output_tokens: 5,
+            billed_output_tokens: 5,
+            schema_version: RECEIPT_SCHEMA_V3,
+            backend_used: Some("metal".to_string()),
+            backend_attestation_b3_hex: None,
+            root_seed_digest_hex: Some(B3Hash::hash(seed).to_hex()),
+            seed_mode: Some("strict".to_string()),
+            has_manifest_binding: Some(true),
+        };
+
+        let bundle1 = ReceiptBundle {
+            version: Some("v3".to_string()),
+            trace_id: "t1".to_string(),
+            tenant_id: "tenant".to_string(),
+            request_id: None,
+            context_digest_hex: Some(context_digest.to_hex()),
+            context: ReceiptContext {
+                tenant_namespace: "tenant".to_string(),
+                stack_hash_hex: B3Hash::zero().to_hex(),
+                prompt_tokens: vec![],
+                policy_mask_digest_hex: None,
+                context_digest_hex: Some(context_digest.to_hex()),
+            },
+            tokens: vec![],
+            output_tokens: vec![],
+            receipt: make_receipt(&seed1),
+            expected_backend: None,
+            expected_kernel_version: None,
+            backend_used: Some("metal".to_string()),
+            backend_attestation_b3_hex: None,
+        };
+
+        let bundle2 = ReceiptBundle {
+            receipt: make_receipt(&seed2),
+            ..bundle1.clone()
+        };
+
+        let digest1 = compute_receipt_digest(
+            &context_digest,
+            &run_head,
+            &output_digest,
+            &bundle1.receipt,
+            &bundle1,
+        );
+        let digest2 = compute_receipt_digest(
+            &context_digest,
+            &run_head,
+            &output_digest,
+            &bundle2.receipt,
+            &bundle2,
+        );
+
+        assert_ne!(
+            digest1, digest2,
+            "Different seeds should produce different receipt digests"
+        );
     }
 }

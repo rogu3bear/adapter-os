@@ -515,6 +515,7 @@ impl FusedKernels for HybridCoreMLBackend {
         Ok(DeterminismReport {
             backend_type: BackendType::CoreML,
             metallib_hash: None, // Hybrid uses Accelerate, not Metal
+            metallib_verified: false, // N/A for Accelerate
             manifest: Some(KernelManifest {
                 kernel_hash: "hybrid-accelerate-blas".to_string(),
                 xcrun_version: "N/A".to_string(),
@@ -528,6 +529,8 @@ impl FusedKernels for HybridCoreMLBackend {
             determinism_level: DeterminismLevel::BoundedTolerance,
             compiler_flags: vec!["-O3".to_string(), "-fno-fast-math".to_string()],
             deterministic: true,
+            runtime_version: Some("Accelerate.framework".to_string()),
+            device_id: Some(self.device_name.clone()),
         })
     }
 

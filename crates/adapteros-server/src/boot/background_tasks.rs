@@ -687,6 +687,160 @@ pub async fn spawn_all_background_tasks(
         }
     }
 
+    // Spawn audit chain verification background task
+    // SKIPPED in dev mode - production integrity monitoring only
+    // Default interval: 1 hour (3600 seconds) per PR-001 recommendation
+    if !dev_mode {
+        let db_clone = db.clone();
+        let metrics_reg = Arc::clone(&metrics_registry);
+        let interval_secs = std::env::var("AOS_AUDIT_VERIFY_INTERVAL_SECS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(3600); // 1 hour default
+
+        if interval_secs > 0 {
+            let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator)
+                .with_task_tracker(Arc::clone(&background_tasks));
+            let mut shutdown_rx = spawner.coordinator().subscribe_shutdown();
+            if spawner
+                .spawn_optional(
+                    "Audit chain verification",
+                    async move {
+                        let mut interval =
+                            tokio::time::interval(Duration::from_secs(interval_secs));
+                        interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+                        loop {
+                            tokio::select! {
+                                biased;
+                                _ = shutdown_rx.recv() => {
+                                    info!("Audit chain verification received shutdown signal, exiting gracefully");
+                                    break;
+                                }
+                                _ = interval.tick() => {
+                                    info!("Running periodic audit chain verification");
+                                    let mut total_divergent = 0usize;
+                                    let mut total_checked = 0usize;
+
+                                    // Verify policy audit chains
+                                    match db_clone.verify_all_policy_audit_chains().await {
+                                        Ok(results) => {
+                                            let divergent_count = results.values().filter(|r| r.divergence_detected).count();
+                                            total_checked += results.len();
+                                            total_divergent += divergent_count;
+
+                                            // Record metrics
+                                            metrics_reg
+                                                .record_metric(
+                                                    "audit_policy_chains_verified".to_string(),
+                                                    results.len() as f64,
+                                                )
+                                                .await;
+                                            metrics_reg
+                                                .record_metric(
+                                                    "audit_policy_chains_divergent".to_string(),
+                                                    divergent_count as f64,
+                                                )
+                                                .await;
+
+                                            if divergent_count > 0 {
+                                                for (tenant_id, result) in results.iter().filter(|(_, r)| r.divergence_detected) {
+                                                    error!(
+                                                        tenant_id = %tenant_id,
+                                                        first_invalid_sequence = ?result.first_invalid_sequence,
+                                                        error_message = ?result.error_message,
+                                                        "Policy audit chain divergence detected in periodic verification"
+                                                    );
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            error!(error = %e, "Failed to verify policy audit chains");
+                                            metrics_reg
+                                                .record_metric(
+                                                    "audit_verification_errors_total".to_string(),
+                                                    1.0,
+                                                )
+                                                .await;
+                                        }
+                                    }
+
+                                    // Verify evidence envelope chains
+                                    match db_clone.verify_all_evidence_chains().await {
+                                        Ok(results) => {
+                                            let divergent_count = results.iter().filter(|r| r.divergence_detected).count();
+                                            total_checked += results.len();
+                                            total_divergent += divergent_count;
+
+                                            // Record metrics
+                                            metrics_reg
+                                                .record_metric(
+                                                    "audit_evidence_chains_verified".to_string(),
+                                                    results.len() as f64,
+                                                )
+                                                .await;
+                                            metrics_reg
+                                                .record_metric(
+                                                    "audit_evidence_chains_divergent".to_string(),
+                                                    divergent_count as f64,
+                                                )
+                                                .await;
+
+                                            if divergent_count > 0 {
+                                                for result in results.iter().filter(|r| r.divergence_detected) {
+                                                    error!(
+                                                        tenant_id = %result.tenant_id,
+                                                        scope = ?result.scope,
+                                                        first_invalid_index = ?result.first_invalid_index,
+                                                        error_message = ?result.error_message,
+                                                        "Evidence envelope chain divergence detected in periodic verification"
+                                                    );
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            error!(error = %e, "Failed to verify evidence envelope chains");
+                                            metrics_reg
+                                                .record_metric(
+                                                    "audit_verification_errors_total".to_string(),
+                                                    1.0,
+                                                )
+                                                .await;
+                                        }
+                                    }
+
+                                    if total_divergent > 0 {
+                                        error!(
+                                            total_checked,
+                                            total_divergent,
+                                            "AUDIT CHAIN DIVERGENCE DETECTED - integrity compromised"
+                                        );
+                                    } else {
+                                        info!(
+                                            total_checked,
+                                            "Periodic audit chain verification completed - all chains valid"
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "Audit chain verification is disabled",
+                )
+                .is_ok()
+            {
+                info!(
+                    interval_secs = interval_secs,
+                    interval_hours = interval_secs / 3600,
+                    "Audit chain verification task started"
+                );
+            }
+            shutdown_coordinator = spawner.into_coordinator();
+        } else {
+            info!("Audit chain verification disabled via AOS_AUDIT_VERIFY_INTERVAL_SECS=0");
+        }
+    }
+
     // Spawn WAL checkpoint background task
     // KEPT in dev mode - database health
     {
