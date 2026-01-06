@@ -337,19 +337,25 @@ pub enum Commands {
     // ============================================================
     /// Sync adapters from local directory to registry
     #[command(after_help = r#"Examples:
-  # Sync adapters from directory
-  aosctl sync-registry --dir ./adapters
+  # Sync adapters from directory with signature verification
+  aosctl sync-registry --dir ./adapters --public-key ./keys/trusted.pub
 
   # Sync with custom CAS root
-  aosctl sync-registry --dir ./adapters --cas-root ./var/cas
+  aosctl sync-registry --dir ./adapters --public-key ./keys/trusted.pub --cas-root ./var/cas
 
   # Sync to custom registry
-  aosctl sync-registry --dir ./adapters --registry ./var/custom.db
+  aosctl sync-registry --dir ./adapters --public-key ./keys/trusted.pub --registry ./var/custom.db
 "#)]
     RegistrySync {
         /// Directory containing adapters with SBOM and signatures
         #[arg(short, long)]
         dir: PathBuf,
+
+        /// Path to trusted public key file (hex-encoded Ed25519 public key, 64 hex chars).
+        /// Required for signature verification. Adapters will only be imported if their
+        /// signature validates against this public key.
+        #[arg(long)]
+        public_key: PathBuf,
 
         /// CAS root directory
         #[arg(long, default_value = "./var/cas")]
@@ -1584,10 +1590,11 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         // Registry Management
         Commands::RegistrySync {
             dir,
+            public_key,
             cas_root,
             registry,
         } => {
-            commands::registry::sync_registry(dir, cas_root, registry, output).await?;
+            commands::registry::sync_registry(dir, public_key, cas_root, registry, output).await?;
         }
 
         // Database Management
