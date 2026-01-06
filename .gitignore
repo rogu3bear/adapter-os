@@ -144,6 +144,8 @@ installer/*.xcodeproj/*.perspectivev3
 .sqlx/
 !crates/adapteros-db/.sqlx/
 !crates/adapteros-db/.sqlx/**
+!crates/adapteros-server-api/.sqlx/
+!crates/adapteros-server-api/.sqlx/**
 
 # Metal compilation artifacts
 metal/*.metallib
