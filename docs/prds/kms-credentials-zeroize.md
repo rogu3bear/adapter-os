@@ -1,79 +1,33 @@
-# PRD: Apply Zeroize Pattern to KMS Credentials
+# PRD: Zeroize KMS Credentials
 
-**Status:** Draft
-**Last Updated:** 2026-01-05
-**Owner:** Engineering
-**Related Docs:** `crates/adapteros-crypto/src/secret.rs`, `crates/adapteros-crypto/src/providers/kms.rs`
+## Problem
+KMS credential types store secrets as plain strings. This risks accidental exposure via debug output and leaves secrets resident in memory beyond their intended lifetime.
 
----
+## Non-goals
+- Redesigning KMS provider behavior or adding new providers.
+- Changing how KMS credentials are sourced or configured.
+- Implementing cloud KMS integrations beyond existing stubs.
 
-## 1. Summary
+## Proposed Approach
+- Wrap secret fields in `KmsCredentials` with `SensitiveData`.
+- Add a custom `Debug` implementation for `KmsCredentials` that redacts secrets.
+- Implement `Zeroize` + `ZeroizeOnDrop` for `KmsCredentials` to guarantee zeroization on drop.
+- Keep non-secret fields (e.g., access key ID, tenant ID) as `String`.
+- Update tests to validate redaction, zeroize behavior, and serialization failures.
+- Update KMS testing guide to reflect the new secret handling.
 
-KMS credential structs currently hold secrets as plain strings. This PRD defines how to apply the existing zeroize wrappers to KMS credentials to prevent accidental logging and ensure memory zeroization on drop.
+## Acceptance Criteria
+- `format!("{:?}", kms_config)` does not include secret material and contains `[REDACTED]`.
+- Secret fields in `KmsCredentials` are zeroized on drop.
+- Serializing credentials with secrets fails (by design).
+- Existing KMS behavior remains unchanged for non-secret flows.
 
----
+## Test Plan
+- `cargo test -p adapteros-crypto`.
+- Verify updated redaction tests in `crates/adapteros-crypto/tests/kms_security.rs`.
+- Verify zeroize test in `crates/adapteros-crypto/src/providers/kms.rs`.
 
-## 2. Problem Statement
-
-Sensitive credentials are stored as plain `String` fields and can appear in debug output or remain in memory after use. The crate already provides `SensitiveData` and `SecretKey` wrappers but they are not used by KMS credentials.
-
----
-
-## 3. Goals
-
-- Wrap secret fields in `SensitiveData` (or equivalent) for automatic zeroization.
-- Redact sensitive fields in debug output.
-- Keep KMS functionality unchanged for consumers.
-
----
-
-## 4. Non-Goals
-
-- Introducing new crypto algorithms or KMS providers.
-- Changing credential acquisition mechanisms.
-- Persisting credentials to disk.
-
----
-
-## 5. Proposed Approach
-
-- Update `KmsCredentials` variants to wrap secret fields with `SensitiveData`.
-- Implement custom `Debug` to redact secrets.
-- Provide helper constructors/accessors to avoid leaking raw strings.
-- Add tests that assert redaction and zeroization behavior.
-
----
-
-## 6. Acceptance Criteria
-
-- Debug output for KMS credentials never prints secrets.
-- Secret fields zeroize on drop.
-- Serialization of credential types is disallowed or fails by design.
-- Existing KMS flows compile without API breakage.
-
----
-
-## 7. Test Plan
-
-- Unit test for debug redaction of AWS/GCP/Azure credentials.
-- Unit test to confirm zeroization of `SensitiveData` fields.
-- Regression test for current KMS provider integrations.
-
----
-
-## 8. Rollout Plan
-
-1. Add zeroize wrappers and custom Debug.
-2. Update tests and docs.
-3. Monitor for any integration regressions.
-
----
-
-## 9. Follow-up Tasks (Tracked)
-
-- TASK-1: Wrap secret fields in `SensitiveData` for all KMS variants.
-  - Acceptance: secrets are not stored as plain `String`.
-- TASK-2: Add redacted `Debug` implementation.
-  - Acceptance: debug output shows `[REDACTED]` for secrets.
-- TASK-3: Add unit tests for redaction and zeroization.
-  - Acceptance: tests fail if secrets appear in debug strings.
+## Rollout Plan
+- Merge as a direct update with no feature flags.
+- Monitor downstream usage for any unexpected reliance on credential serialization.
+- If needed, add follow-up guidance for configuration loading in docs.
