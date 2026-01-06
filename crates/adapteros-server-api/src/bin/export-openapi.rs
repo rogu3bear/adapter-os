@@ -1,13 +1,40 @@
 use adapteros_server_api::routes::ApiDoc;
+use serde_json::Value;
 use std::fs;
 use utoipa::OpenApi;
+
+/// Recursively sort all JSON object keys for deterministic output.
+/// This ensures the OpenAPI spec produces identical output across runs,
+/// regardless of HashMap iteration order.
+fn sort_json_keys(value: Value) -> Value {
+    match value {
+        Value::Object(map) => {
+            // Collect keys, sort them, and rebuild the object
+            let mut pairs: Vec<(String, Value)> = map
+                .into_iter()
+                .map(|(k, v)| (k, sort_json_keys(v)))
+                .collect();
+            pairs.sort_by(|a, b| a.0.cmp(&b.0));
+
+            // Use serde_json::Map which preserves insertion order
+            let sorted: serde_json::Map<String, Value> = pairs.into_iter().collect();
+            Value::Object(sorted)
+        }
+        Value::Array(arr) => Value::Array(arr.into_iter().map(sort_json_keys).collect()),
+        other => other,
+    }
+}
 
 fn main() -> anyhow::Result<()> {
     // Generate OpenAPI specification from utoipa annotations
     let openapi = ApiDoc::openapi();
 
-    // Serialize to pretty JSON
-    let spec_json = serde_json::to_string_pretty(&openapi)?;
+    // Convert to JSON Value first, then sort all keys for deterministic output
+    let value: Value = serde_json::to_value(&openapi)?;
+    let sorted_value = sort_json_keys(value);
+
+    // Serialize to pretty JSON with consistent formatting
+    let spec_json = serde_json::to_string_pretty(&sorted_value)?;
 
     // Get output path from args or use default
     let output_path = std::env::args()
