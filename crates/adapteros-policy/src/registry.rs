@@ -1,14 +1,15 @@
-//! Policy Registry - Canonical 25 Policy Packs
+//! Policy Registry - Canonical Policy Packs
 //!
-//! This module defines the complete set of 25 policy packs enforced by AdapterOS.
+//! This module defines the complete set of policy packs enforced by AdapterOS.
 //! Each policy pack has a unique ID, name, and enforcement logic.
 
-use adapteros_core::Result;
+use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// Unique identifier for a policy pack
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[repr(u8)]
 pub enum PolicyId {
     Egress = 1,
     Determinism = 2,
@@ -75,6 +76,16 @@ impl PolicyId {
             PolicyId::QueryIntent,
             PolicyId::LiveData,
         ]
+    }
+
+    /// Total number of policy IDs
+    pub fn count() -> usize {
+        Self::all().len()
+    }
+
+    /// Highest policy ID value
+    pub fn max_id() -> u8 {
+        Self::all().last().copied().map(|id| id as u8).unwrap_or(0)
     }
 
     /// Get policy name
@@ -220,6 +231,28 @@ impl PolicyId {
     }
 }
 
+impl TryFrom<u8> for PolicyId {
+    type Error = AosError;
+
+    fn try_from(value: u8) -> Result<Self> {
+        let max_id = Self::max_id();
+        if value == 0 || value > max_id {
+            return Err(AosError::Validation(format!(
+                "Policy ID must be between 1 and {}",
+                max_id
+            )));
+        }
+
+        Self::all()
+            .iter()
+            .copied()
+            .find(|id| *id as u8 == value)
+            .ok_or_else(|| {
+                AosError::Validation(format!("Policy ID must be between 1 and {}", max_id))
+            })
+    }
+}
+
 impl fmt::Display for PolicyId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.name())
@@ -249,7 +282,7 @@ impl PolicySpec {
     }
 }
 
-/// The canonical registry of all 29 policy packs
+/// The canonical registry of all policy packs
 pub static POLICY_INDEX: once_cell::sync::Lazy<[PolicySpec; 29]> =
     once_cell::sync::Lazy::new(|| {
         [
@@ -404,7 +437,11 @@ mod tests {
 
     #[test]
     fn test_policy_count() {
-        assert_eq!(POLICY_INDEX.len(), 29, "Must have exactly 29 policy packs");
+        assert_eq!(
+            POLICY_INDEX.len(),
+            PolicyId::count(),
+            "Policy registry length must match PolicyId::count()"
+        );
     }
 
     #[test]

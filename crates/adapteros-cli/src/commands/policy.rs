@@ -22,7 +22,7 @@ pub enum PolicyCommand {
 
     /// Explain a specific policy pack
     Explain {
-        /// Policy pack name or ID (1-20)
+        /// Policy pack name or ID
         policy: String,
     },
 
@@ -193,33 +193,13 @@ fn list_policy_packs(only_implemented: bool, format: OutputFormat) -> Result<()>
         }
     }
 
-    println!("\nTotal: {} / 20 policies", filtered.len());
+    println!("\nTotal: {} / {} policies", filtered.len(), PolicyId::count());
 
     Ok(())
 }
 
 fn explain_policy_pack(policy_ref: &str) -> Result<()> {
-    // Try to parse as ID number first, then as name
-    let policy_id = if let Ok(id) = policy_ref.parse::<usize>() {
-        if !(1..=25).contains(&id) {
-            return Err(adapteros_core::AosError::Validation(
-                "Policy ID must be between 1 and 25".to_string(),
-            ));
-        }
-        // Convert to PolicyId enum (casting is safe since we validated range)
-        unsafe { std::mem::transmute::<u8, PolicyId>(id as u8) }
-    } else {
-        // Try to match by name (case-insensitive)
-        let name_lower = policy_ref.to_lowercase();
-        list_policies()
-            .iter()
-            .find(|p| p.name.to_lowercase() == name_lower)
-            .map(|p| p.id)
-            .ok_or_else(|| {
-                adapteros_core::AosError::Validation(format!("Policy '{}' not found", policy_ref))
-            })?
-    };
-
+    let policy_id = parse_policy_id(policy_ref)?;
     let explanation = explain_policy(policy_id);
     println!("{}", explanation);
 
@@ -283,13 +263,16 @@ fn enforce_policies(pack: Option<&str>, all: bool, dry_run: bool) -> Result<()> 
 
 fn parse_policy_id(policy_ref: &str) -> Result<PolicyId> {
     // Try to parse as ID number first, then as name
-    if let Ok(id) = policy_ref.parse::<usize>() {
-        if !(1..=25).contains(&id) {
-            return Err(adapteros_core::AosError::Validation(
-                "Policy ID must be between 1 and 25".to_string(),
-            ));
+    if let Ok(id) = policy_ref.parse::<u16>() {
+        let max_id = PolicyId::max_id() as u16;
+        if id == 0 || id > max_id {
+            return Err(AosError::Validation(format!(
+                "Policy ID must be between 1 and {}",
+                max_id
+            )));
         }
-        Ok(unsafe { std::mem::transmute::<u8, PolicyId>(id as u8) })
+
+        PolicyId::try_from(id as u8)
     } else {
         let name_lower = policy_ref.to_lowercase();
         list_policies()
@@ -585,6 +568,13 @@ mod tests {
     }
 
     #[test]
+    fn test_explain_policy_by_max_id() {
+        let max_id = PolicyId::max_id();
+        let result = explain_policy_pack(&max_id.to_string());
+        assert!(result.is_ok(), "Should explain policy by max ID");
+    }
+
+    #[test]
     fn test_explain_policy_by_name() {
         let result = explain_policy_pack("Egress");
         assert!(result.is_ok(), "Should explain policy by name");
@@ -592,7 +582,8 @@ mod tests {
 
     #[test]
     fn test_invalid_policy_id() {
-        let result = explain_policy_pack("99");
+        let invalid_id = PolicyId::max_id() as u16 + 1;
+        let result = explain_policy_pack(&invalid_id.to_string());
         assert!(result.is_err(), "Should reject invalid policy ID");
     }
 }

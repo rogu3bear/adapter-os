@@ -36,7 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Resolved clippy warnings
 - Unblocked main build
 - Updated .gitignore patterns
-- Policy pack count standardized to 25 across all documentation
+- Policy CLI now derives PolicyId range/count from the registry (includes policies 26-29)
 
 ## [v0.9-unstable] - 2025-12-08
 
