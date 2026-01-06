@@ -82,31 +82,30 @@ Tests:
 - AWS credential sanitization patterns
 
 **Security Notes:**
-- Credentials are stored in memory (plaintext in current implementation)
-- Log output should NEVER include credentials
+- Credentials are wrapped in `SensitiveData` and zeroized on drop
+- Debug output redacts secrets; log output should NEVER include raw credentials
+- Serialization/deserialization of `KmsCredentials` is blocked
 
-#### Known Security Gaps
+#### Resolved Security Gaps
 
-| Gap ID | Description | Priority |
-|--------|-------------|----------|
-| CRYPTO-SEC-001 | `KmsCredentials` should implement `Zeroize` trait | P2 |
-| CRYPTO-SEC-002 | `KmsCredentials` needs custom `Debug` with masking | P2 |
+| Gap ID | Description | Status |
+|--------|-------------|--------|
+| CRYPTO-SEC-001 | `KmsCredentials` zeroize on drop | ✅ Resolved |
+| CRYPTO-SEC-002 | `KmsCredentials` debug masking | ✅ Resolved |
 
 **CRYPTO-SEC-001: Credential Zeroization**
-- Credentials currently remain in memory after use
-- Implement `Zeroize` trait to securely overwrite on drop
-- See `tests/kms_security.rs:test_credential_leak_detection_in_config`
+- Implemented via `SensitiveData` wrappers and `ZeroizeOnDrop`
+- See `crates/adapteros-crypto/src/secret.rs` and `tests/kms_security.rs`
 
 **CRYPTO-SEC-002: Debug Field Masking**
-- Credentials visible in debug output (potential log leak)
-- Implement custom `Debug` showing `***REDACTED***`
-- See `tests/kms_security.rs:test_credential_leak_detection_in_errors`
+- Implemented via custom `Debug` for `KmsCredentials`
+- See `crates/adapteros-crypto/src/providers/kms.rs`
 
 **Example Detection:**
 ```rust
 let debug_str = format!("{:?}", config);
-// Currently: "secret_access_key: \"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\""
-// After fix: "secret_access_key: \"***REDACTED***\""
+// Before fix: "secret_access_key: \"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\""
+// After fix: "secret_access_key: \"[REDACTED]\""
 ```
 
 ### 5. KMS Fallback Chain (2 tests)
@@ -234,7 +233,7 @@ let config = KmsConfig {
     region: Some("us-east-1".to_string()),
     credentials: KmsCredentials::AwsIam {
         access_key_id: "test".to_string(),
-        secret_access_key: "test".to_string(),
+        secret_access_key: "test".into(),
         session_token: None,
     },
     // ...
@@ -261,13 +260,22 @@ export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
 ### Credential Handling
 
 **Current Implementation:**
-- Credentials stored in `SensitiveData` wrappers (zeroize on drop)
-- Debug output redacts secrets
-- Serialization/deserialization of secrets fails by design
+- Credentials stored using `SensitiveData` wrappers
+- Debug output redacts secret fields
+- Sensitive fields zeroize on drop
 
-**Recommended Practices:**
-- Never log full configs or credentials
-- Keep secrets in byte form and minimize cloning
+**Implementation Pattern:**
+```rust
+use adapteros_crypto::secret::SensitiveData;
+
+pub enum KmsCredentials {
+    AwsIam {
+        access_key_id: String,
+        secret_access_key: SensitiveData,
+        session_token: Option<SensitiveData>,
+    },
+}
+```
 
 ### Error Messages
 
