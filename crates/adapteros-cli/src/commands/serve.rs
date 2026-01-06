@@ -237,8 +237,8 @@ pub async fn run(
         let index_root = resolve_index_root()?;
         let index_dir = index_root.path.join(tenant);
         if index_dir.exists() {
-            // Use a placeholder embedding hash - in production this should come from the manifest
-            let embedding_hash = adapteros_core::B3Hash::hash(b"placeholder");
+            // Use embedding hash from manifest RAG policy for determinism
+            let embedding_hash = manifest.policies.rag.embedding_model_hash;
             match adapteros_lora_rag::RagSystem::new(index_dir, embedding_hash) {
                 Ok(rag_system) => {
                     output.success(format!(
