@@ -1,5 +1,6 @@
 //! Toggle/Switch component
 
+use crate::components::form_field::use_form_field_context;
 use leptos::prelude::*;
 
 /// Toggle component (switch)
@@ -21,7 +22,7 @@ pub fn Toggle(
         <div class=format!("flex items-center justify-between {}", class)>
             <div class="space-y-0.5">
                 {label.map(|l| view! {
-                    <label class="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                    <label class="label">
                         {l}
                     </label>
                 })}
@@ -35,25 +36,21 @@ pub fn Toggle(
                 aria-checked=move || checked.get().to_string()
                 disabled=disabled
                 class=move || {
-                    let base = "peer inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50";
-                    let bg = if checked.get() {
-                        "bg-primary"
-                    } else {
-                        "bg-input"
-                    };
-                    format!("{} {}", base, bg)
+                    let base = "toggle";
+                    let state = if checked.get() { "toggle-on" } else { "toggle-off" };
+                    format!("{} {}", base, state)
                 }
                 on:click=toggle
             >
                 <span
                     class=move || {
-                        let base = "pointer-events-none block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform";
-                        let translate = if checked.get() {
-                            "translate-x-5"
+                        let base = "toggle-thumb";
+                        let state = if checked.get() {
+                            "toggle-thumb-on"
                         } else {
-                            "translate-x-0"
+                            "toggle-thumb-off"
                         };
-                        format!("{} {}", base, translate)
+                        format!("{} {}", base, state)
                     }
                 />
             </button>
@@ -67,23 +64,29 @@ pub fn Select(
     #[prop(into)] value: RwSignal<String>,
     #[prop(into)] options: Vec<(String, String)>,
     #[prop(optional, into)] label: Option<String>,
+    #[prop(optional, into)] id: Option<String>,
+    #[prop(optional, into)] name: Option<String>,
     #[prop(optional)] disabled: bool,
     #[prop(optional, into)] class: String,
 ) -> impl IntoView {
-    let base_class = "flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
-
-    let full_class = format!("{} {}", base_class, class);
+    let full_class = format!("select {}", class);
+    let field_ctx = use_form_field_context();
+    let input_id = id.or_else(|| field_ctx.as_ref().map(|ctx| ctx.field_id.clone()));
+    let described_by = field_ctx.and_then(|ctx| ctx.described_by.clone());
 
     view! {
         <div class="grid w-full gap-1.5">
             {label.map(|l| view! {
-                <label class="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                <label class="label" for=input_id.clone()>
                     {l}
                 </label>
             })}
             <select
+                id=input_id
+                name=name
                 class=full_class
                 disabled=disabled
+                aria-describedby=described_by
                 prop:value=move || value.get()
                 on:change=move |ev| {
                     value.set(event_target_value(&ev));

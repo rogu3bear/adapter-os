@@ -7,7 +7,7 @@ use crate::components::chat_dock::{ChatDockPanel, MobileChatOverlay, NarrowChatD
 use crate::components::glass_toggle::GlassThemeToggle;
 use crate::components::global_search::GlobalSearchBox;
 use crate::components::offline_banner::OfflineBanner;
-use crate::components::status::{StatusColor, StatusIndicator};
+use crate::components::status::{Badge, BadgeVariant, StatusColor, StatusIndicator};
 use crate::components::workspace::Workspace;
 use crate::signals::{use_auth, use_chat, use_search, DockState};
 use leptos::prelude::*;
@@ -141,14 +141,14 @@ pub fn TopBar() -> impl IntoView {
         }
     };
 
-    let env_badge_class = {
+    let env_badge_variant = {
         #[cfg(debug_assertions)]
         {
-            "bg-amber-500/20 text-amber-400 border-amber-500/30"
+            BadgeVariant::Warning
         }
         #[cfg(not(debug_assertions))]
         {
-            "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
+            BadgeVariant::Success
         }
     };
 
@@ -158,9 +158,7 @@ pub fn TopBar() -> impl IntoView {
             <div class="flex items-center gap-3">
                 <div class="flex items-center gap-2">
                     <span class="font-semibold text-sm tracking-tight">"AdapterOS"</span>
-                    <span class=format!("text-[10px] font-medium px-1.5 py-0.5 rounded border {}", env_badge_class)>
-                        {env_badge}
-                    </span>
+                    <Badge variant=env_badge_variant>{env_badge}</Badge>
                 </div>
             </div>
 
