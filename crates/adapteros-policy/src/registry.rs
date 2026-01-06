@@ -1,14 +1,15 @@
-//! Policy Registry - Canonical 25 Policy Packs
+//! Policy Registry - Canonical Policy Packs
 //!
-//! This module defines the complete set of 25 policy packs enforced by AdapterOS.
+//! This module defines the complete set of policy packs enforced by AdapterOS.
 //! Each policy pack has a unique ID, name, and enforcement logic.
 
-use adapteros_core::Result;
+use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// Unique identifier for a policy pack
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[repr(u8)]
 pub enum PolicyId {
     Egress = 1,
     Determinism = 2,
@@ -75,6 +76,16 @@ impl PolicyId {
             PolicyId::QueryIntent,
             PolicyId::LiveData,
         ]
+    }
+
+    /// Count of policy IDs.
+    pub fn count() -> usize {
+        Self::all().len()
+    }
+
+    /// Highest policy ID.
+    pub fn max_id() -> u8 {
+        Self::all().last().copied().map(|id| id as u8).unwrap_or(0)
     }
 
     /// Get policy name
@@ -220,6 +231,23 @@ impl PolicyId {
     }
 }
 
+impl TryFrom<u8> for PolicyId {
+    type Error = AosError;
+
+    fn try_from(value: u8) -> std::result::Result<Self, Self::Error> {
+        PolicyId::all()
+            .iter()
+            .copied()
+            .find(|id| *id as u8 == value)
+            .ok_or_else(|| {
+                AosError::Validation(format!(
+                    "Policy ID must be between 1 and {}",
+                    PolicyId::max_id()
+                ))
+            })
+    }
+}
+
 impl fmt::Display for PolicyId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.name())
@@ -249,7 +277,7 @@ impl PolicySpec {
     }
 }
 
-/// The canonical registry of all 29 policy packs
+/// The canonical registry of all policy packs
 pub static POLICY_INDEX: once_cell::sync::Lazy<[PolicySpec; 29]> =
     once_cell::sync::Lazy::new(|| {
         [
@@ -404,7 +432,13 @@ mod tests {
 
     #[test]
     fn test_policy_count() {
-        assert_eq!(POLICY_INDEX.len(), 29, "Must have exactly 29 policy packs");
+        let expected_count = PolicyId::count();
+        assert_eq!(
+            POLICY_INDEX.len(),
+            expected_count,
+            "Must have exactly {} policy packs",
+            expected_count
+        );
     }
 
     #[test]
@@ -425,6 +459,15 @@ mod tests {
                 "Policy IDs must be sequential starting from 1"
             );
         }
+    }
+
+    #[test]
+    fn test_policy_id_try_from() {
+        assert_eq!(PolicyId::try_from(1).unwrap(), PolicyId::Egress);
+        assert_eq!(PolicyId::try_from(29).unwrap(), PolicyId::LiveData);
+
+        let err = PolicyId::try_from(0).unwrap_err();
+        assert!(err.to_string().contains("Policy ID must be between 1"));
     }
 
     #[test]

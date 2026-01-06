@@ -79,7 +79,7 @@ golden_runs/
 3. **Ask questions about AdapterOS:**
    - "What are golden runs?"
    - "How does the adapter lifecycle work?"
-   - "What are the 25 policy packs?"
+   - "What are the policy packs?"
    - "Explain K-sparse routing"
    - "What is deterministic execution?"
 
@@ -94,7 +94,7 @@ golden_runs/
 questions=(
   "What are golden runs and how do they work?"
   "Explain the adapter lifecycle states"
-  "What are the 25 policy packs?"
+  "What are the policy packs?"
   "How does K-sparse routing work?"
   "What is deterministic execution?"
 )
@@ -169,8 +169,8 @@ Expected: Explanation of golden runs as cryptographically signed reference basel
 **Q: "How does the adapter lifecycle work?"**
 Expected: Description of the state machine (Unloaded → Cold → Warm → Hot → Resident) with transitions based on activation percentages and memory pressure.
 
-**Q: "What are the 25 policy packs?"**
-Expected: List of all 24 canonical policies organized by category (Security, Quality, Compliance, Performance).
+**Q: "What are the policy packs?"**
+Expected: List of canonical policies organized by category (Security, Quality, Compliance, Performance).
 
 ## Next Steps
 

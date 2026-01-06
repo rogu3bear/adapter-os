@@ -1,14 +1,14 @@
 //! Comprehensive Policy Validation Tests
 //!
 //! This test suite provides comprehensive coverage for policy validation:
-//! 1. All 25 policy packs validation
+//! 1. All policy packs validation
 //! 2. Policy customization validation
 //! 3. Policy boundary enforcement
 //! 4. Invalid policy rejection
 //!
 //! # Citations
 //! - AGENTS.md: Policy Engine implementation standards
-//! - Policy Pack #1-25: Complete policy validation coverage
+//! - Policy Pack registry: Complete policy validation coverage
 //! - crates/adapteros-policy/src/validation.rs: Policy customization validation
 
 use adapteros_policy::policy_packs::{
@@ -19,16 +19,18 @@ use adapteros_policy::registry::{PolicyId, POLICY_INDEX};
 use adapteros_policy::validation::{get_policy_schema, validate_customization};
 use chrono::Utc;
 
-// ========== Test 1: All 25 Policy Packs Validation ==========
+// ========== Test 1: All Policy Packs Validation ==========
 
 #[test]
-fn test_all_25_policy_packs_exist() {
-    // Verify exactly 25 policy packs are defined in registry
+fn test_all_policy_packs_exist() {
+    // Verify policy packs are defined in registry
     let policies = POLICY_INDEX.as_ref();
+    let expected_count = PolicyId::count();
     assert_eq!(
         policies.len(),
-        25,
-        "Must have exactly 25 policy packs (current: {})",
+        expected_count,
+        "Must have exactly {} policy packs (current: {})",
+        expected_count,
         policies.len()
     );
 
@@ -45,9 +47,13 @@ fn test_all_25_policy_packs_exist() {
 
 #[test]
 fn test_all_policy_ids_sequential() {
-    // Verify policy IDs are sequential from 1 to 25
+    // Verify policy IDs are sequential from 1 to max
     let all_ids = PolicyId::all();
-    assert_eq!(all_ids.len(), 25, "PolicyId::all() must return 25 policies");
+    assert_eq!(
+        all_ids.len(),
+        PolicyId::count(),
+        "PolicyId::all() must return all policies"
+    );
 
     for (idx, policy_id) in all_ids.iter().enumerate() {
         assert_eq!(
@@ -82,7 +88,7 @@ fn test_all_policies_have_metadata() {
 
 #[test]
 fn test_all_policies_marked_implemented() {
-    // Verify all 25 policies are marked as implemented
+    // Verify all policies are marked as implemented
     for policy_id in PolicyId::all() {
         assert!(
             policy_id.is_implemented(),

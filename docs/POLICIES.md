@@ -56,7 +56,7 @@ graph TD
 
 ## Policy Registry
 
-The policy registry contains exactly 25 policy packs, each with:
+The policy registry contains the canonical policy packs defined in `PolicyId`, each with:
 
 - **ID**: Unique identifier (`PolicyId`, legacy `PolicyPackId` in pack manager)
 - **Name**: Human-readable name
@@ -65,10 +65,11 @@ The policy registry contains exactly 25 policy packs, each with:
 - **Implementation Status**: Whether the policy is implemented
 
 Canonical registry definitions live in `crates/adapteros-policy/src/registry.rs` with implementations in `crates/adapteros-policy/src/packs/`; the legacy pack manager remains in `crates/adapteros-policy/src/policy_packs.rs`.
+Use `PolicyId::all()` as the authoritative source of truth.
 
 ---
 
-## The 25 Canonical Policy Packs
+## Canonical Policy Packs
 
 ### Core Security Policies (Critical Severity)
 
@@ -426,7 +427,7 @@ Based on the available data, I can only confirm [partial information].
 
 The `PolicyPackManager` is the central coordinator for all policy packs. It:
 
-- Maintains registry of all 25 policy pack validators
+- Maintains registry of policy pack validators
 - Manages policy pack configurations (enabled/disabled, enforcement levels)
 - Validates requests against all active policy packs
 - Implements the `PolicyEnforcer` trait for unified enforcement interface
