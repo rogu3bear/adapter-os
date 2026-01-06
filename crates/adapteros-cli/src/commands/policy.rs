@@ -193,7 +193,11 @@ fn list_policy_packs(only_implemented: bool, format: OutputFormat) -> Result<()>
         }
     }
 
-    println!("\nTotal: {} / {} policies", filtered.len(), PolicyId::count());
+    println!(
+        "\nTotal: {} / {} policies",
+        filtered.len(),
+        PolicyId::count()
+    );
 
     Ok(())
 }
