@@ -8,6 +8,7 @@
 use adapteros_types::telemetry::LogLevel;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{event, Level};
 
@@ -30,6 +31,41 @@ pub const RECEIPT_MISMATCH_ERROR: &str = "OBS_RECEIPT_MISMATCH";
 pub const STRICT_DETERMINISM_ERROR: &str = "OBS_STRICT_DETERMINISM_VIOLATION";
 /// Error code for policy deny override or fail-open.
 pub const POLICY_DENY_OVERRIDE_ERROR: &str = "OBS_POLICY_DENY_OVERRIDE";
+
+// ============================================================
+// Global atomic counters for Prometheus metrics exposure
+// ============================================================
+
+static DETERMINISM_VIOLATION_COUNTER: AtomicU64 = AtomicU64::new(0);
+static STRICT_VIOLATION_COUNTER: AtomicU64 = AtomicU64::new(0);
+static RECEIPT_MISMATCH_COUNTER: AtomicU64 = AtomicU64::new(0);
+static AUDIT_DIVERGENCE_COUNTER: AtomicU64 = AtomicU64::new(0);
+static POLICY_OVERRIDE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Returns the current count of determinism violations (non-strict).
+pub fn determinism_violation_count() -> u64 {
+    DETERMINISM_VIOLATION_COUNTER.load(Ordering::Relaxed)
+}
+
+/// Returns the current count of strict mode violations.
+pub fn strict_violation_count() -> u64 {
+    STRICT_VIOLATION_COUNTER.load(Ordering::Relaxed)
+}
+
+/// Returns the current count of receipt mismatches.
+pub fn receipt_mismatch_count() -> u64 {
+    RECEIPT_MISMATCH_COUNTER.load(Ordering::Relaxed)
+}
+
+/// Returns the current count of audit chain divergences.
+pub fn audit_divergence_count() -> u64 {
+    AUDIT_DIVERGENCE_COUNTER.load(Ordering::Relaxed)
+}
+
+/// Returns the current count of policy overrides.
+pub fn policy_override_count() -> u64 {
+    POLICY_OVERRIDE_COUNTER.load(Ordering::Relaxed)
+}
 
 /// Observability severity used for both tracing and telemetry.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -266,6 +302,9 @@ pub fn receipt_mismatch_event(
     tenant_id: Option<String>,
     request_id: Option<String>,
 ) -> ObservabilityEvent {
+    // Increment global counter for Prometheus
+    RECEIPT_MISMATCH_COUNTER.fetch_add(1, Ordering::Relaxed);
+
     let event = ObservabilityEvent::base(
         ObservabilityEventKind::ReceiptMismatch,
         ObservabilitySeverity::Alert,
@@ -321,6 +360,12 @@ pub fn determinism_violation_event(
     tenant_id: Option<String>,
     request_id: Option<String>,
 ) -> ObservabilityEvent {
+    // Increment global counters for Prometheus
+    if strict_mode {
+        STRICT_VIOLATION_COUNTER.fetch_add(1, Ordering::Relaxed);
+    }
+    DETERMINISM_VIOLATION_COUNTER.fetch_add(1, Ordering::Relaxed);
+
     let severity = if strict_mode {
         ObservabilitySeverity::Alert
     } else {
@@ -424,6 +469,9 @@ pub fn audit_chain_divergence_event(
     tenant_id: Option<String>,
     request_id: Option<String>,
 ) -> ObservabilityEvent {
+    // Increment global counter for Prometheus
+    AUDIT_DIVERGENCE_COUNTER.fetch_add(1, Ordering::Relaxed);
+
     let event = ObservabilityEvent::base(
         ObservabilityEventKind::AuditChainDivergence,
         ObservabilitySeverity::Alert,
@@ -449,6 +497,9 @@ pub fn policy_override_event(
     tenant_id: Option<String>,
     request_id: Option<String>,
 ) -> ObservabilityEvent {
+    // Increment global counter for Prometheus
+    POLICY_OVERRIDE_COUNTER.fetch_add(1, Ordering::Relaxed);
+
     let event = ObservabilityEvent::base(
         ObservabilityEventKind::PolicyOverride,
         ObservabilitySeverity::Alert,
