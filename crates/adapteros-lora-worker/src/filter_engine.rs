@@ -153,7 +153,7 @@ impl FilterEngine {
         }
 
         let mut values: Vec<f32> = self.median_window.iter().copied().collect();
-        values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         values[values.len() / 2]
     }
 }
@@ -191,5 +191,17 @@ mod tests {
         let output = engine.process_signal(&input);
         assert_eq!(output.len(), input.len());
         assert!((output[3] - 2.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_median_filter_handles_nan() {
+        let mut engine = FilterEngine::new(FilterConfig {
+            sample_rate_hz: 1.0,
+            kind: FilterKind::Median { window: 3 },
+        })
+        .unwrap();
+
+        let output = engine.process_signal(&[1.0, f32::NAN, 2.0]);
+        assert_eq!(output.len(), 3);
     }
 }
