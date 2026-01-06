@@ -1,11 +1,11 @@
 //! Legacy policy pack manager (20 packs + FullPack example) for AdapterOS
 //!
-//! Canonical 25-pack registry definitions live in `registry.rs` with
+//! Canonical registry definitions live in `registry.rs` with
 //! implementations in `packs/`.
 //!
 //! # Citations
 //! - Policy Pack #1-20: Legacy pack manager list (see `PolicyPackId`)
-//! - AGENTS.md L142: "Policy Engine: Enforces 25 policy packs"
+//! - AGENTS.md L142: Policy engine enforcement expectations
 //! - .cursor/rules/global.mdc: Policy pack definitions and enforcement rules
 
 use adapteros_core::Result;
@@ -415,7 +415,7 @@ impl PolicyPackManager {
 
     /// Initialize all policy packs
     fn initialize_policy_packs(&mut self) {
-        info!("Initializing all 25 policy packs");
+        info!("Initializing all policy packs");
 
         // Register all policy pack validators
         self.register_pack(PolicyPackId::Egress, Box::new(EgressValidator::new()));
@@ -460,7 +460,7 @@ impl PolicyPackManager {
         // Set default configurations
         self.set_default_configurations();
 
-        info!("All 25 policy packs initialized successfully");
+        info!("All policy packs initialized successfully");
     }
 
     /// Register a policy pack validator

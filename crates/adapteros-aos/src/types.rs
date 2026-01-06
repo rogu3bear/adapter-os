@@ -1,44 +1,44 @@
-//! Common types for the AOS format
-//!
-//! These types are shared between the aos crate and single-file-adapter for
-//! backward compatibility during migration.
+//! Shared AOS archive types.
 
 use serde::{Deserialize, Serialize};
 
-/// Configuration for weight groups
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct WeightGroupConfig {
-    /// Whether to use separate positive/negative weights
-    pub use_separate_weights: bool,
-    /// Weight combination strategy for inference
-    pub combination_strategy: CombinationStrategy,
-}
-
-/// Strategy for combining positive and negative weights
+/// Strategy for combining positive and negative weight groups.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum CombinationStrategy {
-    /// Simple difference: combined = positive - negative
+    /// Positive - negative weights.
     Difference,
-    /// Weighted difference: combined = (positive * pos_scale) - (negative * neg_scale)
+    /// Weighted positive/negative difference.
     WeightedDifference {
-        /// Scaling factor applied to positive weights
         positive_scale: f32,
-        /// Scaling factor applied to negative weights
         negative_scale: f32,
     },
-    /// Separate inference: use positive and negative weights independently
+    /// Keep positive weights only.
     Separate,
+}
+
+impl Default for CombinationStrategy {
+    fn default() -> Self {
+        Self::WeightedDifference {
+            positive_scale: 1.0,
+            negative_scale: 1.0,
+        }
+    }
+}
+
+/// Configuration for separated weight groups.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct WeightGroupConfig {
+    pub use_separate_weights: bool,
+    pub combination_strategy: CombinationStrategy,
 }
 
 impl Default for WeightGroupConfig {
     fn default() -> Self {
         Self {
             use_separate_weights: true,
-            combination_strategy: CombinationStrategy::WeightedDifference {
-                positive_scale: 1.0,
-                negative_scale: 1.0,
-            },
+            combination_strategy: CombinationStrategy::default(),
         }
     }
 }

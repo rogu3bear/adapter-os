@@ -7,6 +7,7 @@ use anyhow::Context;
 use clap::Subcommand;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
+use std::fs;
 use std::path::{Path, PathBuf};
 use sysinfo::System;
 use tracing::{error, info, warn};
@@ -38,6 +39,14 @@ Examples:
         /// Create diagnostic bundle
         #[arg(long)]
         bundle: Option<PathBuf>,
+
+        /// Filter telemetry bundles to a specific CPID (alias: --trace-id)
+        #[arg(long, alias = "trace-id", requires = "bundle")]
+        cpid: Option<String>,
+
+        /// Include full database file in bundle (var/aos-cp.sqlite3)
+        #[arg(long, requires = "bundle")]
+        full_db: bool,
 
         /// System checks only
         #[arg(long, conflicts_with_all = ["tenant_only", "profile"])]
@@ -109,6 +118,8 @@ pub async fn handle_diag_command(cmd: DiagCommand, output: &OutputWriter) -> Res
             tenant,
             json,
             bundle,
+            cpid,
+            full_db,
             system,
             tenant_only,
             full,
@@ -135,7 +146,7 @@ pub async fn handle_diag_command(cmd: DiagCommand, output: &OutputWriter) -> Res
                 DiagProfile::Full
             };
 
-            run(diag_profile, tenant, json, bundle).await
+            run(diag_profile, tenant, json, bundle, cpid, full_db).await
         }
         DiagCommand::Export {
             trace_id,
@@ -857,6 +868,8 @@ pub async fn run(
     tenant_id: Option<String>,
     json: bool,
     bundle_path: Option<PathBuf>,
+    bundle_cpid: Option<String>,
+    full_db: bool,
 ) -> Result<()> {
     let mut runner = DiagnosticRunner::new(profile, tenant_id.clone());
 
@@ -927,7 +940,13 @@ pub async fn run(
 
     // Create bundle if requested
     if let Some(bundle_path) = bundle_path {
-        create_diag_bundle(&bundle_path, &runner.results).await?;
+        create_diag_bundle(
+            &bundle_path,
+            &runner.results,
+            bundle_cpid.as_deref(),
+            full_db,
+        )
+        .await?;
         info!("📦 Diagnostic bundle created: {}", bundle_path.display());
     }
 
@@ -1115,7 +1134,191 @@ fn add_truncated_log_file(
     Ok(())
 }
 
-async fn create_diag_bundle(bundle_path: &Path, results: &[DiagResult]) -> Result<()> {
+fn collect_config_files(zip: &mut zip::ZipWriter<std::fs::File>) -> Result<()> {
+    use std::io::Write;
+    use zip::write::SimpleFileOptions;
+
+    let config_files = [
+        "configs/cp.toml",
+        ".env",
+        "Cargo.toml",
+        "manifests/qwen7b.yaml",
+    ];
+
+    for file_path in config_files {
+        if let Ok(content) = fs::read_to_string(file_path) {
+            let zip_path = format!("config/{}", file_path.replace('/', "_"));
+            zip.start_file(zip_path, SimpleFileOptions::default())?;
+            zip.write_all(content.as_bytes())?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn collect_database_state(
+    zip: &mut zip::ZipWriter<std::fs::File>,
+    full_db: bool,
+) -> Result<()> {
+    use std::io::Write;
+    use zip::write::SimpleFileOptions;
+
+    let db = adapteros_db::Db::connect_env().await.ok();
+    let mut info = String::new();
+
+    if let Some(db) = db {
+        if let Ok(result) = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM manifests")
+            .fetch_one(db.pool())
+            .await
+        {
+            info.push_str(&format!("Manifests: {}\n", result));
+        }
+
+        if let Ok(result) = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM adapters")
+            .fetch_one(db.pool())
+            .await
+        {
+            info.push_str(&format!("Adapters: {}\n", result));
+        }
+
+        if let Ok(rows) =
+            sqlx::query_as::<_, (String, i64)>("SELECT status, COUNT(*) FROM jobs GROUP BY status")
+                .fetch_all(db.pool())
+                .await
+        {
+            info.push_str("\nJobs by status:\n");
+            for (status, count) in rows {
+                info.push_str(&format!("  {}: {}\n", status, count));
+            }
+        }
+
+        if let Ok(rows) = sqlx::query_as::<_, (String, String, String)>(
+            "SELECT id, job_type, status FROM jobs ORDER BY created_at DESC LIMIT 20",
+        )
+        .fetch_all(db.pool())
+        .await
+        {
+            info.push_str("\nRecent jobs:\n");
+            for (id, job_type, status) in rows {
+                info.push_str(&format!("  {} | {} | {}\n", id, job_type, status));
+            }
+        }
+    }
+
+    if !info.is_empty() {
+        zip.start_file("database_state.txt", SimpleFileOptions::default())?;
+        zip.write_all(info.as_bytes())?;
+    }
+
+    if full_db {
+        if let Ok(db_bytes) = fs::read("var/aos-cp.sqlite3") {
+            zip.start_file("database/aos-cp.sqlite3", SimpleFileOptions::default())?;
+            zip.write_all(&db_bytes)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn collect_telemetry(zip: &mut zip::ZipWriter<std::fs::File>, cpid: &str) -> Result<()> {
+    use std::io::Write;
+    use zip::write::SimpleFileOptions;
+
+    let telemetry_dir = format!("var/telemetry/{}", cpid);
+    if let Ok(entries) = fs::read_dir(&telemetry_dir) {
+        for entry in entries.filter_map(|e| e.ok()) {
+            let path = entry.path();
+            if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
+                if ext == "ndjson" || ext == "sig" || ext == "json" {
+                    if let Ok(content) = fs::read(&path) {
+                        let Some(file_name) = path.file_name() else {
+                            continue;
+                        };
+                        let zip_path =
+                            format!("telemetry/{}/{}", cpid, file_name.to_string_lossy());
+                        zip.start_file(zip_path, SimpleFileOptions::default())?;
+                        zip.write_all(&content)?;
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn collect_recent_telemetry(zip: &mut zip::ZipWriter<std::fs::File>) -> Result<()> {
+    use std::io::Write;
+    use zip::write::SimpleFileOptions;
+
+    if let Ok(entries) = fs::read_dir("var/telemetry") {
+        let mut bundles: Vec<_> = entries
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("ndjson"))
+            .collect();
+
+        bundles.sort_by_key(|e| {
+            e.metadata()
+                .and_then(|m| m.modified())
+                .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+        });
+        bundles.reverse();
+
+        for entry in bundles.iter().take(3) {
+            let path = entry.path();
+            if let Ok(content) = fs::read(&path) {
+                let Some(file_name) = path.file_name() else {
+                    continue;
+                };
+                let zip_path = format!("telemetry/recent/{}", file_name.to_string_lossy());
+                zip.start_file(zip_path, SimpleFileOptions::default())?;
+                zip.write_all(&content)?;
+            }
+
+            let sig_path = path.with_extension("ndjson.sig");
+            if let Ok(content) = fs::read(&sig_path) {
+                let Some(file_name) = sig_path.file_name() else {
+                    continue;
+                };
+                let zip_path = format!("telemetry/recent/{}", file_name.to_string_lossy());
+                zip.start_file(zip_path, SimpleFileOptions::default())?;
+                zip.write_all(&content)?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn collect_alerts(zip: &mut zip::ZipWriter<std::fs::File>) -> Result<()> {
+    use std::io::Write;
+    use zip::write::SimpleFileOptions;
+
+    if let Ok(entries) = fs::read_dir("var/alerts") {
+        for entry in entries.filter_map(|e| e.ok()) {
+            let path = entry.path();
+            if path.is_file() {
+                if let Ok(content) = fs::read(&path) {
+                    let Some(file_name) = path.file_name() else {
+                        continue;
+                    };
+                    let zip_path = format!("alerts/{}", file_name.to_string_lossy());
+                    zip.start_file(zip_path, SimpleFileOptions::default())?;
+                    zip.write_all(&content)?;
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn create_diag_bundle(
+    bundle_path: &Path,
+    results: &[DiagResult],
+    cpid: Option<&str>,
+    full_db: bool,
+) -> Result<()> {
     use std::fs::File;
     use std::io::Write;
     use zip::write::SimpleFileOptions;
@@ -1145,17 +1348,21 @@ async fn create_diag_bundle(bundle_path: &Path, results: &[DiagResult]) -> Resul
     zip.start_file("system_info.json", SimpleFileOptions::default())?;
     zip.write_all(serde_json::to_string_pretty(&sysinfo)?.as_bytes())?;
 
-    // Add config files if they exist
-    if Path::new("./configs/cp.toml").exists() {
-        let config = std::fs::read_to_string("./configs/cp.toml")?;
-        zip.start_file("configs/cp.toml", SimpleFileOptions::default())?;
-        zip.write_all(config.as_bytes())?;
-    }
+    collect_config_files(&mut zip)?;
+    collect_database_state(&mut zip, full_db).await?;
 
     // Add recent logs if they exist
     if Path::new("./var/logs").exists() {
         add_log_files(&mut zip, "./var/logs").await?;
     }
+
+    if let Some(cpid) = cpid {
+        collect_telemetry(&mut zip, cpid)?;
+    } else {
+        collect_recent_telemetry(&mut zip)?;
+    }
+
+    collect_alerts(&mut zip)?;
 
     zip.finish()?;
     Ok(())

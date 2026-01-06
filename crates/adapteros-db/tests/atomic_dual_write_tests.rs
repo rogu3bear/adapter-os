@@ -9,10 +9,16 @@
 // 4. Update methods handle strict mode correctly
 
 use adapteros_core::Result;
+use adapteros_db::adapters_kv::{AdapterKvOps, AdapterKvRepository};
+use adapteros_db::kv_backend::IndexManager;
 use adapteros_db::{
     adapters::{AdapterRegistrationBuilder, AtomicDualWriteConfig},
-    Db, StorageMode,
+    Db, KvBackend, KvDb, KvStorageError, StorageMode,
 };
+use adapteros_storage::repos::adapter::AdapterRepository;
+use async_trait::async_trait;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 #[cfg(test)]
 mod atomic_dual_write_tests {
@@ -300,121 +306,195 @@ mod atomic_dual_write_tests {
 
 #[cfg(test)]
 mod integration_tests {
-    #![allow(unused_imports)]
     use super::*;
 
-    // =========================================================================
-    // Integration Tests: Dual-Write with Real KV Backend
-    //
-    // AUDIT NOTE (2026-01-03): These tests are intentionally #[ignore] because:
-    //
-    // 1. They require a running redb KV backend, which needs:
-    //    - A writable temp directory (tests currently use in-memory SQLite only)
-    //    - The `kv-backend` feature flag enabled
-    //
-    // 2. Running these tests in CI would require:
-    //    - Adding `--features kv-backend` to the test command
-    //    - Setting up temp directories for redb files
-    //    - Adding cleanup to prevent test pollution
-    //
-    // To run these tests locally:
-    //   cargo test -p adapteros-db --features kv-backend -- --ignored
-    //
-    // TODO: Implement these tests when KV backend is production-ready.
-    //       Track in: https://github.com/adapteros/adapteros/issues/XXX
-    // =========================================================================
+    // Integration tests that test the full flow with real KV backend
+    // These are separate from unit tests as they require more setup
 
-    /// Tests the complete Phase 4 migration workflow
-    ///
-    /// This test verifies the full dual-write migration path:
-    /// 1. Start in SqlOnly mode
-    /// 2. Switch to DualWrite with best-effort
-    /// 3. Validate consistency between SQL and KV
-    /// 4. Switch to strict atomic mode
-    /// 5. Verify all operations succeed or rollback completely
-    /// 6. Switch to KvPrimary mode
-    /// 7. Validate reads come from KV, writes still go to both
-    ///
-    /// # Requirements
-    /// - `kv-backend` feature flag
-    /// - Writable temp directory for redb
     #[tokio::test]
-    #[ignore = "requires kv-backend feature and redb setup - run with: cargo test -p adapteros-db --features kv-backend -- --ignored"]
-    async fn test_full_migration_workflow() {
-        // TODO: Implement when KV backend is production-ready
-        //
-        // Test outline:
-        // let db = Db::new_in_memory().await.unwrap();
-        // let kv = KvBackend::new_temp().await.unwrap();
-        //
-        // // Phase 1: SQL only
-        // db.set_storage_mode(StorageMode::SqlOnly);
-        // let adapter_id = db.register_adapter(...).await.unwrap();
-        //
-        // // Phase 2: Best-effort dual-write
-        // db.set_storage_mode(StorageMode::DualWrite { mode: DualWriteMode::BestEffort });
-        // let adapter_id_2 = db.register_adapter(...).await.unwrap();
-        //
-        // // Verify both stores have the data
-        // assert!(db.get_adapter(adapter_id_2).await.is_ok());
-        // assert!(kv.get_adapter(adapter_id_2).await.is_ok());
-        //
-        // // Phase 3: Strict atomic mode
-        // db.set_storage_mode(StorageMode::DualWrite { mode: DualWriteMode::StrictAtomic });
-        //
-        // // Simulate KV failure - SQL should rollback
-        // kv.set_fail_next_write(true);
-        // let result = db.register_adapter(...).await;
-        // assert!(result.is_err());
-        //
-        // // Verify SQL was rolled back (count unchanged)
-        // let count = db.count_adapters().await.unwrap();
-        // assert_eq!(count, 2);
-        //
-        // // Phase 4: KV primary
-        // db.set_storage_mode(StorageMode::KvPrimary);
-        // let adapter = db.get_adapter(adapter_id).await.unwrap();
-        // // Verify read came from KV (check metrics or logs)
+    async fn test_full_migration_workflow() -> Result<()> {
+        // Test the complete migration workflow:
+        // 1. Start in SqlOnly mode
+        // 2. Switch to DualWrite
+        // 3. Switch to KvPrimary
+        let mut db = Db::new_in_memory().await?;
+        let tenant_id = db.create_tenant("migration-tenant", false).await?;
+
+        let kv = KvDb::init_in_memory()?;
+        db.attach_kv_backend(kv);
+
+        db.set_storage_mode(StorageMode::SqlOnly)?;
+        let params = test_adapter_params("migration-sql-only", &tenant_id)?;
+        db.register_adapter_extended(params).await?;
+
+        let kv_repo = create_kv_repo(&db, &tenant_id);
+        let kv_adapter = kv_repo.get_adapter_kv("migration-sql-only").await?;
+        assert!(
+            kv_adapter.is_none(),
+            "SqlOnly should not write adapter to KV"
+        );
+
+        db.set_storage_mode(StorageMode::DualWrite)?;
+        let params = test_adapter_params("migration-dual-write", &tenant_id)?;
+        db.register_adapter_extended(params).await?;
+
+        let kv_adapter = kv_repo.get_adapter_kv("migration-dual-write").await?;
+        assert!(kv_adapter.is_some(), "DualWrite should write adapter to KV");
+
+        db.set_storage_mode(StorageMode::KvPrimary)?;
+        let adapter = db.get_adapter("migration-dual-write").await?;
+        assert!(adapter.is_some(), "KvPrimary should read adapter records");
+
+        Ok(())
     }
 
-    /// Tests concurrent dual-write operations under failure conditions
-    ///
-    /// Spawns multiple tasks performing adapter operations while simulating
-    /// random KV failures. Verifies that SQL and KV remain consistent at the end.
-    ///
-    /// # Requirements
-    /// - `kv-backend` feature flag
-    /// - Writable temp directory for redb
     #[tokio::test]
-    #[ignore = "requires kv-backend feature and redb setup - run with: cargo test -p adapteros-db --features kv-backend -- --ignored"]
-    async fn test_concurrent_dual_write_operations() {
-        // TODO: Implement when KV backend is production-ready
-        //
-        // Test outline:
-        // let db = Arc::new(Db::new_in_memory().await.unwrap());
-        // let kv = Arc::new(KvBackend::new_temp().await.unwrap());
-        // db.set_storage_mode(StorageMode::DualWrite { mode: DualWriteMode::StrictAtomic });
-        //
-        // let mut handles = vec![];
-        // for i in 0..10 {
-        //     let db = Arc::clone(&db);
-        //     let handle = tokio::spawn(async move {
-        //         // Randomly fail some KV writes
-        //         if i % 3 == 0 {
-        //             kv.set_fail_next_write(true);
-        //         }
-        //         let _ = db.register_adapter(...).await;
-        //     });
-        //     handles.push(handle);
-        // }
-        //
-        // for handle in handles {
-        //     let _ = handle.await;
-        // }
-        //
-        // // Verify consistency: SQL count == KV count
-        // let sql_count = db.count_adapters().await.unwrap();
-        // let kv_count = kv.count_adapters().await.unwrap();
-        // assert_eq!(sql_count, kv_count, "SQL and KV must be consistent after concurrent ops");
+    async fn test_strict_dual_write_rolls_back_on_kv_failure() -> Result<()> {
+        let mut db = Db::new_in_memory().await?;
+        let tenant_id = db.create_tenant("strict-tenant", false).await?;
+
+        let base_kv = KvDb::init_in_memory()?;
+        let failing_backend = Arc::new(FailingKvBackend::new(base_kv.backend().clone()));
+        let backend: Arc<dyn KvBackend> = failing_backend.clone();
+        let index_manager = Arc::new(IndexManager::new(backend.clone()));
+        let kv_db = KvDb::new(backend, index_manager);
+
+        db.attach_kv_backend(kv_db);
+        db.set_storage_mode(StorageMode::DualWrite)?;
+        db.set_atomic_dual_write_config(AtomicDualWriteConfig::strict_atomic());
+
+        failing_backend.set_fail_writes(true);
+
+        let params = test_adapter_params("strict-fail", &tenant_id)?;
+        let result = db.register_adapter_extended(params).await;
+        assert!(result.is_err(), "Strict mode should surface KV failures");
+
+        let adapter = db.get_adapter("strict-fail").await?;
+        assert!(
+            adapter.is_none(),
+            "SQL insert should roll back on KV failure"
+        );
+
+        Ok(())
+    }
+
+    fn create_kv_repo(db: &Db, tenant_id: &str) -> AdapterKvRepository {
+        let kv = db.kv_backend().expect("KV backend should be attached");
+        let storage_repo = AdapterRepository::new(kv.backend().clone(), kv.index_manager().clone());
+        AdapterKvRepository::new(Arc::new(storage_repo), tenant_id.to_string())
+    }
+
+    #[derive(Clone)]
+    struct FailingKvBackend {
+        inner: Arc<dyn KvBackend>,
+        fail_writes: Arc<AtomicBool>,
+    }
+
+    impl FailingKvBackend {
+        fn new(inner: Arc<dyn KvBackend>) -> Self {
+            Self {
+                inner,
+                fail_writes: Arc::new(AtomicBool::new(false)),
+            }
+        }
+
+        fn set_fail_writes(&self, fail: bool) {
+            self.fail_writes.store(fail, Ordering::SeqCst);
+        }
+
+        fn should_fail(&self) -> bool {
+            self.fail_writes.load(Ordering::SeqCst)
+        }
+
+        fn fail_if_needed(&self) -> std::result::Result<(), KvStorageError> {
+            if self.should_fail() {
+                Err(KvStorageError::BackendError(
+                    "Injected KV write failure".to_string(),
+                ))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    #[async_trait]
+    impl KvBackend for FailingKvBackend {
+        async fn get(&self, key: &str) -> std::result::Result<Option<Vec<u8>>, KvStorageError> {
+            self.inner.get(key).await
+        }
+
+        async fn set(&self, key: &str, value: Vec<u8>) -> std::result::Result<(), KvStorageError> {
+            self.fail_if_needed()?;
+            self.inner.set(key, value).await
+        }
+
+        async fn delete(&self, key: &str) -> std::result::Result<bool, KvStorageError> {
+            self.fail_if_needed()?;
+            self.inner.delete(key).await
+        }
+
+        async fn exists(&self, key: &str) -> std::result::Result<bool, KvStorageError> {
+            self.inner.exists(key).await
+        }
+
+        async fn scan_prefix(
+            &self,
+            prefix: &str,
+        ) -> std::result::Result<Vec<String>, KvStorageError> {
+            self.inner.scan_prefix(prefix).await
+        }
+
+        async fn batch_get(
+            &self,
+            keys: &[String],
+        ) -> std::result::Result<Vec<Option<Vec<u8>>>, KvStorageError> {
+            self.inner.batch_get(keys).await
+        }
+
+        async fn batch_set(
+            &self,
+            pairs: Vec<(String, Vec<u8>)>,
+        ) -> std::result::Result<(), KvStorageError> {
+            self.fail_if_needed()?;
+            self.inner.batch_set(pairs).await
+        }
+
+        async fn batch_delete(
+            &self,
+            keys: &[String],
+        ) -> std::result::Result<usize, KvStorageError> {
+            self.fail_if_needed()?;
+            self.inner.batch_delete(keys).await
+        }
+
+        async fn set_add(
+            &self,
+            key: &str,
+            member: &str,
+        ) -> std::result::Result<(), KvStorageError> {
+            self.fail_if_needed()?;
+            self.inner.set_add(key, member).await
+        }
+
+        async fn set_remove(
+            &self,
+            key: &str,
+            member: &str,
+        ) -> std::result::Result<(), KvStorageError> {
+            self.fail_if_needed()?;
+            self.inner.set_remove(key, member).await
+        }
+
+        async fn set_members(&self, key: &str) -> std::result::Result<Vec<String>, KvStorageError> {
+            self.inner.set_members(key).await
+        }
+
+        async fn set_is_member(
+            &self,
+            key: &str,
+            member: &str,
+        ) -> std::result::Result<bool, KvStorageError> {
+            self.inner.set_is_member(key, member).await
+        }
     }
 }

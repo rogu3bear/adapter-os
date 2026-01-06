@@ -1,0 +1,485 @@
+warning: adapteros-lora-kernel-mtl@0.11.0: Kernel hash: 80cde3dd76f17f8e4de951368e60bb2daa006cc40454fe2e81d7cb311643723a
+warning: adapteros-lora-mlx-ffi@0.11.0: MLX_FORCE_STUB set - using stub implementation
+warning: adapteros-lora-mlx-ffi@0.11.0: ============================================================
+warning: adapteros-lora-mlx-ffi@0.11.0: MLX NOT FOUND - mlx feature enabled but MLX not detected
+warning: adapteros-lora-mlx-ffi@0.11.0: 
+warning: adapteros-lora-mlx-ffi@0.11.0: To install MLX:
+warning: adapteros-lora-mlx-ffi@0.11.0:   brew install mlx
+warning: adapteros-lora-mlx-ffi@0.11.0: 
+warning: adapteros-lora-mlx-ffi@0.11.0: Or set MLX_PATH to your MLX installation:
+warning: adapteros-lora-mlx-ffi@0.11.0:   export MLX_PATH=/path/to/mlx
+warning: adapteros-lora-mlx-ffi@0.11.0: 
+warning: adapteros-lora-mlx-ffi@0.11.0: Falling back to stub implementation
+warning: adapteros-lora-mlx-ffi@0.11.0: ============================================================
+warning: adapteros-lora-mlx-ffi@0.11.0: src/mlx_cpp_wrapper.cpp:50:18: warning: unused function 'as_array' [-Wunused-function]
+warning: adapteros-lora-mlx-ffi@0.11.0:    50 | const mlx_array* as_array(const mlx_array_t* array) {
+warning: adapteros-lora-mlx-ffi@0.11.0:       |                  ^~~~~~~~
+warning: adapteros-lora-mlx-ffi@0.11.0: 1 warning generated.
+   Compiling adapteros-cli v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-cli)
+warning: adapteros-lora-kernel-coreml@0.11.0: CoreML bridge compiled successfully
+warning: adapteros-lora-kernel-coreml@0.11.0: Swift CoreML bridge compiled successfully
+   Compiling adapter-os v0.11.0 (/Users/mln-dev/Dev/adapter-os)
+    Finished `test` profile [optimized + debuginfo] target(s) in 12.18s
+     Running unittests src/lib.rs (target/debug/deps/adapter_os-8e548c96d897733b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/test_debug_setup.rs (target/debug/deps/test_debug_setup-a87edc2b3a7867c8)
+
+running 2 tests
+test tests::test_add_numbers ... ok
+test tests::test_deterministic_function ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/adapter_failure_scenarios.rs (target/debug/deps/adapter_failure_scenarios-3626698f15cdda96)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/adapter_hotswap_integration.rs (target/debug/deps/adapter_hotswap_integration-2a9d402f03bc4217)
+
+running 4 tests
+test metal_tests::test_metal_adapter_idempotent ... ok
+test metal_tests::test_metal_multiple_adapters ... ok
+test metal_tests::test_metal_adapter_load ... ok
+test metal_tests::test_metal_adapter_unload ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+     Running tests/adapter_http_integration.rs (target/debug/deps/adapter_http_integration-a0c51c5ad83d7c02)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/adapter_provenance.rs (target/debug/deps/adapter_provenance-ede4ed314b197f9f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/adapter_stress_tests.rs (target/debug/deps/adapter_stress_tests-5b3158094b2524df)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/agent_c_integration.rs (target/debug/deps/agent_c_integration-23d214664d50b91f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/aos_cli_tests.rs (target/debug/deps/aos_cli_tests-4ef21d3a7c43f260)
+
+running 3 tests
+test aos_help_exits_successfully ... ok
+test aos_start_backend_dry_run ... ok
+test aos_status_json_is_structured ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/aos_integration_test.rs (target/debug/deps/aos_integration_test-40a1243a4d0b6fc6)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/aos_signature_verification.rs (target/debug/deps/aos_signature_verification-a8372ccd5501ba2b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/attention_entropy.rs (target/debug/deps/attention_entropy-135f131d5b2ee26e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/auth_integration_test.rs (target/debug/deps/auth_integration_test-97232b2243169ce2)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/backend_capability_test.rs (target/debug/deps/backend_capability_test-b740e01d565ebd46)
+
+running 7 tests
+test test_default_verify_gpu_fingerprint_returns_error ... ok
+test test_default_health_check_returns_degraded ... ok
+test test_default_store_gpu_fingerprint_returns_error ... ok
+test test_metal_kernels_has_real_metrics ... ok
+test test_metal_kernels_gpu_fingerprint_not_deceptive ... ok
+test test_metal_kernels_has_real_health_check ... ok
+test test_metal_kernels_has_real_load_adapter ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+
+     Running tests/boot_enum_single_source.rs (target/debug/deps/boot_enum_single_source-9bc42e2d74790b67)
+
+running 3 tests
+test boot_phase_variants_match_expected ... ok
+test boot_state_is_single_source ... ok
+test boot_state_serde_stability ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/boot_hardening.rs (target/debug/deps/boot_hardening-753a8e09476c514f)
+
+running 6 tests
+test port_conflict_maps_to_exit_code ... ok
+test missing_manifest_returns_error ... ok
+test invalid_env_value_uses_default ... ok
+test invalid_manifest_returns_error ... ok
+test disk_full_switches_to_fallback ... ok
+test read_only_dir_switches_to_fallback ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cli_diag.rs (target/debug/deps/cli_diag-bdff4ce2dbfaa39b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cli_error_codes.rs (target/debug/deps/cli_error_codes-b02afe5fb33f7d9f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cli_help_golden.rs (target/debug/deps/cli_help_golden-0c676d93f22f9615)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cli_tutorial.rs (target/debug/deps/cli_tutorial-50bbac18c7eacaaf)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cluster_determinism.rs (target/debug/deps/cluster_determinism-fc559cb6898a2b37)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/compliance_ruleset_16.rs (target/debug/deps/compliance_ruleset_16-9faa6ce3991bd684)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/content_addressing_integrity.rs (target/debug/deps/content_addressing_integrity-02e40d5332a38a29)
+
+running 15 tests
+test test_blake3_deterministic ... ok
+test test_blake3_multi_hash_integrity ... ok
+test test_hash_hex_roundtrip ... ok
+test test_cas_load_nonexistent ... ok
+test test_cas_load_verifies_hash_success ... ok
+test test_cas_empty_data ... ok
+test test_cas_load_fails_on_tampered_data ... ok
+test test_cas_atomic_write ... ok
+test test_cas_detects_partial_corruption ... ok
+test test_cas_exists_check ... ok
+test test_adapter_bundle_integrity_workflow ... ok
+test test_cas_store_returns_blake3_hash ... ok
+test test_cas_different_content_different_hash ... ok
+test test_cas_class_isolation ... ok
+test test_cas_large_data ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/cp_promotion_gate.rs (target/debug/deps/cp_promotion_gate-a04b525ee84b4d72)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cp_promotion_integration.rs (target/debug/deps/cp_promotion_integration-c9d1b2a43d01d3eb)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cross_platform_determinism.rs (target/debug/deps/cross_platform_determinism-7289f156d12b7361)
+
+running 1 test
+test test_cross_platform_determinism ... ignored, Not yet implemented - requires reference outputs and multi-platform CI
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/determinism.rs (target/debug/deps/determinism-10ebe24ffd664684)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/determinism_core_suite.rs (target/debug/deps/determinism_core_suite-cd2d6e891ff58e1d)
+
+running 4 tests
+test test_router_seed_derivation_and_policy_hooks ... ok
+test test_router_ordering_and_q15_gates_are_stable ... ok
+test test_replay_metadata_round_trip ... ok
+test reasoning_swap_flow_is_deterministic_and_traced ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.36s
+
+     Running tests/determinism_rectification.rs (target/debug/deps/determinism_rectification-2d19263bfa3ab767)
+
+running 7 tests
+test test_hkdf_seed_derivation_determinism ... ok
+test test_greedy_always_deterministic ... ok
+test test_full_pipeline_determinism ... ok
+test test_low_temperature_near_deterministic ... ok
+test test_generator_domain_separation ... ok
+test test_router_determinism_with_decision_hash ... ok
+test test_generator_determinism_three_runs ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/determinism_smoke.rs (target/debug/deps/determinism_smoke-fd9304c1e5a9fc39)
+
+running 1 test
+test determinism_smoke_fixtures_hold ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/determinism_two_node.rs (target/debug/deps/determinism_two_node-1f083115bc1be87c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/deterministic_exec.rs (target/debug/deps/deterministic_exec-d00060ffa4a94325)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/dev_boot.rs (target/debug/deps/dev_boot-0fc85a90c6f4c186)
+
+running 2 tests
+test start_help_is_available ... ok
+test start_status_reports ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/document_chat_e2e.rs (target/debug/deps/document_chat_e2e-cfc6bc391632ca8f)
+
+running 8 tests
+test test_stale_recovery_with_no_stale_documents ... ok
+test test_get_retryable_documents ... ok
+test test_document_processing_failure_recovery ... ok
+test test_concurrent_processing_lock_acquisition ... ok
+test test_lock_acquisition_respects_document_state ... ok
+test test_stale_recovery_tenant_isolation ... ok
+test test_stale_processing_recovery ... ok
+test test_document_processing_success_path ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 31.87s
+
+     Running tests/domain_determinism.rs (target/debug/deps/domain_determinism-6f4657e5bbb3a472)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/e2e_adapter_lifecycle.rs (target/debug/deps/e2e_adapter_lifecycle-d57a4d95b7fe28c5)
+
+running 20 tests
+test common::fixtures::tests::test_adapter_fixtures ... ok
+test common::fixtures::tests::test_dataset_fixtures ... ok
+test common::fixtures::tests::test_inference_fixtures ... ok
+test common::fixtures::tests::test_auth_fixtures ... ok
+test common::fixtures::tests::test_fixture_merge ... ok
+test common::fixtures::tests::test_multiple_fixtures ... ok
+test common::fixtures_consolidated::tests::test_assertions_approx_eq ... ok
+test common::fixtures::tests::test_policy_fixtures ... ok
+test common::fixtures_consolidated::tests::test_assertions_approx_eq_fails - should panic ... ok
+test common::test_harness::tests::test_harness_training_job_creation ... ok
+test common::test_harness::tests::test_harness_initialization ... ok
+test test_adapter_pinning_lifecycle ... ok
+test test_adapter_activation_tracking ... ok
+test common::fixtures_consolidated::tests::test_adapter_factory ... ok
+test common::test_harness::tests::test_harness_dataset_creation ... ok
+test common::fixtures_consolidated::tests::test_db_builder_default ... ok
+test test_complete_adapter_lifecycle ... ok
+test test_adapter_state_transitions ... ok
+test common::test_harness::tests::test_harness_adapter_creation ... ok
+test common::test_harness::tests::test_harness_authentication ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 33.61s
+
+     Running tests/e2e_hotswap_minimal.rs (target/debug/deps/e2e_hotswap_minimal-fb978f60d905a06e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/e2e_inference_harness.rs (target/debug/deps/e2e_inference_harness-d515ffe8a3744c34)
+
+running 17 tests
+test mlx_ffi_tests::test_mlx_ffi_determinism ... ignored, Requires TEST_MLX_MODEL_PATH environment variable
+test mlx_ffi_tests::test_mlx_ffi_forward ... ignored, Requires TEST_MLX_MODEL_PATH environment variable
+test mlx_ffi_tests::test_mlx_ffi_model_load ... ignored, Requires TEST_MLX_MODEL_PATH environment variable
+test test_legacy_device_name_detection ... ok
+test test_mock_kernels_attestation ... ok
+test test_generate_text_complete_forwards_to_full ... ok
+test test_mock_kernels_device_name ... ok
+test test_mock_text_gen_kernel_run_step_returns_error ... ok
+test test_mock_kernels_produces_valid_logits ... ok
+test test_mock_kernels_not_text_generation ... ok
+test test_mock_text_gen_kernel_generate_text_complete ... ok
+test test_mock_kernels_deterministic ... ok
+test test_mock_text_gen_kernel_supports_text_generation ... ok
+test test_supports_streaming_text_generation_forwards ... ok
+test test_worker_style_text_gen_detection ... ok
+test test_mock_kernels_adapter_configurations ... ok
+test test_mock_kernels_multi_step ... ok
+
+test result: ok. 14 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/e2e_multi_user_rbac.rs (target/debug/deps/e2e_multi_user_rbac-b8888edd15f4a44c)
+
+running 22 tests
+test common::fixtures::tests::test_adapter_fixtures ... ok
+test common::fixtures::tests::test_dataset_fixtures ... ok
+test common::fixtures::tests::test_policy_fixtures ... ok
+test common::fixtures::tests::test_multiple_fixtures ... ok
+test common::fixtures::tests::test_auth_fixtures ... ok
+test common::fixtures::tests::test_inference_fixtures ... ok
+test common::fixtures::tests::test_fixture_merge ... ok
+test common::fixtures_consolidated::tests::test_assertions_approx_eq ... ok
+test common::fixtures_consolidated::tests::test_assertions_approx_eq_fails - should panic ... ok
+test common::test_harness::tests::test_harness_training_job_creation ... ok
+test common::test_harness::tests::test_harness_authentication ... ok
+test test_viewer_cannot_delete_adapter ... ok
+test test_multi_user_rbac_permissions ... ok
+test common::test_harness::tests::test_harness_adapter_creation ... ok
+test test_tenant_isolation ... ok
+test common::fixtures_consolidated::tests::test_adapter_factory ... ok
+test common::fixtures_consolidated::tests::test_db_builder_default ... ok
+test test_role_hierarchy ... ok
+test test_audit_log_captures_all_actions ... ok
+test common::test_harness::tests::test_harness_initialization ... ok
+test common::test_harness::tests::test_harness_dataset_creation ... ok
+test test_operator_can_load_adapter ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 41.43s
+
+     Running tests/e2e_pinned_adapters_graceful_degradation.rs (target/debug/deps/e2e_pinned_adapters_graceful_degradation-0a0cc633eb9f69df)
+
+running 26 tests
+test common::fixtures::tests::test_inference_fixtures ... ok
+test common::fixtures::tests::test_dataset_fixtures ... ok
+test common::fixtures::tests::test_auth_fixtures ... ok
+test common::fixtures::tests::test_policy_fixtures ... ok
+test common::fixtures::tests::test_adapter_fixtures ... ok
+test common::fixtures::tests::test_multiple_fixtures ... ok
+test common::fixtures::tests::test_fixture_merge ... ok
+test common::fixtures_consolidated::tests::test_assertions_approx_eq ... ok
+test test_create_session_with_pinned_adapters ... ignored, Foreign key constraint investigation needed - chat_sessions schema change
+test test_graceful_degradation_all_pins_unavailable ... ok
+test common::fixtures_consolidated::tests::test_assertions_approx_eq_fails - should panic ... ok
+test test_graceful_degradation_no_fallback_when_all_available ... ok
+test test_graceful_degradation_http_200_behavior ... ok
+test test_graceful_degradation_partial_pins_available ... ok
+test test_inference_result_has_pinned_adapter_fields ... ok
+test test_inference_result_omits_none_pinned_fields ... ok
+test test_telemetry_event_structure_for_missing_pins ... ok
+test common::fixtures_consolidated::tests::test_adapter_factory ... ok
+test common::fixtures_consolidated::tests::test_db_builder_default ... ok
+test common::test_harness::tests::test_harness_authentication ... ok
+test common::test_harness::tests::test_harness_adapter_creation ... ok
+test test_session_explicit_pins_override_tenant_default ... ok
+test common::test_harness::tests::test_harness_dataset_creation ... ok
+test test_session_inherits_tenant_default_pinned_adapters ... ok
+test common::test_harness::tests::test_harness_training_job_creation ... ok
+test common::test_harness::tests::test_harness_initialization ... ok
+
+test result: ok. 25 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 34.16s
+
+     Running tests/e2e_policy_enforcement.rs (target/debug/deps/e2e_policy_enforcement-f6251da10d814d93)
+
+running 27 tests
+test common::fixtures::tests::test_multiple_fixtures ... ok
+test common::fixtures::tests::test_adapter_fixtures ... ok
+test common::fixtures::tests::test_policy_fixtures ... ok
+test common::fixtures::tests::test_inference_fixtures ... ok
+test common::fixtures::tests::test_auth_fixtures ... ok
+test common::fixtures::tests::test_fixture_merge ... ok
+test common::fixtures_consolidated::tests::test_assertions_approx_eq ... ok
+test common::fixtures::tests::test_dataset_fixtures ... ok
+test common::fixtures_consolidated::tests::test_assertions_approx_eq_fails - should panic ... ok
+test test_telemetry_policy_enforcement ... ok
+test common::fixtures_consolidated::tests::test_db_builder_default ... ok
+test test_evidence_policy_enforcement ... ok
+test common::test_harness::tests::test_harness_dataset_creation ... ok
+test test_determinism_policy_enforcement ... ok
+test test_policy_validation_endpoint ... ok
+test test_egress_policy_enforcement ... ok
+test common::test_harness::tests::test_harness_authentication ... ok
+test common::test_harness::tests::test_harness_training_job_creation ... ok
+test common::test_harness::tests::test_harness_adapter_creation ... ok
+test common::test_harness::tests::test_harness_initialization ... ok
+test test_router_policy_enforcement ... ok
+test common::fixtures_consolidated::tests::test_adapter_factory ... ok
+test test_all_23_canonical_policies ... ok
+test test_input_validation_policy ... ok
+test test_naming_policy_enforcement ... ok
+test test_tenant_isolation_policy ... ok
+test test_typed_errors_policy ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 48.98s
+
+     Running tests/e2e_system_stress.rs (target/debug/deps/e2e_system_stress-63bdcafc636bd3d7)
+
+running 23 tests
+test common::fixtures::tests::test_multiple_fixtures ... ok
+test common::fixtures::tests::test_adapter_fixtures ... ok
+test common::fixtures::tests::test_dataset_fixtures ... ok
+test common::fixtures::tests::test_policy_fixtures ... ok
+test common::fixtures::tests::test_inference_fixtures ... ok
+test common::fixtures::tests::test_auth_fixtures ... ok
+test common::fixtures_consolidated::tests::test_assertions_approx_eq ... ok
+test common::fixtures::tests::test_fixture_merge ... ok
+test common::fixtures_consolidated::tests::test_assertions_approx_eq_fails - should panic ... ok
+test common::test_harness::tests::test_harness_dataset_creation ... ok
+test common::test_harness::tests::test_harness_authentication ... ok
+test common::test_harness::tests::test_harness_adapter_creation ... ok
+test common::fixtures_consolidated::tests::test_adapter_factory ... ok
+test test_memory_pressure_simulation ... ok
+test test_database_connection_pool_stress ... ok
+test test_concurrent_inference_requests ... ok
+test common::test_harness::tests::test_harness_initialization ... ok
+test test_consistent_results_under_load ... ok
+test common::test_harness::tests::test_harness_training_job_creation ... ok
+test common::fixtures_consolidated::tests::test_db_builder_default ... ok
+test test_simultaneous_training_jobs ... ok
+test test_no_deadlocks_under_load ... ok
+test test_rapid_adapter_registration ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 44.96s
+
+     Running tests/e2e_training_workflow.rs (target/debug/deps/e2e_training_workflow-3bc60543395fdd23)
+
+running 21 tests
+test common::fixtures::tests::test_policy_fixtures ... ok
+test common::fixtures::tests::test_adapter_fixtures ... ok
+test common::fixtures::tests::test_auth_fixtures ... ok
+test common::fixtures::tests::test_dataset_fixtures ... ok
+test common::fixtures::tests::test_inference_fixtures ... ok
+test common::fixtures::tests::test_fixture_merge ... ok
+test common::fixtures_consolidated::tests::test_assertions_approx_eq ... ok
+test common::fixtures::tests::test_multiple_fixtures ... ok
+test test_complete_training_workflow ... ignored, Dataset listing issue investigation needed
+test common::fixtures_consolidated::tests::test_assertions_approx_eq_fails - should panic ... ok

@@ -5,6 +5,7 @@
 //! - `aosctl node verify` - Verify cross-node determinism
 //! - `aosctl node sync` - Sync adapters across nodes
 
+use crate::commands::NOT_IMPLEMENTED_MESSAGE;
 use crate::formatting::{format_bytes, format_time_ago};
 use crate::output::OutputWriter;
 use adapteros_core::{AosError, B3Hash, Result};
@@ -99,7 +100,7 @@ pub enum NodeSyncCommand {
         adapters: Vec<String>,
     },
 
-    /// Export adapters for air-gap transfer
+    /// Export adapters for air-gap transfer [NOT IMPLEMENTED]
     #[command(after_help = r#"Examples:
   aosctl node sync export --file ./adapters-bundle.tar"#)]
     Export {
@@ -108,7 +109,7 @@ pub enum NodeSyncCommand {
         file: PathBuf,
     },
 
-    /// Import adapters from air-gap bundle
+    /// Import adapters from air-gap bundle [NOT IMPLEMENTED]
     #[command(after_help = r#"Examples:
   aosctl node sync import --file ./adapters-bundle.tar"#)]
     Import {
@@ -680,9 +681,8 @@ async fn sync_export(file: &Path, output: &OutputWriter) -> Result<()> {
 
     // Use replication module to create export bundle
     output.warning("Air-gap export not yet implemented");
-    output.result(format!("Would export to: {}", file.display()));
-
-    Ok(())
+    output.info(NOT_IMPLEMENTED_MESSAGE);
+    Err(AosError::Config(NOT_IMPLEMENTED_MESSAGE.to_string()))
 }
 
 /// Import adapters from air-gap bundle
@@ -700,9 +700,8 @@ async fn sync_import(file: &Path, output: &OutputWriter) -> Result<()> {
     }
 
     output.warning("Air-gap import not yet implemented");
-    output.result(format!("Would import from: {}", file.display()));
-
-    Ok(())
+    output.info(NOT_IMPLEMENTED_MESSAGE);
+    Err(AosError::Config(NOT_IMPLEMENTED_MESSAGE.to_string()))
 }
 
 /// Query adapter hashes from node

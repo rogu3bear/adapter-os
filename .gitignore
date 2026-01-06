@@ -144,6 +144,8 @@ installer/*.xcodeproj/*.perspectivev3
 .sqlx/
 !crates/adapteros-db/.sqlx/
 !crates/adapteros-db/.sqlx/**
+!crates/adapteros-server-api/.sqlx/
+!crates/adapteros-server-api/.sqlx/**
 
 # Metal compilation artifacts
 metal/*.metallib
@@ -314,6 +316,7 @@ aosctl
 
 # Agent coordination (local development only)
 .agents/
+.codex_ui/
 
 # Alternate target directories (clippy, etc.)
 target-clippy/

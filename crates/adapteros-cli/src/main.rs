@@ -64,7 +64,7 @@ pub enum BackendType {
     /// MLX backend (C++ FFI)
     #[clap(name = "mlx")]
     MLX,
-    /// CoreML backend (macOS Neural Engine)
+    /// CoreML backend (macOS Neural Engine) [NOT IMPLEMENTED]
     CoreML,
 }
 
@@ -209,13 +209,6 @@ Examples:
     /// Interactive chat with streaming inference
     #[command(subcommand)]
     Chat(chat::ChatCommand),
-
-    // ============================================================
-    // Multi-Agent Operations
-    // ============================================================
-    /// Multi-agent spawn commands for parallel code modification strategies
-    #[command(subcommand)]
-    Agent(commands::agent::AgentCommand),
 
     // ============================================================
     // Development Commands
@@ -372,13 +365,6 @@ Examples:
     /// Database management commands (migrate, reset)
     #[command(subcommand)]
     Db(commands::db::DbCommand),
-
-    // ============================================================
-    // Review Management
-    // ============================================================
-    /// Human-in-the-loop review commands (list, submit, export)
-    #[command(subcommand)]
-    Review(commands::review::ReviewCommand),
 
     // ============================================================
     // Model Management
@@ -670,7 +656,7 @@ Examples:
         #[arg(short, long, default_value = "/var/run/aos/aos.sock")]
         socket: PathBuf,
 
-        /// Backend selection: metal, mlx, or coreml
+        /// Backend selection: metal, mlx, or coreml [NOT IMPLEMENTED: coreml]
         #[arg(short, long, default_value = "metal")]
         backend: BackendType,
 
@@ -928,6 +914,21 @@ Examples:
     // ============================================================
     // Documentation & Help
     // ============================================================
+    /// Run system diagnostics
+    #[command(after_help = "\
+Examples:
+  # Full system diagnostics
+  aosctl diag --full
+
+  # System checks only
+  aosctl diag --system
+
+  # Tenant-specific checks
+  aosctl diag --tenant dev
+
+  # Create diagnostic bundle
+  aosctl diag --full --bundle ./diag_bundle.zip
+")]
     /// Show backend status and capabilities
     #[command(after_help = "\
 Examples:
@@ -942,9 +943,68 @@ Examples:
 ")]
     BackendStatus(commands::backend_status::BackendStatusArgs),
 
-    /// Run diagnostics, export bundles, and verify bundles
-    #[command(subcommand)]
-    Diag(diag::DiagCommand),
+    /// Run diagnostics and health checks
+    #[command(after_help = "\
+Examples:
+  # Full system diagnostics
+  aosctl diag
+
+  # System checks only
+  aosctl diag --system
+
+  # Tenant-specific checks
+  aosctl diag --tenant dev
+
+  # Export a diagnostic bundle
+  aosctl diag --bundle ./diag_bundle.zip
+
+  # Export bundle for a specific CPID
+  aosctl diag --bundle ./diag_bundle.zip --cpid <cpid>
+
+  # Include full database state in bundle
+  aosctl diag --bundle ./diag_bundle.zip --full-db
+
+  # Verify telemetry offline after export
+  unzip ./diag_bundle.zip -d ./diag_bundle
+  aosctl verify telemetry --bundle-dir ./diag_bundle/telemetry
+")]
+    Diag {
+        /// Diagnostic profile: system, tenant, or full
+        #[arg(long, default_value = "full")]
+        profile: Option<String>,
+
+        /// Tenant ID for tenant-specific checks
+        #[arg(long)]
+        tenant: Option<String>,
+
+        /// Output JSON format
+        #[arg(long)]
+        json: bool,
+
+        /// Create diagnostic bundle
+        #[arg(long)]
+        bundle: Option<PathBuf>,
+
+        /// Filter telemetry bundles to a specific CPID (alias: --trace-id)
+        #[arg(long, alias = "trace-id", requires = "bundle")]
+        cpid: Option<String>,
+
+        /// Include full database file in bundle (var/aos-cp.sqlite3)
+        #[arg(long, requires = "bundle")]
+        full_db: bool,
+
+        /// System checks only
+        #[arg(long, conflicts_with_all = ["tenant_only", "profile"])]
+        system: bool,
+
+        /// Tenant checks only
+        #[arg(long, conflicts_with_all = ["system", "profile"])]
+        tenant_only: bool,
+
+        /// Full diagnostics (default)
+        #[arg(long, conflicts_with_all = ["system", "tenant_only", "profile"])]
+        full: bool,
+    },
 
     /// Generate a log digest (WARN/ERROR summary)
     #[command(after_help = "\
@@ -1481,11 +1541,6 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             chat::handle_chat_command(cmd.clone(), &output).await?;
         }
 
-        // Multi-Agent Operations
-        Commands::Agent(cmd) => {
-            commands::agent::handle_agent_command(cmd.clone(), &output).await?;
-        }
-
         // Development Commands
         Commands::Dev { cmd } => {
             if let Some(inner) = cmd {
@@ -1583,11 +1638,6 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         // Database Management
         Commands::Db(cmd) => {
             commands::db::handle_db_command(cmd.clone(), &output).await?;
-        }
-
-        // Review Management
-        Commands::Review(cmd) => {
-            commands::review::handle_review_command(cmd.clone(), &output).await?;
         }
 
         // Model Management
@@ -1849,8 +1899,48 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         }
 
         // Documentation & Help
-        Commands::Diag(cmd) => {
-            diag::handle_diag_command(cmd.clone(), &output).await?;
+        Commands::Diag {
+            profile,
+            tenant,
+            json,
+            bundle,
+            cpid,
+            full_db,
+            system,
+            tenant_only,
+            full,
+        } => {
+            let diag_profile = if *system {
+                diag::DiagProfile::System
+            } else if *tenant_only {
+                diag::DiagProfile::Tenant
+            } else if *full {
+                diag::DiagProfile::Full
+            } else if let Some(p) = profile {
+                match p.as_str() {
+                    "system" => diag::DiagProfile::System,
+                    "tenant" => diag::DiagProfile::Tenant,
+                    "full" => diag::DiagProfile::Full,
+                    _ => {
+                        return Err(anyhow::anyhow!(
+                            "Invalid profile: {}. Use: system, tenant, or full",
+                            p
+                        ))
+                    }
+                }
+            } else {
+                diag::DiagProfile::Full
+            };
+
+            diag::run(
+                diag_profile,
+                tenant.clone(),
+                *json,
+                bundle.clone(),
+                cpid.clone(),
+                *full_db,
+            )
+            .await?;
         }
 
         Commands::LogDigest(cmd) => {
@@ -2218,7 +2308,6 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Stack(_) => "stack",
         Commands::Chat(_) => "chat",
         Commands::Dev { .. } => "dev",
-        Commands::Agent(_) => "agent",
         Commands::Scenario(_) => "scenario",
         Commands::Coreml(_) => "coreml",
         #[cfg(feature = "coreml-export")]
@@ -2236,7 +2325,6 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Registry(_) => "registry",
         Commands::Storage(_) => "storage",
         Commands::Db(_) => "db",
-        Commands::Review(_) => "review",
         Commands::Models(_) => "models",
         Commands::PlanBuild { .. } => "build-plan",
         Commands::ModelImport { .. } => "import-model",
@@ -2266,7 +2354,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Bootstrap { .. } => "bootstrap",
         Commands::Completions { .. } => "completions",
         Commands::Config(_) => "config",
-        Commands::Diag(_) => "diag",
+        Commands::Diag { .. } => "diag",
         Commands::LogDigest(_) => "log-digest",
         Commands::LogTriage(_) => "log-triage",
         Commands::LogPrompt(_) => "log-prompt",
@@ -2314,7 +2402,7 @@ fn get_command_name(command: &Commands) -> String {
 fn extract_tenant_from_command(command: &Commands) -> Option<String> {
     match command {
         Commands::Serve { tenant, .. } | Commands::Rollback { tenant, .. } => Some(tenant.clone()),
-        Commands::Diag(diag::DiagCommand::Run { tenant, .. }) => tenant.clone(),
+        Commands::Diag { tenant, .. } => tenant.clone(),
         Commands::Repo(commands::repo::RepoCommand::Repo(commands::repo::RepoOps::Create(
             args,
         ))) => Some(args.tenant.clone()),

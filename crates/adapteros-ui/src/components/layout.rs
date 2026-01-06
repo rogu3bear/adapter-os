@@ -7,7 +7,7 @@ use crate::components::chat_dock::{ChatDockPanel, MobileChatOverlay, NarrowChatD
 use crate::components::glass_toggle::GlassThemeToggle;
 use crate::components::global_search::GlobalSearchBox;
 use crate::components::offline_banner::OfflineBanner;
-use crate::components::status::{StatusColor, StatusIndicator};
+use crate::components::status::{Badge, BadgeVariant, StatusColor, StatusIndicator};
 use crate::components::workspace::Workspace;
 use crate::signals::{use_auth, use_chat, use_search, DockState};
 use leptos::prelude::*;
@@ -85,33 +85,29 @@ pub fn Shell(children: Children) -> impl IntoView {
             // PRD-UI-000: Offline banner for API connectivity status
             <OfflineBanner/>
 
-            // Top bar with ARIA landmark (PRD-UI-160)
-            <header role="banner">
-                <TopBar/>
-            </header>
+            // Top bar
+            <TopBar/>
 
             // Main content area with workspace
             <div class="shell-content">
-                // Main workspace wrapper with skip-link target
+                // Main workspace wrapper
                 <Workspace class="shell-workspace">
-                    <main id="main-content" class="shell-main" role="main" aria-label="Main content">
+                    <main class="shell-main">
                         {children()}
                     </main>
                 </Workspace>
 
-                // Chat dock (collapsible right panel) - complementary landmark
-                <aside role="complementary" aria-label="Chat panel">
-                    {move || {
-                        match chat_state.get().dock_state {
-                            DockState::Docked => view! { <ChatDockPanel/> }.into_any(),
-                            DockState::Narrow => view! { <NarrowChatDock/> }.into_any(),
-                            DockState::Hidden => view! {}.into_any(),
-                        }
-                    }}
-                </aside>
+                // Chat dock (collapsible right panel)
+                {move || {
+                    match chat_state.get().dock_state {
+                        DockState::Docked => view! { <ChatDockPanel/> }.into_any(),
+                        DockState::Narrow => view! { <NarrowChatDock/> }.into_any(),
+                        DockState::Hidden => view! {}.into_any(),
+                    }
+                }}
             </div>
 
-            // Bottom taskbar with ARIA landmark (PRD-UI-160)
+            // Bottom taskbar
             <Taskbar/>
 
             // Mobile chat overlay
@@ -145,14 +141,14 @@ pub fn TopBar() -> impl IntoView {
         }
     };
 
-    let env_badge_class = {
+    let env_badge_variant = {
         #[cfg(debug_assertions)]
         {
-            "bg-amber-500/20 text-amber-400 border-amber-500/30"
+            BadgeVariant::Warning
         }
         #[cfg(not(debug_assertions))]
         {
-            "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
+            BadgeVariant::Success
         }
     };
 
@@ -162,9 +158,7 @@ pub fn TopBar() -> impl IntoView {
             <div class="flex items-center gap-3">
                 <div class="flex items-center gap-2">
                     <span class="font-semibold text-sm tracking-tight">"AdapterOS"</span>
-                    <span class=format!("text-2xs font-medium px-1.5 py-0.5 rounded border {}", env_badge_class)>
-                        {env_badge}
-                    </span>
+                    <Badge variant=env_badge_variant>{env_badge}</Badge>
                 </div>
             </div>
 
@@ -221,7 +215,7 @@ pub fn TopBar() -> impl IntoView {
                                     <div class="w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center text-xs font-medium">
                                         {initials}
                                     </div>
-                                    <span class="text-xs text-muted-foreground hidden sm:block max-w-truncate-sm truncate">
+                                    <span class="text-xs text-muted-foreground hidden sm:block max-w-[100px] truncate">
                                         {user.email.clone()}
                                     </span>
                                     <svg class="w-3 h-3 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -332,12 +326,7 @@ pub fn Taskbar() -> impl IntoView {
     let (chat_state, chat_action) = use_chat();
 
     view! {
-        // ARIA navigation landmark (PRD-UI-160)
-        <nav
-            class="h-12 flex items-center justify-between border-t border-border bg-background/95 backdrop-blur-sm px-2 shrink-0"
-            role="navigation"
-            aria-label="Primary navigation"
-        >
+        <nav class="h-12 flex items-center justify-between border-t border-border bg-background/95 backdrop-blur-sm px-2 shrink-0">
             // Left: Start button
             <div class="relative">
                 <button
@@ -350,9 +339,6 @@ pub fn Taskbar() -> impl IntoView {
                         }
                     )
                     on:click=move |_| set_start_menu_open.update(|v| *v = !*v)
-                    aria-label="Open start menu"
-                    aria-expanded=move || start_menu_open.get().to_string()
-                    aria-haspopup="menu"
                 >
                     <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
                         <rect x="3" y="3" width="8" height="8" rx="1"/>
@@ -424,7 +410,7 @@ pub fn Taskbar() -> impl IntoView {
                                 let unread = chat_state.get().unread_count;
                                 if unread > 0 && chat_state.get().dock_state != DockState::Docked {
                                     view! {
-                                        <span class="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-3xs font-medium text-destructive-foreground">
+                                        <span class="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[9px] font-medium text-destructive-foreground">
                                             {if unread > 9 { "9+".to_string() } else { unread.to_string() }}
                                         </span>
                                     }.into_any()
@@ -580,51 +566,23 @@ fn StartMenu(on_close: impl Fn() + Clone + 'static) -> impl IntoView {
 /// System tray with health indicator, connection status, and time
 #[component]
 fn SystemTray() -> impl IntoView {
-    use std::sync::atomic::{AtomicI32, Ordering};
-    use std::sync::Arc;
-    use wasm_bindgen::prelude::*;
-    use wasm_bindgen::JsCast;
-
     // Current time (updates every second)
     let (time, set_time) = signal(get_current_time());
-
-    // Store interval ID for cleanup (-1 = no interval)
-    let interval_id = Arc::new(AtomicI32::new(-1));
-    let interval_id_for_cleanup = Arc::clone(&interval_id);
-
-    // Register cleanup to clear interval on unmount
-    on_cleanup(move || {
-        let id = interval_id_for_cleanup.load(Ordering::SeqCst);
-        if id >= 0 {
-            if let Some(window) = web_sys::window() {
-                window.clear_interval_with_handle(id);
-            }
-        }
-    });
 
     // Track whether we've created the interval to prevent duplicates
     let interval_created = StoredValue::new(false);
 
-    // Update time every second with proper cleanup
+    // Update time every second - Effect runs once on mount
+    // The interval is intentionally leaked (mem::forget) since this component
+    // lives for the lifetime of the app and Interval doesn't implement Send+Sync
     Effect::new(move || {
         if !interval_created.get_value() {
             interval_created.set_value(true);
-
-            let callback = Closure::wrap(Box::new(move || {
+            let interval = gloo_timers::callback::Interval::new(1000, move || {
                 set_time.set(get_current_time());
-            }) as Box<dyn FnMut()>);
-
-            if let Some(window) = web_sys::window() {
-                if let Ok(id) = window.set_interval_with_callback_and_timeout_and_arguments_0(
-                    callback.as_ref().unchecked_ref(),
-                    1000,
-                ) {
-                    interval_id.store(id, Ordering::SeqCst);
-                }
-            }
-
-            // Closure must be leaked (WASM limitation), but interval is cleared on cleanup
-            callback.forget();
+            });
+            // Leak the interval - it lives for app lifetime anyway
+            std::mem::forget(interval);
         }
     });
 

@@ -1,0 +1,98 @@
+   Compiling ring v0.17.14
+warning: adapteros-lora-kernel-mtl@0.11.0: Kernel hash: 80cde3dd76f17f8e4de951368e60bb2daa006cc40454fe2e81d7cb311643723a
+    Checking adapteros-boot v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-boot)
+warning: adapteros-lora-mlx-ffi@0.11.0: Found MLX at: /opt/homebrew (vlibmlx)
+warning: adapteros-lora-mlx-ffi@0.11.0: Compiling with real MLX support (vlibmlx)
+warning: adapteros-lora-mlx-ffi@0.11.0: MLX include: /opt/homebrew/include
+warning: adapteros-lora-mlx-ffi@0.11.0: MLX lib: /opt/homebrew/lib
+warning: adapteros-lora-mlx-ffi@0.11.0: In file included from src/mlx_cpp_wrapper_real.cpp:25:
+warning: adapteros-lora-mlx-ffi@0.11.0: In file included from /opt/homebrew/include/mlx/mlx.h:5:
+warning: adapteros-lora-mlx-ffi@0.11.0: In file included from /opt/homebrew/include/mlx/array.h:10:
+warning: adapteros-lora-mlx-ffi@0.11.0: /opt/homebrew/include/mlx/allocator.h:37:36: warning: unused parameter 'ptr' [-Wunused-parameter]
+warning: adapteros-lora-mlx-ffi@0.11.0:    37 |   virtual Buffer make_buffer(void* ptr, size_t size) {
+warning: adapteros-lora-mlx-ffi@0.11.0:       |                                    ^
+warning: adapteros-lora-mlx-ffi@0.11.0: /opt/homebrew/include/mlx/allocator.h:37:48: warning: unused parameter 'size' [-Wunused-parameter]
+warning: adapteros-lora-mlx-ffi@0.11.0:    37 |   virtual Buffer make_buffer(void* ptr, size_t size) {
+warning: adapteros-lora-mlx-ffi@0.11.0:       |                                                ^
+warning: adapteros-lora-mlx-ffi@0.11.0: /opt/homebrew/include/mlx/allocator.h:40:31: warning: unused parameter 'buffer' [-Wunused-parameter]
+warning: adapteros-lora-mlx-ffi@0.11.0:    40 |   virtual void release(Buffer buffer) {}
+warning: adapteros-lora-mlx-ffi@0.11.0:       |                               ^
+warning: adapteros-lora-mlx-ffi@0.11.0: In file included from src/mlx_cpp_wrapper_real.cpp:25:
+warning: adapteros-lora-mlx-ffi@0.11.0: In file included from /opt/homebrew/include/mlx/mlx.h:5:
+warning: adapteros-lora-mlx-ffi@0.11.0: In file included from /opt/homebrew/include/mlx/array.h:11:
+warning: adapteros-lora-mlx-ffi@0.11.0: In file included from /opt/homebrew/include/mlx/dtype.h:8:
+warning: adapteros-lora-mlx-ffi@0.11.0: In file included from /opt/homebrew/include/mlx/types/complex.h:5:
+warning: adapteros-lora-mlx-ffi@0.11.0: In file included from /opt/homebrew/include/mlx/types/half_types.h:32:
+warning: adapteros-lora-mlx-ffi@0.11.0: /opt/homebrew/include/mlx/types/bf16.h:28:3: warning: definition of implicit copy assignment operator for '_MLX_BFloat16' is deprecated because it has a user-declared copy constructor [-Wdeprecated-copy]
+warning: adapteros-lora-mlx-ffi@0.11.0:    28 |   _MLX_BFloat16(_MLX_BFloat16 const&) = default;
+warning: adapteros-lora-mlx-ffi@0.11.0:       |   ^
+warning: adapteros-lora-mlx-ffi@0.11.0: /opt/homebrew/include/mlx/types/bf16.h:37:19: note: in implicit copy assignment operator for 'mlx::core::_MLX_BFloat16' first required here
+warning: adapteros-lora-mlx-ffi@0.11.0:    37 |     return (*this = _MLX_BFloat16(x));
+warning: adapteros-lora-mlx-ffi@0.11.0:       |                   ^
+warning: adapteros-lora-mlx-ffi@0.11.0: In file included from src/mlx_cpp_wrapper_real.cpp:25:
+warning: adapteros-lora-mlx-ffi@0.11.0: In file included from /opt/homebrew/include/mlx/mlx.h:21:
+warning: adapteros-lora-mlx-ffi@0.11.0: /opt/homebrew/include/mlx/random.h:91:20: warning: unused parameter 's' [-Wunused-parameter]
+warning: adapteros-lora-mlx-ffi@0.11.0:    91 |     StreamOrDevice s = {}) {
+warning: adapteros-lora-mlx-ffi@0.11.0:       |                    ^
+warning: adapteros-lora-mlx-ffi@0.11.0: 5 warnings generated.
+warning: adapteros-lora-mlx-ffi@0.11.0: Linking macOS frameworks for MLX
+    Checking adapteros-uds-protocol v0.1.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-uds-protocol)
+warning: adapteros-lora-kernel-coreml@0.11.0: CoreML bridge compiled successfully
+warning: adapteros-lora-kernel-coreml@0.11.0: Swift CoreML bridge compiled successfully
+   Compiling rustls v0.23.35
+   Compiling rustls v0.21.12
+    Checking rustls-webpki v0.103.8
+    Checking rustls-webpki v0.101.7
+    Checking sct v0.7.1
+    Checking tokio-rustls v0.24.1
+    Checking hyper-rustls v0.24.2
+    Checking eventsource-client v0.12.2
+    Checking tokio-rustls v0.26.4
+    Checking ureq v3.1.4
+    Checking hyper-rustls v0.27.7
+    Checking reqwest v0.12.28
+    Checking metrics-exporter-prometheus v0.18.1
+    Checking adapteros-aos v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-aos)
+    Checking adapteros-artifacts v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-artifacts)
+    Checking adapteros-client v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-client)
+    Checking adapteros-model-hub v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-model-hub)
+    Checking opentelemetry-http v0.28.0
+    Checking adapteros-tui v0.1.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-tui)
+    Checking adapteros-testing v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-testing)
+    Checking adapteros-service-supervisor v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-service-supervisor)
+    Checking opentelemetry-otlp v0.28.0
+    Checking adapteros-single-file-adapter v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-single-file-adapter)
+    Checking adapteros-lora-kernel-coreml v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-lora-kernel-coreml)
+    Checking adapteros-db v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-db)
+    Checking adapteros-deterministic-exec v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-deterministic-exec)
+    Checking adapteros-policy v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-policy)
+    Checking adapteros-ingest-docs v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-ingest-docs)
+    Checking adapteros-metrics-exporter v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-metrics-exporter)
+    Checking adapteros-memory v0.1.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-memory)
+    Checking adapteros-secd v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-secd)
+    Checking adapteros-git v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-git)
+    Checking adapteros-agent-spawn v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-agent-spawn)
+    Checking adapteros-lora-mlx-ffi v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-lora-mlx-ffi)
+    Checking adapteros-base-llm v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-base-llm)
+    Checking adapteros-domain v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-domain)
+    Checking adapteros-federation v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-federation)
+    Checking adapteros-lora-backends v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-lora-backends)
+    Checking adapteros-lora-lifecycle v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-lora-lifecycle)
+    Checking adapteros-verify v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-verify)
+    Checking adapteros-lora-kernel-mtl v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-lora-kernel-mtl)
+    Checking adapteros-replay v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-replay)
+    Checking adapteros-lora-router v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-lora-router)
+    Checking adapteros-system-metrics v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-system-metrics)
+    Checking adapteros-web-browse v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-web-browse)
+    Checking adapteros-lora-worker v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-lora-worker)
+    Checking adapteros-orchestrator v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-orchestrator)
+    Checking adapteros-api v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-api)
+    Checking adapteros-node v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-node)
+    Checking xtask v0.11.0 (/Users/mln-dev/Dev/adapter-os/xtask)
+    Checking adapteros-fuzz v0.0.0 (/Users/mln-dev/Dev/adapter-os/fuzz)
+    Checking adapteros-server-api v0.1.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-server-api)
+    Checking adapteros-cli v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-cli)
+    Checking adapteros-server v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-server)
+    Checking adapteros-e2e v0.1.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-e2e)
+    Checking adapter-os v0.11.0 (/Users/mln-dev/Dev/adapter-os)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 55.07s

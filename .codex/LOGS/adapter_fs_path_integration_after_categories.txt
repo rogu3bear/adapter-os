@@ -1,0 +1,38 @@
+   Compiling adapteros-db v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-db)
+warning: adapteros-lora-kernel-mtl@0.11.0: Kernel hash: 80cde3dd76f17f8e4de951368e60bb2daa006cc40454fe2e81d7cb311643723a
+   Compiling adapteros-deterministic-exec v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-deterministic-exec)
+   Compiling adapteros-policy v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-policy)
+   Compiling adapteros-ingest-docs v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-ingest-docs)
+   Compiling adapteros-secd v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-secd)
+   Compiling adapteros-memory v0.1.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-memory)
+   Compiling adapteros-agent-spawn v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-agent-spawn)
+   Compiling adapteros-federation v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-federation)
+   Compiling adapteros-verify v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-verify)
+   Compiling adapteros-lora-lifecycle v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-lora-lifecycle)
+   Compiling adapteros-lora-router v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-lora-router)
+   Compiling adapteros-replay v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-replay)
+   Compiling adapteros-lora-worker v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-lora-worker)
+   Compiling adapteros-orchestrator v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-orchestrator)
+   Compiling adapteros-api v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-api)
+   Compiling adapteros-cli v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-cli)
+    Finished `test` profile [optimized + debuginfo] target(s) in 32.13s
+     Running tests/adapter_fs_path_integration.rs (target/debug/deps/adapter_fs_path_integration-dedfb00ea2bc6a90)
+
+running 1 test
+test train_docs_and_worker_path_align ... FAILED
+
+failures:
+
+---- train_docs_and_worker_path_align stdout ----
+
+thread 'train_docs_and_worker_path_align' (2974956) panicked at crates/adapteros-cli/tests/adapter_fs_path_integration.rs:201:10:
+registration succeeds: Database("error returned from database: (code: 787) FOREIGN KEY constraint failed")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    train_docs_and_worker_path_align
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.18s
+
+error: test failed, to rerun pass `-p adapteros-cli --test adapter_fs_path_integration`
