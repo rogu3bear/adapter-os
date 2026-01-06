@@ -403,6 +403,15 @@ pub struct DecisionHash {
     pub eps: f32,
     /// K (number of selected adapters)
     pub k: usize,
+
+    /// Hash of backend identity for complete determinism binding (PRD-DET-001).
+    ///
+    /// When present, this hash is included in `combined_hash` computation,
+    /// ensuring that changing the backend produces a different decision hash.
+    /// This binds the routing decision to the specific backend that will
+    /// execute the inference.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backend_identity_hash: Option<String>,
 }
 
 /// Router weights for feature importance

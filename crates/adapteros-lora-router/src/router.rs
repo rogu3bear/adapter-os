@@ -1200,6 +1200,8 @@ impl Router {
     /// * `priors` - Input prior scores
     /// * `indices` - Output adapter indices
     /// * `gates_q15` - Output quantized gates
+    /// * `reasoning_hash` - Optional hash of reasoning buffer for dynamic routing
+    /// * `backend_identity_hash` - Optional hash of backend identity for determinism binding (PRD-DET-001)
     ///
     /// # Returns
     /// DecisionHash containing input, output, and combined hashes
@@ -1210,6 +1212,7 @@ impl Router {
         indices: &[u16],
         gates_q15: &[i16],
         reasoning_hash: Option<&B3Hash>,
+        backend_identity_hash: Option<&B3Hash>,
     ) -> DecisionHash {
         // Hash inputs (features + priors)
         let mut input_bytes = Vec::new();
@@ -1237,12 +1240,15 @@ impl Router {
         }
         let output_hash = B3Hash::hash(&output_bytes);
 
-        // Combine both hashes for compact verification
+        // Combine all hashes for compact verification (PRD-DET-001: include backend)
         let mut combined_bytes = Vec::new();
         combined_bytes.extend_from_slice(input_hash.as_bytes());
         combined_bytes.extend_from_slice(output_hash.as_bytes());
         if let Some(reasoning) = reasoning_hash {
             combined_bytes.extend_from_slice(reasoning.as_bytes());
+        }
+        if let Some(backend) = backend_identity_hash {
+            combined_bytes.extend_from_slice(backend.as_bytes());
         }
         let combined_hash = B3Hash::hash(&combined_bytes);
 
@@ -1254,6 +1260,7 @@ impl Router {
             tau: self.tau,
             eps: self.eps,
             k: self.k,
+            backend_identity_hash: backend_identity_hash.map(|h| h.to_short_hex()),
         }
     }
 
@@ -1654,7 +1661,8 @@ impl Router {
                 priors_for_routing,
                 &indices,
                 &gates_q15,
-                None,
+                None, // reasoning_hash
+                None, // backend_identity_hash (PRD-DET-001: pass actual hash when available)
             ))
         } else {
             None
@@ -1756,6 +1764,7 @@ impl Router {
                 &decision.indices,
                 &decision.gates_q15,
                 Some(&reasoning_hash),
+                None, // backend_identity_hash (PRD-DET-001: pass actual hash when available)
             ));
         }
 

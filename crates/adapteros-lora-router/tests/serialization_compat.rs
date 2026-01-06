@@ -97,6 +97,7 @@ fn test_decision_hash_serialization_compat() {
         tau: 1.0,
         eps: 0.02,
         k: 3,
+        backend_identity_hash: None, // PRD-DET-001: skipped in JSON when None
     };
 
     let json = serde_json::to_string(&hash).expect("serialization should succeed");
@@ -140,6 +141,7 @@ fn test_decision_hash_field_completeness() {
         tau: 1.0,
         eps: 0.0,
         k: 1,
+        backend_identity_hash: None, // PRD-DET-001: skipped in JSON when None
     };
 
     let json_value: serde_json::Value =
@@ -297,6 +299,7 @@ fn test_serialization_stability_decision_hash() {
         tau: 0.8,
         eps: 0.01,
         k: 4,
+        backend_identity_hash: None, // PRD-DET-001: skipped in JSON when None
     };
 
     let first_json = serde_json::to_string(&hash).unwrap();
