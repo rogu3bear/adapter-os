@@ -4,6 +4,7 @@
 //! inference runtime. It supports both interactive REPL and one-shot modes,
 //! with configurable endpoints, model/stack selection, and graceful error handling.
 
+use crate::error_codes::{get, ECode};
 use crate::output::OutputWriter;
 use adapteros_core::{AosError, Result};
 use chrono::{SecondsFormat, Utc};
@@ -76,33 +77,74 @@ struct InferenceParams {
 /// User-friendly error messages for common failure scenarios
 fn format_user_error(err: &reqwest::Error, base_url: &str) -> String {
     if err.is_connect() {
+        let error_code = get(ECode::E7004);
         format!(
-            "Could not connect to the inference server at {}.\n\
-             Please ensure the server is running:\n\
-             \n\
-               aosctl serve --tenant <tenant> --plan <plan>\n\
-             \n\
-             Or start the development server:\n\
-             \n\
-               cargo run -p adapteros-server -- --config configs/cp.toml",
-            base_url
+            "\x1b[1;31mError {}: {}\x1b[0m\n\n\
+             Could not connect to the inference server at {}.\n\n\
+             \x1b[1mCause:\x1b[0m {}\n\n\
+             \x1b[1mFix:\x1b[0m\n{}",
+            error_code.code, error_code.title, base_url, error_code.cause, error_code.fix
         )
     } else if err.is_timeout() {
         format!(
-            "Request to {} timed out.\n\
-             The server may be overloaded or unresponsive.\n\
-             Try again or increase the timeout with --timeout.",
+            "\x1b[1;31mError: Request Timeout\x1b[0m\n\n\
+             Request to {} timed out.\n\n\
+             \x1b[1mFix:\x1b[0m\n\
+             1. The server may be overloaded. Retry the request.\n\
+             2. Increase timeout: \x1b[1m--timeout 60\x1b[0m\n\
+             3. Check server status: \x1b[1m./aosctl status\x1b[0m",
             base_url
         )
     } else if err.is_request() {
         format!(
-            "Failed to send request to {}.\n\
-             Check your network connection and server status.",
+            "\x1b[1;31mError: Request Failed\x1b[0m\n\n\
+             Failed to send request to {}.\n\n\
+             \x1b[1mFix:\x1b[0m\n\
+             1. Check your network connection\n\
+             2. Verify server status: \x1b[1m./aosctl status\x1b[0m\n\
+             3. Check server logs: \x1b[1mtail -f var/log/server.log\x1b[0m",
             base_url
         )
     } else {
         format!("Request failed: {}", err)
     }
+}
+
+/// Format error for model-related issues with actionable hints
+fn format_model_error(_status: reqwest::StatusCode, body: &str) -> Option<String> {
+    // Check for common model-related errors
+    if body.contains("no models") || body.contains("model not found") || body.contains("NoModels") {
+        let error_code = get(ECode::E6010);
+        return Some(format!(
+            "\x1b[1;31mError {}: {}\x1b[0m\n\n\
+             \x1b[1mCause:\x1b[0m {}\n\n\
+             \x1b[1mFix:\x1b[0m\n{}",
+            error_code.code, error_code.title, error_code.cause, error_code.fix
+        ));
+    }
+
+    if body.contains("no workers") || body.contains("worker unavailable") {
+        let error_code = get(ECode::E7003);
+        return Some(format!(
+            "\x1b[1;31mError {}: {}\x1b[0m\n\n\
+             \x1b[1mCause:\x1b[0m {}\n\n\
+             \x1b[1mFix:\x1b[0m\n{}",
+            error_code.code, error_code.title, error_code.cause, error_code.fix
+        ));
+    }
+
+    if body.contains("adapter not loaded") || body.contains("AdapterNotLoaded") {
+        let error_code = get(ECode::E6011);
+        return Some(format!(
+            "\x1b[1;31mError {}: {}\x1b[0m\n\n\
+             \x1b[1mCause:\x1b[0m {}\n\n\
+             \x1b[1mFix:\x1b[0m\n{}",
+            error_code.code, error_code.title, error_code.cause, error_code.fix
+        ));
+    }
+
+    // Return None if no specific error pattern matched
+    None
 }
 
 /// Inference response chunk (streaming)
