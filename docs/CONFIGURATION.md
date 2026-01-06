@@ -524,6 +524,39 @@ AOS_LOG_FORMAT=json
 # Output: {"timestamp":"2025-11-23T...","level":"INFO","module":"adapteros","message":"..."}
 ```
 
+#### Diagnostics Configuration
+
+Diagnostics settings control event capture and persistence for the diagnostics pipeline.
+
+**Example (TOML):**
+```toml
+[diagnostics]
+enabled = true
+level = "stages"
+channel_capacity = 1000
+batch_size = 100
+batch_timeout_ms = 500
+max_events_per_run = 10000
+```
+
+**Field Reference:**
+- `diagnostics.enabled` (bool, default: `true`, valid: `true|false`). Performance: `false` disables capture (lowest overhead). Example: disable in latency-critical or storage-constrained environments.
+- `diagnostics.level` (enum, default: `stages`, valid: `off|errors|stages|router|tokens`). Performance: higher verbosity increases event volume and I/O. Example: `errors` for minimal overhead; `router` for adapter debugging; `tokens` for deep debugging (dev only).
+- `diagnostics.channel_capacity` (int, default: `1000`, valid: `>= 1`). Performance: larger buffers reduce drops under load at the cost of memory. Example: raise to 5000 for bursty traffic.
+- `diagnostics.batch_size` (int, default: `100`, valid: `>= 1`). Performance: larger batches improve throughput but increase flush latency. Example: raise to 200 for high-throughput workloads.
+- `diagnostics.batch_timeout_ms` (int, default: `500`, valid: `>= 1`). Performance: lower values flush more often (fresh data, more I/O). Example: reduce to 100ms when monitoring live incidents.
+- `diagnostics.max_events_per_run` (int, default: `10000`, valid: `>= 1`). Performance: higher limits allow verbose runs but risk storage growth. Example: cap at 2000 for constrained storage.
+
+**Performance Tuning Guide:**
+
+| Scenario | Recommended Settings |
+|----------|----------------------|
+| Production (minimal overhead) | `level = "errors"`, `batch_size = 200` |
+| Production (auditable) | `level = "stages"`, `batch_size = 100` |
+| Debugging routing | `level = "router"` |
+| Deep debugging | `level = "tokens"`, `max_events_per_run = 50000` |
+| High-throughput | `channel_capacity = 5000`, `batch_size = 500` |
+
 #### Memory Configuration
 
 | Variable | Default | Purpose | Example |

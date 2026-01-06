@@ -1,14 +1,15 @@
-//! Policy Registry - Canonical 25 Policy Packs
+//! Policy Registry - Canonical Policy Packs
 //!
-//! This module defines the complete set of 25 policy packs enforced by AdapterOS.
+//! This module defines the complete set of policy packs enforced by AdapterOS.
 //! Each policy pack has a unique ID, name, and enforcement logic.
 
-use adapteros_core::Result;
+use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// Unique identifier for a policy pack
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[repr(u8)]
 pub enum PolicyId {
     Egress = 1,
     Determinism = 2,
@@ -75,6 +76,16 @@ impl PolicyId {
             PolicyId::QueryIntent,
             PolicyId::LiveData,
         ]
+    }
+
+    /// Total number of policies
+    pub fn count() -> usize {
+        Self::all().len()
+    }
+
+    /// Maximum policy ID
+    pub fn max_id() -> u8 {
+        Self::all().last().map(|policy| *policy as u8).unwrap_or(0)
     }
 
     /// Get policy name
@@ -217,6 +228,27 @@ impl PolicyId {
             PolicyId::QueryIntent => true,
             PolicyId::LiveData => true,
         }
+    }
+}
+
+impl TryFrom<u8> for PolicyId {
+    type Error = AosError;
+
+    fn try_from(value: u8) -> Result<Self> {
+        let max_id = Self::max_id();
+        if value == 0 || value > max_id {
+            return Err(AosError::Validation(format!(
+                "Policy ID must be between 1 and {}",
+                max_id
+            )));
+        }
+
+        Self::all()
+            .get((value - 1) as usize)
+            .copied()
+            .ok_or_else(|| {
+                AosError::Validation(format!("Policy ID must be between 1 and {}", max_id))
+            })
     }
 }
 
@@ -404,7 +436,13 @@ mod tests {
 
     #[test]
     fn test_policy_count() {
-        assert_eq!(POLICY_INDEX.len(), 29, "Must have exactly 29 policy packs");
+        let expected = PolicyId::count();
+        assert_eq!(
+            POLICY_INDEX.len(),
+            expected,
+            "Must have exactly {} policy packs",
+            expected
+        );
     }
 
     #[test]

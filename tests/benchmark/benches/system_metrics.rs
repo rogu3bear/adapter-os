@@ -303,7 +303,10 @@ fn bench_evidence_processing(c: &mut Criterion) {
                     .collect();
 
                 // Partial sort to find top K
-                indexed_scores.select_nth_unstable_by(k, |a, b| b.1.partial_cmp(&a.1).unwrap());
+                indexed_scores.select_nth_unstable_by(k, |a, b| {
+                    b.1.partial_cmp(&a.1)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
 
                 let top_k: Vec<_> = indexed_scores.into_iter().take(k).collect();
                 black_box(top_k);
