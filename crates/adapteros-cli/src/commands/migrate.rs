@@ -2,6 +2,7 @@
 //!
 //! Migrate existing adapters to .aos format
 
+use crate::commands::NOT_IMPLEMENTED_MESSAGE;
 use crate::output::OutputWriter;
 use adapteros_core::AosError;
 // Removed: use adapteros_core::B3Hash;
@@ -21,7 +22,7 @@ pub struct MigrateArgs {
 
 #[derive(Debug, Subcommand, Clone)]
 pub enum MigrateCmd {
-    /// Migrate adapter directory to .aos file
+    /// Migrate adapter directory to .aos file [NOT IMPLEMENTED]
     Adapter(AdapterMigrateArgs),
 }
 
@@ -52,8 +53,9 @@ pub async fn run(args: MigrateArgs, output: &OutputWriter) -> Result<()> {
 
 async fn migrate_adapter(_args: AdapterMigrateArgs, output: &OutputWriter) -> Result<()> {
     output.warning("migrate adapter command is temporarily disabled");
+    output.info(NOT_IMPLEMENTED_MESSAGE);
 
     Err(anyhow::anyhow!(AosError::Config(
-        "migrate adapter: command not yet implemented".to_string()
+        NOT_IMPLEMENTED_MESSAGE.to_string()
     )))
 }

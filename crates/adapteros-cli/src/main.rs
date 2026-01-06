@@ -64,7 +64,7 @@ pub enum BackendType {
     /// MLX backend (C++ FFI)
     #[clap(name = "mlx")]
     MLX,
-    /// CoreML backend (macOS Neural Engine)
+    /// CoreML backend (macOS Neural Engine) [NOT IMPLEMENTED]
     CoreML,
 }
 
@@ -656,7 +656,7 @@ Examples:
         #[arg(short, long, default_value = "/var/run/aos/aos.sock")]
         socket: PathBuf,
 
-        /// Backend selection: metal, mlx, or coreml
+        /// Backend selection: metal, mlx, or coreml [NOT IMPLEMENTED: coreml]
         #[arg(short, long, default_value = "metal")]
         backend: BackendType,
 

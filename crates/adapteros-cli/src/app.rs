@@ -686,7 +686,7 @@ pub enum Commands {
         #[arg(short, long, default_value = "/var/run/aos/aos.sock")]
         socket: PathBuf,
 
-        /// Backend selection: metal (default), mlx (auto-selected implementation; requires --features multi-backend), or coreml
+        /// Backend selection: metal (default), mlx (auto-selected implementation; requires --features multi-backend), or coreml [NOT IMPLEMENTED]
         #[arg(short, long, default_value = "metal")]
         backend: BackendType,
 
@@ -1418,14 +1418,14 @@ pub enum NodeSyncMode {
         adapters: Vec<String>,
     },
 
-    /// Export adapters for air-gap transfer
+    /// Export adapters for air-gap transfer [NOT IMPLEMENTED]
     Export {
         /// Output file path
         #[arg(long)]
         file: PathBuf,
     },
 
-    /// Import adapters from air-gap bundle
+    /// Import adapters from air-gap bundle [NOT IMPLEMENTED]
     Import {
         /// Input file path
         #[arg(long)]

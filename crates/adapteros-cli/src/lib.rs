@@ -25,7 +25,7 @@ pub enum BackendType {
     /// MLX backend (C++ FFI)
     #[clap(name = "mlx")]
     MLX,
-    /// CoreML backend (macOS Neural Engine)
+    /// CoreML backend (macOS Neural Engine) [NOT IMPLEMENTED]
     CoreML,
 }
 
