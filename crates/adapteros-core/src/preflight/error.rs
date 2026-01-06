@@ -86,6 +86,21 @@ pub enum PreflightErrorCode {
     // ========================================================================
     /// Database operation failed
     DatabaseError,
+
+    // ========================================================================
+    // Model checks
+    // ========================================================================
+    /// Model directory not found
+    ModelNotFound,
+
+    /// Required model files missing (config.json, tokenizer.json)
+    ModelFileMissing,
+
+    /// No model weights found (.safetensors or .bin files)
+    ModelWeightsMissing,
+
+    /// Model path resolution failed
+    ModelPathResolutionFailed,
 }
 
 impl PreflightErrorCode {
@@ -111,6 +126,10 @@ impl PreflightErrorCode {
             Self::MaintenanceModeActive => "PREFLIGHT_MAINTENANCE_MODE",
             Self::TenantIsolationViolation => "PREFLIGHT_TENANT_ISOLATION",
             Self::DatabaseError => "PREFLIGHT_DATABASE_ERROR",
+            Self::ModelNotFound => "PREFLIGHT_MODEL_NOT_FOUND",
+            Self::ModelFileMissing => "PREFLIGHT_MODEL_FILE_MISSING",
+            Self::ModelWeightsMissing => "PREFLIGHT_MODEL_WEIGHTS_MISSING",
+            Self::ModelPathResolutionFailed => "PREFLIGHT_MODEL_PATH_RESOLUTION_FAILED",
         }
     }
 
@@ -133,6 +152,10 @@ impl PreflightErrorCode {
             Self::MaintenanceModeActive => "System is in maintenance mode",
             Self::TenantIsolationViolation => "Tenant isolation violation",
             Self::DatabaseError => "Database operation failed",
+            Self::ModelNotFound => "Model directory not found",
+            Self::ModelFileMissing => "Required model files missing",
+            Self::ModelWeightsMissing => "No model weights found",
+            Self::ModelPathResolutionFailed => "Model path resolution failed",
         }
     }
 
@@ -158,6 +181,12 @@ impl PreflightErrorCode {
                 "Retrain the adapter or restore training evidence: aosctl adapter train --adapter-id {}",
                 adapter_id
             )),
+            Self::ModelNotFound | Self::ModelFileMissing | Self::ModelWeightsMissing => {
+                Some("Run: make download-model  # or: aosctl models seed".to_string())
+            }
+            Self::ModelPathResolutionFailed => Some(
+                "Set AOS_MODEL_CACHE_DIR and AOS_BASE_MODEL_ID environment variables, or use --model-path".to_string()
+            ),
             _ => None,
         }
     }
