@@ -71,6 +71,7 @@ fn get_tenant_credentials(tenant: &str) -> Result<(u32, u32)> {
     }
 }
 
+use crate::commands::NOT_IMPLEMENTED_MESSAGE;
 use crate::output::OutputWriter;
 use crate::BackendType;
 
@@ -344,9 +345,8 @@ pub async fn run(
             {
                 output.error("CoreML backend requires --features multi-backend");
                 output.info("Rebuild with: cargo build --features multi-backend");
-                return Err(anyhow::anyhow!(
-                    "CoreML backend not available in deterministic-only build"
-                ));
+                output.info(NOT_IMPLEMENTED_MESSAGE);
+                return Err(anyhow::anyhow!(NOT_IMPLEMENTED_MESSAGE));
             }
 
             #[cfg(feature = "multi-backend")]
@@ -354,7 +354,8 @@ pub async fn run(
                 // CoreML backend not yet implemented
                 output.error("CoreML backend not yet implemented");
                 output.info("Please use Metal or MLX backend instead");
-                return Err(anyhow::anyhow!("CoreML backend not implemented"));
+                output.info(NOT_IMPLEMENTED_MESSAGE);
+                return Err(anyhow::anyhow!(NOT_IMPLEMENTED_MESSAGE));
             }
         }
     };

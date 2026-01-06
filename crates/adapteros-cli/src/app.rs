@@ -686,7 +686,7 @@ pub enum Commands {
         #[arg(short, long, default_value = "/var/run/aos/aos.sock")]
         socket: PathBuf,
 
-        /// Backend selection: metal (default), mlx (auto-selected implementation; requires --features multi-backend), or coreml
+        /// Backend selection: metal (default), mlx (auto-selected implementation; requires --features multi-backend), or coreml [NOT IMPLEMENTED]
         #[arg(short, long, default_value = "metal")]
         backend: BackendType,
 
@@ -992,8 +992,18 @@ pub enum Commands {
   # Tenant-specific checks
   aosctl diag --tenant dev
 
-  # Create diagnostic bundle
-  aosctl diag --full --bundle ./diag_bundle.zip
+  # Export a diagnostic bundle
+  aosctl diag --bundle ./diag_bundle.zip
+
+  # Export bundle for a specific CPID
+  aosctl diag --bundle ./diag_bundle.zip --cpid <cpid>
+
+  # Include full database state in bundle
+  aosctl diag --bundle ./diag_bundle.zip --full-db
+
+  # Verify telemetry offline after export
+  unzip ./diag_bundle.zip -d ./diag_bundle
+  aosctl verify telemetry --bundle-dir ./diag_bundle/telemetry
 "#)]
     Diag {
         /// Diagnostic profile: system, tenant, or full
@@ -1011,6 +1021,14 @@ pub enum Commands {
         /// Create diagnostic bundle
         #[arg(long)]
         bundle: Option<PathBuf>,
+
+        /// Filter telemetry bundles to a specific CPID (alias: --trace-id)
+        #[arg(long, alias = "trace-id", requires = "bundle")]
+        cpid: Option<String>,
+
+        /// Include full database file in bundle (var/aos-cp.sqlite3)
+        #[arg(long, requires = "bundle")]
+        full_db: bool,
 
         /// System checks only
         #[arg(long, conflicts_with_all = ["tenant_only", "profile"])]
@@ -1400,14 +1418,14 @@ pub enum NodeSyncMode {
         adapters: Vec<String>,
     },
 
-    /// Export adapters for air-gap transfer
+    /// Export adapters for air-gap transfer [NOT IMPLEMENTED]
     Export {
         /// Output file path
         #[arg(long)]
         file: PathBuf,
     },
 
-    /// Import adapters from air-gap bundle
+    /// Import adapters from air-gap bundle [NOT IMPLEMENTED]
     Import {
         /// Input file path
         #[arg(long)]
@@ -1810,6 +1828,8 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             tenant,
             json,
             bundle,
+            cpid,
+            full_db,
             system,
             tenant_only,
             full,
@@ -1836,7 +1856,15 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
                 diag::DiagProfile::Full
             };
 
-            diag::run(diag_profile, tenant.clone(), *json, bundle.clone()).await?;
+            diag::run(
+                diag_profile,
+                tenant.clone(),
+                *json,
+                bundle.clone(),
+                cpid.clone(),
+                *full_db,
+            )
+            .await?;
         }
 
         Commands::Explain { code } => {

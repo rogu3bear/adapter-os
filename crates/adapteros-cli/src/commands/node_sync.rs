@@ -1,6 +1,7 @@
 //! Node sync command - replicate adapters across nodes
 
 use anyhow::{Context, Result};
+use super::NOT_IMPLEMENTED_MESSAGE;
 use std::path::{Path, PathBuf};
 
 /// Node sync subcommands
@@ -147,9 +148,8 @@ async fn export_air_gap(file: &Path) -> Result<()> {
 
     // Use replication module to create export bundle
     println!("⚠ Air-gap export not yet implemented");
-    println!("   Would export to: {}", file.display());
-
-    Ok(())
+    println!("   {}", NOT_IMPLEMENTED_MESSAGE);
+    Err(anyhow::anyhow!(NOT_IMPLEMENTED_MESSAGE))
 }
 
 /// Import adapters from air-gap bundle
@@ -164,9 +164,8 @@ async fn import_air_gap(file: &Path) -> Result<()> {
     }
 
     println!("⚠ Air-gap import not yet implemented");
-    println!("   Would import from: {}", file.display());
-
-    Ok(())
+    println!("   {}", NOT_IMPLEMENTED_MESSAGE);
+    Err(anyhow::anyhow!(NOT_IMPLEMENTED_MESSAGE))
 }
 
 // Helper types and functions
