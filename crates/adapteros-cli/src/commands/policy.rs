@@ -193,7 +193,7 @@ fn list_policy_packs(only_implemented: bool, format: OutputFormat) -> Result<()>
         }
     }
 
-    println!("\nTotal: {} / 20 policies", filtered.len());
+    println!("\nTotal: {} / {} policies", filtered.len(), list_policies().len());
 
     Ok(())
 }
