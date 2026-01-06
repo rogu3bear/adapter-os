@@ -117,6 +117,20 @@ cargo test -p adapteros-e2e --features prod-gate
 ./aosctl serve --insecure-skip-egress-check            # Skip PF egress preflight (dev only)
 ```
 
+## Command Status
+
+| Command | Status | Notes / Workaround |
+|---------|--------|--------------------|
+| `aosctl aos migrate` | [NOT IMPLEMENTED] | Repackage with `aosctl aos create` if source weights are available. |
+| `aosctl aos convert` | [NOT IMPLEMENTED] | Repackage to AOS2 via `aosctl aos create` until convert is available. |
+| `aosctl node sync export` | [NOT IMPLEMENTED] | Air-gap workflow is not available; use `aosctl node sync push/pull` on connected nodes. |
+| `aosctl node sync import` | [NOT IMPLEMENTED] | Air-gap workflow is not available; use `aosctl node sync push/pull` on connected nodes. |
+| `aosctl cdp list` | [NOT IMPLEMENTED] | Awaiting code intelligence integration; no CLI workaround yet. |
+| `aosctl migrate adapter` | [NOT IMPLEMENTED] | Use `aosctl aos create` for new bundles; `aosctl adapter migrate-hashes` is separate. |
+| `aosctl serve --backend coreml` | [NOT IMPLEMENTED] | Use `--backend metal` (default) or `--backend mlx` (requires `--features multi-backend`). |
+
+Tracking: https://github.com/rogu3bear/adapter-os/issues/194
+
 ## UI (Leptos WASM)
 
 Located in `crates/adapteros-ui/`. Leptos 0.7 + Pure CSS + WASM (Client-Side Rendering).

@@ -1,8 +1,10 @@
 //! List Commit Delta Packs for a repository
 
+use super::NOT_IMPLEMENTED_MESSAGE;
 use clap::Parser;
 use std::path::PathBuf;
 
+/// [NOT IMPLEMENTED] List Commit Delta Packs for a repository
 #[derive(Parser, Debug)]
 pub struct CdpListArgs {
     /// Repository ID to list CDPs for
@@ -20,7 +22,9 @@ pub struct CdpListArgs {
 pub async fn execute(args: CdpListArgs) -> anyhow::Result<()> {
     tracing::warn!(
         repo_id = %args.repo_id,
-        "CDP listing not yet implemented - awaiting code intelligence integration"
+        "{}",
+        NOT_IMPLEMENTED_MESSAGE
     );
-    Ok(())
+    println!("{}", NOT_IMPLEMENTED_MESSAGE);
+    Err(anyhow::anyhow!(NOT_IMPLEMENTED_MESSAGE))
 }
