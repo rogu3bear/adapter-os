@@ -1,99 +1,103 @@
 # AdapterOS Quick Start Guide
 
-Get AdapterOS up and running in under 10 minutes. This guide covers both backend integration and web UI setup, including recent enhancements for service supervision and improved monitoring.
+> **📖 This is the canonical getting started guide for AdapterOS.**
+> All other docs should link here for setup instructions.
 
-**Last Updated: November 13, 2025**
+Get AdapterOS up and running in under 10 minutes. This guide covers both backend integration and web UI setup.
+
+**Last Updated: January 2026**
 
 ## Prerequisites
 
 ### System Requirements
 - **macOS 13.0+** with Apple Silicon (M1/M2/M3/M4)
-- **Rust 1.75+**: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
-- **MLX**: `brew install mlx` (required for MLX backend; `pip install mlx-lm` for model conversion)
-
-### Additional Tools
+- **Rust stable**: See `rust-toolchain.toml` for exact version
+- **MLX**: `brew install mlx` (required for MLX backend)
 - **Trunk** (for Leptos UI): `cargo install trunk`
+
+### Clone & Setup
+
+```bash
+git clone https://github.com/rogu3bear/adapter-os.git
+cd adapter-os
+```
 
 ## Quick Start: Backend
 
-### 1. Configure Environment
-
-Create `.env` file in project root:
+### 1. Build the Project
 
 ```bash
-# Database
-DATABASE_URL=sqlite:var/aos.db
+# Build everything (release mode)
+cargo build --release --workspace
 
-# Server
-SERVER_HOST=127.0.0.1
-SERVER_PORT=9443
-
-# Security
-JWT_SECRET=$(openssl rand -base64 32)
-
-# Logging
-RUST_LOG=info,adapteros=debug
+# Build CLI and create symlink
+cargo build --release -p adapteros-cli --features tui
+ln -sf target/release/aosctl ./aosctl
 ```
 
-### 2. Build the Project
+### 2. Run Database Migrations
 
 ```bash
-# Build CLI (creates ./aosctl symlink in project root)
-make cli
+./aosctl db migrate
+```
 
-# Or build all components
-cargo build --release
+### 3. Seed Models
 
-# Or build specific packages
-cargo build --release --package adapteros-lora-worker
-cargo build --release --package adapteros-server
-cargo build --release --package adapteros-cli
+```bash
+# Seed models from the default model directory
+./aosctl models seed
+
+# Or seed from a custom path
+./aosctl models seed --model-path /path/to/models
+
+# Verify models are seeded
+./aosctl models list
+```
+
+### 4. Start the Server
+
+```bash
+# Option 1: Full stack (backend + worker, recommended)
+./start
+
+# Option 2: Dev server only (control plane)
+cargo run -p adapteros-server -- --config configs/cp.toml
+
+# Option 3: Dev server with auth disabled (for testing)
+AOS_DEV_NO_AUTH=1 cargo run -p adapteros-server -- --config configs/cp.toml
+```
+
+### 5. Verify Setup
+
+```bash
+# Check system status
+./aosctl status
+
+# Run system health diagnostics
+./aosctl doctor
+
+# Run pre-flight readiness check
+./aosctl preflight
 ```
 
 ## Understanding the Database
 
 AdapterOS uses SQLite for tenant management, adapter registry, and telemetry. For complete database schema documentation:
 
-- [Database Schema Overview](database-schema/README.md) - Complete database structure and workflow animations
+- [Database Schema Overview](database-schema/README.md) - Complete database structure
 - [Schema Diagram](database-schema/SCHEMA-DIAGRAM.md) - ER diagram with 30+ tables
-- [Basic Workflows](database-schema/examples/BASIC-WORKFLOWS.md) - Common database operations and examples
 
-The following sections show basic operations with the database.
-
-### 3. Initialize Database & Import Model
+## Working with Adapters
 
 ```bash
-# Initialize tenant
-./aosctl init-tenant --id default --uid 1000 --gid 1000
+# List adapters
+./aosctl adapter list
 
-# Import model (using included Qwen 2.5 7B)
-./aosctl import-model \
-  --name qwen2.5-7b \
-  --weights models/qwen2.5-7b-mlx/weights.safetensors \
-  --config models/qwen2.5-7b-mlx/config.json \
-  --tokenizer models/qwen2.5-7b-mlx/tokenizer.json
-```
+# List adapter stacks
+./aosctl stack list
 
-### 4. Register LoRA Adapters
-
-```bash
-# Register your LoRA adapters
-./aosctl register-adapter \
-  --id my-lora \
-  --hash <adapter-hash> \
-  --tier 1 \
-  --rank 16
-```
-
-### 5. Start Server with Service Supervisor
-
-```bash
-# Start dev server
-make dev
-
-# Or build and serve a plan
-./aosctl build-plan --tenant-id default --manifest configs/cp.toml
-./aosctl serve --plan <plan-id>
+# List policy packs
+./aosctl policy list
 ```
 
 ## Quick Start: Web UI
