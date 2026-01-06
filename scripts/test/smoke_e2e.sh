@@ -6,8 +6,37 @@
 # - create + fetch trace fixture
 # - list evidence
 # Target runtime: < 2 minutes
+#
+# Usage:
+#   ./scripts/test/smoke_e2e.sh                # Normal mode
+#   ./scripts/test/smoke_e2e.sh --verbose      # Show curl commands and responses
+#   ./scripts/test/smoke_e2e.sh --help         # Show usage
 
 set -euo pipefail
+
+# Parse arguments
+VERBOSE=false
+for arg in "$@"; do
+    case "$arg" in
+        --verbose|-v)
+            VERBOSE=true
+            ;;
+        --help|-h)
+            echo "Usage: $0 [--verbose] [--help]"
+            echo ""
+            echo "Options:"
+            echo "  --verbose, -v  Show curl commands and full responses"
+            echo "  --help, -h     Show this help message"
+            echo ""
+            echo "Environment variables:"
+            echo "  API_URL          Server URL (default: http://127.0.0.1:8080)"
+            echo "  DB_PATH          SQLite database path"
+            echo "  START_TIMEOUT    Timeout waiting for server (default: 60s)"
+            echo "  CURL_TIMEOUT     HTTP request timeout (default: 10s)"
+            exit 0
+            ;;
+    esac
+done
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 API_URL="${API_URL:-http://127.0.0.1:${AOS_SERVER_PORT:-8080}}"
@@ -21,6 +50,10 @@ START_TIMEOUT="${START_TIMEOUT:-60}"
 CURL_TIMEOUT="${CURL_TIMEOUT:-10}"
 TMP_ROOT="${AOS_VAR_DIR:-$ROOT/var}/tmp"
 
+# Track all request IDs for summary
+declare -a ALL_REQUEST_IDS=()
+declare -a ALL_REQUEST_LABELS=()
+
 if [[ "$TMP_ROOT" == /tmp* || "$TMP_ROOT" == /private/tmp* ]]; then
   echo "[ERROR] refusing temporary directory under /tmp: $TMP_ROOT" >&2
   exit 1
@@ -33,12 +66,42 @@ E2E_EMAIL="test@example.com"
 E2E_PASS="password"
 
 info() { echo "[INFO] $*"; }
-fail() {
-  echo "[ERROR] $*" >&2
-  if [[ -s "$LOG_FILE" ]]; then
-    echo "--- tail backend log ($LOG_FILE) ---" >&2
-    tail -n 60 "$LOG_FILE" >&2 || true
+verbose() {
+  if [[ "$VERBOSE" == true ]]; then
+    echo "[VERBOSE] $*"
   fi
+}
+fail() {
+  echo ""
+  echo "╔══════════════════════════════════════════════════════════════╗"
+  echo "║                    SMOKE E2E FAILED                          ║"
+  echo "╚══════════════════════════════════════════════════════════════╝"
+  echo ""
+  echo "[ERROR] $*" >&2
+  echo ""
+
+  # Print request ID summary for debugging
+  if [[ ${#ALL_REQUEST_IDS[@]} -gt 0 ]]; then
+    echo "Request IDs collected before failure:"
+    for i in "${!ALL_REQUEST_IDS[@]}"; do
+      echo "  ${ALL_REQUEST_LABELS[$i]}: ${ALL_REQUEST_IDS[$i]}"
+    done
+    echo ""
+  fi
+
+  if [[ -s "$LOG_FILE" ]]; then
+    echo "--- Last 100 lines of backend log ($LOG_FILE) ---" >&2
+    tail -n 100 "$LOG_FILE" >&2 || true
+    echo "--- end of backend log ---" >&2
+  fi
+
+  if [[ -s "$REQ_LOG" ]]; then
+    echo ""
+    echo "--- Request log ($REQ_LOG) ---" >&2
+    cat "$REQ_LOG" >&2 || true
+    echo "--- end of request log ---" >&2
+  fi
+
   cleanup
   exit 1
 }
@@ -108,6 +171,7 @@ call_api() {
   local url="$2"
   local body="${3:-}"
   local token="${4:-}"
+  local label="${5:-$method $url}"
 
   RESP_HEADERS="$(mktemp "${RUN_TMP_DIR}/headers.XXXXXX")"
   RESP_BODY="$(mktemp "${RUN_TMP_DIR}/body.XXXXXX")"
@@ -122,8 +186,38 @@ call_api() {
     args+=(-H "Authorization: Bearer $token")
   fi
 
+  # Verbose mode: show the curl command
+  if [[ "$VERBOSE" == true ]]; then
+    echo "[VERBOSE] curl -X $method $url"
+    if [[ -n "$body" ]]; then
+      echo "[VERBOSE]   Body: $body"
+    fi
+    if [[ -n "$token" ]]; then
+      echo "[VERBOSE]   Auth: Bearer ${token:0:20}..."
+    fi
+  fi
+
   STATUS=$("${args[@]}" || true)
-  echo "[$(date -Is)] $method $url -> $STATUS" >>"$REQ_LOG"
+  local req_id
+  req_id="$(get_request_id)"
+
+  echo "[$(date -Is)] $method $url -> $STATUS (x-request-id: ${req_id:-none})" >>"$REQ_LOG"
+
+  # Store request ID for summary
+  if [[ -n "${req_id:-}" ]]; then
+    ALL_REQUEST_IDS+=("$req_id")
+    ALL_REQUEST_LABELS+=("$label")
+  fi
+
+  # Verbose mode: show response
+  if [[ "$VERBOSE" == true ]]; then
+    echo "[VERBOSE]   Status: $STATUS"
+    echo "[VERBOSE]   Request-ID: ${req_id:-none}"
+    if [[ -s "$RESP_BODY" ]]; then
+      echo "[VERBOSE]   Response: $(cat "$RESP_BODY" | head -c 500)"
+    fi
+    echo ""
+  fi
 }
 
 expect_status() {
@@ -208,12 +302,29 @@ EVIDENCE_REQ_ID="$(get_request_id)"
 info "Evidence entries=${EVIDENCE_COUNT} request_id=${EVIDENCE_REQ_ID}"
 
 echo ""
-echo "Smoke E2E complete:"
-echo "  login request_id:      ${LOGIN_REQ_ID}"
-echo "  tenant switch request: ${SWITCH_REQ_ID}"
-echo "  inference trace_id:    ${INFER_TRACE_ID} (req ${INFER_REQ_ID})"
-echo "  fixture trace_id:      ${TRACE_FIX_ID} (req ${TRACE_REQ_ID})"
-echo "  evidence count:        ${EVIDENCE_COUNT} (req ${EVIDENCE_REQ_ID})"
+echo "╔══════════════════════════════════════════════════════════════╗"
+echo "║                  SMOKE E2E PASSED ✓                          ║"
+echo "╚══════════════════════════════════════════════════════════════╝"
+echo ""
+echo "Summary:"
+echo "────────────────────────────────────────────────────────────────"
+printf "  %-25s %s\n" "Step" "Request ID / Details"
+echo "────────────────────────────────────────────────────────────────"
+printf "  %-25s %s\n" "Login" "${LOGIN_REQ_ID}"
+printf "  %-25s %s\n" "Tenant switch" "${SWITCH_REQ_ID}"
+printf "  %-25s %s (trace: %s)\n" "Inference stub" "${INFER_REQ_ID}" "${INFER_TRACE_ID}"
+printf "  %-25s %s (trace: %s)\n" "Trace fixture" "${TRACE_REQ_ID}" "${TRACE_FIX_ID}"
+printf "  %-25s %s (count: %s)\n" "Evidence list" "${EVIDENCE_REQ_ID}" "${EVIDENCE_COUNT}"
+echo "────────────────────────────────────────────────────────────────"
+echo ""
+echo "All request IDs (for server log correlation):"
+for i in "${!ALL_REQUEST_IDS[@]}"; do
+  printf "  %s: %s\n" "${ALL_REQUEST_LABELS[$i]}" "${ALL_REQUEST_IDS[$i]}"
+done
+echo ""
+echo "Request log: $REQ_LOG"
+echo "Server log:  $LOG_FILE"
+echo ""
 
 
 
