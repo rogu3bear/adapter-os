@@ -261,9 +261,3 @@ impl HotSwapManager {
             .sum()
     }
 }
-
-impl Default for HotSwapManager {
-    fn default() -> Self {
-        Self::new().expect("Failed to create default HotSwapManager")
-    }
-}
