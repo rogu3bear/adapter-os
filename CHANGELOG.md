@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed deprecated packages system
 - Workspace version inheritance for all crates (single source of truth)
 - DATABASE_SCHEMA_VERSION updated to 212
+- Documented diagnostics configuration reference
 
 ### Fixed
 - Resolved clippy warnings
