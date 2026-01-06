@@ -449,22 +449,24 @@ async fn check_model(cmd: &PreflightCommand) -> CheckResult {
     let model_path = match resolve_model_path_from_inputs(cmd) {
         Ok(path) => path,
         Err(e) => {
-            return CheckResult::fail(
+            return CheckResult::fail_with_code(
                 "Model",
                 &format!("Failed to resolve model path: {}", e),
                 Some(
                     "Set AOS_BASE_MODEL_ID/AOS_MODEL_CACHE_DIR or provide --model-path".to_string(),
                 ),
+                PreflightErrorCode::ModelPathResolutionFailed,
             )
         }
     };
 
     // Check if model directory exists
     if !model_path.exists() {
-        return CheckResult::fail(
+        return CheckResult::fail_with_code(
             "Model Directory",
             &format!("Model directory not found: {}", model_path.display()),
-            Some("make download-model  # or: ./scripts/download-model.sh".to_string()),
+            Some("make download-model  # or: aosctl models seed".to_string()),
+            PreflightErrorCode::ModelNotFound,
         );
     }
 
@@ -480,10 +482,11 @@ async fn check_model(cmd: &PreflightCommand) -> CheckResult {
     }
 
     if !missing_files.is_empty() {
-        return CheckResult::fail(
+        return CheckResult::fail_with_code(
             "Model Files",
             &format!("Missing required files: {}", missing_files.join(", ")),
-            Some("make download-model  # Re-download model".to_string()),
+            Some("make download-model  # or: aosctl models seed".to_string()),
+            PreflightErrorCode::ModelFileMissing,
         );
     }
 
@@ -500,10 +503,11 @@ async fn check_model(cmd: &PreflightCommand) -> CheckResult {
         .is_some();
 
     if !has_weights {
-        return CheckResult::warning(
+        return CheckResult::fail_with_code(
             "Model Weights",
             "No weight files (.safetensors or .bin) found",
-            Some("make download-model  # Re-download model".to_string()),
+            Some("make download-model  # or: aosctl models seed".to_string()),
+            PreflightErrorCode::ModelWeightsMissing,
         );
     }
 
