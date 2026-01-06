@@ -3,6 +3,9 @@
 //! Tests for worker registration, manifest compatibility, and schema version filtering.
 //!
 //! Copyright JKCA | 2025 James KC Auchterlonie
+#![allow(clippy::borrow_deref_ref)]
+#![allow(dead_code)]
+#![allow(unused_imports)]
 
 mod common;
 

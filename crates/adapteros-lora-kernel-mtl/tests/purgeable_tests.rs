@@ -6,6 +6,8 @@
 //! - Different Metal buffer storage modes
 //! - Error case handling for unsupported purgeable states
 //! - Round-trip: make_purgeable -> make_non_purgeable -> verify state
+#![allow(clippy::clone_on_copy)]
+#![allow(clippy::expect_fun_call)]
 
 use adapteros_lora_kernel_mtl::purgeable::{PurgeableBuffer, PurgeableResult, PurgeableState};
 

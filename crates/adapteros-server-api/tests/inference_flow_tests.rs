@@ -183,6 +183,7 @@ async fn ready_model_happy_path_inference_and_routing() {
         stop_reason_code: None,
         stop_reason_token_index: None,
         stop_policy_digest_b3: None,
+        tokenizer_digest_b3: None,
     };
 
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();

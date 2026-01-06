@@ -197,6 +197,9 @@ fn test_inference_request_internal_with_pinned_adapters() {
         worker_auth_token: None,
         stop_policy: None,
         utf8_healing: None,
+        require_step: false,
+        require_determinism: false,
+        allow_fallback: true,
     };
 
     assert_eq!(request.pinned_adapter_ids, Some(pinned));

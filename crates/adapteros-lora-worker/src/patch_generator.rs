@@ -2,6 +2,7 @@
 //!
 //! Implements patch generation with evidence citations and structured output.
 //! Aligns with Code Policy requirements and evidence-first philosophy.
+#![allow(clippy::items_after_test_module)]
 
 use crate::evidence::{EvidenceCitation, EvidenceSpan};
 use adapteros_core::{AosError, Result};

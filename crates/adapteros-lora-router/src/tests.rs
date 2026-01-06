@@ -1,3 +1,5 @@
+#![allow(clippy::field_reassign_with_default)]
+
 use super::*;
 use crate::policy_mask::PolicyMask;
 use adapteros_core::determinism::{DeterminismContext, DeterminismSource};

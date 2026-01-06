@@ -1085,6 +1085,7 @@ pub extern "C" fn ffi_metal_heap_clear() -> i32 {
 }
 
 #[cfg(test)]
+#[allow(clippy::useless_vec)]
 mod tests {
     use super::*;
 

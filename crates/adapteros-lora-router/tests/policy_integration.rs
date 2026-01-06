@@ -116,8 +116,10 @@ fn test_policy_validates_stack_configuration() {
 
 #[test]
 fn test_policy_detects_conflicting_tags() {
-    let mut policy_config = RouterConfig::default();
-    policy_config.k_sparse = 3; // Ensure tag checks run (no K < len short-circuit)
+    let policy_config = RouterConfig {
+        k_sparse: 3, // Ensure tag checks run (no K < len short-circuit)
+        ..Default::default()
+    };
     let policy = RouterPolicy::new(policy_config);
 
     // Stack with conflicting tags (security vs. performance)
@@ -153,9 +155,11 @@ fn test_policy_detects_conflicting_tags() {
 
 #[test]
 fn test_policy_validates_decision_entropy() {
-    let mut policy_config = RouterConfig::default();
-    policy_config.k_sparse = 3; // Match selected_indices length expectations
-    policy_config.entropy_floor = 0.5; // Enforce meaningful entropy check
+    let policy_config = RouterConfig {
+        k_sparse: 3,        // Match selected_indices length expectations
+        entropy_floor: 0.5, // Enforce meaningful entropy check
+        ..Default::default()
+    };
     let policy = RouterPolicy::new(policy_config);
 
     // Decision with low entropy (should fail)
@@ -175,8 +179,10 @@ fn test_policy_validates_decision_entropy() {
 
 #[test]
 fn test_policy_validates_decision_k_limit() {
-    let mut policy_config = RouterConfig::default();
-    policy_config.k_sparse = 3; // Validate against 3-adapter selection expectation
+    let policy_config = RouterConfig {
+        k_sparse: 3, // Validate against 3-adapter selection expectation
+        ..Default::default()
+    };
     let policy = RouterPolicy::new(policy_config);
 
     // Decision exceeding K limit (should fail)
@@ -237,9 +243,11 @@ fn test_policy_validates_decision_forbidden_peers() {
 
 #[test]
 fn test_entropy_floor_enforcement() {
-    let mut policy_config = RouterConfig::default();
-    policy_config.k_sparse = 3;
-    policy_config.entropy_floor = 0.5; // Higher entropy floor to reject low-entropy gates
+    let policy_config = RouterConfig {
+        k_sparse: 3,
+        entropy_floor: 0.5, // Higher entropy floor to reject low-entropy gates
+        ..Default::default()
+    };
 
     let mut router =
         Router::new_with_policy_config(RouterWeights::default(), 3, 1.0, &policy_config);
@@ -276,8 +284,10 @@ fn test_entropy_floor_enforcement() {
 
 #[test]
 fn test_router_uses_policy_config_sample_tokens() {
-    let mut policy_config = RouterConfig::default();
-    policy_config.sample_tokens_full = 256;
+    let policy_config = RouterConfig {
+        sample_tokens_full: 256,
+        ..Default::default()
+    };
 
     let router = Router::new_with_policy_config(RouterWeights::default(), 3, 1.0, &policy_config);
 

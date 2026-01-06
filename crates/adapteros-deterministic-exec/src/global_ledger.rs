@@ -1113,7 +1113,7 @@ mod tests {
         let ledger_a =
             GlobalTickLedger::new(db.clone(), "test-tenant".to_string(), "host-a".to_string());
 
-        let ledger_b =
+        let _ledger_b =
             GlobalTickLedger::new(db.clone(), "test-tenant".to_string(), "host-b".to_string());
 
         // Don't record any entries - both ledgers are empty
@@ -1136,7 +1136,7 @@ mod tests {
         let ledger_a =
             GlobalTickLedger::new(db.clone(), "test-tenant".to_string(), "host-a".to_string());
 
-        let ledger_b =
+        let _ledger_b =
             GlobalTickLedger::new(db.clone(), "test-tenant".to_string(), "host-b".to_string());
 
         // Record one entry on host-a, none on host-b

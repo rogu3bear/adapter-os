@@ -1,4 +1,5 @@
 //! Tests for tenant policy customizations database operations
+#![allow(unused_imports)]
 
 #[cfg(test)]
 mod tests {

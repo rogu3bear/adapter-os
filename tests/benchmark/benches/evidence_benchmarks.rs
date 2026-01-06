@@ -1,10 +1,10 @@
 #![cfg(all(test, feature = "extended-tests"))]
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use adapteros_benchmarks::*;
-use std::sync::Arc;
-use tokio::runtime::Runtime;
-use std::time::{Duration, Instant};
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tokio::runtime::Runtime;
 
 /// Benchmark evidence collection and processing
 fn bench_evidence_collection(c: &mut Criterion) {
@@ -24,7 +24,8 @@ fn bench_evidence_collection(c: &mut Criterion) {
                     let recency_score = rng.next_f32();
 
                     // Combine scores with weights
-                    let combined_score = 0.4 * relevance_score + 0.4 * confidence_score + 0.2 * recency_score;
+                    let combined_score =
+                        0.4 * relevance_score + 0.4 * confidence_score + 0.2 * recency_score;
                     scores.push(combined_score);
                 }
 
@@ -36,14 +37,17 @@ fn bench_evidence_collection(c: &mut Criterion) {
         c.bench_function("evidence_ranking_1000_items", |b| {
             b.iter(|| {
                 let mut evidence_items: Vec<(String, f32)> = (0..1000)
-                    .map(|i| (format!("evidence_{}", i), utils::DeterministicRng::new(i as u64).next_f32()))
+                    .map(|i| {
+                        (
+                            format!("evidence_{}", i),
+                            utils::DeterministicRng::new(i as u64).next_f32(),
+                        )
+                    })
                     .collect();
 
                 // Rank by score (descending)
-                evidence_items.sort_by(|a, b| {
-                    b.1.partial_cmp(&a.1)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                });
+                evidence_items
+                    .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
                 let top_10: Vec<_> = evidence_items.into_iter().take(10).collect();
                 black_box(top_10);
@@ -102,7 +106,8 @@ fn bench_evidence_grounding(c: &mut Criterion) {
                 let mut citations = Vec::new();
 
                 for (i, evidence) in evidence_list.iter().enumerate() {
-                    if i < 3 { // Use top 3 evidence items
+                    if i < 3 {
+                        // Use top 3 evidence items
                         grounded_response.push_str(&format!(" [{}]", i + 1));
                         citations.push(evidence.clone());
                     }
@@ -161,11 +166,16 @@ fn bench_evidence_grounding(c: &mut Criterion) {
                     if !validated_chain.is_empty() {
                         let prev_facts = &validated_chain.last().unwrap().2;
                         let overlap = facts.iter().filter(|f| prev_facts.contains(f)).count();
-                        let overlap_ratio = overlap as f32 / facts.len().max(prev_facts.len()) as f32;
+                        let overlap_ratio =
+                            overlap as f32 / facts.len().max(prev_facts.len()) as f32;
                         consistency_score *= overlap_ratio;
                     }
 
-                    validated_chain.push((source.clone(), *score * internal_consistency, facts.clone()));
+                    validated_chain.push((
+                        source.clone(),
+                        *score * internal_consistency,
+                        facts.clone(),
+                    ));
                 }
 
                 let is_valid_chain = consistency_score >= 0.5;
@@ -212,7 +222,8 @@ fn bench_evidence_caching(c: &mut Criterion) {
 
                 // Perform lookups
                 let mut found_items = Vec::new();
-                for i in (0..1000).step_by(10) { // Lookup every 10th item
+                for i in (0..1000).step_by(10) {
+                    // Lookup every 10th item
                     let key = format!("evidence_key_{}", i);
                     if let Some((evidence, score)) = cache.get(&key) {
                         found_items.push((evidence.clone(), *score));
@@ -296,10 +307,10 @@ fn bench_evidence_decisions(c: &mut Criterion) {
                 }
 
                 // Select best evidence set
-                let best_index = evaluations.iter().enumerate()
-                    .max_by(|a, b| {
-                        a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal)
-                    })
+                let best_index = evaluations
+                    .iter()
+                    .enumerate()
+                    .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
                     .map(|(i, _)| i)
                     .unwrap();
 
@@ -337,9 +348,7 @@ fn bench_evidence_decisions(c: &mut Criterion) {
                     }
 
                     // Simple consensus: average of top 3 scores
-                    scores.sort_by(|a, b| {
-                        b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal)
-                    });
+                    scores.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
                     let top_3_sum: f32 = scores.iter().take(3).sum();
                     let consensus = top_3_sum / 3.0;
 
@@ -372,10 +381,8 @@ fn bench_evidence_decisions(c: &mut Criterion) {
                 }
 
                 // Sort by quality
-                quality_scores.sort_by(|a, b| {
-                    b.1.partial_cmp(&a.1)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                });
+                quality_scores
+                    .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
                 black_box(quality_scores);
             })
@@ -411,13 +418,13 @@ fn bench_response_latency(c: &mut Criterion) {
                         tokio::time::sleep(Duration::from_millis(20)).await;
 
                         // Filter and rank evidence
-                        evidence_scores.sort_by(|a, b| {
-                            b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal)
-                        });
+                        evidence_scores
+                            .sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
                         let top_evidence: Vec<f32> = evidence_scores.into_iter().take(10).collect();
 
                         // Generate response
-                        let response = format!("Response based on {} evidence items", top_evidence.len());
+                        let response =
+                            format!("Response based on {} evidence items", top_evidence.len());
                         black_box((response, top_evidence));
 
                         request_start.elapsed()
@@ -457,16 +464,20 @@ fn bench_response_latency(c: &mut Criterion) {
 
                     // Stage 3: Evidence filtering and ranking
                     let filtering_start = Instant::now();
-                    scored_evidence.sort_by(|a, b| {
-                        b.1.partial_cmp(&a.1)
-                            .unwrap_or(std::cmp::Ordering::Equal)
-                    });
+                    scored_evidence
+                        .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
                     let top_evidence: Vec<_> = scored_evidence.into_iter().take(20).collect();
                     let filtering_time = filtering_start.elapsed();
 
                     let total_pipeline_time = pipeline_start.elapsed();
 
-                    black_box((collection_time, scoring_time, filtering_time, total_pipeline_time, top_evidence));
+                    black_box((
+                        collection_time,
+                        scoring_time,
+                        filtering_time,
+                        total_pipeline_time,
+                        top_evidence,
+                    ));
                 }
 
                 start.elapsed()

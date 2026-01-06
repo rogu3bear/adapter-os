@@ -7,6 +7,9 @@
 //! - Batch evidence insertion
 //! - Full evidence audit trail creation
 
+#![allow(clippy::useless_vec)]
+#![allow(clippy::unnecessary_cast)]
+
 use adapteros_core::{B3Hash, Result};
 use adapteros_db::{CreateEvidenceParams, Db};
 use std::collections::HashSet;

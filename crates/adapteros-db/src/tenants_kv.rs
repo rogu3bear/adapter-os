@@ -3,6 +3,8 @@
 //! This module provides KV-based operations for tenant management,
 //! enabling dual-write and eventual migration from SQL to KV storage.
 
+#![allow(clippy::bool_assert_comparison)]
+
 use adapteros_core::{AosError, Result};
 use adapteros_storage::entities::tenant::TenantKv;
 use adapteros_storage::KvBackend;

@@ -28,20 +28,14 @@ fn test_pinned_boost_constant_value() {
 /// Verify PINNED_BOOST is a positive value that creates preference
 #[test]
 fn test_pinned_boost_is_positive() {
-    assert!(
-        PINNED_BOOST > 0.0,
-        "PINNED_BOOST must be positive to create preference"
-    );
+    const { assert!(PINNED_BOOST > 0.0) };
 }
 
 /// Verify PINNED_BOOST is not too large (would override routing decisions)
 /// A boost > 1.0 would dominate baseline priors of 1.0
 #[test]
 fn test_pinned_boost_is_reasonable() {
-    assert!(
-        PINNED_BOOST < 1.0,
-        "PINNED_BOOST should be < 1.0 to allow non-pinned adapters to compete"
-    );
+    const { assert!(PINNED_BOOST < 1.0) };
 }
 
 /// Document the expected behavior of pinned boost in routing

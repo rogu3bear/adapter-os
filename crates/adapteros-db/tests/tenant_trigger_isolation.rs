@@ -4,7 +4,6 @@
 //! adapter/base-model references introduced in migrations 0131 and 0211.
 
 use adapteros_db::Db;
-use blake3;
 use std::collections::BTreeMap;
 
 async fn new_test_db() -> Db {

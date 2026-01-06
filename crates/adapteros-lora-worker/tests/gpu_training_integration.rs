@@ -8,6 +8,8 @@
 //!
 //! Run with: cargo test --test gpu_training_integration
 
+#![allow(clippy::field_reassign_with_default)]
+
 use std::collections::HashMap;
 
 /// Helper function to create training examples

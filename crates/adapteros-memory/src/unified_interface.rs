@@ -471,6 +471,7 @@ pub struct MemoryBlock {
 }
 
 #[cfg(test)]
+#[allow(clippy::useless_vec)]
 mod tests {
     use super::*;
 

@@ -12,6 +12,7 @@
 //!
 //! Note: Threshold boundary tests (entropy/confidence exactly at threshold) are
 //! covered by the policy integration tests and telemetry tests.
+#![allow(clippy::useless_vec)]
 
 use adapteros_lora_router::{policy_mask::PolicyMask, AdapterInfo, Router, RouterWeights};
 

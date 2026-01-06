@@ -2,6 +2,8 @@
 //!
 //! Implements automatic cleanup policies for tenant storage.
 
+#![allow(clippy::unnecessary_to_owned)]
+
 use crate::{StorageConfig, StorageUsage};
 use adapteros_core::{AosError, Result};
 use glob::glob;

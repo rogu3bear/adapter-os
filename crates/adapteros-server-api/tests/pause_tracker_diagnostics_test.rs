@@ -3,6 +3,8 @@
 //! Verifies that InferencePaused and InferenceResumed events are emitted
 //! when pauses are registered and reviews are submitted.
 
+#![allow(clippy::useless_vec)]
+
 use std::path::PathBuf;
 use std::sync::Arc;
 

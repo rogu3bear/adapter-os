@@ -115,7 +115,7 @@ fn test_path_variables_have_defaults() {
 fn test_integer_variables_have_range_constraints() {
     let schema = default_schema();
 
-    for (_, var) in &schema.variables {
+    for var in schema.variables.values() {
         if let ConfigType::Integer { min, max } = &var.config_type {
             // Integer variables should have at least one bound for safety
             assert!(

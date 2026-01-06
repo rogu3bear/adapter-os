@@ -3,6 +3,9 @@
 //! This example demonstrates the basic usage of the patch proposal system
 //! for generating code patches with evidence citations and policy validation.
 
+#![allow(unused_imports)]
+#![allow(clippy::single_component_path_imports)]
+
 use adapteros_lora_kernel_mtl::MetalKernels;
 use adapteros_lora_worker::{
     evidence::{EvidenceRequest, EvidenceSpan, EvidenceType},

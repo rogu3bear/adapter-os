@@ -2,6 +2,10 @@
 //!
 //! These tests verify the integration of stop fields through the receipt system.
 
+#![allow(clippy::absurd_extreme_comparisons)]
+#![allow(clippy::clone_on_copy)]
+#![allow(unused_comparisons)]
+
 use adapteros_api_types::inference::{StopPolicySpec, StopReasonCode};
 use adapteros_core::B3Hash;
 use adapteros_lora_worker::stop_controller::StopController;

@@ -4,6 +4,7 @@
 //! - `AOS_E2E_MODEL_PATH`: path to a tiny model directory containing `model.safetensors`
 //!   (or shard) and `config.json`.
 //! - `AOS_E2E_UDS`: UDS socket path to bind (e.g., `var/run/aos-e2e.sock`).
+//!
 //! Optional:
 //! - `AOS_E2E_BACKEND`: backend choice (`auto`, `coreml`, `metal`, `mlx`). Defaults to `auto`.
 //!

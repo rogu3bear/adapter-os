@@ -1,3 +1,5 @@
+#![allow(unused_imports)]
+
 use adapteros_db::replay_metadata::CreateReplayMetadataParams;
 use adapteros_db::Db;
 use serde::Serialize;
@@ -63,6 +65,7 @@ async fn replay_metadata_persists_coreml_hashes() {
         execution_policy_version: None,
         stop_policy_json: None,
         policy_mask_digest_b3: None,
+        utf8_healing: None,
     };
 
     let meta_id = db

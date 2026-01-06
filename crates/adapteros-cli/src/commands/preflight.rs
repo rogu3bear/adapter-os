@@ -18,6 +18,8 @@
 //! 1. **Adapter Existence**: The adapter must exist in the registry
 //! 2. **Lifecycle State**: Adapter must be in 'ready' state (preflight completed)
 //! 3. **File Path Set**: .aos file path must be configured
+
+#![allow(clippy::field_reassign_with_default)]
 //! 4. **File Exists**: .aos file must exist on disk
 //! 5. **File Hash Set**: .aos file hash must be computed for integrity
 //! 6. **Content Hash Set**: content_hash_b3 must be present for reproducibility

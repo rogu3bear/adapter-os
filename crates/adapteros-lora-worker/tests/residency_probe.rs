@@ -4,6 +4,10 @@
 //! - Main CI: Calibrated fixtures for mechanism correctness
 //! - Hardware CI: Real 7B/30B models for production realism
 
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::cast_possible_wrap)]
+#![allow(clippy::cast_abs_to_unsigned)]
+
 use adapteros_core::B3Hash;
 use adapteros_lora_kernel_api::attestation::BackendType;
 use adapteros_lora_lifecycle::AdapterLoader;

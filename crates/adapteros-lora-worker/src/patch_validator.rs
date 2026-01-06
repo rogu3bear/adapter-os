@@ -9,6 +9,8 @@
 //! - Review requirements
 //!
 //! Aligns with Code Policy Rules #2-8 and security requirements.
+#![allow(clippy::items_after_test_module)]
+#![allow(clippy::field_reassign_with_default)]
 
 use crate::patch_generator::FilePatch;
 use adapteros_core::Result;

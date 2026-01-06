@@ -10,6 +10,9 @@
 //! NOTE: These tests are marked as ignored pending fixture API refactoring
 //! to align with the updated AdapterRegistrationBuilder API.
 
+#![allow(deprecated)]
+#![allow(dead_code)]
+
 mod fixtures;
 
 use adapteros_lora_lifecycle::{AdapterState, LifecycleManager};

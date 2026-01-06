@@ -11,6 +11,8 @@
 //! Each test documents a specific security property that must be maintained
 //! across releases. Tests marked with @regression are especially critical.
 
+#![allow(clippy::useless_vec)]
+
 #[cfg(test)]
 mod security_regression_tests {
     // @regression: Ensure Ed25519 signatures cannot be forged

@@ -93,6 +93,12 @@ impl PolicyMask {
                     if let Some(slot) = allowed.get_mut(*idx) {
                         *slot = true;
                     }
+                } else {
+                    // #164: Log warning when allowlist references non-existent adapter
+                    tracing::warn!(
+                        adapter_id = %adapter_id,
+                        "Allowlist references adapter ID not found in registry - ignored"
+                    );
                 }
             }
         }
@@ -104,6 +110,12 @@ impl PolicyMask {
                     if let Some(slot) = allowed.get_mut(*idx) {
                         *slot = false;
                     }
+                } else {
+                    // #164: Log warning when denylist references non-existent adapter
+                    tracing::warn!(
+                        adapter_id = %adapter_id,
+                        "Denylist references adapter ID not found in registry - ignored"
+                    );
                 }
             }
         }
@@ -287,6 +299,48 @@ pub fn filter_decision_by_policy(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Test that non-existent adapter IDs in allowlist are handled gracefully (#164)
+    #[test]
+    fn allowlist_nonexistent_adapter_handled() {
+        let adapter_ids = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        let policy_digest = B3Hash::hash(b"policy-state");
+
+        // Reference a non-existent adapter "z" - should not panic, just ignore
+        let mask = PolicyMask::build(
+            &adapter_ids,
+            Some(&vec!["a".to_string(), "z".to_string()]),
+            None,
+            None,
+            None,
+            Some(policy_digest),
+        );
+
+        // Only "a" should be allowed (the valid one from the allowlist)
+        assert_eq!(mask.allowed, vec![true, false, false]);
+        assert!(mask.overrides_applied.allow_list);
+    }
+
+    /// Test that non-existent adapter IDs in denylist are handled gracefully (#164)
+    #[test]
+    fn denylist_nonexistent_adapter_handled() {
+        let adapter_ids = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        let policy_digest = B3Hash::hash(b"policy-state");
+
+        // Reference a non-existent adapter "z" - should not panic, just ignore
+        let mask = PolicyMask::build(
+            &adapter_ids,
+            None,
+            Some(&vec!["b".to_string(), "nonexistent".to_string()]),
+            None,
+            None,
+            Some(policy_digest),
+        );
+
+        // "b" should be denied, "a" and "c" allowed, "nonexistent" ignored
+        assert_eq!(mask.allowed, vec![true, false, true]);
+        assert!(mask.overrides_applied.deny_list);
+    }
 
     #[test]
     fn deny_mask_excludes_adapters() {

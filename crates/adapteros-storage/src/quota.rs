@@ -2,6 +2,8 @@
 //!
 //! Implements disk space reservation and enforcement for tenant storage.
 
+#![allow(clippy::needless_borrow)]
+
 use crate::{StorageConfig, StorageUsage};
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};

@@ -522,7 +522,7 @@ mod tests {
     fn test_validate_path_with_null() {
         // Paths with null should fail on all platforms
         let path_with_null = Path::new("/home/user/file\0.txt");
-        let result = validate_path_characters(path_with_null);
+        let _result = validate_path_characters(path_with_null);
         // Note: This test may not work as expected because Path may reject null bytes
         // In practice, null bytes in paths cause issues before we even get to validation
     }

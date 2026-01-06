@@ -5,6 +5,8 @@
 //! - Adapter state transitions
 //! - Category/scope/state queries
 //! - Edge cases and error conditions
+#![allow(clippy::await_holding_lock)]
+#![allow(clippy::len_zero)]
 
 use adapteros_core::{AosError, Result};
 use adapteros_db::adapters::AdapterRegistrationBuilder;

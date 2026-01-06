@@ -1,5 +1,7 @@
 //! Backend selection and GPU training tests
 
+#![allow(clippy::field_reassign_with_default)]
+
 use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;

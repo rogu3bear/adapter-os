@@ -6,6 +6,9 @@
 //! - Error handling per item
 //! - Timeout management
 
+#![allow(clippy::len_zero)]
+#![allow(clippy::useless_vec)]
+
 use adapteros_server_api::types::{BatchInferItemRequest, BatchInferRequest, InferRequest};
 
 #[tokio::test]

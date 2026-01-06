@@ -11,6 +11,8 @@
 //! - Policy pack registry: Complete policy validation coverage
 //! - crates/adapteros-policy/src/validation.rs: Policy customization validation
 
+#![allow(clippy::for_kv_map)]
+
 use adapteros_policy::policy_packs::{
     EnforcementLevel, PolicyContext, PolicyPackConfig, PolicyPackId, PolicyPackManager,
     PolicyRequest, Priority, RequestType,

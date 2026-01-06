@@ -12,6 +12,9 @@
 //! - Test all read operations: get_adapter, list_adapters, find_by_hash, etc.
 //! - Verify fallback behavior by controlling KV state
 //! - Ensure data consistency between SQL and KV
+#![allow(deprecated)]
+#![allow(clippy::expect_fun_call)]
+#![allow(clippy::needless_borrows_for_generic_args)]
 
 use adapteros_db::adapters::AdapterRegistrationBuilder;
 use adapteros_db::{Db, KvDb, ProtectedDb, StorageMode};

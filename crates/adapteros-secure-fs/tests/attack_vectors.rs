@@ -42,9 +42,11 @@ fn new_test_tempdir() -> Result<TempDir> {
 #[test]
 fn test_symlink_attack_prevention() -> Result<()> {
     let temp_dir = new_test_tempdir()?;
-    let mut config = SecureFsConfig::default();
-    config.enable_caps = false;
-    config.enable_symlink_protection = true;
+    let config = SecureFsConfig {
+        enable_caps: false,
+        enable_symlink_protection: true,
+        ..Default::default()
+    };
 
     let _manager = SecureFsManager::new(config)?;
 
@@ -114,9 +116,11 @@ fn test_symlink_attack_prevention() -> Result<()> {
 #[test]
 fn test_toctou_race_condition() -> Result<()> {
     let temp_dir = new_test_tempdir()?;
-    let mut config = SecureFsConfig::default();
-    config.enable_caps = false;
-    config.enable_traversal_protection = true;
+    let config = SecureFsConfig {
+        enable_caps: false,
+        enable_traversal_protection: true,
+        ..Default::default()
+    };
 
     let manager = SecureFsManager::new(config)?;
 
@@ -193,9 +197,11 @@ fn test_toctou_race_condition() -> Result<()> {
 #[test]
 fn test_directory_traversal() -> Result<()> {
     let temp_dir = new_test_tempdir()?;
-    let mut config = SecureFsConfig::default();
-    config.enable_caps = false;
-    config.enable_traversal_protection = true;
+    let config = SecureFsConfig {
+        enable_caps: false,
+        enable_traversal_protection: true,
+        ..Default::default()
+    };
 
     let manager = SecureFsManager::new(config)?;
 
@@ -246,6 +252,8 @@ fn test_directory_traversal() -> Result<()> {
     );
 
     // Test 3.9: UNC path traversal (Windows)
+    // Note: Using PathBuf::from directly since UNC paths start with // and join() would replace the base
+    #[allow(clippy::join_absolute_paths)]
     let attack_path = temp_dir.path().join("//evil//share//malicious.exe");
     let _result = manager.create_file(&attack_path);
     assert!(_result.is_err(), "Should block UNC path");
@@ -269,8 +277,10 @@ fn test_directory_traversal() -> Result<()> {
 #[test]
 fn test_hardlink_attack_prevention() -> Result<()> {
     let temp_dir = new_test_tempdir()?;
-    let mut config = SecureFsConfig::default();
-    config.enable_caps = false;
+    let config = SecureFsConfig {
+        enable_caps: false,
+        ..Default::default()
+    };
 
     let manager = SecureFsManager::new(config)?;
 
@@ -345,8 +355,10 @@ fn test_hardlink_attack_prevention() -> Result<()> {
 #[test]
 fn test_privilege_escalation() -> Result<()> {
     let temp_dir = new_test_tempdir()?;
-    let mut config = SecureFsConfig::default();
-    config.enable_caps = false;
+    let config = SecureFsConfig {
+        enable_caps: false,
+        ..Default::default()
+    };
 
     let manager = SecureFsManager::new(config)?;
 
@@ -531,8 +543,10 @@ fn test_concurrent_file_access() -> Result<()> {
         let barrier = Arc::clone(&barrier);
 
         let handle = thread::spawn(move || -> Result<()> {
-            let mut config = SecureFsConfig::default();
-            config.enable_caps = false;
+            let config = SecureFsConfig {
+                enable_caps: false,
+                ..Default::default()
+            };
 
             let manager = SecureFsManager::new(config)?;
 
@@ -723,10 +737,12 @@ fn test_concurrent_file_access() -> Result<()> {
 #[test]
 fn test_combined_attack_scenarios() -> Result<()> {
     let temp_dir = new_test_tempdir()?;
-    let mut config = SecureFsConfig::default();
-    config.enable_caps = false;
-    config.enable_symlink_protection = true;
-    config.enable_traversal_protection = true;
+    let config = SecureFsConfig {
+        enable_caps: false,
+        enable_symlink_protection: true,
+        enable_traversal_protection: true,
+        ..Default::default()
+    };
 
     let manager = SecureFsManager::new(config)?;
 
@@ -783,8 +799,10 @@ fn test_symlink_chain_detection() -> Result<()> {
 #[test]
 fn test_rapid_file_operations() -> Result<()> {
     let temp_dir = new_test_tempdir()?;
-    let mut config = SecureFsConfig::default();
-    config.enable_caps = false;
+    let config = SecureFsConfig {
+        enable_caps: false,
+        ..Default::default()
+    };
 
     let manager = SecureFsManager::new(config)?;
 

@@ -12,6 +12,13 @@
 //! - No adapter corruption
 //! - Recovery completes successfully
 
+#![allow(clippy::await_holding_lock)]
+#![allow(dead_code)]
+#![allow(unused_variables)]
+#![allow(clippy::enum_variant_names)]
+#![allow(clippy::single_component_path_imports)]
+#![allow(unused_imports)]
+
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

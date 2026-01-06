@@ -3,6 +3,9 @@
 //! These tests cover zero/empty inputs, extreme values, and boundary
 //! conditions that could cause panics or incorrect behavior.
 
+#![allow(clippy::field_reassign_with_default)]
+#![allow(unused_imports)]
+
 use adapteros_lora_worker::training::TrainingExample as WorkerTrainingExample;
 
 use crate::training::dataset::weighted_round_robin_merge;

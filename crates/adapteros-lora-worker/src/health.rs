@@ -2,6 +2,7 @@
 //!
 //! Implements health checks and process monitoring to prevent runaway processes.
 //! Aligns with Isolation Ruleset #8 and Memory Ruleset #12 from policy enforcement.
+#![allow(clippy::field_reassign_with_default)]
 
 use crate::resource_monitor::{ResourceMonitor, ResourceThresholds};
 use adapteros_core::{identity::IdentityEnvelope, AosError, Result};

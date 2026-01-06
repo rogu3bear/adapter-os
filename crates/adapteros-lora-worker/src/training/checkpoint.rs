@@ -2,6 +2,7 @@
 //!
 //! Enables saving and restoring training state, allowing training to resume
 //! from interruptions or to implement strategies like best-model-restore.
+#![allow(clippy::useless_vec)]
 
 use super::trainer::{LoRAWeights, TrainingConfig};
 use adapteros_core::{AosError, Result};

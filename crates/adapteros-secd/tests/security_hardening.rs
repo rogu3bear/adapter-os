@@ -13,6 +13,7 @@
 //! 5. **Concurrent Operations** - Stress test under concurrent access patterns
 //! 6. **Label-Based Timing** - Verify timing is independent of label length
 //! 7. **Key Reuse Timing** - Check cached key operations are consistent
+#![allow(dead_code)]
 //! 8. **Error Path Timing** - Verify error handling doesn't leak timing information
 //!
 //! ## Statistical Approach

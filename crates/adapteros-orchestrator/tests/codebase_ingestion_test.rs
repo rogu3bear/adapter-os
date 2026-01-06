@@ -12,6 +12,11 @@
 //!
 //! Run ignored tests with: cargo test --test codebase_ingestion_test -- --ignored
 
+#![allow(unused_imports)]
+#![allow(clippy::absurd_extreme_comparisons)]
+#![allow(unused_comparisons)]
+#![allow(clippy::unnecessary_cast)]
+
 use adapteros_codegraph::CodeGraph;
 use adapteros_config::{DEFAULT_BASE_MODEL_ID, DEFAULT_MODEL_CACHE_ROOT};
 use adapteros_db::sqlx;

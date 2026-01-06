@@ -1,3 +1,10 @@
+#![allow(unused_imports)]
+#![allow(deprecated)]
+#![allow(dead_code)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::useless_format)]
+#![allow(clippy::single_component_path_imports)]
+
 use adapteros_config::{BackendPreference, ModelConfig};
 use adapteros_core::identity::IdentityEnvelope;
 use clap::{Parser, Subcommand};

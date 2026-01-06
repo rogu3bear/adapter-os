@@ -37,6 +37,8 @@
 //!
 //! For real-time learning rate, query the job's `learning_rate` field instead.
 
+#![allow(deprecated)]
+
 #[cfg(feature = "server")]
 use adapteros_core::B3Hash;
 #[cfg(feature = "server")]

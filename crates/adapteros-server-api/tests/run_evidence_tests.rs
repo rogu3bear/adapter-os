@@ -70,6 +70,7 @@ async fn evidence_bundle_contains_required_files() -> anyhow::Result<()> {
         execution_policy_version: None,
         stop_policy_json: None,
         policy_mask_digest_b3: Some("abcd1234".to_string()),
+        utf8_healing: None,
     };
     state.db.create_replay_metadata(replay_params).await?;
 
@@ -225,6 +226,7 @@ async fn evidence_bundle_enforces_tenant_isolation() -> anyhow::Result<()> {
         execution_policy_version: None,
         stop_policy_json: None,
         policy_mask_digest_b3: None,
+        utf8_healing: None,
     };
     state.db.create_replay_metadata(replay_params).await?;
 

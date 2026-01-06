@@ -11,6 +11,7 @@
 //! Tier transitions are bidirectional:
 //! - Promotion: ephemeral → warm → persistent
 //! - Demotion: persistent → warm → ephemeral
+#![allow(unused_variables)]
 
 use adapteros_core::{AosError, LifecycleState, Result};
 use adapteros_db::adapters::AdapterRegistrationBuilder;

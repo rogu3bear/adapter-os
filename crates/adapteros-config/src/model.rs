@@ -763,45 +763,57 @@ mod tests {
 
     #[test]
     fn test_validation_zero_vocab_size() {
-        let mut config = ModelConfig::default();
-        config.vocab_size = 0;
+        let config = ModelConfig {
+            vocab_size: 0,
+            ..Default::default()
+        };
         assert!(config.validate().is_err());
     }
 
     #[test]
     fn test_validation_zero_hidden_size() {
-        let mut config = ModelConfig::default();
-        config.hidden_size = 0;
+        let config = ModelConfig {
+            hidden_size: 0,
+            ..Default::default()
+        };
         assert!(config.validate().is_err());
     }
 
     #[test]
     fn test_validation_invalid_gqa() {
-        let mut config = ModelConfig::default();
-        config.num_attention_heads = 28;
-        config.num_key_value_heads = 5; // 28 is not divisible by 5
+        let config = ModelConfig {
+            num_attention_heads: 28,
+            num_key_value_heads: 5, // 28 is not divisible by 5
+            ..Default::default()
+        };
         assert!(config.validate().is_err());
     }
 
     #[test]
     fn test_validation_invalid_head_dim() {
-        let mut config = ModelConfig::default();
-        config.hidden_size = 100;
-        config.num_attention_heads = 7; // 100 is not divisible by 7
+        let config = ModelConfig {
+            hidden_size: 100,
+            num_attention_heads: 7, // 100 is not divisible by 7
+            ..Default::default()
+        };
         assert!(config.validate().is_err());
     }
 
     #[test]
     fn test_validation_empty_architecture() {
-        let mut config = ModelConfig::default();
-        config.architecture = String::new();
+        let config = ModelConfig {
+            architecture: String::new(),
+            ..Default::default()
+        };
         assert!(config.validate().is_err());
     }
 
     #[test]
     fn test_validation_negative_rope_theta() {
-        let mut config = ModelConfig::default();
-        config.rope_theta = -1.0;
+        let config = ModelConfig {
+            rope_theta: -1.0,
+            ..Default::default()
+        };
         assert!(config.validate().is_err());
     }
 

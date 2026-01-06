@@ -8,6 +8,8 @@
 //! - AGENTS.md L142: Policy Engine enforcement expectations
 //! - .cursor/rules/global.mdc: Policy pack definitions and enforcement rules
 
+#![allow(clippy::single_component_path_imports)]
+
 use adapteros_policy::policy_packs::{
     EnforcementLevel, PolicyContext, PolicyPackConfig, PolicyPackId, PolicyPackManager,
     PolicyRequest, Priority, RequestType,

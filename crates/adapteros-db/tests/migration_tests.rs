@@ -6,6 +6,8 @@
 //! - Handling of already-migrated adapters
 //! - Migration statistics accuracy
 //! - Error handling for failed migrations
+#![allow(deprecated)]
+#![allow(clippy::needless_borrows_for_generic_args)]
 
 use adapteros_db::adapters::AdapterRegistrationBuilder;
 use adapteros_db::kv_migration::{MigrationDiscrepancy, MigrationStats};

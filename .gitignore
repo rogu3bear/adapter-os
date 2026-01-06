@@ -317,6 +317,7 @@ aosctl
 # Agent coordination (local development only)
 .agents/
 .codex_ui/
+.claude/
 
 # Alternate target directories (clippy, etc.)
 target-clippy/

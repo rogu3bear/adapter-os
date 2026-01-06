@@ -17,6 +17,8 @@
 //! cargo run --example basic_inference
 //! ```
 
+#![allow(unused_imports)]
+
 use adapteros_core::{AosError, Result};
 use adapteros_manifest::ManifestV3;
 use std::fs;

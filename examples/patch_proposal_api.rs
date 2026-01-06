@@ -3,6 +3,10 @@
 //! This example demonstrates how to use the patch proposal system via the REST API
 //! for generating code patches with evidence citations and policy validation.
 
+#![allow(clippy::needless_borrows_for_generic_args)]
+#![allow(clippy::single_component_path_imports)]
+#![allow(dead_code)]
+
 use reqwest::Client;
 use serde_json::json;
 use tokio;

@@ -6,6 +6,8 @@
 //! - Top adapters limit
 //! - Permission checks
 
+#![allow(clippy::len_zero)]
+
 mod common;
 
 use adapteros_api_types::system_state::SystemStateQuery;

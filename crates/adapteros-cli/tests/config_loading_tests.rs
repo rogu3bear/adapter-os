@@ -5,6 +5,8 @@
 //! - CLI arguments
 //! - Precedence rules (CLI > ENV > defaults)
 
+#![allow(unused_variables)]
+
 use adapteros_config::BackendPreference;
 use clap::Parser;
 use std::env;

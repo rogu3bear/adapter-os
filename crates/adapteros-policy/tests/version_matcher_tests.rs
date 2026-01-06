@@ -2,6 +2,8 @@
 //!
 //! Tests comprehensive version range matching functionality for CVE integration
 
+#![allow(clippy::useless_vec)]
+
 use adapteros_policy::packs::{CpeVersionMatcher, OsvVersionRange, Version, VersionRange};
 
 #[test]

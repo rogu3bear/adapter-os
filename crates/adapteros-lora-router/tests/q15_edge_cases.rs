@@ -9,6 +9,7 @@
 //! - Denominator: 32767.0 (NOT 32768.0)
 //! - Encoding: gate_q15 = (gate_f32 * 32767.0).round() as i16, clamped to [0, 32767]
 //! - Decoding: gate_f32 = gate_q15 as f32 / 32767.0
+#![allow(clippy::useless_vec)]
 
 use adapteros_core::determinism::{DeterminismContext, DeterminismSource};
 use adapteros_lora_router::{
