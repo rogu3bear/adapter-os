@@ -117,6 +117,14 @@ cargo test -p adapteros-e2e --features prod-gate
 ./aosctl serve --insecure-skip-egress-check            # Skip PF egress preflight (dev only)
 ```
 
+Diagnostics config example (TOML):
+```toml
+[diagnostics]
+enabled = true
+level = "stages"
+```
+Full reference: `docs/CONFIGURATION.md#diagnostics-configuration`.
+
 ## UI (Leptos WASM)
 
 Located in `crates/adapteros-ui/`. Leptos 0.7 + Pure CSS + WASM (Client-Side Rendering).
