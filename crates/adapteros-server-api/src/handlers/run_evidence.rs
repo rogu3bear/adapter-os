@@ -129,6 +129,9 @@ fn trace_receipt_to_ref(receipt: &TraceReceipt) -> InferenceReceiptRef {
         stop_reason_token_index: receipt.stop_reason_token_index,
         stop_policy_digest_b3: receipt.stop_policy_digest_b3,
         model_cache_identity_v2_digest_b3: receipt.model_cache_identity_v2_digest_b3,
+        // Backend identity fields - not tracked in TraceReceipt, default to empty/None
+        backend_used: String::new(),
+        backend_attestation_b3: None,
     }
 }
 

@@ -2,6 +2,7 @@
 
 use crate::telemetry_bundles::{TelemetryBatchParams, TelemetryBundle, TelemetryRecord};
 use crate::Db;
+use adapteros_core::telemetry::dual_write_divergence_event;
 use adapteros_core::{AosError, Result};
 use adapteros_storage::{TelemetryBundleKv, TelemetryEventKv, TelemetryRepository};
 use chrono::Utc;
@@ -116,17 +117,67 @@ pub fn telemetry_drift_count() -> u64 {
 pub(crate) fn record_telemetry_drift(reason: &str) {
     warn!(reason = reason, "Telemetry KV/SQL drift detected");
     TELEMETRY_DRIFT_COUNTER.fetch_add(1, Ordering::Relaxed);
+
+    // Emit structured observability event for alerting/correlation
+    let _event = dual_write_divergence_event(
+        "telemetry", // table
+        reason,      // key (using reason as identifier for this drift)
+        "sql",       // primary backend
+        "kv",        // secondary backend
+        1,           // attempt count
+        None,        // tenant_id not available at this callsite
+    );
+
     debug!(
         drift_total = telemetry_drift_count(),
         "Telemetry drift counter updated"
     );
 }
 
+/// Normalize a timestamp string to microseconds for deterministic sequencing.
+///
+/// Accepts ISO 8601 timestamps (e.g., "2024-01-15T10:30:00.123456Z") and converts
+/// them to microseconds since UNIX epoch. Falls back to digit filtering for
+/// already-numeric timestamps or malformed inputs.
+///
+/// # Precision
+/// - ISO 8601 with fractional seconds: preserves up to microsecond precision
+/// - Already numeric: passed through as-is
+/// - Malformed: falls back to digit filtering (logs warning)
 fn normalize_timestamp(ts: &str) -> String {
+    // Fast path: if already all digits, return as-is
+    if !ts.is_empty() && ts.chars().all(|c| c.is_ascii_digit()) {
+        return ts.to_string();
+    }
+
+    // Try parsing as ISO 8601 (RFC 3339)
+    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(ts) {
+        return dt.timestamp_micros().to_string();
+    }
+
+    // Try parsing without timezone (assume UTC)
+    if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(ts, "%Y-%m-%dT%H:%M:%S%.f") {
+        return dt
+            .and_utc()
+            .timestamp_micros()
+            .to_string();
+    }
+
+    // Fallback: filter to digits only (backward compat for legacy formats)
     let filtered: String = ts.chars().filter(|c| c.is_ascii_digit()).collect();
     if filtered.is_empty() {
+        warn!(
+            timestamp = %ts,
+            "Timestamp normalization failed: no digits found, using epoch"
+        );
         "0".to_string()
     } else {
+        // Log at debug level since this is the legacy path
+        debug!(
+            original = %ts,
+            normalized = %filtered,
+            "Timestamp normalized via digit filtering (legacy path)"
+        );
         filtered
     }
 }
