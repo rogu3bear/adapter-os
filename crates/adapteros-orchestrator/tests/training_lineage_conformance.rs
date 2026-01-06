@@ -1,3 +1,7 @@
+#![allow(unused_mut)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::err_expect)]
+
 use adapteros_db::factory::DbFactory;
 use adapteros_db::sqlx;
 use adapteros_orchestrator::training::TrainingService;

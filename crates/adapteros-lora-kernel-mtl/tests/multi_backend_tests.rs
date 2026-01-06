@@ -5,6 +5,9 @@
 //! - Fallback chain (CoreML → MLX → Metal)
 //! - Hybrid execution
 //! - Cross-backend tensor conversion
+#![allow(clippy::clone_on_copy)]
+#![allow(clippy::useless_vec)]
+#![allow(clippy::manual_range_contains)]
 
 #[cfg(target_os = "macos")]
 mod multi_backend_integration {

@@ -1,3 +1,5 @@
+#![allow(clippy::expect_fun_call)]
+
 use adapteros_server_api::create_app;
 use axum::{
     body::{to_bytes, Body},

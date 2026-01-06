@@ -8,6 +8,8 @@
 //! - Merkle root computation fails on corrupt data (no silent errors)
 //! - Bundle files are created with restrictive permissions
 
+#![allow(clippy::unnecessary_map_or)]
+
 use adapteros_api_types::diagnostics::DiagBundleExportRequest;
 use adapteros_core::B3Hash;
 use adapteros_db::sqlx;

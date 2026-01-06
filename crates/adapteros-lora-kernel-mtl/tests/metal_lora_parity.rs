@@ -1,3 +1,5 @@
+#![allow(clippy::needless_range_loop)]
+
 #[cfg(target_os = "macos")]
 #[test]
 fn metal_lora_parity_against_cpu_flat() {

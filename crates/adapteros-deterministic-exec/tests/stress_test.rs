@@ -401,23 +401,21 @@ async fn test_snapshot_restore_performance() {
     for (i, (event_before, event_after)) in
         events_before.iter().zip(events_after.iter()).enumerate()
     {
-        match (event_before, event_after) {
-            (
-                ExecutorEvent::TaskSpawned {
-                    task_id: id1,
-                    tick: tick1,
-                    ..
-                },
-                ExecutorEvent::TaskSpawned {
-                    task_id: id2,
-                    tick: tick2,
-                    ..
-                },
-            ) => {
-                assert_eq!(id1, id2, "Task ID mismatch at event {}", i);
-                assert_eq!(tick1, tick2, "Tick mismatch at event {}", i);
-            }
-            _ => {}
+        if let (
+            ExecutorEvent::TaskSpawned {
+                task_id: id1,
+                tick: tick1,
+                ..
+            },
+            ExecutorEvent::TaskSpawned {
+                task_id: id2,
+                tick: tick2,
+                ..
+            },
+        ) = (event_before, event_after)
+        {
+            assert_eq!(id1, id2, "Task ID mismatch at event {}", i);
+            assert_eq!(tick1, tick2, "Tick mismatch at event {}", i);
         }
     }
 

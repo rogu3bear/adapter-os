@@ -11,6 +11,8 @@
 //! - Zero timestamps accepted
 //! - Timestamp ordering
 
+#![allow(clippy::inconsistent_digit_grouping)]
+
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Test that system time can be converted to microseconds.

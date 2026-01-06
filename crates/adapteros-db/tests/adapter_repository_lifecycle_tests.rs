@@ -1,3 +1,8 @@
+#![allow(clippy::single_component_path_imports)]
+#![allow(clippy::borrow_deref_ref)]
+#![allow(clippy::let_unit_value)]
+#![allow(clippy::cloned_ref_to_slice_refs)]
+
 use adapteros_core::{AosError, Result};
 use adapteros_db::{CreateRepositoryParams, CreateVersionParams, Db, RepositoryGroup};
 use sqlx;

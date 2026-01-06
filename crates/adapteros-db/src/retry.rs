@@ -2,6 +2,7 @@
 //!
 //! Provides exponential backoff retry logic for handling transient database errors
 //! like SQLITE_BUSY, PostgreSQL deadlocks, and connection pool exhaustion.
+#![allow(clippy::manual_range_contains)]
 
 use crate::error_classification::{classify_sqlx_error, DatabaseBackend, DbErrorClass, Retriable};
 use std::future::Future;

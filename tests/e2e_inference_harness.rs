@@ -347,7 +347,7 @@ mod mlx_ffi_tests {
 // not string matching on device_name(). These tests verify the trait-based approach.
 
 use adapteros_lora_kernel_api::attestation::{
-    BackendType, DeterminismReport, FloatingPointMode, RngSeedingMethod,
+    BackendType, DeterminismLevel, DeterminismReport, FloatingPointMode, RngSeedingMethod,
 };
 use adapteros_lora_kernel_api::TextGenerationResult;
 
@@ -392,6 +392,7 @@ impl FusedKernels for MockTextGenerationKernel {
             manifest: None,
             rng_seed_method: RngSeedingMethod::FixedSeed(42),
             floating_point_mode: FloatingPointMode::Deterministic,
+            determinism_level: DeterminismLevel::BitExact,
             compiler_flags: vec![],
             deterministic: true,
         })

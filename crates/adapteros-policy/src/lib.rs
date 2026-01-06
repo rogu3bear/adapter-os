@@ -10,6 +10,9 @@
 #![allow(clippy::ptr_arg)]
 #![allow(clippy::collapsible_if)]
 #![allow(clippy::if_same_then_else)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::len_zero)]
+#![allow(clippy::cloned_ref_to_slice_refs)]
 
 pub mod backend_policy;
 pub mod policy_integrity;

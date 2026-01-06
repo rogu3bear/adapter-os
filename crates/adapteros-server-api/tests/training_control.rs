@@ -1,4 +1,7 @@
 //! Training control integration tests
+
+#![allow(deprecated)]
+
 use std::sync::Arc;
 use std::time::Duration;
 

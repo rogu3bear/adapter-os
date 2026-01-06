@@ -10,9 +10,7 @@
 //! - Chain verification fails on signature mismatch
 //! - Chain recovery/continuation after divergence rejection
 
-use adapteros_core::evidence_envelope::{
-    BundleMetadataRef, EvidenceEnvelope, InferenceReceiptRef, PolicyAuditRef,
-};
+use adapteros_core::evidence_envelope::{BundleMetadataRef, EvidenceEnvelope, PolicyAuditRef};
 use adapteros_core::{B3Hash, EvidenceScope};
 use adapteros_db::Db;
 use std::sync::Arc;

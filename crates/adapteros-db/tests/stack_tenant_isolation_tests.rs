@@ -9,6 +9,7 @@
 //! - Get stack from wrong tenant fails
 //! - List stacks isolated by tenant
 //! - Set default to non-existent stack fails
+#![allow(unused_variables)]
 
 use adapteros_db::sqlite_backend::SqliteBackend;
 use adapteros_db::traits::{CreateStackRequest, DatabaseBackend};

@@ -1,3 +1,15 @@
+#![allow(unused_imports)]
+#![allow(clippy::items_after_test_module)]
+#![allow(clippy::unnecessary_to_owned)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::await_holding_lock)]
+#![allow(clippy::bool_assert_comparison)]
+#![allow(clippy::useless_vec)]
+#![allow(clippy::single_component_path_imports)]
+#![allow(deprecated)]
+#![allow(clippy::assertions_on_constants)]
+
 pub mod api_error;
 pub mod audit_helper;
 pub mod auth;

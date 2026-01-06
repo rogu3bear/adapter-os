@@ -3,6 +3,7 @@
 //! Provides a lightweight reasoning loop that inspects streamed tokens,
 //! detects thought boundaries, scores transitions between adapter clusters,
 //! and emits hot-swap decisions with debounce and shadow-mode support.
+#![allow(clippy::useless_vec)]
 
 use std::collections::HashMap;
 

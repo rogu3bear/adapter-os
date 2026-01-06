@@ -1,7 +1,7 @@
 //! Additional tests for base_model_id tenant isolation
+#![allow(clippy::redundant_pub_crate)]
 
 use adapteros_db::Db;
-use blake3;
 
 async fn new_test_db() -> Db {
     std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");

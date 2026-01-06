@@ -431,8 +431,8 @@ mod tests {
         let manifest = B3Hash::hash(b"test-manifest");
 
         let ctx = SeedContext::new(
-            global.clone(),
-            Some(manifest.clone()),
+            global,
+            Some(manifest),
             SeedMode::BestEffort,
             1,
             "tenant-1".to_string(),
@@ -533,13 +533,7 @@ mod tests {
         clear_thread_seed_context();
 
         let global = B3Hash::hash(b"test-global");
-        let ctx1 = SeedContext::new(
-            global.clone(),
-            None,
-            SeedMode::BestEffort,
-            1,
-            "outer".to_string(),
-        );
+        let ctx1 = SeedContext::new(global, None, SeedMode::BestEffort, 1, "outer".to_string());
         let ctx2 = SeedContext::new(global, None, SeedMode::BestEffort, 2, "inner".to_string());
 
         set_thread_seed_context(ctx1);

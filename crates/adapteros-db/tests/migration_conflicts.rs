@@ -7,6 +7,7 @@
 //! 4. Validating migration numbering sequence
 //!
 //! Priority: CRITICAL - Prevents schema drift and duplicate migrations
+#![allow(clippy::useless_vec)]
 
 use anyhow::Result;
 use serde_json::Value;

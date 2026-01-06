@@ -9,6 +9,8 @@
 //! Note: These are unit tests for the validation logic.
 //! Integration tests for the full HTTP handlers are in other test files.
 
+#![allow(clippy::useless_vec)]
+
 use adapteros_core::errors::adapter::AosAdapterError;
 use adapteros_core::errors::validation::AosValidationError;
 

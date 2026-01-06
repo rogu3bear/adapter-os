@@ -547,6 +547,7 @@ fn current_timestamp() -> u128 {
 }
 
 #[cfg(test)]
+#[allow(clippy::len_zero)]
 mod tests {
     use super::*;
 

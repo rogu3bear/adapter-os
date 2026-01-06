@@ -1,5 +1,7 @@
 //! Training command implementation
 
+#![allow(clippy::field_reassign_with_default)]
+
 use crate::commands::training_common::CommonTrainingArgs;
 use adapteros_core::{AosError, Result};
 use adapteros_lora_worker::training::{

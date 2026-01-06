@@ -935,14 +935,21 @@ mod uds_exporter_tests {
 mod telemetry_writer_shutdown_tests {
     use super::*;
     use adapteros_core::identity::IdentityEnvelope;
-    use adapteros_telemetry::unified_events::{EventType, LogLevel, TelemetryEventBuilder};
+    use adapteros_telemetry::unified_events::{
+        EventType, LogLevel, TelemetryEvent, TelemetryEventBuilder,
+    };
     use adapteros_telemetry::TelemetryWriter;
     use std::time::Duration;
 
-    fn make_test_event() -> adapteros_telemetry::unified_events::UnifiedTelemetryEvent {
-        let identity = IdentityEnvelope::system();
+    fn make_test_event() -> TelemetryEvent {
+        let identity = IdentityEnvelope::new(
+            "system".to_string(),
+            "test".to_string(),
+            "telemetry-test".to_string(),
+            "1".to_string(),
+        );
         TelemetryEventBuilder::new(
-            EventType::Audit,
+            EventType::SystemStart,
             LogLevel::Info,
             "test event".to_string(),
             identity,

@@ -9,6 +9,10 @@
 //! Reference: Router-Worker Integration PRD-02
 
 #![cfg(test)]
+#![allow(clippy::vec_init_then_push)]
+#![allow(clippy::single_component_path_imports)]
+#![allow(unused_imports)]
+#![allow(clippy::manual_range_contains)]
 
 use adapteros_core::{AosError, Result};
 use adapteros_lora_kernel_api::RouterRing;

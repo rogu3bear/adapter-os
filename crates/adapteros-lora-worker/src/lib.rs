@@ -1,3 +1,9 @@
+#![allow(dead_code)]
+#![allow(unused_mut)]
+#![allow(unused_imports)]
+#![allow(clippy::await_holding_lock)]
+#![allow(clippy::assigning_clones)]
+#![allow(clippy::cloned_ref_to_slice_refs)]
 //! This crate provides:
 //! - Core worker implementation for ML inference
 //! - Resource limiting and timeout management

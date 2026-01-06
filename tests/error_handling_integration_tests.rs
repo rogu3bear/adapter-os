@@ -9,6 +9,10 @@
 //! These tests ensure error types flow correctly across crate boundaries
 //! and maintain consistency in error reporting throughout the system.
 
+#![allow(unused_imports)]
+#![allow(deprecated)]
+#![allow(clippy::needless_borrows_for_generic_args)]
+
 use adapteros_api_types::{ErrorResponse, FailureCode};
 use adapteros_cli::error_codes::{all_error_codes, find_by_code, ExitCode};
 use adapteros_core::errors::storage::AosStorageError;

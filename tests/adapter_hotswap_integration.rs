@@ -6,6 +6,8 @@
 //! Created as part of Determinism Rectification v2 to verify the production code path
 //! (MetalKernels) actually implements load_adapter/unload_adapter.
 
+#![allow(clippy::vec_init_then_push)]
+
 use adapteros_core::Result;
 use adapteros_lora_kernel_api::FusedKernels;
 use safetensors::tensor::TensorView;

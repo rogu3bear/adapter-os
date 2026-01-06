@@ -150,11 +150,11 @@ fn test_reserved_header_bytes_zero() {
     assert!(data.len() >= HEADER_SIZE);
 
     // Reserved bytes should be zero
-    for i in 40..HEADER_SIZE {
+    for (i, &byte) in data.iter().enumerate().take(HEADER_SIZE).skip(40) {
         assert_eq!(
-            data[i], 0,
+            byte, 0,
             "Reserved byte at offset {} should be zero, got {}",
-            i, data[i]
+            i, byte
         );
     }
 }

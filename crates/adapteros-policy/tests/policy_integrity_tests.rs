@@ -7,6 +7,8 @@
 //! - Tampering detection and recovery
 //! - Attack scenarios (modifications, replacements, etc.)
 
+#![allow(clippy::bool_comparison)]
+
 use adapteros_crypto::signature::Keypair;
 use adapteros_policy::{
     compute_blake3_hash, PolicyIntegrityMetadata, PolicyIntegrityVerifier, RecoveryAction,

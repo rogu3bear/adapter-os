@@ -1008,10 +1008,12 @@ mod tests {
                     let b = barrier.clone();
                     let agent_id = id.clone();
                     tokio::spawn(async move {
-                        b.wait(&agent_id, target_tick).await.expect(&format!(
-                            "Agent {} should synchronize at tick {} without timeout",
-                            agent_id, target_tick
-                        ))
+                        b.wait(&agent_id, target_tick).await.unwrap_or_else(|_| {
+                            panic!(
+                                "Agent {} should synchronize at tick {} without timeout",
+                                agent_id, target_tick
+                            )
+                        })
                     })
                 })
                 .collect();

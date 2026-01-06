@@ -4,6 +4,7 @@
 //! containers so that multiple adapters can share the same memory mapped
 //! buffers.  The helpers in this module focus on deterministic merging of
 //! adapter weights for different vision tasks.
+#![allow(clippy::useless_vec)]
 
 use std::collections::HashMap;
 use std::convert::TryInto;

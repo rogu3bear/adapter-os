@@ -24,6 +24,8 @@
 //! make golden-drift-check  # Convenience target
 //! ```
 
+#![allow(clippy::useless_vec)]
+
 use adapteros_telemetry::events::{RouterCandidate, RouterDecisionEvent};
 use adapteros_verify::{
     compare_routing_decisions, list_golden_runs, ComparisonConfig, GoldenRunArchive,

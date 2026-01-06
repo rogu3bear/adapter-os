@@ -3,6 +3,8 @@
 //! These tests verify that hardware-backed cryptographic operations work correctly
 //! when the secure-enclave feature is enabled and running on macOS.
 
+#![allow(clippy::assertions_on_constants)]
+
 #[cfg(all(feature = "secure-enclave", target_os = "macos"))]
 mod hardware_tests {
     use adapteros_core::Result;

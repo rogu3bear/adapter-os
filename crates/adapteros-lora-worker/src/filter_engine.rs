@@ -152,8 +152,22 @@ impl FilterEngine {
             self.median_window.pop_front();
         }
 
-        let mut values: Vec<f32> = self.median_window.iter().copied().collect();
-        values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        // Filter out NaN values and sort using total_cmp for deterministic ordering.
+        // total_cmp handles NaN safely by treating NaN > everything.
+        // (#166: partial_cmp().unwrap() would panic on NaN values)
+        let mut values: Vec<f32> = self
+            .median_window
+            .iter()
+            .copied()
+            .filter(|v| !v.is_nan())
+            .collect();
+
+        if values.is_empty() {
+            // All values were NaN, return NaN to signal invalid data
+            return f32::NAN;
+        }
+
+        values.sort_by(|a, b| a.total_cmp(b));
         values[values.len() / 2]
     }
 }
@@ -191,5 +205,75 @@ mod tests {
         let output = engine.process_signal(&input);
         assert_eq!(output.len(), input.len());
         assert!((output[3] - 2.5).abs() < 1e-6);
+    }
+
+    /// Test that median filter handles NaN values without panic (#166)
+    #[test]
+    fn test_median_filter_handles_nan() {
+        let mut engine = FilterEngine::new(FilterConfig {
+            sample_rate_hz: 1.0,
+            kind: FilterKind::Median { window: 5 },
+        })
+        .unwrap();
+
+        // Mix of normal values and NaN - should not panic
+        let input = [1.0, f32::NAN, 3.0, 2.0, f32::NAN];
+        let output = engine.process_signal(&input);
+        assert_eq!(output.len(), input.len());
+
+        // The median of [1.0, 3.0, 2.0] (after filtering NaN) is 2.0
+        let last = output[output.len() - 1];
+        assert!(
+            !last.is_nan(),
+            "median should not be NaN when valid values exist"
+        );
+        assert!(
+            (last - 2.0).abs() < 1e-6,
+            "expected median of 2.0, got {}",
+            last
+        );
+    }
+
+    /// Test that median filter returns NaN when all values are NaN (#166)
+    #[test]
+    fn test_median_filter_all_nan() {
+        let mut engine = FilterEngine::new(FilterConfig {
+            sample_rate_hz: 1.0,
+            kind: FilterKind::Median { window: 3 },
+        })
+        .unwrap();
+
+        // All NaN values
+        let input = [f32::NAN, f32::NAN, f32::NAN];
+        let output = engine.process_signal(&input);
+        assert_eq!(output.len(), input.len());
+
+        // When all values are NaN, return NaN
+        let last = output[output.len() - 1];
+        assert!(last.is_nan(), "expected NaN when all values are NaN");
+    }
+
+    /// Test that Inf values don't cause issues (#166)
+    #[test]
+    fn test_median_filter_handles_infinity() {
+        let mut engine = FilterEngine::new(FilterConfig {
+            sample_rate_hz: 1.0,
+            kind: FilterKind::Median { window: 5 },
+        })
+        .unwrap();
+
+        // Mix with infinity values - should not panic
+        let input = [1.0, f32::INFINITY, 3.0, f32::NEG_INFINITY, 2.0];
+        let output = engine.process_signal(&input);
+        assert_eq!(output.len(), input.len());
+
+        // Infinity values are valid (not NaN) and will be included in sort
+        // sorted: [-inf, 1.0, 2.0, 3.0, inf] -> median is 2.0
+        let last = output[output.len() - 1];
+        assert!(
+            (last - 2.0).abs() < 1e-6,
+            "expected median of 2.0, got {}",
+            last
+        );
     }
 }

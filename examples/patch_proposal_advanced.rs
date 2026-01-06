@@ -3,6 +3,10 @@
 //! This example demonstrates advanced usage of the patch proposal system
 //! including custom evidence retrieval, policy configuration, and telemetry integration.
 
+#![allow(dead_code)]
+#![allow(unused_imports)]
+#![allow(clippy::field_reassign_with_default)]
+
 use adapteros_lora_worker::{
     evidence::{EvidenceRequest, EvidenceRetriever, EvidenceSpan, EvidenceType},
     patch_generator::{MockLlmBackend, PatchGenerationRequest, PatchGenerator},

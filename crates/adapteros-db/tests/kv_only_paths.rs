@@ -1,3 +1,5 @@
+#![allow(clippy::await_holding_lock)]
+
 use adapteros_db::users::Role;
 use adapteros_db::{global_kv_metrics, kv_coverage_summary, Db, KvDb, KvErrorType, StorageMode};
 use once_cell::sync::Lazy;

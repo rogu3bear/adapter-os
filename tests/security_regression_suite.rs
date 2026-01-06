@@ -13,6 +13,9 @@
 //!
 //! Copyright: © 2025 JKCA. All rights reserved.
 
+#![allow(clippy::unnecessary_map_or)]
+#![allow(clippy::ptr_arg)]
+
 use std::fs;
 use std::path::PathBuf;
 

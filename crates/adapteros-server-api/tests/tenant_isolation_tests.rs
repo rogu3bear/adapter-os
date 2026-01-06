@@ -7,6 +7,8 @@
 //! - List Operations: Lists are properly filtered by tenant
 //! - Admin Override: Admin role can access all tenants' resources
 
+#![allow(clippy::clone_on_copy)]
+
 use adapteros_api_types::adapters::PromoteVersionRequest;
 use adapteros_api_types::training::ValidateDatasetRequest;
 use adapteros_core::{AosError, Result};
@@ -480,6 +482,7 @@ async fn test_repository_list_filtered_by_tenant() -> Result<()> {
         Query(ListRepositoriesQuery {
             page: None,
             limit: None,
+            status: None,
         }),
     )
     .await
@@ -499,6 +502,7 @@ async fn test_repository_list_filtered_by_tenant() -> Result<()> {
         Query(ListRepositoriesQuery {
             page: None,
             limit: None,
+            status: None,
         }),
     )
     .await

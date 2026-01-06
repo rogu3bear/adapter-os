@@ -2,6 +2,8 @@
 //!
 //! Run with: cargo run --example train_simple_adapter
 
+#![allow(clippy::field_reassign_with_default)]
+
 use adapteros_lora_worker::training::{
     AdapterPackager, LoRAQuantizer, MicroLoRATrainer, TrainingConfig, TrainingExample,
 };

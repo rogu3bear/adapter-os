@@ -11,6 +11,7 @@
 //! 4. Human submits review via API
 //! 5. Registry resumes the paused inference with review context
 //! 6. Inference continues with review incorporated
+#![allow(clippy::let_underscore_future)]
 
 use std::collections::HashMap;
 use std::time::Instant;

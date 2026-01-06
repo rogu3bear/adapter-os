@@ -2,6 +2,9 @@
 //!
 //! Tests learning rate schedules, early stopping, checkpoints, and GPU training
 
+#![allow(unused_imports)]
+#![allow(clippy::useless_vec)]
+
 use adapteros_lora_worker::training::{
     CheckpointManager, EarlyStopping, EarlyStoppingConfig, LRScheduleType, LRScheduler,
     LRSchedulerConfig, LoRAWeights, MicroLoRATrainer, TrainingConfig, TrainingExample,

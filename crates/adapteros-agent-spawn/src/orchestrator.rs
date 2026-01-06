@@ -391,8 +391,10 @@ mod tests {
 
     #[test]
     fn test_invalid_config() {
-        let mut config = AgentSpawnConfig::default();
-        config.agent_count = 0;
+        let config = AgentSpawnConfig {
+            agent_count: 0,
+            ..Default::default()
+        };
 
         let result = AgentOrchestrator::new(config);
         assert!(result.is_err());

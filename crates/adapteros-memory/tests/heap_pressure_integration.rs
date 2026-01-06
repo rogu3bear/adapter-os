@@ -2,6 +2,8 @@
 //!
 //! Tests the interaction between heap observation and memory pressure management.
 //! Simulates realistic memory pressure scenarios and validates correct behavior.
+#![allow(clippy::identity_op)]
+#![allow(clippy::manual_range_contains)]
 
 use adapteros_core::B3Hash;
 use adapteros_memory::{HeapAllocation, HeapObserverMemoryStats, HeapState};

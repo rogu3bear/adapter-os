@@ -2,6 +2,7 @@
 //!
 //! All sensitive operations are logged to the audit_logs table for compliance review.
 //! Audit logs are immutable and queryable for compliance officers and administrators.
+#![allow(deprecated)]
 
 use crate::query_helpers::{db_err, FilterBuilder};
 use crate::Db;

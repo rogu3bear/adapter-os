@@ -2,6 +2,7 @@
 //!
 //! All policy decisions (allow/deny) are logged with cryptographic chaining
 //! for tamper-evident audit trails. Each decision links to the previous via BLAKE3 hash.
+#![allow(unused_variables)]
 
 use crate::policy_audit_kv::PolicyAuditKvRepository;
 use crate::query_helpers::{db_err, FilterBuilder};

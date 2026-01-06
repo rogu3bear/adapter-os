@@ -6,6 +6,8 @@
 //! - Error explanations
 //! - Error categorization
 
+#![allow(deprecated)]
+
 use adapteros_cli::error_codes::{all_error_codes, get_error_code, ECode, ErrorCode};
 
 #[cfg(test)]

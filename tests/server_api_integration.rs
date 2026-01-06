@@ -282,6 +282,7 @@ fn build_stub_response(adapter_id: &str, backend: &str) -> WorkerInferResponse {
         stop_reason_code: None,
         stop_reason_token_index: None,
         stop_policy_digest_b3: None,
+        tokenizer_digest_b3: None,
     }
 }
 

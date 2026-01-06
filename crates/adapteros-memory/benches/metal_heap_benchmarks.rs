@@ -16,7 +16,6 @@ use adapteros_memory::{
 };
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use std::collections::HashMap;
-use std::sync::Arc;
 use uuid::Uuid;
 
 // ============================================================================

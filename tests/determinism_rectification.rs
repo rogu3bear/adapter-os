@@ -135,6 +135,7 @@ fn test_router_determinism_with_decision_hash() {
     let adapter_info: Vec<adapteros_lora_router::AdapterInfo> = (0..5)
         .map(|i| adapteros_lora_router::AdapterInfo {
             id: format!("adapter_{}", i),
+            stable_id: i as u64,
             framework: None,
             languages: vec![0],
             tier: "persistent".to_string(),

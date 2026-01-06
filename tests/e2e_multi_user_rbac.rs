@@ -12,6 +12,10 @@
 //! - Permissions: [source: AGENTS.md L250-L280]
 //! - ApiTestHarness: [source: tests/common/test_harness.rs]
 
+#![allow(clippy::unnecessary_unwrap)]
+#![allow(clippy::expect_fun_call)]
+#![allow(clippy::clone_on_copy)]
+
 mod common;
 
 use adapteros_db::users::Role;

@@ -353,6 +353,7 @@ impl RouterDiag {
 }
 
 #[cfg(test)]
+#[allow(clippy::excessive_precision)]
 mod tests {
     use super::*;
     use adapteros_diagnostics::NoopDiagEmitter;

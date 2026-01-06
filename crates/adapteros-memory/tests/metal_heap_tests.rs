@@ -9,6 +9,7 @@
 //!
 //! Run hardware tests with:
 //!   cargo test --test metal_heap_tests -- --ignored --nocapture
+#![allow(clippy::bool_comparison)]
 
 use adapteros_core::B3Hash;
 use adapteros_memory::{

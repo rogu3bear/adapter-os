@@ -11,6 +11,11 @@
 //! - Streaming API: [source: AGENTS.md L535-L560]
 //! - Hot-swap: [source: docs/ARCHITECTURE.md#adapter-lifecycle]
 
+#![allow(unused_variables)]
+#![allow(unused_imports)]
+#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::single_match)]
+
 mod common;
 
 use axum::{

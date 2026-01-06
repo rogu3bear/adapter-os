@@ -12,6 +12,10 @@
 //! - Policy implementations: [source: crates/adapteros-policy/src/packs/]
 //! - ApiTestHarness: [source: tests/common/test_harness.rs]
 
+#![allow(unused_variables)]
+#![allow(clippy::len_zero)]
+#![allow(clippy::assertions_on_constants)]
+
 mod common;
 
 use axum::{

@@ -12,6 +12,7 @@
 //! - NULL constraint violations
 //! - Invalid workflow type rejected
 //! - Stack name parse error handling
+#![allow(clippy::unnecessary_unwrap)]
 
 use adapteros_db::sqlite_backend::SqliteBackend;
 use adapteros_db::traits::{CreateStackRequest, DatabaseBackend};

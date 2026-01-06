@@ -412,7 +412,7 @@ mod tests {
             &["AOS_DEV_SKIP_METALLIB_CHECK"],
             "metallib hash verification",
         );
-        assert_eq!(result.unwrap_or(false), true);
+        assert!(result.unwrap_or(false));
 
         restore_env("AOS_DEV_SKIP_METALLIB_CHECK", skip_prev);
         restore_env("AOS_SERVER_PRODUCTION_MODE", prod_prev);

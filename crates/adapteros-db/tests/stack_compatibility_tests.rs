@@ -9,6 +9,7 @@
 //! - Adapter not found error handling
 //! - Attach mode validation (dataset requirements)
 //! - Empty adapter list validation
+#![allow(dead_code)]
 
 use adapteros_db::sqlite_backend::SqliteBackend;
 use adapteros_db::traits::{CreateStackRequest, DatabaseBackend};

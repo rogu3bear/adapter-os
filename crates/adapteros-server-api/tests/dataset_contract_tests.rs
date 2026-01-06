@@ -3,6 +3,8 @@
 //! Verifies the contract between Rust backend and TypeScript frontend
 //! for Dataset endpoints.
 
+#![allow(clippy::needless_borrows_for_generic_args)]
+
 use adapteros_api_types::training::{
     DatasetResponse, DatasetValidationStatus, DatasetVersionSummary, DatasetVersionsResponse,
     ValidateDatasetResponse,

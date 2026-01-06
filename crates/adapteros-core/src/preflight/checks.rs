@@ -639,7 +639,7 @@ mod tests {
 
         // Without skip - should fail
         let config = PreflightConfig::new();
-        let result = run_preflight(&adapter, &db, &config).await;
+        let _result = run_preflight(&adapter, &db, &config).await;
         // Note: This passes because repo_id is None in valid_adapter()
         // Conflict check is skipped when no scope fields are set
 

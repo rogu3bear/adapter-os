@@ -8,6 +8,7 @@
 //! The factory uses a per-worker model cache to deduplicate loaded models.
 //! Models are cached by `(backend_type, manifest_hash, kernel_version, quantization, fusion_mode)`
 //! to align with the context manifest and avoid cross-build reuse.
+#![allow(clippy::items_after_test_module)]
 
 mod cache;
 pub mod capabilities;

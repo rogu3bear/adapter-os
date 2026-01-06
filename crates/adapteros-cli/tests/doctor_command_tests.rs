@@ -1,5 +1,7 @@
 //! Integration tests for the aosctl doctor command
 
+#![allow(clippy::len_zero)]
+
 use std::process::Command;
 
 #[test]

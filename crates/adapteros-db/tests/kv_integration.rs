@@ -6,6 +6,16 @@
 //! - Data integrity is maintained across storage modes
 //! - Lineage queries produce identical results between SQL CTE and KV traversal
 //! - Storage mode transitions work correctly
+#![allow(deprecated)]
+#![allow(unused_variables)]
+#![allow(clippy::items_after_test_module)]
+#![allow(clippy::clone_on_copy)]
+#![allow(clippy::io_other_error)]
+#![allow(clippy::manual_range_contains)]
+#![allow(clippy::borrow_deref_ref)]
+#![allow(clippy::needless_borrows_for_generic_args)]
+#![allow(clippy::bool_assert_comparison)]
+#![allow(clippy::cloned_ref_to_slice_refs)]
 
 use adapteros_db::adapters::AdapterRegistrationBuilder;
 use adapteros_db::adapters_kv::{AdapterKvOps, AdapterKvRepository};

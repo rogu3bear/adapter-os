@@ -16,7 +16,7 @@ use adapteros_manifest::{
     IsolationPolicy, ManifestV3, MemoryPolicy, NumericPolicy, PerformancePolicy, Policies,
     RagPolicy, RefusalPolicy, RouterCfg, Sampling, Seeds, TelemetryCfg,
 };
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 /// Create a minimal valid manifest for testing
 fn create_test_manifest() -> ManifestV3 {

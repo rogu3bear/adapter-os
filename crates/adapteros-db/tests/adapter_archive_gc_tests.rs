@@ -9,6 +9,8 @@
 //! - Loadability checks
 //! - Unarchive operations
 //! - Invariant enforcement (cannot purge non-archived, cannot unarchive purged)
+#![allow(deprecated)]
+#![allow(clippy::needless_borrows_for_generic_args)]
 
 use adapteros_db::Db;
 use uuid::Uuid;

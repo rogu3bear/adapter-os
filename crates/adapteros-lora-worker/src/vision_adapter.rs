@@ -5,6 +5,7 @@
 //! [`crate::conv_pipeline`].  The implementation mirrors the behaviour of the
 //! high level domain adapter so that deterministic tests can be executed on the
 //! worker side without specialised hardware.
+#![allow(clippy::useless_vec)]
 
 use std::time::Instant;
 

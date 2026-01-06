@@ -272,7 +272,7 @@ mod tests {
     #[tokio::test]
     async fn test_spawner_tracks_tasks() {
         let coordinator = ShutdownCoordinator::new();
-        let mut spawner = BackgroundTaskSpawner::new(coordinator);
+        let spawner = BackgroundTaskSpawner::new(coordinator);
 
         // Note: spawn_deterministic requires the executor to be initialized,
         // which won't work in unit tests. This test just verifies the struct works.

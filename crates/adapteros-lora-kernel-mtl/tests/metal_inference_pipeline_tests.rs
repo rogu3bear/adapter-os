@@ -9,7 +9,13 @@
 //! Run with: cargo test -p adapteros-lora-kernel-mtl --test metal_inference_pipeline_tests
 
 #![cfg(target_os = "macos")]
+#![allow(clippy::expect_fun_call)]
+#![allow(clippy::useless_vec)]
+#![allow(clippy::new_without_default)]
+#![allow(clippy::manual_slice_size_calculation)]
+#![allow(clippy::too_many_arguments)]
 
+use adapteros_lora_kernel_api::FusedKernels;
 use metal::{Buffer, CompileOptions, Device, MTLResourceOptions, MTLSize};
 use std::sync::Arc;
 use std::time::Instant;
