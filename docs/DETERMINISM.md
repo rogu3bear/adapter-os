@@ -2,7 +2,7 @@
 
 **Purpose:** Comprehensive documentation for deterministic execution, reproducibility, RAG determinism, and replay systems in AdapterOS
 
-**Last Updated:** 2025-12-11
+**Last Updated:** 2026-01-05
 
 ---
 
@@ -430,6 +430,12 @@ Documents retrieved from the RAG index are ordered by:
 2. **doc_id ASC** - Alphabetical document ID for tie-breaking
 
 This ensures identical queries against identical database state return documents in the same order every time.
+
+### NaN Handling Policy
+
+- Comparisons treat NaN scores as `Ordering::Equal` to avoid panics.
+- Stable tie-breakers (like `doc_id ASC`) define the final order.
+- Do not call `partial_cmp(...).unwrap()` in scoring paths.
 
 ### Implementation
 
