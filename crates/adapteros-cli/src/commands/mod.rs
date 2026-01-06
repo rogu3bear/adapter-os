@@ -119,3 +119,6 @@ pub mod verify_adapters;
 pub mod verify_determinism_loop;
 pub mod verify_gpu;
 pub mod verify_receipt;
+
+pub const NOT_IMPLEMENTED_MESSAGE: &str =
+    "This command is not yet implemented. Track progress at: https://github.com/rogu3bear/adapter-os/issues/194";
