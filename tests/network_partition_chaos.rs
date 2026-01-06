@@ -233,8 +233,14 @@ async fn test_circuit_breaker_opens_on_partition() {
     }
 
     let metrics = network.metrics();
-    assert!(metrics.partition_failures > 0, "Should have partition failures");
-    println!("✓ Partition failures recorded: {}", metrics.partition_failures);
+    assert!(
+        metrics.partition_failures > 0,
+        "Should have partition failures"
+    );
+    println!(
+        "✓ Partition failures recorded: {}",
+        metrics.partition_failures
+    );
 }
 
 /// Test circuit breaker recovers after partition heals
@@ -340,7 +346,11 @@ async fn test_high_latency_handling() {
     // Test with timeout that's shorter than latency
     network.set_latency(200);
     let start = Instant::now();
-    let result = timeout(Duration::from_millis(100), worker.process("timeout_request")).await;
+    let result = timeout(
+        Duration::from_millis(100),
+        worker.process("timeout_request"),
+    )
+    .await;
 
     match result {
         Err(_) => {
@@ -385,7 +395,10 @@ async fn test_split_brain_scenario() {
     for _ in 0..5 {
         let _ = worker_a.process("fail").await;
     }
-    assert!(matches!(worker_a.circuit_state(), CircuitState::Open { .. }));
+    assert!(matches!(
+        worker_a.circuit_state(),
+        CircuitState::Open { .. }
+    ));
     println!("✓ Worker A circuit opened during partition");
 
     // Heal and verify both recover
@@ -472,7 +485,9 @@ async fn test_circuit_breaker_metrics_during_partition() {
     let metrics_before = worker.circuit_breaker.metrics();
     println!(
         "Before partition: requests={}, successes={}, failures={}",
-        metrics_before.requests_total, metrics_before.successes_total, metrics_before.failures_total
+        metrics_before.requests_total,
+        metrics_before.successes_total,
+        metrics_before.failures_total
     );
 
     // Partition and generate failures
@@ -516,7 +531,7 @@ async fn test_graceful_degradation() {
 
     // Create circuit breaker with more forgiving thresholds
     let config = CircuitBreakerConfig {
-        failure_threshold: 5,  // More tolerant
+        failure_threshold: 5, // More tolerant
         success_threshold: 2,
         timeout_ms: 300,
         half_open_max_requests: 5,
@@ -594,7 +609,10 @@ async fn test_concurrent_requests_during_partition() {
             let mut local_failures = 0;
 
             for j in 0..5 {
-                match worker_clone.process(&format!("concurrent_{}_{}", i, j)).await {
+                match worker_clone
+                    .process(&format!("concurrent_{}_{}", i, j))
+                    .await
+                {
                     Ok(_) => local_successes += 1,
                     Err(_) => local_failures += 1,
                 }

@@ -514,7 +514,7 @@ impl FusedKernels for HybridCoreMLBackend {
     fn attest_determinism(&self) -> Result<DeterminismReport> {
         Ok(DeterminismReport {
             backend_type: BackendType::CoreML,
-            metallib_hash: None, // Hybrid uses Accelerate, not Metal
+            metallib_hash: None,      // Hybrid uses Accelerate, not Metal
             metallib_verified: false, // N/A for Accelerate
             manifest: Some(KernelManifest {
                 kernel_hash: "hybrid-accelerate-blas".to_string(),

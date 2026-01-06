@@ -122,7 +122,11 @@ impl std::fmt::Display for IngestionError {
                 )
             }
             Self::RootMismatch { claimed, computed } => {
-                write!(f, "Root mismatch: claimed {} != computed {}", claimed, computed)
+                write!(
+                    f,
+                    "Root mismatch: claimed {} != computed {}",
+                    claimed, computed
+                )
             }
             Self::SignatureInvalid { reason } => write!(f, "Invalid signature: {}", reason),
             Self::SignatureMissing => write!(f, "Signature required but missing"),
@@ -225,7 +229,9 @@ pub fn validate_for_ingestion(
                 scope: envelope.scope.as_str().to_string(),
             });
         } else {
-            errors.push(IngestionError::MultiplePayloads { count: payload_count });
+            errors.push(IngestionError::MultiplePayloads {
+                count: payload_count,
+            });
         }
     }
 
@@ -277,7 +283,9 @@ pub fn validate_for_ingestion(
                 _ => {
                     // Valid format; cryptographic verification would go here
                     // For now, emit warning that crypto verification is not yet implemented
-                    warnings.push("Signature format valid; cryptographic verification pending".to_string());
+                    warnings.push(
+                        "Signature format valid; cryptographic verification pending".to_string(),
+                    );
                 }
             }
         }
@@ -329,13 +337,15 @@ fn detect_payload_scope(envelope: &EvidenceEnvelope) -> Option<EvidenceScope> {
 /// Compute envelope root from payload reference (standalone function).
 pub fn compute_envelope_root(envelope: &EvidenceEnvelope) -> Option<B3Hash> {
     match envelope.scope {
-        EvidenceScope::Telemetry => envelope.bundle_metadata_ref.as_ref().map(|r| {
-            B3Hash::hash_multi(&[r.bundle_hash.as_bytes(), r.merkle_root.as_bytes()])
-        }),
+        EvidenceScope::Telemetry => envelope
+            .bundle_metadata_ref
+            .as_ref()
+            .map(|r| B3Hash::hash_multi(&[r.bundle_hash.as_bytes(), r.merkle_root.as_bytes()])),
         EvidenceScope::Policy => envelope.policy_audit_ref.as_ref().map(|r| r.entry_hash),
-        EvidenceScope::Inference => {
-            envelope.inference_receipt_ref.as_ref().map(|r| r.receipt_digest)
-        }
+        EvidenceScope::Inference => envelope
+            .inference_receipt_ref
+            .as_ref()
+            .map(|r| r.receipt_digest),
     }
 }
 
@@ -1069,7 +1079,11 @@ mod tests {
             EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);
 
         let result = validate_for_ingestion(&envelope, false, 300);
-        assert!(result.is_valid, "Valid envelope should pass: {:?}", result.errors);
+        assert!(
+            result.is_valid,
+            "Valid envelope should pass: {:?}",
+            result.errors
+        );
         assert!(result.errors.is_empty());
         assert!(result.computed_root.is_some());
     }
@@ -1080,7 +1094,11 @@ mod tests {
             EvidenceEnvelope::new_policy("tenant-1".to_string(), sample_policy_ref(), None);
 
         let result = validate_for_ingestion(&envelope, false, 300);
-        assert!(result.is_valid, "Valid envelope should pass: {:?}", result.errors);
+        assert!(
+            result.is_valid,
+            "Valid envelope should pass: {:?}",
+            result.errors
+        );
     }
 
     #[test]
@@ -1089,7 +1107,11 @@ mod tests {
             EvidenceEnvelope::new_inference("tenant-1".to_string(), sample_inference_ref(), None);
 
         let result = validate_for_ingestion(&envelope, false, 300);
-        assert!(result.is_valid, "Valid envelope should pass: {:?}", result.errors);
+        assert!(
+            result.is_valid,
+            "Valid envelope should pass: {:?}",
+            result.errors
+        );
     }
 
     #[test]

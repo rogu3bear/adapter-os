@@ -55,8 +55,8 @@ pub async fn run(bundle_path: &Path, verify: bool, output: &OutputWriter) -> Res
     // Load bundle signature file (required for cryptographic verification)
     let signature_path = temp_dir.path().join("signature.sig");
     let bundle_signature_b64 = if signature_path.exists() {
-        let sig_hex = fs::read_to_string(&signature_path)
-            .context("Failed to read signature.sig file")?;
+        let sig_hex =
+            fs::read_to_string(&signature_path).context("Failed to read signature.sig file")?;
         // Convert hex signature to base64 for storage
         let sig_bytes = hex::decode(sig_hex.trim())
             .context("Failed to decode signature hex from signature.sig")?;
