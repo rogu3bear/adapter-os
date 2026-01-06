@@ -1,141 +1,112 @@
-# PRD: Tenant Usage Resource Metrics
+# PRD: Implement Real TenantUsage Resource Metrics
 
-**Status:** Draft  
-**Last Updated:** 2026-01-05  
-**Owner:** Engineering  
-**Related Docs:** docs/API_REFERENCE.md, docs/OPERATIONS.md, docs/ARCHITECTURE.md
+**Status:** Draft
+**Last Updated:** 2026-01-05
+**Owner:** Engineering
+**Related Docs:** `crates/adapteros-db/src/tenants.rs`, `crates/adapteros-api-types/src/tenants.rs`, `crates/adapteros-server-api/src/handlers/tenants.rs`
 
 ---
 
 ## 1. Summary
 
-The `TenantUsage` API currently returns zero values for storage, CPU, GPU, and memory. This PRD defines the work to compute real per-tenant metrics with caching and to keep the API fast and safe for production use.
+The TenantUsage API currently returns zero values for storage and system metrics, which makes capacity planning and dashboards unreliable. This PRD defines how to compute real tenant usage metrics using existing database state and system telemetry with a short TTL cache.
 
 ---
 
 ## 2. Problem Statement
 
-Tenant dashboards and capacity planning rely on resource usage metrics, but the API reports placeholder values. This makes operational decisions unreliable and hides actual resource consumption.
+Tenant usage endpoints expose key operational metrics, but storage, CPU, GPU, and memory values are hardcoded to zero. As a result, operators cannot see actual resource usage, and UI surfaces show misleading information.
 
 ---
 
 ## 3. Goals
 
-1. Report real `storage_used_gb` per tenant.
-2. Report GPU and memory usage where available and return 0 gracefully where not.
-3. Provide CPU usage with acceptable cost and no blocking behavior.
-4. Cache metrics with a short TTL to keep latency below 50ms.
+- Report accurate storage consumption per tenant based on persisted artifacts and datasets.
+- Report system CPU/GPU/memory usage with a bounded refresh interval.
+- Preserve tenant isolation (no cross-tenant aggregation leakage).
+- Keep API latency under 50 ms with caching.
 
 ---
 
 ## 4. Non-Goals
 
-- Building a new monitoring or telemetry pipeline.
-- Providing per-process or per-request GPU metrics.
-- Changing the `TenantUsage` API shape beyond populating existing fields.
+- Per-adapter or per-request time series analytics.
+- Adding new external monitoring dependencies.
+- Real-time GPU per-tenant attribution (only system-level metrics in this phase).
+- Changes to billing or quota enforcement logic.
 
 ---
 
-## 5. Proposed Approach
+## 5. Current State
 
-- Compute storage from existing database artifacts and dataset size tables.
-- Read GPU memory stats from the Metal kernel pool when available.
-- Use system memory and CPU metrics from a lightweight system snapshot.
-- Cache computed results with a 5-second TTL to protect API latency.
-
----
-
-## 6. Requirements and Implementation Plan
-
-### R1: Storage Metrics
-
-**Requirement:** `storage_used_gb` sums artifact and dataset sizes per tenant.
-
-**Implementation Tasks:**
-- Add a query to sum `artifacts.size_bytes` by tenant.
-- Add a query to sum `training_datasets.total_size_bytes` by tenant.
-- Convert to GiB with stable constants.
-
-**Acceptance Criteria:**
-- Storage value equals the sum of known test fixtures.
-- Empty tenants return 0.0 without errors.
+- `TenantUsage` in `crates/adapteros-db/src/tenants.rs` sets storage/CPU/GPU/memory to 0.0.
+- `TenantUsageResponse` in `crates/adapteros-api-types/src/tenants.rs` does not include storage metrics.
+- GPU memory stats exist in `adapteros-lora-kernel-mtl`, but are not wired into API responses.
 
 ---
 
-### R2: GPU Usage Metrics
+## 6. Proposed Approach
 
-**Requirement:** `gpu_usage_pct` reflects current GPU memory utilization when available.
+### 6.1 Storage Calculation
 
-**Implementation Tasks:**
-- Read `GpuMemoryStats` from the Metal pool when the backend is enabled.
-- Return 0.0 when GPU stats are unavailable.
+- Sum artifact sizes from the artifacts table for the tenant.
+- Sum training dataset sizes for the tenant.
+- Convert bytes to GB using 1024 * 1024 * 1024.
 
-**Acceptance Criteria:**
-- GPU usage is non-zero when allocations exist.
-- Systems without GPU support return 0.0.
+### 6.2 System Metrics
 
----
+- Use `sysinfo` for CPU and memory usage.
+- Use `adapteros-lora-kernel-mtl` GPU stats where available; return 0 when no GPU or feature disabled.
+- Keep all metrics collection non-blocking and fail-open (return 0 on errors).
 
-### R3: Memory and CPU Metrics
+### 6.3 Caching
 
-**Requirement:** `memory_used_gb`, `memory_total_gb`, and `cpu_usage_pct` are populated.
+- Cache computed metrics per tenant with a 5 second TTL.
+- Use an in-memory cache (DashMap or similar) scoped to the API layer.
 
-**Implementation Tasks:**
-- Capture system metrics with a lightweight snapshot.
-- Convert bytes to GiB and compute CPU percent.
+### 6.4 API Contract Updates
 
-**Acceptance Criteria:**
-- Values are within expected ranges for a test environment.
-- No blocking or long-running sampling in the request path.
+- Add `storage_used_gb` to `TenantUsageResponse` to align with DB model.
+- Document which fields are system-level (CPU/GPU/memory) vs tenant-scoped (storage).
 
 ---
 
-### R4: Metrics Caching
+## 7. Acceptance Criteria
 
-**Requirement:** Metrics are cached with a 5-second TTL.
-
-**Implementation Tasks:**
-- Add a cache keyed by tenant id.
-- Recompute metrics only when the cache is stale.
-
-**Acceptance Criteria:**
-- Repeated calls within TTL return cached values.
-- Cache refresh does not exceed 50ms per request.
+- `storage_used_gb` reflects the sum of tenant artifacts and datasets.
+- `cpu_usage_pct`, `gpu_usage_pct`, and `memory_used_gb` report non-zero values on supported systems.
+- Metrics refresh within 5 seconds of changes.
+- API responses remain under 50 ms on steady state.
+- Unit tests validate storage calculations against known values.
 
 ---
 
-### R5: Tests and Documentation
+## 8. Test Plan
 
-**Requirement:** Coverage and docs reflect the new metrics.
-
-**Implementation Tasks:**
-- Add unit tests for storage calculations and cache behavior.
-- Add tests for GPU/memory fallback paths.
-- Update API docs with metric definitions.
-
-**Acceptance Criteria:**
-- Tests pass for both GPU-present and GPU-absent environments.
-- API docs describe units and caching behavior.
+- Unit tests for SQL aggregation queries (artifacts and training datasets).
+- Unit tests for cache TTL behavior.
+- Integration test that isolates two tenants and ensures storage metrics do not leak.
+- Conditional test for GPU stats when Metal feature is enabled.
 
 ---
 
-## 7. Test Plan
+## 9. Rollout Plan
 
-- Unit tests for storage sums and cache TTL behavior.
-- Integration test to validate non-zero metrics with seeded data.
-- Regression test to ensure metrics return 0.0 on systems without GPU.
-
----
-
-## 8. Rollout Plan
-
-1. Phase 1: Ship storage metrics and caching.
-2. Phase 2: Add GPU and memory metrics with safe fallbacks.
-3. Phase 3: Tune caching and document operational guidance.
+1. Phase 1: Storage metrics from DB queries with caching.
+2. Phase 2: System CPU and memory metrics via `sysinfo`.
+3. Phase 3: GPU usage metrics when Metal backend is available.
 
 ---
 
-## 9. Open Questions
+## 10. Follow-up Tasks (Tracked)
 
-1. Should CPU usage be host-wide or scoped to AdapterOS processes?
-2. Do we need per-tenant GPU metrics or only system-level utilization?
+- TASK-1: Implement storage aggregation queries for artifacts and datasets.
+  - Acceptance: unit tests cover empty and non-empty tenant cases.
+- TASK-2: Add system metrics collection with `sysinfo` and guard rails.
+  - Acceptance: metrics return 0 on unsupported platforms without panics.
+- TASK-3: Add GPU stats wiring for Metal backend.
+  - Acceptance: GPU usage percentage is computed from pool stats when enabled.
+- TASK-4: Add 5-second TTL cache in API layer.
+  - Acceptance: repeated calls within TTL do not re-query DB.
+- TASK-5: Update API types to include `storage_used_gb` and document field semantics.
+  - Acceptance: schema and OpenAPI docs updated.
