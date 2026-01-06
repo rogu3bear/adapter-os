@@ -13,15 +13,15 @@ fn main() {
     println!("║                      SUPERBACKEND CONTROL SYSTEM                            ║");
     println!("║                                                                              ║");
     println!("╚══════════════════════════════════════════════════════════════════════════════╝");
-    println!("");
+    println!();
     println!("STATUS BAR WITH PERFECT ALIGNMENT:");
     println!("╔══════════════════════════════════════════════════╦═══════════════════════════╗");
     println!("║ Model: llama-7b-lora-q15      │ Status: [OK]     ║ ▣ LIVE │ Mem:  33% │ Q: 2 ║");
     println!("║                               │ Mode: DEV        ║  ⟳ 1s  │ TPS: 842  │      ║");
     println!("╚══════════════════════════════════════════════════╩═══════════════════════════╝");
-    println!("");
+    println!();
     println!("Note the vertical bars │ align PERFECTLY between rows!");
-    println!("");
+    println!();
     println!("SYSTEM STATUS WITH ALIGNED COLUMNS:");
     println!("╔══════════════════════════════════════════════════════════════════════════════╗");
     println!("║ [OK] Database        │ Connected    │ Latency: 1.2ms                        ║");
@@ -31,7 +31,7 @@ fn main() {
     println!("║ Services: 2 running, 4 stopped, 0 failed                                    ║");
     println!("║ Memory Headroom: 15.0% [Good >= 15%]                                        ║");
     println!("╚══════════════════════════════════════════════════════════════════════════════╝");
-    println!("");
+    println!();
     println!("SERVICE TABLE WITH PERFECT COLUMNS:");
     println!("╔══════════════════════════════════════════════════════════════════════════════╗");
     println!("║     Status  Service              State      Dependencies      Action        ║");
@@ -43,7 +43,7 @@ fn main() {
     println!("║     [--]    Training Service      Stopped    Database,Router   [Start]      ║");
     println!("║     [--]    Telemetry             Stopped    Metrics           [Start]      ║");
     println!("╚══════════════════════════════════════════════════════════════════════════════╝");
-    println!("");
+    println!();
     println!("MAIN MENU WITH ALIGNED COLUMNS:");
     println!("╔══════════════════════════════════════════════════════════════════════════════╗");
     println!("║  > Boot All Services          [Ready to boot]                               ║");
@@ -54,7 +54,7 @@ fn main() {
     println!("║    Edit Settings              [All valid]                                   ║");
     println!("║    Toggle Production Mode     [Currently: DEV]                              ║");
     println!("╚══════════════════════════════════════════════════════════════════════════════╝");
-    println!("");
+    println!();
     println!("Every vertical line │ aligns perfectly across all rows!");
     println!("Every column has fixed width for perfect alignment!");
 }

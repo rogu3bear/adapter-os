@@ -41,7 +41,7 @@ fn main() -> Result<()> {
     let config_path = env::var("AOS_COREML_CONFIG")
         .ok()
         .map(PathBuf::from)
-        .or_else(|| Some(default_config))
+        .or(Some(default_config))
         .and_then(|p| p.canonicalize().ok());
 
     let steps: usize = env::var("COREML_BENCH_STEPS")
