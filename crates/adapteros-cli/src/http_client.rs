@@ -102,6 +102,7 @@ mod tests {
         Router,
     };
     use chrono::Utc;
+    use serial_test::serial;
     use std::{net::SocketAddr, sync::Arc};
     use tempfile::TempDir;
     use tokio::net::TcpListener;
@@ -184,10 +185,14 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn send_with_refresh_retries_on_401() {
         let temp = new_test_tempdir();
         let auth_path = temp.path().join("auth.json");
-        std::env::set_var("AOSCTL_AUTH_PATH", &auth_path);
+        // Safety: this test is serialized to avoid concurrent env mutations.
+        unsafe {
+            std::env::set_var("AOSCTL_AUTH_PATH", &auth_path);
+        }
 
         let (base_url, handle) = start_server(ServerState {
             expected_refresh: "refresh-123".to_string(),
@@ -220,10 +225,14 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn send_with_refresh_fails_when_refresh_denied() {
         let temp = new_test_tempdir();
         let auth_path = temp.path().join("auth.json");
-        std::env::set_var("AOSCTL_AUTH_PATH", &auth_path);
+        // Safety: this test is serialized to avoid concurrent env mutations.
+        unsafe {
+            std::env::set_var("AOSCTL_AUTH_PATH", &auth_path);
+        }
 
         let (base_url, handle) = start_server(ServerState {
             expected_refresh: "other".to_string(),

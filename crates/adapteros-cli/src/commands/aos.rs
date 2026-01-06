@@ -22,6 +22,7 @@
 // ============================================================================
 
 use super::aos_impl;
+use crate::commands::NOT_IMPLEMENTED_MESSAGE;
 use crate::output::OutputWriter;
 use adapteros_core::{AosError, Result};
 use adapteros_crypto::Keypair;
@@ -56,9 +57,9 @@ pub enum AosCmd {
     Extract(ExtractArgs), // COORDINATION: Affects SingleFileAdapterLoader
     /// Show .aos file information
     Info(InfoArgs), // COORDINATION: Affects UI display components
-    /// Migrate .aos file to current format version
+    /// Migrate .aos file to current format version [NOT IMPLEMENTED]
     Migrate(MigrateArgs), // COORDINATION: Affects format version compatibility
-    /// Convert .aos file between formats (ZIP <-> AOS 2.0)
+    /// Convert .aos file between formats (ZIP <-> AOS 2.0) [NOT IMPLEMENTED]
     Convert(ConvertArgs), // COORDINATION: Format conversion
 }
 
@@ -740,14 +741,12 @@ async fn info_aos(args: InfoArgs, output: &OutputWriter) -> Result<()> {
 
 async fn migrate_aos(_args: MigrateArgs, output: &OutputWriter) -> Result<()> {
     output.warning("aos migrate command is not yet implemented");
-    Err(AosError::Config(
-        "aos migrate: not yet implemented".to_string(),
-    ))
+    output.info(NOT_IMPLEMENTED_MESSAGE);
+    Err(AosError::Config(NOT_IMPLEMENTED_MESSAGE.to_string()))
 }
 
 async fn convert_aos(_args: ConvertArgs, output: &OutputWriter) -> Result<()> {
     output.warning("aos convert command is not yet implemented");
-    Err(AosError::Config(
-        "aos convert: not yet implemented".to_string(),
-    ))
+    output.info(NOT_IMPLEMENTED_MESSAGE);
+    Err(AosError::Config(NOT_IMPLEMENTED_MESSAGE.to_string()))
 }
