@@ -1311,6 +1311,9 @@ Examples:
         /// Directory containing adapters
         #[arg(short, long)]
         dir: PathBuf,
+        /// Path to trusted public key file (required)
+        #[arg(long)]
+        public_key: PathBuf,
         /// CAS root directory
         #[arg(long, default_value = "./var/cas")]
         cas_root: PathBuf,
@@ -2123,6 +2126,7 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
 
         Commands::RegistrySyncDeprecated {
             dir,
+            public_key,
             cas_root,
             registry: registry_path,
         } => {
@@ -2132,6 +2136,7 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             registry::handle_registry_command(
                 registry::RegistryCommand::Sync {
                     dir: dir.clone(),
+                    public_key: public_key.clone(),
                     cas_root: cas_root.clone(),
                     registry: registry_path.clone(),
                 },

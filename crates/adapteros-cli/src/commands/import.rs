@@ -2,6 +2,7 @@
 
 use crate::output::OutputWriter;
 use adapteros_artifacts::bundle;
+use adapteros_core::B3Hash;
 use adapteros_db::Db;
 use adapteros_platform::common::PlatformUtils;
 use anyhow::{Context, Result};
@@ -48,6 +49,28 @@ pub async fn run(bundle_path: &Path, verify: bool, output: &OutputWriter) -> Res
     let sbom_path = temp_dir.path().join("sbom.json");
     let sbom_content = fs::read_to_string(&sbom_path).context("Failed to read SBOM file")?;
 
+    // Compute SBOM hash for signature context
+    let sbom_hash = B3Hash::hash(sbom_content.as_bytes());
+
+    // Load bundle signature file (required for cryptographic verification)
+    let signature_path = temp_dir.path().join("signature.sig");
+    let bundle_signature_b64 = if signature_path.exists() {
+        let sig_hex = fs::read_to_string(&signature_path)
+            .context("Failed to read signature.sig file")?;
+        // Convert hex signature to base64 for storage
+        let sig_bytes = hex::decode(sig_hex.trim())
+            .context("Failed to decode signature hex from signature.sig")?;
+        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &sig_bytes)
+    } else {
+        return Err(anyhow::anyhow!(
+            "Bundle is missing signature.sig file. \
+            Imported artifacts require cryptographic signatures for chain-of-custody. \
+            Use `aosctl verify bundle` to check bundle integrity before import."
+        ));
+    };
+
+    output.success("Bundle signature file found");
+
     let sbom: serde_json::Value =
         serde_json::from_str(&sbom_content).context("Failed to parse SBOM JSON")?;
 
@@ -90,18 +113,20 @@ pub async fn run(bundle_path: &Path, verify: bool, output: &OutputWriter) -> Res
         fs::write(&cas_path, &content)
             .with_context(|| format!("Failed to write to CAS: {}", hash))?;
 
-        // Get signature (placeholder)
-        let signature = "placeholder_signature_base64";
+        // Use the bundle signature for artifact provenance
+        // The bundle signature signs the SBOM which contains the artifact hash,
+        // providing cryptographic chain-of-custody for all artifacts in the bundle.
+        let artifact_signature = &bundle_signature_b64;
 
         // Get size
         let size_bytes = content.len() as i64;
 
-        // Insert into database
+        // Insert into database with real signature and SBOM hash reference
         db.create_artifact(
             hash,
             kind,
-            signature,
-            None,
+            artifact_signature,
+            Some(sbom_hash.to_hex().as_str()),
             size_bytes,
             cas_path
                 .to_str()
