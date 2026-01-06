@@ -7,6 +7,7 @@
 use crate::output::OutputWriter;
 use adapteros_artifacts::CasStore;
 use adapteros_core::{AosError, B3Hash, Result};
+use adapteros_crypto::{PublicKey, Signature};
 use adapteros_registry::Registry;
 use adapteros_sbom::SpdxDocument;
 use clap::{Parser, Subcommand};
@@ -46,12 +47,18 @@ pub enum RegistryCommand {
     /// SBOM and signature files, validates them, and imports into the
     /// Content-Addressable Store (CAS) and registry database.
     #[command(
-        after_help = "Examples:\n  aosctl registry sync --dir ./adapters\n  aosctl registry sync --dir ./adapters --cas-root ./var/cas\n  aosctl registry sync --dir ./adapters --registry ./var/custom.db"
+        after_help = "Examples:\n  aosctl registry sync --dir ./adapters --public-key ./keys/trusted.pub\n  aosctl registry sync --dir ./adapters --public-key ./keys/trusted.pub --cas-root ./var/cas\n  aosctl registry sync --dir ./adapters --public-key ./keys/trusted.pub --registry ./var/custom.db"
     )]
     Sync {
         /// Directory containing adapters with SBOM and signatures
         #[arg(short, long)]
         dir: PathBuf,
+
+        /// Path to trusted public key file (hex-encoded Ed25519 public key, 64 hex chars).
+        /// Required for signature verification. Adapters will only be imported if their
+        /// signature validates against this public key.
+        #[arg(long)]
+        public_key: PathBuf,
 
         /// CAS root directory
         #[arg(long, default_value = "./var/cas")]
@@ -82,29 +89,11 @@ fn get_registry_command_name(cmd: &RegistryCommand) -> String {
 }
 
 /// Handle registry management commands
-///
-/// Routes registry subcommands to appropriate handlers:
-/// - `sync` -> sync_registry()
-/// - `migrate` -> run_migrate()
-///
-/// # Arguments
-///
-/// * `cmd` - The registry subcommand to execute
-/// * `output` - Output writer for formatted console output
-///
-/// # Errors
-///
-/// Returns error if:
-/// - Sync directory does not exist or is not readable
-/// - Registry database cannot be opened or created
-/// - Migration source database does not exist
-/// - Migration fails due to schema incompatibility
 pub async fn handle_registry_command(cmd: RegistryCommand, output: &OutputWriter) -> Result<()> {
     let command_name = get_registry_command_name(&cmd);
 
     info!(command = ?cmd, "Handling registry command");
 
-    // Emit telemetry
     if let Err(e) = crate::cli_telemetry::emit_cli_command(&command_name, None, true).await {
         tracing::debug!(error = %e, command = %command_name, "Telemetry emit failed (non-fatal)");
     }
@@ -112,19 +101,15 @@ pub async fn handle_registry_command(cmd: RegistryCommand, output: &OutputWriter
     match cmd {
         RegistryCommand::Sync {
             dir,
+            public_key,
             cas_root,
             registry,
-        } => sync_registry(&dir, &cas_root, &registry, output)
+        } => sync_registry(&dir, &public_key, &cas_root, &registry, output)
             .await
             .map_err(|e| AosError::Registry(e.to_string())),
         RegistryCommand::Migrate(args) => run_migrate(args, output).await,
     }
 }
-
-// ============================================================
-// Registry Sync Implementation
-// (consolidated from sync_registry.rs)
-// ============================================================
 
 #[derive(Serialize)]
 struct SyncResult {
@@ -135,11 +120,18 @@ struct SyncResult {
 /// Sync adapters from a local directory into CAS with SBOM and signature verification
 pub async fn sync_registry(
     sync_dir: &Path,
+    public_key_path: &Path,
     cas_root: &Path,
     registry_path: &Path,
     output: &OutputWriter,
 ) -> anyhow::Result<()> {
     output.info(format!("Syncing adapters from {}", sync_dir.display()));
+
+    let public_key = load_public_key(public_key_path)?;
+    output.info(format!(
+        "Loaded trusted public key from {}",
+        public_key_path.display()
+    ));
 
     let cas = CasStore::new(cas_root)?;
     let registry = Registry::open(registry_path)?;
@@ -158,7 +150,6 @@ pub async fn sync_registry(
                 .to_str()
                 .ok_or_else(|| anyhow::anyhow!("Invalid path"))?;
 
-            // Check for SBOM and signature
             let sbom_path = path.with_extension("sbom.json");
             let sig_path = path.with_extension("sig");
 
@@ -174,7 +165,6 @@ pub async fn sync_registry(
                 continue;
             }
 
-            // Validate SBOM
             let sbom_bytes = std::fs::read(&sbom_path)?;
             match serde_json::from_slice::<SpdxDocument>(&sbom_bytes) {
                 Ok(sbom) => {
@@ -191,11 +181,9 @@ pub async fn sync_registry(
                 }
             }
 
-            // Verify signature using crypto module
+            let adapter_bytes = std::fs::read(&path)?;
             let sig_bytes = std::fs::read(&sig_path)?;
-            let _adapter_bytes = std::fs::read(&path)?;
 
-            // Parse signature from bytes (assuming hex-encoded signature)
             let sig_hex = String::from_utf8(sig_bytes)
                 .map_err(|e| anyhow::anyhow!("Invalid signature encoding: {}", e))?;
             let sig_bytes_decoded = hex::decode(sig_hex.trim())
@@ -210,32 +198,31 @@ pub async fn sync_registry(
             let mut sig_array = [0u8; 64];
             sig_array.copy_from_slice(&sig_bytes_decoded);
 
-            // For now, we'll use a mock verification since we don't have the public key
-            // In production, this would load the public key from a trusted source
-            output.progress(format!(
-                "Signature verification skipped for {} (mock)",
-                filename
-            ));
+            let signature = Signature::from_bytes(&sig_array)
+                .map_err(|e| anyhow::anyhow!("Invalid signature format: {}", e))?;
 
-            // Signature verification placeholder - will be implemented with crypto module
-            // let signature = Signature::from_bytes(&sig_array)?;
-            // let public_key = PublicKey::from_pem(&public_key_pem)?;
-            // public_key.verify(&adapter_bytes, &signature)?;
+            match public_key.verify(&adapter_bytes, &signature) {
+                Ok(()) => {
+                    output.progress(format!("Signature verified for {}", filename));
+                }
+                Err(e) => {
+                    output.warning(format!(
+                        "Skipping {}: signature verification failed: {}",
+                        filename, e
+                    ));
+                    skipped_count += 1;
+                    continue;
+                }
+            }
 
-            // Re-read adapter bytes for storage
-            let adapter_bytes = std::fs::read(&path)?;
-
-            // Store in CAS
             let hash = cas.store("adapters", &adapter_bytes)?;
 
-            // Register in registry (basic registration without full metadata)
-            // In a real implementation, we would parse metadata from SBOM or manifest
             match registry.register_adapter(
                 filename,
                 &hash,
                 "persistent",
-                8,   // default rank
-                &[], // empty ACL
+                8,
+                &[],
             ) {
                 Ok(_) => {
                     output.success(format!("Imported adapter: {} ({})", filename, hash));
@@ -265,12 +252,28 @@ pub async fn sync_registry(
     Ok(())
 }
 
-// ============================================================
-// Registry Migrate Implementation
-// (consolidated from registry_migrate.rs)
-// ============================================================
+fn load_public_key(path: &Path) -> anyhow::Result<PublicKey> {
+    let key_content = std::fs::read_to_string(path)
+        .map_err(|e| anyhow::anyhow!("Failed to read public key file {}: {}", path.display(), e))?;
 
-/// Old adapter record format from V1 schema
+    let key_hex = key_content.trim();
+    if key_hex.len() != 64 {
+        return Err(anyhow::anyhow!(
+            "Invalid public key length: expected 64 hex characters (32 bytes), got {}",
+            key_hex.len()
+        ));
+    }
+
+    let key_bytes = hex::decode(key_hex)
+        .map_err(|e| anyhow::anyhow!("Invalid public key hex encoding: {}", e))?;
+
+    let mut key_array = [0u8; 32];
+    key_array.copy_from_slice(&key_bytes);
+
+    PublicKey::from_bytes(&key_array)
+        .map_err(|e| anyhow::anyhow!("Invalid public key: {}", e))
+}
+
 #[derive(Debug)]
 struct OldAdapterRecord {
     id: String,
@@ -297,7 +300,6 @@ type NewAdapterParams = (
     Option<String>,
 );
 
-/// Old tenant record format
 #[derive(Debug)]
 struct OldTenantRecord {
     id: String,
@@ -307,7 +309,6 @@ struct OldTenantRecord {
     created_at: String,
 }
 
-/// Migration statistics
 #[derive(Debug, Default)]
 struct MigrationStats {
     adapters_processed: usize,
@@ -333,9 +334,7 @@ impl OldAdapterRecord {
         })
     }
 
-    /// Transform old adapter record to new format parameters
     fn to_new_params(&self) -> Result<NewAdapterParams> {
-        // Parse hash - assume it's hex format, convert to B3Hash
         let hash = B3Hash::from_hex(&self.hash).map_err(|e| {
             AosError::Registry(format!(
                 "Invalid hash format for adapter {}: {}",
@@ -343,18 +342,15 @@ impl OldAdapterRecord {
             ))
         })?;
 
-        // Extract tenant_id and name from id (assume format: "tenant-name")
         let parts: Vec<&str> = self.id.split('-').collect();
         let (tenant_id, name) = if parts.len() >= 2 {
             let tenant_id = parts[0].to_string();
             let name = parts[1..].join("-");
             (tenant_id, name)
         } else {
-            // Default fallback
             ("default".to_string(), self.id.clone())
         };
 
-        // Transform ACL - assume simple format, convert to JSON
         let acl_json = if self.acl.trim().is_empty() {
             "[]".to_string()
         } else {
@@ -370,9 +366,9 @@ impl OldAdapterRecord {
             self.activation_pct as f32,
             acl_json,
             Some(self.tier.clone()),
-            None, // path
-            None, // backend
-            None, // quantization
+            None,
+            None,
+            None,
         ))
     }
 }
@@ -394,7 +390,6 @@ fn extract_old_data(
     let conn = Connection::open(old_db_path)
         .map_err(|e| AosError::Registry(format!("Failed to open old database: {}", e)))?;
 
-    // Extract adapters
     let adapters = {
         let mut stmt = conn
             .prepare(
@@ -417,7 +412,6 @@ fn extract_old_data(
             .collect()
     };
 
-    // Extract tenants
     let tenants = {
         let mut stmt = conn
             .prepare("SELECT id, uid, gid, created_at FROM tenants")
@@ -450,7 +444,6 @@ async fn migrate_data(
 ) -> Result<MigrationStats> {
     let mut stats = MigrationStats::default();
 
-    // Create progress bar for tenants
     let tenant_pb = if !output.is_json() && !tenants.is_empty() {
         let pb = ProgressBar::new(tenants.len() as u64);
         pb.set_style(
@@ -465,7 +458,6 @@ async fn migrate_data(
         None
     };
 
-    // Migrate tenants first
     for tenant in tenants {
         stats.tenants_processed += 1;
 
@@ -502,7 +494,6 @@ async fn migrate_data(
         pb.finish_with_message("complete");
     }
 
-    // Create progress bar for adapters
     let adapter_pb = if !output.is_json() && !adapters.is_empty() {
         let pb = ProgressBar::new(adapters.len() as u64);
         pb.set_style(
@@ -517,7 +508,6 @@ async fn migrate_data(
         None
     };
 
-    // Migrate adapters
     for adapter in adapters {
         stats.adapters_processed += 1;
 
@@ -539,7 +529,6 @@ async fn migrate_data(
                     _backend,
                     _quantization,
                 )) => {
-                    // Parse ACL from JSON string to Vec<String>
                     let acl_vec: Vec<String> = serde_json::from_str(&acl).unwrap_or_default();
                     let tier_str = tier.as_deref().unwrap_or("tier_1");
 
@@ -581,14 +570,12 @@ async fn migrate_data(
     Ok(stats)
 }
 
-/// Run registry migration
 pub async fn run_migrate(args: RegistryMigrateArgs, output: &OutputWriter) -> Result<()> {
     let start_time = Instant::now();
 
     output.info("AdapterOS Registry Migration Tool");
     output.info("==================================");
 
-    // Validate inputs
     if !args.from_db.exists() {
         return Err(AosError::Registry(format!(
             "Old database does not exist: {:?}",
@@ -603,7 +590,6 @@ pub async fn run_migrate(args: RegistryMigrateArgs, output: &OutputWriter) -> Re
         )));
     }
 
-    // Extract data from old database
     output.progress("Extracting data from old database...");
     let (adapters, tenants) = extract_old_data(&args.from_db)?;
 
@@ -618,7 +604,6 @@ pub async fn run_migrate(args: RegistryMigrateArgs, output: &OutputWriter) -> Re
         adapters.len()
     ));
 
-    // Create new registry (unless dry run)
     let registry = if args.dry_run {
         output.info("DRY RUN: Skipping registry creation");
         None
@@ -637,13 +622,11 @@ pub async fn run_migrate(args: RegistryMigrateArgs, output: &OutputWriter) -> Re
         }
     };
 
-    // Perform migration
     output.info("");
     output.info("Starting migration...");
     let stats = if let Some(ref reg) = registry {
         migrate_data(&adapters, &tenants, reg, args.dry_run, output).await?
     } else {
-        // Dry run stats
         MigrationStats {
             adapters_processed: adapters.len(),
             adapters_migrated: adapters.len(),
@@ -655,7 +638,6 @@ pub async fn run_migrate(args: RegistryMigrateArgs, output: &OutputWriter) -> Re
 
     let elapsed = start_time.elapsed();
 
-    // Report results
     output.info("");
     output.info("Migration Complete");
     output.info("==================");
@@ -673,7 +655,6 @@ pub async fn run_migrate(args: RegistryMigrateArgs, output: &OutputWriter) -> Re
     output.info(format!("  Failed:    {}", stats.adapters_failed));
     output.info("");
 
-    // Summary line
     let total_success = stats.tenants_migrated + stats.adapters_migrated;
     let total_failed = stats.tenants_failed + stats.adapters_failed;
     let total_skipped = stats.tenants_skipped + stats.adapters_skipped;
@@ -704,6 +685,7 @@ mod tests {
         assert_eq!(
             get_registry_command_name(&RegistryCommand::Sync {
                 dir: PathBuf::from("./adapters"),
+                public_key: PathBuf::from("./keys/trusted.pub"),
                 cas_root: PathBuf::from("./var/cas"),
                 registry: PathBuf::from("./var/registry.db"),
             }),
@@ -724,6 +706,7 @@ mod tests {
     fn test_registry_command_clone() {
         let cmd = RegistryCommand::Sync {
             dir: PathBuf::from("./adapters"),
+            public_key: PathBuf::from("./keys/trusted.pub"),
             cas_root: PathBuf::from("./var/cas"),
             registry: PathBuf::from("./var/registry.db"),
         };
