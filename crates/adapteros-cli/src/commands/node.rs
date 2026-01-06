@@ -5,8 +5,8 @@
 //! - `aosctl node verify` - Verify cross-node determinism
 //! - `aosctl node sync` - Sync adapters across nodes
 
-use crate::formatting::{format_bytes, format_time_ago};
 use crate::commands::NOT_IMPLEMENTED_MESSAGE;
+use crate::formatting::{format_bytes, format_time_ago};
 use crate::output::OutputWriter;
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_db::Db;

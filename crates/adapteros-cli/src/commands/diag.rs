@@ -994,11 +994,10 @@ async fn collect_database_state(
             info.push_str(&format!("Adapters: {}\n", result));
         }
 
-        if let Ok(rows) = sqlx::query_as::<_, (String, i64)>(
-            "SELECT status, COUNT(*) FROM jobs GROUP BY status",
-        )
-        .fetch_all(db.pool())
-        .await
+        if let Ok(rows) =
+            sqlx::query_as::<_, (String, i64)>("SELECT status, COUNT(*) FROM jobs GROUP BY status")
+                .fetch_all(db.pool())
+                .await
         {
             info.push_str("\nJobs by status:\n");
             for (status, count) in rows {
@@ -1034,10 +1033,7 @@ async fn collect_database_state(
     Ok(())
 }
 
-fn collect_telemetry(
-    zip: &mut zip::ZipWriter<std::fs::File>,
-    cpid: &str,
-) -> Result<()> {
+fn collect_telemetry(zip: &mut zip::ZipWriter<std::fs::File>, cpid: &str) -> Result<()> {
     use std::io::Write;
     use zip::write::SimpleFileOptions;
 
@@ -1051,11 +1047,8 @@ fn collect_telemetry(
                         let Some(file_name) = path.file_name() else {
                             continue;
                         };
-                        let zip_path = format!(
-                            "telemetry/{}/{}",
-                            cpid,
-                            file_name.to_string_lossy()
-                        );
+                        let zip_path =
+                            format!("telemetry/{}/{}", cpid, file_name.to_string_lossy());
                         zip.start_file(zip_path, SimpleFileOptions::default())?;
                         zip.write_all(&content)?;
                     }
