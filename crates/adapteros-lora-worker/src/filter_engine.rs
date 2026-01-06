@@ -153,7 +153,7 @@ impl FilterEngine {
         }
 
         let mut values: Vec<f32> = self.median_window.iter().copied().collect();
-        values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         values[values.len() / 2]
     }
 }

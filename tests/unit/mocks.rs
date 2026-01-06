@@ -197,7 +197,11 @@ impl MockAdapterRegistry {
     /// Get top K adapters by activation score (deterministic ordering)
     pub fn get_top_adapters(&self, k: usize) -> Vec<MockAdapter> {
         let mut adapters = self.list_adapters();
-        adapters.sort_by(|a, b| b.activation_score.partial_cmp(&a.activation_score).unwrap());
+        adapters.sort_by(|a, b| {
+            b.activation_score
+                .partial_cmp(&a.activation_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         adapters.into_iter().take(k).collect()
     }
 }
