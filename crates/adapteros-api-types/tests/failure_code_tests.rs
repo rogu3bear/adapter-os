@@ -348,11 +348,12 @@ fn test_serialize_deserialize_roundtrip() {
 #[test]
 fn test_clone_and_copy() {
     let original = FailureCode::OutOfMemory;
-    let cloned = original.clone();
-    let copied = original;
+    // FailureCode implements Copy, so assignment creates a copy
+    let copied1 = original;
+    let copied2 = original;
 
-    assert_eq!(original, cloned);
-    assert_eq!(original, copied);
+    assert_eq!(original, copied1);
+    assert_eq!(original, copied2);
 }
 
 #[test]

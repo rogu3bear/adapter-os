@@ -28,7 +28,7 @@ fn fixture_tokenizer() -> Arc<Tokenizer> {
         .build()
         .expect("wordlevel model");
     let mut tokenizer = Tokenizer::new(model);
-    tokenizer.with_pre_tokenizer(Whitespace::default());
+    tokenizer.with_pre_tokenizer(Whitespace);
     Arc::new(tokenizer)
 }
 
@@ -68,7 +68,7 @@ This section provides additional details and specifications.
         !document.chunks.is_empty(),
         "Should have at least one chunk"
     );
-    assert!(document.doc_hash.to_hex().len() > 0);
+    assert!(!document.doc_hash.to_hex().is_empty());
 }
 
 #[test]

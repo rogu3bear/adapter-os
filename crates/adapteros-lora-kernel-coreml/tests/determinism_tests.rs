@@ -3,6 +3,8 @@
 //! These tests verify that CoreML tensor operations produce bit-exact results
 //! across repeated runs, ensuring deterministic execution for AdapterOS.
 
+#![allow(clippy::useless_vec)]
+
 use adapteros_core::{derive_seed, B3Hash};
 use adapteros_lora_kernel_coreml::{ffi, MLTensor, TensorBridgeType};
 
