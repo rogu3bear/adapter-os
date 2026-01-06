@@ -139,8 +139,10 @@ Diagnostic verbosity levels (capture granularity)
 ./aosctl serve --insecure-skip-egress-check            # Skip PF egress preflight (dev only)
 ```
 
-Diagnostics config example (TOML):
+Minimal diagnostics config example (control plane TOML):
+
 ```toml
+# configs/cp.toml
 [diagnostics]
 enabled = true
 level = "stages"

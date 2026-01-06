@@ -118,6 +118,49 @@ format = "json"
 - `logging.level` (string): Logging level (default: "info", enum: debug,info,warn,error)
 - `logging.format` (string): Logging format (default: "json", enum: json,text)
 
+#### Diagnostics Configuration
+
+Diagnostics capture structured event traces during inference, routing, and failure handling.
+Configure these settings in your TOML config (for example, `configs/cp.toml`):
+
+```toml
+[diagnostics]
+enabled = true
+level = "stages"
+channel_capacity = 1000
+batch_size = 100
+batch_timeout_ms = 500
+max_events_per_run = 10000
+```
+
+- `diagnostics.enabled` (boolean, default: true, valid range: true/false): Enable diagnostics capture.
+  - Performance: when false, disables diagnostics overhead entirely.
+- `diagnostics.level` (string, default: "stages", enum: off, errors, stages, router, tokens): Capture depth.
+  - `off`: No events captured (zero overhead).
+  - `errors`: Failures and errors only.
+  - `stages`: Stage enter/exit events (recommended baseline).
+  - `router`: Includes routing decisions (useful for adapter debugging).
+  - `tokens`: Token-level detail (high volume; dev-only).
+  - Performance: higher levels increase event volume and storage pressure.
+- `diagnostics.channel_capacity` (integer, default: 1000, valid range: >= 1): Buffer size before backpressure or drops.
+  - Performance: higher values use more memory but reduce drops under load.
+- `diagnostics.batch_size` (integer, default: 100, valid range: >= 1): Events per persistence batch.
+  - Performance: higher values improve throughput but increase flush latency.
+- `diagnostics.batch_timeout_ms` (integer, default: 500, valid range: >= 1): Max wait before forcing a flush.
+  - Performance: lower values reduce latency but increase I/O.
+- `diagnostics.max_events_per_run` (integer, default: 10000, valid range: >= 1): Upper bound per inference run.
+  - Performance: prevents runaway runs from exhausting storage.
+
+**Example use cases (starting points):**
+
+| Scenario | Suggested Settings |
+| --- | --- |
+| Production (minimal overhead) | `level = "errors"`, `batch_size = 200` |
+| Production (auditable) | `level = "stages"`, `batch_size = 100` |
+| Debugging routing | `level = "router"` |
+| Deep debugging | `level = "tokens"`, `max_events_per_run = 25000` |
+| High-throughput | `channel_capacity = 5000`, `batch_size = 500`, `batch_timeout_ms = 2000` |
+
 ---
 
 ## Configuration Precedence Rules
