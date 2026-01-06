@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - StopController for inference cancellation
 - SingleFlight deduplication utility for concurrent loads
 - E2E test infrastructure and helper scripts
+- KV migration testing PRD and initial workflow/rollback tests
 
 ### Changed
 - Major UI restructuring and backend enhancements
