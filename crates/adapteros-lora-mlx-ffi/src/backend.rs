@@ -759,7 +759,7 @@ impl FusedKernels for MLXFFIBackend {
             backend_type: BackendType::MLX,
             metallib_hash: self.manifest_hash, // Include manifest hash for content addressing
             metallib_verified: false,
-            manifest: None,                    // No Metal-style manifest
+            manifest: None, // No Metal-style manifest
             rng_seed_method: rng_method,
             floating_point_mode: float_mode,
             determinism_level: if seeded && !is_stub_active && IS_REAL_MLX {

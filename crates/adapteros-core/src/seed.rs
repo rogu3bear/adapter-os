@@ -1764,7 +1764,10 @@ mod tests {
         let seed = [42u8; 32];
         let lineage = SeedLineage::from_raw_seed(&seed, SeedMode::Strict, true);
 
-        assert!(lineage.verify_seed(&seed), "Lineage should verify matching seed");
+        assert!(
+            lineage.verify_seed(&seed),
+            "Lineage should verify matching seed"
+        );
         assert!(
             !lineage.verify_seed(&[0u8; 32]),
             "Lineage should reject non-matching seed"
@@ -1802,7 +1805,10 @@ mod tests {
             "Digest must survive serialization"
         );
         assert_eq!(lineage.seed_mode, deserialized.seed_mode);
-        assert_eq!(lineage.has_manifest_binding, deserialized.has_manifest_binding);
+        assert_eq!(
+            lineage.has_manifest_binding,
+            deserialized.has_manifest_binding
+        );
         assert_eq!(lineage.hkdf_version, deserialized.hkdf_version);
     }
 

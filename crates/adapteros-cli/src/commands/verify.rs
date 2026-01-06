@@ -202,7 +202,16 @@ pub async fn handle_verify_command(cmd: VerifyCommand, output: &OutputWriter) ->
             evidence_only,
             tenant_id,
             fail_on_divergence,
-        } => verify_audit_chains(policy_only, evidence_only, tenant_id, fail_on_divergence, output).await,
+        } => {
+            verify_audit_chains(
+                policy_only,
+                evidence_only,
+                tenant_id,
+                fail_on_divergence,
+                output,
+            )
+            .await
+        }
     }
 }
 
@@ -828,7 +837,10 @@ async fn verify_audit_chains(
     output.blank();
     output.section("Summary");
     output.kv("Policy chains verified", &total_policy_checked.to_string());
-    output.kv("Evidence chains verified", &total_evidence_checked.to_string());
+    output.kv(
+        "Evidence chains verified",
+        &total_evidence_checked.to_string(),
+    );
 
     if any_divergence {
         output.error("DIVERGENCE DETECTED - audit chain integrity compromised");

@@ -448,7 +448,11 @@ impl Db {
         .await
         .db_err("fetch distinct tenant IDs for evidence envelopes")?;
 
-        let scopes = [EvidenceScope::Telemetry, EvidenceScope::Policy, EvidenceScope::Inference];
+        let scopes = [
+            EvidenceScope::Telemetry,
+            EvidenceScope::Policy,
+            EvidenceScope::Inference,
+        ];
         let mut results = Vec::new();
 
         for tenant_id in &tenants {

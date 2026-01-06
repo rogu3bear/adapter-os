@@ -16,6 +16,7 @@ use std::thread::ThreadId;
 use tracing::{debug, error, info, warn};
 
 /// Global seed registry for collision detection
+#[allow(clippy::type_complexity)]
 static GLOBAL_SEED_REGISTRY: std::sync::OnceLock<Arc<Mutex<HashMap<ThreadId, [u8; 32]>>>> =
     std::sync::OnceLock::new();
 
@@ -59,10 +60,7 @@ impl ThreadSeed {
 
     /// Create a child seed derived from parent
     pub fn derive_child(&self, label: &str) -> Self {
-        let derived = adapteros_core::derive_seed(
-            &adapteros_core::B3Hash::new(self.seed),
-            label,
-        );
+        let derived = adapteros_core::derive_seed(&adapteros_core::B3Hash::new(self.seed), label);
 
         Self {
             seed: derived,

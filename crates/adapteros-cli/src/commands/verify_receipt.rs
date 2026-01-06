@@ -371,9 +371,7 @@ fn verify_seed_binding(
     expected_seed: Option<&[u8; 32]>,
 ) -> Option<ReasonCode> {
     // Only verify if we have expected seed
-    let Some(expected) = expected_seed else {
-        return None;
-    };
+    let expected = expected_seed?;
 
     let Some(ref claimed_digest) = bundle.receipt.root_seed_digest_hex else {
         // Receipt doesn't claim a seed - can't verify (might be older schema)
@@ -462,11 +460,7 @@ fn compute_receipt_digest(
         }
         RECEIPT_SCHEMA_V2 => {
             // V2: Include backend identity
-            let backend_bytes = bundle
-                .backend_used
-                .as_deref()
-                .unwrap_or("")
-                .as_bytes();
+            let backend_bytes = bundle.backend_used.as_deref().unwrap_or("").as_bytes();
 
             let attestation_bytes = bundle
                 .backend_attestation_b3_hex
@@ -493,11 +487,7 @@ fn compute_receipt_digest(
         }
         RECEIPT_SCHEMA_V3 => {
             // V3: Include backend identity + seed lineage
-            let backend_bytes = bundle
-                .backend_used
-                .as_deref()
-                .unwrap_or("")
-                .as_bytes();
+            let backend_bytes = bundle.backend_used.as_deref().unwrap_or("").as_bytes();
 
             let attestation_bytes = bundle
                 .backend_attestation_b3_hex
@@ -512,11 +502,7 @@ fn compute_receipt_digest(
                 .and_then(|h| hex::decode(h).ok())
                 .unwrap_or_else(|| vec![0u8; 32]);
 
-            let seed_mode_bytes = receipt
-                .seed_mode
-                .as_deref()
-                .unwrap_or("unknown")
-                .as_bytes();
+            let seed_mode_bytes = receipt.seed_mode.as_deref().unwrap_or("unknown").as_bytes();
 
             let manifest_binding_byte = if receipt.has_manifest_binding.unwrap_or(false) {
                 [1u8]
@@ -876,7 +862,10 @@ async fn fetch_online_bundle(trace_id: &str, server_url: &str) -> Result<Receipt
 pub fn parse_seed_hex(hex_str: &str) -> Result<[u8; 32]> {
     let bytes = hex::decode(hex_str).context("Invalid hex encoding for expected seed")?;
     if bytes.len() != 32 {
-        bail!("Expected seed must be 32 bytes (64 hex chars), got {} bytes", bytes.len());
+        bail!(
+            "Expected seed must be 32 bytes (64 hex chars), got {} bytes",
+            bytes.len()
+        );
     }
     let mut arr = [0u8; 32];
     arr.copy_from_slice(&bytes);

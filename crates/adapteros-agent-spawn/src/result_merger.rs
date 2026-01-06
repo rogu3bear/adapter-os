@@ -362,9 +362,11 @@ impl ResultMerger {
             ConflictResolution::RequireReview => None,
 
             ConflictResolution::HighestConfidence => {
-                let winner = mods
-                    .iter()
-                    .max_by(|a, b| a.2.confidence.partial_cmp(&b.2.confidence).unwrap_or(std::cmp::Ordering::Equal))?;
+                let winner = mods.iter().max_by(|a, b| {
+                    a.2.confidence
+                        .partial_cmp(&b.2.confidence)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })?;
 
                 Some(Resolution {
                     winner: ProposalRef {

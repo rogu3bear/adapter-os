@@ -217,13 +217,7 @@ pub async fn sync_registry(
 
             let hash = cas.store("adapters", &adapter_bytes)?;
 
-            match registry.register_adapter(
-                filename,
-                &hash,
-                "persistent",
-                8,
-                &[],
-            ) {
+            match registry.register_adapter(filename, &hash, "persistent", 8, &[]) {
                 Ok(_) => {
                     output.success(format!("Imported adapter: {} ({})", filename, hash));
                     synced_count += 1;
@@ -270,8 +264,7 @@ fn load_public_key(path: &Path) -> anyhow::Result<PublicKey> {
     let mut key_array = [0u8; 32];
     key_array.copy_from_slice(&key_bytes);
 
-    PublicKey::from_bytes(&key_array)
-        .map_err(|e| anyhow::anyhow!("Invalid public key: {}", e))
+    PublicKey::from_bytes(&key_array).map_err(|e| anyhow::anyhow!("Invalid public key: {}", e))
 }
 
 #[derive(Debug)]

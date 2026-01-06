@@ -666,9 +666,7 @@ impl Db {
 
         for tenant_id in tenants {
             let start = std::time::Instant::now();
-            let mut result = self
-                .verify_policy_audit_chain(Some(&tenant_id))
-                .await?;
+            let mut result = self.verify_policy_audit_chain(Some(&tenant_id)).await?;
             result.duration_ms = start.elapsed().as_millis() as u64;
             result.tenant_id = Some(tenant_id.clone());
 
