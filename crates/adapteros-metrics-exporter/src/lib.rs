@@ -70,6 +70,16 @@ pub struct MetricsExporter {
     // Alert metrics for Prometheus/Alertmanager integration
     alerts_firing: GaugeVec,
     alerts_active_total: Gauge,
+    // Determinism / seed metrics
+    seed_collision_total: Counter,
+    seed_propagation_failure_total: Counter,
+    seed_active_threads: Gauge,
+    // Determinism / observability event metrics
+    determinism_violation_total: Counter,
+    strict_violation_total: Counter,
+    receipt_mismatch_total: Counter,
+    audit_divergence_total: Counter,
+    policy_override_total: Counter,
     // SQLite index health / maintenance metrics
     db_page_size_bytes: Gauge,
     db_page_count: Gauge,
@@ -291,6 +301,56 @@ impl MetricsExporter {
         )?;
         registry.register(Box::new(alerts_active_total.clone()))?;
 
+        // Determinism / seed metrics
+        let seed_collision_total = Counter::new(
+            "adapteros_seed_collision_total",
+            "Total number of seed collisions detected (different seeds for same thread)",
+        )?;
+        registry.register(Box::new(seed_collision_total.clone()))?;
+
+        let seed_propagation_failure_total = Counter::new(
+            "adapteros_seed_propagation_failure_total",
+            "Total number of seed propagation failures across async tasks",
+        )?;
+        registry.register(Box::new(seed_propagation_failure_total.clone()))?;
+
+        let seed_active_threads = Gauge::new(
+            "adapteros_seed_active_threads",
+            "Number of threads with active registered seeds",
+        )?;
+        registry.register(Box::new(seed_active_threads.clone()))?;
+
+        // Determinism / observability event metrics
+        let determinism_violation_total = Counter::new(
+            "adapteros_determinism_violation_total",
+            "Total determinism violations detected (includes strict mode)",
+        )?;
+        registry.register(Box::new(determinism_violation_total.clone()))?;
+
+        let strict_violation_total = Counter::new(
+            "adapteros_strict_violation_total",
+            "Total strict mode violations (subset of determinism violations)",
+        )?;
+        registry.register(Box::new(strict_violation_total.clone()))?;
+
+        let receipt_mismatch_total = Counter::new(
+            "adapteros_receipt_mismatch_total",
+            "Total receipt validation failures (signature/hash mismatches)",
+        )?;
+        registry.register(Box::new(receipt_mismatch_total.clone()))?;
+
+        let audit_divergence_total = Counter::new(
+            "adapteros_audit_divergence_total",
+            "Total audit chain divergences (hash mismatch or broken linkage)",
+        )?;
+        registry.register(Box::new(audit_divergence_total.clone()))?;
+
+        let policy_override_total = Counter::new(
+            "adapteros_policy_override_total",
+            "Total policy deny overrides (fail-open path)",
+        )?;
+        registry.register(Box::new(policy_override_total.clone()))?;
+
         // SQLite index health / maintenance metrics
         let db_page_size_bytes = Gauge::new(
             "adapteros_db_page_size_bytes",
@@ -507,6 +567,14 @@ impl MetricsExporter {
             adapters_by_state,
             alerts_firing,
             alerts_active_total,
+            seed_collision_total,
+            seed_propagation_failure_total,
+            seed_active_threads,
+            determinism_violation_total,
+            strict_violation_total,
+            receipt_mismatch_total,
+            audit_divergence_total,
+            policy_override_total,
             db_page_size_bytes,
             db_page_count,
             db_freelist_count,
@@ -685,6 +753,83 @@ impl MetricsExporter {
                     .with_label_values(&[alertname, severity, tenant_id, worker_id, status])
                     .set(1.0);
             }
+        }
+    }
+
+    /// Update seed metrics from the global SeedMetrics collector
+    ///
+    /// This should be called periodically (e.g., every 15 seconds) to update
+    /// seed collision, propagation failure, and active thread metrics.
+    ///
+    /// # Arguments
+    /// * `collision_count` - Total seed collisions detected
+    /// * `propagation_failure_count` - Total seed propagation failures
+    /// * `active_threads` - Number of threads with registered seeds
+    pub fn update_seed_metrics(
+        &self,
+        collision_count: u64,
+        propagation_failure_count: u64,
+        active_threads: usize,
+    ) {
+        // Counters in prometheus-rust don't support set(), so we need to compute delta
+        // For simplicity, we use gauges disguised as counters (common pattern for exported metrics)
+        // The _total suffix convention indicates these are cumulative values
+        let current_collision = self.seed_collision_total.get() as u64;
+        if collision_count > current_collision {
+            self.seed_collision_total
+                .inc_by((collision_count - current_collision) as f64);
+        }
+
+        let current_propagation = self.seed_propagation_failure_total.get() as u64;
+        if propagation_failure_count > current_propagation {
+            self.seed_propagation_failure_total
+                .inc_by((propagation_failure_count - current_propagation) as f64);
+        }
+
+        self.seed_active_threads.set(active_threads as f64);
+    }
+
+    /// Update observability event metrics from global counters in adapteros-core.
+    ///
+    /// This should be called periodically (e.g., every 15 seconds) to update
+    /// determinism violation, receipt mismatch, and audit divergence metrics.
+    pub fn update_observability_metrics(
+        &self,
+        determinism_violations: u64,
+        strict_violations: u64,
+        receipt_mismatches: u64,
+        audit_divergences: u64,
+        policy_overrides: u64,
+    ) {
+        // Counters in prometheus-rust don't support set(), so we compute delta
+        let current = self.determinism_violation_total.get() as u64;
+        if determinism_violations > current {
+            self.determinism_violation_total
+                .inc_by((determinism_violations - current) as f64);
+        }
+
+        let current = self.strict_violation_total.get() as u64;
+        if strict_violations > current {
+            self.strict_violation_total
+                .inc_by((strict_violations - current) as f64);
+        }
+
+        let current = self.receipt_mismatch_total.get() as u64;
+        if receipt_mismatches > current {
+            self.receipt_mismatch_total
+                .inc_by((receipt_mismatches - current) as f64);
+        }
+
+        let current = self.audit_divergence_total.get() as u64;
+        if audit_divergences > current {
+            self.audit_divergence_total
+                .inc_by((audit_divergences - current) as f64);
+        }
+
+        let current = self.policy_override_total.get() as u64;
+        if policy_overrides > current {
+            self.policy_override_total
+                .inc_by((policy_overrides - current) as f64);
         }
     }
 

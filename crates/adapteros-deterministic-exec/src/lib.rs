@@ -22,6 +22,7 @@ pub mod channel;
 pub mod cpu_affinity;
 pub mod global_ledger;
 pub mod multi_agent;
+pub mod seed;
 pub mod select;
 
 use std::{

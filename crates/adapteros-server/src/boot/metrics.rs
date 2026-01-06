@@ -183,6 +183,35 @@ pub async fn initialize_metrics(
                                     let _ = exporter
                                         .set_gauge("kv.operations_total", snapshot.operations_total as f64)
                                         .await;
+
+                                    // Collect and publish seed metrics
+                                    let seed_metrics = adapteros_deterministic_exec::seed::SeedMetrics::collect();
+                                    let _ = exporter
+                                        .set_gauge("adapteros_seed_collision_total", seed_metrics.collision_count as f64)
+                                        .await;
+                                    let _ = exporter
+                                        .set_gauge("adapteros_seed_propagation_failure_total", seed_metrics.propagation_failure_count as f64)
+                                        .await;
+                                    let _ = exporter
+                                        .set_gauge("adapteros_seed_active_threads", seed_metrics.active_threads as f64)
+                                        .await;
+
+                                    // Collect and publish observability event metrics
+                                    let _ = exporter
+                                        .set_gauge("adapteros_determinism_violation_total", adapteros_core::telemetry::determinism_violation_count() as f64)
+                                        .await;
+                                    let _ = exporter
+                                        .set_gauge("adapteros_strict_violation_total", adapteros_core::telemetry::strict_violation_count() as f64)
+                                        .await;
+                                    let _ = exporter
+                                        .set_gauge("adapteros_receipt_mismatch_total", adapteros_core::telemetry::receipt_mismatch_count() as f64)
+                                        .await;
+                                    let _ = exporter
+                                        .set_gauge("adapteros_audit_divergence_total", adapteros_core::telemetry::audit_divergence_count() as f64)
+                                        .await;
+                                    let _ = exporter
+                                        .set_gauge("adapteros_policy_override_total", adapteros_core::telemetry::policy_override_count() as f64)
+                                        .await;
                                 }
                                 _ = kv_shutdown_rx.recv() => {
                                     info!("KV metrics exporter loop shutting down");
