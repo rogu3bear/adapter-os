@@ -109,7 +109,7 @@ pub use unified_enforcement::{
     UnifiedPolicyEnforcer, ViolationSeverity,
 };
 
-/// Policy engine for enforcing all 25 policy packs
+/// Policy engine for enforcing all policy packs
 pub struct PolicyEngine {
     policies: Policies,
     pack_manager: PolicyPackManager,

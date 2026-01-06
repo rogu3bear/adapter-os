@@ -10,20 +10,25 @@ pub fn Card(
     #[prop(optional, into)] description: Option<String>,
     children: Children,
 ) -> impl IntoView {
-    let base_class = "rounded-lg border bg-card text-card-foreground shadow-sm";
-    let full_class = format!("{} {}", base_class, class);
+    let full_class = format!("card {}", class);
+    let has_header = title.is_some() || description.is_some();
+    let content_class = if has_header {
+        "card-content"
+    } else {
+        "card-content card-content--full"
+    };
 
     view! {
         <div class=full_class>
             {move || {
-                if title.is_some() || description.is_some() {
+                if has_header {
                     view! {
-                        <div class="flex flex-col space-y-1.5 p-6">
+                        <div class="card-header">
                             {title.clone().map(|t| view! {
-                                <h3 class="text-2xl font-semibold leading-none tracking-tight">{t}</h3>
+                                <h3 class="card-title">{t}</h3>
                             })}
                             {description.clone().map(|d| view! {
-                                <p class="text-sm text-muted-foreground">{d}</p>
+                                <p class="card-description">{d}</p>
                             })}
                         </div>
                     }.into_any()
@@ -31,7 +36,7 @@ pub fn Card(
                     view! {}.into_any()
                 }
             }}
-            <div class="p-6 pt-0">
+            <div class=content_class>
                 {children()}
             </div>
         </div>
@@ -41,7 +46,7 @@ pub fn Card(
 /// Card header component
 #[component]
 pub fn CardHeader(#[prop(optional, into)] class: String, children: Children) -> impl IntoView {
-    let full_class = format!("flex flex-col space-y-1.5 p-6 {}", class);
+    let full_class = format!("card-header {}", class);
     view! {
         <div class=full_class>
             {children()}
@@ -52,7 +57,7 @@ pub fn CardHeader(#[prop(optional, into)] class: String, children: Children) -> 
 /// Card content component
 #[component]
 pub fn CardContent(#[prop(optional, into)] class: String, children: Children) -> impl IntoView {
-    let full_class = format!("p-6 pt-0 {}", class);
+    let full_class = format!("card-content {}", class);
     view! {
         <div class=full_class>
             {children()}
@@ -63,7 +68,7 @@ pub fn CardContent(#[prop(optional, into)] class: String, children: Children) ->
 /// Card footer component
 #[component]
 pub fn CardFooter(#[prop(optional, into)] class: String, children: Children) -> impl IntoView {
-    let full_class = format!("flex items-center p-6 pt-0 {}", class);
+    let full_class = format!("card-footer {}", class);
     view! {
         <div class=full_class>
             {children()}

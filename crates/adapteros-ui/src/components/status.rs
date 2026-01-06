@@ -19,12 +19,12 @@ pub enum BadgeVariant {
 impl BadgeVariant {
     fn class(&self) -> &'static str {
         match self {
-            Self::Default => "bg-primary text-primary-foreground",
-            Self::Secondary => "bg-secondary text-secondary-foreground",
-            Self::Success => "bg-green-500 text-white",
-            Self::Warning => "bg-yellow-500 text-white",
-            Self::Destructive => "bg-destructive text-destructive-foreground",
-            Self::Outline => "border border-input bg-background",
+            Self::Default => "badge-default",
+            Self::Secondary => "badge-secondary",
+            Self::Success => "badge-success",
+            Self::Warning => "badge-warning",
+            Self::Destructive => "badge-destructive",
+            Self::Outline => "badge-outline",
         }
     }
 }
@@ -36,8 +36,7 @@ pub fn Badge(
     #[prop(optional, into)] class: String,
     children: Children,
 ) -> impl IntoView {
-    let base_class = "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors";
-    let full_class = format!("{} {} {}", base_class, variant.class(), class);
+    let full_class = format!("badge {} {}", variant.class(), class);
 
     view! {
         <span class=full_class>

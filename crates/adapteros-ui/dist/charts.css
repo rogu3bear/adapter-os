@@ -1,0 +1,165 @@
+/*
+ * AdapterOS Chart Styles
+ * Lightweight chart primitives for dashboards
+ */
+
+.chart {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding: 1.25rem;
+    border-radius: var(--radius);
+    border: 1px solid var(--color-border);
+    background-color: var(--color-card);
+}
+
+.chart-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.chart-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--color-foreground);
+}
+
+.chart-subtitle {
+    font-size: 0.8125rem;
+    color: var(--color-muted-foreground);
+}
+
+.chart-canvas {
+    width: 100%;
+}
+
+.chart-line {
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.chart-point {
+    stroke: var(--color-background);
+    stroke-width: 0.5;
+}
+
+.sparkline {
+    width: 100%;
+}
+
+.sparkline-path {
+    fill: none;
+    stroke: var(--color-primary);
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.sparkline-metric {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background-color: var(--color-card);
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.sparkline-metric-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.sparkline-metric-label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-muted-foreground);
+}
+
+.sparkline-metric-value {
+    display: flex;
+    align-items: baseline;
+    gap: 0.25rem;
+    font-size: 1.25rem;
+    font-weight: 600;
+}
+
+.sparkline-metric-unit {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--color-muted-foreground);
+}
+
+.sparkline-metric-trend {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.sparkline-metric-trend.up {
+    color: rgb(22 163 74);
+}
+
+.sparkline-metric-trend.down {
+    color: rgb(220 38 38);
+}
+
+.heatmap {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.heatmap-row {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.heatmap-cell {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 0.125rem;
+    background-color: var(--color-muted);
+}
+
+.heatmap-cell.high {
+    background-color: var(--color-primary);
+}
+
+.heatmap-cell.mid {
+    background-color: var(--color-primary);
+    opacity: 0.5;
+}
+
+.heatmap-cell.low {
+    background-color: var(--color-primary);
+    opacity: 0.2;
+}
+
+.heatmap-cell.ok {
+    background-color: rgb(34 197 94);
+    opacity: 1;
+}
+
+.heatmap-cell.warn {
+    background-color: rgb(234 179 8);
+    opacity: 1;
+}
+
+.heatmap-cell.err {
+    background-color: rgb(239 68 68);
+    opacity: 1;
+}
+
+.heatmap-cell.unk {
+    background-color: var(--color-muted-foreground);
+    opacity: 1;
+}

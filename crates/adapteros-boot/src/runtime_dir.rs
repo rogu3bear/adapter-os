@@ -45,7 +45,10 @@ pub fn ensure_runtime_dir<P: AsRef<Path>>(
     );
 
     if is_writable(&fallback_path) {
-        std::env::set_var("AOS_VAR_DIR", &fallback_path);
+        // Safety: runtime directory is resolved during boot before worker threads spawn.
+        unsafe {
+            std::env::set_var("AOS_VAR_DIR", &fallback_path);
+        }
         return Ok(RuntimeDir {
             path: fallback_path,
             used_fallback: true,
