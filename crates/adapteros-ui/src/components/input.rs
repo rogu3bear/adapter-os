@@ -1,5 +1,6 @@
 //! Input component
 
+use crate::components::form_field::use_form_field_context;
 use leptos::prelude::*;
 
 /// Input component
@@ -9,17 +10,15 @@ pub fn Input(
     #[prop(optional, into)] placeholder: String,
     #[prop(optional, into)] label: String,
     #[prop(optional, into)] input_type: String,
+    #[prop(optional, into)] id: Option<String>,
+    #[prop(optional, into)] name: Option<String>,
     #[prop(optional)] disabled: bool,
     #[prop(optional, into)] class: String,
     #[prop(optional, into)] error: Option<String>,
 ) -> impl IntoView {
-    let base_class = "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
+    let base_class = "input";
 
-    let error_class = if error.is_some() {
-        "border-destructive"
-    } else {
-        ""
-    };
+    let error_class = if error.is_some() { "input-error" } else { "" };
 
     let full_class = format!("{} {} {}", base_class, error_class, class);
 
@@ -29,11 +28,15 @@ pub fn Input(
         input_type
     };
 
+    let field_ctx = use_form_field_context();
+    let input_id = id.or_else(|| field_ctx.as_ref().map(|ctx| ctx.field_id.clone()));
+    let described_by = field_ctx.and_then(|ctx| ctx.described_by.clone());
+
     view! {
         <div class="grid w-full gap-1.5">
             {if !label.is_empty() {
                 Some(view! {
-                    <label class="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                    <label class="label" for=input_id.clone()>
                         {label.clone()}
                     </label>
                 })
@@ -41,17 +44,20 @@ pub fn Input(
                 None
             }}
             <input
+                id=input_id
+                name=name
                 type=input_type_val
                 class=full_class
                 placeholder=placeholder
                 disabled=disabled
+                aria-describedby=described_by
                 prop:value=move || value.get()
                 on:input=move |ev| {
                     value.set(event_target_value(&ev));
                 }
             />
             {error.map(|e| view! {
-                <p class="text-sm text-destructive">{e}</p>
+                <p class="form-field-error">{e}</p>
             })}
         </div>
     }
@@ -63,26 +69,35 @@ pub fn Textarea(
     #[prop(optional, into)] value: RwSignal<String>,
     #[prop(optional, into)] placeholder: String,
     #[prop(optional, into)] label: Option<String>,
+    #[prop(optional, into)] id: Option<String>,
+    #[prop(optional, into)] name: Option<String>,
     #[prop(optional)] disabled: bool,
     #[prop(optional)] rows: Option<u32>,
     #[prop(optional, into)] class: String,
 ) -> impl IntoView {
-    let base_class = "flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
+    let base_class = "input input-textarea";
 
     let full_class = format!("{} {}", base_class, class);
+
+    let field_ctx = use_form_field_context();
+    let input_id = id.or_else(|| field_ctx.as_ref().map(|ctx| ctx.field_id.clone()));
+    let described_by = field_ctx.and_then(|ctx| ctx.described_by.clone());
 
     view! {
         <div class="grid w-full gap-1.5">
             {label.map(|l| view! {
-                <label class="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                <label class="label" for=input_id.clone()>
                     {l}
                 </label>
             })}
             <textarea
+                id=input_id
+                name=name
                 class=full_class
                 placeholder=placeholder
                 disabled=disabled
                 rows=rows.unwrap_or(3)
+                aria-describedby=described_by
                 prop:value=move || value.get()
                 on:input=move |ev| {
                     value.set(event_target_value(&ev));
