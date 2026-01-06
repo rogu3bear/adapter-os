@@ -77,8 +77,8 @@ define_ecodes! {
     "Kernels/Build/Manifest" => [E3001, E3002, E3003, E3004, E3005, E3006, E3007, E3008, E3009],
     "Telemetry/Chain" => [E4001, E4002, E4003],
     "Artifacts/CAS" => [E5001, E5002, E5003, E5004],
-    "Adapters/DIR" => [E6001, E6002, E6003, E6004, E6005, E6006, E6007, E6008, E6009],
-    "Node/Cluster" => [E7001, E7002],
+    "Adapters/DIR" => [E6001, E6002, E6003, E6004, E6005, E6006, E6007, E6008, E6009, E6010, E6011],
+    "Node/Cluster" => [E7001, E7002, E7003, E7004],
     "CLI/Config" => [E8001, E8002, E8003, E8004, E8005, E8006, E8007, E8008, E8009, E8010, E8011, E8012, E8013],
     "OS/Environment" => [E9001, E9002, E9003, E9004, E9005, E9006, E9007, E9008, E9009],
 }
@@ -458,6 +458,28 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
              4. Ensure all adapters target the same base model",
             docs = ["crates/adapteros-lora-lifecycle/", "docs/ARCHITECTURE.md"]
         ),
+        error_code!(
+            ECode::E6010,
+            "No Models Seeded",
+            "No base models have been seeded in the database. Inference requires at least one model.",
+            "Run the following command to seed models:\n\n\
+             \x1b[1m  ./aosctl models seed\x1b[0m\n\n\
+             Or seed from a custom path:\n\n\
+             \x1b[1m  ./aosctl models seed --model-path /path/to/models\x1b[0m\n\n\
+             Verify models are seeded:\n\n\
+             \x1b[1m  ./aosctl models list\x1b[0m",
+            docs = ["docs/MODEL_MANAGEMENT.md", "docs/QUICKSTART.md"]
+        ),
+        error_code!(
+            ECode::E6011,
+            "Model Not Loaded",
+            "The specified model exists but is not currently loaded in any worker.",
+            "1. Check if the model is registered: ./aosctl models list\n\
+             2. Start a worker with the model: ./aosctl serve start\n\
+             3. Or load the model explicitly: ./aosctl models load <model-id>\n\
+             4. Verify worker status: ./aosctl status",
+            docs = ["docs/MODEL_MANAGEMENT.md", "crates/adapteros-lora-worker/"]
+        ),
         // E7xxx: Node/Cluster Problems
         error_code!(
             ECode::E7001,
@@ -478,6 +500,30 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
              3. Verify resource availability\n\
              4. Retry job if transient failure",
             docs = ["crates/mplora-orchestrator/"]
+        ),
+        error_code!(
+            ECode::E7003,
+            "No Workers Available",
+            "No worker processes are running. Inference requires at least one active worker.",
+            "Start the server which includes workers:\n\n\
+             \x1b[1m  ./start\x1b[0m\n\n\
+             Or start just the control plane:\n\n\
+             \x1b[1m  cargo run -p adapteros-server -- --config configs/cp.toml\x1b[0m\n\n\
+             Check if any workers are registered:\n\n\
+             \x1b[1m  ./aosctl status\x1b[0m",
+            docs = ["docs/QUICKSTART.md", "scripts/start.sh"]
+        ),
+        error_code!(
+            ECode::E7004,
+            "Server Not Running",
+            "The AdapterOS control plane server is not running or not reachable.",
+            "Start the server:\n\n\
+             \x1b[1m  ./start\x1b[0m\n\n\
+             Or start in development mode:\n\n\
+             \x1b[1m  cargo run -p adapteros-server -- --config configs/cp.toml\x1b[0m\n\n\
+             Verify the server is running:\n\n\
+             \x1b[1m  curl http://127.0.0.1:8080/healthz\x1b[0m",
+            docs = ["docs/QUICKSTART.md", "docs/BOOT_TROUBLESHOOTING.md"]
         ),
         // E8xxx: CLI/Config Errors
         error_code!(

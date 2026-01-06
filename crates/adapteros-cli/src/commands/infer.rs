@@ -1,5 +1,6 @@
 //! CLI inference command over AdapterOS UDS
 
+use crate::error_codes::{get, ECode};
 use adapteros_client::UdsClient;
 use adapteros_lora_worker::memory::UmaPressureMonitor;
 use anyhow::Result;
@@ -53,10 +54,35 @@ pub async fn run(
     let url = uds_infer_url_string(&socket);
     tracing::debug!(uds_url = %url, "Using UDS infer URL");
     let uds_client = UdsClient::new(Duration::from_millis(timeout_ms));
-    let response_body = uds_client
+    let response_body = match uds_client
         .send_request(&socket, "POST", INFER_API_PATH, Some(&request_body))
         .await
-        .map_err(|e| anyhow::anyhow!("Inference request failed: {}", e))?;
+    {
+        Ok(body) => body,
+        Err(e) => {
+            let err_str = e.to_string();
+            // Check for common actionable errors
+            if err_str.contains("connection refused")
+                || err_str.contains("No such file")
+                || err_str.contains("ENOENT")
+            {
+                let error_code = get(ECode::E7003);
+                eprintln!(
+                    "\x1b[1;31mError {}: {}\x1b[0m\n\n\
+                     \x1b[1mCause:\x1b[0m {}\n\n\
+                     \x1b[1mFix:\x1b[0m\n{}\n\n\
+                     Socket path: {}",
+                    error_code.code,
+                    error_code.title,
+                    error_code.cause,
+                    error_code.fix,
+                    socket.display()
+                );
+                std::process::exit(33); // WorkerNotResponding exit code
+            }
+            return Err(anyhow::anyhow!("Inference request failed: {}", e));
+        }
+    };
 
     let json: Value = serde_json::from_str(&response_body)
         .map_err(|e| anyhow::anyhow!("Failed to parse response: {}", e))?;
