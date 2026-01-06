@@ -48,7 +48,7 @@ async fn spa_fallback(uri: Uri) -> impl IntoResponse {
 }
 
 async fn index_handler() -> impl IntoResponse {
-    match Assets::get("index.html") {
+    match <Assets as RustEmbed>::get("index.html") {
         Some(content) => Html(content.data.into_owned()).into_response(),
         None => (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -61,7 +61,7 @@ async fn index_handler() -> impl IntoResponse {
 async fn static_handler(uri: Uri) -> impl IntoResponse {
     let path = uri.path().trim_start_matches('/');
 
-    match Assets::get(path) {
+    match <Assets as RustEmbed>::get(path) {
         Some(content) => {
             let mime = mime_guess::from_path(path).first_or_octet_stream();
 
