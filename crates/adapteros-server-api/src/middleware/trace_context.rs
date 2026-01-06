@@ -40,7 +40,7 @@ pub async fn trace_context_middleware(mut req: Request, next: Next) -> Response 
         if let Ok(span_context) = parse_traceparent(traceparent, tracestate) {
             let parent_cx = Context::current().with_remote_span_context(span_context.clone());
             // Set the parent context on the current tracing span
-            Span::current().set_parent(parent_cx);
+            let _ = Span::current().set_parent(parent_cx);
 
             // Store trace context in request extensions for handlers
             req.extensions_mut().insert(TraceContextExtension {

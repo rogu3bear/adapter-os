@@ -308,47 +308,39 @@ pub async fn download_run_evidence(
     let model_status_json = serde_json::to_vec_pretty(&model_snapshot).map_err(internal_error)?;
 
     // Attempt to load trace receipt and build inference envelope
-    let trace_row = sqlx::query!(
+    let trace_id: Option<String> = sqlx::query_scalar(
         "SELECT trace_id FROM inference_traces WHERE request_id = ? AND tenant_id = ? ORDER BY created_at DESC, trace_id DESC LIMIT 1",
-        run_id,
-        metadata.tenant_id
     )
+    .bind(&run_id)
+    .bind(&metadata.tenant_id)
     .fetch_optional(&state.db_pool)
     .await
     .map_err(db_error)?;
 
     let mut run_envelope_bytes: Option<Vec<u8>> = None;
     let mut envelope_warnings: Vec<String> = Vec::new();
-    if let Some(row) = trace_row {
-        if let Some(trace_id) = row.trace_id {
-            match recompute_receipt(state.db.raw(), trace_id.as_str()).await {
-                Ok(verification) => {
-                    let receipt = verification
-                        .stored
-                        .as_ref()
-                        .unwrap_or(&verification.recomputed);
-                    let receipt_ref = trace_receipt_to_ref(receipt);
-                    // Keep evidence export deterministic by omitting mutable chain linkage and timestamps.
-                    let mut envelope = EvidenceEnvelope::new_inference(
-                        metadata.tenant_id.clone(),
-                        receipt_ref,
-                        None,
-                    );
-                    envelope.created_at = DETERMINISTIC_ENVELOPE_TIMESTAMP.to_string();
-                    envelope.signed_at_us = 0;
-                    run_envelope_bytes =
-                        Some(serde_json::to_vec_pretty(&envelope).map_err(internal_error)?);
-                }
-                Err(e) => {
-                    envelope_warnings.push(format!(
-                        "failed to recompute trace receipt for {}: {}",
-                        trace_id, e
-                    ));
-                }
+    if let Some(trace_id) = trace_id {
+        match recompute_receipt(state.db.raw(), trace_id.as_str()).await {
+            Ok(verification) => {
+                let receipt = verification
+                    .stored
+                    .as_ref()
+                    .unwrap_or(&verification.recomputed);
+                let receipt_ref = trace_receipt_to_ref(receipt);
+                // Keep evidence export deterministic by omitting mutable chain linkage and timestamps.
+                let mut envelope =
+                    EvidenceEnvelope::new_inference(metadata.tenant_id.clone(), receipt_ref, None);
+                envelope.created_at = DETERMINISTIC_ENVELOPE_TIMESTAMP.to_string();
+                envelope.signed_at_us = 0;
+                run_envelope_bytes =
+                    Some(serde_json::to_vec_pretty(&envelope).map_err(internal_error)?);
             }
-        } else {
-            envelope_warnings
-                .push("inference trace missing trace_id; envelope omitted".to_string());
+            Err(e) => {
+                envelope_warnings.push(format!(
+                    "failed to recompute trace receipt for {}: {}",
+                    trace_id, e
+                ));
+            }
         }
     } else {
         envelope_warnings.push("no inference trace found for run_id; envelope omitted".to_string());
