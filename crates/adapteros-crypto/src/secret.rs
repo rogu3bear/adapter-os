@@ -163,6 +163,30 @@ impl SensitiveData {
     }
 }
 
+impl From<Vec<u8>> for SensitiveData {
+    fn from(value: Vec<u8>) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<&[u8]> for SensitiveData {
+    fn from(value: &[u8]) -> Self {
+        Self::new(value.to_vec())
+    }
+}
+
+impl From<String> for SensitiveData {
+    fn from(value: String) -> Self {
+        Self::new(value.into_bytes())
+    }
+}
+
+impl From<&str> for SensitiveData {
+    fn from(value: &str) -> Self {
+        Self::new(value.as_bytes().to_vec())
+    }
+}
+
 impl fmt::Debug for SensitiveData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SensitiveData")

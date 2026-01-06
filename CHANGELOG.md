@@ -39,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Unblocked main build
 - Updated .gitignore patterns
 - Policy pack count standardized to 25 across all documentation
+- Redacted KMS credential debug output and zeroized secret fields
 
 ## [v0.9-unstable] - 2025-12-08
 

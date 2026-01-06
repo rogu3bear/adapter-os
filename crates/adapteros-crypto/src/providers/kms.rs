@@ -7,7 +7,7 @@
 use crate::key_provider::{
     KeyAlgorithm, KeyHandle, KeyProvider, KeyProviderConfig, ProviderAttestation, RotationReceipt,
 };
-use crate::SensitiveData;
+use crate::secret::SensitiveData;
 use adapteros_core::{derive_seed, AosError, B3Hash, Result};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
@@ -15,11 +15,9 @@ use rand::rngs::StdRng;
 use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fmt;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
-use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// Cloud KMS backends are intentionally disabled in local/CI builds.
 const CLOUD_BACKEND_DISABLED_MSG: &str =
@@ -153,7 +151,7 @@ impl Default for KmsConfig {
 }
 
 /// KMS authentication credentials
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone)]
 pub enum KmsCredentials {
     /// No authentication (mock/local)
     None,
@@ -180,42 +178,44 @@ pub enum KmsCredentials {
     },
 }
 
-impl fmt::Debug for KmsCredentials {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl std::fmt::Debug for KmsCredentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            KmsCredentials::None => f.write_str("None"),
-            KmsCredentials::AwsIam {
+            Self::None => f.write_str("KmsCredentials::None"),
+            Self::AwsIam {
                 access_key_id,
+                secret_access_key: _,
                 session_token,
-                ..
-            } => {
-                let redacted = "[REDACTED]";
-                let session_token = session_token.as_ref().map(|_| redacted);
-                f.debug_struct("AwsIam")
-                    .field("access_key_id", access_key_id)
-                    .field("secret_access_key", &redacted)
-                    .field("session_token", &session_token)
-                    .finish()
-            }
-            KmsCredentials::GcpServiceAccount { .. } => f
+            } => f
+                .debug_struct("AwsIam")
+                .field("access_key_id", access_key_id)
+                .field("secret_access_key", &"[REDACTED]")
+                .field(
+                    "session_token",
+                    &session_token.as_ref().map(|_| "[REDACTED]"),
+                )
+                .finish(),
+            Self::GcpServiceAccount {
+                credentials_json: _,
+            } => f
                 .debug_struct("GcpServiceAccount")
                 .field("credentials_json", &"[REDACTED]")
                 .finish(),
-            KmsCredentials::AzureServicePrincipal {
+            Self::AzureServicePrincipal {
                 tenant_id,
                 client_id,
-                ..
+                client_secret: _,
             } => f
                 .debug_struct("AzureServicePrincipal")
                 .field("tenant_id", tenant_id)
                 .field("client_id", client_id)
                 .field("client_secret", &"[REDACTED]")
                 .finish(),
-            KmsCredentials::VaultToken { .. } => f
+            Self::VaultToken { token: _ } => f
                 .debug_struct("VaultToken")
                 .field("token", &"[REDACTED]")
                 .finish(),
-            KmsCredentials::Pkcs11Pin { slot_id, .. } => f
+            Self::Pkcs11Pin { pin: _, slot_id } => f
                 .debug_struct("Pkcs11Pin")
                 .field("pin", &"[REDACTED]")
                 .field("slot_id", slot_id)
@@ -224,33 +224,27 @@ impl fmt::Debug for KmsCredentials {
     }
 }
 
-impl Zeroize for KmsCredentials {
-    fn zeroize(&mut self) {
-        match self {
-            KmsCredentials::None => {}
-            KmsCredentials::AwsIam {
-                secret_access_key,
-                session_token,
-                ..
-            } => {
-                secret_access_key.zeroize();
-                if let Some(token) = session_token {
-                    token.zeroize();
-                }
-            }
-            KmsCredentials::GcpServiceAccount { credentials_json } => {
-                credentials_json.zeroize();
-            }
-            KmsCredentials::AzureServicePrincipal { client_secret, .. } => {
-                client_secret.zeroize();
-            }
-            KmsCredentials::VaultToken { token } => token.zeroize(),
-            KmsCredentials::Pkcs11Pin { pin, .. } => pin.zeroize(),
-        }
+impl Serialize for KmsCredentials {
+    fn serialize<S>(&self, _serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        Err(serde::ser::Error::custom(
+            "KmsCredentials cannot be serialized for security reasons",
+        ))
     }
 }
 
-impl ZeroizeOnDrop for KmsCredentials {}
+impl<'de> Deserialize<'de> for KmsCredentials {
+    fn deserialize<D>(_deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Err(serde::de::Error::custom(
+            "KmsCredentials cannot be deserialized for security reasons",
+        ))
+    }
+}
 
 /// Backend trait for KMS implementations
 #[async_trait::async_trait]
@@ -314,23 +308,11 @@ impl AwsKmsBackend {
                 secret_access_key,
                 session_token,
             } => {
-                let secret_access_key = std::str::from_utf8(secret_access_key.as_bytes())
-                    .map_err(|_| {
-                        AosError::Crypto("AWS secret access key must be valid UTF-8".to_string())
-                    })?
-                    .to_string();
+                let secret_access_key =
+                    String::from_utf8_lossy(secret_access_key.as_bytes()).to_string();
                 let session_token = session_token
                     .as_ref()
-                    .map(|token| {
-                        std::str::from_utf8(token.as_bytes())
-                            .map(|value| value.to_string())
-                            .map_err(|_| {
-                                AosError::Crypto(
-                                    "AWS session token must be valid UTF-8".to_string(),
-                                )
-                            })
-                    })
-                    .transpose()?;
+                    .map(|token| String::from_utf8_lossy(token.as_bytes()).to_string());
                 Credentials::new(
                     access_key_id.clone(),
                     secret_access_key,
@@ -791,17 +773,18 @@ impl GcpKmsBackend {
     pub async fn new_async(config: KmsConfig) -> Result<Self> {
         // Extract GCP-specific configuration
         let gcp_creds = match &config.credentials {
-            KmsCredentials::GcpServiceAccount { credentials_json } => credentials_json,
+            KmsCredentials::GcpServiceAccount { credentials_json } => {
+                String::from_utf8_lossy(credentials_json.as_bytes()).to_string()
+            }
             _ => {
                 return Err(AosError::Crypto(
                     "GCP KMS requires GcpServiceAccount credentials".to_string(),
                 ));
             }
         };
-        let gcp_creds_bytes = gcp_creds.as_bytes();
 
         // Parse service account JSON
-        let service_account: serde_json::Value = serde_json::from_slice(gcp_creds_bytes)
+        let service_account: serde_json::Value = serde_json::from_str(&gcp_creds)
             .map_err(|e| AosError::Crypto(format!("Invalid GCP service account JSON: {}", e)))?;
 
         let project_id = service_account
@@ -825,7 +808,7 @@ impl GcpKmsBackend {
             .unwrap_or_else(|| "adapteros-keys".to_string());
 
         // Create OAuth2 credentials
-        let secret: oauth2::ApplicationSecret = serde_json::from_slice(gcp_creds_bytes)
+        let secret: oauth2::ApplicationSecret = serde_json::from_str(&gcp_creds)
             .map_err(|e| AosError::Crypto(format!("Failed to parse GCP credentials: {}", e)))?;
 
         // Build authenticator with service account
@@ -2466,10 +2449,6 @@ mod tests {
     use super::*;
     use crate::key_provider::KeyProviderConfig;
 
-    fn sensitive(value: &str) -> SensitiveData {
-        SensitiveData::new(value.as_bytes().to_vec())
-    }
-
     #[tokio::test]
     async fn test_kms_provider_mock_generate() {
         let config = KmsConfig {
@@ -2668,7 +2647,7 @@ mod tests {
             region: Some("us-east-1".to_string()),
             credentials: KmsCredentials::AwsIam {
                 access_key_id: "test-key-id".to_string(),
-                secret_access_key: sensitive("test-secret"),
+                secret_access_key: "test-secret".into(),
                 session_token: None,
             },
             timeout_secs: 30,
@@ -2689,7 +2668,7 @@ mod tests {
             region: Some("us-east-1".to_string()),
             credentials: KmsCredentials::AwsIam {
                 access_key_id: "test-key-id".to_string(),
-                secret_access_key: sensitive("test-secret"),
+                secret_access_key: "test-secret".into(),
                 session_token: None,
             },
             timeout_secs: 30,
@@ -2713,7 +2692,7 @@ mod tests {
             region: Some("eu-west-1".to_string()),
             credentials: KmsCredentials::AwsIam {
                 access_key_id: "test".to_string(),
-                secret_access_key: sensitive("test"),
+                secret_access_key: "test".into(),
                 session_token: None,
             },
             timeout_secs: 30,
@@ -2732,8 +2711,8 @@ mod tests {
             region: Some("us-east-1".to_string()),
             credentials: KmsCredentials::AwsIam {
                 access_key_id: "test-key".to_string(),
-                secret_access_key: sensitive("test-secret"),
-                session_token: Some(sensitive("test-token")),
+                secret_access_key: "test-secret".into(),
+                session_token: Some("test-token".into()),
             },
             timeout_secs: 30,
             max_retries: 3,
@@ -2751,7 +2730,7 @@ mod tests {
                 assert_eq!(secret_access_key.as_bytes(), b"test-secret");
                 assert_eq!(
                     session_token.as_ref().map(|token| token.as_bytes()),
-                    Some("test-token".as_bytes())
+                    Some(b"test-token".as_ref())
                 );
             }
             _ => panic!("Expected AwsIam credentials"),
@@ -2813,36 +2792,13 @@ mod tests {
     async fn test_kms_credentials_serialization() {
         let creds = KmsCredentials::AwsIam {
             access_key_id: "key123".to_string(),
-            secret_access_key: sensitive("secret456"),
-            session_token: Some(sensitive("token789")),
+            secret_access_key: "secret456".into(),
+            session_token: Some("token789".into()),
         };
 
-        let json = serde_json::to_string(&creds);
-        assert!(json.is_err());
-    }
-
-    #[test]
-    fn test_kms_credentials_zeroize() {
-        let mut creds = KmsCredentials::AwsIam {
-            access_key_id: "key123".to_string(),
-            secret_access_key: sensitive("secret456"),
-            session_token: Some(sensitive("token789")),
-        };
-
-        creds.zeroize();
-
-        match &creds {
-            KmsCredentials::AwsIam {
-                secret_access_key,
-                session_token,
-                ..
-            } => {
-                assert!(secret_access_key.as_bytes().iter().all(|b| *b == 0));
-                let token = session_token.as_ref().expect("session token present");
-                assert!(token.as_bytes().iter().all(|b| *b == 0));
-            }
-            _ => panic!("Expected AwsIam credentials"),
-        }
+        // Serialization and deserialization should fail for credentials
+        assert!(serde_json::to_string(&creds).is_err());
+        assert!(serde_json::from_str::<KmsCredentials>("{}").is_err());
     }
 
     #[tokio::test]
@@ -2866,8 +2822,7 @@ mod tests {
             endpoint: "https://cloudkms.googleapis.com".to_string(),
             region: Some("us-central1".to_string()),
             credentials: KmsCredentials::GcpServiceAccount {
-                credentials_json: sensitive(
-                    r#"{
+                credentials_json: r#"{
                     "type": "service_account",
                     "project_id": "test-project",
                     "private_key_id": "key-id",
@@ -2876,8 +2831,8 @@ mod tests {
                     "client_id": "123456789",
                     "auth_uri": "https://accounts.google.com/o/oauth2/auth",
                     "token_uri": "https://oauth2.googleapis.com/token"
-                }"#,
-                ),
+                }"#
+                .into(),
             },
             timeout_secs: 30,
             max_retries: 3,
@@ -2896,7 +2851,7 @@ mod tests {
             endpoint: "https://cloudkms.googleapis.com".to_string(),
             region: Some("us-central1".to_string()),
             credentials: KmsCredentials::GcpServiceAccount {
-                credentials_json: sensitive("{}"),
+                credentials_json: "{}".into(),
             },
             timeout_secs: 30,
             max_retries: 3,
@@ -2912,17 +2867,17 @@ mod tests {
     async fn test_gcp_kms_credentials_validation() {
         // Valid credentials structure
         let valid_creds = KmsCredentials::GcpServiceAccount {
-            credentials_json: sensitive(
-                r#"{
+            credentials_json: r#"{
                 "type": "service_account",
                 "project_id": "test-project"
-            }"#,
-            ),
+            }"#
+            .into(),
         };
 
         if let KmsCredentials::GcpServiceAccount { credentials_json } = valid_creds {
+            let creds_json = String::from_utf8_lossy(credentials_json.as_bytes());
             let parsed: std::result::Result<serde_json::Value, _> =
-                serde_json::from_slice(credentials_json.as_bytes());
+                serde_json::from_str(creds_json.as_ref());
             assert!(parsed.is_ok());
             assert_eq!(
                 parsed.unwrap().get("project_id").and_then(|p| p.as_str()),
@@ -2938,7 +2893,7 @@ mod tests {
             endpoint: "https://cloudkms.googleapis.com".to_string(),
             region: Some("europe-west1".to_string()),
             credentials: KmsCredentials::GcpServiceAccount {
-                credentials_json: sensitive("{}"),
+                credentials_json: "{}".into(),
             },
             timeout_secs: 30,
             max_retries: 3,
@@ -2955,7 +2910,7 @@ mod tests {
             endpoint: "https://cloudkms.googleapis.com".to_string(),
             region: Some("us-central1".to_string()),
             credentials: KmsCredentials::GcpServiceAccount {
-                credentials_json: sensitive("{}"),
+                credentials_json: "{}".into(),
             },
             timeout_secs: 30,
             max_retries: 3,
@@ -3001,8 +2956,7 @@ mod tests {
             endpoint: format!("http://{}", endpoint),
             region: Some("us-central1".to_string()),
             credentials: KmsCredentials::GcpServiceAccount {
-                credentials_json: sensitive(
-                    r#"{
+                credentials_json: r#"{
                     "type": "service_account",
                     "project_id": "test-project",
                     "private_key_id": "key-id",
@@ -3011,8 +2965,8 @@ mod tests {
                     "client_id": "123456789",
                     "auth_uri": "https://accounts.google.com/o/oauth2/auth",
                     "token_uri": "https://oauth2.googleapis.com/token"
-                }"#,
-                ),
+                }"#
+                .into(),
             },
             timeout_secs: 30,
             max_retries: 3,
@@ -3080,7 +3034,7 @@ mod tests {
             endpoint: "https://cloudkms.googleapis.com".to_string(),
             region: Some("us-central1".to_string()),
             credentials: KmsCredentials::GcpServiceAccount {
-                credentials_json: sensitive(invalid_creds),
+                credentials_json: invalid_creds.into(),
             },
             timeout_secs: 30,
             max_retries: 3,
@@ -3106,7 +3060,7 @@ mod tests {
             endpoint: "https://cloudkms.googleapis.com".to_string(),
             region: Some("us-central1".to_string()),
             credentials: KmsCredentials::GcpServiceAccount {
-                credentials_json: sensitive(invalid_json),
+                credentials_json: invalid_json.into(),
             },
             timeout_secs: 30,
             max_retries: 3,
@@ -3129,7 +3083,7 @@ mod tests {
             region: Some("us-central1".to_string()),
             credentials: KmsCredentials::AwsIam {
                 access_key_id: "test".to_string(),
-                secret_access_key: sensitive("test"),
+                secret_access_key: "test".into(),
                 session_token: None,
             },
             timeout_secs: 30,
@@ -3157,7 +3111,7 @@ mod tests {
             endpoint: "https://cloudkms.googleapis.com".to_string(),
             region: None,
             credentials: KmsCredentials::GcpServiceAccount {
-                credentials_json: sensitive("{}"),
+                credentials_json: "{}".into(),
             },
             timeout_secs: 30,
             max_retries: 3,
@@ -3176,7 +3130,7 @@ mod tests {
             endpoint: "https://cloudkms.googleapis.com".to_string(),
             region: Some("us-central1".to_string()),
             credentials: KmsCredentials::GcpServiceAccount {
-                credentials_json: sensitive("{}"),
+                credentials_json: "{}".into(),
             },
             timeout_secs: 30,
             max_retries: 3,
@@ -3194,7 +3148,7 @@ mod tests {
             endpoint: "https://cloudkms.googleapis.com".to_string(),
             region: Some("us-central1".to_string()),
             credentials: KmsCredentials::GcpServiceAccount {
-                credentials_json: sensitive("{}"),
+                credentials_json: "{}".into(),
             },
             timeout_secs: 60,
             max_retries: 5,
@@ -3208,10 +3162,11 @@ mod tests {
     #[tokio::test]
     async fn test_gcp_kms_credentials_serialization() {
         let creds = KmsCredentials::GcpServiceAccount {
-            credentials_json: sensitive(r#"{"project_id": "test-project"}"#),
+            credentials_json: r#"{"project_id": "test-project"}"#.into(),
         };
 
-        let json = serde_json::to_string(&creds);
-        assert!(json.is_err());
+        // Serialization and deserialization should fail for credentials
+        assert!(serde_json::to_string(&creds).is_err());
+        assert!(serde_json::from_str::<KmsCredentials>("{}").is_err());
     }
 }
