@@ -3,6 +3,7 @@
 //! This module provides thread-local storage for cryptographic seeds,
 //! collision detection, and deterministic propagation across async tasks.
 
+use adapteros_core::seed::SeedMode;
 use parking_lot::Mutex;
 use rand::{Rng, RngCore, SeedableRng};
 use rand_chacha::ChaCha20Rng;
@@ -336,6 +337,9 @@ pub enum SeedError {
     DeterministicExecError(String),
     #[error("Seed validation failed: {0}")]
     ValidationError(String),
+    /// PRD-DET-001: Strict mode rejects fallback seeds
+    #[error("Strict mode requires primary seed; fallback rejected")]
+    StrictModeFallbackRejected,
 }
 
 /// Seed telemetry metrics
@@ -447,6 +451,104 @@ impl GlobalSeedManager {
                 "No fallback RNG available".to_string(),
             ))
         }
+    }
+
+    /// Initialize global seed with mode-aware fallback handling (PRD-DET-001).
+    ///
+    /// This method respects the `SeedMode` when deciding whether to allow fallback:
+    ///
+    /// - **Strict**: Returns `StrictModeFallbackRejected` if no primary seed provided.
+    ///   Production deployments MUST provide explicit seeds.
+    /// - **BestEffort**: Uses deterministic fallback seed when primary is absent.
+    ///   Suitable for development and testing.
+    /// - **NonDeterministic**: Generates a random seed (useful for benchmarking).
+    ///
+    /// # Arguments
+    ///
+    /// * `primary_seed` - Optional explicit seed bytes
+    /// * `mode` - The seed mode controlling fallback behavior
+    ///
+    /// # Returns
+    ///
+    /// The initialized seed bytes, or an error if strict mode rejects fallback.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let manager = GlobalSeedManager::new();
+    ///
+    /// // Production: must provide seed
+    /// let result = manager.init_with_mode(None, SeedMode::Strict);
+    /// assert!(result.is_err()); // StrictModeFallbackRejected
+    ///
+    /// // Development: fallback allowed
+    /// let seed = manager.init_with_mode(None, SeedMode::BestEffort)?;
+    /// ```
+    pub fn init_with_mode(
+        &self,
+        primary_seed: Option<[u8; 32]>,
+        mode: SeedMode,
+    ) -> Result<[u8; 32], SeedError> {
+        let seed = match (primary_seed, mode) {
+            // Primary seed provided - use it regardless of mode
+            (Some(seed), _) => {
+                info!(
+                    seed_mode = ?mode,
+                    seed_source = "primary",
+                    "Initialized with explicit primary seed"
+                );
+                seed
+            }
+
+            // Strict mode without primary seed - reject
+            (None, SeedMode::Strict) => {
+                error!(
+                    seed_mode = "strict",
+                    "Strict mode requires primary seed; fallback rejected"
+                );
+                return Err(SeedError::StrictModeFallbackRejected);
+            }
+
+            // BestEffort mode without primary seed - use deterministic fallback
+            (None, SeedMode::BestEffort) => {
+                use hkdf::Hkdf;
+                use sha2::Sha256;
+
+                const FALLBACK_IKM: &[u8] = b"adapteros-deterministic-exec-fallback-seed-v1";
+                const FALLBACK_SALT: &[u8] = b"global-seed-manager-emergency";
+
+                let hk = Hkdf::<Sha256>::new(Some(FALLBACK_SALT), FALLBACK_IKM);
+                let mut fallback_seed = [0u8; 32];
+                hk.expand(b"fallback", &mut fallback_seed)
+                    .expect("HKDF expansion failed for fallback seed");
+
+                warn!(
+                    seed_mode = "best_effort",
+                    seed_source = "fallback",
+                    "No primary seed provided; using deterministic fallback (dev/test only)"
+                );
+                fallback_seed
+            }
+
+            // NonDeterministic mode - generate random seed
+            (None, SeedMode::NonDeterministic) => {
+                let mut random_seed = [0u8; 32];
+                rand::thread_rng().fill_bytes(&mut random_seed);
+
+                warn!(
+                    seed_mode = "non_deterministic",
+                    seed_source = "random",
+                    "Generated random seed (non-replayable, benchmarking only)"
+                );
+                random_seed
+            }
+        };
+
+        // Store fallback RNG for emergency use
+        let fallback_rng = ChaCha20Rng::from_seed(seed);
+        *self.fallback_rng.lock() = Some(fallback_rng);
+
+        Ok(seed)
     }
 }
 
@@ -596,5 +698,75 @@ mod tests {
         // Test fallback seed generation
         let fallback_seed = manager.emergency_seed().unwrap();
         assert_ne!(fallback_seed, seed); // Should be different due to RNG
+    }
+
+    /// PRD-DET-001: Strict mode rejects fallback seeds
+    #[test]
+    fn test_init_with_mode_strict_rejects_fallback() {
+        let manager = GlobalSeedManager::new();
+
+        // Strict mode without primary seed MUST fail
+        let result = manager.init_with_mode(None, SeedMode::Strict);
+        assert!(
+            matches!(result, Err(SeedError::StrictModeFallbackRejected)),
+            "Strict mode should reject None seed, got: {:?}",
+            result
+        );
+    }
+
+    /// PRD-DET-001: Strict mode accepts explicit seeds
+    #[test]
+    fn test_init_with_mode_strict_accepts_primary() {
+        let manager = GlobalSeedManager::new();
+        let seed = [42u8; 32];
+
+        // Strict mode with primary seed should succeed
+        let result = manager.init_with_mode(Some(seed), SeedMode::Strict);
+        assert!(result.is_ok(), "Strict mode should accept primary seed");
+        assert_eq!(result.unwrap(), seed);
+    }
+
+    /// PRD-DET-001: BestEffort mode allows fallback
+    #[test]
+    fn test_init_with_mode_best_effort_allows_fallback() {
+        let manager = GlobalSeedManager::new();
+
+        // BestEffort mode without primary seed should use deterministic fallback
+        let result = manager.init_with_mode(None, SeedMode::BestEffort);
+        assert!(
+            result.is_ok(),
+            "BestEffort mode should allow fallback, got: {:?}",
+            result
+        );
+
+        // Fallback should be deterministic (same seed every time)
+        let manager2 = GlobalSeedManager::new();
+        let result2 = manager2.init_with_mode(None, SeedMode::BestEffort);
+        assert_eq!(
+            result.unwrap(),
+            result2.unwrap(),
+            "BestEffort fallback should be deterministic"
+        );
+    }
+
+    /// PRD-DET-001: NonDeterministic mode generates random seeds
+    #[test]
+    fn test_init_with_mode_nondeterministic_generates_random() {
+        let manager1 = GlobalSeedManager::new();
+        let manager2 = GlobalSeedManager::new();
+
+        // NonDeterministic mode without primary seed should generate random seeds
+        let result1 = manager1.init_with_mode(None, SeedMode::NonDeterministic);
+        let result2 = manager2.init_with_mode(None, SeedMode::NonDeterministic);
+
+        assert!(result1.is_ok());
+        assert!(result2.is_ok());
+
+        // Seeds should be different (with overwhelming probability)
+        assert_ne!(
+            result1.unwrap(),
+            result2.unwrap(),
+            "NonDeterministic mode should generate different seeds"
+        );
     }
 }

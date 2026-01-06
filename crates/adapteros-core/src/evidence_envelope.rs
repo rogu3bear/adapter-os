@@ -32,7 +32,11 @@ use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 
 /// Schema version for forward compatibility
-pub const EVIDENCE_ENVELOPE_SCHEMA_VERSION: u8 = 1;
+///
+/// Version history:
+/// - v1: Initial schema with telemetry, policy, inference scopes
+/// - v2: Added backend_used and backend_attestation_b3 to InferenceReceiptRef (PRD-DET-001)
+pub const EVIDENCE_ENVELOPE_SCHEMA_VERSION: u8 = 2;
 
 /// Evidence scope discriminator
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -145,6 +149,26 @@ pub struct InferenceReceiptRef {
     // --- Model identity ---
     /// BLAKE3 digest of ModelCacheIdentityV2 canonical bytes
     pub model_cache_identity_v2_digest_b3: Option<B3Hash>,
+
+    // --- Backend identity (PRD-DET-001: Determinism hardening) ---
+    /// Backend used for inference (e.g., "metal", "coreml", "mlx").
+    ///
+    /// This field binds the receipt to the specific backend that executed
+    /// the inference, ensuring backend substitution is detectable in the
+    /// tamper-evident evidence chain.
+    #[serde(default)]
+    pub backend_used: String,
+
+    /// BLAKE3 hash of backend attestation report for integrity verification.
+    ///
+    /// Computed from the `DeterminismReport` canonical bytes, including:
+    /// - metallib_hash (for Metal backend)
+    /// - rng_seed_method
+    /// - floating_point_mode
+    /// - determinism_level
+    /// - compiler_flags
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backend_attestation_b3: Option<B3Hash>,
 }
 
 /// Unified evidence envelope with cryptographic chain linking
@@ -373,6 +397,18 @@ impl EvidenceEnvelope {
                         Some(h) => bytes.extend_from_slice(h.as_bytes()),
                         None => bytes.extend_from_slice(&[0u8; 32]),
                     }
+
+                    // Backend identity (PRD-DET-001: v2 schema addition)
+                    encode_str(bytes, &r.backend_used);
+                    match &r.backend_attestation_b3 {
+                        Some(h) => {
+                            bytes.push(1); // present marker
+                            bytes.extend_from_slice(h.as_bytes());
+                        }
+                        None => {
+                            bytes.push(0); // absent marker
+                        }
+                    }
                 }
             }
         }
@@ -514,6 +550,8 @@ mod tests {
             stop_reason_token_index: Some(49),
             stop_policy_digest_b3: Some(B3Hash::hash(b"stop-policy")),
             model_cache_identity_v2_digest_b3: Some(B3Hash::hash(b"model-cache-id")),
+            backend_used: "metal".to_string(),
+            backend_attestation_b3: Some(B3Hash::hash(b"metal-attestation")),
         }
     }
 
@@ -669,5 +707,108 @@ mod tests {
         assert_eq!(parsed.scope, env.scope);
         assert_eq!(parsed.root, env.root);
         assert_eq!(parsed.previous_root, env.previous_root);
+    }
+
+    // ==========================================================================
+    // PRD-DET-001: Backend identity binding tests
+    // ==========================================================================
+
+    #[test]
+    fn test_backend_used_changes_receipt_digest() {
+        // PRD-DET-001: Different backend_used must produce different envelope digest
+        let mut ref1 = sample_inference_ref();
+        ref1.backend_used = "metal".to_string();
+
+        let mut ref2 = sample_inference_ref();
+        ref2.backend_used = "coreml".to_string();
+
+        let env1 = EvidenceEnvelope::new_inference("tenant-1".to_string(), ref1, None);
+        let mut env2 = EvidenceEnvelope::new_inference("tenant-1".to_string(), ref2, None);
+        env2.created_at = env1.created_at.clone();
+
+        assert_ne!(
+            env1.digest(),
+            env2.digest(),
+            "Different backend_used must produce different digest"
+        );
+    }
+
+    #[test]
+    fn test_backend_attestation_changes_receipt_digest() {
+        // PRD-DET-001: Different backend attestation must produce different digest
+        let mut ref1 = sample_inference_ref();
+        ref1.backend_attestation_b3 = Some(B3Hash::hash(b"attestation-1"));
+
+        let mut ref2 = sample_inference_ref();
+        ref2.backend_attestation_b3 = Some(B3Hash::hash(b"attestation-2"));
+
+        let env1 = EvidenceEnvelope::new_inference("tenant-1".to_string(), ref1, None);
+        let mut env2 = EvidenceEnvelope::new_inference("tenant-1".to_string(), ref2, None);
+        env2.created_at = env1.created_at.clone();
+
+        assert_ne!(
+            env1.digest(),
+            env2.digest(),
+            "Different backend_attestation_b3 must produce different digest"
+        );
+    }
+
+    #[test]
+    fn test_backend_attestation_none_vs_some_changes_digest() {
+        // PRD-DET-001: Presence vs absence of attestation must be distinguishable
+        let mut ref1 = sample_inference_ref();
+        ref1.backend_attestation_b3 = None;
+
+        let mut ref2 = sample_inference_ref();
+        ref2.backend_attestation_b3 = Some(B3Hash::hash(b"attestation"));
+
+        let env1 = EvidenceEnvelope::new_inference("tenant-1".to_string(), ref1, None);
+        let mut env2 = EvidenceEnvelope::new_inference("tenant-1".to_string(), ref2, None);
+        env2.created_at = env1.created_at.clone();
+
+        assert_ne!(
+            env1.digest(),
+            env2.digest(),
+            "None vs Some attestation must produce different digest"
+        );
+    }
+
+    #[test]
+    fn test_v1_schema_backward_compat_deserialization() {
+        // PRD-DET-001: Old v1 receipts without backend fields should deserialize
+        // with empty defaults
+        let json = r#"{
+            "trace_id": "trace-old",
+            "run_head_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+            "output_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+            "receipt_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+            "logical_prompt_tokens": 10,
+            "prefix_cached_token_count": 0,
+            "billed_input_tokens": 10,
+            "logical_output_tokens": 5,
+            "billed_output_tokens": 5
+        }"#;
+
+        let parsed: InferenceReceiptRef =
+            serde_json::from_str(json).expect("v1 schema should deserialize");
+
+        assert_eq!(parsed.backend_used, "", "backend_used defaults to empty");
+        assert!(
+            parsed.backend_attestation_b3.is_none(),
+            "backend_attestation defaults to None"
+        );
+    }
+
+    #[test]
+    fn test_inference_receipt_includes_backend_fields() {
+        // PRD-DET-001: Verify backend fields are present in receipt ref
+        let receipt_ref = sample_inference_ref();
+        let env =
+            EvidenceEnvelope::new_inference("tenant-1".to_string(), receipt_ref.clone(), None);
+
+        let ref_data = env.inference_receipt_ref.as_ref().unwrap();
+
+        assert_eq!(ref_data.backend_used, "metal");
+        assert!(ref_data.backend_attestation_b3.is_some());
     }
 }
