@@ -284,7 +284,7 @@ impl MlxArray {
             .data
             .iter()
             .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
             .unwrap_or((0, &0.0));
         Ok(Self {
             data: vec![idx as f32],
@@ -422,7 +422,7 @@ impl MlxArray {
     pub fn topk(&self, k: i32, _axis: i32) -> Result<(Self, Self)> {
         let k = (k as usize).min(self.data.len());
         let mut indexed: Vec<(usize, f32)> = self.data.iter().copied().enumerate().collect();
-        indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
         let values: Vec<f32> = indexed.iter().take(k).map(|(_, v)| *v).collect();
         let indices: Vec<f32> = indexed.iter().take(k).map(|(i, _)| *i as f32).collect();
