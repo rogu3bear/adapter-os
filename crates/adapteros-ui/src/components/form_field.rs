@@ -1,205 +1,110 @@
-//! FormField component - wrapper for form inputs with validation, errors, and help text
-//!
-//! Provides consistent UX for form fields with:
-//! - Label with optional required indicator
-//! - Input slot (children)
-//! - Error display (maps to field)
-//! - Inline help/hints
-//! - Accessibility attributes
+//! Form field wrappers for consistent labels, help, and errors.
 
 use leptos::prelude::*;
 
-/// FormField wrapper component
-///
-/// Wraps form inputs with consistent styling, labels, error display, and help text.
-///
-/// # Example
-/// ```rust
-/// view! {
-///     <FormField
-///         label="Email"
-///         name="email"
-///         required=true
-///         error=move || errors.get().get("email").cloned()
-///         help="We'll never share your email"
-///     >
-///         <Input value=email placeholder="you@example.com" />
-///     </FormField>
-/// }
-/// ```
+/// Context provided by FormField for child inputs.
+#[derive(Clone)]
+pub struct FormFieldContext {
+    pub field_id: String,
+    pub described_by: Option<String>,
+}
+
+/// Read the current form field context (if any).
+pub fn use_form_field_context() -> Option<FormFieldContext> {
+    use_context::<FormFieldContext>()
+}
+
+/// Help tooltip icon.
+#[component]
+pub fn HelpTooltip(#[prop(into)] text: String) -> impl IntoView {
+    view! {
+        <span class="help-tooltip" title=text aria-label="Help">
+            "?"
+        </span>
+    }
+}
+
+/// Label with optional help tooltip and required indicator.
+#[component]
+pub fn LabelWithHelp(
+    #[prop(into)] label: String,
+    #[prop(into)] for_id: String,
+    #[prop(optional)] required: bool,
+    help: Option<String>,
+) -> impl IntoView {
+    view! {
+        <label class="label" for=for_id>
+            <span class="flex items-center gap-2">
+                <span>{label}</span>
+                {move || {
+                    if required {
+                        view! { <span class="form-field-required">"*"</span> }.into_any()
+                    } else {
+                        view! {}.into_any()
+                    }
+                }}
+                {help.clone().map(|text| view! { <HelpTooltip text=text/> })}
+            </span>
+        </label>
+    }
+}
+
+/// Form field wrapper with label, help text, and error display.
 #[component]
 pub fn FormField(
-    /// The label text for the field
-    #[prop(into)]
-    label: String,
-    /// The field name (used for error mapping and accessibility)
-    #[prop(into)]
-    name: String,
-    /// Whether the field is required
-    #[prop(optional)]
-    required: bool,
-    /// Error message (reactive - returns Option<String>)
-    #[prop(optional, into)]
-    error: Option<Signal<Option<String>>>,
-    /// Help text shown below the input
-    #[prop(optional, into)]
-    help: Option<String>,
-    /// Additional CSS classes
-    #[prop(optional, into)]
-    class: String,
-    /// The input element(s) to wrap
+    #[prop(into)] label: String,
+    #[prop(into)] name: String,
+    #[prop(optional)] required: bool,
+    #[prop(optional, into)] help: Option<String>,
+    #[prop(optional)] error: Option<Signal<Option<String>>>,
     children: Children,
 ) -> impl IntoView {
     let field_id = format!("field-{}", name);
-    let error_id = format!("error-{}", name);
-    let help_id = format!("help-{}", name);
+    let help_id = format!("{}-help", field_id);
+    let error_id = format!("{}-error", field_id);
 
-    // Compute if there's an error
-    let has_error = move || error.map(|e| e.get().is_some()).unwrap_or(false);
+    let described_by = {
+        let mut parts = Vec::new();
+        if help.is_some() {
+            parts.push(help_id.clone());
+        }
+        if error.is_some() {
+            parts.push(error_id.clone());
+        }
+        if parts.is_empty() {
+            None
+        } else {
+            Some(parts.join(" "))
+        }
+    };
 
-    // Get the error message
-    let error_message = move || error.and_then(|e| e.get());
+    provide_context(FormFieldContext {
+        field_id: field_id.clone(),
+        described_by: described_by.clone(),
+    });
 
     view! {
-        <div class=format!("space-y-1.5 {}", class)>
-            // Label with required indicator
-            <label
-                for=field_id.clone()
-                class="label"
-            >
-                {label}
-                {required.then(|| view! {
-                    <span class="text-destructive ml-0.5">"*"</span>
-                })}
-            </label>
-
-            // Input slot
-            <div
-                class=move || {
-                    if has_error() {
-                        "form-field-error"
-                    } else {
-                        ""
-                    }
-                }
-            >
+        <div class="form-field">
+            <LabelWithHelp
+                label=label
+                for_id=field_id.clone()
+                required=required
+                help=help.clone()
+            />
+            <div class="form-field-control">
                 {children()}
             </div>
-
-            // Error message
-            {move || {
-                error_message().map(|msg| view! {
-                    <p
-                        id=error_id.clone()
-                        class="text-sm text-destructive flex items-center gap-1"
-                        role="alert"
-                    >
-                        <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            width="14"
-                            height="14"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            class="flex-shrink-0"
-                        >
-                            <circle cx="12" cy="12" r="10"/>
-                            <line x1="12" y1="8" x2="12" y2="12"/>
-                            <line x1="12" y1="16" x2="12.01" y2="16"/>
-                        </svg>
-                        {msg}
-                    </p>
-                })
-            }}
-
-            // Help text
-            {help.map(|h| view! {
-                <p
-                    id=help_id
-                    class="text-sm text-muted-foreground"
-                >
-                    {h}
-                </p>
+            {help.map(|text| view! {
+                <p id=help_id class="form-field-help">{text}</p>
+            })}
+            {error.map(|signal| {
+                let error_id = error_id.clone();
+                view! {
+                    {move || signal.get().map(|text| view! {
+                        <p id=error_id.clone() class="form-field-error" role="alert">{text}</p>
+                    })}
+                }
             })}
         </div>
-    }
-}
-
-/// HelpTooltip component - inline help icon with tooltip
-#[component]
-pub fn HelpTooltip(
-    /// The tooltip content
-    #[prop(into)]
-    text: String,
-) -> impl IntoView {
-    let show = RwSignal::new(false);
-
-    view! {
-        <span
-            class="inline-flex items-center cursor-help relative"
-            on:mouseenter=move |_| show.set(true)
-            on:mouseleave=move |_| show.set(false)
-            on:focus=move |_| show.set(true)
-            on:blur=move |_| show.set(false)
-            tabindex="0"
-        >
-            <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                class="text-muted-foreground"
-            >
-                <circle cx="12" cy="12" r="10"/>
-                <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
-                <line x1="12" y1="17" x2="12.01" y2="17"/>
-            </svg>
-            <div
-                class=move || {
-                    if show.get() {
-                        "absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 text-sm bg-popover text-popover-foreground rounded-md shadow-md border max-w-xs whitespace-normal"
-                    } else {
-                        "hidden"
-                    }
-                }
-                role="tooltip"
-            >
-                {text.clone()}
-                // Arrow
-                <div class="absolute top-full left-1/2 -translate-x-1/2 -mt-px border-4 border-transparent border-t-popover" />
-            </div>
-        </span>
-    }
-}
-
-/// LabelWithHelp - label text with an inline help tooltip
-#[component]
-pub fn LabelWithHelp(
-    /// The label text
-    #[prop(into)]
-    label: String,
-    /// The help tooltip content
-    #[prop(into)]
-    help: String,
-    /// Whether the field is required
-    #[prop(optional)]
-    required: bool,
-) -> impl IntoView {
-    view! {
-        <span class="inline-flex items-center gap-1.5">
-            {label}
-            {required.then(|| view! {
-                <span class="text-destructive">"*"</span>
-            })}
-            <HelpTooltip text=help />
-        </span>
     }
 }

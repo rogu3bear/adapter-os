@@ -1,0 +1,35 @@
+
+running 30 tests
+test agent::tests::test_agent_state_conversion ... ok
+test config::tests::test_builder ... ok
+test config::tests::test_agent_paths ... ok
+test config::tests::test_distribution_strategy_parse ... ok
+test config::tests::test_validation ... ok
+test config::tests::test_default_config ... ok
+test error::tests::test_error_display ... ok
+test error::tests::test_error_from_io ... ok
+test config::tests::test_generate_agent_ids ... ok
+test error::tests::test_error_recoverable ... ok
+test orchestrator::tests::test_invalid_config ... ok
+test orchestrator::tests::test_is_code_file ... ok
+test protocol::handshake::tests::test_handshake_request ... ok
+test protocol::handshake::tests::test_handshake_response_accepted ... ok
+test orchestrator::tests::test_orchestrator_creation ... ok
+test protocol::handshake::tests::test_handshake_response_rejected ... ok
+test protocol::handshake::tests::test_serialization ... ok
+test protocol::messages::tests::test_agent_request_serialization ... ok
+test protocol::messages::tests::test_agent_state ... ok
+test protocol::messages::tests::test_proposal_hash ... ok
+test protocol::messages::tests::test_task_assignment_serialization ... ok
+test result_merger::tests::test_merge_no_conflict ... ok
+test result_merger::tests::test_merge_require_review ... ok
+test result_merger::tests::test_merge_with_conflict_resolution ... ok
+test result_merger::tests::test_unified_plan_hash ... ok
+test supervisor::tests::test_supervisor_creation ... ok
+test task_router::tests::test_file_ownership_distribution ... ok
+test task_router::tests::test_planning_task_creation ... ok
+test task_router::tests::test_rebalance ... ok
+test task_router::tests::test_round_robin_distribution ... ok
+
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

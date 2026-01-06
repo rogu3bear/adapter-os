@@ -39,6 +39,16 @@ pub struct AosFileView<'a> {
     pub segments: Vec<AosSegmentRef<'a>>,
 }
 
+fn read_u64_as_usize(bytes: &[u8], label: &str) -> Result<usize> {
+    let value = u64::from_le_bytes(bytes.try_into().unwrap());
+    usize::try_from(value).map_err(|_| {
+        AosError::Validation(format!(
+            "Corrupted / needs retrain: {} too large for platform",
+            label
+        ))
+    })
+}
+
 /// Open an AOS archive from in-memory bytes, validating header, index, and segment hashes.
 pub fn open_aos<'a>(bytes: &'a [u8]) -> Result<AosFileView<'a>> {
     if bytes.len() < HEADER_SIZE {
@@ -60,10 +70,10 @@ pub fn open_aos<'a>(bytes: &'a [u8]) -> Result<AosFileView<'a>> {
         ));
     }
 
-    let index_offset = u64::from_le_bytes(bytes[8..16].try_into().unwrap()) as usize;
-    let index_size = u64::from_le_bytes(bytes[16..24].try_into().unwrap()) as usize;
-    let manifest_offset = u64::from_le_bytes(bytes[24..32].try_into().unwrap()) as usize;
-    let manifest_size = u64::from_le_bytes(bytes[32..40].try_into().unwrap()) as usize;
+    let index_offset = read_u64_as_usize(&bytes[8..16], "index offset")?;
+    let index_size = read_u64_as_usize(&bytes[16..24], "index size")?;
+    let manifest_offset = read_u64_as_usize(&bytes[24..32], "manifest offset")?;
+    let manifest_size = read_u64_as_usize(&bytes[32..40], "manifest size")?;
 
     if index_offset != HEADER_SIZE {
         return Err(AosError::Validation(
@@ -404,6 +414,20 @@ mod tests {
         assert_eq!(AOS_MAGIC, *b"AOS\0");
         assert_eq!(HEADER_SIZE, 64);
         assert_eq!(INDEX_ENTRY_SIZE, 80);
+    }
+
+    #[test]
+    fn test_read_u64_as_usize_small_value() {
+        let value = 42u64.to_le_bytes();
+        assert_eq!(read_u64_as_usize(&value, "index offset").unwrap(), 42);
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "32")]
+    fn test_read_u64_as_usize_rejects_large_value() {
+        let value = (u64::from(u32::MAX) + 1).to_le_bytes();
+        let err = read_u64_as_usize(&value, "index offset").unwrap_err();
+        assert!(matches!(err, AosError::Validation(_)));
     }
 
     #[test]

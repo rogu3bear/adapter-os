@@ -40,7 +40,10 @@ fn bench_evidence_collection(c: &mut Criterion) {
                     .collect();
 
                 // Rank by score (descending)
-                evidence_items.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+                evidence_items.sort_by(|a, b| {
+                    b.1.partial_cmp(&a.1)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
 
                 let top_10: Vec<_> = evidence_items.into_iter().take(10).collect();
                 black_box(top_10);
@@ -294,7 +297,9 @@ fn bench_evidence_decisions(c: &mut Criterion) {
 
                 // Select best evidence set
                 let best_index = evaluations.iter().enumerate()
-                    .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+                    .max_by(|a, b| {
+                        a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal)
+                    })
                     .map(|(i, _)| i)
                     .unwrap();
 
@@ -332,7 +337,9 @@ fn bench_evidence_decisions(c: &mut Criterion) {
                     }
 
                     // Simple consensus: average of top 3 scores
-                    scores.sort_by(|a, b| b.partial_cmp(a).unwrap());
+                    scores.sort_by(|a, b| {
+                        b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal)
+                    });
                     let top_3_sum: f32 = scores.iter().take(3).sum();
                     let consensus = top_3_sum / 3.0;
 
@@ -365,7 +372,10 @@ fn bench_evidence_decisions(c: &mut Criterion) {
                 }
 
                 // Sort by quality
-                quality_scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+                quality_scores.sort_by(|a, b| {
+                    b.1.partial_cmp(&a.1)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
 
                 black_box(quality_scores);
             })
@@ -401,7 +411,9 @@ fn bench_response_latency(c: &mut Criterion) {
                         tokio::time::sleep(Duration::from_millis(20)).await;
 
                         // Filter and rank evidence
-                        evidence_scores.sort_by(|a, b| b.partial_cmp(a).unwrap());
+                        evidence_scores.sort_by(|a, b| {
+                            b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal)
+                        });
                         let top_evidence: Vec<f32> = evidence_scores.into_iter().take(10).collect();
 
                         // Generate response
@@ -445,7 +457,10 @@ fn bench_response_latency(c: &mut Criterion) {
 
                     // Stage 3: Evidence filtering and ranking
                     let filtering_start = Instant::now();
-                    scored_evidence.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+                    scored_evidence.sort_by(|a, b| {
+                        b.1.partial_cmp(&a.1)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    });
                     let top_evidence: Vec<_> = scored_evidence.into_iter().take(20).collect();
                     let filtering_time = filtering_start.elapsed();
 

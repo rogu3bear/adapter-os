@@ -22,6 +22,7 @@
 // ============================================================================
 
 use super::aos_impl;
+use crate::commands::NOT_IMPLEMENTED_MESSAGE;
 use crate::output::OutputWriter;
 use adapteros_core::{AosError, Result};
 use adapteros_crypto::Keypair;
@@ -55,9 +56,9 @@ pub enum AosCmd {
     Extract(ExtractArgs), // COORDINATION: Affects SingleFileAdapterLoader
     /// Show .aos file information
     Info(InfoArgs), // COORDINATION: Affects UI display components
-    /// Migrate .aos file to current format version
+    /// Migrate .aos file to current format version [NOT IMPLEMENTED]
     Migrate(MigrateArgs), // COORDINATION: Affects format version compatibility
-    /// Convert .aos file between formats (ZIP <-> AOS binary)
+    /// Convert .aos file between formats (ZIP <-> AOS 2.0) [NOT IMPLEMENTED]
     Convert(ConvertArgs), // COORDINATION: Format conversion
 }
 
@@ -95,8 +96,8 @@ pub struct CreateArgs {
     #[arg(long, default_value = "fast")]
     pub compression: String,
 
-    /// Format version (zip or aos)
-    #[arg(long, default_value = "aos")]
+    /// Format version (zip or aos2)
+    #[arg(long, default_value = "zip")]
     pub format: String,
 
     /// Hex-encoded signing key (generates new key if not provided)
@@ -177,8 +178,8 @@ pub struct ConvertArgs {
     #[arg(long)]
     pub output: PathBuf,
 
-    /// Target format (zip or aos)
-    #[arg(long, default_value = "aos")]
+    /// Target format (zip or aos2)
+    #[arg(long, default_value = "aos2")]
     pub format: String,
 
     /// Verify converted file
@@ -308,38 +309,12 @@ pub async fn create_aos(args: CreateArgs, output: &OutputWriter) -> Result<()> {
                 .await?;
         }
         "aos" => {
-            // Use the adapteros-aos crate for AOS format (64-byte header)
-            use adapteros_aos::{AosWriter, BackendTag};
-            use adapteros_single_file_adapter::weights::serialize_weight_group;
-
-            // Serialize weights to safetensors
-            let weights_bytes = if let Some(ref combined) = adapter.weights.combined {
-                serialize_weight_group(combined)?
-            } else {
-                serialize_weight_group(&adapter.weights.positive)?
+            let aos_options = PackageOptions {
+                compression: compression_level,
+                include_signature: true,
+                include_combined_weights: true,
             };
-
-            // Build manifest for AOS format
-            let scope_path = format!(
-                "{}/{}/default/inference",
-                adapter.manifest.category, adapter.manifest.adapter_id
-            );
-            let manifest = serde_json::json!({
-                "adapter_id": adapter.manifest.adapter_id,
-                "version": adapter.manifest.version,
-                "rank": adapter.manifest.rank,
-                "alpha": adapter.manifest.alpha,
-                "base_model": adapter.manifest.base_model,
-                "metadata": {
-                    "scope_path": scope_path,
-                    "domain": adapter.manifest.category,
-                    "group": adapter.manifest.adapter_id,
-                }
-            });
-
-            let mut writer = AosWriter::new();
-            writer.add_segment(BackendTag::Canonical, Some(scope_path), &weights_bytes)?;
-            writer.write_archive(&args.output, &manifest)?;
+            SingleFileAdapter::save_with_options(&adapter, &args.output, aos_options).await?;
         }
         other => {
             return Err(AosError::Config(format!(
@@ -760,14 +735,12 @@ async fn info_aos(args: InfoArgs, output: &OutputWriter) -> Result<()> {
 
 async fn migrate_aos(_args: MigrateArgs, output: &OutputWriter) -> Result<()> {
     output.warning("aos migrate command is not yet implemented");
-    Err(AosError::Config(
-        "aos migrate: not yet implemented".to_string(),
-    ))
+    output.info(NOT_IMPLEMENTED_MESSAGE);
+    Err(AosError::Config(NOT_IMPLEMENTED_MESSAGE.to_string()))
 }
 
 async fn convert_aos(_args: ConvertArgs, output: &OutputWriter) -> Result<()> {
     output.warning("aos convert command is not yet implemented");
-    Err(AosError::Config(
-        "aos convert: not yet implemented".to_string(),
-    ))
+    output.info(NOT_IMPLEMENTED_MESSAGE);
+    Err(AosError::Config(NOT_IMPLEMENTED_MESSAGE.to_string()))
 }

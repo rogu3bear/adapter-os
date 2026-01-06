@@ -187,7 +187,7 @@ fn percentile_ms(latencies: &[Duration], pct: usize) -> f64 {
         return 0.0;
     }
     let mut samples: Vec<f64> = latencies.iter().map(|d| d.as_secs_f64() * 1000.0).collect();
-    samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    samples.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let idx = (((pct as f64 / 100.0) * (samples.len() as f64 - 1.0)).round() as usize)
         .min(samples.len() - 1);
     samples[idx]

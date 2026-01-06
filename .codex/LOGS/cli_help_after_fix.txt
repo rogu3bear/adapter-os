@@ -1,0 +1,21 @@
+warning: adapteros-lora-kernel-mtl@0.11.0: Kernel hash: 80cde3dd76f17f8e4de951368e60bb2daa006cc40454fe2e81d7cb311643723a
+   Compiling adapteros-cli v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-cli)
+    Finished `test` profile [optimized + debuginfo] target(s) in 18.71s
+     Running tests/cli_help.rs (target/debug/deps/cli_help-8991b0f9a8ec8d22)
+
+running 12 tests
+test tests::help_contains_examples ... ignored, telemetry verify help not wired in aosctl binary [tracking: STAB-IGN-0005]
+test tests::help_contains_examples_callgraph_export ... ignored, codegraph feature disabled
+test tests::help_contains_examples_infer ... ignored, infer help output lacks Examples section in current build [tracking: STAB-IGN-0007]
+test tests::help_contains_examples_secd_status ... ignored, secd-support feature disabled
+test tests::manual_command_exists ... ignored, manual subcommand not exposed in current aosctl binary [tracking: STAB-IGN-0006]
+test tests::health_dataset_help_mentions_trust ... ok
+test tests::tutorial_command_exists ... ok
+test tests::explain_command_exists ... ok
+test tests::error_codes_command_exists ... ok
+test tests::help_contains_examples_train ... ok
+test tests::help_contains_examples_adapter_list ... ok
+test tests::train_start_help_mentions_dataset_guidance ... ok
+
+test result: ok. 7 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 5.44s
+

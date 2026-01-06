@@ -1,0 +1,15 @@
+# MLX_PATH validation (2026-01-05)
+
+Commands:
+- MLX_PATH=target/debug/build/mlx-sys-69997a727f5fd885/out/build \
+  cargo test -p adapteros-lora-worker --tests --no-run
+- MLX_PATH=/Users/mln-dev/Dev/adapter-os/target/debug/build/mlx-sys-69997a727f5fd885/out/build \
+  cargo build -p adapteros-lora-mlx-ffi --features mlx
+- MLX_PATH=/Users/mln-dev/Dev/adapter-os/target/debug/build/mlx-sys-69997a727f5fd885/out/build \
+  cargo test -p adapter-os --test e2e_inference_harness --no-run
+
+Notes:
+- Relative MLX_PATH did NOT resolve; build.rs fell back to brew MLX (/opt/homebrew).
+- Absolute MLX_PATH DID resolve; build.rs used vendored MLX headers+libs from mlx-sys build output.
+- adapteros-lora-mlx-ffi build succeeded with real MLX using MLX_PATH (MLX version detection reported 0.0.0 but compiled).
+- e2e_inference_harness still used stub MLX (mlx feature not enabled for that test).

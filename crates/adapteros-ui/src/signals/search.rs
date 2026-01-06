@@ -1,77 +1,47 @@
-//! Search state management
-//!
-//! Global search state for Command Palette and Global Search.
+//! Search context for the command palette.
 
 use crate::api::ApiClient;
-use crate::search::{EntityCache, RecentItem, RecentItemsManager, SearchIndex, SearchResult};
+use crate::search::{RecentItem, SearchResult};
 use leptos::prelude::*;
 use std::sync::Arc;
 
-/// Global search context
+const MAX_RECENT_ITEMS: usize = 6;
+
+/// Check if a result matches a query (case-insensitive substring match)
+fn result_matches(result: &SearchResult, query: &str) -> bool {
+    let query_lower = query.to_lowercase();
+    result.title.to_lowercase().contains(&query_lower)
+        || result.id.to_lowercase().contains(&query_lower)
+        || result
+            .subtitle
+            .as_ref()
+            .map(|s| s.to_lowercase().contains(&query_lower))
+            .unwrap_or(false)
+}
+
 #[derive(Clone)]
 pub struct SearchContext {
-    /// Current search query
     pub query: RwSignal<String>,
-    /// Search results
     pub results: RwSignal<Vec<SearchResult>>,
-    /// Currently selected result index
     pub selected_index: RwSignal<usize>,
-    /// Whether the command palette is open
     pub command_palette_open: RwSignal<bool>,
-    /// Recent items manager (for persistence)
-    recent_items: StoredValue<RecentItemsManager>,
-    /// Recent items signal (for reactivity)
-    pub recent_items_signal: RwSignal<Vec<RecentItem>>,
-    /// Entity cache for adapters, models, workers
-    pub entity_cache: StoredValue<EntityCache>,
-    /// Search index for pages and actions
-    search_index: StoredValue<SearchIndex>,
-    /// Search debounce timer ID
-    debounce_timer: RwSignal<Option<i32>>,
+    recent: RwSignal<Vec<RecentItem>>,
+    client: Arc<ApiClient>,
+    search_version: RwSignal<u64>,
 }
 
 impl SearchContext {
-    /// Create a new search context
-    pub fn new(client: Arc<ApiClient>) -> Self {
-        let recent_manager = RecentItemsManager::new();
-        let recent_items = recent_manager.items().to_vec();
-
-        Self {
-            query: RwSignal::new(String::new()),
-            results: RwSignal::new(Vec::new()),
-            selected_index: RwSignal::new(0),
-            command_palette_open: RwSignal::new(false),
-            recent_items: StoredValue::new(recent_manager),
-            recent_items_signal: RwSignal::new(recent_items),
-            entity_cache: StoredValue::new(EntityCache::new(client)),
-            search_index: StoredValue::new(SearchIndex::new()),
-            debounce_timer: RwSignal::new(None),
-        }
-    }
-
-    /// Open the command palette
     pub fn open(&self) {
         self.command_palette_open.set(true);
-        self.query.set(String::new());
-        self.results.set(Vec::new());
-        self.selected_index.set(0);
     }
 
-    /// Close the command palette
     pub fn close(&self) {
         self.command_palette_open.set(false);
         self.query.set(String::new());
         self.results.set(Vec::new());
         self.selected_index.set(0);
-
-        // Cancel any pending debounce
-        if let Some(timer_id) = self.debounce_timer.get_untracked() {
-            cancel_timeout(timer_id);
-            self.debounce_timer.set(None);
-        }
     }
 
-    /// Toggle the command palette
     pub fn toggle(&self) {
         if self.command_palette_open.get_untracked() {
             self.close();
@@ -80,161 +50,160 @@ impl SearchContext {
         }
     }
 
-    /// Perform search with debouncing
-    pub fn search_debounced(&self, query: String) {
-        // Cancel existing timer
-        if let Some(timer_id) = self.debounce_timer.get_untracked() {
-            cancel_timeout(timer_id);
-        }
-
-        self.query.set(query.clone());
-
-        // If query is empty, show recent items instead
-        if query.is_empty() {
-            self.results.set(Vec::new());
-            self.selected_index.set(0);
+    pub fn select_next(&self) {
+        let len = self.results.get_untracked().len();
+        if len == 0 {
             return;
         }
-
-        // Set up debounced search
-        let ctx = self.clone();
-        let timer_id = set_timeout(
-            move || {
-                // Spawn async search
-                wasm_bindgen_futures::spawn_local(async move {
-                    ctx.execute_search(&query).await;
-                });
-            },
-            150, // 150ms debounce
-        );
-        self.debounce_timer.set(Some(timer_id));
+        self.selected_index.update(|idx| {
+            *idx = (*idx + 1) % len;
+        });
     }
 
-    /// Execute the actual search via server API
-    async fn execute_search(&self, query: &str) {
-        let mut all_results = Vec::new();
-
-        // Search pages and actions (local - fast)
-        self.search_index.with_value(|index| {
-            all_results.extend(index.search(query));
-        });
-
-        // Search adapters and entities via server API
-        let api_results = self
-            .entity_cache
-            .with_value(|cache| {
-                let cache = cache.clone();
-                let query = query.to_string();
-                async move { cache.search(&query, Some(20)).await }
-            })
-            .await;
-        all_results.extend(api_results);
-
-        // Sort by score descending
-        all_results.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-
-        // Limit total results
-        all_results.truncate(20);
-
-        self.results.set(all_results);
-        self.selected_index.set(0);
-    }
-
-    /// Move selection up
     pub fn select_prev(&self) {
-        let current = self.selected_index.get_untracked();
-        if current > 0 {
-            self.selected_index.set(current - 1);
-        }
-    }
-
-    /// Move selection down
-    pub fn select_next(&self) {
-        let current = self.selected_index.get_untracked();
         let len = self.results.get_untracked().len();
-        if len > 0 && current < len - 1 {
-            self.selected_index.set(current + 1);
+        if len == 0 {
+            return;
         }
+        self.selected_index.update(|idx| {
+            if *idx == 0 {
+                *idx = len - 1;
+            } else {
+                *idx -= 1;
+            }
+        });
     }
 
-    /// Get the currently selected result
     pub fn selected_result(&self) -> Option<SearchResult> {
+        let results = self.results.get_untracked();
         let idx = self.selected_index.get_untracked();
-        self.results.get_untracked().get(idx).cloned()
+        results.get(idx).cloned()
     }
 
-    /// Record a navigation to recent items
     pub fn record_recent(&self, item: RecentItem) {
-        self.recent_items.update_value(|manager| {
-            manager.add(item);
-        });
-        // Update reactive signal
-        self.recent_items.with_value(|manager| {
-            self.recent_items_signal.set(manager.items().to_vec());
+        self.recent.update(|items: &mut Vec<RecentItem>| {
+            items.retain(|existing| existing.id != item.id);
+            items.insert(0, item);
+            if items.len() > MAX_RECENT_ITEMS {
+                items.truncate(MAX_RECENT_ITEMS);
+            }
         });
     }
 
-    /// Get recent items
     pub fn recent_items(&self) -> Vec<RecentItem> {
-        self.recent_items_signal.get()
+        self.recent.get_untracked()
     }
 
-    /// Clear recent items
-    pub fn clear_recent(&self) {
-        self.recent_items.update_value(|manager| {
-            manager.clear();
-        });
-        self.recent_items_signal.set(Vec::new());
-    }
-
-    /// Prefetch is no longer needed - server handles search
-    ///
-    /// Kept for API compatibility but does nothing.
-    #[allow(dead_code)]
     pub fn prefetch_entities(&self) {
-        // No-op: Server-side search means we don't need to prefetch all entities
+        let _ = self.client.clone();
+    }
+
+    pub fn search_debounced(&self, value: String) {
+        self.query.set(value.clone());
+        let query = value.trim().to_string();
+
+        self.search_version.update(|v| *v += 1);
+        let version = self.search_version.get_untracked();
+        let results = self.results;
+        let selected_index = self.selected_index;
+        let search_version = self.search_version;
+
+        set_timeout_simple(
+            move || {
+                if search_version.get_untracked() != version {
+                    return;
+                }
+                if query.is_empty() {
+                    results.set(Vec::new());
+                    selected_index.set(0);
+                    return;
+                }
+
+                let mut matches: Vec<SearchResult> = static_results()
+                    .into_iter()
+                    .filter(|result| result_matches(result, &query))
+                    .collect();
+
+                matches.sort_by(|a, b| {
+                    b.score
+                        .partial_cmp(&a.score)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+                results.set(matches);
+                selected_index.set(0);
+            },
+            120,
+        );
     }
 }
 
-/// Provide search context to the app
+/// Provide search context.
 pub fn provide_search_context(client: Arc<ApiClient>) {
-    let context = SearchContext::new(client);
+    let context = SearchContext {
+        query: RwSignal::new(String::new()),
+        results: RwSignal::new(Vec::new()),
+        selected_index: RwSignal::new(0),
+        command_palette_open: RwSignal::new(false),
+        recent: RwSignal::new(Vec::new()),
+        client,
+        search_version: RwSignal::new(0),
+    };
+
     provide_context(context);
 }
 
-/// Use the search context
+/// Use search context.
 pub fn use_search() -> SearchContext {
     expect_context::<SearchContext>()
 }
 
-// Timer helpers for WASM
 #[cfg(target_arch = "wasm32")]
-fn set_timeout<F: FnOnce() + 'static>(f: F, ms: i32) -> i32 {
+fn set_timeout_simple<F: FnOnce() + 'static>(f: F, ms: i32) {
     use wasm_bindgen::prelude::*;
     use wasm_bindgen::JsCast;
 
     let closure = Closure::once_into_js(f);
     let window = web_sys::window().expect("no window");
-    window
-        .set_timeout_with_callback_and_timeout_and_arguments_0(closure.unchecked_ref(), ms)
-        .expect("set_timeout failed")
-}
-
-#[cfg(target_arch = "wasm32")]
-fn cancel_timeout(id: i32) {
-    if let Some(window) = web_sys::window() {
-        window.clear_timeout_with_handle(id);
-    }
+    let _ =
+        window.set_timeout_with_callback_and_timeout_and_arguments_0(closure.unchecked_ref(), ms);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn set_timeout<F: FnOnce() + 'static>(_f: F, _ms: i32) -> i32 {
-    0
-}
+fn set_timeout_simple<F: FnOnce() + 'static>(_f: F, _ms: i32) {}
 
-#[cfg(not(target_arch = "wasm32"))]
-fn cancel_timeout(_id: i32) {}
+fn static_results() -> Vec<SearchResult> {
+    vec![
+        SearchResult::page("dashboard", "Dashboard", None, "/dashboard", 1.0),
+        SearchResult::page("adapters", "Adapters", None, "/adapters", 1.0),
+        SearchResult::page("chat", "Chat", None, "/chat", 1.0),
+        SearchResult::page("training", "Training", None, "/training", 1.0),
+        SearchResult::page("system", "System", None, "/system", 1.0),
+        SearchResult::page("models", "Models", None, "/models", 1.0),
+        SearchResult::page("policies", "Policies", None, "/policies", 1.0),
+        SearchResult::page("stacks", "Stacks", None, "/stacks", 1.0),
+        SearchResult::page("collections", "Collections", None, "/collections", 1.0),
+        SearchResult::page("documents", "Documents", None, "/documents", 1.0),
+        SearchResult::page("repositories", "Repositories", None, "/repositories", 1.0),
+        SearchResult::page("workers", "Workers", None, "/workers", 1.0),
+        SearchResult::page("admin", "Admin", None, "/admin", 1.0),
+        SearchResult::page("audit", "Audit", None, "/audit", 1.0),
+        SearchResult::page("settings", "Settings", None, "/settings", 1.0),
+        SearchResult::page("safe", "Safe Mode", None, "/safe", 1.0),
+        SearchResult::action(
+            "toggle-chat",
+            "Toggle Chat Dock",
+            None,
+            "toggle-chat",
+            None,
+            1.0,
+        ),
+        SearchResult::action(
+            "toggle-theme",
+            "Toggle Theme",
+            None,
+            "toggle-theme",
+            None,
+            1.0,
+        ),
+    ]
+}

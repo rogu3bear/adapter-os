@@ -1,0 +1,4 @@
+=== PRD-13 Path Policy Check ===
+Checking: /Users/mln-dev/Dev/adapter-os/.env.production
+PASS: .env.production uses repo-scoped ./var paths by default
+      /var paths are properly commented as override examples

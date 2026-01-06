@@ -681,8 +681,11 @@ mod tests {
     #[serial]
     fn default_output_respects_env() {
         let tmp = new_test_tempdir();
-        std::env::remove_var(adapteros_core::paths::AOS_ADAPTERS_ROOT_ENV);
-        std::env::set_var(AOS_ADAPTERS_DIR_ENV, tmp.path());
+        // Safety: serial test ensures no concurrent env mutations.
+        unsafe {
+            std::env::remove_var(adapteros_core::paths::AOS_ADAPTERS_ROOT_ENV);
+            std::env::set_var(AOS_ADAPTERS_DIR_ENV, tmp.path());
+        }
 
         let resolved = TrainDocsArgs::default_output_dir();
         assert!(
@@ -692,14 +695,20 @@ mod tests {
             tmp.path().display()
         );
 
-        std::env::remove_var(AOS_ADAPTERS_DIR_ENV);
+        // Safety: serial test ensures no concurrent env mutations.
+        unsafe {
+            std::env::remove_var(AOS_ADAPTERS_DIR_ENV);
+        }
     }
 
     #[test]
     #[serial]
     fn default_output_falls_back_to_var() {
-        std::env::remove_var(adapteros_core::paths::AOS_ADAPTERS_ROOT_ENV);
-        std::env::remove_var(AOS_ADAPTERS_DIR_ENV);
+        // Safety: serial test ensures no concurrent env mutations.
+        unsafe {
+            std::env::remove_var(adapteros_core::paths::AOS_ADAPTERS_ROOT_ENV);
+            std::env::remove_var(AOS_ADAPTERS_DIR_ENV);
+        }
         let resolved = TrainDocsArgs::default_output_dir();
         assert_eq!(
             resolved,
