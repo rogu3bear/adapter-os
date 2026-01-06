@@ -132,6 +132,9 @@ pub struct DeterminismReport {
     pub backend_type: BackendType,
     /// Metallib hash (Metal backend only)
     pub metallib_hash: Option<B3Hash>,
+    /// Whether metallib hash was verified against expected (PR-006)
+    #[serde(default)]
+    pub metallib_verified: bool,
     /// Kernel manifest (Metal backend only)
     pub manifest: Option<KernelManifest>,
     /// RNG seeding method
@@ -146,6 +149,12 @@ pub struct DeterminismReport {
     pub compiler_flags: Vec<String>,
     /// Overall deterministic attestation
     pub deterministic: bool,
+    /// Runtime/compiler version string (for provenance)
+    #[serde(default)]
+    pub runtime_version: Option<String>,
+    /// Device identifier (for multi-GPU setups)
+    #[serde(default)]
+    pub device_id: Option<String>,
 }
 
 impl DeterminismReport {
@@ -227,13 +236,181 @@ impl DeterminismReport {
     /// Get a summary string for logging
     pub fn summary(&self) -> String {
         format!(
-            "{:?} backend, RNG={:?}, FP={:?}, level={}, deterministic={}",
+            "{:?} backend, RNG={:?}, FP={:?}, level={}, deterministic={}, metallib_verified={}",
             self.backend_type,
             self.rng_seed_method,
             self.floating_point_mode,
             self.determinism_level,
-            self.deterministic
+            self.deterministic,
+            self.metallib_verified
         )
+    }
+
+    /// Compute attestation hash for receipt binding (PR-006).
+    ///
+    /// This hash uniquely identifies the backend configuration used for inference.
+    /// Different configurations MUST produce different hashes. The hash is used
+    /// in receipts to bind inference results to the exact backend state.
+    ///
+    /// Components included (length-prefixed for unambiguous parsing):
+    /// - Backend type
+    /// - RNG seeding method
+    /// - Floating-point mode
+    /// - Determinism level
+    /// - Metallib hash (if present)
+    /// - Metallib verification status
+    /// - Runtime version (if present)
+    /// - Device ID (if present)
+    /// - Compiler flags (sorted)
+    pub fn to_attestation_hash(&self) -> B3Hash {
+        let mut components: Vec<Vec<u8>> = Vec::new();
+
+        // Backend type
+        components.push(format!("{:?}", self.backend_type).into_bytes());
+
+        // RNG seeding method
+        components.push(format!("{:?}", self.rng_seed_method).into_bytes());
+
+        // Floating-point mode
+        components.push(format!("{:?}", self.floating_point_mode).into_bytes());
+
+        // Determinism level
+        components.push(self.determinism_level.as_str().as_bytes().to_vec());
+
+        // Include metallib hash if present (critical for Metal determinism)
+        if let Some(ref mlh) = self.metallib_hash {
+            components.push(mlh.as_bytes().to_vec());
+        }
+
+        // Include metallib verification status
+        components.push(vec![if self.metallib_verified { 1 } else { 0 }]);
+
+        // Include runtime version if present
+        if let Some(ref version) = self.runtime_version {
+            components.push(version.as_bytes().to_vec());
+        }
+
+        // Include device ID if present
+        if let Some(ref device) = self.device_id {
+            components.push(device.as_bytes().to_vec());
+        }
+
+        // Include sorted compiler flags for deterministic ordering
+        let mut flags_sorted: Vec<_> = self.compiler_flags.iter().collect();
+        flags_sorted.sort();
+        for flag in flags_sorted {
+            components.push(flag.as_bytes().to_vec());
+        }
+
+        // Length-prefix each component for unambiguous parsing
+        let mut buf = Vec::new();
+        for component in &components {
+            buf.extend_from_slice(&(component.len() as u32).to_le_bytes());
+            buf.extend_from_slice(component);
+        }
+
+        B3Hash::hash(&buf)
+    }
+
+    /// Check if this report indicates verified determinism (PR-006).
+    ///
+    /// For Metal backend, both `determinism_level = BitExact` and `metallib_verified = true`
+    /// are required for verified determinism. For other backends, only the determinism
+    /// level matters.
+    pub fn is_verified_deterministic(&self) -> bool {
+        let level_ok = self.determinism_level == DeterminismLevel::BitExact;
+
+        // Metal backend requires verified metallib hash
+        if self.backend_type == BackendType::Metal {
+            level_ok && self.metallib_verified
+        } else {
+            level_ok
+        }
+    }
+
+    /// Create a report for Metal backend with verified metallib.
+    pub fn for_metal_verified(metallib_hash: B3Hash, runtime_version: Option<String>) -> Self {
+        Self {
+            backend_type: BackendType::Metal,
+            metallib_hash: Some(metallib_hash),
+            metallib_verified: true,
+            manifest: None,
+            rng_seed_method: RngSeedingMethod::HkdfSeeded,
+            floating_point_mode: FloatingPointMode::Deterministic,
+            determinism_level: DeterminismLevel::BitExact,
+            compiler_flags: vec!["-O2".to_string(), "-fno-fast-math".to_string()],
+            deterministic: true,
+            runtime_version,
+            device_id: None,
+        }
+    }
+
+    /// Create a report for Metal backend without verification.
+    pub fn for_metal_unverified(metallib_hash: B3Hash) -> Self {
+        Self {
+            backend_type: BackendType::Metal,
+            metallib_hash: Some(metallib_hash),
+            metallib_verified: false,
+            manifest: None,
+            rng_seed_method: RngSeedingMethod::HkdfSeeded,
+            floating_point_mode: FloatingPointMode::Deterministic,
+            determinism_level: DeterminismLevel::BoundedTolerance, // Unverified = approximate
+            compiler_flags: vec!["-O2".to_string()],
+            deterministic: true,
+            runtime_version: None,
+            device_id: None,
+        }
+    }
+
+    /// Create a report for MLX backend.
+    pub fn for_mlx() -> Self {
+        Self {
+            backend_type: BackendType::MLX,
+            metallib_hash: None, // MLX uses its own kernels
+            metallib_verified: false,
+            manifest: None,
+            rng_seed_method: RngSeedingMethod::HkdfSeeded,
+            floating_point_mode: FloatingPointMode::Deterministic,
+            determinism_level: DeterminismLevel::BitExact,
+            compiler_flags: vec![],
+            deterministic: true,
+            runtime_version: None,
+            device_id: None,
+        }
+    }
+
+    /// Create a report for CoreML backend.
+    pub fn for_coreml() -> Self {
+        Self {
+            backend_type: BackendType::CoreML,
+            metallib_hash: None,
+            metallib_verified: false,
+            manifest: None,
+            rng_seed_method: RngSeedingMethod::HkdfSeeded,
+            floating_point_mode: FloatingPointMode::Unknown, // CoreML doesn't guarantee strict
+            determinism_level: DeterminismLevel::BoundedTolerance,
+            compiler_flags: vec![],
+            deterministic: false, // CoreML determinism depends on ANE availability
+            runtime_version: None,
+            device_id: None,
+        }
+    }
+
+    /// Create a report for Mock backend (testing).
+    pub fn for_mock() -> Self {
+        Self {
+            backend_type: BackendType::Mock,
+            metallib_hash: None,
+            metallib_verified: false,
+            manifest: None,
+            rng_seed_method: RngSeedingMethod::FixedSeed(0),
+            floating_point_mode: FloatingPointMode::Deterministic,
+            determinism_level: DeterminismLevel::BitExact,
+            compiler_flags: vec![],
+            deterministic: true,
+            runtime_version: None,
+            device_id: None,
+        }
     }
 }
 
@@ -268,12 +445,15 @@ mod tests {
         let report = DeterminismReport {
             backend_type: BackendType::Metal,
             metallib_hash: Some(B3Hash::hash(b"test")),
+            metallib_verified: true,
             manifest: None,
             rng_seed_method: RngSeedingMethod::HkdfSeeded,
             floating_point_mode: FloatingPointMode::Deterministic,
             determinism_level: DeterminismLevel::BitExact,
             compiler_flags: vec!["-O2".to_string()],
             deterministic: true,
+            runtime_version: None,
+            device_id: None,
         };
 
         assert!(report.validate().is_ok());
@@ -284,12 +464,15 @@ mod tests {
         let report = DeterminismReport {
             backend_type: BackendType::Metal,
             metallib_hash: Some(B3Hash::hash(b"test")),
+            metallib_verified: true,
             manifest: None,
             rng_seed_method: RngSeedingMethod::HkdfSeeded,
             floating_point_mode: FloatingPointMode::Deterministic,
             determinism_level: DeterminismLevel::BitExact,
             compiler_flags: vec![],
             deterministic: false,
+            runtime_version: None,
+            device_id: None,
         };
 
         assert!(report.validate().is_err());
@@ -300,12 +483,15 @@ mod tests {
         let report = DeterminismReport {
             backend_type: BackendType::Metal,
             metallib_hash: Some(B3Hash::hash(b"test")),
+            metallib_verified: true,
             manifest: None,
             rng_seed_method: RngSeedingMethod::HkdfSeeded,
             floating_point_mode: FloatingPointMode::Deterministic,
             determinism_level: DeterminismLevel::BitExact,
             compiler_flags: vec!["-ffast-math".to_string()],
             deterministic: true,
+            runtime_version: None,
+            device_id: None,
         };
 
         assert!(report.validate().is_err());
@@ -316,12 +502,15 @@ mod tests {
         let report = DeterminismReport {
             backend_type: BackendType::Metal,
             metallib_hash: None,
+            metallib_verified: false,
             manifest: None,
             rng_seed_method: RngSeedingMethod::HkdfSeeded,
             floating_point_mode: FloatingPointMode::Deterministic,
             determinism_level: DeterminismLevel::BitExact,
             compiler_flags: vec![],
             deterministic: true,
+            runtime_version: None,
+            device_id: None,
         };
 
         assert!(report.validate().is_err());
@@ -332,12 +521,15 @@ mod tests {
         let report = DeterminismReport {
             backend_type: BackendType::Mock,
             metallib_hash: None,
+            metallib_verified: false,
             manifest: None,
             rng_seed_method: RngSeedingMethod::FixedSeed(0),
             floating_point_mode: FloatingPointMode::Deterministic,
             determinism_level: DeterminismLevel::BitExact,
             compiler_flags: vec![],
             deterministic: true,
+            runtime_version: None,
+            device_id: None,
         };
 
         assert!(report.validate().is_ok());
@@ -373,5 +565,180 @@ mod tests {
         // Field should default to None for backward compatibility
         assert_eq!(report.determinism_level, DeterminismLevel::None);
         assert!(report.deterministic);
+        // New fields should also default
+        assert!(!report.metallib_verified);
+        assert!(report.runtime_version.is_none());
+        assert!(report.device_id.is_none());
+    }
+
+    // PR-006: Metallib Hash Enforcement tests
+
+    #[test]
+    fn test_attestation_hash_includes_metallib() {
+        let hash1 = B3Hash::hash(b"metallib-v1");
+        let hash2 = B3Hash::hash(b"metallib-v2");
+
+        let report1 = DeterminismReport::for_metal_verified(hash1, None);
+        let report2 = DeterminismReport::for_metal_verified(hash2, None);
+
+        assert_ne!(
+            report1.to_attestation_hash(),
+            report2.to_attestation_hash(),
+            "Different metallib hashes must produce different attestation hashes"
+        );
+    }
+
+    #[test]
+    fn test_attestation_hash_deterministic() {
+        let report = DeterminismReport::for_mlx();
+
+        let hash1 = report.to_attestation_hash();
+        let hash2 = report.to_attestation_hash();
+
+        assert_eq!(hash1, hash2, "Attestation hash must be deterministic");
+    }
+
+    #[test]
+    fn test_verified_flag_affects_attestation() {
+        let metallib_hash = B3Hash::hash(b"metallib");
+
+        let verified = DeterminismReport::for_metal_verified(metallib_hash, None);
+        let unverified = DeterminismReport::for_metal_unverified(metallib_hash);
+
+        assert_ne!(
+            verified.to_attestation_hash(),
+            unverified.to_attestation_hash(),
+            "Verification status must affect attestation hash"
+        );
+    }
+
+    #[test]
+    fn test_is_verified_deterministic_metal_verified() {
+        let hash = B3Hash::hash(b"test");
+        let verified_metal = DeterminismReport::for_metal_verified(hash, None);
+        assert!(
+            verified_metal.is_verified_deterministic(),
+            "Verified Metal with BitExact should be verified deterministic"
+        );
+    }
+
+    #[test]
+    fn test_is_verified_deterministic_metal_unverified() {
+        let hash = B3Hash::hash(b"test");
+        let unverified_metal = DeterminismReport::for_metal_unverified(hash);
+        assert!(
+            !unverified_metal.is_verified_deterministic(),
+            "Unverified Metal should NOT be verified deterministic"
+        );
+    }
+
+    #[test]
+    fn test_is_verified_deterministic_mlx() {
+        let mlx = DeterminismReport::for_mlx();
+        assert!(
+            mlx.is_verified_deterministic(),
+            "MLX with BitExact should be verified deterministic (no metallib required)"
+        );
+    }
+
+    #[test]
+    fn test_is_verified_deterministic_coreml() {
+        let coreml = DeterminismReport::for_coreml();
+        assert!(
+            !coreml.is_verified_deterministic(),
+            "CoreML should NOT be verified deterministic (BoundedTolerance)"
+        );
+    }
+
+    #[test]
+    fn test_for_mock_is_verified_deterministic() {
+        let mock = DeterminismReport::for_mock();
+        assert!(
+            mock.is_verified_deterministic(),
+            "Mock with BitExact should be verified deterministic"
+        );
+    }
+
+    #[test]
+    fn test_compiler_flags_order_does_not_affect_hash() {
+        let hash = B3Hash::hash(b"test");
+
+        let report1 = DeterminismReport {
+            backend_type: BackendType::Metal,
+            metallib_hash: Some(hash),
+            metallib_verified: true,
+            manifest: None,
+            rng_seed_method: RngSeedingMethod::HkdfSeeded,
+            floating_point_mode: FloatingPointMode::Deterministic,
+            determinism_level: DeterminismLevel::BitExact,
+            compiler_flags: vec!["-O2".to_string(), "-fno-fast-math".to_string()],
+            deterministic: true,
+            runtime_version: None,
+            device_id: None,
+        };
+
+        let report2 = DeterminismReport {
+            backend_type: BackendType::Metal,
+            metallib_hash: Some(hash),
+            metallib_verified: true,
+            manifest: None,
+            rng_seed_method: RngSeedingMethod::HkdfSeeded,
+            floating_point_mode: FloatingPointMode::Deterministic,
+            determinism_level: DeterminismLevel::BitExact,
+            compiler_flags: vec!["-fno-fast-math".to_string(), "-O2".to_string()], // reversed
+            deterministic: true,
+            runtime_version: None,
+            device_id: None,
+        };
+
+        assert_eq!(
+            report1.to_attestation_hash(),
+            report2.to_attestation_hash(),
+            "Compiler flag order should not affect attestation hash (sorted internally)"
+        );
+    }
+
+    #[test]
+    fn test_runtime_version_affects_attestation() {
+        let hash = B3Hash::hash(b"test");
+
+        let report1 = DeterminismReport::for_metal_verified(hash, Some("metal-3.0".to_string()));
+        let report2 = DeterminismReport::for_metal_verified(hash, Some("metal-3.1".to_string()));
+        let report3 = DeterminismReport::for_metal_verified(hash, None);
+
+        assert_ne!(
+            report1.to_attestation_hash(),
+            report2.to_attestation_hash(),
+            "Different runtime versions must produce different attestation hashes"
+        );
+        assert_ne!(
+            report1.to_attestation_hash(),
+            report3.to_attestation_hash(),
+            "Having vs not having runtime version must differ"
+        );
+    }
+
+    #[test]
+    fn test_device_id_affects_attestation() {
+        let hash = B3Hash::hash(b"test");
+
+        let mut report1 = DeterminismReport::for_metal_verified(hash, None);
+        report1.device_id = Some("gpu-0".to_string());
+
+        let mut report2 = DeterminismReport::for_metal_verified(hash, None);
+        report2.device_id = Some("gpu-1".to_string());
+
+        let report3 = DeterminismReport::for_metal_verified(hash, None);
+
+        assert_ne!(
+            report1.to_attestation_hash(),
+            report2.to_attestation_hash(),
+            "Different device IDs must produce different attestation hashes"
+        );
+        assert_ne!(
+            report1.to_attestation_hash(),
+            report3.to_attestation_hash(),
+            "Having vs not having device ID must differ"
+        );
     }
 }

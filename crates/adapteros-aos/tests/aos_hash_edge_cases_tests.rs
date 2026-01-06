@@ -65,8 +65,8 @@ fn test_scope_hash_computation() {
 
 /// Test that scope hash mismatch in segment index is detectable.
 ///
-/// When the index entry's scope_hash doesn't match the manifest's scope_path,
-/// the archive should be considered corrupted.
+/// When the segment's scope_path doesn't match the manifest's scope_path,
+/// the archive write should fail with a validation error.
 #[test]
 fn test_scope_hash_mismatch_with_manifest() -> Result<()> {
     let temp_root = new_test_tempdir();
@@ -89,21 +89,23 @@ fn test_scope_hash_mismatch_with_manifest() -> Result<()> {
         &weights,
     )?;
 
-    writer.write_archive(temp_file.path(), &manifest)?;
+    // Write should fail because segment scope_path doesn't match manifest scope_path
+    let result = writer.write_archive(temp_file.path(), &manifest);
 
-    // Parse the archive
-    let data = fs::read(temp_file.path())?;
-    let header = AosWriter::parse_header_bytes(&data)?;
-    let segments = parse_segments(&data, &header)?;
+    // Scope hash mismatch should be detected at write time
+    assert!(
+        result.is_err(),
+        "Scope hash mismatch should cause write to fail"
+    );
 
-    // Compute expected scope hash from manifest
-    let expected_scope_hash = compute_scope_hash("correct/scope/path");
-
-    // The segment should have wrong scope hash
-    assert_eq!(segments.len(), 1);
-    assert_ne!(
-        segments[0].scope_hash, expected_scope_hash,
-        "Scope hash mismatch should be detectable"
+    let err = result.unwrap_err();
+    let err_msg = err.to_string();
+    assert!(
+        err_msg.contains("scope hash")
+            || err_msg.contains("Corrupted")
+            || err_msg.contains("scope_path"),
+        "Error should mention scope hash mismatch: {}",
+        err_msg
     );
 
     Ok(())

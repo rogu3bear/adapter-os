@@ -50,6 +50,27 @@ use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use tracing::warn;
 
+/// Result of verifying all evidence chains across tenants and scopes
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AllChainsVerificationResult {
+    /// Tenant ID this result pertains to
+    pub tenant_id: String,
+    /// Evidence scope this result pertains to
+    pub scope: EvidenceScope,
+    /// Overall validity of the chain
+    pub is_valid: bool,
+    /// Number of envelopes checked
+    pub envelopes_checked: usize,
+    /// Whether divergence was detected
+    pub divergence_detected: bool,
+    /// Index of first invalid envelope (if any)
+    pub first_invalid_index: Option<usize>,
+    /// Error message if verification failed
+    pub error_message: Option<String>,
+    /// Duration of verification in milliseconds
+    pub duration_ms: u64,
+}
+
 /// Filters for querying evidence envelopes
 ///
 /// All filters are optional (None = no filter applied).
@@ -393,6 +414,75 @@ impl Db {
 
         let verifier = adapteros_core::EvidenceVerifier::new();
         verifier.verify_chain(&envelopes)
+    }
+
+    /// Verify all evidence envelope chains across all tenants and scopes
+    ///
+    /// Returns a vector of verification results for each tenant+scope combination,
+    /// continuing to check all chains even if some have diverged. This allows
+    /// operators to see the full scope of any chain integrity issues.
+    ///
+    /// Checks all three evidence scopes: Telemetry, Policy, Inference
+    ///
+    /// # Example
+    /// ```no_run
+    /// use adapteros_db::Db;
+    ///
+    /// # async fn example(db: &Db) -> anyhow::Result<()> {
+    /// let results = db.verify_all_evidence_chains().await?;
+    /// for result in &results {
+    ///     if result.divergence_detected {
+    ///         eprintln!("ALERT: Tenant {} scope {:?} has divergent chain at index {}",
+    ///             result.tenant_id, result.scope, result.first_invalid_index.unwrap_or(0));
+    ///     }
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn verify_all_evidence_chains(&self) -> Result<Vec<AllChainsVerificationResult>> {
+        // Get distinct tenant IDs from evidence envelopes
+        let tenants: Vec<String> = sqlx::query_scalar(
+            "SELECT DISTINCT tenant_id FROM evidence_envelopes ORDER BY tenant_id",
+        )
+        .fetch_all(self.pool())
+        .await
+        .db_err("fetch distinct tenant IDs for evidence envelopes")?;
+
+        let scopes = [EvidenceScope::Telemetry, EvidenceScope::Policy, EvidenceScope::Inference];
+        let mut results = Vec::new();
+
+        for tenant_id in &tenants {
+            for scope in &scopes {
+                let start = std::time::Instant::now();
+                let result = self.verify_evidence_chain(tenant_id, *scope).await?;
+                let duration_ms = start.elapsed().as_millis() as u64;
+
+                let all_result = AllChainsVerificationResult {
+                    tenant_id: tenant_id.clone(),
+                    scope: *scope,
+                    is_valid: result.is_valid,
+                    envelopes_checked: result.envelopes_checked,
+                    divergence_detected: result.divergence_detected,
+                    first_invalid_index: result.first_invalid_index,
+                    error_message: result.error_message.clone(),
+                    duration_ms,
+                };
+
+                if all_result.divergence_detected {
+                    tracing::error!(
+                        tenant_id = %tenant_id,
+                        scope = ?scope,
+                        first_invalid_index = ?result.first_invalid_index,
+                        error_message = ?result.error_message,
+                        "Evidence envelope chain divergence detected"
+                    );
+                }
+
+                results.push(all_result);
+            }
+        }
+
+        Ok(results)
     }
 
     /// Count evidence envelopes by tenant and scope

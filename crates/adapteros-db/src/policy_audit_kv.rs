@@ -239,11 +239,14 @@ impl PolicyAuditKvRepository {
             entries_checked: total_checked,
             first_invalid_sequence: None,
             error_message: None,
+            divergence_detected: false,
+            tenant_id: tenant_id.map(|s| s.to_string()),
+            duration_ms: 0,
         })
     }
 
     fn verify_chain_for_tenant(
-        _tenant: &str,
+        tenant: &str,
         chain: Vec<PolicyAuditDecision>,
     ) -> Result<ChainVerificationResult> {
         if chain.is_empty() {
@@ -252,6 +255,9 @@ impl PolicyAuditKvRepository {
                 entries_checked: 0,
                 first_invalid_sequence: None,
                 error_message: None,
+                divergence_detected: false,
+                tenant_id: Some(tenant.to_string()),
+                duration_ms: 0,
             });
         }
 
@@ -271,6 +277,9 @@ impl PolicyAuditKvRepository {
                         prev_seq + 1,
                         decision.chain_sequence
                     )),
+                    divergence_detected: true,
+                    tenant_id: Some(tenant.to_string()),
+                    duration_ms: 0,
                 });
             }
 
@@ -281,6 +290,9 @@ impl PolicyAuditKvRepository {
                         entries_checked: checked,
                         first_invalid_sequence: Some(decision.chain_sequence),
                         error_message: Some("Previous hash mismatch".to_string()),
+                        divergence_detected: true,
+                        tenant_id: Some(tenant.to_string()),
+                        duration_ms: 0,
                     });
                 }
             } else if decision.previous_hash.is_some() {
@@ -289,6 +301,9 @@ impl PolicyAuditKvRepository {
                     entries_checked: checked,
                     first_invalid_sequence: Some(decision.chain_sequence),
                     error_message: Some("First entry has non-null previous_hash".to_string()),
+                    divergence_detected: true,
+                    tenant_id: Some(tenant.to_string()),
+                    duration_ms: 0,
                 });
             }
 
@@ -315,6 +330,9 @@ impl PolicyAuditKvRepository {
                     entries_checked: checked,
                     first_invalid_sequence: Some(decision.chain_sequence),
                     error_message: Some("Entry hash mismatch - possible tampering".to_string()),
+                    divergence_detected: true,
+                    tenant_id: Some(tenant.to_string()),
+                    duration_ms: 0,
                 });
             }
 
@@ -327,6 +345,9 @@ impl PolicyAuditKvRepository {
             entries_checked: checked,
             first_invalid_sequence: None,
             error_message: None,
+            divergence_detected: false,
+            tenant_id: Some(tenant.to_string()),
+            duration_ms: 0,
         })
     }
 

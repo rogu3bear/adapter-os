@@ -2576,7 +2576,7 @@ pub mod audit;
 pub use audit::AuditLog;
 pub mod audits;
 pub mod policy_audit;
-pub use evidence_envelopes::EvidenceEnvelopeFilter;
+pub use evidence_envelopes::{AllChainsVerificationResult, EvidenceEnvelopeFilter};
 pub use policy_audit::{ChainVerificationResult, PolicyAuditDecision, PolicyDecisionFilters};
 pub mod chat_sessions;
 pub use chat_sessions::{

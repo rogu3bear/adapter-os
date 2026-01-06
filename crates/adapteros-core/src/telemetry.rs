@@ -41,6 +41,10 @@ static STRICT_VIOLATION_COUNTER: AtomicU64 = AtomicU64::new(0);
 static RECEIPT_MISMATCH_COUNTER: AtomicU64 = AtomicU64::new(0);
 static AUDIT_DIVERGENCE_COUNTER: AtomicU64 = AtomicU64::new(0);
 static POLICY_OVERRIDE_COUNTER: AtomicU64 = AtomicU64::new(0);
+// Seed context metrics (PR-003: Seed Fallback Hardening)
+static SEED_CONTEXT_MISSING_COUNTER: AtomicU64 = AtomicU64::new(0);
+static SEED_FALLBACK_USED_COUNTER: AtomicU64 = AtomicU64::new(0);
+static SEED_CONTEXT_LEAKED_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Returns the current count of determinism violations (non-strict).
 pub fn determinism_violation_count() -> u64 {
@@ -65,6 +69,61 @@ pub fn audit_divergence_count() -> u64 {
 /// Returns the current count of policy overrides.
 pub fn policy_override_count() -> u64 {
     POLICY_OVERRIDE_COUNTER.load(Ordering::Relaxed)
+}
+
+// ============================================================
+// Seed context metrics (PR-003: Seed Fallback Hardening)
+// ============================================================
+
+/// Returns the count of requests where seed context was required but missing.
+pub fn seed_context_missing_count() -> u64 {
+    SEED_CONTEXT_MISSING_COUNTER.load(Ordering::Relaxed)
+}
+
+/// Returns the count of times fallback seed was used (should be 0 in production).
+pub fn seed_fallback_used_count() -> u64 {
+    SEED_FALLBACK_USED_COUNTER.load(Ordering::Relaxed)
+}
+
+/// Returns the count of detected leaked seed contexts from previous requests.
+pub fn seed_context_leaked_count() -> u64 {
+    SEED_CONTEXT_LEAKED_COUNTER.load(Ordering::Relaxed)
+}
+
+/// Increment the seed context missing counter.
+pub fn increment_seed_context_missing() {
+    SEED_CONTEXT_MISSING_COUNTER.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Increment the seed fallback used counter.
+pub fn increment_seed_fallback_used() {
+    SEED_FALLBACK_USED_COUNTER.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Increment the seed context leaked counter.
+pub fn increment_seed_context_leaked() {
+    SEED_CONTEXT_LEAKED_COUNTER.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Emit a strict mode failure event for seed context issues.
+///
+/// This is a convenience helper for when seed context enforcement fails.
+pub fn emit_strict_mode_failure(message: &str, subsystem: Option<String>) {
+    STRICT_VIOLATION_COUNTER.fetch_add(1, Ordering::Relaxed);
+
+    let event = ObservabilityEvent::base(
+        ObservabilityEventKind::StrictModeFailure,
+        ObservabilitySeverity::Alert,
+        subsystem.as_deref().unwrap_or("determinism"),
+        message,
+        ObservabilityDetail::StrictModeFailure {
+            reason: message.to_string(),
+            policy: None,
+            fallback_used: false,
+        },
+    );
+
+    emit_observability_event(&event);
 }
 
 /// Observability severity used for both tracing and telemetry.

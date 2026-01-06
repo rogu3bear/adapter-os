@@ -758,6 +758,7 @@ impl FusedKernels for MLXFFIBackend {
         let report = DeterminismReport {
             backend_type: BackendType::MLX,
             metallib_hash: self.manifest_hash, // Include manifest hash for content addressing
+            metallib_verified: false,
             manifest: None,                    // No Metal-style manifest
             rng_seed_method: rng_method,
             floating_point_mode: float_mode,
@@ -768,6 +769,8 @@ impl FusedKernels for MLXFFIBackend {
             },
             compiler_flags: vec![],
             deterministic: seeded && !is_stub_active && IS_REAL_MLX,
+            runtime_version: Some("mlx-cpp-ffi".to_string()),
+            device_id: Some(self.device.clone()),
         };
 
         tracing::info!(

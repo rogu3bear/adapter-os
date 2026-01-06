@@ -738,16 +738,7 @@ impl FusedKernels for MockKernels {
 
     fn attest_determinism(&self) -> Result<attestation::DeterminismReport> {
         // Mock kernels are deterministic for testing purposes
-        Ok(attestation::DeterminismReport {
-            backend_type: attestation::BackendType::Mock,
-            metallib_hash: None,
-            manifest: None,
-            rng_seed_method: attestation::RngSeedingMethod::FixedSeed(0),
-            floating_point_mode: attestation::FloatingPointMode::Deterministic,
-            determinism_level: attestation::DeterminismLevel::BitExact,
-            compiler_flags: vec![],
-            deterministic: true,
-        })
+        Ok(attestation::DeterminismReport::for_mock())
     }
 }
 
@@ -802,16 +793,11 @@ impl FusedKernels for FailingKernel {
     }
 
     fn attest_determinism(&self) -> Result<attestation::DeterminismReport> {
-        Ok(attestation::DeterminismReport {
-            backend_type: attestation::BackendType::Mock,
-            metallib_hash: None,
-            manifest: None,
-            rng_seed_method: attestation::RngSeedingMethod::FixedSeed(0),
-            floating_point_mode: attestation::FloatingPointMode::Deterministic,
-            determinism_level: attestation::DeterminismLevel::None,
-            compiler_flags: vec![],
-            deterministic: false, // Failing kernel is not deterministic
-        })
+        // Failing kernel is not deterministic
+        let mut report = attestation::DeterminismReport::for_mock();
+        report.deterministic = false;
+        report.determinism_level = attestation::DeterminismLevel::None;
+        Ok(report)
     }
 }
 

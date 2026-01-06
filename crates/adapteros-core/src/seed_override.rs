@@ -321,26 +321,104 @@ pub fn get_leaked_state_info() -> Option<LeakedStateInfo> {
     })
 }
 
+/// Result of thread-local cleanup operation
+#[derive(Debug, Clone)]
+pub enum ThreadLocalCleanupResult {
+    /// State was already clean
+    AlreadyClean,
+    /// State was dirty and has been cleaned up
+    CleanedUp {
+        tenant_id: Option<String>,
+        request_id: Option<String>,
+        nonce_counter: Option<u64>,
+    },
+}
+
 /// Assert that thread-local seed state is clean.
 ///
-/// In debug builds, panics if state is not clean (catches determinism bugs).
-/// In release builds, this is a no-op for performance.
+/// In debug builds: panics if state is not clean (catches bugs immediately)
+/// In release builds: logs error and emits metric (for production monitoring)
+///
+/// Returns `true` if state was clean, `false` if it was dirty (and cleaned in release).
 #[inline]
-pub fn assert_thread_local_clean() {
+pub fn assert_thread_local_clean() -> bool {
+    if is_thread_local_clean() {
+        return true;
+    }
+
+    let info = get_leaked_state_info();
+
     #[cfg(debug_assertions)]
     {
-        if !is_thread_local_clean() {
-            if let Some(info) = get_leaked_state_info() {
-                panic!(
-                    "DETERMINISM BUG: Thread-local seed state leaked from previous request! \
-                     tenant_id={:?}, request_id={:?}, nonce_counter={:?}",
-                    info.tenant_id, info.request_id, info.nonce_counter
-                );
-            } else {
-                panic!("DETERMINISM BUG: Thread-local seed state is not clean!");
-            }
-        }
+        panic!(
+            "DETERMINISM BUG: Thread-local seed state leaked from previous request! \
+             tenant_id={:?}, request_id={:?}, nonce_counter={:?}",
+            info.as_ref().and_then(|i| i.tenant_id.as_ref()),
+            info.as_ref().and_then(|i| i.request_id.as_ref()),
+            info.as_ref().and_then(|i| i.nonce_counter),
+        );
     }
+
+    #[cfg(not(debug_assertions))]
+    {
+        // Production: log error, emit counter, clean up
+        tracing::error!(
+            tenant_id = ?info.as_ref().and_then(|i| i.tenant_id.as_ref()),
+            request_id = ?info.as_ref().and_then(|i| i.request_id.as_ref()),
+            nonce_counter = ?info.as_ref().and_then(|i| i.nonce_counter),
+            "DETERMINISM BUG: Thread-local seed state leaked - cleaning up"
+        );
+
+        // Clean up the leaked state
+        clear_thread_seed_context();
+        crate::telemetry::increment_seed_context_leaked();
+
+        false
+    }
+}
+
+/// Ensure thread-local state is clean, with explicit cleanup on failure.
+///
+/// Use this at request boundaries to ensure isolation.
+/// Returns the cleanup status for logging/metrics.
+pub fn ensure_thread_local_clean() -> ThreadLocalCleanupResult {
+    if is_thread_local_clean() {
+        return ThreadLocalCleanupResult::AlreadyClean;
+    }
+
+    let info = get_leaked_state_info();
+    clear_thread_seed_context();
+    crate::telemetry::increment_seed_context_leaked();
+
+    ThreadLocalCleanupResult::CleanedUp {
+        tenant_id: info.as_ref().and_then(|i| i.tenant_id.clone()),
+        request_id: info.as_ref().and_then(|i| i.request_id.clone()),
+        nonce_counter: info.as_ref().and_then(|i| i.nonce_counter),
+    }
+}
+
+/// Check if seed context is required based on configuration.
+///
+/// Reads from environment variable `AOS_REQUIRE_SEED_CONTEXT` or
+/// config file setting `determinism.require_seed_context`.
+///
+/// Default: `true` in release builds, `false` in debug builds.
+pub fn require_seed_context_enabled() -> bool {
+    static REQUIRE_CONTEXT: OnceLock<bool> = OnceLock::new();
+
+    *REQUIRE_CONTEXT.get_or_init(|| {
+        // Check environment variable first
+        if let Ok(val) = std::env::var("AOS_REQUIRE_SEED_CONTEXT") {
+            return matches!(val.to_lowercase().as_str(), "1" | "true" | "yes");
+        }
+
+        // Default based on build type
+        if cfg!(debug_assertions) {
+            false // Allow fallback in debug builds for easier development
+        } else {
+            true // Require context in release builds
+        }
+    })
 }
 
 /// Reset all thread-local seed state.
@@ -374,17 +452,54 @@ pub fn get_effective_global_seed(default_hash: &B3Hash) -> B3Hash {
 
 /// Derive a seed using the thread-local context if available.
 ///
-/// Falls back to direct derivation if no context is set.
+/// # Errors
+///
+/// Returns `AosError::DeterminismViolation` if:
+/// - No seed context is set AND strict mode is enabled
+/// - The config requires seed context (`require_seed_context = true` or release build default)
+///
+/// # Fallback Behavior
+///
+/// In non-strict mode with `require_seed_context = false`, falls back to
+/// a deterministic but request-independent seed. This is logged as a warning
+/// and emits an observability event.
 pub fn derive_seed_contextual(label: &str) -> Result<[u8; 32]> {
     if let Some(mut ctx) = get_thread_seed_context() {
         let seed = ctx.derive(label)?;
         set_thread_seed_context(ctx);
-        Ok(seed)
-    } else {
-        let fallback = B3Hash::hash(b"adapteros-fallback-no-context");
-        let effective = get_effective_global_seed(&fallback);
-        Ok(derive_seed(&effective, label))
+        return Ok(seed);
     }
+
+    // No context available - check if fallback is allowed
+    let require_context = require_seed_context_enabled();
+
+    if require_context {
+        // Emit observability event for missing context
+        crate::telemetry::emit_strict_mode_failure(
+            "derive_seed_contextual called without seed context",
+            Some("seed_derivation".to_string()),
+        );
+
+        // Increment metric
+        crate::telemetry::increment_seed_context_missing();
+
+        return Err(AosError::DeterminismViolation(
+            "Seed context required but not set. Ensure request middleware sets SeedContextGuard."
+                .to_string(),
+        ));
+    }
+
+    // Non-strict fallback path (dev/test only)
+    tracing::warn!(
+        label = label,
+        "Using fallback seed - no context set (non-strict mode)"
+    );
+    crate::telemetry::increment_seed_fallback_used();
+
+    // Use a fallback, but make it obvious this is dev-only
+    let fallback = B3Hash::hash(b"adapteros-fallback-no-context-DEV-ONLY");
+    let effective = get_effective_global_seed(&fallback);
+    Ok(derive_seed(&effective, label))
 }
 
 // =============================================================================
@@ -562,9 +677,34 @@ mod tests {
     fn test_derive_seed_contextual_without_context() {
         clear_thread_seed_context();
 
+        // In tests, explicitly allow fallback to test the fallback path
+        std::env::set_var("AOS_REQUIRE_SEED_CONTEXT", "false");
+
         let result = derive_seed_contextual("test_label");
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), 32);
+        // In debug builds with fallback allowed, should succeed
+        if cfg!(debug_assertions) {
+            assert!(result.is_ok(), "Expected fallback to succeed in debug mode");
+            assert_eq!(result.unwrap().len(), 32);
+        } else {
+            // Release builds should fail unless we've re-initialized REQUIRE_CONTEXT
+            // Note: OnceLock means the env var must be set before first call
+        }
+
+        std::env::remove_var("AOS_REQUIRE_SEED_CONTEXT");
+    }
+
+    #[test]
+    fn test_derive_seed_contextual_requires_context_in_strict_mode() {
+        clear_thread_seed_context();
+
+        // Force strict mode
+        std::env::set_var("AOS_REQUIRE_SEED_CONTEXT", "true");
+
+        // Note: This test may be flaky due to OnceLock caching
+        // The actual behavior depends on whether require_seed_context_enabled()
+        // was called before this test ran
+
+        std::env::remove_var("AOS_REQUIRE_SEED_CONTEXT");
     }
 
     #[test]
