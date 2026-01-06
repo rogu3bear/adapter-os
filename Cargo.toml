@@ -6,10 +6,6 @@ authors = ["James KC Auchterlonie <vats-springs0m@icloud.com>"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/rogu3bear/adapter-os"
 
-[[bin]]
-name = "test_debug_setup"
-path = "src/bin/test_debug_setup.rs"
-
 [workspace]
 resolver = "2"
 exclude = []  # adapteros-server temporarily included for building
@@ -301,9 +297,9 @@ tracing-appender = "0.2"
 sysinfo = "0.31"
 prometheus = "0.14"
 # OpenTelemetry distributed tracing
-opentelemetry = { version = "0.28", default-features = false, features = ["trace"] }
-opentelemetry_sdk = { version = "0.28", default-features = false, features = ["trace", "rt-tokio"] }
-opentelemetry-otlp = { version = "0.28", default-features = false, features = ["trace", "grpc-tonic", "http-proto", "reqwest-client"] }
+opentelemetry = { version = "0.31", default-features = false, features = ["trace"] }
+opentelemetry_sdk = { version = "0.31", default-features = false, features = ["trace", "rt-tokio"] }
+opentelemetry-otlp = { version = "0.31", default-features = false, features = ["trace", "grpc-tonic", "http-proto", "reqwest-client"] }
 tracing-opentelemetry = "0.32"
 
 # Code Analysis
