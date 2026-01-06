@@ -86,10 +86,10 @@ pub fn extract_page_images(
         let Ok(subtype) = stream.dict.get(b"Subtype") else {
             continue;
         };
-        let Ok(subtype_name) = subtype.as_name_str() else {
+        let Ok(subtype_name) = subtype.as_name() else {
             continue;
         };
-        if subtype_name != "Image" {
+        if subtype_name != b"Image" {
             continue;
         }
 

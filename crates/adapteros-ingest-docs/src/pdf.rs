@@ -396,8 +396,8 @@ fn page_has_images(document: &Document, page_id: lopdf::ObjectId) -> bool {
         if let Ok(obj_id) = obj_ref.as_reference() {
             if let Ok(xobj_dict) = document.get_dictionary(obj_id) {
                 if let Ok(subtype) = xobj_dict.get(b"Subtype") {
-                    if let Ok(name) = subtype.as_name_str() {
-                        if name == "Image" {
+                    if let Ok(name) = subtype.as_name() {
+                        if name == b"Image" {
                             return true;
                         }
                     }
@@ -452,12 +452,11 @@ fn validate_page_tree(document: &Document, source_name: &str) -> Result<()> {
         if let Ok(kids) = dict.get(b"Kids").and_then(Object::as_array) {
             for kid in kids {
                 if let Ok(kid_id) = kid.as_reference() {
-                    if let Ok(type_name) = document
-                        .get_dictionary(kid_id)
-                        .and_then(lopdf::Dictionary::type_name)
-                    {
-                        if type_name == "Pages" {
-                            stack.push((kid_id, depth + 1));
+                    if let Ok(kid_dict) = document.get_dictionary(kid_id) {
+                        if let Ok(type_name) = kid_dict.get_type() {
+                            if type_name == b"Pages" {
+                                stack.push((kid_id, depth + 1));
+                            }
                         }
                     }
                 }
