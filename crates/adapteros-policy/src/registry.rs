@@ -3,12 +3,13 @@
 //! This module defines the complete set of 25 policy packs enforced by AdapterOS.
 //! Each policy pack has a unique ID, name, and enforcement logic.
 
-use adapteros_core::Result;
+use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// Unique identifier for a policy pack
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[repr(u8)]
 pub enum PolicyId {
     Egress = 1,
     Determinism = 2,
@@ -220,6 +221,24 @@ impl PolicyId {
     }
 }
 
+impl TryFrom<u8> for PolicyId {
+    type Error = AosError;
+
+    fn try_from(value: u8) -> std::result::Result<Self, Self::Error> {
+        Self::all()
+            .iter()
+            .copied()
+            .find(|policy_id| *policy_id as u8 == value)
+            .ok_or_else(|| {
+                let max_id = Self::all()
+                    .last()
+                    .map(|policy_id| *policy_id as u8)
+                    .unwrap_or(0);
+                AosError::Validation(format!("Policy ID must be between 1 and {}", max_id))
+            })
+    }
+}
+
 impl fmt::Display for PolicyId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.name())
@@ -425,6 +444,21 @@ mod tests {
                 "Policy IDs must be sequential starting from 1"
             );
         }
+    }
+
+    #[test]
+    fn test_policy_id_try_from_valid() {
+        assert_eq!(PolicyId::try_from(1).unwrap(), PolicyId::Egress);
+        assert_eq!(
+            PolicyId::try_from(PolicyId::LiveData as u8).unwrap(),
+            PolicyId::LiveData
+        );
+    }
+
+    #[test]
+    fn test_policy_id_try_from_invalid() {
+        let err = PolicyId::try_from(0).unwrap_err();
+        assert!(matches!(err, AosError::Validation(_)));
     }
 
     #[test]

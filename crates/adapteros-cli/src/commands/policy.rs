@@ -206,8 +206,11 @@ fn explain_policy_pack(policy_ref: &str) -> Result<()> {
                 "Policy ID must be between 1 and 25".to_string(),
             ));
         }
-        // Convert to PolicyId enum (casting is safe since we validated range)
-        unsafe { std::mem::transmute::<u8, PolicyId>(id as u8) }
+        PolicyId::try_from(id as u8).map_err(|_| {
+            adapteros_core::AosError::Validation(
+                "Policy ID must be between 1 and 25".to_string(),
+            )
+        })?
     } else {
         // Try to match by name (case-insensitive)
         let name_lower = policy_ref.to_lowercase();
@@ -289,7 +292,11 @@ fn parse_policy_id(policy_ref: &str) -> Result<PolicyId> {
                 "Policy ID must be between 1 and 25".to_string(),
             ));
         }
-        Ok(unsafe { std::mem::transmute::<u8, PolicyId>(id as u8) })
+        PolicyId::try_from(id as u8).map_err(|_| {
+            adapteros_core::AosError::Validation(
+                "Policy ID must be between 1 and 25".to_string(),
+            )
+        })
     } else {
         let name_lower = policy_ref.to_lowercase();
         list_policies()
