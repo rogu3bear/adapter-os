@@ -13,12 +13,12 @@ fn main() {
     println!("║                      SUPERBACKEND CONTROL SYSTEM                            ║");
     println!("║                                                                              ║");
     println!("╚══════════════════════════════════════════════════════════════════════════════╝");
-    println!("");
+    println!();
     println!("╔═══════════════════════════════════════════════════╦══════════════════════════╗");
     println!("║ Model: llama-7b-lora-q15  │ Status: [OK] LOADED  ║ ▣ LIVE│Mem: 33%│Queue: 2│ ║");
     println!("║                           │ Mode: DEV            ║  ⟳ 1s │TPS:842 │         ║");
     println!("╚═══════════════════════════════════════════════════╩══════════════════════════╝");
-    println!("");
+    println!();
     println!("╔══════════════════════════════════════════════════════════════════════════════╗");
     println!("║ System Status                                                               ║");
     println!("╟──────────────────────────────────────────────────────────────────────────────╢");
@@ -29,7 +29,7 @@ fn main() {
     println!("║ Services: 2 running, 4 stopped, 0 failed                                    ║");
     println!("║ Memory Headroom: 15.0% [Good >= 15%]                                        ║");
     println!("╚══════════════════════════════════════════════════════════════════════════════╝");
-    println!("");
+    println!();
     println!("╔══════════════════════════════════════════════════════════════════════════════╗");
     println!("║ Select Service to Control                                                   ║");
     println!("╟──────────────────────────────────────────────────────────────────────────────╢");
@@ -42,7 +42,7 @@ fn main() {
     println!("║     [--]    Training Service      Stopped    Database,Router   [Start]      ║");
     println!("║     [--]    Telemetry             Stopped    Metrics           [Start]      ║");
     println!("╚══════════════════════════════════════════════════════════════════════════════╝");
-    println!("");
+    println!();
     println!("All lines are perfectly aligned vertically using fixed-width formatting!");
     println!("The 'adapterOS' text is now a unified ASCII art block.");
 }

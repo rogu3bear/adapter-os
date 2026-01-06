@@ -15,7 +15,8 @@
     <link data-trunk rel="css" href="dist/glass.css">
     <!-- Liquid Glass Charts (PRD-UI-101) -->
     <link data-trunk rel="css" href="dist/charts.css">
-    <link data-trunk rel="rust" data-wasm-opt="z">
+    <!-- wasm-opt disabled: Trunk's bundled wasm-opt lacks --enable-bulk-memory (PRD-UI-170) -->
+    <link data-trunk rel="rust" data-wasm-opt="0">
     <style>
         /* PRD-UI-000: White screen triage styles */
         #aos-boot-probe {
@@ -34,8 +35,8 @@
         #aos-boot-probe.error { background: #7f1d1d; color: #fca5a5; }
         #aos-boot-probe.hidden { display: none; }
 
-        /* PRD-UI-000: Loading spinner */
-        #aos-loading-spinner {
+        /* PRD-UI-000: Boot progress display */
+        #aos-boot-progress {
             position: fixed;
             top: 50%;
             left: 50%;
@@ -43,25 +44,82 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 1rem;
+            gap: 1.5rem;
             z-index: 99998;
+            font-family: ui-monospace, monospace;
+            min-width: 280px;
         }
-        #aos-loading-spinner.hidden { display: none; }
-        #aos-loading-spinner .spinner {
-            width: 40px;
-            height: 40px;
-            border: 3px solid #1a1a2e;
+        #aos-boot-progress.hidden { display: none; }
+        #aos-boot-progress .boot-header {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        #aos-boot-progress .spinner {
+            width: 24px;
+            height: 24px;
+            border: 2px solid #1a1a2e;
             border-top-color: #4ade80;
             border-radius: 50%;
             animation: aos-spin 1s linear infinite;
         }
-        #aos-loading-spinner .text {
-            font-family: ui-monospace, monospace;
+        #aos-boot-progress .title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #e5e7eb;
+            letter-spacing: -0.025em;
+        }
+        #aos-boot-progress .boot-stages {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            width: 100%;
+        }
+        #aos-boot-progress .stage {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
             font-size: 12px;
             color: #6b7280;
+            padding: 0.25rem 0;
+        }
+        #aos-boot-progress .stage .icon {
+            width: 16px;
+            text-align: center;
+            font-size: 10px;
+        }
+        #aos-boot-progress .stage .label {
+            flex: 1;
+        }
+        #aos-boot-progress .stage .detail {
+            font-size: 10px;
+            color: #4b5563;
+        }
+        #aos-boot-progress .stage[data-status="done"] {
+            color: #4ade80;
+        }
+        #aos-boot-progress .stage[data-status="done"] .icon {
+            color: #4ade80;
+        }
+        #aos-boot-progress .stage[data-status="active"] {
+            color: #fbbf24;
+        }
+        #aos-boot-progress .stage[data-status="active"] .icon {
+            animation: aos-pulse 1s ease-in-out infinite;
+        }
+        #aos-boot-progress .stage[data-status="error"] {
+            color: #f87171;
+        }
+        #aos-boot-progress .boot-elapsed {
+            font-size: 10px;
+            color: #4b5563;
         }
         @keyframes aos-spin {
             to { transform: rotate(360deg); }
+        }
+        @keyframes aos-pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
         }
 
         /* PRD-UI-000: Enhanced panic overlay */
@@ -131,10 +189,50 @@
     </style>
 </head>
 <body>
-    <!-- PRD-UI-000: Loading spinner -->
-    <div id="aos-loading-spinner">
-        <div class="spinner"></div>
-        <div class="text">Loading AdapterOS...</div>
+    <!-- PRD-UI-000: Boot progress display -->
+    <div id="aos-boot-progress">
+        <div class="boot-header">
+            <div class="spinner"></div>
+            <div class="title">AdapterOS</div>
+        </div>
+        <div class="boot-stages">
+            <div class="stage" id="stage-html" data-status="done">
+                <span class="icon">✓</span>
+                <span class="label">HTML parsed</span>
+                <span class="detail"></span>
+            </div>
+            <div class="stage" id="stage-css" data-status="pending">
+                <span class="icon">○</span>
+                <span class="label">Stylesheets</span>
+                <span class="detail"></span>
+            </div>
+            <div class="stage" id="stage-wasm-fetch" data-status="pending">
+                <span class="icon">○</span>
+                <span class="label">WASM download</span>
+                <span class="detail"></span>
+            </div>
+            <div class="stage" id="stage-wasm-compile" data-status="pending">
+                <span class="icon">○</span>
+                <span class="label">WASM compile</span>
+                <span class="detail"></span>
+            </div>
+            <div class="stage" id="stage-runtime" data-status="pending">
+                <span class="icon">○</span>
+                <span class="label">Runtime init</span>
+                <span class="detail"></span>
+            </div>
+            <div class="stage" id="stage-mount" data-status="pending">
+                <span class="icon">○</span>
+                <span class="label">App mount</span>
+                <span class="detail"></span>
+            </div>
+            <div class="stage" id="stage-backend" data-status="pending">
+                <span class="icon">○</span>
+                <span class="label">Backend</span>
+                <span class="detail"></span>
+            </div>
+        </div>
+        <div class="boot-elapsed" id="boot-elapsed">0.0s</div>
     </div>
     <!-- PRD-UI-000: Render probe -->
     <div id="aos-boot-probe">HTML: OK | WASM: loading...</div>
@@ -165,7 +263,84 @@
         </div>
     </noscript>
     <script>
-        // PRD-UI-000: Enhanced boot diagnostics with build metadata
+        // PRD-UI-000: WASM fetch interceptor for download progress tracking
+        (function() {
+            var originalFetch = window.fetch;
+            window.fetch = function(url, options) {
+                var urlStr = typeof url === 'string' ? url : (url.url || '');
+
+                // Only intercept WASM file fetches
+                if (!urlStr.endsWith('.wasm')) {
+                    return originalFetch.apply(this, arguments);
+                }
+
+                if (window.aosWasmFetchStart) window.aosWasmFetchStart(0);
+
+                return originalFetch.apply(this, arguments).then(function(response) {
+                    if (!response.ok) return response;
+
+                    var contentLength = response.headers.get('content-length');
+                    var total = contentLength ? parseInt(contentLength, 10) : 0;
+                    var loaded = 0;
+
+                    if (window.aosWasmFetchStart) window.aosWasmFetchStart(total);
+
+                    var reader = response.body.getReader();
+                    var chunks = [];
+
+                    function read() {
+                        return reader.read().then(function(result) {
+                            if (result.done) {
+                                if (window.aosWasmFetchDone) window.aosWasmFetchDone(loaded);
+                                var blob = new Blob(chunks);
+                                return new Response(blob, {
+                                    headers: response.headers,
+                                    status: response.status,
+                                    statusText: response.statusText
+                                });
+                            }
+
+                            chunks.push(result.value);
+                            loaded += result.value.length;
+                            if (window.aosWasmFetchProgress) window.aosWasmFetchProgress(loaded, total);
+                            return read();
+                        });
+                    }
+
+                    return read();
+                });
+            };
+        })();
+    </script>
+    <script>
+        // PRD-UI-000: WebAssembly instantiation interceptor for error capture
+        (function() {
+            var originalInstantiate = WebAssembly.instantiate;
+            var originalInstantiateStreaming = WebAssembly.instantiateStreaming;
+
+            WebAssembly.instantiate = function(bufferSource, importObject) {
+                return originalInstantiate.apply(this, arguments).catch(function(error) {
+                    if (window.aosWasmInstantiateError) {
+                        window.aosWasmInstantiateError(error, 'instantiate');
+                    }
+                    throw error;
+                });
+            };
+
+            if (originalInstantiateStreaming) {
+                WebAssembly.instantiateStreaming = function(source, importObject) {
+                    return originalInstantiateStreaming.apply(this, arguments).catch(function(error) {
+                        if (window.aosWasmInstantiateError) {
+                            window.aosWasmInstantiateError(error, 'instantiateStreaming');
+                        }
+                        throw error;
+                    });
+                };
+            }
+        })();
+    </script>
+    <script>
+        // PRD-UI-000: Enhanced boot diagnostics with streaming progress
         (function() {
             // Read build metadata from meta tags
             var buildHashMeta = document.querySelector('meta[name="aos-build-hash"]');
@@ -174,90 +349,343 @@
             var buildTime = buildTimeMeta ? buildTimeMeta.content : new Date().toISOString();
 
             window.aosBoot = {
-                htmlLoaded: true,
-                wasmLoaded: false,
-                appMounted: false,
-                errors: [],
+                startTime: Date.now(),
                 buildHash: buildHash,
                 buildTime: buildTime,
-                startTime: Date.now()
+                errors: [],
+                stages: {
+                    html: { status: 'done', time: 0 },
+                    css: { status: 'pending', time: null },
+                    wasmFetch: { status: 'pending', time: null, bytes: 0, total: 0 },
+                    wasmCompile: { status: 'pending', time: null },
+                    runtime: { status: 'pending', time: null },
+                    mount: { status: 'pending', time: null },
+                    backend: { status: 'pending', time: null }
+                }
             };
 
-            // Helper to get current route
-            function getCurrentRoute() {
-                return window.location.pathname || '/';
+            // Format bytes as human readable
+            function formatBytes(bytes) {
+                if (bytes < 1024) return bytes + ' B';
+                if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+                return (bytes / 1048576).toFixed(1) + ' MB';
             }
 
-            // Helper to format elapsed time
-            function getElapsedTime() {
-                return ((Date.now() - window.aosBoot.startTime) / 1000).toFixed(2) + 's';
+            // Format elapsed time
+            function getElapsed() {
+                return ((Date.now() - window.aosBoot.startTime) / 1000).toFixed(1) + 's';
             }
 
+            // Update elapsed time display
+            var elapsedInterval = setInterval(function() {
+                var el = document.getElementById('boot-elapsed');
+                if (el) el.textContent = getElapsed();
+            }, 100);
+
+            // Update stage UI
+            function updateStage(stageId, status, detail) {
+                var stage = document.getElementById('stage-' + stageId);
+                if (!stage) return;
+
+                stage.dataset.status = status;
+                var icon = stage.querySelector('.icon');
+                var detailEl = stage.querySelector('.detail');
+
+                if (status === 'done') {
+                    icon.textContent = '✓';
+                    window.aosBoot.stages[stageId.replace('-', '')] = { status: 'done', time: Date.now() - window.aosBoot.startTime };
+                } else if (status === 'active') {
+                    icon.textContent = '●';
+                } else if (status === 'error') {
+                    icon.textContent = '✗';
+                }
+
+                if (detail !== undefined && detailEl) {
+                    detailEl.textContent = detail;
+                }
+            }
+
+            // Hide boot progress and show app
+            function hideBoot() {
+                clearInterval(elapsedInterval);
+                var progress = document.getElementById('aos-boot-progress');
+                var probe = document.getElementById('aos-boot-probe');
+                if (progress) progress.classList.add('hidden');
+                if (probe) {
+                    probe.textContent = 'Boot: ' + getElapsed();
+                    setTimeout(function() { probe.classList.add('hidden'); }, 3000);
+                }
+            }
+
+            // Track CSS loading
+            var cssSheets = document.querySelectorAll('link[rel="stylesheet"]');
+            var cssLoaded = 0;
+            var cssTotal = cssSheets.length;
+
+            function checkCss() {
+                updateStage('css', 'active', cssLoaded + '/' + cssTotal);
+                if (cssLoaded >= cssTotal) {
+                    updateStage('css', 'done', cssTotal + ' loaded');
+                }
+            }
+
+            cssSheets.forEach(function(link) {
+                if (link.sheet) {
+                    cssLoaded++;
+                } else {
+                    link.addEventListener('load', function() {
+                        cssLoaded++;
+                        checkCss();
+                    });
+                    link.addEventListener('error', function() {
+                        cssLoaded++;
+                        checkCss();
+                    });
+                }
+            });
+            checkCss();
+
+            // PRD-UI-000: Compile timeout (if no signal after 30s, something's wrong)
+            var compileTimeoutId = null;
+            var compileStarted = false;
+
+            function startCompileTimeout() {
+                if (compileStarted) return;
+                compileStarted = true;
+                compileTimeoutId = setTimeout(function() {
+                    if (window.aosBoot.stages.wasmCompile.status !== 'done') {
+                        updateStage('wasm-compile', 'error', 'timeout (30s)');
+                        showBootError('WASM compilation timed out after 30 seconds. This may indicate a browser issue or corrupted WASM binary.');
+                    }
+                }, 30000);
+            }
+
+            function clearCompileTimeout() {
+                if (compileTimeoutId) {
+                    clearTimeout(compileTimeoutId);
+                    compileTimeoutId = null;
+                }
+            }
+
+            // PRD-UI-000: Show error in boot progress using safe DOM methods
+            function showBootError(message) {
+                clearInterval(elapsedInterval);
+                var probe = document.getElementById('aos-boot-probe');
+                var progress = document.getElementById('aos-boot-progress');
+
+                if (probe) {
+                    probe.textContent = 'ERROR';
+                    probe.classList.add('error');
+                }
+
+                // Add error message to boot progress using safe DOM construction
+                if (progress && !progress.querySelector('.boot-error')) {
+                    var errorDiv = document.createElement('div');
+                    errorDiv.className = 'boot-error';
+                    errorDiv.style.cssText = 'margin-top: 1rem; padding: 0.75rem; background: #450a0a; border-radius: 8px; color: #fca5a5; font-size: 11px; max-width: 300px; word-break: break-word;';
+
+                    var titleStrong = document.createElement('strong');
+                    titleStrong.textContent = 'Boot Error:';
+                    errorDiv.appendChild(titleStrong);
+                    errorDiv.appendChild(document.createElement('br'));
+                    errorDiv.appendChild(document.createTextNode(message));
+
+                    var actionsDiv = document.createElement('div');
+                    actionsDiv.style.cssText = 'margin-top: 0.75rem; display: flex; gap: 0.5rem;';
+
+                    var reloadBtn = document.createElement('button');
+                    reloadBtn.textContent = 'Reload';
+                    reloadBtn.style.cssText = 'padding: 0.25rem 0.5rem; background: #dc2626; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 10px;';
+                    reloadBtn.onclick = function() { location.reload(); };
+
+                    var safeBtn = document.createElement('button');
+                    safeBtn.textContent = 'Safe Mode';
+                    safeBtn.style.cssText = 'padding: 0.25rem 0.5rem; background: #450a0a; color: #fca5a5; border: 1px solid #dc2626; border-radius: 4px; cursor: pointer; font-size: 10px;';
+                    safeBtn.onclick = function() { location.href = '/safe'; };
+
+                    actionsDiv.appendChild(reloadBtn);
+                    actionsDiv.appendChild(safeBtn);
+                    errorDiv.appendChild(actionsDiv);
+
+                    progress.appendChild(errorDiv);
+                }
+            }
+
+            // PRD-UI-000: Parse WASM-specific error messages
+            function parseWasmError(error) {
+                var msg = error.message || String(error);
+
+                // LinkError: usually indicates missing imports
+                if (msg.includes('LinkError') || msg.includes('import')) {
+                    return 'WASM link failed: Missing JavaScript import. The WASM binary may be incompatible with this browser version.';
+                }
+                // CompileError: WASM bytecode issues
+                if (msg.includes('CompileError') || msg.includes('compile')) {
+                    return 'WASM compile failed: Invalid bytecode. Try clearing browser cache (Cmd+Shift+R).';
+                }
+                // Memory issues
+                if (msg.includes('memory') || msg.includes('Memory') || msg.includes('OOM')) {
+                    return 'WASM memory error: Not enough memory to instantiate. Try closing other tabs.';
+                }
+                // Network/fetch issues
+                if (msg.includes('NetworkError') || msg.includes('fetch')) {
+                    return 'WASM fetch failed: Could not download the application. Check network connection.';
+                }
+                // MIME type issues
+                if (msg.includes('MIME') || msg.includes('mime')) {
+                    return 'WASM MIME error: Server not configured correctly. Expected application/wasm.';
+                }
+                return msg;
+            }
+
+            // Error handlers
             window.addEventListener('error', function(e) {
                 window.aosBoot.errors.push(e.message || 'Unknown error');
                 var probe = document.getElementById('aos-boot-probe');
-                var spinner = document.getElementById('aos-loading-spinner');
-                if (spinner) spinner.classList.add('hidden');
                 if (probe) { probe.textContent = 'ERROR: ' + (e.message || 'Unknown'); probe.classList.add('error'); }
+
+                // If we haven't mounted yet, this is likely a boot error
+                if (window.aosBoot.stages.mount.status !== 'done') {
+                    showBootError(e.message || 'Unknown JavaScript error during boot');
+                }
             });
 
             window.addEventListener('unhandledrejection', function(e) {
-                var msg = e.reason ? (e.reason.message || String(e.reason)) : 'Promise rejected';
-                window.aosBoot.errors.push(msg);
+                var rawMsg = e.reason ? (e.reason.message || String(e.reason)) : 'Promise rejected';
+                var msg = parseWasmError(e.reason || {});
+                window.aosBoot.errors.push(rawMsg);
+
                 var probe = document.getElementById('aos-boot-probe');
-                var spinner = document.getElementById('aos-loading-spinner');
-                if (spinner) spinner.classList.add('hidden');
-                if (probe) { probe.textContent = 'WASM ERROR: ' + msg; probe.classList.add('error'); }
+                if (probe) { probe.textContent = 'WASM ERROR'; probe.classList.add('error'); }
+
+                // Determine which stage failed
+                if (window.aosBoot.stages.wasmFetch.status === 'active' || window.aosBoot.stages.wasmFetch.status === 'pending') {
+                    updateStage('wasm-fetch', 'error', 'failed');
+                } else if (window.aosBoot.stages.wasmCompile.status === 'active') {
+                    updateStage('wasm-compile', 'error', 'failed');
+                } else if (window.aosBoot.stages.runtime.status === 'active') {
+                    updateStage('runtime', 'error', 'failed');
+                }
+
+                showBootError(msg);
             });
 
-            window.aosSignalMounted = function() {
-                window.aosBoot.appMounted = true;
-                var probe = document.getElementById('aos-boot-probe');
-                var spinner = document.getElementById('aos-loading-spinner');
-                if (spinner) spinner.classList.add('hidden');
-                if (probe) {
-                    probe.textContent = 'HTML: OK | WASM: OK | App: mounted (' + getElapsedTime() + ')';
-                    setTimeout(function() { if (!probe.classList.contains('error')) probe.classList.add('hidden'); }, 3000);
+            // PRD-UI-000: Direct WASM instantiation error handler
+            window.aosWasmInstantiateError = function(error, method) {
+                var msg = parseWasmError(error);
+                window.aosBoot.errors.push('WASM ' + method + ': ' + (error.message || String(error)));
+
+                updateStage('wasm-compile', 'error', method + ' failed');
+                showBootError(msg);
+
+                // Log detailed error for debugging
+                console.error('[AdapterOS] WASM instantiation failed:', {
+                    method: method,
+                    error: error,
+                    name: error.name,
+                    message: error.message,
+                    stack: error.stack
+                });
+            };
+
+            // WASM fetch started (called by trunk's loader or our hook)
+            window.aosWasmFetchStart = function(totalBytes) {
+                updateStage('wasm-fetch', 'active', '0%');
+                window.aosBoot.stages.wasmFetch.total = totalBytes || 0;
+            };
+
+            // WASM fetch progress
+            window.aosWasmFetchProgress = function(loadedBytes, totalBytes) {
+                var total = totalBytes || window.aosBoot.stages.wasmFetch.total;
+                window.aosBoot.stages.wasmFetch.bytes = loadedBytes;
+                if (total > 0) {
+                    var pct = Math.round((loadedBytes / total) * 100);
+                    updateStage('wasm-fetch', 'active', formatBytes(loadedBytes) + ' / ' + formatBytes(total) + ' (' + pct + '%)');
+                } else {
+                    updateStage('wasm-fetch', 'active', formatBytes(loadedBytes));
                 }
             };
 
+            // WASM fetch complete
+            window.aosWasmFetchDone = function(totalBytes) {
+                updateStage('wasm-fetch', 'done', formatBytes(totalBytes || window.aosBoot.stages.wasmFetch.bytes));
+                updateStage('wasm-compile', 'active', 'compiling...');
+                // Start timeout for compilation phase
+                startCompileTimeout();
+            };
+
+            // WASM compile complete (called when wasm_bindgen init completes but before start)
+            window.aosWasmCompileDone = function() {
+                clearCompileTimeout();
+                updateStage('wasm-compile', 'done', '');
+            };
+
+            // WASM loaded - runtime is initializing (called from Rust)
             window.aosSignalWasmLoaded = function() {
-                window.aosBoot.wasmLoaded = true;
+                clearCompileTimeout();
+                updateStage('wasm-compile', 'done', '');
+                updateStage('runtime', 'done', '');
+                updateStage('mount', 'active', 'mounting...');
                 var probe = document.getElementById('aos-boot-probe');
-                var spinnerText = document.querySelector('#aos-loading-spinner .text');
-                if (spinnerText) spinnerText.textContent = 'Mounting application...';
                 if (probe && !probe.classList.contains('error')) {
-                    probe.textContent = 'HTML: OK | WASM: OK | App: mounting...';
+                    probe.textContent = 'WASM: OK | Mounting...';
                 }
             };
 
+            // App mounted (called from Rust)
+            window.aosSignalMounted = function() {
+                updateStage('mount', 'done', '');
+                updateStage('backend', 'active', 'checking...');
+
+                // Check backend health with 10-second timeout
+                var controller = new AbortController();
+                var timeoutId = setTimeout(function() {
+                    controller.abort();
+                }, 10000);
+
+                fetch('/healthz', { method: 'GET', signal: controller.signal })
+                    .then(function(r) {
+                        clearTimeout(timeoutId);
+                        if (r.ok) {
+                            updateStage('backend', 'done', 'connected');
+                            hideBoot();
+                        } else {
+                            updateStage('backend', 'error', 'status ' + r.status);
+                            hideBoot();
+                        }
+                    })
+                    .catch(function(e) {
+                        clearTimeout(timeoutId);
+                        if (e.name === 'AbortError') {
+                            updateStage('backend', 'error', 'timeout');
+                        } else {
+                            updateStage('backend', 'error', 'offline');
+                        }
+                        hideBoot();
+                    });
+            };
+
+            // Panic handler
             window.aosShowPanic = function(message, stackTrace) {
+                clearInterval(elapsedInterval);
+                var progress = document.getElementById('aos-boot-progress');
                 var overlay = document.getElementById('aos-panic-overlay');
                 var msgEl = document.getElementById('aos-panic-message');
                 var stackEl = document.getElementById('aos-panic-stack');
                 var routeEl = document.getElementById('aos-panic-route');
                 var buildEl = document.getElementById('aos-panic-build');
                 var timeEl = document.getElementById('aos-panic-time');
-                var spinner = document.getElementById('aos-loading-spinner');
 
-                if (spinner) spinner.classList.add('hidden');
+                if (progress) progress.classList.add('hidden');
 
                 if (overlay && msgEl) {
                     msgEl.textContent = message;
                     overlay.classList.add('visible');
                 }
-                if (stackEl && stackTrace) {
-                    stackEl.textContent = stackTrace;
-                }
-                if (routeEl) {
-                    routeEl.textContent = getCurrentRoute();
-                }
-                if (buildEl) {
-                    buildEl.textContent = window.aosBoot.buildHash.substring(0, 8);
-                }
-                if (timeEl) {
-                    timeEl.textContent = new Date().toISOString();
-                }
+                if (stackEl && stackTrace) stackEl.textContent = stackTrace;
+                if (routeEl) routeEl.textContent = window.location.pathname || '/';
+                if (buildEl) buildEl.textContent = buildHash.substring(0, 8);
+                if (timeEl) timeEl.textContent = new Date().toISOString();
 
                 var probe = document.getElementById('aos-boot-probe');
                 if (probe) { probe.textContent = 'PANIC'; probe.classList.add('error'); }
@@ -266,13 +694,18 @@
             // Expose build info for diagnostics
             window.aosGetBuildInfo = function() {
                 return {
-                    hash: window.aosBoot.buildHash,
-                    time: window.aosBoot.buildTime,
-                    route: getCurrentRoute(),
-                    elapsed: getElapsedTime(),
+                    hash: buildHash,
+                    time: buildTime,
+                    route: window.location.pathname || '/',
+                    elapsed: getElapsed(),
+                    stages: window.aosBoot.stages,
                     errors: window.aosBoot.errors
                 };
             };
+
+            // Start WASM fetch tracking - hook into trunk's auto-generated loader
+            // Trunk generates JS that fetches the WASM, we'll start with estimates
+            updateStage('wasm-fetch', 'active', 'starting...');
         })();
     </script>
 </body>

@@ -190,12 +190,27 @@ pub struct WorkerStreamToken {
     pub token_id: Option<u32>,
 }
 
+/// Paused event payload for human-in-the-loop review.
+#[derive(Debug, Clone, Deserialize)]
+pub struct WorkerStreamPaused {
+    pub pause_id: String,
+    pub inference_id: String,
+    pub trigger_kind: String,
+    #[serde(default)]
+    pub context: Option<String>,
+    #[serde(default)]
+    pub text_so_far: Option<String>,
+    pub token_count: usize,
+}
+
 /// Streaming events emitted by the worker over UDS.
 #[derive(Debug)]
 pub enum WorkerStreamEvent {
     Token(WorkerStreamToken),
     Complete(Box<crate::types::WorkerInferResponse>),
     Error(String),
+    /// Inference paused for human review
+    Paused(WorkerStreamPaused),
 }
 
 impl UdsClient {
@@ -1068,6 +1083,9 @@ impl UdsClient {
                                 .unwrap_or_else(|| event_data.clone());
                             Ok(WorkerStreamEvent::Error(message))
                         }
+                        "paused" => serde_json::from_str::<WorkerStreamPaused>(&event_data)
+                            .map(WorkerStreamEvent::Paused)
+                            .map_err(|e| UdsClientError::SerializationError(e.to_string())),
                         _ => Ok(WorkerStreamEvent::Error(format!(
                             "Unknown event type: {}",
                             event_type

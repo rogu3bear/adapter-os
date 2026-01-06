@@ -27,9 +27,8 @@ use crate::output::OutputWriter;
 use adapteros_core::{AosError, Result};
 use adapteros_crypto::Keypair;
 use adapteros_single_file_adapter::{
-    AosPackageOptions, AosPackager, CompressionLevel, LineageInfo, LoadOptions, PackageOptions,
-    SingleFileAdapter, SingleFileAdapterLoader, SingleFileAdapterPackager,
-    SingleFileAdapterValidator, TrainingConfig,
+    CompressionLevel, LineageInfo, LoadOptions, PackageOptions, SingleFileAdapter,
+    SingleFileAdapterLoader, SingleFileAdapterPackager, SingleFileAdapterValidator, TrainingConfig,
 };
 use chrono::Utc;
 
@@ -310,17 +309,12 @@ pub async fn create_aos(args: CreateArgs, output: &OutputWriter) -> Result<()> {
                 .await?;
         }
         "aos" => {
-            let aos_options = AosPackageOptions {
-                compress_metadata: true,
-                compress_weights: false,
-                compression_level: match compression_level {
-                    CompressionLevel::Store => 1,
-                    CompressionLevel::Fast => 3,
-                    CompressionLevel::Best => 22,
-                },
+            let aos_options = PackageOptions {
+                compression: compression_level,
+                include_signature: true,
                 include_combined_weights: true,
             };
-            AosPackager::save_with_options(&adapter, &args.output, aos_options).await?;
+            SingleFileAdapter::save_with_options(&adapter, &args.output, aos_options).await?;
         }
         other => {
             return Err(AosError::Config(format!(

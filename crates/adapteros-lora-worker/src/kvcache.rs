@@ -557,6 +557,9 @@ impl KvCache {
             if let (Some(ref k_buffer), Some(ref v_buffer)) = (&self.k_buffer, &self.v_buffer) {
                 // Zero out K buffer
                 let k_contents = k_buffer.contents();
+                // SAFETY: k_contents is a valid pointer returned by Metal buffer.contents().
+                // k_buffer.length() returns the exact buffer size allocated.
+                // Metal StorageModeShared buffers are CPU-accessible for read/write.
                 unsafe {
                     let k_slice = std::slice::from_raw_parts_mut(
                         k_contents as *mut u8,
@@ -567,6 +570,9 @@ impl KvCache {
 
                 // Zero out V buffer
                 let v_contents = v_buffer.contents();
+                // SAFETY: v_contents is a valid pointer returned by Metal buffer.contents().
+                // v_buffer.length() returns the exact buffer size allocated.
+                // Metal StorageModeShared buffers are CPU-accessible for read/write.
                 unsafe {
                     let v_slice = std::slice::from_raw_parts_mut(
                         v_contents as *mut u8,
@@ -598,23 +604,52 @@ impl KvCache {
         #[cfg(target_os = "macos")]
         {
             if let (Some(ref k_buffer), Some(ref v_buffer)) = (&self.k_buffer, &self.v_buffer) {
+                let k_offset = allocation.k_offset as usize;
+                let k_size = allocation.k_size as usize;
+                let v_offset = allocation.v_offset as usize;
+                let v_size = allocation.v_size as usize;
+                let buffer_len = k_buffer.length() as usize;
+
+                // Validate bounds before unsafe operations to prevent buffer overflows
+                let k_end = k_offset
+                    .checked_add(k_size)
+                    .ok_or_else(|| AosError::Worker("K buffer offset+size overflow".to_string()))?;
+                let v_end = v_offset
+                    .checked_add(v_size)
+                    .ok_or_else(|| AosError::Worker("V buffer offset+size overflow".to_string()))?;
+
+                if k_end > buffer_len {
+                    return Err(AosError::Worker(format!(
+                        "K buffer bounds exceeded: offset {} + size {} > buffer len {}",
+                        k_offset, k_size, buffer_len
+                    )));
+                }
+                if v_end > buffer_len {
+                    return Err(AosError::Worker(format!(
+                        "V buffer bounds exceeded: offset {} + size {} > buffer len {}",
+                        v_offset, v_size, buffer_len
+                    )));
+                }
+
                 // Zero out K buffer slice
                 let k_contents = k_buffer.contents();
+                // SAFETY: k_contents is a valid pointer from Metal buffer.contents().
+                // Bounds validated above: k_offset + k_size <= buffer_len.
+                // Metal StorageModeShared buffers are CPU-accessible.
                 unsafe {
-                    let k_slice = std::slice::from_raw_parts_mut(
-                        k_contents.add(allocation.k_offset as usize) as *mut u8,
-                        allocation.k_size as usize,
-                    );
+                    let k_slice =
+                        std::slice::from_raw_parts_mut(k_contents.add(k_offset) as *mut u8, k_size);
                     k_slice.fill(0);
                 }
 
                 // Zero out V buffer slice
                 let v_contents = v_buffer.contents();
+                // SAFETY: v_contents is a valid pointer from Metal buffer.contents().
+                // Bounds validated above: v_offset + v_size <= buffer_len.
+                // Metal StorageModeShared buffers are CPU-accessible.
                 unsafe {
-                    let v_slice = std::slice::from_raw_parts_mut(
-                        v_contents.add(allocation.v_offset as usize) as *mut u8,
-                        allocation.v_size as usize,
-                    );
+                    let v_slice =
+                        std::slice::from_raw_parts_mut(v_contents.add(v_offset) as *mut u8, v_size);
                     v_slice.fill(0);
                 }
 
@@ -651,18 +686,12 @@ impl KvCache {
         self.active_guards.clear();
         #[cfg(target_os = "macos")]
         if let (Some(k_buf), Some(v_buf)) = (&mut self.k_buffer, &mut self.v_buffer) {
-            // Zeroize Metal buffers
+            // SAFETY: Both k_buf and v_buf are valid Metal buffers allocated with
+            // capacity_bytes size. contents() returns a valid CPU-accessible pointer
+            // for StorageModeShared buffers. We write exactly capacity_bytes bytes.
             unsafe {
-                std::ptr::write_bytes(
-                    k_buf.contents() as *mut u8,
-                    0,
-                    (self.capacity_bytes / std::mem::size_of::<u8>() as u64) as usize,
-                );
-                std::ptr::write_bytes(
-                    v_buf.contents() as *mut u8,
-                    0,
-                    (self.capacity_bytes / std::mem::size_of::<u8>() as u64) as usize,
-                );
+                std::ptr::write_bytes(k_buf.contents() as *mut u8, 0, self.capacity_bytes as usize);
+                std::ptr::write_bytes(v_buf.contents() as *mut u8, 0, self.capacity_bytes as usize);
             }
         }
     }
@@ -679,12 +708,15 @@ impl KvCache {
             if let Some(ref mut k_buffer) = &mut self.k_buffer {
                 let contents = k_buffer.contents();
                 let zero_slice = vec![0u8; self.capacity_bytes as usize];
-                // Alignment check for safety
+                // Alignment check for safety (u8 has no alignment requirements, but validates pointer)
                 assert_eq!(
                     contents as usize % std::mem::align_of::<u8>(),
                     0,
                     "K buffer misaligned"
                 );
+                // SAFETY: contents is a valid pointer from Metal buffer.contents() for
+                // StorageModeShared buffers. Buffer was allocated with capacity_bytes size.
+                // zero_slice.len() == capacity_bytes. Alignment validated above.
                 unsafe {
                     std::ptr::copy_nonoverlapping(
                         zero_slice.as_ptr(),
@@ -697,12 +729,15 @@ impl KvCache {
             if let Some(ref mut v_buffer) = &mut self.v_buffer {
                 let contents = v_buffer.contents();
                 let zero_slice = vec![0u8; self.capacity_bytes as usize];
-                // Alignment check for safety
+                // Alignment check for safety (u8 has no alignment requirements, but validates pointer)
                 assert_eq!(
                     contents as usize % std::mem::align_of::<u8>(),
                     0,
                     "V buffer misaligned"
                 );
+                // SAFETY: contents is a valid pointer from Metal buffer.contents() for
+                // StorageModeShared buffers. Buffer was allocated with capacity_bytes size.
+                // zero_slice.len() == capacity_bytes. Alignment validated above.
                 unsafe {
                     std::ptr::copy_nonoverlapping(
                         zero_slice.as_ptr(),

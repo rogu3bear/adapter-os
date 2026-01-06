@@ -93,7 +93,7 @@ pub fn NarrowChatDock() -> impl IntoView {
                     let unread = chat_state.get().unread_count;
                     if unread > 0 {
                         view! {
-                            <span class="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[9px] font-medium text-destructive-foreground">
+                            <span class="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-3xs font-medium text-destructive-foreground">
                                 {if unread > 9 { "9+".to_string() } else { unread.to_string() }}
                             </span>
                         }.into_any()
@@ -329,7 +329,7 @@ fn MessageList() -> impl IntoView {
                                         if is_user { "justify-end" } else { "justify-start" }
                                     )>
                                         <div class=format!(
-                                            "max-w-[85%] rounded-lg px-3 py-2 {}",
+                                            "chat-bubble-compact rounded-lg px-3 py-2 {}",
                                             if is_user {
                                                 "bg-primary text-primary-foreground"
                                             } else {
@@ -338,7 +338,7 @@ fn MessageList() -> impl IntoView {
                                         )>
                                             <p class="text-sm whitespace-pre-wrap break-words">{content}</p>
                                             <div class=format!(
-                                                "mt-1 text-[10px] {}",
+                                                "mt-1 text-2xs {}",
                                                 if is_user { "text-primary-foreground/70" } else { "text-muted-foreground" }
                                             )>
                                                 {timestamp}
@@ -513,10 +513,15 @@ fn ChatInput() -> impl IntoView {
 
     // Create derived signal for loading state (fixes reactive tracking warning)
     let is_loading = Memo::new(move |_| chat_state.get().loading);
+    let can_send = Memo::new(move |_| !message.get().trim().is_empty() && !is_loading.get());
 
     let do_send = {
         let action = chat_action.clone();
+        let is_loading = is_loading.clone();
         move || {
+            if is_loading.get() {
+                return;
+            }
             let msg = message.get();
             if !msg.trim().is_empty() {
                 let action = action.clone();
@@ -541,7 +546,9 @@ fn ChatInput() -> impl IntoView {
                 class="space-y-2"
                 on:submit=move |ev: web_sys::SubmitEvent| {
                     ev.prevent_default();
-                    do_send();
+                    if can_send.get() {
+                        do_send();
+                    }
                 }
             >
                 <Textarea
@@ -551,14 +558,18 @@ fn ChatInput() -> impl IntoView {
                     class="resize-none".to_string()
                 />
                 <div class="flex justify-end">
-                    {move || view! {
-                        <Button
-                            size=ButtonSize::Sm
-                            loading=is_loading.get()
-                            on_click=send_callback.clone()
-                        >
-                            "Send"
-                        </Button>
+                    {move || {
+                        let disabled = !can_send.get();
+                        view! {
+                            <Button
+                                size=ButtonSize::Sm
+                                loading=is_loading.get()
+                                disabled=disabled
+                                on_click=send_callback.clone()
+                            >
+                                "Send"
+                            </Button>
+                        }
                     }}
                 </div>
             </form>
@@ -607,7 +618,7 @@ pub fn MobileChatOverlay() -> impl IntoView {
                     let unread = chat_state.get().unread_count;
                     if unread > 0 {
                         view! {
-                            <span class="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-[10px] font-medium text-destructive-foreground">
+                            <span class="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-2xs font-medium text-destructive-foreground">
                                 {if unread > 9 { "9+".to_string() } else { unread.to_string() }}
                             </span>
                         }.into_any()

@@ -201,7 +201,7 @@ pub fn Collections() -> impl IntoView {
                                     <label class="text-sm font-medium" for="description">"Description (optional)"</label>
                                     <textarea
                                         id="description"
-                                        class="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                        class="flex min-h-textarea w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                                         placeholder="A collection of documents for..."
                                         prop:value=move || new_description.get()
                                         on:input=move |ev| new_description.set(event_target_value(&ev))

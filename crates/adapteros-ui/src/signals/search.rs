@@ -1,11 +1,23 @@
 //! Search context for the command palette.
 
 use crate::api::ApiClient;
-use crate::search::{RecentItem, SearchAction, SearchResult, SearchResultType};
+use crate::search::{RecentItem, SearchResult};
 use leptos::prelude::*;
 use std::sync::Arc;
 
 const MAX_RECENT_ITEMS: usize = 6;
+
+/// Check if a result matches a query (case-insensitive substring match)
+fn result_matches(result: &SearchResult, query: &str) -> bool {
+    let query_lower = query.to_lowercase();
+    result.title.to_lowercase().contains(&query_lower)
+        || result.id.to_lowercase().contains(&query_lower)
+        || result
+            .subtitle
+            .as_ref()
+            .map(|s| s.to_lowercase().contains(&query_lower))
+            .unwrap_or(false)
+}
 
 #[derive(Clone)]
 pub struct SearchContext {
@@ -69,7 +81,7 @@ impl SearchContext {
     }
 
     pub fn record_recent(&self, item: RecentItem) {
-        self.recent.update(|items| {
+        self.recent.update(|items: &mut Vec<RecentItem>| {
             items.retain(|existing| existing.id != item.id);
             items.insert(0, item);
             if items.len() > MAX_RECENT_ITEMS {
@@ -109,7 +121,7 @@ impl SearchContext {
 
                 let mut matches: Vec<SearchResult> = static_results()
                     .into_iter()
-                    .filter(|result| result.matches(&query))
+                    .filter(|result| result_matches(result, &query))
                     .collect();
 
                 matches.sort_by(|a, b| {
@@ -161,113 +173,37 @@ fn set_timeout_simple<F: FnOnce() + 'static>(_f: F, _ms: i32) {}
 
 fn static_results() -> Vec<SearchResult> {
     vec![
-        SearchResult::new(
-            "dashboard",
-            "Dashboard",
-            SearchResultType::Page,
-            SearchAction::Navigate("/dashboard".to_string()),
-        ),
-        SearchResult::new(
-            "adapters",
-            "Adapters",
-            SearchResultType::Page,
-            SearchAction::Navigate("/adapters".to_string()),
-        ),
-        SearchResult::new(
-            "chat",
-            "Chat",
-            SearchResultType::Page,
-            SearchAction::Navigate("/chat".to_string()),
-        ),
-        SearchResult::new(
-            "training",
-            "Training",
-            SearchResultType::Page,
-            SearchAction::Navigate("/training".to_string()),
-        ),
-        SearchResult::new(
-            "system",
-            "System",
-            SearchResultType::Page,
-            SearchAction::Navigate("/system".to_string()),
-        ),
-        SearchResult::new(
-            "models",
-            "Models",
-            SearchResultType::Page,
-            SearchAction::Navigate("/models".to_string()),
-        ),
-        SearchResult::new(
-            "policies",
-            "Policies",
-            SearchResultType::Page,
-            SearchAction::Navigate("/policies".to_string()),
-        ),
-        SearchResult::new(
-            "stacks",
-            "Stacks",
-            SearchResultType::Page,
-            SearchAction::Navigate("/stacks".to_string()),
-        ),
-        SearchResult::new(
-            "collections",
-            "Collections",
-            SearchResultType::Page,
-            SearchAction::Navigate("/collections".to_string()),
-        ),
-        SearchResult::new(
-            "documents",
-            "Documents",
-            SearchResultType::Page,
-            SearchAction::Navigate("/documents".to_string()),
-        ),
-        SearchResult::new(
-            "repositories",
-            "Repositories",
-            SearchResultType::Page,
-            SearchAction::Navigate("/repositories".to_string()),
-        ),
-        SearchResult::new(
-            "workers",
-            "Workers",
-            SearchResultType::Page,
-            SearchAction::Navigate("/workers".to_string()),
-        ),
-        SearchResult::new(
-            "admin",
-            "Admin",
-            SearchResultType::Page,
-            SearchAction::Navigate("/admin".to_string()),
-        ),
-        SearchResult::new(
-            "audit",
-            "Audit",
-            SearchResultType::Page,
-            SearchAction::Navigate("/audit".to_string()),
-        ),
-        SearchResult::new(
-            "settings",
-            "Settings",
-            SearchResultType::Page,
-            SearchAction::Navigate("/settings".to_string()),
-        ),
-        SearchResult::new(
-            "safe",
-            "Safe Mode",
-            SearchResultType::Page,
-            SearchAction::Navigate("/safe".to_string()),
-        ),
-        SearchResult::new(
+        SearchResult::page("dashboard", "Dashboard", None, "/dashboard", 1.0),
+        SearchResult::page("adapters", "Adapters", None, "/adapters", 1.0),
+        SearchResult::page("chat", "Chat", None, "/chat", 1.0),
+        SearchResult::page("training", "Training", None, "/training", 1.0),
+        SearchResult::page("system", "System", None, "/system", 1.0),
+        SearchResult::page("models", "Models", None, "/models", 1.0),
+        SearchResult::page("policies", "Policies", None, "/policies", 1.0),
+        SearchResult::page("stacks", "Stacks", None, "/stacks", 1.0),
+        SearchResult::page("collections", "Collections", None, "/collections", 1.0),
+        SearchResult::page("documents", "Documents", None, "/documents", 1.0),
+        SearchResult::page("repositories", "Repositories", None, "/repositories", 1.0),
+        SearchResult::page("workers", "Workers", None, "/workers", 1.0),
+        SearchResult::page("admin", "Admin", None, "/admin", 1.0),
+        SearchResult::page("audit", "Audit", None, "/audit", 1.0),
+        SearchResult::page("settings", "Settings", None, "/settings", 1.0),
+        SearchResult::page("safe", "Safe Mode", None, "/safe", 1.0),
+        SearchResult::action(
             "toggle-chat",
             "Toggle Chat Dock",
-            SearchResultType::Action,
-            SearchAction::Execute("toggle-chat".to_string()),
+            None,
+            "toggle-chat",
+            None,
+            1.0,
         ),
-        SearchResult::new(
+        SearchResult::action(
             "toggle-theme",
             "Toggle Theme",
-            SearchResultType::Action,
-            SearchAction::Execute("toggle-theme".to_string()),
+            None,
+            "toggle-theme",
+            None,
+            1.0,
         ),
     ]
 }

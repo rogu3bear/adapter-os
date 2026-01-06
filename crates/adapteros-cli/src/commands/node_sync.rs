@@ -1,7 +1,7 @@
 //! Node sync command - replicate adapters across nodes
 
-use anyhow::{Context, Result};
 use super::NOT_IMPLEMENTED_MESSAGE;
+use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
 /// Node sync subcommands

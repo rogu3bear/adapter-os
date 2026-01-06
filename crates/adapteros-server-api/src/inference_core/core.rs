@@ -123,6 +123,7 @@
 
 use super::adapters::{map_router_decision_chain, map_router_decisions, parse_routing_mode};
 use super::determinism::validate_strict_mode_constraints;
+use super::diag::{extract_error_code, suggest_recovery, DiagRunContext};
 use super::policy::{resolve_tenant_execution_policy, GoldenPolicyResolved};
 use super::replay::{compute_replay_guarantee, enforce_strict_runtime_guards};
 use super::validation::{parse_pinned_adapter_ids, validate_pinned_within_effective_set};
@@ -153,6 +154,8 @@ use adapteros_core::{
 };
 use adapteros_db::workers::WorkerWithBinding;
 use adapteros_db::{chat_sessions::ChatSession, CreateReplayMetadataParams};
+#[allow(unused_imports)]
+use adapteros_diagnostics::DiagStage;
 use adapteros_policy::hooks::{HookContext, PolicyHook};
 use adapteros_telemetry::unified_events::{EventType, LogLevel, TelemetryEventBuilder};
 use adapteros_telemetry::{
@@ -238,6 +241,27 @@ impl<'a> InferenceCore<'a> {
             None => true,
             Some(ctx) => !ctx.skip_metadata_capture,
         };
+
+        // Create trace context for diagnostics
+        let trace_context = adapteros_telemetry::tracing::TraceContext::new_root();
+
+        // Initialize diagnostic run context (if diagnostics enabled)
+        let diag_ctx = DiagRunContext::try_new(
+            self.state,
+            &request.request_id,
+            &request.cpid,
+            &trace_context,
+        );
+
+        // Emit RunStarted
+        if let Some(ref ctx) = diag_ctx {
+            ctx.emit_run_started(is_replay);
+        }
+
+        // Register inference in state tracker as Running
+        if let Some(ref tracker) = self.state.inference_state_tracker {
+            tracker.register_inference(request.request_id.clone(), request.cpid.clone(), is_replay);
+        }
 
         let result = async {
         let mut all_policy_decisions = Vec::new();
@@ -861,6 +885,34 @@ impl<'a> InferenceCore<'a> {
                     WorkerStreamEvent::Error(message) => {
                         return Err(InferenceError::WorkerError(message));
                     }
+                    WorkerStreamEvent::Paused(paused) => {
+                        // Register pause with server's pause tracker for human review
+                        if let Some(ref tracker) = self.state.pause_tracker {
+                            tracker.register_pause(paused.clone(), uds_path.clone());
+                            info!(
+                                pause_id = %paused.pause_id,
+                                inference_id = %paused.inference_id,
+                                "Registered paused inference for review"
+                            );
+                        } else {
+                            warn!(
+                                pause_id = %paused.pause_id,
+                                "Received Paused event but pause tracker not configured"
+                            );
+                        }
+
+                        // Update state tracker to Paused
+                        if let Some(ref state_tracker) = self.state.inference_state_tracker {
+                            state_tracker.mark_paused(
+                                &paused.inference_id,
+                                paused.pause_id.clone(),
+                                paused.trigger_kind.clone(),
+                                Some(paused.token_count as u32),
+                            );
+                        }
+                        // Worker is blocked waiting for review - continue waiting for more events
+                        // (Resume will be sent via UDS when review is submitted)
+                    }
                 }
             }
 
@@ -1408,6 +1460,32 @@ impl<'a> InferenceCore<'a> {
         })
         }
         .await;
+
+        // Emit diagnostic run completion
+        if let Some(ref ctx) = diag_ctx {
+            match &result {
+                Ok(_) => ctx.emit_run_finished(),
+                Err(err) => {
+                    let error_code = extract_error_code(err);
+                    let recovery = suggest_recovery(err);
+                    ctx.emit_run_failed(error_code, recovery);
+                }
+            }
+        }
+
+        // Update inference state tracker with completion status
+        if let Some(ref tracker) = self.state.inference_state_tracker {
+            match &result {
+                Ok(res) => {
+                    let token_count = res.token_usage.as_ref().map(|u| u.completion_tokens);
+                    tracker.mark_complete(&request.request_id, token_count);
+                }
+                Err(err) => {
+                    let error_code = extract_error_code(err).to_string();
+                    tracker.mark_failed(&request.request_id, error_code);
+                }
+            }
+        }
 
         if let Err(err) = &result {
             if should_capture {

@@ -1,0 +1,55 @@
+   Compiling adapteros-core v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-core)
+warning: adapteros-lora-kernel-mtl@0.11.0: Kernel hash: 80cde3dd76f17f8e4de951368e60bb2daa006cc40454fe2e81d7cb311643723a
+   Compiling adapteros-crypto v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-crypto)
+   Compiling adapteros-telemetry-types v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-telemetry-types)
+   Compiling adapteros-config v0.1.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-config)
+   Compiling adapteros-sbom v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-sbom)
+   Compiling adapteros-lora-kernel-api v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-lora-kernel-api)
+   Compiling adapteros-platform v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-platform)
+   Compiling adapteros-manifest v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-manifest)
+   Compiling adapteros-codegraph v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-codegraph)
+   Compiling adapteros-lora-rag v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-lora-rag)
+   Compiling adapteros-aos v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-aos)
+   Compiling adapteros-boot v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-boot)
+   Compiling adapteros-telemetry v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-telemetry)
+   Compiling adapteros-single-file-adapter v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-single-file-adapter)
+   Compiling adapteros-artifacts v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-artifacts)
+   Compiling adapteros-secure-fs v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-secure-fs)
+   Compiling adapteros-storage v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-storage)
+   Compiling adapteros-api-types v0.1.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-api-types)
+   Compiling adapteros-diagnostics v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-diagnostics)
+   Compiling adapteros-lora-kernel-mtl v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-lora-kernel-mtl)
+   Compiling adapteros-profiler v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-profiler)
+   Compiling adapteros-db v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-db)
+   Compiling adapteros-deterministic-exec v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-deterministic-exec)
+   Compiling adapteros-policy v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-policy)
+   Compiling adapteros-memory v0.1.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-memory)
+   Compiling adapteros-lora-lifecycle v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-lora-lifecycle)
+   Compiling adapteros-lora-router v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-lora-router)
+   Compiling adapteros-lora-worker v0.11.0 (/Users/mln-dev/Dev/adapter-os/crates/adapteros-lora-worker)
+   Compiling xtask v0.11.0 (/Users/mln-dev/Dev/adapter-os/xtask)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 20.82s
+     Running `target/debug/xtask check-all --verbose`
+🔍 Running feature matrix checks...
+
+
+=== Checking feature set: default ===
+Running: "cargo" "check" "--workspace" "--all-targets" "--exclude" "adapteros-lora-mlx-ffi"
+✅ default passed
+
+=== Checking feature set: full ===
+Running: "cargo" "check" "--workspace" "--all-targets" "--features" "full" "--exclude" "adapteros-lora-mlx-ffi"
+✅ full passed
+
+=== Checking feature set: metal-backend ===
+Running: "cargo" "check" "--workspace" "--all-targets" "--features" "metal-backend" "--exclude" "adapteros-lora-mlx-ffi"
+✅ metal-backend passed
+
+=== Checking feature set: no-metal ===
+Running: "cargo" "check" "--workspace" "--all-targets" "--features" "no-metal" "--exclude" "adapteros-lora-mlx-ffi"
+✅ no-metal passed
+
+=== Summary ===
+✅ Passed:  4
+⏭️  Skipped: 0
+❌ Failed:  0

@@ -336,7 +336,7 @@ fn ModelDetailContent(model: ModelStatusResponse) -> impl IntoView {
                     view! {
                         <div class="flex justify-between">
                             <span class="text-muted-foreground">"Path"</span>
-                            <span class="font-mono text-xs truncate max-w-[200px]" title=path>{path_display}</span>
+                            <span class="font-mono text-xs truncate max-w-truncate" title=path>{path_display}</span>
                         </div>
                     }
                 })}

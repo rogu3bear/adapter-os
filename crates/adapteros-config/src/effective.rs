@@ -71,6 +71,8 @@ pub struct EffectiveConfig {
     pub health: HealthSection,
     /// Self-hosting agent configuration
     pub self_hosting: SelfHostingSection,
+    /// Diagnostics configuration
+    pub diagnostics: DiagnosticsSection,
     /// Source tracking for each config key
     sources: HashMap<String, String>,
     /// Whether running in production mode
@@ -320,6 +322,55 @@ pub struct SelfHostingSection {
     pub require_human_approval: bool,
 }
 
+/// Diagnostics verbosity level
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum DiagLevel {
+    /// Diagnostics disabled
+    #[default]
+    Off,
+    /// Only error events (StageFailed)
+    Errors,
+    /// Stage enter/complete/failed events
+    Stages,
+    /// Stages + router decision events
+    Router,
+    /// All events including token-level
+    Tokens,
+}
+
+impl FromStr for DiagLevel {
+    type Err = ();
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.to_ascii_lowercase().as_str() {
+            "off" => Ok(Self::Off),
+            "errors" => Ok(Self::Errors),
+            "stages" => Ok(Self::Stages),
+            "router" => Ok(Self::Router),
+            "tokens" => Ok(Self::Tokens),
+            _ => Ok(Self::Off),
+        }
+    }
+}
+
+/// Diagnostics section configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiagnosticsSection {
+    /// Master enable/disable for diagnostics collection
+    pub enabled: bool,
+    /// Verbosity level (controls which events are emitted)
+    pub level: DiagLevel,
+    /// Bounded channel capacity (default: 1000)
+    pub channel_capacity: usize,
+    /// Maximum events to persist per run (prevents runaway writes)
+    pub max_events_per_run: u32,
+    /// Batch size for writes (flush after N events)
+    pub batch_size: usize,
+    /// Batch timeout in milliseconds (flush after T ms even if batch incomplete)
+    pub batch_timeout_ms: u64,
+}
+
 /// Source of a configuration value (for debugging/observability)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ConfigValueSource {
@@ -373,6 +424,7 @@ impl EffectiveConfig {
         let inference = Self::build_inference_section(&config, is_production);
         let health = Self::build_health_section(&config);
         let self_hosting = Self::build_self_hosting_section(&config);
+        let diagnostics = Self::build_diagnostics_section(&config);
 
         let effective_config = Self {
             inner: config,
@@ -390,6 +442,7 @@ impl EffectiveConfig {
             inference,
             health,
             self_hosting,
+            diagnostics,
             sources,
             is_production,
         };
@@ -1005,6 +1058,47 @@ impl EffectiveConfig {
         }
     }
 
+    fn build_diagnostics_section(config: &DeterministicConfig) -> DiagnosticsSection {
+        let enabled = config
+            .get("diag.enabled")
+            .map(|v| v == "true")
+            .unwrap_or(false);
+
+        let level = config
+            .get("diag.level")
+            .and_then(|v| DiagLevel::from_str(v).ok())
+            .unwrap_or(DiagLevel::Off);
+
+        let channel_capacity = config
+            .get("diag.channel_capacity")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(1000);
+
+        let max_events_per_run = config
+            .get("diag.max_events_per_run")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(10000);
+
+        let batch_size = config
+            .get("diag.batch_size")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(100);
+
+        let batch_timeout_ms = config
+            .get("diag.batch_timeout_ms")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(500);
+
+        DiagnosticsSection {
+            enabled,
+            level,
+            channel_capacity,
+            max_events_per_run,
+            batch_size,
+            batch_timeout_ms,
+        }
+    }
+
     fn build_coreml_section(config: &DeterministicConfig) -> CoremlSection {
         let compute_preference = config
             .get("coreml.compute_preference")
@@ -1084,7 +1178,12 @@ pub fn init_effective_config(
     // Prevent further environment access after init
     ConfigGuards::freeze()?;
 
-    Ok(EFFECTIVE_CONFIG.get().unwrap())
+    // SAFETY: We just successfully set the config above, so get() cannot fail
+    EFFECTIVE_CONFIG.get().ok_or_else(|| {
+        AosError::Config(
+            "BUG: EffectiveConfig.get() failed immediately after successful set()".to_string(),
+        )
+    })
 }
 
 /// Get the global effective configuration

@@ -288,4 +288,7 @@ pub struct InvariantsConfig {
     /// Disable SEC-005: Cookie security check
     #[serde(default)]
     pub disable_sec_005_cookie_security: bool,
+    /// Disable SEC-015: Signature bypass env var check (NOT RECOMMENDED)
+    #[serde(default)]
+    pub disable_sec_015_signature_bypass: bool,
 }

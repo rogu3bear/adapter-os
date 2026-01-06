@@ -13,6 +13,8 @@ default = []
 hydrate = ["leptos/hydrate"]
 # Server-side rendering (for future SSR support)
 ssr = ["leptos/ssr", "leptos_router/ssr", "leptos_meta/ssr"]
+# Dev routes (style-audit, etc.) - DO NOT enable in production
+dev-routes = []
 
 [dependencies]
 # Leptos ecosystem - CSR mode for client-side rendering

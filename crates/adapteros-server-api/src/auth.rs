@@ -34,6 +34,7 @@ use std::env;
 use std::sync::OnceLock;
 #[cfg(not(debug_assertions))]
 use tracing::error;
+#[cfg(debug_assertions)]
 use tracing::warn;
 use uuid::Uuid;
 
@@ -152,6 +153,7 @@ fn dev_bypass_requested() -> (bool, bool) {
 pub(crate) fn dev_bypass_status() -> &'static DevBypassStatus {
     static STATUS: OnceLock<DevBypassStatus> = OnceLock::new();
     STATUS.get_or_init(|| {
+        #[cfg_attr(not(debug_assertions), allow(unused_variables))]
         let (env_present, requested) = dev_bypass_requested();
         #[cfg(debug_assertions)]
         {

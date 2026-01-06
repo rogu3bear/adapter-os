@@ -43,6 +43,7 @@ adapteros-replay = { path = "../adapteros-replay", optional = true }
 adapteros-trace = { path = "../adapteros-trace", optional = true }
 adapteros-verify = { path = "../adapteros-verify", features = ["clap"] }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
+adapteros-agent-spawn = { path = "../adapteros-agent-spawn" }
 adapteros-lora-lifecycle = { path = "../adapteros-lora-lifecycle" }
 adapteros-platform = { path = "../adapteros-platform" }
 adapteros-codegraph = { path = "../adapteros-codegraph", optional = true }
@@ -70,6 +71,8 @@ chrono = "0.4"
 dirs = "5.0"
 hex = { workspace = true }
 zip = "1.0"
+tar = "0.4"
+zstd = { workspace = true }
 fs_extra = "1.3"
 sysinfo = "0.30"
 sqlx = { workspace = true }

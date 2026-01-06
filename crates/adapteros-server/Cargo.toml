@@ -47,6 +47,7 @@ adapteros-policy = { path = "../adapteros-policy" }
 adapteros-artifacts = { path = "../adapteros-artifacts" }
 adapteros-metrics-exporter = { path = "../adapteros-metrics-exporter" }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
+adapteros-diagnostics = { path = "../adapteros-diagnostics" }
 adapteros-verify = { path = "../adapteros-verify" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
 adapteros-manifest = { path = "../adapteros-manifest" }

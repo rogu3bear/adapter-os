@@ -1,0 +1,13 @@
+Diff in /Users/mln-dev/Dev/adapter-os/crates/adapteros-server-api/src/handlers/datasets/paths.rs:1369:
+     fn test_forbidden_tmp_path_from_config_returns_error() {
+         // Test that config path is also rejected
+         let tmp_path = PathBuf::from("/").join("tmp").join("datasets");
+[31m-        let result = resolve_dataset_root_from_strings(
+(B[m[31m-            None,
+(B[m[31m-            Some(tmp_path.to_string_lossy().to_string()),
+(B[m[31m-        );
+(B[m[32m+        let result =
+(B[m[32m+            resolve_dataset_root_from_strings(None, Some(tmp_path.to_string_lossy().to_string()));
+(B[m         assert!(result.is_err());
+         let err_msg = result.unwrap_err().to_string();
+         assert!(

@@ -19,6 +19,7 @@ pub mod types;
 
 mod quantization;
 mod router;
+pub mod router_diag;
 
 #[cfg(test)]
 mod tests;
@@ -46,6 +47,7 @@ pub use quantization::{
     GateQuantFormat, Q15_FORMAT_NAME, ROUTER_GATE_Q15_DENOM, ROUTER_GATE_Q15_MAX,
 };
 pub use router::{AbstainContext, Router};
+pub use router_diag::{NoopRouterDiagEmitter, RouterDiag, RouterDiagEmitter};
 pub use types::{
     AdapterInfo, Decision, DecisionCandidate, DecisionHash, RouterAbstainReason,
     RouterDeterminismConfig, RouterWeights, RoutingDecision, ScoringExplanation,

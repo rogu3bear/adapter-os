@@ -194,6 +194,15 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::routing_decisions::ingest_router_decision,
         handlers::diagnostics::get_determinism_status,
         handlers::diagnostics::get_quarantine_status,
+        handlers::diagnostics::list_diag_runs,
+        handlers::diagnostics::get_diag_run,
+        handlers::diagnostics::list_diag_events,
+        handlers::diagnostics::diff_diag_runs,
+        handlers::diagnostics::export_diag_run,
+        // Bundle export handlers
+        handlers::diag_bundle::create_bundle_export,
+        handlers::diag_bundle::get_bundle_export,
+        handlers::diag_bundle::download_bundle,
         handlers::capacity::get_capacity,
         handlers::capacity::get_memory_report,
         // Storage handlers
@@ -344,6 +353,14 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::metrics_time_series::get_metrics_snapshot,
         // Owner CLI handler
         handlers::owner_cli::run_owner_cli_command,
+        // Review protocol handlers (human-in-the-loop)
+        handlers::review::get_inference_state,
+        handlers::review::submit_review,
+        handlers::review::list_paused,
+        handlers::review::list_paused_reviews,
+        handlers::review::get_pause_details,
+        handlers::review::export_review_context,
+        handlers::review::submit_review_response,
     ),
     components(schemas(
         crate::types::ErrorResponse,
@@ -420,6 +437,37 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::diagnostics::DeterminismStatusResponse,
         handlers::diagnostics::QuarantineStatusResponse,
         handlers::diagnostics::QuarantinedAdapter,
+        // Diagnostics run types
+        adapteros_api_types::diagnostics::ListDiagRunsQuery,
+        adapteros_api_types::diagnostics::ListDiagEventsQuery,
+        adapteros_api_types::diagnostics::DiagRunResponse,
+        adapteros_api_types::diagnostics::DiagEventResponse,
+        adapteros_api_types::diagnostics::ListDiagRunsResponse,
+        adapteros_api_types::diagnostics::ListDiagEventsResponse,
+        adapteros_api_types::diagnostics::DiagDiffRequest,
+        adapteros_api_types::diagnostics::DiagDiffResponse,
+        adapteros_api_types::diagnostics::DiagDiffSummary,
+        adapteros_api_types::diagnostics::AnchorComparison,
+        adapteros_api_types::diagnostics::FirstDivergence,
+        adapteros_api_types::diagnostics::EventDiff,
+        adapteros_api_types::diagnostics::TimingDiff,
+        adapteros_api_types::diagnostics::RouterStepDiff,
+        adapteros_api_types::diagnostics::DiagExportRequest,
+        adapteros_api_types::diagnostics::DiagExportResponse,
+        adapteros_api_types::diagnostics::StageTiming,
+        adapteros_api_types::diagnostics::ExportMetadata,
+        // Bundle export types
+        adapteros_api_types::diagnostics::DiagBundleExportRequest,
+        adapteros_api_types::diagnostics::DiagBundleExportResponse,
+        adapteros_api_types::diagnostics::BundleManifest,
+        adapteros_api_types::diagnostics::BundleFileEntry,
+        adapteros_api_types::diagnostics::BundleIdentity,
+        adapteros_api_types::diagnostics::ConfigSnapshot,
+        adapteros_api_types::diagnostics::RouterConfigSnapshot,
+        adapteros_api_types::diagnostics::BackendConfigSnapshot,
+        adapteros_api_types::diagnostics::DiagBundleVerifyRequest,
+        adapteros_api_types::diagnostics::DiagBundleVerifyResponse,
+        adapteros_api_types::diagnostics::VerificationResult,
         handlers::capacity::CapacityResponse,
         handlers::capacity::CapacityUsage,
         handlers::capacity::NodeHealth,
@@ -696,6 +744,7 @@ pub fn build(state: AppState) -> Router {
         )
         .route("/v1/meta", get(handlers::meta))
         .route("/v1/status", get(handlers::get_status))
+        .route("/v1/search", get(handlers::search::global_search))
         .route(
             "/admin/lifecycle/request-shutdown",
             post(handlers::admin_lifecycle::request_shutdown),
@@ -1203,6 +1252,33 @@ pub fn build(state: AppState) -> Router {
             post(handlers::streaming_infer::streaming_infer_with_progress),
         )
         .route("/v1/infer/batch", post(handlers::batch::batch_infer))
+        // Review protocol routes (human-in-the-loop)
+        .route(
+            "/v1/infer/{inference_id}/state",
+            get(handlers::review::get_inference_state),
+        )
+        .route(
+            "/v1/infer/{inference_id}/review",
+            post(handlers::review::submit_review),
+        )
+        .route("/v1/infer/paused", get(handlers::review::list_paused))
+        // CLI-compatible review routes
+        .route(
+            "/v1/reviews/paused",
+            get(handlers::review::list_paused_reviews),
+        )
+        .route(
+            "/v1/reviews/{pause_id}",
+            get(handlers::review::get_pause_details),
+        )
+        .route(
+            "/v1/reviews/{pause_id}/context",
+            get(handlers::review::export_review_context),
+        )
+        .route(
+            "/v1/reviews/submit",
+            post(handlers::review::submit_review_response),
+        )
         // Async batch job routes
         .route("/v1/batches", post(handlers::batch::create_batch_job))
         .route(
@@ -1949,6 +2025,34 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/diagnostics/quarantine-status",
             get(handlers::diagnostics::get_quarantine_status),
+        )
+        // Diagnostic runs API (tenant-safe, paginated)
+        .route("/v1/diag/runs", get(handlers::diagnostics::list_diag_runs))
+        .route(
+            "/v1/diag/runs/{trace_id}",
+            get(handlers::diagnostics::get_diag_run),
+        )
+        .route(
+            "/v1/diag/runs/{trace_id}/events",
+            get(handlers::diagnostics::list_diag_events),
+        )
+        .route("/v1/diag/diff", post(handlers::diagnostics::diff_diag_runs))
+        .route(
+            "/v1/diag/export",
+            post(handlers::diagnostics::export_diag_run),
+        )
+        // Bundle export routes
+        .route(
+            "/v1/diag/bundle",
+            post(handlers::diag_bundle::create_bundle_export),
+        )
+        .route(
+            "/v1/diag/bundle/{export_id}",
+            get(handlers::diag_bundle::get_bundle_export),
+        )
+        .route(
+            "/v1/diag/bundle/{export_id}/download",
+            get(handlers::diag_bundle::download_bundle),
         )
         // Trace routes
         .route("/v1/traces/search", get(handlers::telemetry::search_traces))

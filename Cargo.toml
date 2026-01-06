@@ -6,10 +6,6 @@ authors = ["James KC Auchterlonie <vats-springs0m@icloud.com>"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/rogu3bear/adapter-os"
 
-[[bin]]
-name = "test_debug_setup"
-path = "src/bin/test_debug_setup.rs"
-
 [workspace]
 resolver = "2"
 exclude = []  # adapteros-server temporarily included for building
@@ -58,6 +54,7 @@ members = [
     "crates/adapteros-scenarios",
     "crates/adapteros-git",
     "crates/adapteros-deterministic-exec",
+    "crates/adapteros-agent-spawn",  # Multi-agent spawn system for parallel code modification
     "crates/adapteros-graph",
     "crates/adapteros-codegraph",
     "crates/adapteros-replay",
@@ -90,6 +87,8 @@ members = [
     "crates/adapteros-secd",
     "crates/adapteros-secure-fs",
     "crates/adapteros-ui",  # Leptos UI frontend
+    "crates/adapteros-uds-protocol",  # UDS protocol types for CP ↔ worker communication
+    "crates/adapteros-diagnostics",  # Diagnostic event contract and producer API
 ]
 
 [workspace.package]
@@ -197,6 +196,9 @@ thiserror = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
+# Concurrency
+dashmap = "5.5"
+
 # Crypto
 blake3 = "1.5"
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }
@@ -301,10 +303,10 @@ tracing-appender = "0.2"
 sysinfo = "0.31"
 prometheus = "0.14"
 # OpenTelemetry distributed tracing
-opentelemetry = { version = "0.28", default-features = false, features = ["trace"] }
-opentelemetry_sdk = { version = "0.28", default-features = false, features = ["trace", "rt-tokio"] }
-opentelemetry-otlp = { version = "0.28", default-features = false, features = ["trace", "grpc-tonic", "http-proto", "reqwest-client"] }
-tracing-opentelemetry = "0.29"
+opentelemetry = { version = "0.31", default-features = false, features = ["trace"] }
+opentelemetry_sdk = { version = "0.31", default-features = false, features = ["trace", "rt-tokio"] }
+opentelemetry-otlp = { version = "0.31", default-features = false, features = ["trace", "grpc-tonic", "http-proto", "reqwest-client"] }
+tracing-opentelemetry = "0.32"
 
 # Code Analysis
 tree-sitter = "0.20"

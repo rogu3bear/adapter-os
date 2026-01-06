@@ -405,6 +405,54 @@ fn map_inference_error(id: String, err: crate::types::InferenceError) -> BatchIn
                     )),
             ),
         },
+        InferenceError::DatabaseError(msg) => BatchInferItemResponse {
+            id,
+            response: None,
+            error: Some(
+                ErrorResponse::new("database error")
+                    .with_code("DATABASE_ERROR")
+                    .with_string_details(msg),
+            ),
+        },
+        InferenceError::AdapterNotLoadable { adapter_id, reason } => BatchInferItemResponse {
+            id,
+            response: None,
+            error: Some(
+                ErrorResponse::new("adapter not loadable")
+                    .with_code("ADAPTER_NOT_LOADABLE")
+                    .with_string_details(format!(
+                        "Adapter {} not loadable: {}",
+                        adapter_id, reason
+                    )),
+            ),
+        },
+        InferenceError::ReplayError(msg) => BatchInferItemResponse {
+            id,
+            response: None,
+            error: Some(
+                ErrorResponse::new("replay error")
+                    .with_code("REPLAY_ERROR")
+                    .with_string_details(msg),
+            ),
+        },
+        InferenceError::DeterminismError(msg) => BatchInferItemResponse {
+            id,
+            response: None,
+            error: Some(
+                ErrorResponse::new("determinism error")
+                    .with_code("DETERMINISM_ERROR")
+                    .with_string_details(msg),
+            ),
+        },
+        InferenceError::InternalError(msg) => BatchInferItemResponse {
+            id,
+            response: None,
+            error: Some(
+                ErrorResponse::new("internal error")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(msg),
+            ),
+        },
     }
 }
 
@@ -853,6 +901,15 @@ async fn process_batch_job(
                                 "CACHE_BUDGET_EXCEEDED"
                             }
                             crate::types::InferenceError::PolicyViolation { .. } => "FORBIDDEN",
+                            crate::types::InferenceError::DatabaseError(_) => "DATABASE_ERROR",
+                            crate::types::InferenceError::AdapterNotLoadable { .. } => {
+                                "ADAPTER_NOT_LOADABLE"
+                            }
+                            crate::types::InferenceError::ReplayError(_) => "REPLAY_ERROR",
+                            crate::types::InferenceError::DeterminismError(_) => {
+                                "DETERMINISM_ERROR"
+                            }
+                            crate::types::InferenceError::InternalError(_) => "INTERNAL_ERROR",
                         };
 
                         let _ = state

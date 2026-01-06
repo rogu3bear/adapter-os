@@ -704,6 +704,54 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                 });
                 Self::send_json_response(&mut stream, response).await?;
             }
+            path if path.starts_with("/inference/resume") => {
+                // Human-in-the-loop resume endpoint
+                use adapteros_api_types::review::SubmitReviewRequest;
+
+                let pause_id = path
+                    .trim_start_matches("/inference/resume")
+                    .trim_start_matches('/');
+                if pause_id.is_empty() {
+                    Self::send_error(&mut stream, 400, "Missing pause_id").await?;
+                    return Ok(());
+                }
+
+                let resume_req: SubmitReviewRequest =
+                    serde_json::from_str(&request.body).map_err(|e| {
+                        AosError::Worker(format!("Failed to parse resume request: {}", e))
+                    })?;
+
+                info!(
+                    pause_id = %pause_id,
+                    reviewer = %resume_req.reviewer,
+                    "Processing inference resume request via UDS"
+                );
+
+                // Look up the pause registry and submit review
+                let worker_guard = worker.lock().await;
+                let result = if let Some(ref registry) = worker_guard.pause_registry {
+                    registry.submit_review(resume_req)
+                } else {
+                    Err(adapteros_core::AosError::Worker(
+                        "Pause registry not initialized".to_string(),
+                    ))
+                };
+                drop(worker_guard);
+
+                let response = match result {
+                    Ok(new_state) => serde_json::json!({
+                        "status": "resumed",
+                        "pause_id": pause_id,
+                        "new_state": format!("{:?}", new_state),
+                    }),
+                    Err(e) => serde_json::json!({
+                        "status": "error",
+                        "pause_id": pause_id,
+                        "error": e.to_string(),
+                    }),
+                };
+                Self::send_json_response(&mut stream, response).await?;
+            }
             "/patch_proposal" => {
                 let patch_req: PatchProposalRequest =
                     serde_json::from_str(&request.body).map_err(|e| {
@@ -1423,6 +1471,24 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                     let data = serde_json::json!({ "error": message });
                     format!("event: error\ndata: {}\n\n", data)
                 }
+                WorkerStreamEvent::Paused {
+                    pause_id,
+                    inference_id,
+                    trigger_kind,
+                    context,
+                    text_so_far,
+                    token_count,
+                } => {
+                    let data = serde_json::json!({
+                        "pause_id": pause_id,
+                        "inference_id": inference_id,
+                        "trigger_kind": trigger_kind,
+                        "context": context,
+                        "text_so_far": text_so_far,
+                        "token_count": token_count,
+                    });
+                    format!("event: paused\ndata: {}\n\n", data)
+                }
             };
 
             if stream.write_all(payload.as_bytes()).await.is_err() {
@@ -1430,6 +1496,8 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
             }
             let _ = stream.flush().await;
 
+            // Only terminate stream on Complete or Error - NOT on Paused
+            // Paused events notify the server but inference continues after review
             if matches!(
                 &event,
                 WorkerStreamEvent::Complete(_) | WorkerStreamEvent::Error(_)

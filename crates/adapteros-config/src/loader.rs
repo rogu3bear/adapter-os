@@ -303,7 +303,11 @@ impl ConfigLoader {
             let arg = &cli_args[i];
 
             if arg.starts_with("--") {
-                let key = arg.strip_prefix("--").unwrap().to_string();
+                // SAFETY: starts_with check guarantees strip_prefix succeeds
+                let key = arg
+                    .strip_prefix("--")
+                    .expect("BUG: starts_with('--') guarantees strip_prefix succeeds")
+                    .to_string();
                 let value = if i + 1 < cli_args.len() && !cli_args[i + 1].starts_with("--") {
                     i += 1;
                     cli_args[i].clone()
@@ -328,8 +332,7 @@ impl ConfigLoader {
     /// Convert CLI key format to schema key format
     /// e.g., "adapteros-database-url" -> "database.url"
     fn convert_cli_key_to_schema_key(&self, cli_key: &str) -> String {
-        if cli_key.starts_with("adapteros-") {
-            let without_prefix = cli_key.strip_prefix("adapteros-").unwrap();
+        if let Some(without_prefix) = cli_key.strip_prefix("adapteros-") {
             // Convert kebab-case to dot notation
             without_prefix.replace('-', ".")
         } else {

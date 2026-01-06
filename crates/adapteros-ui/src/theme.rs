@@ -27,7 +27,13 @@ pub mod colors {
     pub const INPUT: &str = "var(--color-input)";
     pub const RING: &str = "var(--color-ring)";
 
-    // Status colors (direct values, same in light/dark)
+    // Status colors (semantic, auto-adapt to dark mode via CSS variables)
+    pub const STATUS_INFO: &str = "var(--color-status-info)";
+    pub const STATUS_SUCCESS: &str = "var(--color-status-success)";
+    pub const STATUS_WARNING: &str = "var(--color-status-warning)";
+    pub const STATUS_ERROR: &str = "var(--color-status-error)";
+
+    // Legacy raw color values (prefer STATUS_* for new code)
     pub const GREEN_500: &str = "rgb(34 197 94)";
     pub const YELLOW_500: &str = "rgb(234 179 8)";
     pub const RED_500: &str = "rgb(239 68 68)";
@@ -121,6 +127,10 @@ pub mod transition {
     pub const DURATION_150: &str = "150ms";
     pub const DURATION_200: &str = "200ms";
     pub const DURATION_300: &str = "300ms";
+
+    /// Default easing function (CSS variable for consistency)
+    pub const EASE_DEFAULT: &str = "var(--ease-default)";
+    /// Legacy: direct cubic-bezier value (prefer EASE_DEFAULT for new code)
     pub const EASE_IN_OUT: &str = "cubic-bezier(0.4, 0, 0.2, 1)";
 }
 
