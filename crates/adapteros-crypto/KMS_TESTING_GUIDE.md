@@ -261,28 +261,13 @@ export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
 ### Credential Handling
 
 **Current Implementation:**
-- Credentials stored in plaintext `KmsConfig` struct
-- Visible in debug output (potential leak vector)
-- Not automatically zeroed on drop
+- Credentials stored in `SensitiveData` wrappers (zeroize on drop)
+- Debug output redacts secrets
+- Serialization/deserialization of secrets fails by design
 
-**Recommended Improvements:**
-```rust
-use zeroize::Zeroize;
-
-#[derive(Zeroize)]
-pub struct KmsCredentials {
-    #[zeroize(drop)]
-    secret: String,
-}
-
-impl Debug for KmsCredentials {
-    fn fmt(&self, f: &mut Formatter) -> Result {
-        f.debug_struct("KmsCredentials")
-            .field("secret", &"***REDACTED***")
-            .finish()
-    }
-}
-```
+**Recommended Practices:**
+- Never log full configs or credentials
+- Keep secrets in byte form and minimize cloning
 
 ### Error Messages
 

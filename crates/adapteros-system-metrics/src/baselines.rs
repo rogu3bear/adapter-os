@@ -363,7 +363,7 @@ impl BaselineService {
     /// Calculate statistical measures from values
     fn calculate_statistical_measures(&self, values: &[f64]) -> StatisticalMeasures {
         let mut sorted_values = values.to_vec();
-        sorted_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        sorted_values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
         let mean = self.calculate_mean(values);
         let median = self.calculate_median(&sorted_values);
@@ -793,7 +793,7 @@ mod tests {
         assert!((variance - 9.166666666666666).abs() < 1e-10);
 
         let mut sorted_values = values.clone();
-        sorted_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        sorted_values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         let median = service.calculate_median(&sorted_values);
         assert_eq!(median, 5.5);
 
@@ -814,7 +814,7 @@ mod tests {
 
         let values = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0];
         let mut sorted_values = values.clone();
-        sorted_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        sorted_values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
         let percentiles = service.calculate_percentiles(&sorted_values);
 

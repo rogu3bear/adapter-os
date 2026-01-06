@@ -94,6 +94,28 @@ cargo test -p adapteros-e2e --features prod-gate
 ./aosctl policy list             # List policy packs
 ./aosctl explain <error-code>    # Explain an error code
 
+# Diagnostics bundles
+./aosctl diag --system                           # Run system diagnostics
+./aosctl diag --bundle ./diag_bundle.zip         # Export diagnostic bundle
+./aosctl diag --bundle ./diag_bundle.zip --cpid <cpid>  # Filter telemetry to CPID (alias: --trace-id)
+./aosctl diag --bundle ./diag_bundle.zip --full-db      # Include full database state
+
+# Offline verification (air-gapped)
+unzip ./diag_bundle.zip -d ./diag_bundle
+./aosctl verify telemetry --bundle-dir ./diag_bundle/telemetry
+```
+
+Diagnostic verbosity levels (capture granularity)
+
+| Level | Captured events | Use case |
+|-------|-----------------|----------|
+| `off` | None | Production (minimal overhead) |
+| `errors` | Failures only | Production monitoring |
+| `stages` | Stage enter/exit | Performance profiling |
+| `router` | + Routing decisions | Adapter selection debugging |
+| `tokens` | + Token-level detail | Deep inference debugging |
+
+```bash
 # Train adapter on markdown documentation (end-to-end pipeline)
 ./aosctl train-docs --docs-dir ./my-docs --dry-run              # Preview what will be trained
 ./aosctl train-docs --docs-dir ./my-docs --register \
@@ -116,6 +138,14 @@ cargo test -p adapteros-e2e --features prod-gate
 ./aosctl serve --capture-events ./events/              # Capture telemetry events to directory
 ./aosctl serve --insecure-skip-egress-check            # Skip PF egress preflight (dev only)
 ```
+
+Diagnostics config example (TOML):
+```toml
+[diagnostics]
+enabled = true
+level = "stages"
+```
+Full reference: `docs/CONFIGURATION.md#diagnostics-configuration`.
 
 ## Command Status
 
