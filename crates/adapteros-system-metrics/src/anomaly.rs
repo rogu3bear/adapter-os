@@ -583,7 +583,7 @@ impl AnomalyDetector {
     /// Calculate percentiles
     fn calculate_percentiles(&self, values: &[f64]) -> Vec<f64> {
         let mut sorted_values = values.to_vec();
-        sorted_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        sorted_values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
         let percentiles = vec![0.25, 0.5, 0.75, 0.9, 0.95, 0.99];
         let mut results = Vec::new();
