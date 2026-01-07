@@ -751,6 +751,14 @@ pub async fn spawn_all_background_tasks(
                                                         error_message = ?result.error_message,
                                                         "Policy audit chain divergence detected in periodic verification"
                                                     );
+                                                    // Emit telemetry event for observability pipeline (PRD requirement)
+                                                    let event = adapteros_core::telemetry::audit_chain_divergence_event(
+                                                        result.error_message.clone().unwrap_or_else(|| "hash mismatch".to_string()),
+                                                        result.first_invalid_sequence,
+                                                        Some(tenant_id.clone()),
+                                                        None,
+                                                    );
+                                                    adapteros_core::telemetry::emit_observability_event(&event);
                                                 }
                                             }
                                         }
@@ -795,6 +803,18 @@ pub async fn spawn_all_background_tasks(
                                                         error_message = ?result.error_message,
                                                         "Evidence envelope chain divergence detected in periodic verification"
                                                     );
+                                                    // Emit telemetry event for observability pipeline (PRD requirement)
+                                                    let event = adapteros_core::telemetry::audit_chain_divergence_event(
+                                                        format!(
+                                                            "Evidence chain {:?}: {}",
+                                                            result.scope,
+                                                            result.error_message.clone().unwrap_or_else(|| "chain broken".to_string())
+                                                        ),
+                                                        result.first_invalid_index.map(|i| i as i64),
+                                                        Some(result.tenant_id.clone()),
+                                                        None,
+                                                    );
+                                                    adapteros_core::telemetry::emit_observability_event(&event);
                                                 }
                                             }
                                         }
