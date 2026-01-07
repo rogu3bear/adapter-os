@@ -359,12 +359,7 @@ pub fn verify_audit_chains_by_tenant(
 mod tests {
     use super::*;
 
-    fn make_entry(
-        id: &str,
-        tenant_id: &str,
-        seq: i64,
-        prev_hash: Option<&str>,
-    ) -> AuditEntry {
+    fn make_entry(id: &str, tenant_id: &str, seq: i64, prev_hash: Option<&str>) -> AuditEntry {
         let mut entry = AuditEntry {
             id: id.to_string(),
             tenant_id: tenant_id.to_string(),
@@ -448,7 +443,10 @@ mod tests {
         let result = verify_audit_chain(&[e1, e2]);
         assert!(!result.is_valid);
         assert!(result.divergence_detected);
-        assert!(result.error_message.unwrap().contains("Previous hash mismatch"));
+        assert!(result
+            .error_message
+            .unwrap()
+            .contains("Previous hash mismatch"));
     }
 
     #[test]
