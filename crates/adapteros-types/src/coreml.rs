@@ -5,13 +5,13 @@
 //! along with the projection direction and matrix shapes required to build
 //! adapter deltas deterministically.
 
-use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::str::FromStr;
 
 /// CoreML execution mode for inference/training backend selection.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "server", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum CoreMLMode {
@@ -53,7 +53,8 @@ impl FromStr for CoreMLMode {
 }
 
 /// Stable operation classes that can host LoRA adapters in decoder-only models.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum CoreMLOpKind {
     /// Attention query projection (Wq)
@@ -88,7 +89,8 @@ impl CoreMLOpKind {
 }
 
 /// Projection direction for the LoRA factorization.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum CoreMLProjection {
     /// Input (model hidden) -> intermediate hidden
@@ -100,7 +102,8 @@ pub enum CoreMLProjection {
 }
 
 /// Matrix shape for a single placement target.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(schemars::JsonSchema))]
 pub struct CoreMLPlacementShape {
     /// Input dimension (columns)
     pub input_dim: u32,
@@ -116,7 +119,8 @@ impl CoreMLPlacementShape {
 }
 
 /// Optional gating defaults for a placement entry.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "server", derive(schemars::JsonSchema))]
 pub struct CoreMLGating {
     /// Optional default gate to apply when none is supplied by routing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -127,7 +131,8 @@ pub struct CoreMLGating {
 }
 
 /// Stable reference to a CoreML graph node.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(schemars::JsonSchema))]
 pub struct CoreMLTargetRef {
     /// Stable layer or block name from the CoreML graph.
     pub layer: String,
@@ -150,7 +155,8 @@ impl CoreMLTargetRef {
 }
 
 /// Single LoRA binding entry for the CoreML graph.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(schemars::JsonSchema))]
 pub struct CoreMLPlacementBinding {
     /// Stable binding identifier (human readable, persisted in manifests).
     pub binding_id: String,
@@ -185,7 +191,8 @@ impl CoreMLPlacementBinding {
 }
 
 /// CoreML placement specification for an entire model.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(schemars::JsonSchema))]
 pub struct CoreMLPlacementSpec {
     /// Versioned schema for forward compatibility.
     #[serde(default = "coreml_placement_version_default")]

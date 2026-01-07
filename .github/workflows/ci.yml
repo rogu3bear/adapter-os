@@ -674,6 +674,16 @@ jobs:
             exit 1
           fi
           echo "✓ WASM size within PRD-UI-170 limits"
+
+          # PRD-UI-BOUNDARY: Assert gzipped size < 1.2MB for network transfer budget
+          GZIP_SIZE=$(gzip -9 -c "$WASM_FILE" | wc -c)
+          echo "Gzipped size: $GZIP_SIZE bytes"
+          MAX_GZIP=$((1200000))
+          if [ "$GZIP_SIZE" -gt "$MAX_GZIP" ]; then
+            echo "::error::Gzipped WASM ($GZIP_SIZE bytes) exceeds transfer budget (1.2MB)"
+            exit 1
+          fi
+          echo "✓ Gzipped WASM within transfer budget"
       - name: Verify WASM artifacts exist
         run: |
           if [ ! -f crates/adapteros-server/static/index.html ]; then
@@ -699,6 +709,29 @@ jobs:
           targets: wasm32-unknown-unknown
       - name: Check WASM compilation
         run: cargo check -p adapteros-ui --target wasm32-unknown-unknown
+      - name: Verify WASM closure (no server-only crates)
+        run: |
+          # PRD-UI-BOUNDARY: Forbidden crates in WASM closure
+          # These crates are server-only and must NOT be compiled into the browser bundle
+          FORBIDDEN_CRATES="blake3 schemars sqlx rusqlite ring"
+          FAILED=0
+
+          for crate in $FORBIDDEN_CRATES; do
+            if cargo tree -p adapteros-ui --target wasm32-unknown-unknown -i "$crate" 2>/dev/null | grep -q "$crate"; then
+              echo "::error::Forbidden crate '$crate' found in WASM dependency closure"
+              cargo tree -p adapteros-ui --target wasm32-unknown-unknown -i "$crate" 2>/dev/null | head -10
+              FAILED=1
+            fi
+          done
+
+          if [ "$FAILED" -eq 1 ]; then
+            echo ""
+            echo "::error::WASM boundary violation detected. Server-only crates must not leak into browser bundle."
+            echo "Fix: Ensure feature gates in adapteros-types/adapteros-api-types exclude server dependencies for WASM."
+            exit 1
+          fi
+
+          echo "✓ WASM closure is clean (no server-only crates)"
 
   leptos-api-types-contract:
     name: Leptos API Types Contract
