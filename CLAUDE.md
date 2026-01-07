@@ -156,7 +156,6 @@ Full reference: `docs/CONFIGURATION.md#diagnostics-configuration`.
 | Command | Status | Notes / Workaround |
 |---------|--------|--------------------|
 | `aosctl aos migrate` | ✓ Implemented | Migrates .aos files between format versions with backup support. |
-| `aosctl aos convert` | [NOT IMPLEMENTED] | Repackage to AOS2 via `aosctl aos create` until convert is available. |
 | `aosctl node sync export` | [NOT IMPLEMENTED] | Air-gap workflow is not available; use `aosctl node sync push/pull` on connected nodes. |
 | `aosctl node sync import` | [NOT IMPLEMENTED] | Air-gap workflow is not available; use `aosctl node sync push/pull` on connected nodes. |
 | `aosctl cdp list` | ✓ Implemented | Lists CDPs for a repository with table/JSON output. |

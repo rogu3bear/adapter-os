@@ -8,8 +8,8 @@ use adapteros_core::{AosError, Result};
 use adapteros_crypto::Keypair;
 use adapteros_lora_worker::training::{TrainingConfig, TrainingExample};
 use adapteros_single_file_adapter::{
-    CompressionLevel, LineageInfo, LoadOptions, PackageOptions, SingleFileAdapter,
-    SingleFileAdapterLoader, SingleFileAdapterPackager, WeightGroupConfig, AOS_FORMAT_VERSION,
+    LineageInfo, LoadOptions, PackageOptions, SingleFileAdapter, SingleFileAdapterLoader,
+    SingleFileAdapterPackager, WeightGroupConfig, AOS_FORMAT_VERSION,
 };
 use std::collections::HashMap;
 use tempfile::TempDir;
@@ -164,31 +164,22 @@ async fn test_unsigned_adapter() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_compression_with_signature() -> Result<()> {
+async fn test_package_options_with_signature() -> Result<()> {
     let temp_dir = new_test_tempdir()?;
+    let path = temp_dir.path().join("packaged.aos");
 
-    for (level, name) in &[
-        (CompressionLevel::Store, "store"),
-        (CompressionLevel::Fast, "fast"),
-        (CompressionLevel::Best, "best"),
-    ] {
-        let path = temp_dir.path().join(format!("compressed_{}.aos", name));
+    // Create, sign, and save with options
+    let mut adapter = create_test_adapter("packaged_test");
+    let keypair = Keypair::generate();
+    adapter.sign(&keypair)?;
 
-        // Create, sign, and save with compression
-        let mut adapter = create_test_adapter(&format!("compressed_{}_test", name));
-        let keypair = Keypair::generate();
-        adapter.sign(&keypair)?;
+    let options = PackageOptions::with_combined_weights();
+    SingleFileAdapterPackager::save_with_options(&adapter, &path, options).await?;
 
-        let options = PackageOptions {
-            compression: *level,
-        };
-        SingleFileAdapterPackager::save_with_options(&adapter, &path, options).await?;
-
-        // Load and verify
-        let loaded = SingleFileAdapterLoader::load(&path).await?;
-        assert!(loaded.is_signed());
-        assert!(loaded.verify()?);
-    }
+    // Load and verify
+    let loaded = SingleFileAdapterLoader::load(&path).await?;
+    assert!(loaded.is_signed());
+    assert!(loaded.verify()?);
 
     Ok(())
 }

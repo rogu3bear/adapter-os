@@ -22,20 +22,58 @@
 // ============================================================================
 
 use super::aos_impl;
-use crate::commands::NOT_IMPLEMENTED_MESSAGE;
 use crate::output::OutputWriter;
+use adapteros_aos::{AosWriter, BackendTag};
 use adapteros_core::{AosError, Result};
 use adapteros_crypto::Keypair;
 use adapteros_single_file_adapter::{
-    migrate_file, CompressionLevel, LineageInfo, LoadOptions, PackageOptions, SingleFileAdapter,
-    SingleFileAdapterLoader, SingleFileAdapterPackager, SingleFileAdapterValidator, TrainingConfig,
+    migrate_file, LineageInfo, LoadOptions, SingleFileAdapter, SingleFileAdapterLoader,
+    SingleFileAdapterValidator, TrainingConfig, WeightGroup,
 };
 use chrono::Utc;
+use safetensors::tensor::TensorView;
 
 use clap::{Parser, Subcommand};
 use serde::Serialize;
 use std::fs;
 use std::path::PathBuf;
+
+/// Serialize WeightGroup to safetensors binary format
+fn serialize_weights_to_safetensors(weights: &WeightGroup) -> Result<Vec<u8>> {
+    // Flatten lora_a: Vec<Vec<f32>> -> Vec<f32> -> bytes
+    let lora_a_flat: Vec<f32> = weights.lora_a.iter().flat_map(|row| row.iter().copied()).collect();
+    let lora_a_bytes: Vec<u8> = lora_a_flat.iter().flat_map(|f| f.to_le_bytes()).collect();
+
+    // Flatten lora_b: Vec<Vec<f32>> -> Vec<f32> -> bytes
+    let lora_b_flat: Vec<f32> = weights.lora_b.iter().flat_map(|row| row.iter().copied()).collect();
+    let lora_b_bytes: Vec<u8> = lora_b_flat.iter().flat_map(|f| f.to_le_bytes()).collect();
+
+    // Get shapes
+    let rank = weights.lora_a.len();
+    let hidden_dim = weights.lora_a.first().map(|r| r.len()).unwrap_or(0);
+
+    // Create tensor views
+    let lora_a_view = TensorView::new(
+        safetensors::Dtype::F32,
+        vec![rank, hidden_dim],
+        &lora_a_bytes,
+    ).map_err(|e| AosError::Training(format!("Failed to create lora_a tensor: {}", e)))?;
+
+    let lora_b_view = TensorView::new(
+        safetensors::Dtype::F32,
+        vec![hidden_dim, rank],
+        &lora_b_bytes,
+    ).map_err(|e| AosError::Training(format!("Failed to create lora_b tensor: {}", e)))?;
+
+    // Serialize to safetensors format
+    let tensors = vec![
+        ("lora_a", lora_a_view),
+        ("lora_b", lora_b_view),
+    ];
+
+    safetensors::tensor::serialize(tensors, &None)
+        .map_err(|e| AosError::Training(format!("Failed to serialize weights: {}", e)))
+}
 
 #[derive(Debug, Parser, Clone)]
 #[command(name = "aos")]
@@ -47,7 +85,7 @@ pub struct AosArgs {
 #[derive(Debug, Subcommand, Clone)]
 pub enum AosCmd {
     /// Create .aos file from existing adapter
-    Create(CreateArgs), // COORDINATION: Affects SingleFileAdapterPackager
+    Create(CreateArgs), // COORDINATION: Affects AosWriter
     /// Load .aos file into registry
     Load(LoadArgs), // COORDINATION: Affects Database and Lifecycle Management
     /// Verify .aos file integrity
@@ -58,8 +96,6 @@ pub enum AosCmd {
     Info(InfoArgs), // COORDINATION: Affects UI display components
     /// Migrate .aos file to current format version
     Migrate(MigrateArgs), // COORDINATION: Affects format version compatibility
-    /// Convert .aos file between formats (ZIP <-> AOS 2.0) [NOT IMPLEMENTED]
-    Convert(ConvertArgs), // COORDINATION: Format conversion
 }
 
 #[derive(Debug, Parser, Clone)]
@@ -72,7 +108,7 @@ pub struct CreateArgs {
     #[arg(long)]
     pub output: PathBuf,
 
-    /// Training data JSONL file
+    /// Training data JSONL file (embedded in manifest metadata, not stored separately)
     #[arg(long)]
     pub training_data: Option<PathBuf>,
 
@@ -91,14 +127,6 @@ pub struct CreateArgs {
     /// Sign the .aos file with Ed25519
     #[arg(long)]
     pub sign: bool,
-
-    /// Compression level (store, fast, best)
-    #[arg(long, default_value = "fast")]
-    pub compression: String,
-
-    /// Format version (zip or aos2)
-    #[arg(long, default_value = "zip")]
-    pub format: String,
 
     /// Hex-encoded signing key (generates new key if not provided)
     #[arg(long)]
@@ -168,24 +196,6 @@ pub struct MigrateArgs {
     pub backup: bool,
 }
 
-#[derive(Debug, Parser, Clone)]
-pub struct ConvertArgs {
-    /// Path to source .aos file
-    #[arg(long)]
-    pub input: PathBuf,
-
-    /// Path to output .aos file
-    #[arg(long)]
-    pub output: PathBuf,
-
-    /// Target format (zip or aos2)
-    #[arg(long, default_value = "aos2")]
-    pub format: String,
-
-    /// Verify converted file
-    #[arg(long, default_value = "true")]
-    pub verify: bool,
-}
 
 pub async fn run(args: AosArgs, output: &OutputWriter) -> Result<()> {
     match args.cmd {
@@ -195,7 +205,6 @@ pub async fn run(args: AosArgs, output: &OutputWriter) -> Result<()> {
         AosCmd::Extract(extract) => extract_aos(extract, output).await,
         AosCmd::Info(info) => info_aos(info, output).await,
         AosCmd::Migrate(migrate) => migrate_aos(migrate, output).await,
-        AosCmd::Convert(convert) => convert_aos(convert, output).await,
     }
 }
 
@@ -210,7 +219,7 @@ pub async fn create_aos(args: CreateArgs, output: &OutputWriter) -> Result<()> {
     let weights = aos_impl::load_weights_from_source(&args.source)?;
     output.success("Weights loaded successfully");
 
-    // 2. Load training data from JSONL if provided
+    // 2. Load training data from JSONL if provided (stored in manifest metadata)
     let training_data = if let Some(ref training_data_path) = args.training_data {
         output.info(format!(
             "Loading training data from: {}",
@@ -220,7 +229,7 @@ pub async fn create_aos(args: CreateArgs, output: &OutputWriter) -> Result<()> {
         output.success(format!("Loaded {} training examples", data.len()));
         data
     } else {
-        output.info("No training data provided, using empty dataset");
+        output.info("No training data provided");
         Vec::new()
     };
 
@@ -244,7 +253,7 @@ pub async fn create_aos(args: CreateArgs, output: &OutputWriter) -> Result<()> {
         created_at: Utc::now().to_rfc3339(),
     };
 
-    // 5. Create adapter
+    // 5. Create adapter to get manifest and combined weights
     output.info("Creating adapter manifest...");
     let mut adapter = SingleFileAdapter::create(
         args.adapter_id.clone(),
@@ -283,48 +292,27 @@ pub async fn create_aos(args: CreateArgs, output: &OutputWriter) -> Result<()> {
         output.success("Adapter signed successfully");
     }
 
-    // 7. Map compression level
-    let compression_level = match args.compression.to_lowercase().as_str() {
-        "store" => CompressionLevel::Store,
-        "fast" => CompressionLevel::Fast,
-        "best" => CompressionLevel::Best,
-        other => {
-            return Err(AosError::Config(format!(
-                "Invalid compression level: '{}'. Valid options: store, fast, best",
-                other
-            )))
-        }
-    };
+    // 7. Get combined weights for inference and serialize to safetensors
+    output.info("Preparing weights for AOS archive...");
+    let combined_weights = adapter.get_inference_weights()?;
+    let weights_bytes = serialize_weights_to_safetensors(&combined_weights)?;
 
-    // 8. Save using appropriate packager
-    output.info(format!("Packaging adapter with format: {}", args.format));
-    match args.format.to_lowercase().as_str() {
-        "zip" => {
-            let package_options = PackageOptions {
-                compression: compression_level,
-                include_signature: args.sign,
-                include_combined_weights: true,
-            };
-            SingleFileAdapterPackager::save_with_options(&adapter, &args.output, package_options)
-                .await?;
-        }
-        "aos" => {
-            let aos_options = PackageOptions {
-                compression: compression_level,
-                include_signature: true,
-                include_combined_weights: true,
-            };
-            SingleFileAdapter::save_with_options(&adapter, &args.output, aos_options).await?;
-        }
-        other => {
-            return Err(AosError::Config(format!(
-                "Invalid format: '{}'. Valid options: zip, aos",
-                other
-            )))
-        }
-    }
+    // 8. Get scope_path from manifest metadata
+    let scope_path = adapter
+        .manifest
+        .metadata
+        .get("scope_path")
+        .cloned()
+        .unwrap_or_else(|| "unspecified/unspecified/global/unspecified".to_string());
 
-    // 9. Output summary
+    // 9. Create AOS archive using AosWriter
+    output.info("Writing AOS archive...");
+    let mut writer = AosWriter::new();
+    writer.add_segment(BackendTag::Canonical, Some(scope_path), &weights_bytes)?;
+
+    let total_size = writer.write_archive(&args.output, &adapter.manifest)?;
+
+    // 10. Output summary
     output.success(format!(
         "Successfully created .aos file: {}",
         args.output.display()
@@ -333,14 +321,9 @@ pub async fn create_aos(args: CreateArgs, output: &OutputWriter) -> Result<()> {
     output.section("Summary");
     output.kv("Adapter ID", &args.adapter_id);
     output.kv("Version", &args.version);
-    output.kv("Format", &args.format);
-    output.kv("Compression", &args.compression);
+    output.kv("Format", "aos");
     output.kv("Signed", if args.sign { "yes" } else { "no" });
-
-    // Get file size
-    if let Ok(metadata) = fs::metadata(&args.output) {
-        output.kv("File Size", &format!("{} bytes", metadata.len()));
-    }
+    output.kv("File Size", &format!("{} bytes", total_size));
 
     Ok(())
 }
@@ -779,10 +762,4 @@ async fn migrate_aos(args: MigrateArgs, output: &OutputWriter) -> Result<()> {
     }
 
     Ok(())
-}
-
-async fn convert_aos(_args: ConvertArgs, output: &OutputWriter) -> Result<()> {
-    output.warning("aos convert command is not yet implemented");
-    output.info(NOT_IMPLEMENTED_MESSAGE);
-    Err(AosError::Config(NOT_IMPLEMENTED_MESSAGE.to_string()))
 }
