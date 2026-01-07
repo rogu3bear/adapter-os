@@ -990,6 +990,7 @@ impl InferencePipeline {
                 stack_version: request.stack_version,
                 model_type: adapteros_types::routing::RouterModelType::Dense,
                 active_experts: None,
+                backend_type: None, // Populated at inference finalization (PRD-DET-001: G6)
             };
             if let Err(e) = self.telemetry.log_router_decision(router_event) {
                 debug!(
@@ -1071,6 +1072,7 @@ impl InferencePipeline {
                 stack_version: request.stack_version,
                 model_type: adapteros_types::routing::RouterModelType::Dense,
                 active_experts: None,
+                backend_type: None, // Populated at inference finalization (PRD-DET-001: G6)
             };
 
             if let Err(err) = self.telemetry.log_router_decision(event.clone()) {
@@ -1509,6 +1511,7 @@ impl InferencePipeline {
                 stack_version: request.stack_version,
                 model_type: adapteros_types::routing::RouterModelType::Dense,
                 active_experts: None,
+                backend_type: None, // Populated at inference finalization (PRD-DET-001: G6)
             };
             if let Err(e) = self.telemetry.log_router_decision(router_event) {
                 debug!(
@@ -1603,6 +1606,7 @@ impl InferencePipeline {
                 stack_version: request.stack_version,
                 model_type: adapteros_types::routing::RouterModelType::Dense,
                 active_experts: None,
+                backend_type: None, // Populated at inference finalization (PRD-DET-001: G6)
             };
 
             if let Err(err) = self.telemetry.log_router_decision(event.clone()) {

@@ -438,6 +438,7 @@ impl Router {
                 stack_version: None, // Will be populated by stack metadata
                 model_type: RouterModelType::Dense,
                 active_experts: None,
+                backend_type: None, // Populated at inference time (PRD-DET-001: G6)
             };
 
             // Emit event (non-blocking, logs on error)

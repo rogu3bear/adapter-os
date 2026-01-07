@@ -134,6 +134,9 @@ fn trace_receipt_to_ref(receipt: &TraceReceipt) -> InferenceReceiptRef {
         // which doesn't track backend identity. New traces should include these.
         backend_used: String::new(),
         backend_attestation_b3: None,
+        // PRD-DET-001: Seed lineage binding (PR-A)
+        // Defaults to None for legacy traces; new traces bind seed lineage.
+        seed_lineage_hash: None,
     }
 }
 

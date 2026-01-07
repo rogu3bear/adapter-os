@@ -872,6 +872,7 @@ mod tests {
             model_cache_identity_v2_digest_b3: Some(B3Hash::hash(b"model-cache-id")),
             backend_used: "metal".to_string(),
             backend_attestation_b3: Some(B3Hash::hash(b"metal-attestation")),
+            seed_lineage_hash: None, // PRD-DET-001: PR-A
         }
     }
 

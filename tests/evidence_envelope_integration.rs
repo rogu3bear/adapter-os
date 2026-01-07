@@ -123,6 +123,9 @@ fn trace_receipt_to_ref(
         stop_reason_token_index: receipt.stop_reason_token_index,
         stop_policy_digest_b3: receipt.stop_policy_digest_b3,
         model_cache_identity_v2_digest_b3: receipt.model_cache_identity_v2_digest_b3,
+        // PRD-DET-001: Backend identity fields default to empty when converting from legacy TraceReceipt
+        backend_used: String::new(),
+        backend_attestation_b3: None,
     }
 }
 

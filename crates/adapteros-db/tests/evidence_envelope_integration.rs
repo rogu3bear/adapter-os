@@ -79,6 +79,8 @@ fn create_inference_envelope(
         stop_reason_token_index: None,
         stop_policy_digest_b3: None,
         model_cache_identity_v2_digest_b3: None,
+        backend_used: "mock".to_string(),
+        backend_attestation_b3: None,
     };
 
     EvidenceEnvelope::new_inference(tenant_id, receipt_ref, previous_root)

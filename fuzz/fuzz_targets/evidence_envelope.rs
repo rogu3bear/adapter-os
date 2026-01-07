@@ -157,6 +157,19 @@ fuzz_target!(|data: &[u8]| {
                 None
             };
 
+            // PRD-DET-001: Generate backend identity fields for fuzz testing
+            let backend_used = match u.int_in_range::<u8>(0..=2).unwrap_or(0) {
+                0 => "metal".to_string(),
+                1 => "coreml".to_string(),
+                _ => "mlx".to_string(),
+            };
+            let backend_attestation_b3 = if u.arbitrary::<bool>().unwrap_or(false) {
+                let bytes: [u8; 32] = u.arbitrary().unwrap_or([0u8; 32]);
+                Some(B3Hash::from_bytes(bytes))
+            } else {
+                None
+            };
+
             let inference_ref = InferenceReceiptRef {
                 trace_id,
                 run_head_hash: B3Hash::from_bytes(run_head_hash),
@@ -171,6 +184,8 @@ fuzz_target!(|data: &[u8]| {
                 stop_reason_token_index,
                 stop_policy_digest_b3,
                 model_cache_identity_v2_digest_b3,
+                backend_used,
+                backend_attestation_b3,
             };
 
             EvidenceEnvelope::new_inference(
