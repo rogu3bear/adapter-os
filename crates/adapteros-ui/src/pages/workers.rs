@@ -378,6 +378,9 @@ fn WorkersSummary(workers: Vec<WorkerResponse>) -> impl IntoView {
 // Workers List
 // ============================================================================
 
+/// Page size for client-side pagination (reduces initial DOM nodes)
+const WORKERS_PAGE_SIZE: usize = 25;
+
 #[component]
 fn WorkersList(
     workers: Vec<WorkerResponse>,
@@ -385,6 +388,15 @@ fn WorkersList(
     on_drain: Callback<String>,
     on_stop: Callback<String>,
 ) -> impl IntoView {
+    let total = workers.len();
+
+    // Client-side pagination to reduce DOM nodes
+    let visible_count = RwSignal::new(WORKERS_PAGE_SIZE.min(total));
+
+    let show_more = move |_| {
+        visible_count.update(|c| *c = (*c + WORKERS_PAGE_SIZE).min(total));
+    };
+
     view! {
         <Card
             title="Workers".to_string()
@@ -416,34 +428,59 @@ fn WorkersList(
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {workers.into_iter().map(|worker| {
-                                let worker_id = worker.id.clone();
-                                let worker_id_drain = worker.id.clone();
-                                let worker_id_stop = worker.id.clone();
+                            {move || {
+                                let count = visible_count.get();
                                 let on_drain = on_drain.clone();
                                 let on_stop = on_stop.clone();
-                                let is_healthy = worker.status == "healthy";
-                                let is_draining = worker.status == "draining";
+                                workers.iter().take(count).map(|worker| {
+                                    let worker_id = worker.id.clone();
+                                    let worker_id_drain = worker.id.clone();
+                                    let worker_id_stop = worker.id.clone();
+                                    let on_drain = on_drain.clone();
+                                    let on_stop = on_stop.clone();
+                                    let is_healthy = worker.status == "healthy";
+                                    let is_draining = worker.status == "draining";
 
-                                view! {
-                                    <WorkerRow
-                                        worker=worker
-                                        on_select=Callback::new(move |_| {
-                                            selected_worker.set(Some(worker_id.clone()));
-                                        })
-                                        on_drain=Callback::new(move |_| {
-                                            on_drain.run(worker_id_drain.clone());
-                                        })
-                                        on_stop=Callback::new(move |_| {
-                                            on_stop.run(worker_id_stop.clone());
-                                        })
-                                        show_drain=is_healthy
-                                        show_stop=is_healthy || is_draining
-                                    />
-                                }
-                            }).collect::<Vec<_>>()}
+                                    view! {
+                                        <WorkerRow
+                                            worker=worker.clone()
+                                            on_select=Callback::new(move |_| {
+                                                selected_worker.set(Some(worker_id.clone()));
+                                            })
+                                            on_drain=Callback::new(move |_| {
+                                                on_drain.run(worker_id_drain.clone());
+                                            })
+                                            on_stop=Callback::new(move |_| {
+                                                on_stop.run(worker_id_stop.clone());
+                                            })
+                                            show_drain=is_healthy
+                                            show_stop=is_healthy || is_draining
+                                        />
+                                    }
+                                }).collect::<Vec<_>>()
+                            }}
                         </TableBody>
                     </Table>
+
+                    // Show more button if there are hidden items
+                    {move || {
+                        let count = visible_count.get();
+                        let remaining = total.saturating_sub(count);
+                        if remaining > 0 {
+                            view! {
+                                <div class="flex items-center justify-center py-4 border-t">
+                                    <button
+                                        class="text-sm text-primary hover:underline"
+                                        on:click=show_more
+                                    >
+                                        {format!("Show more ({} remaining)", remaining)}
+                                    </button>
+                                </div>
+                            }.into_any()
+                        } else {
+                            view! { <div></div> }.into_any()
+                        }
+                    }}
                 }.into_any()
             }}
         </Card>

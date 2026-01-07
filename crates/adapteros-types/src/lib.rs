@@ -15,7 +15,7 @@
 //!
 //! # Design Principles
 //!
-//! 1. **No framework dependencies** - Only serde, chrono, uuid, blake3
+//! 1. **No framework dependencies** - Only serde, chrono, uuid
 //! 2. **snake_case serialization** - Consistent with REST API conventions
 //! 3. **Explicit field naming** - No ambiguity in JSON serialization
 //! 4. **Versioned schemas** - All types include schema version metadata

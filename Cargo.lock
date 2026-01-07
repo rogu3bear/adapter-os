@@ -1932,7 +1932,6 @@ dependencies = [
 name = "adapteros-types"
 version = "0.11.0"
 dependencies = [
- "blake3",
  "chrono",
  "schemars",
  "serde",
