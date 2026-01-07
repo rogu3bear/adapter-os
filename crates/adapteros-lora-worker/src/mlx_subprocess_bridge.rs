@@ -1522,7 +1522,7 @@ impl FusedKernels for MLXSubprocessBridge {
             backend_type: BackendType::MLX,
             metallib_hash: None, // No metallib for Python subprocess
             metallib_verified: false,
-            manifest: None,      // No kernel manifest for Python subprocess
+            manifest: None, // No kernel manifest for Python subprocess
             rng_seed_method: RngSeedingMethod::SystemEntropy,
             floating_point_mode: FloatingPointMode::FastMath,
             determinism_level: DeterminismLevel::None,
