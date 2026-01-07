@@ -323,6 +323,14 @@ lto = true
 codegen-units = 1
 strip = "symbols"  # Strip symbols but preserve UUID load commands
 
+# WASM-specific overrides for UI bundle size optimization
+# Note: panic = "abort" cannot be set per-package; WASM targets use abort by default
+[profile.release.package.adapteros-ui]
+opt-level = "s"      # Size optimization (vs "3" for server)
+
+[profile.release.package.adapteros-api-types]
+opt-level = "s"      # Shared types used by UI
+
 [profile.test]
 opt-level = 1
 
