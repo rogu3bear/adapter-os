@@ -292,9 +292,13 @@ pub fn mount() {
     // PRD-UI-000: Signal that WASM binary is compiled and executing
     signal_wasm_compile_done();
 
-    // Set up panic hooks
+    // Set up panic hooks FIRST - before any code that might panic
     console_error_panic_hook::set_once();
     set_dom_panic_hook();
+
+    // PRD-UI-000: Initialize redaction patterns AFTER panic hooks
+    // This ensures any regex compilation panic is caught by the hook
+    let _ = REDACTION_PATTERNS.get_or_init(RedactionPatterns::new);
 
     // Initialize tracing
     tracing_wasm::set_as_global_default();

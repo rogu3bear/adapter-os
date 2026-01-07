@@ -21,6 +21,7 @@ use adapteros_server_api::config::Config;
 use adapteros_server_api::routes;
 use adapteros_server_api::AppState;
 use anyhow::Result;
+use tower_http::compression::CompressionLayer;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, RwLock};
@@ -126,7 +127,8 @@ pub async fn finalize_boot(
     let app = axum::Router::new()
         .nest("/api", api_routes) // API routes under /api prefix
         .merge(compat_routes) // Backwards-compatible root probes
-        .merge(ui_routes); // UI fallback for non-API paths
+        .merge(ui_routes) // UI fallback for non-API paths
+        .layer(CompressionLayer::new()); // Response compression (gzip, br) for all routes
 
     // =========================================================================
     // Server Binding Configuration Resolution

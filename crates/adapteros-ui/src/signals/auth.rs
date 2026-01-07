@@ -42,6 +42,10 @@ fn mock_dev_user() -> UserInfoResponse {
     }
 }
 
+/// Auth check timeout in milliseconds
+/// Dev: 3 seconds, Prod: 10 seconds (allows for cold start)
+const AUTH_TIMEOUT_MS: u32 = if cfg!(debug_assertions) { 3000 } else { 10000 };
+
 /// Authentication state
 #[derive(Debug, Clone)]
 pub enum AuthState {
@@ -55,6 +59,8 @@ pub enum AuthState {
     Authenticated(Box<UserInfoResponse>),
     /// Auth error
     Error(String),
+    /// Auth check timed out
+    Timeout,
 }
 
 impl AuthState {
@@ -82,12 +88,29 @@ impl AuthState {
 pub struct AuthAction {
     client: Arc<ApiClient>,
     state: RwSignal<AuthState>,
+    /// Attempt counter to prevent late state updates from stale requests
+    attempt_id: RwSignal<u32>,
 }
 
 impl AuthAction {
     /// Create new auth action
     pub fn new(client: Arc<ApiClient>, state: RwSignal<AuthState>) -> Self {
-        Self { client, state }
+        Self {
+            client,
+            state,
+            attempt_id: RwSignal::new(0),
+        }
+    }
+
+    /// Get current attempt ID
+    fn current_attempt(&self) -> u32 {
+        self.attempt_id.get()
+    }
+
+    /// Increment attempt and return new ID
+    fn next_attempt(&self) -> u32 {
+        self.attempt_id.update(|id| *id += 1);
+        self.attempt_id.get()
     }
 
     /// Login with credentials
@@ -136,11 +159,31 @@ impl AuthAction {
     ///
     /// Verifies authentication by calling /v1/auth/me endpoint.
     /// With httpOnly cookies, we can't check the token directly.
+    ///
+    /// Uses attempt ID to prevent late state updates from stale requests.
+    /// If a new check_auth is started before this one completes, this one's
+    /// result will be ignored.
     pub async fn check_auth(&self) {
+        // Increment attempt ID and capture it for this request
+        let my_attempt = self.next_attempt();
+        web_sys::console::log_1(&format!("[auth] Starting auth check (attempt {})", my_attempt).into());
+
         self.state.set(AuthState::Loading);
 
         // Try to get user info - will succeed if we have valid auth cookies
-        match self.client.me().await {
+        let result = self.client.me().await;
+
+        // Only update state if this is still the current attempt
+        // (prevents late-arriving results from overwriting newer state)
+        if self.current_attempt() != my_attempt {
+            web_sys::console::log_1(
+                &format!("[auth] Ignoring stale auth result (attempt {} != current {})",
+                    my_attempt, self.current_attempt()).into()
+            );
+            return;
+        }
+
+        match result {
             Ok(user) => {
                 self.client.set_auth_status(true);
                 self.state.set(AuthState::Authenticated(Box::new(user)));
@@ -174,7 +217,7 @@ pub fn provide_auth_context() {
         return;
     }
 
-    // Normal auth check for production
+    // Normal auth check for production with timeout
     // Use a guard to ensure check_auth only runs once on initial mount
     let action_check = action.clone();
     let has_checked = StoredValue::new(false);
@@ -183,8 +226,31 @@ pub fn provide_auth_context() {
         if !has_checked.get_value() {
             has_checked.set_value(true);
             let action = action_check.clone();
+            let state_timeout = state;
             wasm_bindgen_futures::spawn_local(async move {
-                action.check_auth().await;
+                // Race auth check against timeout
+                let auth_future = action.check_auth();
+                let timeout_future = gloo_timers::future::TimeoutFuture::new(AUTH_TIMEOUT_MS);
+
+                // Use futures::select! to race the two futures
+                futures::pin_mut!(auth_future);
+                futures::pin_mut!(timeout_future);
+
+                match futures::future::select(auth_future, timeout_future).await {
+                    futures::future::Either::Left(_) => {
+                        // Auth completed (success or error) - state already set by check_auth
+                        web_sys::console::log_1(&"[auth] Auth check completed".into());
+                    }
+                    futures::future::Either::Right(_) => {
+                        // Timeout - only set if still loading
+                        if state_timeout.get().is_loading() {
+                            web_sys::console::warn_1(
+                                &format!("[auth] Auth check timed out after {}ms", AUTH_TIMEOUT_MS).into()
+                            );
+                            state_timeout.set(AuthState::Timeout);
+                        }
+                    }
+                }
             });
         }
     });

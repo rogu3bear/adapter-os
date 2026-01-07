@@ -66,10 +66,45 @@ else
     echo "Skipping wasm-opt (--skip-opt)"
 fi
 
-# Compressed size
+# Compressed sizes
+FINAL_SIZE=$(stat -f%z "$WASM_FILE" 2>/dev/null || stat -c%s "$WASM_FILE" 2>/dev/null)
+
+GZIP_SIZE=0
 if command -v gzip &> /dev/null; then
     GZIP_SIZE=$(gzip -9 -c "$WASM_FILE" | wc -c | tr -d ' ')
-    echo "Gzipped size: $GZIP_SIZE bytes ($(echo "scale=2; $GZIP_SIZE / 1048576" | bc) MB)"
+fi
+
+BROTLI_SIZE=0
+if command -v brotli &> /dev/null; then
+    brotli -9 -c "$WASM_FILE" > "${WASM_FILE}.br"
+    BROTLI_SIZE=$(stat -f%z "${WASM_FILE}.br" 2>/dev/null || stat -c%s "${WASM_FILE}.br" 2>/dev/null)
+    rm -f "${WASM_FILE}.br"
+fi
+
+echo ""
+echo "=== Bundle Size Summary ==="
+echo "Raw:    $FINAL_SIZE bytes ($(echo "scale=2; $FINAL_SIZE / 1048576" | bc) MB)"
+if [[ "$BROTLI_SIZE" -gt 0 ]]; then
+    echo "Brotli: $BROTLI_SIZE bytes ($(echo "scale=2; $BROTLI_SIZE / 1048576" | bc) MB) [wire]"
+fi
+if [[ "$GZIP_SIZE" -gt 0 ]]; then
+    echo "Gzip:   $GZIP_SIZE bytes ($(echo "scale=2; $GZIP_SIZE / 1048576" | bc) MB) [fallback]"
+fi
+
+# Gate warnings (match CI)
+MAX_BROTLI=$((1200000))
+STRETCH_GOAL=$((1000000))
+if [[ "$BROTLI_SIZE" -gt 0 ]]; then
+    if [[ "$BROTLI_SIZE" -gt "$MAX_BROTLI" ]]; then
+        echo ""
+        echo "⚠️  WARNING: Brotli size exceeds 1.2MB gate!"
+    elif [[ "$BROTLI_SIZE" -gt "$STRETCH_GOAL" ]]; then
+        echo ""
+        echo "📊 Note: Brotli size exceeds 1.0MB stretch goal"
+    else
+        echo ""
+        echo "✓ Within size budgets"
+    fi
 fi
 
 echo ""
