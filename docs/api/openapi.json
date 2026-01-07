@@ -8234,6 +8234,20 @@
               "null"
             ]
           },
+          "expected_kernel_digest_b3_hex": {
+            "description": "Expected kernel digest for verification.\n\nIf provided, the server verifies the compiled kernel matches this digest.\nFormat: 64-character hex BLAKE3 digest.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expected_metallib_digest_b3_hex": {
+            "description": "Expected Metal library (metallib) digest for verification.\n\nIf provided, the server verifies the active metallib matches this digest.\nMismatches result in a determinism violation error.\nFormat: 64-character hex BLAKE3 digest.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "fusion_interval": {
             "description": "Fusion interval policy (per_request|per_segment|per_token)",
             "type": "string"
@@ -13955,6 +13969,13 @@
             },
             "type": [
               "array",
+              "null"
+            ]
+          },
+          "backend_type": {
+            "description": "Backend type used for this routing decision (PRD-DET-001: G6).",
+            "type": [
+              "string",
               "null"
             ]
           },
