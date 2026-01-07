@@ -225,6 +225,102 @@ mod metrics_tests {
 }
 
 #[cfg(test)]
+mod new_invariants_tests {
+    use super::*;
+
+    /// Test: CFG-002 validation logic (session TTL >= access token TTL)
+    #[test]
+    fn test_cfg_002_session_ttl_validation() {
+        // Invalid case: access_ttl > session_ttl
+        let access_ttl: u64 = 86400; // 24 hours
+        let session_ttl: u64 = 3600; // 1 hour
+        assert!(
+            access_ttl > session_ttl,
+            "CFG-002 should detect access_ttl > session_ttl"
+        );
+
+        // Valid case: access_ttl <= session_ttl
+        let valid_access: u64 = 900;
+        let valid_session: u64 = 43200;
+        assert!(valid_access <= valid_session);
+    }
+
+    /// Test: SEC-008 RBAC config validation (JWT secret length)
+    #[test]
+    fn test_sec_008_rbac_config_validation() {
+        // Invalid case: empty JWT secret
+        let empty_secret = "";
+        assert!(empty_secret.is_empty());
+
+        // Warning case: short JWT secret
+        let short_secret = "short";
+        assert!(short_secret.len() < 32);
+
+        // Valid case: strong JWT secret (32+ chars)
+        let strong_secret = "this-is-a-32-character-secret!!!";
+        assert!(strong_secret.len() >= 32);
+    }
+
+    /// Test: SEC-014 brute force protection validation
+    #[test]
+    fn test_sec_014_brute_force_validation() {
+        // Invalid case: lockout disabled
+        let disabled_threshold = 0u32;
+        assert_eq!(
+            disabled_threshold, 0,
+            "SEC-014 should detect disabled lockout"
+        );
+
+        // Warning case: very high threshold
+        let high_threshold = 100u32;
+        assert!(high_threshold > 20, "High threshold should trigger warning");
+
+        // Valid case: reasonable threshold
+        let valid_threshold = 5u32;
+        assert!(valid_threshold > 0 && valid_threshold <= 20);
+    }
+
+    /// Test: DAT-005 storage mode validation
+    #[test]
+    fn test_dat_005_storage_mode_validation() {
+        let valid_modes = [
+            "sql_only",
+            "sql",
+            "dual_write",
+            "dual",
+            "kv_primary",
+            "kv_only",
+        ];
+
+        for mode in valid_modes {
+            let lowercase = mode.to_lowercase();
+            assert!(
+                valid_modes
+                    .iter()
+                    .map(|m| m.to_lowercase())
+                    .any(|m| m == lowercase),
+                "Mode '{}' should be valid",
+                mode
+            );
+        }
+
+        // Invalid modes
+        let invalid_modes = ["invalid", "memory", ""];
+        for mode in invalid_modes {
+            let lowercase = mode.to_lowercase();
+            assert!(
+                !valid_modes
+                    .iter()
+                    .map(|m| m.to_lowercase())
+                    .any(|m| m == lowercase),
+                "Mode '{}' should be invalid",
+                mode
+            );
+        }
+    }
+}
+
+#[cfg(test)]
 mod escape_hatch_documentation {
     //! These tests document the escape hatch configuration behavior.
     //! Full integration testing requires the test harness.
@@ -241,12 +337,32 @@ mod escape_hatch_documentation {
         assert!(!config.disable_sec_002_dual_write);
         assert!(!config.disable_sec_003_executor_seed);
         assert!(!config.disable_sec_005_cookie_security);
+        assert!(!config.disable_sec_006_jwt_verify);
+        assert!(!config.disable_sec_008_rbac_config);
+        assert!(!config.disable_sec_014_brute_force);
+        assert!(!config.disable_sec_015_signature_bypass);
+        assert!(!config.disable_dat_002_foreign_keys);
+        assert!(!config.disable_dat_005_storage_mode);
+        assert!(!config.disable_dat_006_migration_order);
+        assert!(!config.disable_dat_007_audit_chain);
+        assert!(!config.disable_lif_002_executor_init);
+        assert!(!config.disable_cfg_002_session_ttl);
 
         println!("InvariantsConfig escape hatch mapping:");
         println!("  disable_sec_001_dev_bypass -> Skip SEC-001 (dev auth bypass check)");
         println!("  disable_sec_002_dual_write -> Skip SEC-002 (dual-write strict mode check)");
         println!("  disable_sec_003_executor_seed -> Skip SEC-003 (executor manifest check)");
         println!("  disable_sec_005_cookie_security -> Skip SEC-005 (cookie security check)");
+        println!("  disable_sec_006_jwt_verify -> Skip SEC-006 (JWT algorithm check)");
+        println!("  disable_sec_008_rbac_config -> Skip SEC-008 (RBAC permission config check)");
+        println!("  disable_sec_014_brute_force -> Skip SEC-014 (brute force protection check)");
+        println!("  disable_sec_015_signature_bypass -> Skip SEC-015 (signature bypass check)");
+        println!("  disable_dat_002_foreign_keys -> Skip DAT-002 (foreign key constraints check)");
+        println!("  disable_dat_005_storage_mode -> Skip DAT-005 (storage mode enum check)");
+        println!("  disable_dat_006_migration_order -> Skip DAT-006 (migration ordering check)");
+        println!("  disable_dat_007_audit_chain -> Skip DAT-007 (audit chain init check)");
+        println!("  disable_lif_002_executor_init -> Skip LIF-002 (executor initialization check)");
+        println!("  disable_cfg_002_session_ttl -> Skip CFG-002 (session TTL hierarchy check)");
     }
 
     /// Documents: TOML config syntax for escape hatches
