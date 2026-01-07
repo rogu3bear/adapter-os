@@ -56,6 +56,68 @@ impl Trend {
     }
 }
 
+/// Pre-computed sparkline data to avoid repeated calculations
+#[derive(Clone, PartialEq)]
+struct SparklineData {
+    line_path: String,
+    area_path: String,
+    trend: Trend,
+    dot_y: Option<f64>,
+    aria_label: String,
+    y_min: f64,
+    y_max: f64,
+}
+
+impl SparklineData {
+    fn compute(values: &[f64], w: f64, h: f64, padding: f64, custom_label: Option<&str>) -> Self {
+        if values.is_empty() {
+            return Self {
+                line_path: String::new(),
+                area_path: String::new(),
+                trend: Trend::Flat,
+                dot_y: None,
+                aria_label: custom_label
+                    .map(String::from)
+                    .unwrap_or_else(|| "No data".to_string()),
+                y_min: 0.0,
+                y_max: 0.0,
+            };
+        }
+
+        let y_min = values.iter().cloned().fold(f64::MAX, f64::min);
+        let y_max = values.iter().cloned().fold(f64::MIN, f64::max);
+        let y_range = if (y_max - y_min).abs() < f64::EPSILON {
+            1.0
+        } else {
+            y_max - y_min
+        };
+
+        let last_val = values.last().copied().unwrap_or(0.0);
+        let normalized = (last_val - y_min) / y_range;
+        let dot_y = padding + (1.0 - normalized) * (h - padding * 2.0);
+
+        let aria_label = custom_label.map(String::from).unwrap_or_else(|| {
+            format!(
+                "Sparkline: {} points, range {:.1} to {:.1}, current {:.1}",
+                values.len(),
+                y_min,
+                y_max,
+                last_val
+            )
+        });
+
+        Self {
+            line_path: build_sparkline_path(values, w, h, padding),
+            area_path: build_area_path(values, w, h, padding),
+            trend: Trend::from_values(values),
+            dot_y: Some(dot_y),
+            aria_label,
+            y_min,
+            y_max,
+        }
+    }
+}
+
 /// Compact sparkline chart for inline display.
 ///
 /// Shows a simple line chart without axes or labels,
@@ -91,49 +153,19 @@ pub fn Sparkline(
     let w = width as f64;
     let h = height as f64;
 
-    // Clone color for use in closures
-    let base_color = color.clone().unwrap_or_else(|| colors::PRIMARY.to_string());
-    let base_color_for_area = base_color.clone();
-    let base_color_for_line = base_color.clone();
-    let base_color_for_dot = base_color.clone();
+    let base_color = color.unwrap_or_else(|| colors::PRIMARY.to_string());
 
-    // Build paths reactively
-    let line_path = move || {
-        let vals = values.get();
-        build_sparkline_path(&vals, w, h, padding)
-    };
+    // Memoize all sparkline data - single computation per values change
+    let sparkline_data = Memo::new(move |_| {
+        values.with(|vals| SparklineData::compute(vals, w, h, padding, label.as_deref()))
+    });
 
-    let area_path = move || {
-        if !fill {
-            return String::new();
-        }
-        let vals = values.get();
-        build_area_path(&vals, w, h, padding)
-    };
+    // Clone base_color for each closure that needs it
+    let base_color_area = base_color.clone();
+    let base_color_line = base_color.clone();
+    let base_color_dot = base_color;
 
-    // Clone label for use in closure
-    let label_for_aria = label.clone();
-
-    // Compute accessible label
-    let aria_label = move || {
-        let vals = values.get();
-        label_for_aria.clone().unwrap_or_else(|| {
-            if vals.is_empty() {
-                "No data".to_string()
-            } else {
-                let min = vals.iter().cloned().fold(f64::MAX, f64::min);
-                let max = vals.iter().cloned().fold(f64::MIN, f64::max);
-                let last = vals.last().copied().unwrap_or(0.0);
-                format!(
-                    "Sparkline: {} points, range {:.1} to {:.1}, current {:.1}",
-                    vals.len(),
-                    min,
-                    max,
-                    last
-                )
-            }
-        })
-    };
+    let dot_x = padding + (w - padding * 2.0);
 
     view! {
         <svg
@@ -142,91 +174,71 @@ pub fn Sparkline(
             viewBox={format!("0 0 {} {}", width, height)}
             preserveAspectRatio="xMinYMid meet"
             role="img"
-            aria-label={aria_label}
+            aria-label={move || sparkline_data.get().aria_label}
             class={format!("sparkline {}", class)}
         >
             // Area fill (if enabled)
             {move || {
-                if fill {
-                    let path = area_path();
-                    let vals = values.get();
-                    let color = if trend_color {
-                        Trend::from_values(&vals).color().to_string()
-                    } else {
-                        base_color_for_area.clone()
-                    };
-                    if !path.is_empty() {
-                        Some(view! {
-                            <path
-                                d={path}
-                                fill={color}
-                                fill-opacity="0.1"
-                                class="sparkline-area"
-                            />
-                        })
-                    } else {
-                        None
-                    }
-                } else {
-                    None
+                if !fill {
+                    return None;
                 }
+                let data = sparkline_data.get();
+                if data.area_path.is_empty() {
+                    return None;
+                }
+                let color = if trend_color {
+                    data.trend.color().to_string()
+                } else {
+                    base_color_area.clone()
+                };
+                Some(view! {
+                    <path
+                        d={data.area_path}
+                        fill={color}
+                        fill-opacity="0.1"
+                        class="sparkline-area"
+                    />
+                })
             }}
 
             // Line
             {move || {
-                let path = line_path();
-                let vals = values.get();
-                let color = if trend_color {
-                    Trend::from_values(&vals).color().to_string()
-                } else {
-                    base_color_for_line.clone()
-                };
-                if !path.is_empty() {
-                    Some(view! {
-                        <path
-                            d={path}
-                            fill="none"
-                            stroke={color}
-                            stroke-width="1.5"
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            class="sparkline-line"
-                        />
-                    })
-                } else {
-                    None
+                let data = sparkline_data.get();
+                if data.line_path.is_empty() {
+                    return None;
                 }
+                let color = if trend_color {
+                    data.trend.color().to_string()
+                } else {
+                    base_color_line.clone()
+                };
+                Some(view! {
+                    <path
+                        d={data.line_path}
+                        fill="none"
+                        stroke={color}
+                        stroke-width="1.5"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        class="sparkline-line"
+                    />
+                })
             }}
 
             // Current value indicator (dot at end)
             {move || {
-                let vals = values.get();
-                if vals.is_empty() {
+                let data = sparkline_data.get();
+                let Some(y) = data.dot_y else {
                     return None;
-                }
-
-                let x = padding + (w - padding * 2.0);
-                let y_min = vals.iter().cloned().fold(f64::MAX, f64::min);
-                let y_max = vals.iter().cloned().fold(f64::MIN, f64::max);
-                let y_range = if (y_max - y_min).abs() < f64::EPSILON {
-                    1.0
-                } else {
-                    y_max - y_min
                 };
-
-                let last_val = vals.last().copied().unwrap_or(0.0);
-                let normalized = (last_val - y_min) / y_range;
-                let y = padding + (1.0 - normalized) * (h - padding * 2.0);
-
                 let color = if trend_color {
-                    Trend::from_values(&vals).color().to_string()
+                    data.trend.color().to_string()
                 } else {
-                    base_color_for_dot.clone()
+                    base_color_dot.clone()
                 };
-
                 Some(view! {
                     <circle
-                        cx={x}
+                        cx={dot_x}
                         cy={y}
                         r="2"
                         fill={color}
@@ -265,13 +277,8 @@ pub fn SparklineMetric(
     #[prop(optional, into)]
     class: String,
 ) -> impl IntoView {
-    let trend = move || Trend::from_values(&values.get());
-
-    let trend_icon = move || match trend() {
-        Trend::Up => "↑",
-        Trend::Down => "↓",
-        Trend::Flat => "→",
-    };
+    // Memoize trend calculation - only recomputes when values change
+    let trend = Memo::new(move |_| values.with(|vals| Trend::from_values(vals)));
 
     view! {
         <div class={format!("sparkline-metric {}", class)}>
@@ -280,9 +287,13 @@ pub fn SparklineMetric(
                 {show_trend.then(|| view! {
                     <span
                         class="sparkline-metric-trend"
-                        style:color={move || trend().color()}
+                        style:color={move || trend.get().color()}
                     >
-                        {trend_icon}
+                        {move || match trend.get() {
+                            Trend::Up => "↑",
+                            Trend::Down => "↓",
+                            Trend::Flat => "→",
+                        }}
                     </span>
                 })}
             </div>

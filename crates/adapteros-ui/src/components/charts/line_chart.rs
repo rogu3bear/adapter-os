@@ -8,6 +8,60 @@ use crate::components::charts::primitives::{
 use crate::components::charts::types::{colors, TimeSeriesData};
 use crate::components::charts::utils::{format_number, InvertedYScale, TimeScale};
 
+/// Pre-computed chart data to avoid redundant calculations per render
+#[derive(Clone, PartialEq)]
+struct ChartComputedData {
+    x_scale: TimeScale,
+    y_scale: InvertedYScale,
+    series_paths: Vec<SeriesPath>,
+    series_count: usize,
+    point_count: usize,
+}
+
+#[derive(Clone, PartialEq)]
+struct SeriesPath {
+    path: String,
+    color: String,
+    name: String,
+}
+
+impl ChartComputedData {
+    fn compute(data: &TimeSeriesData, layout: &ChartLayout) -> Self {
+        let (x_min, x_max) = data.calc_x_range();
+        let (y_min, y_max) = data.calc_y_range();
+
+        let x_scale = TimeScale::new((x_min, x_max), (layout.left(), layout.right()));
+        let y_scale = InvertedYScale::new((y_min, y_max), (layout.top(), layout.bottom()));
+
+        let series_paths = data
+            .series
+            .iter()
+            .enumerate()
+            .map(|(idx, series)| {
+                let path = build_line_path(&series.points, &x_scale, &y_scale);
+                let color = if series.color.is_empty() {
+                    colors::palette(idx).to_string()
+                } else {
+                    series.color.clone()
+                };
+                SeriesPath {
+                    path,
+                    color,
+                    name: series.name.clone(),
+                }
+            })
+            .collect();
+
+        Self {
+            x_scale,
+            y_scale,
+            series_paths,
+            series_count: data.series.len(),
+            point_count: data.point_count(),
+        }
+    }
+}
+
 /// Line chart for time series data.
 ///
 /// Supports multiple series, grid, axes, and interactive tooltips.
@@ -60,28 +114,16 @@ pub fn LineChart(
     let title_for_display = title.clone();
     let has_title = title.is_some();
 
-    // Create scales from data
-    let x_scale = move || {
-        let d = data.get();
-        let (x_min, x_max) = d.calc_x_range();
-        TimeScale::new((x_min, x_max), (layout.left(), layout.right()))
-    };
+    // Memoize all computed chart data - single computation per data change
+    let computed = Memo::new(move |_| data.with(|d| ChartComputedData::compute(d, &layout)));
 
-    let y_scale = move || {
-        let d = data.get();
-        let (y_min, y_max) = d.calc_y_range();
-        InvertedYScale::new((y_min, y_max), (layout.top(), layout.bottom()))
-    };
-
-    // Chart accessibility label
+    // Chart accessibility label - derived from memoized data
     let aria_label = move || {
-        let d = data.get();
-        let series_count = d.series.len();
-        let point_count = d.point_count();
+        let c = computed.get();
         title_for_aria.clone().unwrap_or_else(|| {
             format!(
                 "Line chart with {} series and {} data points",
-                series_count, point_count
+                c.series_count, c.point_count
             )
         })
     };
@@ -114,7 +156,7 @@ pub fn LineChart(
 
                 // X axis
                 {move || show_x_axis.then(|| view! {
-                    <XAxis layout={layout} x_scale={x_scale()} />
+                    <XAxis layout={layout} x_scale={computed.get().x_scale} />
                 })}
 
                 // Y axis
@@ -122,7 +164,7 @@ pub fn LineChart(
                     view! {
                         <YAxis
                             layout={layout}
-                            y_scale={y_scale()}
+                            y_scale={computed.get().y_scale}
                             label={y_label.clone()}
                         />
                     }
@@ -140,48 +182,37 @@ pub fn LineChart(
                     </clipPath>
                 </defs>
 
-                // Series lines
+                // Series lines - uses pre-computed paths from memo
                 <g
                     class="chart-series"
                     clip-path={format!("url(#{}-clip)", chart_id)}
                 >
                     {move || {
-                        let d = data.get();
-                        let xs = x_scale();
-                        let ys = y_scale();
-
-                        d.series.iter().enumerate().map(|(idx, series)| {
-                            let path = build_line_path(&series.points, &xs, &ys);
-                            let color = if series.color.is_empty() {
-                                colors::palette(idx).to_string()
-                            } else {
-                                series.color.clone()
-                            };
-
+                        let c = computed.get();
+                        c.series_paths.iter().map(|sp| {
                             view! {
                                 <path
-                                    d={path}
+                                    d={sp.path.clone()}
                                     fill="none"
-                                    stroke={color.clone()}
+                                    stroke={sp.color.clone()}
                                     stroke-width="2"
                                     stroke-linecap="round"
                                     stroke-linejoin="round"
                                     class="chart-line"
-                                    data-series={series.name.clone()}
+                                    data-series={sp.name.clone()}
                                 />
                             }
                         }).collect_view()
                     }}
                 </g>
 
-                // Data point markers (if enabled)
+                // Data point markers (if enabled) - uses memoized scales
                 {move || show_points.then(|| {
-                    let d = data.get();
-                    let xs = x_scale();
-                    let ys = y_scale();
+                    let c = computed.get();
                     let tooltip_ref = tooltip_for_points.clone();
 
-                    view! {
+                    // Access data only when points are shown
+                    data.with(|d| view! {
                         <g class="chart-points">
                             {d.series.iter().enumerate().map(|(idx, series)| {
                                 let color = if series.color.is_empty() {
@@ -193,8 +224,8 @@ pub fn LineChart(
                                 let tooltip_for_series = tooltip_ref.clone();
 
                                 series.points.iter().map(|point| {
-                                    let x = xs.scale(point.timestamp);
-                                    let y = ys.scale(point.value);
+                                    let x = c.x_scale.scale(point.timestamp);
+                                    let y = c.y_scale.scale(point.value);
                                     let value = point.value;
                                     let color_for_stroke = color.clone();
                                     let color_for_enter = color.clone();
@@ -238,7 +269,7 @@ pub fn LineChart(
                                 }).collect_view()
                             }).collect_view()}
                         </g>
-                    }
+                    })
                 })}
 
                 // Tooltip
@@ -256,25 +287,20 @@ pub fn LineChart(
                 })}
             </svg>
 
-            // Legend (if multiple series)
+            // Legend (if multiple series) - uses pre-computed series info
             {move || {
-                let d = data.get();
-                if d.series.len() > 1 {
+                let c = computed.get();
+                if c.series_count > 1 {
                     Some(view! {
                         <div class="chart-legend">
-                            {d.series.iter().enumerate().map(|(idx, series)| {
-                                let color = if series.color.is_empty() {
-                                    colors::palette(idx).to_string()
-                                } else {
-                                    series.color.clone()
-                                };
+                            {c.series_paths.iter().map(|sp| {
                                 view! {
                                     <div class="chart-legend-item">
                                         <span
                                             class="chart-legend-color"
-                                            style:background-color={color}
+                                            style:background-color={sp.color.clone()}
                                         />
-                                        <span class="chart-legend-label">{series.name.clone()}</span>
+                                        <span class="chart-legend-label">{sp.name.clone()}</span>
                                     </div>
                                 }
                             }).collect_view()}
@@ -285,6 +311,59 @@ pub fn LineChart(
                 }
             }}
         </div>
+    }
+}
+
+/// Pre-computed data for MiniLineChart
+#[derive(Clone, PartialEq)]
+struct MiniChartData {
+    line_path: String,
+    area_path: Option<String>,
+    has_data: bool,
+}
+
+impl MiniChartData {
+    fn compute(data: &TimeSeriesData, width: f64, height: f64, padding: f64, fill: bool) -> Self {
+        if !data.has_data() {
+            return Self {
+                line_path: String::new(),
+                area_path: None,
+                has_data: false,
+            };
+        }
+
+        let (x_min, x_max) = data.calc_x_range();
+        let (y_min, y_max) = data.calc_y_range();
+        let x_scale = TimeScale::new((x_min, x_max), (padding, width - padding));
+        let y_scale = InvertedYScale::new((y_min, y_max), (padding, height - padding));
+
+        let series = &data.series[0];
+        let line_path = build_line_path(&series.points, &x_scale, &y_scale);
+
+        let area_path = if fill {
+            if let (Some(first), Some(last)) = (series.points.first(), series.points.last()) {
+                let first_x = x_scale.scale(first.timestamp);
+                let last_x = x_scale.scale(last.timestamp);
+                Some(format!(
+                    "{} L {:.1},{:.1} L {:.1},{:.1} Z",
+                    line_path,
+                    last_x,
+                    height - padding,
+                    first_x,
+                    height - padding
+                ))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        Self {
+            line_path,
+            area_path,
+            has_data: true,
+        }
     }
 }
 
@@ -312,21 +391,11 @@ pub fn MiniLineChart(
 ) -> impl IntoView {
     let padding = 4.0;
     let stroke_color = color.unwrap_or_else(|| colors::PRIMARY.to_string());
-    let stroke_color_for_area = stroke_color.clone();
-    let stroke_color_for_line = stroke_color.clone();
 
-    // Create scales from data
-    let x_scale = move || {
-        let d = data.get();
-        let (x_min, x_max) = d.calc_x_range();
-        TimeScale::new((x_min, x_max), (padding, width - padding))
-    };
-
-    let y_scale = move || {
-        let d = data.get();
-        let (y_min, y_max) = d.calc_y_range();
-        InvertedYScale::new((y_min, y_max), (padding, height - padding))
-    };
+    // Memoize all computed chart data
+    let chart_data = Memo::new(move |_| {
+        data.with(|d| MiniChartData::compute(d, width, height, padding, fill))
+    });
 
     view! {
         <svg
@@ -337,8 +406,8 @@ pub fn MiniLineChart(
             aria-label="Mini line chart"
         >
             {move || {
-                let d = data.get();
-                if !d.has_data() {
+                let cd = chart_data.get();
+                if !cd.has_data {
                     return view! {
                         <text
                             x={width / 2.0}
@@ -352,45 +421,23 @@ pub fn MiniLineChart(
                     }.into_any();
                 }
 
-                let xs = x_scale();
-                let ys = y_scale();
-
-                // Get first series
-                let series = &d.series[0];
-                let path = build_line_path(&series.points, &xs, &ys);
-
                 view! {
                     <g>
                         // Area fill
-                        {fill.then(|| {
-                            // Create area by closing path to bottom
-                            if let (Some(first), Some(last)) = (series.points.first(), series.points.last()) {
-                                let first_x = xs.scale(first.timestamp);
-                                let last_x = xs.scale(last.timestamp);
-                                let area_path = format!(
-                                    "{} L {:.1},{:.1} L {:.1},{:.1} Z",
-                                    path,
-                                    last_x, height - padding,
-                                    first_x, height - padding
-                                );
-                                Some(view! {
-                                    <path
-                                        d={area_path}
-                                        fill={stroke_color_for_area.clone()}
-                                        fill-opacity="0.1"
-                                        class="mini-chart-area"
-                                    />
-                                })
-                            } else {
-                                None
-                            }
+                        {cd.area_path.as_ref().map(|area_path| view! {
+                            <path
+                                d={area_path.clone()}
+                                fill={stroke_color.clone()}
+                                fill-opacity="0.1"
+                                class="mini-chart-area"
+                            />
                         })}
 
                         // Line
                         <path
-                            d={path}
+                            d={cd.line_path.clone()}
                             fill="none"
-                            stroke={stroke_color_for_line.clone()}
+                            stroke={stroke_color.clone()}
                             stroke-width="1.5"
                             stroke-linecap="round"
                             stroke-linejoin="round"
