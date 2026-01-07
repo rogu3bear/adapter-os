@@ -146,10 +146,7 @@ mod tests {
         normalize_spec(&mut input);
 
         // Empty arrays should be preserved
-        assert_eq!(
-            input.get("security"),
-            Some(&json!([{ "bearer_auth": [] }]))
-        );
+        assert_eq!(input.get("security"), Some(&json!([{ "bearer_auth": [] }])));
         assert_eq!(input.get("tags"), Some(&json!([])));
     }
 
@@ -267,10 +264,7 @@ mod tests {
         let users = paths.get("/api/users").unwrap();
         let get = users.get("get").unwrap();
         assert_eq!(get.get("deprecated"), None);
-        assert_eq!(
-            get.get("security"),
-            Some(&json!([{ "bearer_auth": [] }]))
-        );
+        assert_eq!(get.get("security"), Some(&json!([{ "bearer_auth": [] }])));
 
         // Verify key ordering
         let top_keys: Vec<&String> = result.as_object().unwrap().keys().collect();

@@ -152,10 +152,7 @@ impl SseEventCollector {
 
     /// Get only data events (excluding DONE, keepalive, etc.)
     pub fn data_events(&self) -> Vec<&CollectedSseEvent> {
-        self.events
-            .iter()
-            .filter(|e| e.data.is_some())
-            .collect()
+        self.events.iter().filter(|e| e.data.is_some()).collect()
     }
 
     /// Check if stream has a DONE marker
@@ -298,16 +295,16 @@ pub fn validate_stream(collector: &SseEventCollector) -> StreamValidationResult 
     // Check 1: JSON chunk format (data: {json}\n\n)
     for event in collector.data_events() {
         if !event.raw.starts_with("data: ") {
-            result
-                .errors
-                .push(format!("Data event doesn't start with 'data: ': {}", event.raw));
+            result.errors.push(format!(
+                "Data event doesn't start with 'data: ': {}",
+                event.raw
+            ));
         }
 
         if event.data.is_none() {
-            result.errors.push(format!(
-                "Data event has no parsed JSON: {}",
-                event.raw
-            ));
+            result
+                .errors
+                .push(format!("Data event has no parsed JSON: {}", event.raw));
         }
     }
 
@@ -368,9 +365,7 @@ pub fn validate_stream(collector: &SseEventCollector) -> StreamValidationResult 
     if let Some(first_event) = data_events.first() {
         if let Some(chunk) = &first_event.data {
             if chunk.choices.is_empty() {
-                result
-                    .errors
-                    .push("First chunk has no choices".to_string());
+                result.errors.push("First chunk has no choices".to_string());
             } else if chunk.choices[0].delta.role.is_none() {
                 result
                     .warnings
@@ -413,18 +408,19 @@ async fn test_monotonic_event_ordering() {
     let (tx, mut rx) = mpsc::channel::<String>(100);
     let (done_tx, mut done_rx) = watch::channel(false);
 
-    let source = MockStreamingSource::new("test-monotonic", vec![
-        "Hello".to_string(),
-        " ".to_string(),
-        "world".to_string(),
-        "!".to_string(),
-    ]);
+    let source = MockStreamingSource::new(
+        "test-monotonic",
+        vec![
+            "Hello".to_string(),
+            " ".to_string(),
+            "world".to_string(),
+            "!".to_string(),
+        ],
+    );
 
     // Produce events
     let done_signal = Arc::new(done_tx);
-    let producer = tokio::spawn(async move {
-        source.produce(tx, done_signal).await
-    });
+    let producer = tokio::spawn(async move { source.produce(tx, done_signal).await });
 
     // Collect with timeout
     let mut collector = SseEventCollector::new();
@@ -449,12 +445,22 @@ async fn test_monotonic_event_ordering() {
     })
     .await;
 
-    producer.await.expect("producer finished").expect("producer ok");
-    assert!(collect_result.is_ok(), "Collection should complete within 5s");
+    producer
+        .await
+        .expect("producer finished")
+        .expect("producer ok");
+    assert!(
+        collect_result.is_ok(),
+        "Collection should complete within 5s"
+    );
 
     // Validate
     let validation = validate_stream(&collector);
-    assert!(validation.passed, "Validation errors: {:?}", validation.errors);
+    assert!(
+        validation.passed,
+        "Validation errors: {:?}",
+        validation.errors
+    );
 
     // Check ordering
     let events = collector.data_events();
@@ -475,9 +481,7 @@ async fn test_done_marker_is_final() {
     let source = MockStreamingSource::new("test-done", vec!["Test".to_string()]);
 
     let done_signal = Arc::new(done_tx);
-    let producer = tokio::spawn(async move {
-        source.produce(tx, done_signal).await
-    });
+    let producer = tokio::spawn(async move { source.produce(tx, done_signal).await });
 
     // Collect
     let mut collector = SseEventCollector::new();
@@ -500,7 +504,10 @@ async fn test_done_marker_is_final() {
     })
     .await;
 
-    producer.await.expect("producer finished").expect("producer ok");
+    producer
+        .await
+        .expect("producer finished")
+        .expect("producer ok");
 
     // Verify DONE is present and final
     assert!(collector.has_done(), "Must have DONE marker");
@@ -526,9 +533,7 @@ async fn test_finish_reason_present() {
     let source = MockStreamingSource::new("test-finish", vec!["Response".to_string()]);
 
     let done_signal = Arc::new(done_tx);
-    let producer = tokio::spawn(async move {
-        source.produce(tx, done_signal).await
-    });
+    let producer = tokio::spawn(async move { source.produce(tx, done_signal).await });
 
     let mut collector = SseEventCollector::new();
     let _ = timeout(Duration::from_secs(5), async {
@@ -550,7 +555,10 @@ async fn test_finish_reason_present() {
     })
     .await;
 
-    producer.await.expect("producer finished").expect("producer ok");
+    producer
+        .await
+        .expect("producer finished")
+        .expect("producer ok");
 
     // Check finish_reason
     let final_event = collector.final_data_event().expect("final data event");
@@ -571,9 +579,7 @@ async fn test_role_in_first_chunk() {
     let source = MockStreamingSource::new("test-role", vec!["Hello".to_string()]);
 
     let done_signal = Arc::new(done_tx);
-    let producer = tokio::spawn(async move {
-        source.produce(tx, done_signal).await
-    });
+    let producer = tokio::spawn(async move { source.produce(tx, done_signal).await });
 
     let mut collector = SseEventCollector::new();
     let _ = timeout(Duration::from_secs(5), async {
@@ -595,7 +601,10 @@ async fn test_role_in_first_chunk() {
     })
     .await;
 
-    producer.await.expect("producer finished").expect("producer ok");
+    producer
+        .await
+        .expect("producer finished")
+        .expect("producer ok");
 
     // Check role
     let data_events = collector.data_events();
@@ -639,7 +648,10 @@ async fn test_timeout_ceiling() {
     .await;
 
     let elapsed = start.elapsed();
-    assert!(elapsed < Duration::from_secs(6), "Should complete within 6s");
+    assert!(
+        elapsed < Duration::from_secs(6),
+        "Should complete within 6s"
+    );
     // Channel closed immediately, so this should be very fast
     assert!(result.is_ok() || elapsed < Duration::from_secs(1));
 }
@@ -672,9 +684,7 @@ async fn test_streaming_reliability_full() {
     let source = MockStreamingSource::new("test-full-stream", tokens.clone());
 
     let done_signal = Arc::new(done_tx);
-    let producer = tokio::spawn(async move {
-        source.produce(tx, done_signal).await
-    });
+    let producer = tokio::spawn(async move { source.produce(tx, done_signal).await });
 
     // Collect all events
     let mut collector = SseEventCollector::new();
@@ -699,7 +709,10 @@ async fn test_streaming_reliability_full() {
     })
     .await;
 
-    producer.await.expect("producer finished").expect("producer ok");
+    producer
+        .await
+        .expect("producer finished")
+        .expect("producer ok");
 
     if collect_result.is_err() {
         bundle_guard.mark_failed("Stream collection timed out after 5s");
@@ -757,9 +770,7 @@ async fn test_concurrent_streams_isolation() {
             );
 
             let done_signal = Arc::new(done_tx);
-            let producer = tokio::spawn(async move {
-                source.produce(tx, done_signal).await
-            });
+            let producer = tokio::spawn(async move { source.produce(tx, done_signal).await });
 
             let mut collector = SseEventCollector::new();
             let _ = timeout(Duration::from_secs(5), async {
@@ -798,11 +809,7 @@ async fn test_concurrent_streams_isolation() {
 
     // All should pass
     for (i, result) in results.iter().enumerate() {
-        assert!(
-            result.passed,
-            "Stream {} failed: {:?}",
-            i, result.errors
-        );
+        assert!(result.passed, "Stream {} failed: {:?}", i, result.errors);
     }
 }
 

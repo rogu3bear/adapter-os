@@ -336,10 +336,13 @@ mod tests {
 
     #[test]
     fn test_failure_bundle_with_context() {
-        let bundle = TestFailureBundle::new("trace-123", "test_example")
-            .with_error("Something went wrong");
+        let bundle =
+            TestFailureBundle::new("trace-123", "test_example").with_error("Something went wrong");
 
-        assert_eq!(bundle.error_message.as_deref(), Some("Something went wrong"));
+        assert_eq!(
+            bundle.error_message.as_deref(),
+            Some("Something went wrong")
+        );
     }
 
     #[test]
