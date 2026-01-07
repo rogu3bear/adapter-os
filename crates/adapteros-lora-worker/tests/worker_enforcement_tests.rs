@@ -412,6 +412,7 @@ fn base_only_request_zeroes_priors_and_clears_decisions() {
             policy_mask_digest_b3: None,
             policy_overrides_applied: None,
             model_type: adapteros_api_types::inference::RouterModelType::Dense,
+            backend_type: None,
         });
     }
 

@@ -78,6 +78,7 @@ fn sample_inference_ref(sequence: u32) -> InferenceReceiptRef {
         model_cache_identity_v2_digest_b3: Some(B3Hash::hash(b"model-cache-id")),
         backend_used: "mock".to_string(),
         backend_attestation_b3: Some(B3Hash::hash(b"mock-attestation")),
+        seed_lineage_hash: None,
     }
 }
 
