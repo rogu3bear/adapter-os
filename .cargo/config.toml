@@ -35,3 +35,6 @@ SOURCE_DATE_EPOCH = "1704067200"
 
 [alias]
 xtask = "run --package xtask --"
+# Check cache staleness (warns if >48h or >50GB)
+# Usage: cargo check-cache
+check-cache = "xtask check-cache"

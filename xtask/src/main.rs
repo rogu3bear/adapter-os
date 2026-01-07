@@ -4,6 +4,7 @@ use anyhow::Result;
 use std::env;
 
 mod check_all;
+mod check_cache;
 mod code2db_dataset;
 mod determinism_report;
 mod openapi_docs;
@@ -22,6 +23,7 @@ async fn main() -> Result<()> {
             let verbose = env::args().any(|arg| arg == "--verbose" || arg == "-v");
             check_all::run(verbose)?;
         }
+        Some("check-cache") => check_cache::run()?,
         Some("sbom") => sbom::generate_sbom()?,
         Some("determinism-report") => determinism_report::generate_determinism_report()?,
         Some("verify-artifacts") => verify_artifacts::run()?,
@@ -101,6 +103,7 @@ fn print_help() {
     println!();
     println!("TASKS:");
     println!("  check-all           Run feature matrix checks (PRD-12)");
+    println!("  check-cache         Check cache staleness (warns if >48h or >50GB)");
     println!("  sbom                Generate SBOM from dependencies");
     println!("  determinism-report  Generate build reproducibility report");
     println!("  verify-artifacts    Verify and sign release artifacts");
