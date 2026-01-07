@@ -3,7 +3,7 @@
 //! Provides linear and time-based scales for chart rendering.
 
 /// A linear scale that maps a domain (data values) to a range (pixel coordinates).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LinearScale {
     domain_min: f64,
     domain_max: f64,
@@ -115,7 +115,7 @@ impl LinearScale {
 }
 
 /// A scale for time values (Unix timestamps in milliseconds).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TimeScale {
     inner: LinearScale,
 }
@@ -169,7 +169,7 @@ impl TimeScale {
 }
 
 /// Scale for Y-axis that inverts coordinates (SVG Y grows downward).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct InvertedYScale {
     inner: LinearScale,
 }

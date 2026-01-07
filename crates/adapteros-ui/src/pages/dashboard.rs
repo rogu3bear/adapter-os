@@ -18,6 +18,40 @@ use std::sync::Arc;
 /// Maximum number of data points to keep in history for charts
 const METRICS_HISTORY_SIZE: usize = 60;
 
+/// Lightweight snapshot of metrics for display - avoids cloning full response
+#[derive(Clone)]
+struct MetricsSnapshot {
+    cpu_usage: f32,
+    memory_usage: f32,
+    gpu_utilization: f32,
+    requests_per_second: f32,
+    avg_latency_ms: f32,
+    active_workers: i32,
+    active_sessions: Option<i32>,
+    uptime_seconds: u64,
+    load_1min: f64,
+    load_5min: f64,
+    load_15min: f64,
+}
+
+impl From<&SystemMetricsResponse> for MetricsSnapshot {
+    fn from(m: &SystemMetricsResponse) -> Self {
+        Self {
+            cpu_usage: m.cpu_usage_percent.unwrap_or(m.cpu_usage),
+            memory_usage: m.memory_usage_percent.unwrap_or(m.memory_usage),
+            gpu_utilization: m.gpu_utilization,
+            requests_per_second: m.requests_per_second,
+            avg_latency_ms: m.avg_latency_ms,
+            active_workers: m.active_workers,
+            active_sessions: m.active_sessions,
+            uptime_seconds: m.uptime_seconds,
+            load_1min: m.load_average.load_1min,
+            load_5min: m.load_average.load_5min,
+            load_15min: m.load_average.load_15min,
+        }
+    }
+}
+
 /// Metrics history for chart visualization
 #[derive(Clone, Default)]
 struct MetricsHistory {
@@ -27,6 +61,8 @@ struct MetricsHistory {
     requests_per_second: VecDeque<f64>,
     avg_latency_ms: VecDeque<f64>,
     timestamps: VecDeque<u64>,
+    /// Version counter to enable cheap change detection
+    version: u64,
 }
 
 impl MetricsHistory {
@@ -52,6 +88,9 @@ impl MetricsHistory {
             self.avg_latency_ms.pop_front();
             self.timestamps.pop_front();
         }
+
+        // Increment version for change detection
+        self.version = self.version.wrapping_add(1);
     }
 
     fn to_time_series(&self, name: &str, values: &VecDeque<f64>) -> TimeSeriesData {
@@ -77,26 +116,6 @@ impl MetricsHistory {
 
     fn latency_series(&self) -> TimeSeriesData {
         self.to_time_series("Latency (ms)", &self.avg_latency_ms)
-    }
-
-    fn cpu_values(&self) -> Vec<f64> {
-        self.cpu_usage.iter().copied().collect()
-    }
-
-    fn memory_values(&self) -> Vec<f64> {
-        self.memory_usage.iter().copied().collect()
-    }
-
-    fn gpu_values(&self) -> Vec<f64> {
-        self.gpu_utilization.iter().copied().collect()
-    }
-
-    fn rps_values(&self) -> Vec<f64> {
-        self.requests_per_second.iter().copied().collect()
-    }
-
-    fn latency_values(&self) -> Vec<f64> {
-        self.avg_latency_ms.iter().copied().collect()
     }
 }
 
@@ -124,8 +143,8 @@ pub fn Dashboard() -> impl IntoView {
     let (workers, refetch_workers) =
         use_api_resource(|client: Arc<ApiClient>| async move { client.list_workers().await });
 
-    // Live metrics from SSE stream - updated in real-time
-    let live_metrics: RwSignal<Option<SystemMetricsResponse>> = RwSignal::new(None);
+    // Live metrics snapshot - lightweight struct for display (avoids full response clone)
+    let live_metrics: RwSignal<Option<MetricsSnapshot>> = RwSignal::new(None);
 
     // Metrics history for charts
     let metrics_history: RwSignal<MetricsHistory> = RwSignal::new(MetricsHistory::default());
@@ -133,8 +152,8 @@ pub fn Dashboard() -> impl IntoView {
     // SSE connection for real-time metrics updates
     let (sse_status, _sse_reconnect) =
         use_sse_json::<SystemMetricsResponse, _>("/api/v1/stream/metrics", move |metrics| {
-            // Update current metrics
-            live_metrics.set(Some(metrics.clone()));
+            // Store lightweight snapshot instead of full response
+            live_metrics.set(Some(MetricsSnapshot::from(&metrics)));
 
             // Add to history with timestamp
             let timestamp = js_sys::Date::now() as u64;
@@ -236,7 +255,7 @@ fn SseIndicator(state: RwSignal<SseState>) -> impl IntoView {
 fn DashboardContent(
     status: SystemStatusResponse,
     workers: Vec<WorkerResponse>,
-    live_metrics: RwSignal<Option<SystemMetricsResponse>>,
+    live_metrics: RwSignal<Option<MetricsSnapshot>>,
     metrics_history: RwSignal<MetricsHistory>,
 ) -> impl IntoView {
     let is_ready = matches!(status.readiness.overall, ApiStatusIndicator::Ready);
@@ -339,19 +358,30 @@ fn DashboardContent(
 /// Live metrics section - displays real-time metrics from SSE stream with charts
 #[component]
 fn LiveMetricsSection(
-    metrics: RwSignal<Option<SystemMetricsResponse>>,
+    metrics: RwSignal<Option<MetricsSnapshot>>,
     history: RwSignal<MetricsHistory>,
 ) -> impl IntoView {
-    // Create signals for sparklines from history
-    let cpu_sparkline = Signal::derive(move || history.get().cpu_values());
-    let memory_sparkline = Signal::derive(move || history.get().memory_values());
-    let gpu_sparkline = Signal::derive(move || history.get().gpu_values());
-    let rps_sparkline = Signal::derive(move || history.get().rps_values());
-    let latency_sparkline = Signal::derive(move || history.get().latency_values());
+    // Use Memo for sparkline data - only recomputes when history version changes
+    // Each Memo captures the specific field, avoiding full history clone on render
+    let cpu_sparkline = Memo::new(move |_| {
+        history.with(|h| h.cpu_usage.iter().copied().collect::<Vec<_>>())
+    });
+    let memory_sparkline = Memo::new(move |_| {
+        history.with(|h| h.memory_usage.iter().copied().collect::<Vec<_>>())
+    });
+    let gpu_sparkline = Memo::new(move |_| {
+        history.with(|h| h.gpu_utilization.iter().copied().collect::<Vec<_>>())
+    });
+    let rps_sparkline = Memo::new(move |_| {
+        history.with(|h| h.requests_per_second.iter().copied().collect::<Vec<_>>())
+    });
+    let latency_sparkline = Memo::new(move |_| {
+        history.with(|h| h.avg_latency_ms.iter().copied().collect::<Vec<_>>())
+    });
 
-    // Time series for the line charts
-    let throughput_data = Signal::derive(move || history.get().throughput_series());
-    let latency_data = Signal::derive(move || history.get().latency_series());
+    // Time series for the line charts - memoized to avoid redundant computation
+    let throughput_data = Memo::new(move |_| history.with(|h| h.throughput_series()));
+    let latency_data = Memo::new(move |_| history.with(|h| h.latency_series()));
 
     view! {
         <div class="space-y-6 mt-6">
@@ -364,16 +394,16 @@ fn LiveMetricsSection(
                                 // CPU with sparkline
                                 <SparklineMetric
                                     label="CPU Usage".to_string()
-                                    value=format!("{:.1}%", m.cpu_usage_percent.unwrap_or(m.cpu_usage))
-                                    values=cpu_sparkline
+                                    value=format!("{:.1}%", m.cpu_usage)
+                                    values=Signal::from(cpu_sparkline)
                                     show_trend=true
                                 />
 
                                 // Memory with sparkline
                                 <SparklineMetric
                                     label="Memory Usage".to_string()
-                                    value=format!("{:.1}%", m.memory_usage_percent.unwrap_or(m.memory_usage))
-                                    values=memory_sparkline
+                                    value=format!("{:.1}%", m.memory_usage)
+                                    values=Signal::from(memory_sparkline)
                                     show_trend=true
                                 />
 
@@ -381,7 +411,7 @@ fn LiveMetricsSection(
                                 <SparklineMetric
                                     label="GPU Utilization".to_string()
                                     value=format!("{:.1}%", m.gpu_utilization)
-                                    values=gpu_sparkline
+                                    values=Signal::from(gpu_sparkline)
                                     show_trend=true
                                 />
 
@@ -389,7 +419,7 @@ fn LiveMetricsSection(
                                 <SparklineMetric
                                     label="Requests/sec".to_string()
                                     value=format!("{:.1}", m.requests_per_second)
-                                    values=rps_sparkline
+                                    values=Signal::from(rps_sparkline)
                                     show_trend=true
                                 />
 
@@ -398,7 +428,7 @@ fn LiveMetricsSection(
                                     label="Avg Latency".to_string()
                                     value=format!("{:.0} ms", m.avg_latency_ms)
                                     unit="ms".to_string()
-                                    values=latency_sparkline
+                                    values=Signal::from(latency_sparkline)
                                     show_trend=true
                                 />
 
@@ -419,8 +449,8 @@ fn LiveMetricsSection(
                                 // Load Average
                                 <MetricCard
                                     label="Load Average".to_string()
-                                    value=format!("{:.2}", m.load_average.load_1min)
-                                    trend=Some(format!("5m: {:.2} 15m: {:.2}", m.load_average.load_5min, m.load_average.load_15min))
+                                    value=format!("{:.2}", m.load_1min)
+                                    trend=Some(format!("5m: {:.2} 15m: {:.2}", m.load_5min, m.load_15min))
                                 />
                             </div>
                         }.into_any(),
@@ -440,7 +470,7 @@ fn LiveMetricsSection(
             <div class="grid gap-6 md:grid-cols-2">
                 // Throughput chart
                 <LineChart
-                    data=throughput_data
+                    data=Signal::from(throughput_data)
                     title="Throughput".to_string()
                     y_label="req/s".to_string()
                     height=200.0
@@ -449,7 +479,7 @@ fn LiveMetricsSection(
 
                 // Latency chart
                 <LineChart
-                    data=latency_data
+                    data=Signal::from(latency_data)
                     title="Latency".to_string()
                     y_label="ms".to_string()
                     height=200.0
