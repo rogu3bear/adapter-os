@@ -9051,6 +9051,98 @@
         ],
         "type": "object"
       },
+      "InvariantStatusResponse": {
+        "description": "Boot invariants status response",
+        "properties": {
+          "checked": {
+            "description": "Total number of invariants checked",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "failed": {
+            "description": "Number of invariants that failed (non-fatal)",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "fatal": {
+            "description": "Number of fatal violations",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "passed": {
+            "description": "Number of invariants that passed",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "production_mode": {
+            "description": "Whether server is running in production mode",
+            "type": "boolean"
+          },
+          "skipped": {
+            "description": "Number of invariants skipped via config",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "skipped_ids": {
+            "description": "List of invariant IDs that were skipped",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "violations": {
+            "description": "List of violations encountered",
+            "items": {
+              "$ref": "#/components/schemas/InvariantViolationDto"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "checked",
+          "passed",
+          "failed",
+          "skipped",
+          "fatal",
+          "violations",
+          "skipped_ids",
+          "production_mode"
+        ],
+        "type": "object"
+      },
+      "InvariantViolationDto": {
+        "description": "Invariant violation details for API response",
+        "properties": {
+          "id": {
+            "description": "Invariant identifier (e.g., \"SEC-001\", \"DAT-002\")",
+            "type": "string"
+          },
+          "is_fatal": {
+            "description": "Whether this violation is fatal (blocks boot in production)",
+            "type": "boolean"
+          },
+          "message": {
+            "description": "Human-readable description of the violation",
+            "type": "string"
+          },
+          "remediation": {
+            "description": "Suggested remediation steps",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "message",
+          "is_fatal",
+          "remediation"
+        ],
+        "type": "object"
+      },
       "IssueSeverity": {
         "description": "Severity levels for review issues",
         "enum": [
@@ -27645,6 +27737,28 @@
         "summary": "Get the state of an inference request",
         "tags": [
           "inference"
+        ]
+      }
+    },
+    "/v1/invariants": {
+      "get": {
+        "description": "Returns the current status of boot-time invariant checks, including\nany violations that were detected during startup.",
+        "operationId": "get_invariant_status",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvariantStatusResponse"
+                }
+              }
+            },
+            "description": "Invariants status"
+          }
+        },
+        "summary": "Get boot invariants status",
+        "tags": [
+          "system"
         ]
       }
     },
