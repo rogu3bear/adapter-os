@@ -1,6 +1,7 @@
 //! Dashboard page
 
 use crate::api::{use_sse_json, ApiClient, SseState};
+use crate::boot_log;
 use crate::components::{
     Badge, BadgeVariant, Card, ChartPoint, DataSeries, LineChart, SparklineMetric, Spinner,
     StatusColor, StatusIndicator, TimeSeriesData,
@@ -102,9 +103,22 @@ impl MetricsHistory {
 /// Dashboard page
 #[component]
 pub fn Dashboard() -> impl IntoView {
+    boot_log("route", "Dashboard rendered");
+
     // Fetch system status
     let (status, refetch) =
         use_api_resource(|client: Arc<ApiClient>| async move { client.system_status().await });
+
+    // Log first successful status fetch
+    let logged_first_status = StoredValue::new(false);
+    Effect::new(move || {
+        if let LoadingState::Loaded(_) = status.get() {
+            if !logged_first_status.get_value() {
+                logged_first_status.set_value(true);
+                boot_log("api", "first /v1/system/status success");
+            }
+        }
+    });
 
     // Fetch workers list
     let (workers, refetch_workers) =

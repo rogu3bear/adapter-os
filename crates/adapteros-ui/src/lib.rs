@@ -236,6 +236,21 @@ extern "C" {
     /// Show a panic overlay with error message and stack trace
     #[wasm_bindgen(js_name = "aosShowPanic")]
     fn show_panic(message: &str, stack_trace: &str);
+    /// Get high-resolution timestamp (performance.now())
+    #[wasm_bindgen(js_namespace = performance)]
+    fn now() -> f64;
+}
+
+/// Boot timeline event logger with high-resolution timestamps.
+/// Format: [boot T+{ms}ms] {phase}: {message}
+pub fn boot_log(phase: &str, message: &str) {
+    // Use a static to track boot start time
+    static BOOT_START: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
+    let start = *BOOT_START.get_or_init(now);
+    let elapsed = now() - start;
+    web_sys::console::log_1(
+        &format!("[boot T+{:.0}ms] {}: {}", elapsed, phase, message).into(),
+    );
 }
 
 /// PRD-UI-000: Custom panic hook that displays errors in the DOM with redaction
@@ -289,28 +304,32 @@ fn set_dom_panic_hook() {
 
 #[wasm_bindgen::prelude::wasm_bindgen(start)]
 pub fn mount() {
-    // PRD-UI-000: Signal that WASM binary is compiled and executing
+    // Boot timeline: T+0ms - WASM binary executing
+    boot_log("wasm", "binary loaded, executing start");
     signal_wasm_compile_done();
 
     // Set up panic hooks FIRST - before any code that might panic
     console_error_panic_hook::set_once();
     set_dom_panic_hook();
+    boot_log("wasm", "panic hooks installed");
 
     // PRD-UI-000: Initialize redaction patterns AFTER panic hooks
     // This ensures any regex compilation panic is caught by the hook
     let _ = REDACTION_PATTERNS.get_or_init(RedactionPatterns::new);
+    boot_log("wasm", "redaction patterns compiled");
 
     // Initialize tracing
     tracing_wasm::set_as_global_default();
+    boot_log("wasm", "tracing initialized");
 
     // PRD-UI-000: Signal runtime is initialized
     signal_wasm_loaded();
-    web_sys::console::log_1(&"[mount] Starting app mount...".into());
+    boot_log("mount", "runtime ready, mounting Leptos app");
 
     // Mount the Leptos app
     leptos::mount::mount_to_body(App);
 
     // PRD-UI-000: Signal app is mounted (triggers backend health check)
     signal_mounted();
-    web_sys::console::log_1(&"[mount] App mounted successfully".into());
+    boot_log("mount", "app mounted to DOM");
 }
