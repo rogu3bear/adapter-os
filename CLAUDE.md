@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AdapterOS is a Rust-based deterministic ML inference platform for Apple Silicon. It provides K-sparse LoRA routing, Metal-optimized kernels, and policy enforcement for production environments. The system is designed for air-gapped deployments with zero network egress during serving.
 
+**Getting Started**: See [docs/getting-started.md](docs/getting-started.md) for the canonical setup guide (5-minute quick start, prerequisites, verification).
+
 ## Build Commands
 
 ```bash
@@ -153,13 +155,13 @@ Full reference: `docs/CONFIGURATION.md#diagnostics-configuration`.
 
 | Command | Status | Notes / Workaround |
 |---------|--------|--------------------|
-| `aosctl aos migrate` | [NOT IMPLEMENTED] | Repackage with `aosctl aos create` if source weights are available. |
+| `aosctl aos migrate` | ✓ Implemented | Migrates .aos files between format versions with backup support. |
 | `aosctl aos convert` | [NOT IMPLEMENTED] | Repackage to AOS2 via `aosctl aos create` until convert is available. |
 | `aosctl node sync export` | [NOT IMPLEMENTED] | Air-gap workflow is not available; use `aosctl node sync push/pull` on connected nodes. |
 | `aosctl node sync import` | [NOT IMPLEMENTED] | Air-gap workflow is not available; use `aosctl node sync push/pull` on connected nodes. |
-| `aosctl cdp list` | [NOT IMPLEMENTED] | Awaiting code intelligence integration; no CLI workaround yet. |
+| `aosctl cdp list` | ✓ Implemented | Lists CDPs for a repository with table/JSON output. |
 | `aosctl migrate adapter` | [NOT IMPLEMENTED] | Use `aosctl aos create` for new bundles; `aosctl adapter migrate-hashes` is separate. |
-| `aosctl serve --backend coreml` | [NOT IMPLEMENTED] | Use `--backend metal` (default) or `--backend mlx` (requires `--features multi-backend`). |
+| `aosctl serve --backend coreml` | ✓ Implemented | CoreML backend for macOS Neural Engine acceleration. |
 
 Tracking: https://github.com/rogu3bear/adapter-os/issues/194
 
