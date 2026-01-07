@@ -8,14 +8,20 @@ use ratatui::{
 
 use crate::app::{App, Screen};
 
+mod adapters;
+mod chat;
 mod dashboard;
 mod services;
 mod status_bar;
+mod training;
 mod widgets;
 
+use adapters::draw_adapters;
+use chat::draw_chat;
 use dashboard::draw_dashboard;
 use services::draw_services;
 use status_bar::draw_status_bar;
+use training::draw_training;
 
 // Main draw function that orchestrates all UI components
 pub fn draw(f: &mut Frame, app: &App) {
@@ -34,7 +40,10 @@ pub fn draw(f: &mut Frame, app: &App) {
     // Draw main content based on current screen
     match app.current_screen {
         Screen::Dashboard => draw_dashboard(f, app, chunks[1]),
+        Screen::Adapters => draw_adapters(f, app, chunks[1]),
         Screen::Services => draw_services(f, app, chunks[1]),
+        Screen::Training => draw_training(f, app, chunks[1]),
+        Screen::Chat => draw_chat(f, app, chunks[1]),
         Screen::Logs => draw_logs(f, app, chunks[1]),
         Screen::Metrics => draw_metrics(f, app, chunks[1]),
         Screen::Config => draw_config(f, app, chunks[1]),
@@ -433,12 +442,15 @@ fn draw_help(f: &mut Frame, _app: &App, area: Rect) {
         Line::from("  Esc       Go back/cancel"),
         Line::from(""),
         Line::from("Quick Keys:"),
-        Line::from("  b         Boot all services"),
+        Line::from("  d         Dashboard"),
         Line::from("  s         Services screen"),
+        Line::from("  a         Adapters screen"),
+        Line::from("  r         Training screen"),
+        Line::from("  i         Chat/Inference screen"),
         Line::from("  l         Logs screen"),
         Line::from("  m         Metrics screen"),
         Line::from("  c         Config screen"),
-        Line::from("  d         Dashboard"),
+        Line::from("  b         Boot all services"),
         Line::from("  p         Toggle production mode"),
         Line::from("  h         Toggle this help"),
         Line::from("  q         Quit"),
