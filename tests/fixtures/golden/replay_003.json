@@ -1,0 +1,10 @@
+{
+  "id": "replay_003",
+  "input_seed_hex": "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a",
+  "expected_decision_hash": "PLACEHOLDER_DECISION_HASH_64_CHARS_WILL_BE_COMPUTED_AT_RUNTIME_XX",
+  "expected_output_digest": "PLACEHOLDER_OUTPUT_DIGEST_64_CHARS_WILL_BE_COMPUTED_AT_RUNTIME_XX",
+  "expected_receipt_digest": "PLACEHOLDER_RECEIPT_DIGEST_64_CHARS_WILL_BE_COMPUTED_AT_RUNTIME_X",
+  "hkdf_version": 2,
+  "verified": false,
+  "_comment": "This fixture will be regenerated with actual values by running: cargo test --test determinism_replay_harness test_generate_golden_fixtures"
+}
