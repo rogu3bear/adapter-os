@@ -193,7 +193,7 @@ impl CommitDeltaPack {
         metadata: CdpMetadata,
     ) -> Self {
         let cdp_id = CdpId::new(&repo_id, &commit_sha);
-        
+
         Self {
             cdp_id,
             repo_id,
@@ -215,16 +215,17 @@ impl CommitDeltaPack {
 
     /// Check if CDP has any linter issues
     pub fn has_linter_issues(&self) -> bool {
-        self.linter_results.iter().any(|result| {
-            !result.errors.is_empty() || !result.warnings.is_empty()
-        })
+        self.linter_results
+            .iter()
+            .any(|result| !result.errors.is_empty() || !result.warnings.is_empty())
     }
 
     /// Get total number of linter issues
     pub fn total_linter_issues(&self) -> usize {
-        self.linter_results.iter().map(|result| {
-            result.errors.len() + result.warnings.len()
-        }).sum()
+        self.linter_results
+            .iter()
+            .map(|result| result.errors.len() + result.warnings.len())
+            .sum()
     }
 
     /// Get languages detected in the changes
@@ -249,10 +250,10 @@ mod tests {
         let id1 = CdpId::new("repo1", "abc123");
         let id2 = CdpId::new("repo1", "abc123");
         let id3 = CdpId::new("repo2", "abc123");
-        
+
         // Same repo and commit should generate same ID
         assert_eq!(id1, id2);
-        
+
         // Different repo should generate different ID
         assert_ne!(id1, id3);
     }
@@ -261,10 +262,12 @@ mod tests {
     fn test_diff_summary() {
         let mut summary = DiffSummary::new();
         summary.added_files.push(PathBuf::from("new_file.rs"));
-        summary.modified_files.push(PathBuf::from("existing_file.rs"));
+        summary
+            .modified_files
+            .push(PathBuf::from("existing_file.rs"));
         summary.lines_added = 10;
         summary.lines_removed = 5;
-        
+
         assert_eq!(summary.total_files(), 2);
         assert!(!summary.is_empty());
     }
@@ -279,7 +282,7 @@ mod tests {
             line: 42,
             column_range: Some((10, 20)),
         };
-        
+
         assert_eq!(symbol.name, "test_function");
         assert_eq!(symbol.kind, SymbolKind::Function);
     }
@@ -297,7 +300,7 @@ mod tests {
             committer: None,
             committer_name: None,
         };
-        
+
         let cdp = CommitDeltaPack::new(
             "test-repo".to_string(),
             "abc123".to_string(),
@@ -308,7 +311,7 @@ mod tests {
             Vec::new(),
             metadata,
         );
-        
+
         assert_eq!(cdp.repo_id, "test-repo");
         assert_eq!(cdp.commit_sha, "abc123");
         assert_eq!(cdp.parent_sha, "def456");

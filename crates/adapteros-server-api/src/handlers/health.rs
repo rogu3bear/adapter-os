@@ -808,3 +808,88 @@ fn map_boot_state(state: &AppState) -> String {
         "unknown".to_string()
     }
 }
+
+// =============================================================================
+// Boot Invariants Status Endpoint
+// =============================================================================
+
+/// Invariant violation details for API response
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct InvariantViolationDto {
+    /// Invariant identifier (e.g., "SEC-001", "DAT-002")
+    pub id: String,
+    /// Human-readable description of the violation
+    pub message: String,
+    /// Whether this violation is fatal (blocks boot in production)
+    pub is_fatal: bool,
+    /// Suggested remediation steps
+    pub remediation: String,
+}
+
+/// Boot invariants status response
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct InvariantStatusResponse {
+    /// Total number of invariants checked
+    pub checked: u64,
+    /// Number of invariants that passed
+    pub passed: u64,
+    /// Number of invariants that failed (non-fatal)
+    pub failed: u64,
+    /// Number of invariants skipped via config
+    pub skipped: u64,
+    /// Number of fatal violations
+    pub fatal: u64,
+    /// List of violations encountered
+    pub violations: Vec<InvariantViolationDto>,
+    /// List of invariant IDs that were skipped
+    pub skipped_ids: Vec<String>,
+    /// Whether server is running in production mode
+    pub production_mode: bool,
+}
+
+/// Get boot invariants status
+///
+/// Returns the current status of boot-time invariant checks, including
+/// any violations that were detected during startup.
+#[utoipa::path(
+    tag = "system",
+    get,
+    path = "/v1/invariants",
+    responses(
+        (status = 200, description = "Invariants status", body = InvariantStatusResponse)
+    )
+)]
+pub async fn get_invariant_status(State(state): State<AppState>) -> Json<InvariantStatusResponse> {
+    // Read production mode from config
+    let production_mode = {
+        let cfg = state.config.read().unwrap_or_else(|e| {
+            tracing::warn!("Config lock poisoned in invariants check, recovering");
+            e.into_inner()
+        });
+        cfg.server.production_mode
+    };
+
+    // Get boot invariant metrics from the shared static atomic counters in adapteros-boot
+    let metrics = adapteros_boot::boot_invariant_metrics();
+
+    // Calculate passed count (checked - failed - skipped)
+    let passed = metrics
+        .checked
+        .saturating_sub(metrics.violated)
+        .saturating_sub(metrics.skipped);
+
+    // Convert to response format
+    // Note: The actual violations are tracked at boot time; this endpoint
+    // returns the summary metrics. For detailed violation info, operators
+    // should check the boot logs or use `aosctl doctor`.
+    Json(InvariantStatusResponse {
+        checked: metrics.checked,
+        passed,
+        failed: metrics.violated,
+        skipped: metrics.skipped,
+        fatal: metrics.fatal,
+        violations: Vec::new(),  // Detailed violations are in boot logs
+        skipped_ids: Vec::new(), // Would need to track these separately
+        production_mode,
+    })
+}

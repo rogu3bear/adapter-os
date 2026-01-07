@@ -556,9 +556,7 @@ pub fn validate_inference_context(ctx: &InferenceDeterminismContext) -> Result<(
 
     // EP-4.3: NonDeterministic mode bypasses checks (benchmarking only)
     if ctx.seed_mode == SeedMode::NonDeterministic {
-        tracing::warn!(
-            "EP-4: NonDeterministic mode active - inference is not replayable"
-        );
+        tracing::warn!("EP-4: NonDeterministic mode active - inference is not replayable");
     }
 
     Ok(())

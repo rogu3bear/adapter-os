@@ -33,19 +33,14 @@ use adapteros_core::{AosError, B3Hash, Result};
 use serde::{Deserialize, Serialize};
 
 /// Signing mode for receipt operations
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum SigningMode {
     /// Production mode: signing REQUIRED. Unsigned receipts are rejected.
+    /// This is the default for safety (fail-closed).
+    #[default]
     Production,
     /// Development mode: signing optional. Use for testing only.
     Development,
-}
-
-impl Default for SigningMode {
-    fn default() -> Self {
-        // Default to Production for safety (fail-closed)
-        Self::Production
-    }
 }
 
 impl SigningMode {
@@ -55,7 +50,7 @@ impl SigningMode {
     }
 
     /// Parse from environment variable or config string
-    pub fn from_str(s: &str) -> Self {
+    pub fn parse_mode(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "development" | "dev" | "test" => Self::Development,
             _ => Self::Production,
@@ -65,7 +60,7 @@ impl SigningMode {
     /// Get mode from environment variable AOS_SIGNING_MODE
     pub fn from_env() -> Self {
         std::env::var("AOS_SIGNING_MODE")
-            .map(|v| Self::from_str(&v))
+            .map(|v| Self::parse_mode(&v))
             .unwrap_or(Self::Production)
     }
 }
@@ -96,17 +91,15 @@ impl SignedReceipt {
             return Ok(false);
         };
         let Some(ref pk_hex) = self.public_key_hex else {
-            return Err(AosError::crypto(
-                "Signature present but public key missing",
-            ));
+            return Err(AosError::crypto("Signature present but public key missing"));
         };
 
         let pk_bytes = hex::decode(pk_hex)
             .map_err(|e| AosError::crypto(format!("Invalid public key hex: {}", e)))?;
 
-        let pk_array: [u8; 32] = pk_bytes.try_into().map_err(|_| {
-            AosError::crypto("Public key wrong length: expected 32 bytes")
-        })?;
+        let pk_array: [u8; 32] = pk_bytes
+            .try_into()
+            .map_err(|_| AosError::crypto("Public key wrong length: expected 32 bytes"))?;
 
         let pk = crate::signature::PublicKey::from_bytes(&pk_array)?;
         Ok(pk.verify(self.digest.as_bytes(), sig).is_ok())
@@ -114,9 +107,9 @@ impl SignedReceipt {
 
     /// Get signature as base64 string
     pub fn signature_b64(&self) -> Option<String> {
-        self.signature
-            .as_ref()
-            .map(|s| base64::Engine::encode(&base64::engine::general_purpose::STANDARD, s.to_bytes()))
+        self.signature.as_ref().map(|s| {
+            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, s.to_bytes())
+        })
     }
 
     /// Get signature as raw bytes
@@ -150,9 +143,7 @@ pub fn sign_receipt_digest(
 ) -> Result<SignedReceipt> {
     // Fail-closed in production: no keypair = error
     if mode.requires_signing() && keypair.is_none() {
-        tracing::error!(
-            "Receipt signing REQUIRED in production mode but no keypair provided"
-        );
+        tracing::error!("Receipt signing REQUIRED in production mode but no keypair provided");
         // Emit telemetry event for observability
         let event = adapteros_core::telemetry::strict_mode_failure_event(
             "Receipt signing required but no keypair available",

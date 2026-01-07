@@ -15,12 +15,12 @@
 //! - T9: Seed lineage receipt binding
 //! - T10: Dual-write drift detection
 
-use adapteros_core::seed::{SeedLineage, SeedMode, TypedSeed, HKDF_ALGORITHM_VERSION};
-use adapteros_core::B3Hash;
 use adapteros_core::evidence_envelope::{
     EvidenceEnvelope, EvidenceScope, InferenceReceiptRef, ReceiptCompletenessReport,
     EVIDENCE_ENVELOPE_SCHEMA_VERSION,
 };
+use adapteros_core::seed::{SeedLineage, SeedMode, TypedSeed, HKDF_ALGORITHM_VERSION};
+use adapteros_core::B3Hash;
 use adapteros_lora_kernel_api::attestation::{
     BackendType, DeterminismLevel, DeterminismReport, FloatingPointMode, RngSeedingMethod,
 };
@@ -240,8 +240,7 @@ fn test_evidence_chain_detects_tampering() {
     tampered_receipt.backend_used = "tampered".to_string();
 
     // Create envelope with tampered receipt
-    let tampered_env =
-        EvidenceEnvelope::new_inference("tenant".into(), tampered_receipt, None);
+    let tampered_env = EvidenceEnvelope::new_inference("tenant".into(), tampered_receipt, None);
 
     // Tampered envelope must have different digest
     assert_ne!(
@@ -307,10 +306,7 @@ fn test_strict_mode_with_primary_seed_succeeds() {
 
     // Strict mode with primary seed should succeed
     let result = manager.init_with_mode(Some(seed), SeedMode::Strict);
-    assert!(
-        result.is_ok(),
-        "Strict mode with primary seed must succeed"
-    );
+    assert!(result.is_ok(), "Strict mode with primary seed must succeed");
     assert_eq!(result.unwrap(), seed);
 }
 
@@ -345,10 +341,8 @@ fn test_metallib_required_for_bitexact_metal() {
 
 #[test]
 fn test_metallib_verified_passes_bitexact() {
-    let report = DeterminismReport::for_metal_verified(
-        B3Hash::hash(b"metallib"),
-        Some("1.0.0".to_string()),
-    );
+    let report =
+        DeterminismReport::for_metal_verified(B3Hash::hash(b"metallib"), Some("1.0.0".to_string()));
 
     let result = report.validate_for_inference(DeterminismLevel::BitExact);
     assert!(
@@ -396,7 +390,10 @@ fn test_seed_lineage_binding_hash_stability() {
 
         // First iteration sets expected, rest verify
         let expected = SeedLineage::from_raw_seed(&seed, SeedMode::Strict, true).to_binding_hash();
-        assert_eq!(hash, expected, "Binding hash must be stable across invocations");
+        assert_eq!(
+            hash, expected,
+            "Binding hash must be stable across invocations"
+        );
     }
 }
 
@@ -406,10 +403,10 @@ fn test_seed_lineage_binding_hash_stability() {
 
 #[test]
 fn test_dual_write_drift_detection_backend_type() {
-    let primary = RouterDecision::new(0, vec![], 0.5, 1.0, 0.01)
-        .with_backend_type("metal".to_string());
-    let secondary = RouterDecision::new(0, vec![], 0.5, 1.0, 0.01)
-        .with_backend_type("coreml".to_string());
+    let primary =
+        RouterDecision::new(0, vec![], 0.5, 1.0, 0.01).with_backend_type("metal".to_string());
+    let secondary =
+        RouterDecision::new(0, vec![], 0.5, 1.0, 0.01).with_backend_type("coreml".to_string());
 
     let drift = detect_backend_drift(&primary, &secondary);
     assert!(drift.is_some(), "Backend type drift must be detected");
@@ -429,10 +426,10 @@ fn test_dual_write_drift_detection_entropy() {
 
 #[test]
 fn test_dual_write_no_drift() {
-    let primary = RouterDecision::new(0, vec![], 0.5, 1.0, 0.01)
-        .with_backend_type("metal".to_string());
-    let secondary = RouterDecision::new(0, vec![], 0.5, 1.0, 0.01)
-        .with_backend_type("metal".to_string());
+    let primary =
+        RouterDecision::new(0, vec![], 0.5, 1.0, 0.01).with_backend_type("metal".to_string());
+    let secondary =
+        RouterDecision::new(0, vec![], 0.5, 1.0, 0.01).with_backend_type("metal".to_string());
 
     let drift = detect_backend_drift(&primary, &secondary);
     assert!(drift.is_none(), "Identical records must not report drift");
@@ -450,7 +447,10 @@ fn test_receipt_completeness_all_fields_present() {
     receipt.backend_attestation_b3 = Some(B3Hash::hash(b"attestation"));
 
     let report = receipt.validate_completeness();
-    assert!(report.is_complete, "Receipt with all fields should be complete");
+    assert!(
+        report.is_complete,
+        "Receipt with all fields should be complete"
+    );
     assert!(report.missing_fields.is_empty());
 }
 

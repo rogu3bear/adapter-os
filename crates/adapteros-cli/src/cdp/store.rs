@@ -86,7 +86,9 @@ impl CdpStore {
     /// Load a CDP by its ID
     pub fn load_cdp(&self, cdp_id: &CdpId) -> Result<CommitDeltaPack> {
         // Get metadata to find content hash
-        let metadata = self.metadata_index.get(cdp_id)
+        let metadata = self
+            .metadata_index
+            .get(cdp_id)
             .ok_or_else(|| AosError::NotFound(format!("CDP not found: {}", cdp_id)))?;
 
         // Load from CAS
@@ -140,16 +142,33 @@ impl CdpStore {
     pub fn search_by_message(&self, query: &str) -> Vec<&CdpMetadata> {
         self.metadata_index
             .values()
-            .filter(|metadata| metadata.message.to_lowercase().contains(&query.to_lowercase()))
+            .filter(|metadata| {
+                metadata
+                    .message
+                    .to_lowercase()
+                    .contains(&query.to_lowercase())
+            })
             .collect()
     }
 
     /// Get CDP statistics
     pub fn get_stats(&self) -> CdpStats {
         let total_cdps = self.metadata_index.len();
-        let test_passed = self.metadata_index.values().filter(|m| m.test_passed).count();
-        let with_linter_issues = self.metadata_index.values().filter(|m| m.linter_issues > 0).count();
-        let total_symbols = self.metadata_index.values().map(|m| m.changed_symbols).sum();
+        let test_passed = self
+            .metadata_index
+            .values()
+            .filter(|m| m.test_passed)
+            .count();
+        let with_linter_issues = self
+            .metadata_index
+            .values()
+            .filter(|m| m.linter_issues > 0)
+            .count();
+        let total_symbols = self
+            .metadata_index
+            .values()
+            .map(|m| m.changed_symbols)
+            .sum();
 
         CdpStats {
             total_cdps,
@@ -238,7 +257,7 @@ impl CdpStats {
 mod tests {
     use super::*;
     use crate::cdp::{DiffSummary, SymbolChangeType, SymbolKind};
-    use adapteros_lora_worker::{LinterResult, LinterType, TestResult, TestFramework};
+    use adapteros_lora_worker::{LinterResult, LinterType, TestFramework, TestResult};
     use adapteros_platform::common::PlatformUtils;
     use tempfile::TempDir;
 
@@ -283,17 +302,17 @@ mod tests {
     fn test_store_and_load_cdp() {
         let temp_dir = new_test_tempdir();
         let mut store = CdpStore::new(temp_dir.path()).unwrap();
-        
+
         let cdp = create_test_cdp();
         let cdp_id = cdp.cdp_id.clone();
-        
+
         // Store CDP
         let content_hash = store.store_cdp(&cdp).unwrap();
         assert!(!content_hash.to_hex().is_empty());
-        
+
         // Check exists
         assert!(store.exists(&cdp_id));
-        
+
         // Load CDP
         let loaded_cdp = store.load_cdp(&cdp_id).unwrap();
         assert_eq!(loaded_cdp.cdp_id, cdp_id);
@@ -305,10 +324,10 @@ mod tests {
     fn test_list_for_repo() {
         let temp_dir = new_test_tempdir();
         let mut store = CdpStore::new(temp_dir.path()).unwrap();
-        
+
         let cdp = create_test_cdp();
         store.store_cdp(&cdp).unwrap();
-        
+
         let repo_cdps = store.list_for_repo("test-repo");
         assert_eq!(repo_cdps.len(), 1);
         assert_eq!(repo_cdps[0].repo_id, "test-repo");
@@ -318,10 +337,10 @@ mod tests {
     fn test_search_by_author() {
         let temp_dir = new_test_tempdir();
         let mut store = CdpStore::new(temp_dir.path()).unwrap();
-        
+
         let cdp = create_test_cdp();
         store.store_cdp(&cdp).unwrap();
-        
+
         let author_cdps = store.search_by_author("test@example.com");
         assert_eq!(author_cdps.len(), 1);
         assert_eq!(author_cdps[0].author, "test@example.com");
@@ -331,10 +350,10 @@ mod tests {
     fn test_get_stats() {
         let temp_dir = new_test_tempdir();
         let mut store = CdpStore::new(temp_dir.path()).unwrap();
-        
+
         let cdp = create_test_cdp();
         store.store_cdp(&cdp).unwrap();
-        
+
         let stats = store.get_stats();
         assert_eq!(stats.total_cdps, 1);
         assert_eq!(stats.test_passed, 1);

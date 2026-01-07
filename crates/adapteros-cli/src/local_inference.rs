@@ -7,16 +7,19 @@ use adapteros_core::{AosError, Result};
 use std::path::Path;
 
 #[cfg(feature = "multi-backend")]
-use adapteros_lora_mlx_ffi::MLXTokenizer;
+use adapteros_core::B3Hash;
+#[cfg(feature = "multi-backend")]
+use adapteros_lora_mlx_ffi::{GenerationConfig, MLXFFIModel, MLXGenerator, MLXTokenizer};
 
 /// Local inference engine wrapping MLX directly
-#[derive(Debug)]
 pub struct LocalInferenceEngine {
     #[cfg(feature = "multi-backend")]
     tokenizer: MLXTokenizer,
-    model_path: std::path::PathBuf,
     #[cfg(feature = "multi-backend")]
-    _initialized: bool,
+    model: MLXFFIModel,
+    #[cfg(feature = "multi-backend")]
+    base_seed: B3Hash,
+    model_path: std::path::PathBuf,
 }
 
 impl LocalInferenceEngine {
@@ -64,16 +67,26 @@ impl LocalInferenceEngine {
             let tokenizer = MLXTokenizer::from_file(&tokenizer_path)
                 .map_err(|e| AosError::Config(format!("Failed to load tokenizer: {}", e)))?;
 
+            // Load model
+            let model = MLXFFIModel::load(model_path)
+                .map_err(|e| AosError::Config(format!("Failed to load model: {}", e)))?;
+
+            // Deterministic seed for all generation
+            let base_seed = B3Hash::hash(b"local-inference-cli");
+
             tracing::info!(
                 model_path = %model_path.display(),
                 vocab_size = tokenizer.vocab_size(),
-                "Local inference engine initialized"
+                eos_token = tokenizer.eos_token_id(),
+                num_layers = model.config.num_hidden_layers,
+                "Local inference engine initialized with model"
             );
 
             Ok(Self {
                 tokenizer,
+                model,
+                base_seed,
                 model_path: model_path.to_path_buf(),
-                _initialized: true,
             })
         }
     }
@@ -98,28 +111,53 @@ impl LocalInferenceEngine {
     /// Generate text (non-streaming)
     #[cfg(feature = "multi-backend")]
     pub fn generate(&self, prompt: &str, max_tokens: usize, temperature: f32) -> Result<String> {
-        // For MVP, we use the tokenizer to validate input and return a placeholder
-        // Full generation will be implemented when MLX model loading is wired up
-
-        let tokens = self
+        // Encode prompt tokens
+        let prompt_tokens = self
             .tokenizer
             .encode(prompt)
             .map_err(|e| AosError::Internal(format!("Tokenization failed: {}", e)))?;
 
         tracing::debug!(
-            prompt_tokens = tokens.len(),
+            prompt_tokens = prompt_tokens.len(),
             max_tokens = max_tokens,
             temperature = temperature,
-            "Generate request (MVP stub)"
+            "Starting generation"
         );
 
-        // TODO: Wire up actual MLX model generation
-        // For now return a placeholder that confirms the engine is working
-        Ok(format!(
-            "[Local inference MVP - tokenized {} tokens, would generate up to {}]",
-            tokens.len(),
-            max_tokens
-        ))
+        // Create generation config for this request
+        let gen_config = GenerationConfig {
+            max_tokens,
+            temperature,
+            top_k: Some(50),
+            top_p: Some(0.9),
+            repetition_penalty: 1.1,
+            eos_token: self.tokenizer.eos_token_id(),
+            use_cache: true,
+            kv_num_layers: Some(self.model.config.num_hidden_layers),
+        };
+
+        // Create generator for this request
+        let mut generator = MLXGenerator::new(self.base_seed, gen_config)
+            .map_err(|e| AosError::Internal(format!("Failed to create generator: {}", e)))?;
+
+        // Generate tokens
+        let generated_tokens = generator
+            .generate(&self.model, prompt_tokens)
+            .map_err(|e| AosError::Internal(format!("Generation failed: {}", e)))?;
+
+        // Decode to text
+        let output = self
+            .tokenizer
+            .decode(&generated_tokens)
+            .map_err(|e| AosError::Internal(format!("Decoding failed: {}", e)))?;
+
+        tracing::debug!(
+            output_tokens = generated_tokens.len(),
+            output_len = output.len(),
+            "Generation complete"
+        );
+
+        Ok(output)
     }
 
     #[cfg(not(feature = "multi-backend"))]
@@ -141,29 +179,51 @@ impl LocalInferenceEngine {
     where
         F: FnMut(&str) -> bool,
     {
-        // For MVP, tokenize and call callback with placeholder tokens
-        let tokens = self
+        // Encode prompt tokens
+        let prompt_tokens = self
             .tokenizer
             .encode(prompt)
             .map_err(|e| AosError::Internal(format!("Tokenization failed: {}", e)))?;
 
+        let prompt_len = prompt_tokens.len();
+
         tracing::debug!(
-            prompt_tokens = tokens.len(),
+            prompt_tokens = prompt_len,
             max_tokens = max_tokens,
             temperature = temperature,
-            "Stream generate request (MVP stub)"
+            "Starting streaming generation"
         );
 
-        // TODO: Wire up actual streaming generation
-        // For now, simulate streaming with placeholder text
-        let words = ["[Local", " inference", " MVP", " -", " streaming", " works!]"];
-        for word in words {
-            if !callback(word) {
-                break;
-            }
-            // Small delay to simulate streaming
-            std::thread::sleep(std::time::Duration::from_millis(50));
-        }
+        // Create generation config for this request
+        let gen_config = GenerationConfig {
+            max_tokens,
+            temperature,
+            top_k: Some(50),
+            top_p: Some(0.9),
+            repetition_penalty: 1.1,
+            eos_token: self.tokenizer.eos_token_id(),
+            use_cache: true,
+            kv_num_layers: Some(self.model.config.num_hidden_layers),
+        };
+
+        // Create generator for this request
+        let mut generator = MLXGenerator::new(self.base_seed, gen_config)
+            .map_err(|e| AosError::Internal(format!("Failed to create generator: {}", e)))?;
+
+        // Generate with streaming callback
+        let _tokens = generator
+            .generate_streaming(&self.model, prompt_tokens, |token, _position| {
+                // Decode single token to text
+                let text = self
+                    .tokenizer
+                    .decode(&[token])
+                    .unwrap_or_else(|_| String::new());
+
+                // Call user callback, return whether to continue
+                let should_continue = callback(&text);
+                Ok(should_continue)
+            })
+            .map_err(|e| AosError::Internal(format!("Streaming generation failed: {}", e)))?;
 
         Ok(())
     }

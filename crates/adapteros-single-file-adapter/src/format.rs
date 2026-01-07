@@ -79,39 +79,6 @@ pub enum WeightGroupType {
     Combined,
 }
 
-/// Compression level for .aos packaging
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum CompressionLevel {
-    /// No compression (fastest)
-    Store,
-    /// Fast compression (default for most files)
-    #[default]
-    Fast,
-    /// Best compression (slowest, smallest)
-    Best,
-}
-
-impl CompressionLevel {
-    /// Convert to zip compression method and level
-    pub fn to_zip_options(self) -> (zip::CompressionMethod, Option<i64>) {
-        use zip::CompressionMethod;
-        match self {
-            Self::Store => (CompressionMethod::Stored, None),
-            Self::Fast => (CompressionMethod::Deflated, Some(3)),
-            Self::Best => (CompressionMethod::Deflated, Some(9)),
-        }
-    }
-
-    /// Get compression method name for manifest
-    pub fn method_name(self) -> &'static str {
-        match self {
-            Self::Store => "stored",
-            Self::Fast => "deflate-fast",
-            Self::Best => "deflate-best",
-        }
-    }
-}
-
 /// Adapter manifest (enhanced version of existing manifest)
 ///
 /// PRD-ART-01: This manifest is the source of truth for adapter identity and portability.

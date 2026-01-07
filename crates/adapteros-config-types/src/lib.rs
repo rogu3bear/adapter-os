@@ -288,7 +288,49 @@ pub struct InvariantsConfig {
     /// Disable SEC-005: Cookie security check
     #[serde(default)]
     pub disable_sec_005_cookie_security: bool,
+    /// Disable SEC-006: JWT algorithm configuration check
+    #[serde(default)]
+    pub disable_sec_006_jwt_verify: bool,
     /// Disable SEC-015: Signature bypass env var check (NOT RECOMMENDED)
     #[serde(default)]
     pub disable_sec_015_signature_bypass: bool,
+    /// Disable DAT-002: Foreign key constraints check
+    #[serde(default)]
+    pub disable_dat_002_foreign_keys: bool,
+    /// Disable DAT-006: Migration ordering check
+    #[serde(default)]
+    pub disable_dat_006_migration_order: bool,
+    /// Disable DAT-007: Audit chain initialization check (FAILS OPEN - warning only)
+    #[serde(default)]
+    pub disable_dat_007_audit_chain: bool,
+    /// Disable LIF-002: Executor initialization check
+    #[serde(default)]
+    pub disable_lif_002_executor_init: bool,
+    /// Disable SEC-008: RBAC permission configuration check
+    #[serde(default)]
+    pub disable_sec_008_rbac_config: bool,
+    /// Disable SEC-014: Brute force protection configuration check
+    #[serde(default)]
+    pub disable_sec_014_brute_force: bool,
+    /// Disable DAT-005: Storage mode enum validation check
+    #[serde(default)]
+    pub disable_dat_005_storage_mode: bool,
+    /// Disable CFG-002: Session TTL hierarchy validation check
+    #[serde(default)]
+    pub disable_cfg_002_session_ttl: bool,
+    /// Disable SEC-007: Tenant isolation configuration check
+    #[serde(default)]
+    pub disable_sec_007_tenant_isolation: bool,
+    /// Disable MEM-003: Memory headroom configuration check
+    #[serde(default)]
+    pub disable_mem_003_memory_headroom: bool,
+    /// Disable LIF-001: Boot phase ordering check (advisory)
+    #[serde(default)]
+    pub disable_lif_001_boot_ordering: bool,
+    /// Disable DAT-001: Archive state machine triggers check (requires DB)
+    #[serde(default)]
+    pub disable_dat_001_archive_triggers: bool,
+    /// Disable LIF-004: Connection pool drain configuration check
+    #[serde(default)]
+    pub disable_lif_004_pool_drain: bool,
 }

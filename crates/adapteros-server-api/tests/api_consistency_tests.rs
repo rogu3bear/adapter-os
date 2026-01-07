@@ -9,10 +9,10 @@
 
 #[cfg(test)]
 mod api_consistency {
-    /// Test: Verify core routes are defined by checking routes.rs for expected paths.
+    /// Test: Verify core routes are defined by checking routes/mod.rs for expected paths.
     #[test]
     fn test_core_routes_defined() {
-        let routes_rs = include_str!("../src/routes.rs");
+        let routes_rs = include_str!("../src/routes/mod.rs");
         let core_routes = vec![
             "/healthz",
             "/readyz",

@@ -78,6 +78,11 @@ impl PolicyId {
         ]
     }
 
+    /// Get the count of all policy IDs
+    pub fn count() -> usize {
+        Self::all().len()
+    }
+
     /// Get policy name
     pub fn name(&self) -> &'static str {
         match self {

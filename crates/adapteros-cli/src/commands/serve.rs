@@ -340,23 +340,7 @@ pub async fn run(
         }
         BackendType::CoreML => {
             output.verbose("Using CoreML backend (macOS Neural Engine)");
-
-            #[cfg(not(feature = "multi-backend"))]
-            {
-                output.error("CoreML backend requires --features multi-backend");
-                output.info("Rebuild with: cargo build --features multi-backend");
-                output.info(NOT_IMPLEMENTED_MESSAGE);
-                return Err(anyhow::anyhow!(NOT_IMPLEMENTED_MESSAGE));
-            }
-
-            #[cfg(feature = "multi-backend")]
-            {
-                // CoreML backend not yet implemented
-                output.error("CoreML backend not yet implemented");
-                output.info("Please use Metal or MLX backend instead");
-                output.info(NOT_IMPLEMENTED_MESSAGE);
-                return Err(anyhow::anyhow!(NOT_IMPLEMENTED_MESSAGE));
-            }
+            adapteros_lora_worker::BackendChoice::CoreML
         }
     };
 

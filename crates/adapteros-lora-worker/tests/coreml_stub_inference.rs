@@ -50,6 +50,7 @@ fn coreml_stub_inference_captures_logs() -> Result<()> {
     let profile = ExecutionProfile {
         seed_mode: SeedMode::BestEffort,
         backend_profile: BackendKind::CoreML,
+        require_explicit_fallback_opt_out: false,
     };
     let capabilities = BackendCapabilities {
         has_metal: true,

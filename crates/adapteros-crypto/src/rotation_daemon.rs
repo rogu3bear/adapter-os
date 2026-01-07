@@ -21,12 +21,65 @@
 //! - Zero downtime during rotation
 
 use crate::key_provider::{KeyAlgorithm, KeyHandle, KeyProvider};
-use adapteros_core::Result;
+use adapteros_core::{AosError, Result};
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
+
+/// Entry representing an encrypted DEK stored in the database
+#[derive(Clone, Debug)]
+pub struct EncryptedDekEntry {
+    /// Unique identifier for this DEK
+    pub dek_id: String,
+    /// Encrypted DEK material
+    pub encrypted_material: Vec<u8>,
+    /// ID of the KEK used to encrypt this DEK
+    pub kek_id: String,
+    /// Tenant ID this DEK belongs to (if multi-tenant)
+    pub tenant_id: Option<String>,
+    /// Creation timestamp
+    pub created_at: u64,
+}
+
+/// Storage backend for encrypted DEKs
+///
+/// Implementations of this trait provide the database layer for DEK storage.
+/// The trait is designed to be pluggable, allowing different storage backends
+/// (SQLite, PostgreSQL, etc.) without coupling to the crypto module.
+#[async_trait]
+pub trait CryptoStore: Send + Sync {
+    /// List all encrypted DEKs in the store
+    ///
+    /// Returns all DEKs that need to be re-encrypted during key rotation.
+    async fn list_encrypted_deks(&self) -> Result<Vec<EncryptedDekEntry>>;
+
+    /// Atomically update a DEK's encrypted material
+    ///
+    /// Uses compare-and-swap semantics: the update only succeeds if the
+    /// current encrypted material matches `old_ciphertext`. This prevents
+    /// race conditions during concurrent rotations.
+    ///
+    /// # Arguments
+    /// * `dek_id` - The DEK identifier
+    /// * `old_ciphertext` - Expected current encrypted material
+    /// * `new_ciphertext` - New encrypted material after re-encryption
+    /// * `new_kek_id` - ID of the new KEK used for encryption
+    ///
+    /// # Returns
+    /// * `Ok(true)` if update succeeded
+    /// * `Ok(false)` if old_ciphertext didn't match (CAS failure)
+    /// * `Err` on database error
+    async fn update_dek_atomic(
+        &self,
+        dek_id: &str,
+        old_ciphertext: &[u8],
+        new_ciphertext: &[u8],
+        new_kek_id: &str,
+    ) -> Result<bool>;
+}
 
 /// Rotation policy configuration
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -107,6 +160,8 @@ pub struct RotationDaemon {
     history: RwLock<Vec<RotationHistoryEntry>>,
     /// Shutdown signal
     shutdown_tx: tokio::sync::broadcast::Sender<()>,
+    /// Optional crypto store for DEK re-encryption
+    crypto_store: Option<Arc<dyn CryptoStore>>,
 }
 
 impl RotationDaemon {
@@ -119,7 +174,30 @@ impl RotationDaemon {
             policy: RwLock::new(policy),
             history: RwLock::new(Vec::new()),
             shutdown_tx,
+            crypto_store: None,
         }
+    }
+
+    /// Create a rotation daemon with a crypto store for DEK re-encryption
+    pub fn with_crypto_store(
+        provider: Arc<dyn KeyProvider>,
+        policy: RotationPolicy,
+        crypto_store: Arc<dyn CryptoStore>,
+    ) -> Self {
+        let (shutdown_tx, _shutdown_rx) = tokio::sync::broadcast::channel(1);
+
+        Self {
+            provider,
+            policy: RwLock::new(policy),
+            history: RwLock::new(Vec::new()),
+            shutdown_tx,
+            crypto_store: Some(crypto_store),
+        }
+    }
+
+    /// Set or replace the crypto store
+    pub fn set_crypto_store(&mut self, crypto_store: Arc<dyn CryptoStore>) {
+        self.crypto_store = Some(crypto_store);
     }
 
     /// Start the rotation daemon background task
@@ -284,25 +362,154 @@ impl RotationDaemon {
 
     /// Re-encrypt all DEKs with new KEK
     ///
-    /// # STUB: CRYPTO-GAP-002
-    /// **Status**: NOT IMPLEMENTED - returns 0 without re-encrypting
+    /// Queries all DEKs from the crypto store, decrypts each with the old KEK,
+    /// re-encrypts with the new KEK, and atomically updates the store.
     ///
-    /// **Audit Impact**: Key rotation reports success but no DEKs are rotated.
-    /// Callers should NOT rely on this for actual key rotation until implemented.
+    /// # Arguments
+    /// * `old_kek` - Handle to the previous KEK for decryption
+    /// * `new_kek` - Handle to the new KEK for re-encryption
     ///
-    /// **Rectify Steps**:
-    /// 1. Query all DEKs from database via `CryptoStore`
-    /// 2. Decrypt each DEK with old KEK
-    /// 3. Re-encrypt each DEK with new KEK
-    /// 4. Atomic update to database with new encrypted DEKs
+    /// # Returns
+    /// Number of DEKs successfully re-encrypted
     async fn reencrypt_deks(&self, old_kek: &KeyHandle, new_kek: &KeyHandle) -> Result<usize> {
-        // STUB: CRYPTO-GAP-002 - DEK re-encryption not implemented
-        warn!(
+        // Check if crypto store is configured
+        let crypto_store = match &self.crypto_store {
+            Some(store) => store,
+            None => {
+                warn!(
+                    old_kek = %old_kek.provider_id,
+                    new_kek = %new_kek.provider_id,
+                    "No crypto store configured - DEK re-encryption skipped"
+                );
+                return Ok(0);
+            }
+        };
+
+        info!(
             old_kek = %old_kek.provider_id,
             new_kek = %new_kek.provider_id,
-            "CRYPTO-GAP-002: DEK re-encryption stub - no actual rotation performed"
+            "Starting DEK re-encryption"
         );
-        Ok(0)
+
+        // Query all encrypted DEKs from the store
+        let deks = crypto_store.list_encrypted_deks().await?;
+        let total_deks = deks.len();
+
+        if total_deks == 0 {
+            debug!("No DEKs found to re-encrypt");
+            return Ok(0);
+        }
+
+        info!(dek_count = total_deks, "Found DEKs to re-encrypt");
+
+        let mut reencrypted_count = 0;
+        let mut failed_count = 0;
+
+        for dek_entry in deks {
+            // Skip DEKs that are already encrypted with the new KEK
+            if dek_entry.kek_id == new_kek.provider_id {
+                debug!(
+                    dek_id = %dek_entry.dek_id,
+                    "DEK already encrypted with new KEK, skipping"
+                );
+                continue;
+            }
+
+            // Decrypt DEK with old KEK
+            let decrypted_dek = match self
+                .provider
+                .unseal(&old_kek.provider_id, &dek_entry.encrypted_material)
+                .await
+            {
+                Ok(plaintext) => plaintext,
+                Err(e) => {
+                    error!(
+                        dek_id = %dek_entry.dek_id,
+                        error = %e,
+                        "Failed to decrypt DEK with old KEK"
+                    );
+                    failed_count += 1;
+                    continue;
+                }
+            };
+
+            // Re-encrypt DEK with new KEK
+            let new_encrypted_dek = match self
+                .provider
+                .seal(&new_kek.provider_id, &decrypted_dek)
+                .await
+            {
+                Ok(ciphertext) => ciphertext,
+                Err(e) => {
+                    error!(
+                        dek_id = %dek_entry.dek_id,
+                        error = %e,
+                        "Failed to re-encrypt DEK with new KEK"
+                    );
+                    failed_count += 1;
+                    continue;
+                }
+            };
+
+            // Atomic update to database
+            match crypto_store
+                .update_dek_atomic(
+                    &dek_entry.dek_id,
+                    &dek_entry.encrypted_material,
+                    &new_encrypted_dek,
+                    &new_kek.provider_id,
+                )
+                .await
+            {
+                Ok(true) => {
+                    reencrypted_count += 1;
+                    debug!(
+                        dek_id = %dek_entry.dek_id,
+                        "DEK re-encrypted successfully"
+                    );
+                }
+                Ok(false) => {
+                    warn!(
+                        dek_id = %dek_entry.dek_id,
+                        "DEK update failed (CAS mismatch) - may have been modified concurrently"
+                    );
+                    failed_count += 1;
+                }
+                Err(e) => {
+                    error!(
+                        dek_id = %dek_entry.dek_id,
+                        error = %e,
+                        "Database error during DEK update"
+                    );
+                    failed_count += 1;
+                }
+            }
+        }
+
+        if failed_count > 0 {
+            warn!(
+                reencrypted = reencrypted_count,
+                failed = failed_count,
+                total = total_deks,
+                "DEK re-encryption completed with failures"
+            );
+        } else {
+            info!(
+                reencrypted = reencrypted_count,
+                total = total_deks,
+                "DEK re-encryption completed successfully"
+            );
+        }
+
+        // Return error if all DEKs failed
+        if reencrypted_count == 0 && failed_count > 0 {
+            return Err(AosError::Crypto(format!(
+                "All {} DEK re-encryption attempts failed",
+                failed_count
+            )));
+        }
+
+        Ok(reencrypted_count)
     }
 
     /// Get rotation history for a specific key

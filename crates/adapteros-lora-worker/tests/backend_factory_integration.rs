@@ -113,6 +113,7 @@ fn coreml_request_falls_back_with_reason() {
     let profile = ExecutionProfile {
         seed_mode: SeedMode::BestEffort,
         backend_profile: BackendKind::CoreML,
+        require_explicit_fallback_opt_out: false,
     };
 
     let ctx = SelectionContext::new(profile, caps);
@@ -153,6 +154,7 @@ fn metal_request_errors_when_unavailable() {
     let profile = ExecutionProfile {
         seed_mode: SeedMode::BestEffort,
         backend_profile: BackendKind::Metal,
+        require_explicit_fallback_opt_out: false,
     };
 
     let ctx = SelectionContext::new(profile, caps);

@@ -28,16 +28,21 @@ pub use key_provider::{
 pub use policy_enforcement::{CryptoPolicy, CryptoPolicyEnforcer, PolicyViolation, ViolationType};
 pub use providers::file::FileProvider;
 pub use providers::keychain::KeychainProvider;
-pub use rotation_daemon::{RotationDaemon, RotationHistoryEntry, RotationPolicy, RotationReason};
+pub use rotation_daemon::{
+    CryptoStore, EncryptedDekEntry, RotationDaemon, RotationHistoryEntry, RotationPolicy,
+    RotationReason,
+};
 pub use secret::{KeyMaterial, SecretKey, SensitiveData};
 pub use sep_attestation::{
     check_sep_availability, detect_chip_generation, generate_sep_key_with_attestation,
-    get_key_creation_date, verify_attestation_chain, SepAttestation, SepAvailability,
-    SepChipGeneration,
+    get_key_creation_date, verify_attestation_chain, verify_attestation_nonce, SepAttestation,
+    SepAvailability, SepChipGeneration,
 };
 pub use signature::{sign_bytes, verify_signature, Keypair, PublicKey, Signature};
 
-pub use receipt_signing::{sign_receipt_digest, sign_receipt_digest_bytes, SignedReceipt, SigningMode};
+pub use receipt_signing::{
+    sign_receipt_digest, sign_receipt_digest_bytes, SignedReceipt, SigningMode,
+};
 
 pub use decision_chain::{
     verify_bundle_commits, DecisionChainBuilder, EnvironmentIdentity, MerkleBundleCommits,

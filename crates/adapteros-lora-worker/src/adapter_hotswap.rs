@@ -3002,12 +3002,15 @@ mod tests {
             Ok(attestation::DeterminismReport {
                 backend_type: attestation::BackendType::Mock,
                 metallib_hash: None,
+                metallib_verified: false,
                 manifest: None,
                 rng_seed_method: attestation::RngSeedingMethod::HkdfSeeded,
                 floating_point_mode: attestation::FloatingPointMode::Deterministic,
                 determinism_level: attestation::DeterminismLevel::BitExact,
                 compiler_flags: vec![],
                 deterministic: true,
+                runtime_version: None,
+                device_id: None,
             })
         }
 
@@ -3070,12 +3073,15 @@ mod tests {
             Ok(attestation::DeterminismReport {
                 backend_type: attestation::BackendType::Mock,
                 metallib_hash: None,
+                metallib_verified: false,
                 manifest: None,
                 rng_seed_method: attestation::RngSeedingMethod::HkdfSeeded,
                 floating_point_mode: attestation::FloatingPointMode::Deterministic,
                 determinism_level: attestation::DeterminismLevel::BitExact,
                 compiler_flags: vec![],
                 deterministic: true,
+                runtime_version: None,
+                device_id: None,
             })
         }
 

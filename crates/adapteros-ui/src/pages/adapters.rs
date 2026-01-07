@@ -54,8 +54,13 @@ pub fn Adapters() -> impl IntoView {
     }
 }
 
+/// Page size for client-side pagination (reduces initial DOM nodes)
+const PAGE_SIZE: usize = 25;
+
 #[component]
 fn AdaptersList(adapters: Vec<AdapterResponse>) -> impl IntoView {
+    let total = adapters.len();
+
     if adapters.is_empty() {
         return view! {
             <Card>
@@ -66,6 +71,13 @@ fn AdaptersList(adapters: Vec<AdapterResponse>) -> impl IntoView {
         }
         .into_any();
     }
+
+    // Client-side pagination to reduce DOM nodes
+    let visible_count = RwSignal::new(PAGE_SIZE.min(total));
+
+    let show_more = move |_| {
+        visible_count.update(|c| *c = (*c + PAGE_SIZE).min(total));
+    };
 
     view! {
         <Card>
@@ -78,9 +90,9 @@ fn AdaptersList(adapters: Vec<AdapterResponse>) -> impl IntoView {
                     </TableRow>
                 </TableHeader>
                 <TableBody>
-                    {adapters
-                        .into_iter()
-                        .map(|adapter| {
+                    {move || {
+                        let count = visible_count.get();
+                        adapters.iter().take(count).map(|adapter| {
                             let id = adapter.id.clone();
                             let id_link = id.clone();
                             let id_view = id.clone();
@@ -110,10 +122,30 @@ fn AdaptersList(adapters: Vec<AdapterResponse>) -> impl IntoView {
                                     </TableCell>
                                 </TableRow>
                             }
-                        })
-                        .collect::<Vec<_>>()}
+                        }).collect::<Vec<_>>()
+                    }}
                 </TableBody>
             </Table>
+
+            // Show more button if there are hidden items
+            {move || {
+                let count = visible_count.get();
+                let remaining = total.saturating_sub(count);
+                if remaining > 0 {
+                    view! {
+                        <div class="flex items-center justify-center py-4 border-t">
+                            <button
+                                class="text-sm text-primary hover:underline"
+                                on:click=show_more
+                            >
+                                {format!("Show more ({} remaining)", remaining)}
+                            </button>
+                        </div>
+                    }.into_any()
+                } else {
+                    view! { <div></div> }.into_any()
+                }
+            }}
         </Card>
     }
     .into_any()

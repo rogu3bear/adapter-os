@@ -144,6 +144,7 @@ async fn harmony_trace_contains_all_subsystems() {
         stack_version: None,
         model_type: adapteros_types::routing::RouterModelType::Dense,
         active_experts: None,
+        backend_type: None,
     };
     let mut router_outputs = HashMap::new();
     router_outputs.insert(

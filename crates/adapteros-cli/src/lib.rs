@@ -12,6 +12,7 @@ use std::path::PathBuf;
 
 // Expose the CLI support modules so integration tests can use command plumbing.
 pub mod auth_store;
+pub mod cdp;
 pub mod cli_telemetry;
 pub mod commands;
 pub mod error_codes;
