@@ -318,4 +318,19 @@ pub struct InvariantsConfig {
     /// Disable CFG-002: Session TTL hierarchy validation check
     #[serde(default)]
     pub disable_cfg_002_session_ttl: bool,
+    /// Disable SEC-007: Tenant isolation configuration check
+    #[serde(default)]
+    pub disable_sec_007_tenant_isolation: bool,
+    /// Disable MEM-003: Memory headroom configuration check
+    #[serde(default)]
+    pub disable_mem_003_memory_headroom: bool,
+    /// Disable LIF-001: Boot phase ordering check (advisory)
+    #[serde(default)]
+    pub disable_lif_001_boot_ordering: bool,
+    /// Disable DAT-001: Archive state machine triggers check (requires DB)
+    #[serde(default)]
+    pub disable_dat_001_archive_triggers: bool,
+    /// Disable LIF-004: Connection pool drain configuration check
+    #[serde(default)]
+    pub disable_lif_004_pool_drain: bool,
 }

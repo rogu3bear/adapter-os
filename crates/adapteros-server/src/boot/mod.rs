@@ -64,8 +64,8 @@ pub use executor::{derive_executor_seed, initialize_executor, ExecutorContext};
 pub use federation::{initialize_federation, FederationContext};
 pub use finalization::{finalize_boot, write_boot_report, BindConfig, BootArtifacts};
 pub use invariants::{
-    boot_invariant_metrics, enforce_invariants, validate_boot_invariants, BootInvariantMetrics,
-    InvariantReport, InvariantViolation,
+    boot_invariant_metrics, enforce_invariants, validate_boot_invariants,
+    validate_post_db_invariants, BootInvariantMetrics, InvariantReport, InvariantViolation,
 };
 pub use metrics::{initialize_metrics, MetricsContext};
 pub use runtime::{initialize_runtime, RuntimeContext};
