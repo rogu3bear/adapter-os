@@ -288,7 +288,22 @@ pub struct InvariantsConfig {
     /// Disable SEC-005: Cookie security check
     #[serde(default)]
     pub disable_sec_005_cookie_security: bool,
+    /// Disable SEC-006: JWT algorithm configuration check
+    #[serde(default)]
+    pub disable_sec_006_jwt_verify: bool,
     /// Disable SEC-015: Signature bypass env var check (NOT RECOMMENDED)
     #[serde(default)]
     pub disable_sec_015_signature_bypass: bool,
+    /// Disable DAT-002: Foreign key constraints check
+    #[serde(default)]
+    pub disable_dat_002_foreign_keys: bool,
+    /// Disable DAT-006: Migration ordering check
+    #[serde(default)]
+    pub disable_dat_006_migration_order: bool,
+    /// Disable DAT-007: Audit chain initialization check (FAILS OPEN - warning only)
+    #[serde(default)]
+    pub disable_dat_007_audit_chain: bool,
+    /// Disable LIF-002: Executor initialization check
+    #[serde(default)]
+    pub disable_lif_002_executor_init: bool,
 }

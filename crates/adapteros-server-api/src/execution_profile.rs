@@ -39,6 +39,7 @@ pub fn resolve_execution_profile(
     let profile = ExecutionProfile {
         seed_mode,
         backend_profile: requested_backend,
+        require_explicit_fallback_opt_out: false,
     };
 
     Ok(ExecutionProfileResolution {
