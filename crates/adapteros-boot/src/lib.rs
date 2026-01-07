@@ -69,6 +69,7 @@
 
 pub mod boot_report;
 pub mod error;
+pub mod invariant_metrics;
 pub mod jti_cache;
 pub mod key_ring;
 pub mod key_update;
@@ -81,6 +82,10 @@ pub mod worker_auth;
 // Re-export commonly used types at crate root
 pub use boot_report::{BootReport, BootReportBuilder, BuildInfo};
 pub use error::{BootError, BootResult, WorkerAuthError, WorkerAuthResult};
+pub use invariant_metrics::{
+    boot_invariant_metrics, record_invariant_check, record_invariant_skipped,
+    record_invariant_violation, BootInvariantMetrics,
+};
 pub use jti_cache::{JtiCacheStore, JtiEntry, DEFAULT_JTI_CACHE_SIZE, JTI_CACHE_SIZE_ENV};
 pub use key_ring::{
     extract_kid_from_token, RotationMeta, RotationReceipt, WorkerKeyRing,
