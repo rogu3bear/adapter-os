@@ -36,6 +36,7 @@ use clap_complete::Shell;
 use std::path::{Path, PathBuf};
 
 mod auth_store;
+mod cdp;
 mod cli;
 mod cli_telemetry;
 mod cmd_replay;
@@ -64,7 +65,7 @@ pub enum BackendType {
     /// MLX backend (C++ FFI)
     #[clap(name = "mlx")]
     MLX,
-    /// CoreML backend (macOS Neural Engine) [NOT IMPLEMENTED]
+    /// CoreML backend (macOS Neural Engine)
     CoreML,
 }
 
@@ -202,6 +203,10 @@ Examples:
     /// Adapter stack management commands (create, list, activate, etc.)
     #[command(subcommand, visible_alias = "stacks")]
     Stack(stack::StackCommand),
+
+    /// .aos file management commands (create, load, verify, migrate)
+    #[command(subcommand)]
+    Aos(commands::aos::AosCmd),
 
     // ============================================================
     // Interactive Chat
@@ -656,7 +661,7 @@ Examples:
         #[arg(short, long, default_value = "/var/run/aos/aos.sock")]
         socket: PathBuf,
 
-        /// Backend selection: metal, mlx, or coreml [NOT IMPLEMENTED: coreml]
+        /// Backend selection: metal, mlx, or coreml
         #[arg(short, long, default_value = "metal")]
         backend: BackendType,
 
@@ -1230,6 +1235,9 @@ Examples:
     #[command(subcommand)]
     Code(code::CodeCommand),
 
+    /// List Commit Delta Packs for a repository
+    CdpList(commands::cdp_list::CdpListArgs),
+
     // ============================================================
     // Deprecated Commands (hidden, for backward compatibility)
     // ============================================================
@@ -1537,6 +1545,12 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         // Adapter Stack Management
         Commands::Stack(cmd) => {
             stack::handle_stack_command(cmd.clone(), &output).await?;
+        }
+
+        // .aos File Management
+        Commands::Aos(cmd) => {
+            let args = commands::aos::AosArgs { cmd: cmd.clone() };
+            commands::aos::run(args, &output).await?;
         }
 
         // Interactive Chat
@@ -2024,6 +2038,10 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             code::handle_code_command(cmd.clone(), &output).await?;
         }
 
+        Commands::CdpList(args) => {
+            commands::cdp_list::execute(args.clone(), &output).await?;
+        }
+
         // ============================================================
         // Deprecated Commands (backward compatibility)
         // ============================================================
@@ -2311,6 +2329,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Adapter(_) => "adapter",
         Commands::Repo(_) => "repo",
         Commands::Stack(_) => "stack",
+        Commands::Aos(_) => "aos",
         Commands::Chat(_) => "chat",
         Commands::Dev { .. } => "dev",
         Commands::Scenario(_) => "scenario",
@@ -2373,6 +2392,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Train(_) => "train",
         Commands::TrainDocs { .. } => "train-docs",
         Commands::Code(_) => "code",
+        Commands::CdpList(_) => "cdp-list",
         Commands::BackendStatus(_) => "backend-status",
         Commands::Tui { .. } => "tui",
         // Deprecated commands

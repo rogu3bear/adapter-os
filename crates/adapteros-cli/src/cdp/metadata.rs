@@ -98,12 +98,13 @@ impl CdpMetadata {
     pub fn repo_name(&self) -> Option<String> {
         self.remote_url.as_ref().and_then(|url| {
             // Extract repo name from common git URL formats
-            if let Some(stripped) = url.strip_suffix(".git") {
-                url = stripped;
-            }
-            
-            if url.contains("github.com") || url.contains("gitlab.com") || url.contains("bitbucket.org") {
-                url.split('/').last().map(|s| s.to_string())
+            let url_str = url.strip_suffix(".git").unwrap_or(url.as_str());
+
+            if url_str.contains("github.com")
+                || url_str.contains("gitlab.com")
+                || url_str.contains("bitbucket.org")
+            {
+                url_str.split('/').last().map(|s| s.to_string())
             } else {
                 None
             }

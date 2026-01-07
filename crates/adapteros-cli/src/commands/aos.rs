@@ -27,7 +27,7 @@ use crate::output::OutputWriter;
 use adapteros_core::{AosError, Result};
 use adapteros_crypto::Keypair;
 use adapteros_single_file_adapter::{
-    CompressionLevel, LineageInfo, LoadOptions, PackageOptions, SingleFileAdapter,
+    migrate_file, CompressionLevel, LineageInfo, LoadOptions, PackageOptions, SingleFileAdapter,
     SingleFileAdapterLoader, SingleFileAdapterPackager, SingleFileAdapterValidator, TrainingConfig,
 };
 use chrono::Utc;
@@ -56,7 +56,7 @@ pub enum AosCmd {
     Extract(ExtractArgs), // COORDINATION: Affects SingleFileAdapterLoader
     /// Show .aos file information
     Info(InfoArgs), // COORDINATION: Affects UI display components
-    /// Migrate .aos file to current format version [NOT IMPLEMENTED]
+    /// Migrate .aos file to current format version
     Migrate(MigrateArgs), // COORDINATION: Affects format version compatibility
     /// Convert .aos file between formats (ZIP <-> AOS 2.0) [NOT IMPLEMENTED]
     Convert(ConvertArgs), // COORDINATION: Format conversion
@@ -733,10 +733,52 @@ async fn info_aos(args: InfoArgs, output: &OutputWriter) -> Result<()> {
     Ok(())
 }
 
-async fn migrate_aos(_args: MigrateArgs, output: &OutputWriter) -> Result<()> {
-    output.warning("aos migrate command is not yet implemented");
-    output.info(NOT_IMPLEMENTED_MESSAGE);
-    Err(AosError::Config(NOT_IMPLEMENTED_MESSAGE.to_string()))
+async fn migrate_aos(args: MigrateArgs, output: &OutputWriter) -> Result<()> {
+    // Validate path exists
+    if !args.path.exists() {
+        return Err(AosError::Io(format!(
+            "File not found: {}",
+            args.path.display()
+        )));
+    }
+
+    output.info(&format!("Migrating adapter: {}", args.path.display()));
+
+    // Call the migration function (always creates backup when changes occur)
+    let result = migrate_file(&args.path).await?;
+
+    // Report results
+    if result.original_version == result.new_version {
+        output.success(&format!(
+            "Adapter already at current format version {}",
+            result.new_version
+        ));
+    } else {
+        output.success(&format!(
+            "Migrated from v{} to v{}",
+            result.original_version, result.new_version
+        ));
+        for change in &result.changes_applied {
+            output.info(&format!("  - {}", change));
+        }
+
+        // Report backup location
+        let backup_path = args.path.with_extension("aos.bak");
+        if args.backup {
+            output.info(&format!("Backup saved to: {}", backup_path.display()));
+        } else {
+            // User doesn't want backup - remove it
+            if backup_path.exists() {
+                if let Err(e) = std::fs::remove_file(&backup_path) {
+                    output.warning(&format!("Could not remove backup: {}", e));
+                } else {
+                    output.verbose("Backup removed as requested");
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 async fn convert_aos(_args: ConvertArgs, output: &OutputWriter) -> Result<()> {

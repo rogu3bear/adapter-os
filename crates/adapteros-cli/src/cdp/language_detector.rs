@@ -171,7 +171,7 @@ impl LanguageDetector {
             } else {
                 vec!["npm".to_string(), "test".to_string()]
             },
-            linter_command: vec!["npx".to_string(), "eslint".to_string(), "."],
+            linter_command: vec!["npx".to_string(), "eslint".to_string(), ".".to_string()],
         }))
     }
 
@@ -186,8 +186,8 @@ impl LanguageDetector {
             language: "go".to_string(),
             test_framework: TestFramework::GoTest,
             linter: Linter::GoVet,
-            test_command: vec!["go".to_string(), "test".to_string(), "./..."],
-            linter_command: vec!["go".to_string(), "vet".to_string(), "./..."],
+            test_command: vec!["go".to_string(), "test".to_string(), "./...".to_string()],
+            linter_command: vec!["go".to_string(), "vet".to_string(), "./...".to_string()],
         }))
     }
 

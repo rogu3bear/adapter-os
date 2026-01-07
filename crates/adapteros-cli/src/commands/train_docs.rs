@@ -777,13 +777,28 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn base_model_defaults_from_resolver_when_missing() {
+        // Safety: serial test ensures no concurrent env mutations.
+        // Clear env vars that affect model resolution to test defaults
+        unsafe {
+            std::env::set_var("AOS_SKIP_DOTENV", "1");
+            std::env::remove_var("AOS_MODEL_PATH");
+            std::env::remove_var("AOS_MODEL_CACHE_DIR");
+            std::env::remove_var("AOS_BASE_MODEL_ID");
+        }
+
         let args = parse_args(&[]);
         let resolved = args
             .resolve_base_model_id(None)
             .expect("default base model should resolve");
 
         assert_eq!(resolved, DEFAULT_BASE_MODEL_ID);
+
+        // Safety: serial test ensures no concurrent env mutations.
+        unsafe {
+            std::env::remove_var("AOS_SKIP_DOTENV");
+        }
     }
 
     #[test]
