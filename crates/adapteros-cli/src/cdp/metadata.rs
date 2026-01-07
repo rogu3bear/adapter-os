@@ -176,8 +176,9 @@ impl MetadataExtractor {
             )));
         }
 
-        let [hash, author_name, author_email, author_date, committer_name, committer_email, committer_date, message] = 
-            [parts[0], parts[1], parts[2], parts[3], parts[4], parts[5], parts[6], parts[7]];
+        let [hash, author_name, author_email, author_date, committer_name, committer_email, committer_date, message] = [
+            parts[0], parts[1], parts[2], parts[3], parts[4], parts[5], parts[6], parts[7],
+        ];
 
         // Parse timestamps
         let timestamp = DateTime::parse_from_rfc3339(author_date)
@@ -314,7 +315,10 @@ mod tests {
             "main".to_string(),
             temp_dir.path().to_path_buf(),
         )
-        .with_committer("committer@example.com".to_string(), Some("Test Committer".to_string()));
+        .with_committer(
+            "committer@example.com".to_string(),
+            Some("Test Committer".to_string()),
+        );
 
         assert!(metadata.has_different_committer());
         assert_eq!(metadata.committer_display_name(), Some("Test Committer"));

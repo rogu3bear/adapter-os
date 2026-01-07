@@ -71,10 +71,7 @@ pub async fn execute(args: CdpListArgs, output: &OutputWriter) -> Result<()> {
     let cdps = store.list_for_repo(&args.repo_id);
 
     if cdps.is_empty() {
-        output.info(&format!(
-            "No CDPs found for repository: {}",
-            args.repo_id
-        ));
+        output.info(&format!("No CDPs found for repository: {}", args.repo_id));
         return Ok(());
     }
 
@@ -85,13 +82,7 @@ pub async fn execute(args: CdpListArgs, output: &OutputWriter) -> Result<()> {
     let mut table = Table::new();
     table.load_preset(UTF8_FULL);
     table.set_header(vec![
-        "CDP ID",
-        "Commit",
-        "Branch",
-        "Author",
-        "Message",
-        "Tests",
-        "Issues",
+        "CDP ID", "Commit", "Branch", "Author", "Message", "Tests", "Issues",
     ]);
 
     for cdp in &cdps {
