@@ -388,6 +388,51 @@ mod tests {
         tempfile::tempdir_in(&root).expect("tempdir")
     }
 
+    /// Create minimal valid safetensors payload with dummy LoRA weights
+    fn create_dummy_lora_safetensors() -> Vec<u8> {
+        // Create minimal safetensors format:
+        // 8 bytes: header_size (u64 little-endian)
+        // header_size bytes: JSON header
+        // remaining: tensor data
+
+        // Dummy LoRA weights: rank=4, in=16, out=16
+        // Note: Using F16 (half precision) as the loader expects it
+        let lora_a: Vec<u16> = (0..64).map(|i| half::f16::from_f32((i as f32) * 0.01).to_bits()).collect();
+        let lora_b: Vec<u16> = (0..64).map(|i| half::f16::from_f32((i as f32) * -0.01).to_bits()).collect();
+
+        // Tensor names must be "lora_a" and "lora_b" (or "lora.a" / "lora.b")
+        let header = json!({
+            "lora_a": {
+                "dtype": "F16",
+                "shape": [4, 16],
+                "data_offsets": [0, 128]
+            },
+            "lora_b": {
+                "dtype": "F16",
+                "shape": [16, 4],
+                "data_offsets": [128, 256]
+            }
+        });
+
+        let header_json = serde_json::to_string(&header).unwrap();
+        let header_bytes = header_json.as_bytes();
+        let header_size = header_bytes.len() as u64;
+
+        let mut buffer = Vec::new();
+        buffer.extend_from_slice(&header_size.to_le_bytes());
+        buffer.extend_from_slice(header_bytes);
+
+        // Write tensor data (F16 = 2 bytes each)
+        for val in &lora_a {
+            buffer.extend_from_slice(&val.to_le_bytes());
+        }
+        for val in &lora_b {
+            buffer.extend_from_slice(&val.to_le_bytes());
+        }
+
+        buffer
+    }
+
     #[tokio::test]
     #[serial]
     async fn aos_magic_bundle_is_accepted() {
@@ -401,6 +446,13 @@ mod tests {
         db.migrate()
             .await
             .expect("apply migrations to in-memory db");
+
+        // Create tenant first, then model with tenant_id
+        // This order ensures the model is associated with the tenant for trigger validation
+        let tenant_id = db
+            .create_tenant("Test Tenant", false)
+            .await
+            .expect("insert tenant");
 
         let model_name = format!("test-model-{}", Uuid::now_v7());
         let model_id = db
@@ -416,10 +468,14 @@ mod tests {
             )
             .await
             .expect("insert model");
-        let tenant_id = db
-            .create_tenant("Test Tenant", false)
+
+        // Associate model with tenant (required by trg_adapters_base_model_tenant_check trigger)
+        sqlx::query("UPDATE models SET tenant_id = ? WHERE id = ?")
+            .bind(&tenant_id)
+            .bind(&model_id)
+            .execute(db.pool())
             .await
-            .expect("insert tenant");
+            .expect("update model tenant_id");
         let tmp = new_test_tempdir();
         let aos_path = tmp.path().join("valid.aos");
 
@@ -430,7 +486,7 @@ mod tests {
             "metadata": { "scope_path": "test/domain/scope/op" }
             // base_model intentionally omitted
         });
-        let weights = vec![0u8; 16];
+        let weights = create_dummy_lora_safetensors();
 
         // AOS\0 is now the current format magic
         let aos_bytes = build_aos_file(&manifest, &weights, *b"AOS\x00");
