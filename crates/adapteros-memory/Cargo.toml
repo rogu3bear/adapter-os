@@ -21,7 +21,7 @@ blake3 = { workspace = true }
 hex = { workspace = true }
 chrono = { workspace = true }
 futures = "0.3"
-lru = "0.12"
+lru = "0.16"
 tokio = { workspace = true }
 bytemuck = { workspace = true }
 half = { workspace = true }
