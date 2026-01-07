@@ -31,9 +31,8 @@ static CAPABILITY_CLAIM_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
 });
 
 /// Pattern to match quoted text regions (both single and double quotes with escape handling)
-static QUOTE_PATTERN: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"("[^"\\]*(?:\\.[^"\\]*)*"|'[^'\\]*(?:\\.[^'\\]*)*')"#).unwrap()
-});
+static QUOTE_PATTERN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"("[^"\\]*(?:\\.[^"\\]*)*"|'[^'\\]*(?:\\.[^'\\]*)*')"#).unwrap());
 
 /// Returns byte ranges of quoted text regions
 fn get_quoted_regions(content: &str) -> Vec<(usize, usize)> {
