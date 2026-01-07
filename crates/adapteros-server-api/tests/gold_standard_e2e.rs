@@ -47,9 +47,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixListener;
 
 mod common;
-use common::{
-    setup_state, test_admin_claims, FailureBundleGuard, StageTimer, TestFailureBundle,
-};
+use common::{setup_state, test_admin_claims, FailureBundleGuard, StageTimer, TestFailureBundle};
 
 /// Fixed seed for deterministic inference ([42u8; 32])
 const FIXED_SEED_BYTES: [u8; 32] = [42u8; 32];
@@ -72,7 +70,10 @@ fn gold_standard_determinism_config() -> DeterminismConfig {
 async fn spawn_mock_worker(
     uds_path: &str,
     worker_response: WorkerInferResponse,
-) -> (tokio::task::JoinHandle<()>, tokio::sync::oneshot::Receiver<()>) {
+) -> (
+    tokio::task::JoinHandle<()>,
+    tokio::sync::oneshot::Receiver<()>,
+) {
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
     let uds_path_owned = uds_path.to_string();
 
@@ -434,7 +435,12 @@ async fn test_gold_standard_e2e_inference() {
     // Transition worker to serving
     state
         .db
-        .transition_worker_status(worker_id, "serving", "ready for gold standard test", Some("test"))
+        .transition_worker_status(
+            worker_id,
+            "serving",
+            "ready for gold standard test",
+            Some("test"),
+        )
         .await
         .expect("transition worker");
 
@@ -455,9 +461,7 @@ async fn test_gold_standard_e2e_inference() {
         ..Default::default()
     };
 
-    bundle_guard
-        .bundle_mut()
-        .request_bytes = serde_json::to_string_pretty(&infer_req).ok();
+    bundle_guard.bundle_mut().request_bytes = serde_json::to_string_pretty(&infer_req).ok();
 
     let response = match infer(
         State(state.clone()),
@@ -490,14 +494,11 @@ async fn test_gold_standard_e2e_inference() {
 
     let payload: InferResponse = response.0;
 
-    bundle_guard
-        .bundle_mut()
-        .response_bytes = serde_json::to_string_pretty(&payload).ok();
+    bundle_guard.bundle_mut().response_bytes = serde_json::to_string_pretty(&payload).ok();
 
     // === Response Content Assertions ===
     assert_eq!(
-        payload.text,
-        "Gold standard response for determinism verification.",
+        payload.text, "Gold standard response for determinism verification.",
         "Response text must match expected deterministic output"
     );
     assert_eq!(
@@ -536,9 +537,7 @@ async fn test_gold_standard_e2e_inference() {
         .as_ref()
         .expect("deterministic receipt should be present");
 
-    bundle_guard
-        .bundle_mut()
-        .receipt_json = serde_json::to_value(receipt).ok();
+    bundle_guard.bundle_mut().receipt_json = serde_json::to_value(receipt).ok();
 
     // === Receipt Field Assertions ===
 
