@@ -86,6 +86,13 @@ pub struct RouterDecision {
     /// Model type for this decision
     #[serde(default = "RouterModelType::dense")]
     pub model_type: RouterModelType,
+
+    /// Backend type used for this routing decision (PRD-DET-001: G6).
+    ///
+    /// Binds the routing decision to the specific backend that executed
+    /// the inference. Enables detection of backend substitution in telemetry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backend_type: Option<String>,
 }
 
 impl RouterDecision {
@@ -110,6 +117,7 @@ impl RouterDecision {
             policy_mask_digest_b3: None,
             policy_overrides_applied: None,
             model_type: RouterModelType::Dense,
+            backend_type: None,
         }
     }
 
@@ -125,10 +133,82 @@ impl RouterDecision {
         self
     }
 
+    /// Add backend type for determinism binding (PRD-DET-001: G6)
+    pub fn with_backend_type(mut self, backend: String) -> Self {
+        self.backend_type = Some(backend);
+        self
+    }
+
     /// Get the top K selected adapters
     pub fn top_k(&self, k: usize) -> Vec<&RouterCandidate> {
         self.candidate_adapters.iter().take(k).collect()
     }
+}
+
+// =============================================================================
+// Drift Detection (PRD-DET-001: G7)
+// =============================================================================
+
+/// Report of drift between dual-written routing decisions.
+///
+/// This is used by the dual-write consistency checker to detect
+/// when primary and secondary records have diverged.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DriftReport {
+    /// Field that diverged
+    pub field: String,
+    /// Value in primary record
+    pub primary_value: Option<String>,
+    /// Value in secondary record
+    pub secondary_value: Option<String>,
+}
+
+/// Check for drift between dual-written routing decision records (PRD-DET-001: G7).
+///
+/// This function compares two routing decisions (typically from primary and
+/// secondary storage) and detects any divergence in determinism-critical fields.
+///
+/// # Arguments
+///
+/// * `primary` - The routing decision from primary storage
+/// * `secondary` - The routing decision from secondary storage
+///
+/// # Returns
+///
+/// * `None` if records are consistent
+/// * `Some(DriftReport)` if divergence detected
+pub fn detect_backend_drift(
+    primary: &RouterDecision,
+    secondary: &RouterDecision,
+) -> Option<DriftReport> {
+    // Check backend_type first (most critical for determinism)
+    if primary.backend_type != secondary.backend_type {
+        return Some(DriftReport {
+            field: "backend_type".to_string(),
+            primary_value: primary.backend_type.clone(),
+            secondary_value: secondary.backend_type.clone(),
+        });
+    }
+
+    // Check entropy (should be identical for same inputs)
+    if (primary.entropy - secondary.entropy).abs() > 1e-9 {
+        return Some(DriftReport {
+            field: "entropy".to_string(),
+            primary_value: Some(primary.entropy.to_string()),
+            secondary_value: Some(secondary.entropy.to_string()),
+        });
+    }
+
+    // Check step alignment
+    if primary.step != secondary.step {
+        return Some(DriftReport {
+            field: "step".to_string(),
+            primary_value: Some(primary.step.to_string()),
+            secondary_value: Some(secondary.step.to_string()),
+        });
+    }
+
+    None
 }
 
 /// Flags describing which policy overrides affected routing.

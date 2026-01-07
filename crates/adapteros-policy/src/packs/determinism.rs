@@ -477,6 +477,93 @@ impl Policy for DeterminismPolicy {
     }
 }
 
+// =============================================================================
+// EP-4: OnBeforeInference Hook (PRD-DET-001)
+// =============================================================================
+
+/// Context for validating inference determinism (EP-4).
+///
+/// This struct captures all determinism-critical context that must be
+/// validated before inference begins at enforcement point EP-4.
+#[derive(Debug, Clone)]
+pub struct InferenceDeterminismContext {
+    /// Seed mode (Strict/BestEffort/NonDeterministic)
+    pub seed_mode: adapteros_core::seed::SeedMode,
+    /// Backend type
+    pub backend_type: String,
+    /// Determinism level from attestation
+    pub determinism_level: adapteros_lora_kernel_api::attestation::DeterminismLevel,
+    /// Whether backend attestation is verified
+    pub attestation_verified: bool,
+    /// Whether seed lineage is bound
+    pub seed_lineage_bound: bool,
+}
+
+/// Validate inference context before inference begins (PRD-DET-001: EP-4).
+///
+/// This is the enforcement point for the `OnBeforeInference` policy hook.
+/// It verifies that all determinism requirements are met before inference
+/// proceeds.
+///
+/// # Enforcement Point: EP-4
+///
+/// Location: `adapteros-policy/src/packs/determinism.rs:validate_inference_context`
+/// Action: Return `AosError::DeterminismViolation` if validation fails
+///
+/// # Arguments
+///
+/// * `ctx` - The inference determinism context to validate
+///
+/// # Returns
+///
+/// * `Ok(())` if inference can proceed deterministically
+/// * `Err(AosError::DeterminismViolation)` with reason if validation fails
+pub fn validate_inference_context(ctx: &InferenceDeterminismContext) -> Result<()> {
+    use adapteros_core::seed::SeedMode;
+    use adapteros_lora_kernel_api::attestation::DeterminismLevel;
+
+    // EP-4.1: Strict mode requires full determinism
+    if ctx.seed_mode == SeedMode::Strict {
+        // Must have verified attestation
+        if !ctx.attestation_verified {
+            return Err(AosError::DeterminismViolation(
+                "EP-4: Strict mode requires verified backend attestation".into(),
+            ));
+        }
+
+        // Must have BitExact or BoundedTolerance level
+        if ctx.determinism_level == DeterminismLevel::None {
+            return Err(AosError::DeterminismViolation(
+                "EP-4: Strict mode requires determinism level > None".into(),
+            ));
+        }
+
+        // Must have seed lineage bound (for replay verification)
+        if !ctx.seed_lineage_bound {
+            return Err(AosError::DeterminismViolation(
+                "EP-4: Strict mode requires seed lineage binding".into(),
+            ));
+        }
+    }
+
+    // EP-4.2: BestEffort mode allows degraded operation but warns
+    if ctx.seed_mode == SeedMode::BestEffort && !ctx.attestation_verified {
+        tracing::warn!(
+            backend_type = %ctx.backend_type,
+            "EP-4: BestEffort mode without verified attestation (degraded determinism)"
+        );
+    }
+
+    // EP-4.3: NonDeterministic mode bypasses checks (benchmarking only)
+    if ctx.seed_mode == SeedMode::NonDeterministic {
+        tracing::warn!(
+            "EP-4: NonDeterministic mode active - inference is not replayable"
+        );
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

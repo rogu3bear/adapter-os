@@ -226,6 +226,12 @@ pub struct RouterDecisionEvent {
     /// Active experts used for this token when model_type = MoE
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_experts: Option<Vec<u16>>,
+    /// Backend type used for this routing decision (PRD-DET-001: G6).
+    ///
+    /// Binds the routing decision to the specific backend that executed
+    /// the inference. Enables detection of backend substitution in telemetry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backend_type: Option<String>,
 }
 
 /// Candidate adapter entry inside the canonical router decision stream.

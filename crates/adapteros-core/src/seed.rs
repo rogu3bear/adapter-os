@@ -375,6 +375,46 @@ impl SeedLineage {
     pub fn digest_hex(&self) -> String {
         self.root_seed_digest.to_hex()
     }
+
+    /// Compute binding hash for receipt inclusion (PRD-DET-001: Determinism Hardening).
+    ///
+    /// This hash cryptographically binds the seed lineage to inference receipts,
+    /// enabling detection of seed manipulation during replay verification.
+    ///
+    /// # Components (canonical ordering)
+    /// - HKDF algorithm version (4 bytes, little-endian)
+    /// - Root seed digest (32 bytes)
+    /// - Seed mode discriminant (1 byte)
+    /// - Manifest binding flag (1 byte: 0 or 1)
+    ///
+    /// # Determinism Guarantee
+    /// Given identical seed derivation context, this method produces identical
+    /// binding hashes across:
+    /// - Multiple invocations
+    /// - System restarts
+    /// - Cross-platform execution
+    pub fn to_binding_hash(&self) -> B3Hash {
+        let mut buf = Vec::with_capacity(38);
+
+        // HKDF version (4 bytes, little-endian)
+        buf.extend_from_slice(&self.hkdf_version.to_le_bytes());
+
+        // Root seed digest (32 bytes)
+        buf.extend_from_slice(self.root_seed_digest.as_bytes());
+
+        // Seed mode discriminant (1 byte)
+        let mode_byte = match self.seed_mode {
+            SeedMode::Strict => 0u8,
+            SeedMode::BestEffort => 1u8,
+            SeedMode::NonDeterministic => 2u8,
+        };
+        buf.push(mode_byte);
+
+        // Manifest binding flag (1 byte)
+        buf.push(if self.has_manifest_binding { 1 } else { 0 });
+
+        B3Hash::hash(&buf)
+    }
 }
 
 /// Derive a typed seed with version tracking and checksum validation.

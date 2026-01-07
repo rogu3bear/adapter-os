@@ -328,6 +328,55 @@ impl DeterminismReport {
         }
     }
 
+    /// Validate attestation for production inference (PRD-DET-001: EP-2).
+    ///
+    /// This method enforces runtime attestation validation before inference begins.
+    /// It is called at enforcement point EP-2 in the determinism hardening design.
+    ///
+    /// # Validation Steps
+    ///
+    /// 1. Run existing validation (`validate()`)
+    /// 2. Check determinism level meets required threshold
+    /// 3. For Metal backend with BitExact requirement: verify metallib
+    ///
+    /// # Arguments
+    ///
+    /// * `required_level` - Minimum acceptable determinism level
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if attestation is valid for the required level
+    /// * `Err(AosError::DeterminismViolation)` if validation fails
+    ///
+    /// # Enforcement Point: EP-2
+    ///
+    /// Location: `adapteros-lora-worker/src/backend_factory.rs:create_backend`
+    /// Action: Return `AosError::DeterminismViolation` if validation fails
+    pub fn validate_for_inference(&self, required_level: DeterminismLevel) -> Result<()> {
+        // First, run existing validation
+        self.validate()?;
+
+        // Check required level is met
+        if self.determinism_level < required_level {
+            return Err(AosError::DeterminismViolation(format!(
+                "Backend determinism level {:?} < required {:?}",
+                self.determinism_level, required_level
+            )));
+        }
+
+        // Metal-specific: require metallib verification for BitExact
+        if self.backend_type == BackendType::Metal
+            && required_level == DeterminismLevel::BitExact
+            && !self.metallib_verified
+        {
+            return Err(AosError::DeterminismViolation(
+                "Metal backend requires verified metallib for BitExact determinism".into(),
+            ));
+        }
+
+        Ok(())
+    }
+
     /// Create a report for Metal backend with verified metallib.
     pub fn for_metal_verified(metallib_hash: B3Hash, runtime_version: Option<String>) -> Self {
         Self {

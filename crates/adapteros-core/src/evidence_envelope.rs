@@ -36,7 +36,8 @@ use std::convert::TryFrom;
 /// Version history:
 /// - v1: Initial schema with telemetry, policy, inference scopes
 /// - v2: Added backend_used and backend_attestation_b3 to InferenceReceiptRef (PRD-DET-001)
-pub const EVIDENCE_ENVELOPE_SCHEMA_VERSION: u8 = 2;
+/// - v3: Added seed_lineage_hash to InferenceReceiptRef (PRD-DET-001: determinism hardening)
+pub const EVIDENCE_ENVELOPE_SCHEMA_VERSION: u8 = 3;
 
 /// Evidence scope discriminator
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -169,6 +170,20 @@ pub struct InferenceReceiptRef {
     /// - compiler_flags
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub backend_attestation_b3: Option<B3Hash>,
+
+    // --- Seed lineage (PRD-DET-001: Determinism hardening v3) ---
+    /// BLAKE3 hash of seed lineage for replay verification.
+    ///
+    /// Computed from `SeedLineage::to_binding_hash()`, which includes:
+    /// - HKDF algorithm version
+    /// - Root seed digest
+    /// - Seed mode (Strict/BestEffort/NonDeterministic)
+    /// - Manifest binding flag
+    ///
+    /// This field enables detection of seed manipulation during replay:
+    /// replay with different seed → different receipt digest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed_lineage_hash: Option<B3Hash>,
 }
 
 /// Unified evidence envelope with cryptographic chain linking
@@ -409,6 +424,17 @@ impl EvidenceEnvelope {
                             bytes.push(0); // absent marker
                         }
                     }
+
+                    // Seed lineage (PRD-DET-001: v3 schema addition)
+                    match &r.seed_lineage_hash {
+                        Some(h) => {
+                            bytes.push(1); // present marker
+                            bytes.extend_from_slice(h.as_bytes());
+                        }
+                        None => {
+                            bytes.push(0); // absent marker
+                        }
+                    }
                 }
             }
         }
@@ -510,6 +536,97 @@ fn encode_str(buf: &mut Vec<u8>, value: &str) {
     buf.extend_from_slice(bytes);
 }
 
+// =============================================================================
+// EP-5: Receipt Finalization Completeness Check (PRD-DET-001)
+// =============================================================================
+
+/// Report of missing fields in inference receipt.
+///
+/// Used by EP-5 enforcement point to report incomplete receipts.
+#[derive(Debug, Clone)]
+pub struct ReceiptCompletenessReport {
+    /// Fields that are missing
+    pub missing_fields: Vec<String>,
+    /// Whether the receipt is complete for determinism
+    pub is_complete: bool,
+}
+
+impl InferenceReceiptRef {
+    /// Validate receipt completeness for determinism (PRD-DET-001: EP-5).
+    ///
+    /// This method checks that all determinism-critical fields are populated
+    /// before the receipt is finalized. It is called at enforcement point EP-5.
+    ///
+    /// # Required Fields for Determinism
+    ///
+    /// - `backend_used`: Must be non-empty
+    /// - `backend_attestation_b3`: Must be present for verified determinism
+    /// - `seed_lineage_hash`: Must be present for replay verification
+    ///
+    /// # Enforcement Point: EP-5
+    ///
+    /// Location: `adapteros-core/src/evidence_envelope.rs:validate_completeness`
+    /// Action: Emit incomplete_receipt telemetry event if fields missing
+    ///
+    /// # Returns
+    ///
+    /// `ReceiptCompletenessReport` with list of missing fields
+    pub fn validate_completeness(&self) -> ReceiptCompletenessReport {
+        let mut missing_fields = Vec::new();
+
+        // Check backend_used (required since v2)
+        if self.backend_used.is_empty() {
+            missing_fields.push("backend_used".to_string());
+        }
+
+        // Check backend_attestation_b3 (required for verified determinism)
+        if self.backend_attestation_b3.is_none() {
+            missing_fields.push("backend_attestation_b3".to_string());
+        }
+
+        // Check seed_lineage_hash (required since v3 for replay verification)
+        if self.seed_lineage_hash.is_none() {
+            missing_fields.push("seed_lineage_hash".to_string());
+        }
+
+        // Check output_digest (always required)
+        if self.output_digest.as_bytes() == &[0u8; 32] {
+            missing_fields.push("output_digest".to_string());
+        }
+
+        // Check receipt_digest (always required)
+        if self.receipt_digest.as_bytes() == &[0u8; 32] {
+            missing_fields.push("receipt_digest".to_string());
+        }
+
+        ReceiptCompletenessReport {
+            is_complete: missing_fields.is_empty(),
+            missing_fields,
+        }
+    }
+
+    /// Validate receipt for strict determinism mode (PRD-DET-001: EP-5).
+    ///
+    /// In strict mode, incomplete receipts are a hard failure.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if receipt is complete
+    /// * `Err(AosError::DeterminismViolation)` if fields are missing
+    pub fn validate_for_strict_mode(&self) -> Result<()> {
+        use crate::AosError;
+
+        let report = self.validate_completeness();
+        if !report.is_complete {
+            return Err(AosError::DeterminismViolation(format!(
+                "EP-5: Receipt incomplete for strict mode. Missing fields: {}",
+                report.missing_fields.join(", ")
+            )));
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -552,6 +669,7 @@ mod tests {
             model_cache_identity_v2_digest_b3: Some(B3Hash::hash(b"model-cache-id")),
             backend_used: "metal".to_string(),
             backend_attestation_b3: Some(B3Hash::hash(b"metal-attestation")),
+            seed_lineage_hash: None, // PRD-DET-001: PR-A
         }
     }
 

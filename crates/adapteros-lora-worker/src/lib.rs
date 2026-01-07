@@ -3128,6 +3128,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                     }
                 }),
                 model_type: RouterModelType::Dense,
+                backend_type: None, // Populated at inference finalization (PRD-DET-001: G6)
             });
 
             // Build chained router decision entry (per-token)
