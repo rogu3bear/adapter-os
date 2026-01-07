@@ -77,7 +77,7 @@ adapteros-types = { path = "../adapteros-types" }
 adapteros-api-types = { path = "../adapteros-api-types" }
 adapteros-boot = { path = "../adapteros-boot" }
 adapteros-normalization = { path = "../adapteros-normalization" }
-lru = "0.12"
+lru = "0.16"
 ed25519-dalek = { workspace = true }
 # adapteros-lint = { path = "../adapteros-lint" }  # Temporarily disabled due to dependency issues
 tokio = { workspace = true }
