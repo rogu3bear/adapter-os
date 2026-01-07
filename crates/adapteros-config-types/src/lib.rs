@@ -306,4 +306,16 @@ pub struct InvariantsConfig {
     /// Disable LIF-002: Executor initialization check
     #[serde(default)]
     pub disable_lif_002_executor_init: bool,
+    /// Disable SEC-008: RBAC permission configuration check
+    #[serde(default)]
+    pub disable_sec_008_rbac_config: bool,
+    /// Disable SEC-014: Brute force protection configuration check
+    #[serde(default)]
+    pub disable_sec_014_brute_force: bool,
+    /// Disable DAT-005: Storage mode enum validation check
+    #[serde(default)]
+    pub disable_dat_005_storage_mode: bool,
+    /// Disable CFG-002: Session TTL hierarchy validation check
+    #[serde(default)]
+    pub disable_cfg_002_session_ttl: bool,
 }
