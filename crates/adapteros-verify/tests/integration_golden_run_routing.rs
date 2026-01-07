@@ -79,6 +79,7 @@ fn create_test_routing_decisions() -> Vec<RouterDecisionEvent> {
             stack_version: None,
             model_type: adapteros_types::routing::RouterModelType::Dense,
             active_experts: None,
+            backend_type: None,
         },
         RouterDecisionEvent {
             step: 1,
@@ -103,6 +104,7 @@ fn create_test_routing_decisions() -> Vec<RouterDecisionEvent> {
             stack_version: None,
             model_type: adapteros_types::routing::RouterModelType::Dense,
             active_experts: None,
+            backend_type: None,
         },
     ]
 }
@@ -258,6 +260,7 @@ fn test_routing_decision_serialization() {
         stack_version: Some(1),
         model_type: adapteros_types::routing::RouterModelType::Dense,
         active_experts: None,
+        backend_type: None,
     };
 
     // Serialize
