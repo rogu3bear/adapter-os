@@ -3,6 +3,7 @@
 //! Provides reactive auth state and actions.
 
 use crate::api::{ApiClient, ApiError};
+use crate::boot_log;
 use adapteros_api_types::UserInfoResponse;
 use leptos::prelude::*;
 use std::sync::Arc;
@@ -12,16 +13,10 @@ use std::sync::Arc;
 /// Returns true when running on localhost/127.0.0.1.
 /// This allows the UI to work without a backend during development.
 fn is_dev_localhost() -> bool {
-    let hostname = web_sys::window().and_then(|w| w.location().hostname().ok());
-
-    web_sys::console::log_1(&format!("[auth] Hostname check: {:?}", hostname).into());
-
-    let result = hostname
+    web_sys::window()
+        .and_then(|w| w.location().hostname().ok())
         .map(|h| h == "localhost" || h == "127.0.0.1")
-        .unwrap_or(false);
-
-    web_sys::console::log_1(&format!("[auth] is_dev_localhost result: {}", result).into());
-    result
+        .unwrap_or(false)
 }
 
 /// Create a mock user for dev bypass mode
@@ -166,7 +161,7 @@ impl AuthAction {
     pub async fn check_auth(&self) {
         // Increment attempt ID and capture it for this request
         let my_attempt = self.next_attempt();
-        web_sys::console::log_1(&format!("[auth] Starting auth check (attempt {})", my_attempt).into());
+        boot_log("auth", &format!("started (attempt {})", my_attempt));
 
         self.state.set(AuthState::Loading);
 
@@ -176,23 +171,26 @@ impl AuthAction {
         // Only update state if this is still the current attempt
         // (prevents late-arriving results from overwriting newer state)
         if self.current_attempt() != my_attempt {
-            web_sys::console::log_1(
-                &format!("[auth] Ignoring stale auth result (attempt {} != current {})",
-                    my_attempt, self.current_attempt()).into()
+            boot_log(
+                "auth",
+                &format!("ignoring stale result (attempt {} != current {})", my_attempt, self.current_attempt()),
             );
             return;
         }
 
         match result {
             Ok(user) => {
+                boot_log("auth", &format!("authenticated as {}", user.email));
                 self.client.set_auth_status(true);
                 self.state.set(AuthState::Authenticated(Box::new(user)));
             }
             Err(ApiError::Unauthorized) => {
+                boot_log("auth", "401 unauthorized");
                 self.client.clear_auth_status();
                 self.state.set(AuthState::Unauthenticated);
             }
             Err(e) => {
+                boot_log("auth", &format!("error: {}", e));
                 self.client.clear_auth_status();
                 self.state.set(AuthState::Error(e.to_string()));
             }
@@ -205,13 +203,14 @@ pub type AuthContext = (ReadSignal<AuthState>, AuthAction);
 
 /// Provide auth context to the application
 pub fn provide_auth_context() {
+    boot_log("auth", "initializing auth context");
     let client = Arc::new(ApiClient::new());
     let state = RwSignal::new(AuthState::Unknown);
     let action = AuthAction::new(Arc::clone(&client), state);
 
     // Dev bypass: skip auth check and use mock user on localhost
     if is_dev_localhost() {
-        web_sys::console::log_1(&"[auth] Dev bypass active - using mock user".into());
+        boot_log("auth", "dev bypass active (localhost)");
         state.set(AuthState::Authenticated(Box::new(mock_dev_user())));
         provide_context((state.read_only(), action));
         return;
@@ -239,14 +238,12 @@ pub fn provide_auth_context() {
                 match futures::future::select(auth_future, timeout_future).await {
                     futures::future::Either::Left(_) => {
                         // Auth completed (success or error) - state already set by check_auth
-                        web_sys::console::log_1(&"[auth] Auth check completed".into());
+                        boot_log("auth", "check completed");
                     }
                     futures::future::Either::Right(_) => {
                         // Timeout - only set if still loading
                         if state_timeout.get().is_loading() {
-                            web_sys::console::warn_1(
-                                &format!("[auth] Auth check timed out after {}ms", AUTH_TIMEOUT_MS).into()
-                            );
+                            boot_log("auth", &format!("TIMEOUT after {}ms", AUTH_TIMEOUT_MS));
                             state_timeout.set(AuthState::Timeout);
                         }
                     }
