@@ -10,6 +10,32 @@ use comfy_table::{presets::UTF8_FULL, Cell, Color, Table};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
+// =============================================================================
+// Boot Invariants Types
+// =============================================================================
+
+/// Invariant violation details from the server
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InvariantViolationDto {
+    pub id: String,
+    pub message: String,
+    pub is_fatal: bool,
+    pub remediation: String,
+}
+
+/// Boot invariants status response from /boot/invariants endpoint
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InvariantStatusResponse {
+    pub checked: u64,
+    pub passed: u64,
+    pub failed: u64,
+    pub skipped: u64,
+    pub fatal: u64,
+    pub violations: Vec<InvariantViolationDto>,
+    pub skipped_ids: Vec<String>,
+    pub production_mode: bool,
+}
+
 /// Doctor command to check system health
 #[derive(Debug, Args, Clone)]
 pub struct DoctorCommand {
@@ -257,6 +283,14 @@ pub async fn run(cmd: DoctorCommand, output: &OutputWriter) -> Result<()> {
     // Display results
     display_health_summary(&health_response, output)?;
 
+    // ==========================================================================
+    // Boot Invariants Check
+    // ==========================================================================
+    output.info("\nChecking boot invariants...\n");
+
+    let invariants_result = fetch_boot_invariants(&client, &cmd.server_url).await;
+    display_boot_invariants(invariants_result, output)?;
+
     // Exit with non-zero code if any component is unhealthy
     let has_unhealthy = health_response
         .components
@@ -270,6 +304,112 @@ pub async fn run(cmd: DoctorCommand, output: &OutputWriter) -> Result<()> {
         output.warning("\n⚠️  System health is DEGRADED");
     } else {
         output.success("\n✅ System health check PASSED");
+    }
+
+    Ok(())
+}
+
+/// Fetch boot invariants from the server
+async fn fetch_boot_invariants(
+    client: &reqwest::Client,
+    server_url: &str,
+) -> Result<InvariantStatusResponse, String> {
+    let url = format!("{}/v1/invariants", server_url.trim_end_matches('/'));
+
+    match client.get(&url).send().await {
+        Ok(response) => {
+            if response.status().is_success() {
+                response
+                    .json::<InvariantStatusResponse>()
+                    .await
+                    .map_err(|e| format!("Failed to parse invariants response: {}", e))
+            } else {
+                Err(format!(
+                    "Invariants endpoint returned {}: {}",
+                    response.status(),
+                    response.text().await.unwrap_or_default()
+                ))
+            }
+        }
+        Err(e) => Err(format!("Failed to connect to invariants endpoint: {}", e)),
+    }
+}
+
+/// Display boot invariants in a tree format
+fn display_boot_invariants(
+    result: Result<InvariantStatusResponse, String>,
+    output: &OutputWriter,
+) -> Result<()> {
+    println!("Boot Invariants");
+
+    match result {
+        Ok(invariants) => {
+            // Determine overall status
+            let (status_symbol, status_label) = if invariants.fatal > 0 {
+                ("\u{2717}", "FAILED") // X mark
+            } else if invariants.failed > 0 || invariants.skipped > 0 {
+                ("\u{26A0}", "DEGRADED") // Warning sign
+            } else {
+                ("\u{2713}", "OK") // Check mark
+            };
+
+            // Display summary tree
+            println!("\u{251C}\u{2500}\u{2500} Checked:  {}", invariants.checked);
+            println!("\u{251C}\u{2500}\u{2500} Passed:   {}", invariants.passed);
+            println!("\u{251C}\u{2500}\u{2500} Failed:   {}", invariants.failed);
+            println!("\u{251C}\u{2500}\u{2500} Skipped:  {}", invariants.skipped);
+            println!(
+                "\u{2514}\u{2500}\u{2500} Status:   {} {}",
+                status_symbol, status_label
+            );
+
+            // Display violations if any
+            if !invariants.violations.is_empty() {
+                for (i, violation) in invariants.violations.iter().enumerate() {
+                    let is_last =
+                        i == invariants.violations.len() - 1 && invariants.skipped_ids.is_empty();
+                    let prefix = if is_last {
+                        "    \u{2514}\u{2500}\u{2500}"
+                    } else {
+                        "    \u{251C}\u{2500}\u{2500}"
+                    };
+
+                    let fatal_marker = if violation.is_fatal { " [FATAL]" } else { "" };
+                    println!(
+                        "{} {}: {}{}",
+                        prefix, violation.id, violation.message, fatal_marker
+                    );
+                }
+            }
+
+            // Display skipped invariants if any
+            if !invariants.skipped_ids.is_empty() {
+                for (i, id) in invariants.skipped_ids.iter().enumerate() {
+                    let is_last = i == invariants.skipped_ids.len() - 1;
+                    let prefix = if is_last {
+                        "    \u{2514}\u{2500}\u{2500}"
+                    } else {
+                        "    \u{251C}\u{2500}\u{2500}"
+                    };
+                    println!("{} {}: skipped via config", prefix, id);
+                }
+            }
+
+            // Log production mode info
+            if invariants.production_mode {
+                output.info("  (production mode: fatal violations block boot)");
+            }
+        }
+        Err(err) => {
+            // Server not available or endpoint not found
+            println!("\u{251C}\u{2500}\u{2500} Checked:  -");
+            println!("\u{251C}\u{2500}\u{2500} Passed:   -");
+            println!("\u{251C}\u{2500}\u{2500} Failed:   -");
+            println!("\u{251C}\u{2500}\u{2500} Skipped:  -");
+            println!("\u{2514}\u{2500}\u{2500} Status:   ? UNAVAILABLE");
+            println!("    \u{2514}\u{2500}\u{2500} {}", err);
+            output.warning("  (server may not be running or endpoint not available)");
+        }
     }
 
     Ok(())
@@ -378,5 +518,55 @@ mod tests {
         // Timestamps should be non-zero and monotonic
         assert!(ts1 > 0);
         assert!(ts2 >= ts1);
+    }
+
+    #[test]
+    fn test_invariant_status_response_deserialization() {
+        let json = r#"{
+            "checked": 16,
+            "passed": 14,
+            "failed": 1,
+            "skipped": 1,
+            "fatal": 0,
+            "violations": [
+                {
+                    "id": "SEC-005",
+                    "message": "SameSite=None without Secure flag",
+                    "is_fatal": false,
+                    "remediation": "Set cookie_secure=true"
+                }
+            ],
+            "skipped_ids": ["SEC-001"],
+            "production_mode": false
+        }"#;
+
+        let response: InvariantStatusResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(response.checked, 16);
+        assert_eq!(response.passed, 14);
+        assert_eq!(response.failed, 1);
+        assert_eq!(response.skipped, 1);
+        assert_eq!(response.fatal, 0);
+        assert_eq!(response.violations.len(), 1);
+        assert_eq!(response.violations[0].id, "SEC-005");
+        assert!(!response.violations[0].is_fatal);
+        assert_eq!(response.skipped_ids.len(), 1);
+        assert_eq!(response.skipped_ids[0], "SEC-001");
+        assert!(!response.production_mode);
+    }
+
+    #[test]
+    fn test_invariant_violation_dto_deserialization() {
+        let json = r#"{
+            "id": "SEC-003",
+            "message": "Deterministic executor initialized with default seed",
+            "is_fatal": true,
+            "remediation": "Provide valid manifest via --manifest-path"
+        }"#;
+
+        let violation: InvariantViolationDto = serde_json::from_str(json).unwrap();
+        assert_eq!(violation.id, "SEC-003");
+        assert!(violation.is_fatal);
+        assert!(violation.message.contains("default seed"));
+        assert!(violation.remediation.contains("manifest-path"));
     }
 }
