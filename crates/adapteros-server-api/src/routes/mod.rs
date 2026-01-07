@@ -1,6 +1,9 @@
 // Route submodules - extracted for maintainability
-#[path = "routes/adapters.rs"]
-mod route_adapters;
+mod adapters;
+mod auth_routes;
+mod chat_routes;
+mod tenant_routes;
+mod training_routes;
 
 use crate::caching;
 use crate::handlers;
@@ -40,6 +43,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::health,
         handlers::ready,
         handlers::get_status,
+        handlers::health::get_invariant_status,
         handlers::system_status::get_system_status,
         handlers::admin_lifecycle::request_shutdown,
         handlers::admin_lifecycle::request_maintenance,
@@ -375,6 +379,8 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::health::ReadyzResponse,
         handlers::health::ReadyzChecks,
         handlers::health::ReadyzCheck,
+        handlers::health::InvariantStatusResponse,
+        handlers::health::InvariantViolationDto,
         crate::health::ComponentHealth,
         crate::health::ComponentStatus,
         crate::health::SystemHealthResponse,
@@ -748,6 +754,10 @@ pub fn build(state: AppState) -> Router {
         )
         .route("/v1/meta", get(handlers::meta))
         .route("/v1/status", get(handlers::get_status))
+        .route(
+            "/v1/invariants",
+            get(handlers::health::get_invariant_status),
+        )
         .route("/v1/search", get(handlers::search::global_search))
         .route(
             "/admin/lifecycle/request-shutdown",
@@ -858,114 +868,12 @@ pub fn build(state: AppState) -> Router {
 
     // Protected routes (require auth)
     let protected_routes = Router::new()
-        .route(
-            "/v1/auth/logout",
-            post(handlers::auth_enhanced::logout_handler),
-        )
-        .route("/v1/auth/me", get(auth::auth_me))
-        .route(
-            "/v1/auth/mfa/status",
-            get(handlers::auth_enhanced::mfa_status_handler),
-        )
-        .route(
-            "/v1/auth/mfa/start",
-            post(handlers::auth_enhanced::mfa_start_handler),
-        )
-        .route(
-            "/v1/auth/mfa/verify",
-            post(handlers::auth_enhanced::mfa_verify_handler),
-        )
-        .route(
-            "/v1/auth/mfa/disable",
-            post(handlers::auth_enhanced::mfa_disable_handler),
-        )
-        .route(
-            "/v1/api-keys",
-            get(handlers::api_keys::list_api_keys).post(handlers::api_keys::create_api_key),
-        )
-        .route(
-            "/v1/api-keys/{id}",
-            delete(handlers::api_keys::revoke_api_key),
-        )
+        // Auth routes (extracted to routes/auth_routes.rs)
+        .merge(auth_routes::protected_auth_routes())
         // Admin routes
         .route("/v1/admin/users", get(handlers::admin::list_users))
-        .route(
-            "/v1/auth/sessions",
-            get(handlers::auth_enhanced::list_sessions_handler),
-        )
-        .route(
-            "/v1/auth/sessions/{jti}",
-            delete(handlers::auth_enhanced::revoke_session_handler),
-        )
-        .route(
-            "/v1/auth/tenants",
-            get(handlers::auth_enhanced::list_user_tenants_handler),
-        )
-        .route(
-            "/v1/auth/tenants/switch",
-            post(handlers::auth_enhanced::switch_tenant_handler),
-        )
-        .route(
-            "/v1/tenants",
-            get(handlers::list_tenants).post(handlers::create_tenant),
-        )
-        .route("/v1/tenants/{tenant_id}", put(handlers::update_tenant))
-        .route(
-            "/v1/tenants/{tenant_id}/pause",
-            post(handlers::pause_tenant),
-        )
-        .route(
-            "/v1/tenants/{tenant_id}/archive",
-            post(handlers::archive_tenant),
-        )
-        .route(
-            "/v1/tenants/{tenant_id}/policies",
-            post(handlers::assign_tenant_policies),
-        )
-        .route(
-            "/v1/tenants/{tenant_id}/adapters",
-            post(handlers::assign_tenant_adapters),
-        )
-        .route(
-            "/v1/tenants/{tenant_id}/usage",
-            get(handlers::get_tenant_usage),
-        )
-        .route(
-            "/v1/tenants/{tenant_id}/default-stack",
-            get(handlers::get_default_stack)
-                .put(handlers::set_default_stack)
-                .delete(handlers::clear_default_stack),
-        )
-        .route(
-            "/v1/tenants/{tenant_id}/router/config",
-            get(handlers::router_config::get_router_config),
-        )
-        .route(
-            "/v1/tenants/{tenant_id}/policy-bindings",
-            get(handlers::list_tenant_policy_bindings),
-        )
-        .route(
-            "/v1/tenants/{tenant_id}/policy-bindings/{policy_pack_id}/toggle",
-            post(handlers::toggle_tenant_policy),
-        )
-        .route(
-            "/v1/tenants/{tenant_id}/revoke-all-tokens",
-            post(handlers::tenants::revoke_tenant_tokens),
-        )
-        // Tenant execution policy routes
-        .route(
-            "/v1/tenants/{tenant_id}/execution-policy",
-            get(handlers::execution_policy::get_execution_policy)
-                .post(handlers::execution_policy::create_execution_policy),
-        )
-        .route(
-            "/v1/tenants/{tenant_id}/execution-policy/{policy_id}",
-            axum::routing::delete(handlers::execution_policy::deactivate_execution_policy),
-        )
-        .route(
-            "/v1/tenants/{tenant_id}/execution-policy/history",
-            get(handlers::execution_policy::get_execution_policy_history),
-        )
+        // Tenant routes (extracted to routes/tenant_routes.rs)
+        .merge(tenant_routes::tenant_routes())
         .route("/v1/nodes", get(handlers::list_nodes))
         .route("/v1/nodes/register", post(handlers::register_node))
         .route(
@@ -1293,133 +1201,15 @@ pub fn build(state: AppState) -> Router {
             "/v1/batches/{batch_id}/items",
             get(handlers::batch::get_batch_items),
         )
-        // Chat session routes
-        .route(
-            "/v1/chat/sessions",
-            post(handlers::chat_sessions::create_chat_session)
-                .get(handlers::chat_sessions::list_chat_sessions),
-        )
-        .route(
-            "/v1/chats/from_training_job",
-            post(handlers::create_chat_from_training_job),
-        )
-        // Special paths MUST come before the {session_id} wildcard
-        .route(
-            "/v1/chat/sessions/archived",
-            get(handlers::chat_sessions::list_archived_sessions),
-        )
-        .route(
-            "/v1/chat/sessions/trash",
-            get(handlers::chat_sessions::list_deleted_sessions),
-        )
-        .route(
-            "/v1/chat/sessions/search",
-            get(handlers::chat_sessions::search_chat_sessions),
-        )
-        .route(
-            "/v1/chat/sessions/shared-with-me",
-            get(handlers::chat_sessions::get_sessions_shared_with_me),
-        )
-        // Wildcard route after special paths
-        .route(
-            "/v1/chat/sessions/{session_id}",
-            get(handlers::chat_sessions::get_chat_session)
-                .put(handlers::chat_sessions::update_chat_session)
-                .delete(handlers::chat_sessions::delete_chat_session),
-        )
-        .route(
-            "/v1/chat/sessions/{session_id}/messages",
-            post(handlers::chat_sessions::add_chat_message)
-                .get(handlers::chat_sessions::get_chat_messages),
-        )
-        .route(
-            "/v1/chat/sessions/{session_id}/summary",
-            get(handlers::chat_sessions::get_session_summary),
-        )
-        .route(
-            "/v1/chat/sessions/{session_id}/collection",
-            put(handlers::chat_sessions::update_session_collection),
-        )
-        .route(
-            "/v1/chat/messages/{message_id}/evidence",
-            get(handlers::chat_sessions::get_message_evidence),
-        )
-        .route(
-            "/v1/chat/sessions/{session_id}/provenance",
-            get(handlers::chat_sessions::get_chat_provenance),
-        )
-        // Chat tags routes
-        .route(
-            "/v1/chat/tags",
-            get(handlers::chat_sessions::list_chat_tags)
-                .post(handlers::chat_sessions::create_chat_tag),
-        )
-        .route(
-            "/v1/chat/tags/{tag_id}",
-            put(handlers::chat_sessions::update_chat_tag)
-                .delete(handlers::chat_sessions::delete_chat_tag),
-        )
-        // Chat categories routes
-        .route(
-            "/v1/chat/categories",
-            get(handlers::chat_sessions::list_chat_categories)
-                .post(handlers::chat_sessions::create_chat_category),
-        )
-        .route(
-            "/v1/chat/categories/{category_id}",
-            put(handlers::chat_sessions::update_chat_category)
-                .delete(handlers::chat_sessions::delete_chat_category),
-        )
-        // Chat session tags
-        .route(
-            "/v1/chat/sessions/{session_id}/tags",
-            get(handlers::chat_sessions::get_session_tags)
-                .post(handlers::chat_sessions::assign_tags_to_session),
-        )
-        .route(
-            "/v1/chat/sessions/{session_id}/tags/{tag_id}",
-            axum::routing::delete(handlers::chat_sessions::remove_tag_from_session),
-        )
-        // Chat session category
-        .route(
-            "/v1/chat/sessions/{session_id}/category",
-            put(handlers::chat_sessions::set_session_category),
-        )
-        // Chat session fork
-        .route(
-            "/v1/chat/sessions/{session_id}/fork",
-            post(handlers::chat_sessions::fork_chat_session),
-        )
-        // Chat session archive/restore
-        .route(
-            "/v1/chat/sessions/{session_id}/archive",
-            post(handlers::chat_sessions::archive_session),
-        )
-        .route(
-            "/v1/chat/sessions/{session_id}/restore",
-            post(handlers::chat_sessions::restore_session),
-        )
-        .route(
-            "/v1/chat/sessions/{session_id}/permanent",
-            axum::routing::delete(handlers::chat_sessions::hard_delete_session),
-        )
-        // Chat session shares
-        .route(
-            "/v1/chat/sessions/{session_id}/shares",
-            get(handlers::chat_sessions::get_session_shares)
-                .post(handlers::chat_sessions::share_session),
-        )
-        .route(
-            "/v1/chat/sessions/{session_id}/shares/{share_id}",
-            axum::routing::delete(handlers::chat_sessions::revoke_session_share),
-        )
+        // Chat routes (extracted to routes/chat_routes.rs)
+        .merge(chat_routes::chat_routes())
         // Owner CLI routes (admin only)
         .route(
             "/v1/cli/owner-run",
             post(handlers::owner_cli::run_owner_cli_command),
         )
         // Adapter routes (extracted to routes/adapters.rs)
-        .merge(route_adapters::adapter_routes())
+        .merge(adapters::adapter_routes())
         // Domain adapter routes
         .route(
             "/v1/domain-adapters",
@@ -1870,73 +1660,8 @@ pub fn build(state: AppState) -> Router {
             "/v1/metrics/series",
             get(handlers::telemetry::get_metrics_series),
         )
-        // Training routes
-        .route(
-            "/v1/training/jobs",
-            get(handlers::list_training_jobs).post(handlers::create_training_job),
-        )
-        .route(
-            "/v1/training/queue",
-            get(handlers::training::get_training_queue),
-        )
-        .route(
-            "/v1/training/jobs/{job_id}",
-            get(handlers::get_training_job),
-        )
-        .route("/v1/training/start", post(handlers::start_training))
-        .route(
-            "/v1/training/repos/{repo_id}/versions/{version_id}/promote",
-            post(handlers::promote_version),
-        )
-        .route(
-            "/v1/training/jobs/{job_id}/cancel",
-            post(handlers::cancel_training),
-        )
-        .route(
-            "/v1/training/jobs/{job_id}/retry",
-            post(handlers::retry_training),
-        )
-        .route(
-            "/v1/training/jobs/{job_id}/priority",
-            patch(handlers::training::update_training_priority),
-        )
-        .route(
-            "/v1/training/jobs/{job_id}/export/coreml",
-            post(handlers::export_coreml_training_job),
-        )
-        .route(
-            "/v1/training/sessions",
-            post(handlers::training::create_training_session),
-        )
-        .route(
-            "/v1/training/jobs/{job_id}/logs",
-            get(handlers::training::get_training_logs),
-        )
-        .route(
-            "/v1/training/jobs/{job_id}/metrics",
-            get(handlers::training::get_training_metrics),
-        )
-        .route(
-            "/v1/training/jobs/{job_id}/progress",
-            get(handlers::training::stream_training_progress),
-        )
-        .route(
-            "/v1/training/jobs/batch-status",
-            post(handlers::training::batch_training_status),
-        )
-        // TODO: Add get_training_artifacts handler when implemented
-        .route(
-            "/v1/training/jobs/{job_id}/chat_bootstrap",
-            get(handlers::get_chat_bootstrap),
-        )
-        .route(
-            "/v1/training/templates",
-            get(handlers::training::list_training_templates),
-        )
-        .route(
-            "/v1/training/templates/{template_id}",
-            get(handlers::training::get_training_template),
-        )
+        // Training routes (extracted to routes/training_routes.rs)
+        .merge(training_routes::training_routes())
         // Repository routes (new /v1/repos API)
         .route(
             "/v1/repos",
