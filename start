@@ -651,6 +651,13 @@ start_backend() {
 start_all() {
     print_banner
 
+    # Check for stale build cache (warns if >48h or >50GB)
+    if [ -x "scripts/check_cache_staleness.sh" ]; then
+        scripts/check_cache_staleness.sh 2>&1
+    elif command -v cargo >/dev/null 2>&1 && [ -f "xtask/src/check_cache.rs" ]; then
+        cargo xtask check-cache 2>/dev/null || true
+    fi
+
     echo -e "${FG_CYAN}Starting AdapterOS${FG_RESET}"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
