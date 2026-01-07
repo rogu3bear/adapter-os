@@ -30,6 +30,26 @@ static CAPABILITY_CLAIM_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
     ]
 });
 
+/// Pattern to match quoted text regions (both single and double quotes with escape handling)
+static QUOTE_PATTERN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"("[^"\\]*(?:\\.[^"\\]*)*"|'[^'\\]*(?:\\.[^'\\]*)*')"#).unwrap()
+});
+
+/// Returns byte ranges of quoted text regions
+fn get_quoted_regions(content: &str) -> Vec<(usize, usize)> {
+    QUOTE_PATTERN
+        .find_iter(content)
+        .map(|m| (m.start(), m.end()))
+        .collect()
+}
+
+/// Check if a byte position falls within any quoted region
+fn is_inside_quotes(position: usize, regions: &[(usize, usize)]) -> bool {
+    regions
+        .iter()
+        .any(|(start, end)| position > *start && position < *end)
+}
+
 /// System capabilities whitelist
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SystemCapabilities {
@@ -134,11 +154,14 @@ impl CapabilityPolicy {
 
         let mut claims = Vec::new();
         let mut seen_positions: HashSet<usize> = HashSet::new();
+        let quoted_regions = get_quoted_regions(content);
 
         // Check built-in patterns
         for pattern in CAPABILITY_CLAIM_PATTERNS.iter() {
             for mat in pattern.find_iter(content) {
-                if !seen_positions.contains(&mat.start()) {
+                if !seen_positions.contains(&mat.start())
+                    && !is_inside_quotes(mat.start(), &quoted_regions)
+                {
                     seen_positions.insert(mat.start());
                     claims.push(CapabilityClaim {
                         matched_text: mat.as_str().to_string(),
@@ -152,7 +175,9 @@ impl CapabilityPolicy {
         // Check custom patterns
         for pattern in &self.custom_patterns {
             for mat in pattern.find_iter(content) {
-                if !seen_positions.contains(&mat.start()) {
+                if !seen_positions.contains(&mat.start())
+                    && !is_inside_quotes(mat.start(), &quoted_regions)
+                {
                     seen_positions.insert(mat.start());
                     claims.push(CapabilityClaim {
                         matched_text: mat.as_str().to_string(),
@@ -424,9 +449,8 @@ mod tests {
         let content = "The user said 'I opened your account' in their message.";
         let claims = policy.detect_claims(content);
 
-        // KNOWN LIMITATION: Currently triggers false positive
-        // TODO: Add quote detection to reduce false positives
-        assert!(!claims.is_empty()); // Documents current behavior
+        // Quote detection filters out claims inside quoted text
+        assert!(claims.is_empty());
     }
 
     #[test]
