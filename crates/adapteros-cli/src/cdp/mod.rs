@@ -9,13 +9,13 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-pub mod assembler;
+// pub mod assembler; // TODO: Create assembler.rs
 pub mod diff_analyzer;
 pub mod language_detector;
 pub mod metadata;
 pub mod store;
 
-pub use assembler::CdpAssembler;
+// pub use assembler::CdpAssembler; // TODO: Uncomment when assembler.rs is created
 pub use diff_analyzer::DiffAnalyzer;
 pub use language_detector::LanguageDetector;
 pub use metadata::CdpMetadata;
@@ -292,6 +292,10 @@ mod tests {
             timestamp: chrono::Utc::now(),
             branch: "main".to_string(),
             remote_url: None,
+            repo_path: std::path::PathBuf::from("/tmp/test-repo"),
+            author_name: None,
+            committer: None,
+            committer_name: None,
         };
         
         let cdp = CommitDeltaPack::new(

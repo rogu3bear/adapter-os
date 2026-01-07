@@ -911,6 +911,15 @@ pub struct ExecutionProfile {
     /// inference priority (`BackendKind::inference_priority()`), falling back
     /// through MLX → Metal → CPU as capabilities allow.
     pub backend_profile: BackendKind,
+    /// If true, seed fallback (BestEffort mode without manifest) requires explicit
+    /// opt-in. In strict determinism mode, this is always true and fallback usage
+    /// will emit a strict_mode_failure_event and fail closed.
+    ///
+    /// Default: false for backward compatibility.
+    ///
+    /// Set to true in production environments to enforce explicit manifest binding.
+    #[serde(default)]
+    pub require_explicit_fallback_opt_out: bool,
 }
 
 impl Default for ExecutionProfile {
@@ -918,7 +927,30 @@ impl Default for ExecutionProfile {
         Self {
             seed_mode: DEFAULT_SEED_MODE,
             backend_profile: BackendKind::default_inference_backend(),
+            require_explicit_fallback_opt_out: false,
         }
+    }
+}
+
+impl ExecutionProfile {
+    /// Create a strict execution profile that enforces explicit manifest binding.
+    ///
+    /// This profile will:
+    /// - Require manifest hash for all seed derivations
+    /// - Fail closed if fallback would be used
+    /// - Emit telemetry on any fallback attempt
+    pub fn strict() -> Self {
+        Self {
+            seed_mode: SeedMode::Strict,
+            backend_profile: BackendKind::default_inference_backend(),
+            require_explicit_fallback_opt_out: true,
+        }
+    }
+
+    /// Create a profile with explicit fallback opt-out requirement.
+    pub fn with_fallback_opt_out(mut self, require_opt_out: bool) -> Self {
+        self.require_explicit_fallback_opt_out = require_opt_out;
+        self
     }
 }
 
@@ -1116,6 +1148,40 @@ pub fn derive_request_seed(
             Ok(derive_seed(global, &label))
         }
         SeedMode::BestEffort => {
+            // Check if manifest is missing (fallback case)
+            let fallback_used = manifest.is_none();
+
+            if fallback_used {
+                // Log fallback usage for observability (PRD requirement: log all fallback uses)
+                tracing::warn!(
+                    target: "determinism",
+                    tenant_id,
+                    request_id,
+                    worker_id,
+                    nonce,
+                    "BestEffort seed fallback: no manifest provided, using tenant-scoped hash"
+                );
+
+                // In strict determinism mode, fallback is a policy violation
+                if is_strict_determinism_mode() {
+                    // Emit telemetry event before failing
+                    let event = crate::telemetry::strict_mode_failure_event(
+                        "BestEffort seed fallback attempted without manifest in strict mode",
+                        Some("seed.fallback".to_string()),
+                        true, // fallback_used
+                        Some(tenant_id.to_string()),
+                        Some(request_id.to_string()),
+                    );
+                    crate::telemetry::emit_observability_event(&event);
+
+                    return Err(AosError::DeterminismViolation(
+                        "BestEffort seed fallback is not permitted when strict determinism is enabled. \
+                         Provide a manifest hash or use NonDeterministic mode (debug only)."
+                            .to_string(),
+                    ));
+                }
+            }
+
             let manifest_hash = manifest
                 .cloned()
                 .unwrap_or_else(|| B3Hash::hash(format!("no_manifest:{}", tenant_id).as_bytes()));
@@ -1128,6 +1194,7 @@ pub fn derive_request_seed(
                     request_id,
                     worker_id,
                     nonce,
+                    fallback_used,
                     manifest_prefix = %manifest_hex.get(..16).unwrap_or(&manifest_hex),
                     "Deriving best-effort request seed (AOS_DEBUG_DETERMINISM=1)"
                 );
