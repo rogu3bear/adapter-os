@@ -226,9 +226,122 @@ jobs:
           cat kv-verify.json
           jq -e '(.drift == 0) and (.fallback == 0) and (.errors == 0) and (.degraded == false)' kv-verify.json
 
+  # ==========================================================================
+  # Gold Standard E2E Test (runs on every PR)
+  # ==========================================================================
+  gold-standard-e2e:
+    name: Gold Standard E2E Test
+    runs-on: macos-14
+    timeout-minutes: 5
+    env:
+      AOS_DEV_NO_AUTH: "1"
+      AOS_BACKEND: mock
+      AOS_DETERMINISM_SEED: "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a"
+      RUST_BACKTRACE: "1"
+      RUST_LOG: "adapteros=debug,tower_http=warn"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run gold standard E2E test
+        run: cargo test --test gold_standard_e2e -- --test-threads=2 --nocapture
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gold-standard-e2e-failures
+          path: target/test-failures/
+
+  # ==========================================================================
+  # Happy Path Smoke Test (runs on every PR)
+  # ==========================================================================
+  happy-path-smoke:
+    name: Happy Path Smoke Test
+    runs-on: macos-14
+    timeout-minutes: 5
+    env:
+      AOS_DEV_NO_AUTH: "1"
+      AOS_BACKEND: mock
+      RUST_BACKTRACE: "1"
+      RUST_LOG: "warn"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install sqlx-cli
+        run: cargo install sqlx-cli --version 0.8.2 --no-default-features --features sqlite --locked
+      - name: Run happy path smoke test
+        run: ./scripts/test/smoke_happy_path.sh --verbose
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: happy-path-smoke-logs
+          path: var/smoke-happy-path/
+
+  # ==========================================================================
+  # Streaming Reliability Tests (runs on every PR)
+  # ==========================================================================
+  streaming-reliability:
+    name: Streaming Reliability Tests
+    runs-on: macos-14
+    timeout-minutes: 10
+    env:
+      AOS_DEV_NO_AUTH: "1"
+      RUST_BACKTRACE: "1"
+      RUST_LOG: "adapteros=debug,tower_http=warn"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run streaming reliability tests
+        run: cargo test -p adapteros-server-api --test streaming_reliability -- --test-threads=2 --nocapture
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: streaming-reliability-failures
+          path: target/test-failures/
+
+  # ==========================================================================
+  # Determinism Replay Harness (main branch and nightly only)
+  # ==========================================================================
+  replay-harness:
+    name: Determinism Replay Harness
+    runs-on: macos-14
+    timeout-minutes: 20
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    env:
+      AOS_DEV_NO_AUTH: "1"
+      AOS_BACKEND: mock
+      AOS_DETERMINISM_SEED: "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a"
+      RUST_BACKTRACE: "1"
+      RUST_LOG: "adapteros=debug"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run replay harness (serial execution)
+        run: cargo test --test determinism_replay_harness -- --test-threads=1 --nocapture
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: replay-harness-failures
+          path: target/test-failures/
+      - name: Upload golden fixtures
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-fixtures
+          path: tests/fixtures/golden/
+
+  # ==========================================================================
+  # Determinism Suite
+  # ==========================================================================
   determinism:
     name: Determinism Suite
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      AOS_DEV_NO_AUTH: "1"
+      AOS_BACKEND: mock
+      RUST_BACKTRACE: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -236,6 +349,8 @@ jobs:
         run: cargo test --test determinism_smoke -- --nocapture
       - name: Run determinism check
         run: make determinism-check
+      - name: Run determinism hardening tests
+        run: cargo test --test determinism_hardening_tests -- --nocapture
       - name: Scan build for -ffast-math flags
         run: |
           set -euo pipefail
@@ -246,7 +361,7 @@ jobs:
             echo "::error::-ffast-math detected in build outputs"
             exit 1
           fi
-          echo "✓ No -ffast-math flags detected in build artifacts"
+          echo "No -ffast-math flags detected in build artifacts"
 
   prod-gate:
     name: Prod Gate
@@ -458,34 +573,46 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Generate OpenAPI spec from Rust backend
-        run: cargo run -p adapteros-server-api --bin export-openapi -- target/codegen/openapi.json
-      - name: Check committed OpenAPI spec drift
-        run: |
-          if [ -f docs/api/openapi.json ]; then
-            if ! diff -u docs/api/openapi.json target/codegen/openapi.json > /tmp/openapi.diff; then
-              echo "::error::docs/api/openapi.json is out of date. Regenerate the spec and commit the changes."
-              head -n 200 /tmp/openapi.diff
-              exit 1
-            else
-              echo "✓ docs/api/openapi.json matches generated spec"
-            fi
-          else
-            echo "::warning::docs/api/openapi.json missing; skipping drift check"
-          fi
+      - name: Check OpenAPI spec drift (utoipa version + spec content)
+        run: ./scripts/ci/check_openapi_drift.sh
       - name: Verify OpenAPI spec quality
         run: |
-          if ! jq -e '.paths | length > 0' target/codegen/openapi.json > /dev/null; then
+          if ! jq -e '.paths | length > 0' docs/api/openapi.json > /dev/null; then
             echo "::error::OpenAPI spec has no paths defined"
             exit 1
           fi
-          if ! jq -e '.components.schemas | length > 0' target/codegen/openapi.json > /dev/null; then
+          if ! jq -e '.components.schemas | length > 0' docs/api/openapi.json > /dev/null; then
             echo "::error::OpenAPI spec has no schemas defined"
             exit 1
           fi
           echo "✓ OpenAPI spec structure is valid"
-          echo "  Paths: $(jq '.paths | length' target/codegen/openapi.json)"
-          echo "  Schemas: $(jq '.components.schemas | length' target/codegen/openapi.json)"
+          echo "  Paths: $(jq '.paths | length' docs/api/openapi.json)"
+          echo "  Schemas: $(jq '.components.schemas | length' docs/api/openapi.json)"
+
+  route-map-freshness:
+    name: Route Map Freshness Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate route map and check for drift
+        run: |
+          ./scripts/dev/generate_route_map.sh
+
+          if git diff --exit-code docs/api/ROUTE_MAP.md; then
+            echo "✓ Route map is up to date"
+          else
+            echo "::error::Route map is out of date!"
+            echo ""
+            echo "The route map has drifted from the source."
+            echo "Please regenerate and commit:"
+            echo ""
+            echo "  ./scripts/dev/generate_route_map.sh"
+            echo "  git add docs/api/ROUTE_MAP.md"
+            echo "  git commit -m 'docs: regenerate route map'"
+            echo ""
+            git diff docs/api/ROUTE_MAP.md
+            exit 1
+          fi
 
   fuzz:
     name: Fuzz Smoke
@@ -547,6 +674,16 @@ jobs:
             exit 1
           fi
           echo "✓ WASM size within PRD-UI-170 limits"
+
+          # PRD-UI-BOUNDARY: Assert gzipped size < 1.2MB for network transfer budget
+          GZIP_SIZE=$(gzip -9 -c "$WASM_FILE" | wc -c)
+          echo "Gzipped size: $GZIP_SIZE bytes"
+          MAX_GZIP=$((1200000))
+          if [ "$GZIP_SIZE" -gt "$MAX_GZIP" ]; then
+            echo "::error::Gzipped WASM ($GZIP_SIZE bytes) exceeds transfer budget (1.2MB)"
+            exit 1
+          fi
+          echo "✓ Gzipped WASM within transfer budget"
       - name: Verify WASM artifacts exist
         run: |
           if [ ! -f crates/adapteros-server/static/index.html ]; then
@@ -572,6 +709,29 @@ jobs:
           targets: wasm32-unknown-unknown
       - name: Check WASM compilation
         run: cargo check -p adapteros-ui --target wasm32-unknown-unknown
+      - name: Verify WASM closure (no server-only crates)
+        run: |
+          # PRD-UI-BOUNDARY: Forbidden crates in WASM closure
+          # These crates are server-only and must NOT be compiled into the browser bundle
+          FORBIDDEN_CRATES="blake3 schemars sqlx rusqlite ring"
+          FAILED=0
+
+          for crate in $FORBIDDEN_CRATES; do
+            if cargo tree -p adapteros-ui --target wasm32-unknown-unknown -i "$crate" 2>/dev/null | grep -q "$crate"; then
+              echo "::error::Forbidden crate '$crate' found in WASM dependency closure"
+              cargo tree -p adapteros-ui --target wasm32-unknown-unknown -i "$crate" 2>/dev/null | head -10
+              FAILED=1
+            fi
+          done
+
+          if [ "$FAILED" -eq 1 ]; then
+            echo ""
+            echo "::error::WASM boundary violation detected. Server-only crates must not leak into browser bundle."
+            echo "Fix: Ensure feature gates in adapteros-types/adapteros-api-types exclude server dependencies for WASM."
+            exit 1
+          fi
+
+          echo "✓ WASM closure is clean (no server-only crates)"
 
   leptos-api-types-contract:
     name: Leptos API Types Contract

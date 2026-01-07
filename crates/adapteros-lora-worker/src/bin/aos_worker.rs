@@ -1618,6 +1618,7 @@ async fn run_worker() -> Result<()> {
         let exec_profile = ExecutionProfile {
             seed_mode: SeedMode::BestEffort,
             backend_profile: requested_backend,
+            require_explicit_fallback_opt_out: false,
         };
         let selection = select_backend_from_execution_profile(&SelectionContext::new(
             exec_profile,

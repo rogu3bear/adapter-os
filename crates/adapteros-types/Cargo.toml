@@ -9,8 +9,8 @@ description = "Core type definitions for AdapterOS (no framework dependencies)"
 
 [features]
 default = ["server"]
-# Server feature enables sqlx and other server-only deps
-server = ["dep:sqlx"]
+# Server feature enables sqlx, schemars, and other server-only deps
+server = ["dep:sqlx", "dep:schemars"]
 # OpenAPI schema generation
 utoipa = ["dep:utoipa"]
 # WASM-compatible build (excludes server deps)
@@ -21,12 +21,9 @@ wasm = []
 serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true, features = ["sqlite"], optional = true }
-schemars = { workspace = true }
+schemars = { workspace = true, optional = true }
 utoipa = { workspace = true, optional = true }
 
 # Core types
 chrono = { workspace = true }
 uuid = { version = "1.6", features = ["v4", "v7", "serde"] }
-
-# Crypto primitives (for hash types)
-blake3 = { workspace = true }

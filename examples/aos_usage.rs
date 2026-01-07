@@ -2,7 +2,7 @@
 //!
 //! Demonstrates:
 //! - Creating signed adapters with Ed25519
-//! - Configurable compression levels
+//! - Package options for adapter creation
 //! - Format versioning and compatibility
 //! - Manifest-only loading for fast operations
 //! - Migration between format versions
@@ -11,10 +11,10 @@
 use adapteros_crypto::Keypair;
 #[cfg(feature = "extended-tests")]
 use adapteros_single_file_adapter::{
-    get_compatibility_report, migrate_adapter, AdapterWeights, CompressionLevel, LineageInfo,
-    Mutation, PackageOptions, SingleFileAdapter, SingleFileAdapterLoader,
-    SingleFileAdapterPackager, SingleFileAdapterValidator, TrainingConfig, TrainingExample,
-    WeightGroup, WeightGroupConfig, WeightGroupType, WeightMetadata, AOS_FORMAT_VERSION,
+    get_compatibility_report, migrate_adapter, AdapterWeights, LineageInfo, Mutation,
+    PackageOptions, SingleFileAdapter, SingleFileAdapterLoader, SingleFileAdapterPackager,
+    SingleFileAdapterValidator, TrainingConfig, TrainingExample, WeightGroup, WeightGroupConfig,
+    WeightGroupType, WeightMetadata, AOS_FORMAT_VERSION,
 };
 #[cfg(feature = "extended-tests")]
 use chrono::Utc;
@@ -45,7 +45,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     create_signed_adapter().await?;
 
     // Example 6: Create adapter with custom compression
-    create_compressed_adapter().await?;
+    create_adapter_with_options().await?;
 
     // Example 7: Fast manifest-only loading
     fast_manifest_loading().await?;
@@ -350,11 +350,7 @@ async fn create_signed_adapter() -> Result<(), Box<dyn std::error::Error>> {
     SingleFileAdapterPackager::save_with_options(
         &adapter,
         output_path,
-        PackageOptions {
-            compression: CompressionLevel::Fast,
-            include_signature: true,
-            include_combined_weights: true,
-        },
+        PackageOptions::with_combined_weights(),
     )
     .await?;
 
@@ -369,22 +365,17 @@ async fn create_signed_adapter() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[cfg(feature = "extended-tests")]
-async fn create_compressed_adapter() -> Result<(), Box<dyn std::error::Error>> {
-    println!("\n=== Example 6: Creating adapter with custom compression ===\n");
+async fn create_adapter_with_options() -> Result<(), Box<dyn std::error::Error>> {
+    println!("\n=== Example 6: Creating adapter with package options ===\n");
 
-    let adapter = build_adapter("compressed_adapter", "1.0.0", None, None, vec![], 0.0)?;
-    let output_path = "compressed_adapter.aos";
+    let adapter = build_adapter("options_adapter", "1.0.0", None, None, vec![], 0.0)?;
+    let output_path = "options_adapter.aos";
 
-    let options = PackageOptions {
-        compression: CompressionLevel::Best,
-        include_signature: true,
-        include_combined_weights: true,
-    };
-
+    let options = PackageOptions::with_combined_weights();
     SingleFileAdapterPackager::save_with_options(&adapter, output_path, options).await?;
 
-    println!("✓ Created compressed adapter: {}", output_path);
-    println!("  - Compression: {:?}", CompressionLevel::Best);
+    println!("✓ Created adapter with options: {}", output_path);
+    println!("  - Using combined weights: true");
 
     Ok(())
 }

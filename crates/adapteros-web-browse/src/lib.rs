@@ -52,8 +52,9 @@ pub use evidence::{BrowseEvidence, EvidenceBuilder};
 pub use rate_limit::{RateLimitConfig, RateLimiter};
 pub use retry::HttpRetryConfig;
 pub use service::{
-    ImageSearchRequest, ImageSearchResponse, ImageSearchResult, PageFetchRequest,
-    PageFetchResponse, WebBrowseService, WebSearchRequest, WebSearchResponse, WebSearchResult,
+    DefaultWebBrowseService, ImageSearchRequest, ImageSearchResponse, ImageSearchResult,
+    PageFetchRequest, PageFetchResponse, PageImage, RateLimitStatus, UsageStats,
+    WebBrowseService, WebSearchRequest, WebSearchResponse, WebSearchResult,
 };
 pub use streaming::{StreamedContent, StreamingConfig};
 

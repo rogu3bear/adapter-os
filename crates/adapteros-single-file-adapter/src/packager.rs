@@ -1,32 +1,80 @@
 //! Single-file adapter packager
+//!
+//! Creates .aos archives in AOS2 binary format using the segment-indexed structure.
 
 use super::format::*;
-use crate::weights::{serialize_weight_group, WeightGroupDiskInfo, WeightGroupsManifest};
+use adapteros_aos::{AosWriter, BackendTag};
 use adapteros_core::{AosError, Result};
-use std::io::Write;
+use safetensors::tensor::TensorView;
 use std::path::Path;
-use zip::{write::FileOptions, ZipWriter};
 
 /// Options for packaging .aos files
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct PackageOptions {
-    pub compression: CompressionLevel,
-    pub include_signature: bool,
-    pub include_combined_weights: bool,
+    /// Use combined weights if available (default: true)
+    /// When true, prefers adapter.weights.combined over positive weights
+    pub use_combined_weights: bool,
 }
 
-impl Default for PackageOptions {
-    fn default() -> Self {
+impl PackageOptions {
+    /// Create options that prefer combined weights
+    pub fn with_combined_weights() -> Self {
         Self {
-            compression: CompressionLevel::Fast,
-            include_signature: true,
-            include_combined_weights: true,
+            use_combined_weights: true,
         }
     }
 }
 
+/// Serialize a WeightGroup to safetensors binary format
+fn serialize_weights_to_safetensors(weights: &WeightGroup) -> Result<Vec<u8>> {
+    // Flatten lora_a: Vec<Vec<f32>> -> Vec<f32> -> bytes
+    let lora_a_flat: Vec<f32> = weights
+        .lora_a
+        .iter()
+        .flat_map(|row| row.iter().copied())
+        .collect();
+    let lora_a_bytes: Vec<u8> = lora_a_flat
+        .iter()
+        .flat_map(|f| f.to_le_bytes())
+        .collect();
+
+    // Flatten lora_b: Vec<Vec<f32>> -> Vec<f32> -> bytes
+    let lora_b_flat: Vec<f32> = weights
+        .lora_b
+        .iter()
+        .flat_map(|row| row.iter().copied())
+        .collect();
+    let lora_b_bytes: Vec<u8> = lora_b_flat
+        .iter()
+        .flat_map(|f| f.to_le_bytes())
+        .collect();
+
+    // Get shapes from weight matrices
+    let rank = weights.lora_a.len();
+    let hidden_dim = weights.lora_a.first().map(|r| r.len()).unwrap_or(0);
+
+    if rank == 0 || hidden_dim == 0 {
+        return Err(AosError::Training(
+            "Cannot serialize empty weight matrices".to_string(),
+        ));
+    }
+
+    // Create tensor views
+    let lora_a_view = TensorView::new(safetensors::Dtype::F32, vec![rank, hidden_dim], &lora_a_bytes)
+        .map_err(|e| AosError::Training(format!("Failed to create lora_a tensor: {}", e)))?;
+
+    let lora_b_view = TensorView::new(safetensors::Dtype::F32, vec![hidden_dim, rank], &lora_b_bytes)
+        .map_err(|e| AosError::Training(format!("Failed to create lora_b tensor: {}", e)))?;
+
+    // Serialize to safetensors format
+    let tensors = vec![("lora_a", lora_a_view), ("lora_b", lora_b_view)];
+
+    safetensors::tensor::serialize(tensors, &None)
+        .map_err(|e| AosError::Training(format!("Failed to serialize weights: {}", e)))
+}
+
 impl SingleFileAdapter {
-    /// Save adapter to .aos file
+    /// Save adapter to .aos file using AOS2 binary format
     pub async fn save<P: AsRef<Path>>(&self, path: P) -> Result<()> {
         let options = PackageOptions::default();
         Self::save_with_options(self, path, options).await
@@ -40,146 +88,40 @@ impl SingleFileAdapter {
     ) -> Result<()> {
         let path = path.as_ref();
 
-        // Create file synchronously for ZipWriter
-        let file = std::fs::File::create(path)
-            .map_err(|e| AosError::Io(format!("Failed to create .aos file: {}", e)))?;
+        // Get scope_path from manifest metadata
+        let scope_path = adapter
+            .manifest
+            .metadata
+            .get("scope_path")
+            .cloned()
+            .filter(|s| !s.is_empty());
 
-        let mut zip = ZipWriter::new(file);
-
-        // Configure compression
-        let (compression_method, compression_level) = options.compression.to_zip_options();
-        let mut file_options = FileOptions::default()
-            .compression_method(compression_method)
-            .unix_permissions(0o644);
-
-        if let Some(level) = compression_level {
-            file_options = file_options.compression_level(Some(level as i32));
-        }
-
-        // Add manifest (always use best compression for small JSON)
-        let manifest_options = FileOptions::default()
-            .compression_method(zip::CompressionMethod::Deflated)
-            .compression_level(Some(9))
-            .unix_permissions(0o644);
-        zip.start_file("manifest.json", manifest_options)
-            .map_err(|e| AosError::Io(format!("Failed to start manifest file: {}", e)))?;
-        zip.write_all(
-            &serde_json::to_vec_pretty(&adapter.manifest)
-                .map_err(|e| AosError::Training(format!("Failed to serialize manifest: {}", e)))?,
-        )
-        .map_err(|e| AosError::Io(format!("Failed to write manifest: {}", e)))?;
-
-        // Add positive weights
-        zip.start_file("weights_positive.safetensors", file_options)
-            .map_err(|e| AosError::Io(format!("Failed to start positive weights file: {}", e)))?;
-        let positive_weights_bytes = serialize_weight_group(&adapter.weights.positive)?;
-        zip.write_all(&positive_weights_bytes)
-            .map_err(|e| AosError::Io(format!("Failed to write positive weights: {}", e)))?;
-
-        // Add negative weights
-        zip.start_file("weights_negative.safetensors", file_options)
-            .map_err(|e| AosError::Io(format!("Failed to start negative weights file: {}", e)))?;
-        let negative_weights_bytes = serialize_weight_group(&adapter.weights.negative)?;
-        zip.write_all(&negative_weights_bytes)
-            .map_err(|e| AosError::Io(format!("Failed to write negative weights: {}", e)))?;
-
-        // Add combined weights if requested and available
-        if options.include_combined_weights {
-            if let Some(ref combined) = adapter.weights.combined {
-                zip.start_file("weights_combined.safetensors", file_options)
-                    .map_err(|e| {
-                        AosError::Io(format!("Failed to start combined weights file: {}", e))
-                    })?;
-                let combined_weights_bytes = serialize_weight_group(combined)?;
-                zip.write_all(&combined_weights_bytes).map_err(|e| {
-                    AosError::Io(format!("Failed to write combined weights: {}", e))
-                })?;
-            }
-        }
-
-        // Add training data (use best compression for text)
-        let data_options = FileOptions::default()
-            .compression_method(zip::CompressionMethod::Deflated)
-            .compression_level(Some(9))
-            .unix_permissions(0o644);
-        zip.start_file("training_data.jsonl", data_options)
-            .map_err(|e| AosError::Io(format!("Failed to start training data file: {}", e)))?;
-        for example in &adapter.training_data {
-            zip.write_all(&serde_json::to_vec(example).map_err(|e| {
-                AosError::Training(format!("Failed to serialize training example: {}", e))
-            })?)
-            .map_err(|e| AosError::Io(format!("Failed to write training example: {}", e)))?;
-            zip.write_all(b"\n")
-                .map_err(|e| AosError::Io(format!("Failed to write newline: {}", e)))?;
-        }
-
-        // Add config
-        zip.start_file("config.toml", data_options)
-            .map_err(|e| AosError::Io(format!("Failed to start config file: {}", e)))?;
-        zip.write_all(
-            toml::to_string(&adapter.config)
-                .map_err(|e| AosError::Training(format!("Failed to serialize config: {}", e)))?
-                .as_bytes(),
-        )
-        .map_err(|e| AosError::Io(format!("Failed to write config: {}", e)))?;
-
-        // Add lineage
-        zip.start_file("lineage.json", data_options)
-            .map_err(|e| AosError::Io(format!("Failed to start lineage file: {}", e)))?;
-        zip.write_all(
-            &serde_json::to_vec_pretty(&adapter.lineage)
-                .map_err(|e| AosError::Training(format!("Failed to serialize lineage: {}", e)))?,
-        )
-        .map_err(|e| AosError::Io(format!("Failed to write lineage: {}", e)))?;
-
-        // Add signature if present and requested
-        if options.include_signature {
-            if let Some(ref signature) = adapter.signature {
-                zip.start_file("signature.sig", data_options)
-                    .map_err(|e| AosError::Io(format!("Failed to start signature file: {}", e)))?;
-                zip.write_all(&serde_json::to_vec_pretty(signature).map_err(|e| {
-                    AosError::Training(format!("Failed to serialize signature: {}", e))
-                })?)
-                .map_err(|e| AosError::Io(format!("Failed to write signature: {}", e)))?;
-            }
-        }
-
-        // Add weight group metadata
-        zip.start_file("weight_groups.json", data_options)
-            .map_err(|e| AosError::Io(format!("Failed to start weight groups file: {}", e)))?;
-        let weight_manifest = WeightGroupsManifest {
-            positive: WeightGroupDiskInfo {
-                example_count: adapter.weights.positive.metadata.example_count,
-                avg_loss: adapter.weights.positive.metadata.avg_loss,
-                training_time_ms: adapter.weights.positive.metadata.training_time_ms,
-                created_at: adapter.weights.positive.metadata.created_at.clone(),
-            },
-            negative: WeightGroupDiskInfo {
-                example_count: adapter.weights.negative.metadata.example_count,
-                avg_loss: adapter.weights.negative.metadata.avg_loss,
-                training_time_ms: adapter.weights.negative.metadata.training_time_ms,
-                created_at: adapter.weights.negative.metadata.created_at.clone(),
-            },
-            combined: adapter
+        // Determine which weights to use
+        let weights_to_serialize = if options.use_combined_weights {
+            adapter
                 .weights
                 .combined
                 .as_ref()
-                .map(|c| WeightGroupDiskInfo {
-                    example_count: c.metadata.example_count,
-                    avg_loss: c.metadata.avg_loss,
-                    training_time_ms: c.metadata.training_time_ms,
-                    created_at: c.metadata.created_at.clone(),
-                }),
-            combination_strategy: adapter.manifest.weight_groups.combination_strategy.clone(),
-            use_separate_weights: adapter.manifest.weight_groups.use_separate_weights,
+                .unwrap_or(&adapter.weights.positive)
+        } else {
+            &adapter.weights.positive
         };
-        zip.write_all(&serde_json::to_vec_pretty(&weight_manifest).map_err(|e| {
-            AosError::Training(format!("Failed to serialize weight groups info: {}", e))
-        })?)
-        .map_err(|e| AosError::Io(format!("Failed to write weight groups info: {}", e)))?;
 
-        zip.finish()
-            .map_err(|e| AosError::Io(format!("Failed to finalize .aos file: {}", e)))?;
+        // Serialize weights to safetensors format
+        let weights_bytes = serialize_weights_to_safetensors(weights_to_serialize)?;
+
+        // Create AOS archive
+        let mut writer = AosWriter::new();
+        writer.add_segment(BackendTag::Canonical, scope_path, &weights_bytes)?;
+
+        // Write archive (signature is stored in SingleFileAdapter.signature, not in manifest)
+        writer.write_archive(path, &adapter.manifest)?;
+
+        tracing::info!(
+            "Saved AOS archive: {} (adapter_id={})",
+            path.display(),
+            adapter.manifest.adapter_id
+        );
 
         Ok(())
     }
@@ -207,6 +149,7 @@ impl SingleFileAdapterPackager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::loader::SingleFileAdapterLoader;
     use tempfile::TempDir;
 
     fn new_test_tempdir() -> TempDir {
@@ -231,9 +174,28 @@ mod tests {
         // Verify file exists
         assert!(aos_path.exists());
 
-        // Verify file size
+        // Verify file size (AOS header is at least 64 bytes)
         let metadata = std::fs::metadata(&aos_path).unwrap();
-        assert!(metadata.len() > 0);
+        assert!(metadata.len() >= 64);
+    }
+
+    #[tokio::test]
+    async fn test_roundtrip_save_load() {
+        let temp_dir = new_test_tempdir();
+        let aos_path = temp_dir.path().join("roundtrip_adapter.aos");
+
+        // Create and save
+        let original = create_test_adapter();
+        SingleFileAdapterPackager::save(&original, &aos_path)
+            .await
+            .unwrap();
+
+        // Load back
+        let loaded = SingleFileAdapterLoader::load(&aos_path).await.unwrap();
+
+        // Verify key fields match
+        assert_eq!(loaded.manifest.adapter_id, original.manifest.adapter_id);
+        assert_eq!(loaded.manifest.rank, original.manifest.rank);
     }
 
     fn create_test_adapter() -> SingleFileAdapter {

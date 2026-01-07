@@ -98,12 +98,13 @@ impl CdpMetadata {
     pub fn repo_name(&self) -> Option<String> {
         self.remote_url.as_ref().and_then(|url| {
             // Extract repo name from common git URL formats
-            if let Some(stripped) = url.strip_suffix(".git") {
-                url = stripped;
-            }
-            
-            if url.contains("github.com") || url.contains("gitlab.com") || url.contains("bitbucket.org") {
-                url.split('/').last().map(|s| s.to_string())
+            let url_str = url.strip_suffix(".git").unwrap_or(url.as_str());
+
+            if url_str.contains("github.com")
+                || url_str.contains("gitlab.com")
+                || url_str.contains("bitbucket.org")
+            {
+                url_str.split('/').last().map(|s| s.to_string())
             } else {
                 None
             }
@@ -175,8 +176,9 @@ impl MetadataExtractor {
             )));
         }
 
-        let [hash, author_name, author_email, author_date, committer_name, committer_email, committer_date, message] = 
-            [parts[0], parts[1], parts[2], parts[3], parts[4], parts[5], parts[6], parts[7]];
+        let [hash, author_name, author_email, author_date, committer_name, committer_email, committer_date, message] = [
+            parts[0], parts[1], parts[2], parts[3], parts[4], parts[5], parts[6], parts[7],
+        ];
 
         // Parse timestamps
         let timestamp = DateTime::parse_from_rfc3339(author_date)
@@ -313,7 +315,10 @@ mod tests {
             "main".to_string(),
             temp_dir.path().to_path_buf(),
         )
-        .with_committer("committer@example.com".to_string(), Some("Test Committer".to_string()));
+        .with_committer(
+            "committer@example.com".to_string(),
+            Some("Test Committer".to_string()),
+        );
 
         assert!(metadata.has_different_committer());
         assert_eq!(metadata.committer_display_name(), Some("Test Committer"));

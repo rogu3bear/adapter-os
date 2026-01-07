@@ -316,7 +316,6 @@ fn single_file_metadata_options() -> LoadOptions {
         LoadOptions {
             skip_verification: true,
             skip_signature_check: true,
-            use_mmap: false,
         }
     }
 }

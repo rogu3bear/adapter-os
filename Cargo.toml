@@ -293,7 +293,9 @@ jsonwebtoken = { version = "10.2", default-features = false, features = [
 ] }
 
 # API
-utoipa = { version = "5.4", features = ["axum_extras", "uuid"] }
+# PINNED: utoipa version must match EXPECTED_UTOIPA in scripts/ci/check_openapi_drift.sh
+# Changing this version requires updating the script and regenerating docs/api/openapi.json
+utoipa = { version = "=5.4.0", features = ["axum_extras", "uuid"] }
 utoipa-swagger-ui = { version = "9.0", features = ["axum", "vendored"] }
 
 # Observability

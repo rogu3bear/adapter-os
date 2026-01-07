@@ -96,6 +96,7 @@ pub struct ReceiptDigestInput {
 
 impl ReceiptDigestInput {
     /// Create a new input with required fields, defaulting optional fields.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         context_digest: [u8; 32],
         run_head_hash: [u8; 32],
@@ -594,7 +595,8 @@ mod tests {
         };
 
         assert_eq!(
-            digest, production_digest,
+            digest,
+            production_digest,
             "V4 canonical digest must match production algorithm exactly.\n\
             This failure indicates CLI/production parity drift.\n\
             Canonical: {}\n\
@@ -666,16 +668,7 @@ mod tests {
 
     #[test]
     fn test_v1_digest_deterministic() {
-        let input = ReceiptDigestInput::new(
-            [1u8; 32],
-            [2u8; 32],
-            [3u8; 32],
-            100,
-            10,
-            90,
-            50,
-            50,
-        );
+        let input = ReceiptDigestInput::new([1u8; 32], [2u8; 32], [3u8; 32], 100, 10, 90, 50, 50);
 
         let d1 = compute_receipt_digest(&input, RECEIPT_SCHEMA_V1).unwrap();
         let d2 = compute_receipt_digest(&input, RECEIPT_SCHEMA_V1).unwrap();
@@ -686,7 +679,13 @@ mod tests {
     fn test_v4_digest_deterministic() {
         let input = ReceiptDigestInput::new([1u8; 32], [2u8; 32], [3u8; 32], 100, 10, 90, 50, 50)
             .with_stop_controller(Some("EOS".to_string()), Some(45), Some([4u8; 32]))
-            .with_kv_quota(1024 * 1024, 512 * 1024, 0, Some("default".to_string()), true)
+            .with_kv_quota(
+                1024 * 1024,
+                512 * 1024,
+                0,
+                Some("default".to_string()),
+                true,
+            )
             .with_prefix_cache(Some([5u8; 32]), true, 256 * 1024)
             .with_model_cache_identity(Some([6u8; 32]));
 
@@ -711,8 +710,9 @@ mod tests {
 
     #[test]
     fn test_missing_field_changes_digest() {
-        let with_stop = ReceiptDigestInput::new([1u8; 32], [2u8; 32], [3u8; 32], 100, 10, 90, 50, 50)
-            .with_stop_controller(Some("EOS".to_string()), Some(45), Some([4u8; 32]));
+        let with_stop =
+            ReceiptDigestInput::new([1u8; 32], [2u8; 32], [3u8; 32], 100, 10, 90, 50, 50)
+                .with_stop_controller(Some("EOS".to_string()), Some(45), Some([4u8; 32]));
 
         let without_stop =
             ReceiptDigestInput::new([1u8; 32], [2u8; 32], [3u8; 32], 100, 10, 90, 50, 50);
@@ -720,7 +720,10 @@ mod tests {
         let d1 = compute_receipt_digest(&with_stop, RECEIPT_SCHEMA_V4).unwrap();
         let d2 = compute_receipt_digest(&without_stop, RECEIPT_SCHEMA_V4).unwrap();
 
-        assert_ne!(d1, d2, "Different stop fields should produce different digest");
+        assert_ne!(
+            d1, d2,
+            "Different stop fields should produce different digest"
+        );
     }
 
     #[test]
@@ -770,15 +773,37 @@ mod tests {
         let adapter_blob = encode_adapter_ids(&["a".to_string()]);
         let gates_blob = encode_gates_q15(&[100]);
 
-        let decision0 =
-            hash_token_decision(&context, 0, &adapter_blob, &gates_blob, None, None, None, None, None);
+        let decision0 = hash_token_decision(
+            &context,
+            0,
+            &adapter_blob,
+            &gates_blob,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
         let head0 = update_run_head(&B3Hash::zero(), 0, &decision0);
 
-        let decision1 =
-            hash_token_decision(&context, 1, &adapter_blob, &gates_blob, None, None, None, None, None);
+        let decision1 = hash_token_decision(
+            &context,
+            1,
+            &adapter_blob,
+            &gates_blob,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
         let head1 = update_run_head(&head0, 1, &decision1);
 
         assert_ne!(head0, head1, "Chain should progress");
-        assert_ne!(head0, B3Hash::zero(), "Chain should not be zero after first token");
+        assert_ne!(
+            head0,
+            B3Hash::zero(),
+            "Chain should not be zero after first token"
+        );
     }
 }

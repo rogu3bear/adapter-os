@@ -3,20 +3,50 @@ use std::time::Instant;
 use tokio::time::Duration;
 use tracing::{debug, info, warn};
 
+/// Menu items displayed on the dashboard
+const MENU_ITEMS: &[&str] = &[
+    "Boot All Services",
+    "Service Control",
+    "Debug Service",
+    "View Metrics",
+    "View Logs",
+    "Edit Config",
+    "Toggle Mode",
+];
+
+/// Configuration fields in the config editor
+const CONFIG_FIELDS: &[&str] = &[
+    "server_port",
+    "max_connections",
+    "model_path",
+    "k_sparse_value",
+    "batch_size",
+    "cache_size_mb",
+    "jwt_mode",
+    "require_pf_deny",
+];
+
 pub mod api;
+pub mod config_io;
 pub mod db;
 pub mod service_control;
+pub mod sse;
 pub mod types;
 
 use api::{AdapterInfo, ApiClient, HealthStatus, LogQuery};
+use config_io::TuiConfig;
 use db::{DbClient, DbStatsSummary};
 use service_control::ServiceControl;
+use sse::SseClient;
 use types::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
     Dashboard,
     Services,
+    Adapters,
+    Training,
+    Chat,
     Logs,
     Metrics,
     Config,
@@ -28,6 +58,7 @@ pub enum Mode {
     Normal,
     ServiceSelect,
     ConfigEdit,
+    ChatInput,
     Filter(LogFilterMode),
 }
 
@@ -43,6 +74,7 @@ pub struct App {
     pub current_mode: Mode,
     pub selected_menu_item: usize,
     pub selected_service: usize,
+    pub selected_adapter: usize,
     pub selected_config_field: usize,
     pub config_edit_value: String,
 
@@ -61,6 +93,18 @@ pub struct App {
     pub log_filter_input: String,
     pub log_filter_mode: Option<LogFilterMode>,
 
+    // Adapter browser state
+    pub adapter_filter: String,
+
+    // Training jobs state
+    pub selected_training_job: usize,
+    pub training_jobs: Vec<TrainingJobInfo>,
+
+    // Chat state
+    pub chat_messages: Vec<ChatMessage>,
+    pub chat_input: String,
+    pub chat_streaming: bool,
+
     // Configuration
     pub config: SystemConfig,
     pub production_mode: bool,
@@ -73,6 +117,7 @@ pub struct App {
     pub last_prereq_check: Instant,
     pub setup_state: SetupState,
     pub health_status: Option<HealthStatus>,
+    pub server_connected: bool,
 
     // API Client
     api_client: ApiClient,
@@ -81,6 +126,12 @@ pub struct App {
     db_client: DbClient,
 
     service_control: ServiceControl,
+
+    // Persistent TUI configuration
+    tui_config: TuiConfig,
+
+    // SSE Client for streaming operations
+    sse_client: SseClient,
 }
 
 impl App {
@@ -88,11 +139,21 @@ impl App {
     const DEFAULT_SERVER_URL: &'static str = "http://localhost:8080";
 
     pub async fn new() -> Result<Self> {
-        Self::new_with_url(Self::DEFAULT_SERVER_URL.to_string()).await
+        // Load persisted config, use its server_url if available
+        let tui_config = TuiConfig::load().unwrap_or_default();
+        Self::new_with_config(tui_config).await
     }
 
     pub async fn new_with_url(server_url: String) -> Result<Self> {
-        let api_client = ApiClient::new(server_url)?;
+        // Load persisted config but override server_url with provided value
+        let mut tui_config = TuiConfig::load().unwrap_or_default();
+        tui_config.server_url = server_url;
+        Self::new_with_config(tui_config).await
+    }
+
+    async fn new_with_config(tui_config: TuiConfig) -> Result<Self> {
+        let api_client = ApiClient::new(tui_config.server_url.clone())?;
+        let sse_client = SseClient::new(tui_config.server_url.clone());
         let db_client = DbClient::new().await?;
         let service_control = ServiceControl::new()?;
         let setup_state = SetupState::new(service_control.missing_prereqs());
@@ -102,6 +163,7 @@ impl App {
             current_mode: Mode::Normal,
             selected_menu_item: 0,
             selected_service: 0,
+            selected_adapter: 0,
             selected_config_field: 0,
             config_edit_value: String::new(),
 
@@ -166,6 +228,18 @@ impl App {
             log_filter_input: String::new(),
             log_filter_mode: None,
 
+            // Adapter browser state
+            adapter_filter: String::new(),
+
+            // Training jobs state
+            selected_training_job: 0,
+            training_jobs: Vec::new(),
+
+            // Chat state
+            chat_messages: Vec::new(),
+            chat_input: String::new(),
+            chat_streaming: false,
+
             config: SystemConfig::default(),
             production_mode: false,
 
@@ -176,11 +250,15 @@ impl App {
             last_prereq_check: Instant::now(),
             setup_state,
             health_status: None,
+            server_connected: false,
 
             api_client,
+            sse_client,
             db_client,
 
             service_control,
+
+            tui_config,
         })
     }
 
@@ -202,9 +280,11 @@ impl App {
             self.health_status = Some(health.clone());
             self.setup_state.infrastructure_online =
                 matches!(status.as_str(), "healthy" | "ready" | "running" | "online");
+            self.server_connected = true;
         } else {
             self.setup_state.infrastructure_online = false;
             self.health_status = None;
+            self.server_connected = false;
         }
 
         // Try to fetch real data from API
@@ -250,18 +330,41 @@ impl App {
             debug!(count = self.adapters.len(), "Updated adapter list from API");
         }
 
+        // Fetch training jobs from API
+        if let Ok(jobs) = self.api_client.list_training_jobs().await {
+            self.training_jobs = jobs
+                .into_iter()
+                .map(|j| TrainingJobInfo {
+                    id: j.id.clone(),
+                    status: j.status,
+                    progress_pct: j.progress_pct,
+                    current_epoch: j.current_epoch,
+                    total_epochs: 0,
+                    current_batch: 0,
+                    total_batches: 0,
+                    current_loss: j.current_loss,
+                    learning_rate: 0.0,
+                    tokens_per_second: j.tokens_per_second,
+                    dataset_name: j.dataset_name,
+                    dataset_samples: None,
+                    backend: j.backend,
+                    checkpoints_saved: 0,
+                    started_at: None,
+                })
+                .collect();
+            debug!(
+                count = self.training_jobs.len(),
+                "Updated training jobs from API"
+            );
+        }
+
         // Fetch logs from API
         let log_query = LogQuery {
             tenant_id: self.log_filter_tenant.clone(),
             trace_id: self.log_filter_trace.clone(),
         };
         if let Ok(logs) = self.api_client.get_logs(&log_query).await {
-            if !logs.is_empty() {
-                self.recent_logs = logs;
-            } else if self.recent_logs.is_empty() {
-                // Generate mock logs if none available and we have none
-                self.generate_mock_logs();
-            }
+            self.recent_logs = logs;
         }
 
         // Fetch database stats
@@ -351,6 +454,14 @@ impl App {
 
     // Navigation handlers
     pub fn on_up(&mut self) {
+        // Handle screen-specific navigation first
+        if self.current_screen == Screen::Adapters && self.current_mode == Mode::Normal {
+            if self.selected_adapter > 0 {
+                self.selected_adapter -= 1;
+            }
+            return;
+        }
+
         match self.current_mode {
             Mode::ServiceSelect => {
                 if self.selected_service > 0 {
@@ -362,7 +473,7 @@ impl App {
                     self.selected_config_field -= 1;
                 }
             }
-            Mode::Filter(_) => {}
+            Mode::ChatInput | Mode::Filter(_) => {}
             Mode::Normal => {
                 if self.selected_menu_item > 0 {
                     self.selected_menu_item -= 1;
@@ -372,6 +483,14 @@ impl App {
     }
 
     pub fn on_down(&mut self) {
+        // Handle screen-specific navigation first
+        if self.current_screen == Screen::Adapters && self.current_mode == Mode::Normal {
+            if !self.adapters.is_empty() && self.selected_adapter < self.adapters.len() - 1 {
+                self.selected_adapter += 1;
+            }
+            return;
+        }
+
         match self.current_mode {
             Mode::ServiceSelect => {
                 if self.selected_service < self.services.len() - 1 {
@@ -379,14 +498,13 @@ impl App {
                 }
             }
             Mode::ConfigEdit => {
-                if self.selected_config_field < 7 {
-                    // Total of 8 config fields
+                if self.selected_config_field < CONFIG_FIELDS.len() - 1 {
                     self.selected_config_field += 1;
                 }
             }
-            Mode::Filter(_) => {}
+            Mode::ChatInput | Mode::Filter(_) => {}
             Mode::Normal => {
-                if self.selected_menu_item < 6 {
+                if self.selected_menu_item < MENU_ITEMS.len() - 1 {
                     self.selected_menu_item += 1;
                 }
             }
@@ -398,7 +516,10 @@ impl App {
         self.current_screen = match self.current_screen {
             Screen::Dashboard => Screen::Help,
             Screen::Services => Screen::Dashboard,
-            Screen::Logs => Screen::Services,
+            Screen::Adapters => Screen::Services,
+            Screen::Training => Screen::Adapters,
+            Screen::Chat => Screen::Training,
+            Screen::Logs => Screen::Chat,
             Screen::Metrics => Screen::Logs,
             Screen::Config => Screen::Metrics,
             Screen::Help => Screen::Config,
@@ -409,7 +530,10 @@ impl App {
         // Navigate between screens
         self.current_screen = match self.current_screen {
             Screen::Dashboard => Screen::Services,
-            Screen::Services => Screen::Logs,
+            Screen::Services => Screen::Adapters,
+            Screen::Adapters => Screen::Training,
+            Screen::Training => Screen::Chat,
+            Screen::Chat => Screen::Logs,
             Screen::Logs => Screen::Metrics,
             Screen::Metrics => Screen::Config,
             Screen::Config => Screen::Help,
@@ -419,19 +543,28 @@ impl App {
 
     pub async fn on_enter(&mut self) -> Result<()> {
         match self.current_mode {
-            Mode::Normal => match self.selected_menu_item {
-                0 => self.boot_all_services().await?,
-                1 => self.current_mode = Mode::ServiceSelect,
-                2 => self.debug_service().await?,
-                3 => self.current_screen = Screen::Metrics,
-                4 => self.current_screen = Screen::Logs,
-                5 => {
-                    self.current_screen = Screen::Config;
-                    self.current_mode = Mode::ConfigEdit;
+            Mode::Normal => {
+                // Handle Chat screen specially - Enter switches to ChatInput mode
+                if self.current_screen == Screen::Chat {
+                    self.current_mode = Mode::ChatInput;
+                    return Ok(());
                 }
-                6 => self.toggle_production_mode(),
-                _ => {}
-            },
+
+                // Dashboard menu actions
+                match self.selected_menu_item {
+                    0 => self.boot_all_services().await?,
+                    1 => self.current_mode = Mode::ServiceSelect,
+                    2 => self.debug_service().await?,
+                    3 => self.current_screen = Screen::Metrics,
+                    4 => self.current_screen = Screen::Logs,
+                    5 => {
+                        self.current_screen = Screen::Config;
+                        self.current_mode = Mode::ConfigEdit;
+                    }
+                    6 => self.toggle_production_mode(),
+                    _ => {}
+                }
+            }
             Mode::ServiceSelect => {
                 self.boot_single_service(self.selected_service).await?;
                 self.current_mode = Mode::Normal;
@@ -439,6 +572,9 @@ impl App {
             Mode::ConfigEdit => {
                 self.save_config_value();
                 self.current_mode = Mode::Normal;
+            }
+            Mode::ChatInput => {
+                self.send_chat_message().await?;
             }
             Mode::Filter(mode) => {
                 self.apply_log_filter(mode);
@@ -463,6 +599,9 @@ impl App {
             Mode::ConfigEdit => {
                 self.config_edit_value.pop();
             }
+            Mode::ChatInput => {
+                self.chat_input.pop();
+            }
             Mode::Filter(_) => {
                 self.log_filter_input.pop();
             }
@@ -476,6 +615,10 @@ impl App {
                 self.current_mode = Mode::Normal;
                 self.log_filter_input.clear();
                 self.log_filter_mode = None;
+            }
+            Mode::ChatInput => {
+                // Exit chat input mode but don't clear the input
+                self.current_mode = Mode::Normal;
             }
             Mode::Normal => {
                 if self.show_help {
@@ -494,6 +637,15 @@ impl App {
                 self.current_mode = Mode::Normal;
             } else {
                 self.config_edit_value.push(c);
+            }
+            return Ok(());
+        }
+
+        if self.current_mode == Mode::ChatInput {
+            if c == '\n' {
+                self.send_chat_message().await?;
+            } else {
+                self.chat_input.push(c);
             }
             return Ok(());
         }
@@ -527,8 +679,86 @@ impl App {
             return Ok(());
         }
 
+        // Screen-specific action handlers (must be before general shortcuts)
+        // Adapters screen: L=Load, U=Unload, P=Pin/Unpin
+        if self.current_screen == Screen::Adapters {
+            if let Some(adapter) = self.adapters.get(self.selected_adapter).cloned() {
+                let adapter_id = adapter.id.clone();
+                match c {
+                    'l' | 'L' => {
+                        match self.api_client.load_adapter(&adapter_id).await {
+                            Ok(_) => {
+                                self.confirmation_message =
+                                    Some(format!("Loading adapter: {}", adapter_id))
+                            }
+                            Err(e) => self.error_message = Some(format!("Failed to load: {}", e)),
+                        }
+                        return Ok(());
+                    }
+                    'u' | 'U' => {
+                        match self.api_client.unload_adapter(&adapter_id).await {
+                            Ok(_) => {
+                                self.confirmation_message =
+                                    Some(format!("Unloading adapter: {}", adapter_id))
+                            }
+                            Err(e) => self.error_message = Some(format!("Failed to unload: {}", e)),
+                        }
+                        return Ok(());
+                    }
+                    'p' | 'P' => {
+                        if adapter.pinned {
+                            match self.api_client.unpin_adapter(&adapter_id).await {
+                                Ok(_) => {
+                                    self.confirmation_message =
+                                        Some(format!("Unpinned adapter: {}", adapter_id))
+                                }
+                                Err(e) => {
+                                    self.error_message = Some(format!("Failed to unpin: {}", e))
+                                }
+                            }
+                        } else {
+                            match self.api_client.pin_adapter(&adapter_id).await {
+                                Ok(_) => {
+                                    self.confirmation_message =
+                                        Some(format!("Pinned adapter: {}", adapter_id))
+                                }
+                                Err(e) => {
+                                    self.error_message = Some(format!("Failed to pin: {}", e))
+                                }
+                            }
+                        }
+                        return Ok(());
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Training screen: C=Cancel
+        if self.current_screen == Screen::Training {
+            if let Some(job) = self.training_jobs.get(self.selected_training_job).cloned() {
+                let job_id = job.id.clone();
+                match c {
+                    'c' | 'C' => {
+                        match self.api_client.cancel_training_job(&job_id).await {
+                            Ok(_) => {
+                                self.confirmation_message =
+                                    Some(format!("Cancelling job: {}", job_id))
+                            }
+                            Err(e) => self.error_message = Some(format!("Failed to cancel: {}", e)),
+                        }
+                        return Ok(());
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         match c {
             'h' => self.show_help = !self.show_help,
+            'a' => self.current_screen = Screen::Adapters,
+            'r' => self.current_screen = Screen::Training,
+            'i' => self.current_screen = Screen::Chat,
             's' => self.current_screen = Screen::Services,
             'l' => self.current_screen = Screen::Logs,
             'm' => self.current_screen = Screen::Metrics,
@@ -746,43 +976,68 @@ impl App {
             _ => {}
         }
 
-        self.confirmation_message = Some("Config updated (not saved to disk yet)".to_string());
+        // Persist TUI-specific config to disk
+        if let Err(e) = self.tui_config.save() {
+            warn!("Failed to save TUI config to disk: {}", e);
+            self.confirmation_message = Some("Config updated (failed to save to disk)".to_string());
+        } else {
+            self.confirmation_message = Some("Config updated and saved to disk".to_string());
+        }
         self.config_edit_value.clear();
     }
 
-    fn generate_mock_logs(&mut self) {
-        let components = ["Database", "Router", "API", "Auth", "Worker"];
-        let messages = [
-            "Initializing component...",
-            "Connection established",
-            "Processing request",
-            "Authentication successful",
-            "Task completed",
-            "Cache miss for key: user_123",
-            "Starting background sync",
-        ];
-
-        let now = chrono::Utc::now();
-        for i in 0..10 {
-            let component = components[i % components.len()].to_string();
-            let message = messages[i % messages.len()].to_string();
-            let level = if i % 5 == 0 {
-                LogLevel::Error
-            } else if i % 3 == 0 {
-                LogLevel::Warn
-            } else {
-                LogLevel::Info
-            };
-
-            self.recent_logs.push(LogEntry {
-                timestamp: now - Duration::from_secs((10 - i) as u64 * 60),
-                level,
-                component,
-                message,
-                trace_id: Some(format!("trace-{:04}", i)),
-                tenant_id: Some(if i % 2 == 0 { "dev" } else { "prod" }.to_string()),
-                latency_ms: Some(40 + (i as u64 * 3)),
-            });
+    /// Send the current chat message and stream the response via SSE
+    async fn send_chat_message(&mut self) -> Result<()> {
+        let content = self.chat_input.trim().to_string();
+        if content.is_empty() {
+            return Ok(());
         }
+
+        // Add user message to chat history
+        self.chat_messages.push(ChatMessage {
+            role: ChatRole::User,
+            content: content.clone(),
+        });
+
+        // Clear input but stay in ChatInput mode for continued conversation
+        self.chat_input.clear();
+
+        // Mark streaming as active
+        self.chat_streaming = true;
+
+        // Add empty assistant message that we'll append tokens to
+        self.chat_messages.push(ChatMessage {
+            role: ChatRole::Assistant,
+            content: String::new(),
+        });
+
+        // Get adapter if available
+        let adapter_id = self.adapters.first().map(|a| a.id.as_str());
+
+        info!(message = %content, adapter = ?adapter_id, "Sending chat message via SSE");
+
+        // Stream inference via SSE
+        match self.sse_client.stream_inference(&content, adapter_id).await {
+            Ok(mut rx) => {
+                while let Some(token) = rx.recv().await {
+                    // Append token to the last message (the assistant's response)
+                    if let Some(last_msg) = self.chat_messages.last_mut() {
+                        last_msg.content.push_str(&token.token);
+                    }
+                }
+                debug!("SSE stream completed successfully");
+            }
+            Err(e) => {
+                // Update the assistant message with error
+                if let Some(last_msg) = self.chat_messages.last_mut() {
+                    last_msg.content = format!("Error: Failed to connect to inference server - {}", e);
+                }
+                warn!("SSE inference error: {}", e);
+            }
+        }
+
+        // Streaming complete
+        self.chat_streaming = false;
+        Ok(())
     }
 }

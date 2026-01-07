@@ -3,10 +3,11 @@
 //
 // Features:
 // - Multi-method MLX detection (env var, pkg-config, common paths, Homebrew)
-// - MLX version detection and validation
+// - MLX version detection from headers (supports both quoted and split defines)
+// - Compile+link probe to verify header/library compatibility
 // - Proper Metal, Accelerate, and Foundation framework linking
 // - C++17 compiler compatibility with proper flag handling
-// - Comprehensive include path detection with fallback strategies
+// - Clear messaging distinguishing stub vs real MLX mode
 
 use std::env;
 use std::path::{Path, PathBuf};
@@ -31,7 +32,10 @@ fn main() {
     // If using pure Rust mlx-rs backend, still compile C++ stub for FFI compatibility
     // but the actual ML operations go through mlx-rs
     if mlx_rs_backend {
-        println!("cargo:warning=Using mlx-rs backend (deprecated; mlx-rs-backend enabled)");
+        println!("cargo:warning==========================================================");
+        println!("cargo:warning=MLX BACKEND: mlx-rs (deprecated)");
+        println!("cargo:warning=Using Rust mlx-rs bindings with C++ stub for FFI compat");
+        println!("cargo:warning==========================================================");
         compile_stub_wrapper();
         println!("cargo:rustc-link-lib=static=mlx_wrapper_stub");
         println!("cargo:rustc-cfg=mlx_stub");
@@ -42,21 +46,44 @@ fn main() {
     if real_mlx_enabled {
         match find_mlx_with_version() {
             Some((include_dir, lib_dir, version)) => {
-                println!(
-                    "cargo:warning=Compiling with real MLX support (v{})",
-                    version
-                );
-                println!("cargo:warning=MLX include: {}", include_dir.display());
-                println!("cargo:warning=MLX lib: {}", lib_dir.display());
+                println!("cargo:warning==========================================================");
+                println!("cargo:warning=MLX BACKEND: Real C++ FFI (feature 'mlx' enabled)");
+                println!("cargo:warning=MLX version: {}", version);
+                println!("cargo:warning=Include path: {}", include_dir.display());
+                println!("cargo:warning=Library path: {}", lib_dir.display());
+
+                // Run compile+link probe to verify header/library compatibility
+                if let Err(e) = run_mlx_compatibility_probe(&include_dir, &lib_dir) {
+                    println!(
+                        "cargo:warning=========================================================="
+                    );
+                    println!("cargo:warning=MLX COMPATIBILITY CHECK FAILED");
+                    println!("cargo:warning={}", e);
+                    println!("cargo:warning=");
+                    println!("cargo:warning=This usually means:");
+                    println!("cargo:warning=  - MLX headers and libmlx.dylib are from different versions");
+                    println!("cargo:warning=  - A different libmlx is being picked up from -L path order");
+                    println!("cargo:warning=  - MLX was partially installed or corrupted");
+                    println!("cargo:warning=");
+                    println!("cargo:warning=Try: brew reinstall mlx");
+                    println!(
+                        "cargo:warning=========================================================="
+                    );
+                    panic!("MLX header/library mismatch detected. See warnings above.");
+                }
+
+                println!("cargo:warning=Compatibility probe: PASSED");
+                println!("cargo:warning==========================================================");
+
                 compile_real_wrapper(&include_dir, &lib_dir);
                 println!("cargo:rustc-link-lib=static=mlx_wrapper");
                 println!("cargo:rustc-cfg=mlx_real");
             }
             None => {
+                println!("cargo:warning==========================================================");
                 println!(
-                    "cargo:warning============================================================="
+                    "cargo:warning=MLX NOT FOUND (feature 'mlx' enabled but MLX not detected)"
                 );
-                println!("cargo:warning=MLX NOT FOUND - mlx feature enabled but MLX not detected");
                 println!("cargo:warning=");
                 println!("cargo:warning=To install MLX:");
                 println!("cargo:warning=  brew install mlx");
@@ -64,21 +91,117 @@ fn main() {
                 println!("cargo:warning=Or set MLX_PATH to your MLX installation:");
                 println!("cargo:warning=  export MLX_PATH=/path/to/mlx");
                 println!("cargo:warning=");
-                println!("cargo:warning=Falling back to stub implementation");
-                println!(
-                    "cargo:warning============================================================="
-                );
+                println!("cargo:warning=Falling back to STUB implementation");
+                println!("cargo:warning==========================================================");
                 compile_stub_wrapper();
                 println!("cargo:rustc-link-lib=static=mlx_wrapper_stub");
                 println!("cargo:rustc-cfg=mlx_stub");
             }
         }
     } else {
-        println!("cargo:warning=Using stub MLX implementation (mlx feature not enabled)");
+        println!("cargo:warning==========================================================");
+        println!("cargo:warning=MLX BACKEND: Stub (feature 'mlx' NOT enabled)");
+        println!("cargo:warning=To enable real MLX, build with: --features mlx");
+        println!("cargo:warning==========================================================");
         compile_stub_wrapper();
         println!("cargo:rustc-link-lib=static=mlx_wrapper_stub");
         println!("cargo:rustc-cfg=mlx_stub");
     }
+}
+
+/// Run a compile+link probe to verify MLX headers and library are compatible.
+/// This catches version mismatches before they become cryptic linker errors.
+fn run_mlx_compatibility_probe(include_dir: &Path, lib_dir: &Path) -> Result<(), String> {
+    let out_dir = env::var("OUT_DIR").map_err(|e| format!("OUT_DIR not set: {}", e))?;
+    let probe_src = PathBuf::from(&out_dir).join("mlx_probe.cpp");
+    let probe_out = PathBuf::from(&out_dir).join("mlx_probe");
+
+    // Write a minimal probe that includes MLX headers and references key symbols.
+    // This verifies that headers and library are from compatible versions.
+    let probe_code = r#"
+// MLX compatibility probe - verifies headers and library match
+#include <mlx/mlx.h>
+#include <mlx/array.h>
+#include <mlx/ops.h>
+
+int main() {
+    // Reference symbols we depend on to verify they exist in libmlx.
+    // These are core functions that must be present for the FFI to work.
+
+    // 1. Array creation (fundamental)
+    mlx::core::array arr = mlx::core::zeros({2, 2});
+
+    // 2. Basic operation (verifies ops linkage)
+    mlx::core::array result = mlx::core::add(arr, arr);
+
+    // 3. Synchronize to ensure compute graph is linked
+    result.item<float>();
+
+    return 0;
+}
+"#;
+
+    std::fs::write(&probe_src, probe_code)
+        .map_err(|e| format!("Failed to write probe source: {}", e))?;
+
+    // Compile and link the probe using the same paths we'll use for the real build
+    let compiler = env::var("CXX").unwrap_or_else(|_| "c++".to_string());
+
+    let mut args = vec![
+        "-std=c++17".to_string(),
+        "-o".to_string(),
+        probe_out.to_str().unwrap().to_string(),
+        probe_src.to_str().unwrap().to_string(),
+        format!("-I{}", include_dir.display()),
+        format!("-L{}", lib_dir.display()),
+        "-lmlx".to_string(),
+        "-lc++".to_string(),
+    ];
+
+    // Add framework flags on macOS
+    if cfg!(target_os = "macos") {
+        args.extend([
+            "-framework".to_string(),
+            "Metal".to_string(),
+            "-framework".to_string(),
+            "Foundation".to_string(),
+            "-framework".to_string(),
+            "Accelerate".to_string(),
+        ]);
+    }
+
+    let output = Command::new(&compiler)
+        .args(&args)
+        .output()
+        .map_err(|e| format!("Failed to run compiler for probe: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        // Clean up probe files
+        let _ = std::fs::remove_file(&probe_src);
+
+        return Err(format!(
+            "Probe compilation failed.\n\
+             Include dir: {}\n\
+             Library dir: {}\n\
+             Compiler: {}\n\
+             Stdout: {}\n\
+             Stderr: {}",
+            include_dir.display(),
+            lib_dir.display(),
+            compiler,
+            stdout,
+            stderr
+        ));
+    }
+
+    // Clean up probe files
+    let _ = std::fs::remove_file(&probe_src);
+    let _ = std::fs::remove_file(&probe_out);
+
+    Ok(())
 }
 
 /// Find MLX installation with version detection using multiple detection methods
@@ -96,13 +219,12 @@ fn find_mlx_with_version() -> Option<(PathBuf, PathBuf, String)> {
         let lib_dir = path.join("lib");
 
         if has_mlx_headers(&include_dir) && has_mlx_library(&lib_dir) {
-            if let Some(version) = detect_mlx_version(&include_dir, &lib_dir) {
-                println!(
-                    "cargo:warning=Found MLX via MLX_PATH environment variable (v{})",
-                    version
-                );
-                return Some((include_dir, lib_dir, version));
-            }
+            let version = detect_mlx_version(&include_dir);
+            println!(
+                "cargo:warning=Found MLX via MLX_PATH: {} ({})",
+                mlx_path, version
+            );
+            return Some((include_dir, lib_dir, version));
         } else {
             println!(
                 "cargo:warning=MLX_PATH set but MLX not found at: {}",
@@ -113,7 +235,7 @@ fn find_mlx_with_version() -> Option<(PathBuf, PathBuf, String)> {
 
     // Method 2: Try pkg-config
     if let Some((include_dir, lib_dir, version)) = find_mlx_via_pkg_config() {
-        println!("cargo:warning=Found MLX via pkg-config (v{})", version);
+        println!("cargo:warning=Found MLX via pkg-config ({})", version);
         return Some((include_dir, lib_dir, version));
     }
 
@@ -131,16 +253,15 @@ fn find_mlx_with_version() -> Option<(PathBuf, PathBuf, String)> {
         let lib_dir = path.join("lib");
 
         if has_mlx_headers(&include_dir) && has_mlx_library(&lib_dir) {
-            if let Some(version) = detect_mlx_version(&include_dir, &lib_dir) {
-                println!("cargo:warning=Found MLX at: {} (v{})", base_path, version);
-                return Some((include_dir, lib_dir, version));
-            }
+            let version = detect_mlx_version(&include_dir);
+            println!("cargo:warning=Found MLX at: {} ({})", base_path, version);
+            return Some((include_dir, lib_dir, version));
         }
     }
 
     // Method 4: Check Homebrew Cellar directly
     if let Some((include_dir, lib_dir, version)) = find_mlx_in_homebrew_cellar() {
-        println!("cargo:warning=Found MLX in Homebrew Cellar (v{})", version);
+        println!("cargo:warning=Found MLX in Homebrew Cellar ({})", version);
         return Some((include_dir, lib_dir, version));
     }
 
@@ -227,6 +348,7 @@ fn find_mlx_in_homebrew_cellar() -> Option<(PathBuf, PathBuf, String)> {
                 let lib_dir = version_path.join("lib");
 
                 if has_mlx_headers(&include_dir) && has_mlx_library(&lib_dir) {
+                    // Use directory name as version (Homebrew convention)
                     let version = version_entry.file_name().to_string_lossy().to_string();
                     return Some((include_dir, lib_dir, version));
                 }
@@ -237,9 +359,10 @@ fn find_mlx_in_homebrew_cellar() -> Option<(PathBuf, PathBuf, String)> {
     None
 }
 
-/// Detect MLX version from version.h or library metadata
-fn detect_mlx_version(include_dir: &Path, lib_dir: &Path) -> Option<String> {
-    // Method 1: Try to read version from mlx/version.h
+/// Detect MLX version from header files.
+/// Supports both old style (#define MLX_VERSION "x.y.z") and
+/// new style (separate MLX_VERSION_MAJOR/MINOR/PATCH defines).
+fn detect_mlx_version(include_dir: &Path) -> String {
     let version_h_paths = [
         include_dir.join("mlx/version.h"),
         include_dir.join("version.h"),
@@ -248,36 +371,30 @@ fn detect_mlx_version(include_dir: &Path, lib_dir: &Path) -> Option<String> {
     for version_h in &version_h_paths {
         if version_h.exists() {
             if let Ok(content) = std::fs::read_to_string(version_h) {
-                // Try to parse version from header file
                 if let Some(version) = extract_version_from_header(&content) {
-                    return Some(version);
+                    return version;
                 }
             }
         }
     }
 
-    // Method 2: Try to extract from dylib/library file metadata (macOS)
-    if cfg!(target_os = "macos") {
-        let dylib_path = lib_dir.join("libmlx.dylib");
-        if dylib_path.exists() {
-            if let Some(version) = get_dylib_version(&dylib_path) {
-                return Some(version);
-            }
-        }
-    }
-
-    // Method 3: Default fallback
-    println!("cargo:warning=MLX version detection failed, using 0.0.0");
-    Some("0.0.0".to_string())
+    // Fallback - version detection failed
+    "unknown".to_string()
 }
 
-/// Extract version string from C header file content
+/// Extract version string from C header file content.
+/// Supports two patterns:
+/// 1. Old style: #define MLX_VERSION "0.15.0"
+/// 2. New style: #define MLX_VERSION_MAJOR 0 / MLX_VERSION_MINOR 30 / MLX_VERSION_PATCH 1
 fn extract_version_from_header(content: &str) -> Option<String> {
-    // Look for patterns like: #define MLX_VERSION "0.15.0"
+    // Try old style first: #define MLX_VERSION "x.y.z"
     for line in content.lines() {
-        if let Some(after_define) = line.strip_prefix("#define") {
-            if after_define.contains("VERSION") {
-                // Extract version string from quotes
+        let trimmed = line.trim();
+        if let Some(after_define) = trimmed.strip_prefix("#define") {
+            let after_define = after_define.trim();
+            // Look for MLX_VERSION followed by a quoted string (not MLX_VERSION_MAJOR etc)
+            if after_define.starts_with("MLX_VERSION ") && !after_define.starts_with("MLX_VERSION_")
+            {
                 if let Some(start) = after_define.find('"') {
                     if let Some(end) = after_define[start + 1..].find('"') {
                         return Some(after_define[start + 1..start + 1 + end].to_string());
@@ -286,34 +403,34 @@ fn extract_version_from_header(content: &str) -> Option<String> {
             }
         }
     }
-    None
-}
 
-/// Get version from macOS dylib file using otool or other methods
-fn get_dylib_version(dylib_path: &Path) -> Option<String> {
-    // Try using 'otool' to extract version information
-    if let Ok(output) = Command::new("otool")
-        .args(["-L", dylib_path.to_str()?])
-        .output()
-    {
-        if output.status.success() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            // Parse version from library path if available
-            for line in stdout.lines() {
-                if let Some(version_part) = line.split('/').next_back() {
-                    if version_part.contains(".dylib") {
-                        // Try to extract version number from line
-                        if let Some(caps) = version_part.split('.').next() {
-                            if let Some(v) = caps.split('_').next_back() {
-                                return Some(v.to_string());
-                            }
-                        }
-                    }
-                }
+    // Try new style: separate MAJOR/MINOR/PATCH defines
+    let mut major: Option<u32> = None;
+    let mut minor: Option<u32> = None;
+    let mut patch: Option<u32> = None;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if let Some(after_define) = trimmed.strip_prefix("#define") {
+            let after_define = after_define.trim();
+
+            if let Some(rest) = after_define.strip_prefix("MLX_VERSION_MAJOR") {
+                major = rest.trim().parse().ok();
+            } else if let Some(rest) = after_define.strip_prefix("MLX_VERSION_MINOR") {
+                minor = rest.trim().parse().ok();
+            } else if let Some(rest) = after_define.strip_prefix("MLX_VERSION_PATCH") {
+                patch = rest.trim().parse().ok();
             }
         }
     }
-    None
+
+    // If we found all three components, format as semver
+    match (major, minor, patch) {
+        (Some(maj), Some(min), Some(pat)) => Some(format!("{}.{}.{}", maj, min, pat)),
+        (Some(maj), Some(min), None) => Some(format!("{}.{}.0", maj, min)),
+        (Some(maj), None, None) => Some(format!("{}.0.0", maj)),
+        _ => None,
+    }
 }
 
 /// Check if MLX headers exist in the given directory
@@ -326,17 +443,7 @@ fn has_mlx_headers(include_dir: &Path) -> bool {
         include_dir.join("mlx.h"),
     ];
 
-    let found = candidates.iter().any(|path| path.exists());
-
-    if !found {
-        println!(
-            "cargo:warning=No MLX headers found in: {}",
-            include_dir.display()
-        );
-        println!("cargo:warning=Checked for: mlx/mlx.h, mlx/array.h, mlx/ops.h, mlx.h");
-    }
-
-    found
+    candidates.iter().any(|path| path.exists())
 }
 
 /// Check if MLX library exists in the given directory
@@ -350,19 +457,7 @@ fn has_mlx_library(lib_dir: &Path) -> bool {
         lib_dir.join("libmlx.lib"), // Alternative Windows
     ];
 
-    let found = candidates.iter().any(|path| path.exists());
-
-    if !found {
-        println!(
-            "cargo:warning=No MLX library found in: {}",
-            lib_dir.display()
-        );
-        println!(
-            "cargo:warning=Checked for: libmlx.dylib, libmlx.so, libmlx.a, mlx.lib, libmlx.lib"
-        );
-    }
-
-    found
+    candidates.iter().any(|path| path.exists())
 }
 
 fn compile_stub_wrapper() {
@@ -453,8 +548,6 @@ fn compile_real_wrapper(include_dir: &Path, lib_dir: &Path) {
 
     // Platform-specific framework and library linking
     if cfg!(target_os = "macos") {
-        println!("cargo:warning=Linking macOS frameworks for MLX");
-
         // C++ standard library
         println!("cargo:rustc-link-lib=c++");
 

@@ -1321,6 +1321,7 @@ mod tests {
         let profile = ExecutionProfile {
             seed_mode: adapteros_core::SeedMode::BestEffort,
             backend_profile: BackendKind::CoreML,
+            require_explicit_fallback_opt_out: false,
         };
         let capabilities = BackendCapabilities {
             has_metal: true,
@@ -1348,6 +1349,7 @@ mod tests {
         let profile = ExecutionProfile {
             seed_mode: adapteros_core::SeedMode::BestEffort,
             backend_profile: BackendKind::CoreML,
+            require_explicit_fallback_opt_out: false,
         };
         let capabilities = BackendCapabilities {
             has_metal: true,
@@ -1370,6 +1372,7 @@ mod tests {
         let profile = ExecutionProfile {
             seed_mode: adapteros_core::SeedMode::BestEffort,
             backend_profile: BackendKind::CoreML,
+            require_explicit_fallback_opt_out: false,
         };
         let capabilities = BackendCapabilities {
             has_metal: true,
@@ -1393,6 +1396,7 @@ mod tests {
         let base_profile = ExecutionProfile {
             seed_mode: adapteros_core::SeedMode::BestEffort,
             backend_profile: BackendKind::Auto,
+            require_explicit_fallback_opt_out: false,
         };
         let full_caps = BackendCapabilities {
             has_metal: true,
@@ -1445,6 +1449,7 @@ mod tests {
         let profile = ExecutionProfile {
             seed_mode: adapteros_core::SeedMode::BestEffort,
             backend_profile: BackendKind::Mlx,
+            require_explicit_fallback_opt_out: false,
         };
         let capabilities = BackendCapabilities {
             has_metal: true,

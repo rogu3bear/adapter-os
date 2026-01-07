@@ -336,3 +336,6 @@ rust_out
 
 # Temporary debug binaries
 src/bin/test_*.rs
+# Auto-generated claude-mem context files
+**/CLAUDE.md
+\!CLAUDE.md

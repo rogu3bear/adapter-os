@@ -27,8 +27,8 @@
 
 pub mod adapter_repo_paths;
 pub mod adapter_store;
-pub mod audit_chain;
 pub mod adapter_type;
+pub mod audit_chain;
 pub mod backend;
 pub mod build_info;
 pub mod circuit_breaker;

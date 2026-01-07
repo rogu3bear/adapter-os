@@ -19,8 +19,8 @@ use adapteros_server::boot::{
     bind_and_serve, bind_error_exit_code, build_app_state, enforce_invariants, finalize_boot,
     initialize_config, initialize_database, initialize_executor, initialize_federation,
     initialize_metrics, initialize_security, log_effective_config, run_preflight_checks,
-    validate_boot_invariants, validate_production_security_env, write_boot_report, BindMode,
-    ServerBindConfig,
+    validate_boot_invariants, validate_post_db_invariants, validate_production_security_env,
+    write_boot_report, BindMode, ServerBindConfig,
 };
 use adapteros_server::cli::Cli;
 use adapteros_server_api::boot_state::failure_codes;
@@ -177,6 +177,23 @@ async fn main() -> Result<()> {
             e
         })?;
         boot_state.finish_phase_ok("migrations");
+
+        // =====================================================================
+        // Phase 6b: Post-DB Invariants Validation
+        // =====================================================================
+        // These invariants require a live database connection (trigger checks, etc.)
+        boot_state.start_phase("post_db_invariants");
+        let post_db_report =
+            validate_post_db_invariants(&config_ctx.server_config, db_ctx.db.pool()).await;
+        enforce_invariants(&post_db_report, production_mode).map_err(|e| {
+            boot_state.finish_phase_err(
+                "post_db_invariants",
+                failure_codes::INVARIANTS_FAILED,
+                Some(e.to_string()),
+            );
+            anyhow::anyhow!("{}", e)
+        })?;
+        boot_state.finish_phase_ok("post_db_invariants");
 
         // =====================================================================
         // Phases 7-8: Policy & Backend (already extracted to separate crates)

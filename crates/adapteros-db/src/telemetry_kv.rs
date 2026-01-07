@@ -189,7 +189,11 @@ mod tests {
         let ts = "2024-01-15T10:30:00.123456Z";
         let normalized = normalize_timestamp(ts);
         // Should be microseconds since epoch
-        assert!(normalized.len() >= 16, "Should be microseconds: {}", normalized);
+        assert!(
+            normalized.len() >= 16,
+            "Should be microseconds: {}",
+            normalized
+        );
         assert!(normalized.chars().all(|c| c.is_ascii_digit()));
     }
 

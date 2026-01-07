@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AdapterOS is a Rust-based deterministic ML inference platform for Apple Silicon. It provides K-sparse LoRA routing, Metal-optimized kernels, and policy enforcement for production environments. The system is designed for air-gapped deployments with zero network egress during serving.
 
+**Getting Started**: See [docs/getting-started.md](docs/getting-started.md) for the canonical setup guide (5-minute quick start, prerequisites, verification).
+
 ## Build Commands
 
 ```bash
@@ -153,13 +155,12 @@ Full reference: `docs/CONFIGURATION.md#diagnostics-configuration`.
 
 | Command | Status | Notes / Workaround |
 |---------|--------|--------------------|
-| `aosctl aos migrate` | [NOT IMPLEMENTED] | Repackage with `aosctl aos create` if source weights are available. |
-| `aosctl aos convert` | [NOT IMPLEMENTED] | Repackage to AOS2 via `aosctl aos create` until convert is available. |
+| `aosctl aos migrate` | ✓ Implemented | Migrates .aos files between format versions with backup support. |
 | `aosctl node sync export` | [NOT IMPLEMENTED] | Air-gap workflow is not available; use `aosctl node sync push/pull` on connected nodes. |
 | `aosctl node sync import` | [NOT IMPLEMENTED] | Air-gap workflow is not available; use `aosctl node sync push/pull` on connected nodes. |
-| `aosctl cdp list` | [NOT IMPLEMENTED] | Awaiting code intelligence integration; no CLI workaround yet. |
-| `aosctl migrate adapter` | [NOT IMPLEMENTED] | Use `aosctl aos create` for new bundles; `aosctl adapter migrate-hashes` is separate. |
-| `aosctl serve --backend coreml` | [NOT IMPLEMENTED] | Use `--backend metal` (default) or `--backend mlx` (requires `--features multi-backend`). |
+| `aosctl cdp list` | ✓ Implemented | Lists CDPs for a repository with table/JSON output. |
+| `aosctl adapter migrate-hashes` | ✓ Implemented | Batch migration for missing adapter hashes with dry-run support. |
+| `aosctl serve --backend coreml` | ✓ Implemented | CoreML backend for macOS Neural Engine acceleration. |
 
 Tracking: https://github.com/rogu3bear/adapter-os/issues/194
 
@@ -191,7 +192,7 @@ cargo test -p adapteros-ui --lib
 - `src/components/` - Leptos components (Button, Card, Table, etc.)
 - `src/pages/` - Route pages (Dashboard, Adapters, Chat, etc.)
 - `src/hooks/` - Custom hooks (use_api_resource, use_polling, etc.)
-- `src/contexts/` - Context providers (AuthProvider)
+- `src/signals/` - State management and context providers (auth, chat, notifications)
 - `src/validation.rs` - Form validation rules (PRD-UI-150)
 
 ### Shared API Types
@@ -215,7 +216,7 @@ The `Trunk.toml` configures the WASM build:
 ### PRD Acceptance Criteria
 
 **PRD-UI-150: Forms & Validation**
-- [x] 11+ validation rule types in `validation.rs`
+- [x] 10 validation rule types in `validation.rs`
 - [x] Field-level error mapping via `FormErrors` signal
 - [x] Typed confirmation for destructive actions (`ConfirmationDialog`)
 - [x] DangerZone component for high-risk operations
@@ -265,7 +266,7 @@ See `dist/glass.css` header for full spec. Key rules:
 - **adapteros-cli**: Command-line tool (`aosctl`)
 
 ### Supporting Crates
-- **adapteros-policy**: 25+ canonical policy packs
+- **adapteros-policy**: 30 canonical policy packs
 - **adapteros-telemetry**: Event logging with Merkle trees
 - **adapteros-crypto**: Ed25519 signing, BLAKE3 hashing
 - **adapteros-config**: Deterministic configuration with precedence
