@@ -400,10 +400,7 @@ impl RotationDaemon {
             return Ok(0);
         }
 
-        info!(
-            dek_count = total_deks,
-            "Found DEKs to re-encrypt"
-        );
+        info!(dek_count = total_deks, "Found DEKs to re-encrypt");
 
         let mut reencrypted_count = 0;
         let mut failed_count = 0;
@@ -419,10 +416,11 @@ impl RotationDaemon {
             }
 
             // Decrypt DEK with old KEK
-            let decrypted_dek = match self.provider.unseal(
-                &old_kek.provider_id,
-                &dek_entry.encrypted_material,
-            ).await {
+            let decrypted_dek = match self
+                .provider
+                .unseal(&old_kek.provider_id, &dek_entry.encrypted_material)
+                .await
+            {
                 Ok(plaintext) => plaintext,
                 Err(e) => {
                     error!(
@@ -436,10 +434,11 @@ impl RotationDaemon {
             };
 
             // Re-encrypt DEK with new KEK
-            let new_encrypted_dek = match self.provider.seal(
-                &new_kek.provider_id,
-                &decrypted_dek,
-            ).await {
+            let new_encrypted_dek = match self
+                .provider
+                .seal(&new_kek.provider_id, &decrypted_dek)
+                .await
+            {
                 Ok(ciphertext) => ciphertext,
                 Err(e) => {
                     error!(
@@ -453,12 +452,15 @@ impl RotationDaemon {
             };
 
             // Atomic update to database
-            match crypto_store.update_dek_atomic(
-                &dek_entry.dek_id,
-                &dek_entry.encrypted_material,
-                &new_encrypted_dek,
-                &new_kek.provider_id,
-            ).await {
+            match crypto_store
+                .update_dek_atomic(
+                    &dek_entry.dek_id,
+                    &dek_entry.encrypted_material,
+                    &new_encrypted_dek,
+                    &new_kek.provider_id,
+                )
+                .await
+            {
                 Ok(true) => {
                     reencrypted_count += 1;
                     debug!(

@@ -339,12 +339,13 @@ pub fn verify_attestation_chain(attestation: &SepAttestation) -> Result<()> {
         let issuer_public_key = issuer.public_key();
 
         // Verify signature
-        cert.verify_signature(Some(issuer_public_key)).map_err(|e| {
-            AosError::Crypto(format!(
-                "Certificate chain signature verification failed at index {}: {:?}",
-                i, e
-            ))
-        })?;
+        cert.verify_signature(Some(issuer_public_key))
+            .map_err(|e| {
+                AosError::Crypto(format!(
+                    "Certificate chain signature verification failed at index {}: {:?}",
+                    i, e
+                ))
+            })?;
 
         debug!(
             cert_idx = i,
@@ -406,7 +407,11 @@ pub fn verify_attestation_nonce(attestation: &SepAttestation) -> Result<bool> {
     // The exact OID depends on Apple's attestation format
     for ext in leaf_cert.extensions() {
         // Check if extension data contains the nonce
-        if ext.value.windows(attestation.nonce.len()).any(|w| w == attestation.nonce.as_slice()) {
+        if ext
+            .value
+            .windows(attestation.nonce.len())
+            .any(|w| w == attestation.nonce.as_slice())
+        {
             debug!(
                 oid = %ext.oid,
                 "Found attestation nonce in certificate extension"

@@ -40,7 +40,9 @@ pub use sep_attestation::{
 };
 pub use signature::{sign_bytes, verify_signature, Keypair, PublicKey, Signature};
 
-pub use receipt_signing::{sign_receipt_digest, sign_receipt_digest_bytes, SignedReceipt, SigningMode};
+pub use receipt_signing::{
+    sign_receipt_digest, sign_receipt_digest_bytes, SignedReceipt, SigningMode,
+};
 
 pub use decision_chain::{
     verify_bundle_commits, DecisionChainBuilder, EnvironmentIdentity, MerkleBundleCommits,
