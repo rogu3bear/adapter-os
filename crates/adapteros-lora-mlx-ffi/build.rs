@@ -54,7 +54,9 @@ fn main() {
 
                 // Run compile+link probe to verify header/library compatibility
                 if let Err(e) = run_mlx_compatibility_probe(&include_dir, &lib_dir) {
-                    println!("cargo:warning==========================================================");
+                    println!(
+                        "cargo:warning=========================================================="
+                    );
                     println!("cargo:warning=MLX COMPATIBILITY CHECK FAILED");
                     println!("cargo:warning={}", e);
                     println!("cargo:warning=");
@@ -64,7 +66,9 @@ fn main() {
                     println!("cargo:warning=  - MLX was partially installed or corrupted");
                     println!("cargo:warning=");
                     println!("cargo:warning=Try: brew reinstall mlx");
-                    println!("cargo:warning==========================================================");
+                    println!(
+                        "cargo:warning=========================================================="
+                    );
                     panic!("MLX header/library mismatch detected. See warnings above.");
                 }
 
@@ -77,7 +81,9 @@ fn main() {
             }
             None => {
                 println!("cargo:warning==========================================================");
-                println!("cargo:warning=MLX NOT FOUND (feature 'mlx' enabled but MLX not detected)");
+                println!(
+                    "cargo:warning=MLX NOT FOUND (feature 'mlx' enabled but MLX not detected)"
+                );
                 println!("cargo:warning=");
                 println!("cargo:warning=To install MLX:");
                 println!("cargo:warning=  brew install mlx");
@@ -248,10 +254,7 @@ fn find_mlx_with_version() -> Option<(PathBuf, PathBuf, String)> {
 
         if has_mlx_headers(&include_dir) && has_mlx_library(&lib_dir) {
             let version = detect_mlx_version(&include_dir);
-            println!(
-                "cargo:warning=Found MLX at: {} ({})",
-                base_path, version
-            );
+            println!("cargo:warning=Found MLX at: {} ({})", base_path, version);
             return Some((include_dir, lib_dir, version));
         }
     }
@@ -390,8 +393,7 @@ fn extract_version_from_header(content: &str) -> Option<String> {
         if let Some(after_define) = trimmed.strip_prefix("#define") {
             let after_define = after_define.trim();
             // Look for MLX_VERSION followed by a quoted string (not MLX_VERSION_MAJOR etc)
-            if after_define.starts_with("MLX_VERSION ")
-                && !after_define.starts_with("MLX_VERSION_")
+            if after_define.starts_with("MLX_VERSION ") && !after_define.starts_with("MLX_VERSION_")
             {
                 if let Some(start) = after_define.find('"') {
                     if let Some(end) = after_define[start + 1..].find('"') {
