@@ -6,6 +6,83 @@ use tracing::{debug, info};
 
 use super::types::{LogEntry, SystemMetrics};
 
+// Re-export response types for use by app.rs
+pub use self::response_types::*;
+
+mod response_types {
+    use serde::Deserialize;
+
+    #[derive(Debug, Clone, Deserialize, Default)]
+    pub struct AdapterDetailResponse {
+        pub id: String,
+        pub name: String,
+        pub version: String,
+        #[serde(default)]
+        pub tier: String,
+        #[serde(default)]
+        pub rank: u32,
+        #[serde(default)]
+        pub loaded: bool,
+        #[serde(default)]
+        pub pinned: bool,
+        pub memory_mb: Option<u32>,
+        #[serde(default)]
+        pub activation_count: u64,
+        pub last_activated: Option<String>,
+    }
+
+    #[derive(Debug, Clone, Deserialize, Default)]
+    pub struct TrainingJobResponse {
+        pub id: String,
+        #[serde(default)]
+        pub status: String,
+        #[serde(default)]
+        pub progress_pct: f32,
+        #[serde(default)]
+        pub current_epoch: u32,
+        #[serde(default)]
+        pub current_loss: f32,
+        #[serde(default)]
+        pub tokens_per_second: f32,
+        pub estimated_time_remaining: Option<String>,
+        pub dataset_name: Option<String>,
+        pub backend: Option<String>,
+    }
+
+    #[derive(Debug, Clone, Deserialize, Default)]
+    pub struct InferResponse {
+        pub text: String,
+        #[serde(default)]
+        pub tokens_generated: u32,
+        #[serde(default)]
+        pub latency_ms: u64,
+    }
+
+    #[derive(Debug, Clone, Deserialize, Default)]
+    pub struct MemoryBreakdown {
+        #[serde(default)]
+        pub total_mb: u64,
+        #[serde(default)]
+        pub used_mb: u64,
+        #[serde(default)]
+        pub model_mb: u64,
+        #[serde(default)]
+        pub adapters_mb: u64,
+        #[serde(default)]
+        pub cache_mb: u64,
+        #[serde(default)]
+        pub headroom_percent: f32,
+    }
+
+    #[derive(Debug, Clone, Deserialize, Default)]
+    pub struct SystemStatusResponse {
+        #[serde(default)]
+        pub inference_ready: String,
+        #[serde(default)]
+        pub inference_blockers: Vec<String>,
+    }
+}
+
 pub struct ApiClient {
     client: Client,
     base_url: String,
@@ -355,6 +432,277 @@ impl ApiClient {
             latency_ms,
         })
     }
+
+    // === Adapter Lifecycle Methods ===
+
+    /// Load an adapter into memory
+    pub async fn load_adapter(&self, adapter_id: &str) -> Result<()> {
+        let url = format!("{}/v1/adapters/{}/load", self.base_url, adapter_id);
+        info!("Loading adapter: {}", adapter_id);
+
+        let response = self
+            .client
+            .post(&url)
+            .send()
+            .await
+            .map_err(|e| anyhow!("Failed to call load adapter API: {}", e))?;
+
+        if response.status().is_success() {
+            info!("Successfully loaded adapter: {}", adapter_id);
+            Ok(())
+        } else {
+            Err(anyhow!(
+                "Failed to load adapter {}: HTTP {}",
+                adapter_id,
+                response.status()
+            ))
+        }
+    }
+
+    /// Unload an adapter from memory
+    pub async fn unload_adapter(&self, adapter_id: &str) -> Result<()> {
+        let url = format!("{}/v1/adapters/{}/unload", self.base_url, adapter_id);
+        info!("Unloading adapter: {}", adapter_id);
+
+        let response = self
+            .client
+            .post(&url)
+            .send()
+            .await
+            .map_err(|e| anyhow!("Failed to call unload adapter API: {}", e))?;
+
+        if response.status().is_success() {
+            info!("Successfully unloaded adapter: {}", adapter_id);
+            Ok(())
+        } else {
+            Err(anyhow!(
+                "Failed to unload adapter {}: HTTP {}",
+                adapter_id,
+                response.status()
+            ))
+        }
+    }
+
+    /// Pin an adapter to keep it loaded in memory
+    pub async fn pin_adapter(&self, adapter_id: &str) -> Result<()> {
+        let url = format!("{}/v1/adapters/{}/pin", self.base_url, adapter_id);
+        info!("Pinning adapter: {}", adapter_id);
+
+        let response = self
+            .client
+            .post(&url)
+            .send()
+            .await
+            .map_err(|e| anyhow!("Failed to call pin adapter API: {}", e))?;
+
+        if response.status().is_success() {
+            info!("Successfully pinned adapter: {}", adapter_id);
+            Ok(())
+        } else {
+            Err(anyhow!(
+                "Failed to pin adapter {}: HTTP {}",
+                adapter_id,
+                response.status()
+            ))
+        }
+    }
+
+    /// Unpin an adapter to allow it to be evicted from memory
+    pub async fn unpin_adapter(&self, adapter_id: &str) -> Result<()> {
+        let url = format!("{}/v1/adapters/{}/pin", self.base_url, adapter_id);
+        info!("Unpinning adapter: {}", adapter_id);
+
+        let response = self
+            .client
+            .delete(&url)
+            .send()
+            .await
+            .map_err(|e| anyhow!("Failed to call unpin adapter API: {}", e))?;
+
+        if response.status().is_success() {
+            info!("Successfully unpinned adapter: {}", adapter_id);
+            Ok(())
+        } else {
+            Err(anyhow!(
+                "Failed to unpin adapter {}: HTTP {}",
+                adapter_id,
+                response.status()
+            ))
+        }
+    }
+
+    /// Get detailed information about a specific adapter
+    pub async fn get_adapter_detail(&self, adapter_id: &str) -> Result<AdapterDetailResponse> {
+        let url = format!("{}/v1/adapters/{}/detail", self.base_url, adapter_id);
+
+        match self.client.get(&url).send().await {
+            Ok(response) => {
+                if response.status().is_success() {
+                    let detail: AdapterDetailResponse = response.json().await?;
+                    debug!("Received adapter detail for: {}", adapter_id);
+                    Ok(detail)
+                } else {
+                    Err(anyhow!(
+                        "Failed to get adapter detail: HTTP {}",
+                        response.status()
+                    ))
+                }
+            }
+            Err(e) => Err(anyhow!("Failed to fetch adapter detail: {}", e)),
+        }
+    }
+
+    // === Training Job Methods ===
+
+    /// List all training jobs
+    pub async fn list_training_jobs(&self) -> Result<Vec<TrainingJobResponse>> {
+        let url = format!("{}/v1/training/jobs", self.base_url);
+
+        match self.client.get(&url).send().await {
+            Ok(response) => {
+                if response.status().is_success() {
+                    let jobs: Vec<TrainingJobResponse> = response.json().await.unwrap_or_default();
+                    debug!("Received {} training jobs", jobs.len());
+                    Ok(jobs)
+                } else {
+                    debug!("Training jobs API returned: {}", response.status());
+                    Ok(Vec::new())
+                }
+            }
+            Err(e) => {
+                debug!("Failed to fetch training jobs: {}", e);
+                Ok(Vec::new())
+            }
+        }
+    }
+
+    /// Get details of a specific training job
+    pub async fn get_training_job(&self, job_id: &str) -> Result<TrainingJobResponse> {
+        let url = format!("{}/v1/training/jobs/{}", self.base_url, job_id);
+
+        match self.client.get(&url).send().await {
+            Ok(response) => {
+                if response.status().is_success() {
+                    let job: TrainingJobResponse = response.json().await?;
+                    debug!("Received training job detail for: {}", job_id);
+                    Ok(job)
+                } else {
+                    Err(anyhow!(
+                        "Failed to get training job: HTTP {}",
+                        response.status()
+                    ))
+                }
+            }
+            Err(e) => Err(anyhow!("Failed to fetch training job: {}", e)),
+        }
+    }
+
+    /// Cancel a running training job
+    pub async fn cancel_training_job(&self, job_id: &str) -> Result<()> {
+        let url = format!("{}/v1/training/jobs/{}/cancel", self.base_url, job_id);
+        info!("Cancelling training job: {}", job_id);
+
+        let response = self
+            .client
+            .post(&url)
+            .send()
+            .await
+            .map_err(|e| anyhow!("Failed to call cancel training job API: {}", e))?;
+
+        if response.status().is_success() {
+            info!("Successfully cancelled training job: {}", job_id);
+            Ok(())
+        } else {
+            Err(anyhow!(
+                "Failed to cancel training job {}: HTTP {}",
+                job_id,
+                response.status()
+            ))
+        }
+    }
+
+    // === Inference Methods ===
+
+    /// Run inference with optional adapter
+    pub async fn infer(&self, prompt: &str, adapter_id: Option<&str>) -> Result<InferResponse> {
+        let url = format!("{}/v1/infer", self.base_url);
+        info!("Running inference with adapter: {:?}", adapter_id);
+
+        let mut body = serde_json::json!({
+            "prompt": prompt,
+            "max_tokens": 512,
+            "temperature": 0.7,
+        });
+        if let Some(adapter) = adapter_id {
+            body["adapter_id"] = serde_json::json!(adapter);
+        }
+
+        let response = self
+            .client
+            .post(&url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| anyhow!("Failed to call inference API: {}", e))?;
+
+        if response.status().is_success() {
+            let infer_response: InferResponse = response.json().await?;
+            info!(
+                "Inference completed: {} tokens in {}ms",
+                infer_response.tokens_generated, infer_response.latency_ms
+            );
+            Ok(infer_response)
+        } else {
+            Err(anyhow!("Inference failed: HTTP {}", response.status()))
+        }
+    }
+
+    // === Memory/Capacity Methods ===
+
+    /// Get unified memory breakdown
+    pub async fn get_memory_breakdown(&self) -> Result<MemoryBreakdown> {
+        let url = format!("{}/v1/memory/uma", self.base_url);
+
+        match self.client.get(&url).send().await {
+            Ok(response) => {
+                if response.status().is_success() {
+                    let breakdown: MemoryBreakdown = response.json().await?;
+                    debug!("Received memory breakdown: {:?}", breakdown);
+                    Ok(breakdown)
+                } else {
+                    debug!("Memory API returned: {}", response.status());
+                    Ok(MemoryBreakdown::default())
+                }
+            }
+            Err(e) => {
+                debug!("Failed to fetch memory breakdown: {}", e);
+                Ok(MemoryBreakdown::default())
+            }
+        }
+    }
+
+    // === System Status Methods ===
+
+    /// Get comprehensive system status
+    pub async fn get_system_status(&self) -> Result<SystemStatusResponse> {
+        let url = format!("{}/v1/system/status", self.base_url);
+
+        match self.client.get(&url).send().await {
+            Ok(response) => {
+                if response.status().is_success() {
+                    let status: SystemStatusResponse = response.json().await?;
+                    debug!("Received system status: {:?}", status);
+                    Ok(status)
+                } else {
+                    Err(anyhow!(
+                        "Failed to get system status: HTTP {}",
+                        response.status()
+                    ))
+                }
+            }
+            Err(e) => Err(anyhow!("Failed to fetch system status: {}", e)),
+        }
+    }
 }
 
 // Response types for API calls
@@ -374,6 +722,8 @@ pub struct AdapterInfo {
     pub name: String,
     pub version: String,
     pub loaded: bool,
+    #[serde(default)]
+    pub pinned: bool,
     pub memory_mb: Option<u32>,
 }
 
