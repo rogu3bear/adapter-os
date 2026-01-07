@@ -135,7 +135,6 @@ struct ReceiptDigests {
     // =========================================================================
     // V4 fields: Production format (stop controller, KV, prefix cache, model cache)
     // =========================================================================
-
     /// Stop reason code (V4+): "EOS", "LENGTH", "REPETITION", etc.
     #[serde(default)]
     stop_reason_code: Option<String>,
@@ -571,7 +570,11 @@ fn compute_receipt_digest_from_bundle(
             .and_then(|h| hex::decode(h).ok())
             .and_then(|b| <[u8; 32]>::try_from(b).ok());
 
-        input = input.with_prefix_cache(prefix_kv_key, receipt.prefix_cache_hit, receipt.prefix_kv_bytes);
+        input = input.with_prefix_cache(
+            prefix_kv_key,
+            receipt.prefix_cache_hit,
+            receipt.prefix_kv_bytes,
+        );
 
         // Model cache identity
         let model_cache_identity = receipt

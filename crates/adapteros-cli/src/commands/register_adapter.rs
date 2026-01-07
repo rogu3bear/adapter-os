@@ -397,8 +397,12 @@ mod tests {
 
         // Dummy LoRA weights: rank=4, in=16, out=16
         // Note: Using F16 (half precision) as the loader expects it
-        let lora_a: Vec<u16> = (0..64).map(|i| half::f16::from_f32((i as f32) * 0.01).to_bits()).collect();
-        let lora_b: Vec<u16> = (0..64).map(|i| half::f16::from_f32((i as f32) * -0.01).to_bits()).collect();
+        let lora_a: Vec<u16> = (0..64)
+            .map(|i| half::f16::from_f32((i as f32) * 0.01).to_bits())
+            .collect();
+        let lora_b: Vec<u16> = (0..64)
+            .map(|i| half::f16::from_f32((i as f32) * -0.01).to_bits())
+            .collect();
 
         // Tensor names must be "lora_a" and "lora_b" (or "lora.a" / "lora.b")
         let header = json!({
