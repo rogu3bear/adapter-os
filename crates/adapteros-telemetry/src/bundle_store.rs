@@ -389,6 +389,13 @@ impl BundleStore {
     }
 
     /// Verify bundle chain integrity
+    ///
+    /// Validates that each bundle's `prev_bundle_hash` correctly references the
+    /// prior bundle's `merkle_root`. On divergence:
+    /// - Logs error for observability
+    /// - Emits `audit_chain_divergence_event` for telemetry pipeline
+    ///
+    /// Returns a report with all broken links for forensic analysis.
     pub fn verify_chain(&self, cpid: &str) -> Result<ChainVerificationReport> {
         let bundles = self.list_bundles_for_cpid(cpid);
 
@@ -399,19 +406,71 @@ impl BundleStore {
             broken_links: Vec::new(),
         };
 
+        // First bundle in a chain should have prev_bundle_hash == None
+        if let Some(first) = bundles.first() {
+            if first.prev_bundle_hash.is_some() {
+                let msg = format!(
+                    "First bundle {} has non-null prev_bundle_hash (should be chain root)",
+                    first.bundle_hash
+                );
+                tracing::error!(
+                    cpid = %cpid,
+                    bundle_hash = %first.bundle_hash,
+                    "Telemetry bundle chain divergence: first entry has prev_hash"
+                );
+                // Emit telemetry event
+                let event = adapteros_core::telemetry::audit_chain_divergence_event(
+                    &msg,
+                    Some(0),
+                    first.tenant_id.clone(),
+                    Some(cpid.to_string()),
+                );
+                adapteros_core::telemetry::emit_observability_event(&event);
+                report.broken_links.push(msg);
+            }
+        }
+
         for i in 1..bundles.len() {
             let current = bundles[i];
             let prev = bundles[i - 1];
 
             // Verify chain link
             if current.prev_bundle_hash.as_ref() != Some(&prev.merkle_root) {
-                report.broken_links.push(format!(
+                let msg = format!(
                     "Bundle {} does not link to previous bundle {}",
                     current.bundle_hash, prev.bundle_hash
-                ));
+                );
+                tracing::error!(
+                    cpid = %cpid,
+                    bundle_index = i,
+                    current_bundle = %current.bundle_hash,
+                    previous_bundle = %prev.bundle_hash,
+                    expected_prev_hash = %prev.merkle_root,
+                    actual_prev_hash = ?current.prev_bundle_hash,
+                    "Telemetry bundle chain divergence detected"
+                );
+                // Emit telemetry event for monitoring pipeline (PRD requirement)
+                let event = adapteros_core::telemetry::audit_chain_divergence_event(
+                    &msg,
+                    Some(i as i64),
+                    current.tenant_id.clone(),
+                    Some(cpid.to_string()),
+                );
+                adapteros_core::telemetry::emit_observability_event(&event);
+                report.broken_links.push(msg);
             } else {
                 report.verified_bundles += 1;
             }
+        }
+
+        if !report.broken_links.is_empty() {
+            tracing::warn!(
+                cpid = %cpid,
+                total_bundles = report.total_bundles,
+                verified_bundles = report.verified_bundles,
+                broken_link_count = report.broken_links.len(),
+                "Telemetry bundle chain verification completed with divergences"
+            );
         }
 
         Ok(report)

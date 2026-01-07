@@ -156,6 +156,22 @@ pub struct InferRequest<Backend = String, Interval = FusionInterval, StopPolicy 
     /// If not provided, a default policy is constructed from max_tokens.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_policy: Option<StopPolicy>,
+    // =========================================================================
+    // Expected Digests for Verification (PRD: Receipt Completeness v4)
+    // =========================================================================
+    /// Expected Metal library (metallib) digest for verification.
+    ///
+    /// If provided, the server verifies the active metallib matches this digest.
+    /// Mismatches result in a determinism violation error.
+    /// Format: 64-character hex BLAKE3 digest.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expected_metallib_digest_b3_hex: Option<String>,
+    /// Expected kernel digest for verification.
+    ///
+    /// If provided, the server verifies the compiled kernel matches this digest.
+    /// Format: 64-character hex BLAKE3 digest.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expected_kernel_digest_b3_hex: Option<String>,
 }
 
 /// Verifiable run receipt (hash chain over per-token decisions)

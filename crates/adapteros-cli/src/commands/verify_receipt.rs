@@ -1,10 +1,17 @@
 //! Offline receipt verification for run evidence bundles.
 //!
 //! Recomputes context/run/output/receipt digests and validates optional signatures.
+//!
+//! This module uses the canonical digest implementation from `adapteros_core::receipt_digest`
+//! to ensure parity with production receipt generation.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use adapteros_core::receipt_digest::{
+    self, ReceiptDigestInput, RECEIPT_SCHEMA_CURRENT, RECEIPT_SCHEMA_V1, RECEIPT_SCHEMA_V2,
+    RECEIPT_SCHEMA_V3, RECEIPT_SCHEMA_V4,
+};
 use adapteros_core::B3Hash;
 use adapteros_crypto::signature::{PublicKey, Signature};
 use anyhow::{anyhow, bail, Context, Result};
@@ -22,12 +29,14 @@ const DEFAULT_BUNDLE_FILENAMES: &[&str] = &[
     "inference_trace.json",
 ];
 
-/// Receipt schema versions
-pub const RECEIPT_SCHEMA_V1: u8 = 1;
-pub const RECEIPT_SCHEMA_V2: u8 = 2;
-/// V3: Adds seed digest for determinism binding (PR-004)
-pub const RECEIPT_SCHEMA_V3: u8 = 3;
-pub const RECEIPT_SCHEMA_CURRENT: u8 = RECEIPT_SCHEMA_V3;
+// Re-export schema version constants for backward compatibility
+pub use adapteros_core::receipt_digest::{
+    RECEIPT_SCHEMA_CURRENT as RECEIPT_SCHEMA_CURRENT_REEXPORT,
+    RECEIPT_SCHEMA_V1 as RECEIPT_SCHEMA_V1_REEXPORT,
+    RECEIPT_SCHEMA_V2 as RECEIPT_SCHEMA_V2_REEXPORT,
+    RECEIPT_SCHEMA_V3 as RECEIPT_SCHEMA_V3_REEXPORT,
+    RECEIPT_SCHEMA_V4 as RECEIPT_SCHEMA_V4_REEXPORT,
+};
 
 fn default_schema_version() -> u8 {
     RECEIPT_SCHEMA_V1
@@ -122,6 +131,50 @@ struct ReceiptDigests {
     /// Whether manifest was used in seed derivation (v3+)
     #[serde(default)]
     has_manifest_binding: Option<bool>,
+
+    // =========================================================================
+    // V4 fields: Production format (stop controller, KV, prefix cache, model cache)
+    // =========================================================================
+
+    /// Stop reason code (V4+): "EOS", "LENGTH", "REPETITION", etc.
+    #[serde(default)]
+    stop_reason_code: Option<String>,
+    /// Token index where stop decision was made (V4+)
+    #[serde(default)]
+    stop_reason_token_index: Option<u32>,
+    /// BLAKE3 digest of stop policy spec (V4+)
+    #[serde(default)]
+    stop_policy_digest_b3_hex: Option<String>,
+
+    /// Tenant KV cache quota in bytes (V4+)
+    #[serde(default)]
+    tenant_kv_quota_bytes: u64,
+    /// Tenant KV cache bytes used (V4+)
+    #[serde(default)]
+    tenant_kv_bytes_used: u64,
+    /// Number of KV cache evictions (V4+)
+    #[serde(default)]
+    kv_evictions: u32,
+    /// KV residency policy ID (V4+)
+    #[serde(default)]
+    kv_residency_policy_id: Option<String>,
+    /// Whether KV quota enforcement was active (V4+)
+    #[serde(default)]
+    kv_quota_enforced: bool,
+
+    /// Prefix KV cache key hash (V4+)
+    #[serde(default)]
+    prefix_kv_key_b3_hex: Option<String>,
+    /// Whether prefix cache hit occurred (V4+)
+    #[serde(default)]
+    prefix_cache_hit: bool,
+    /// Prefix KV cache bytes (V4+)
+    #[serde(default)]
+    prefix_kv_bytes: u64,
+
+    /// Model cache identity V2 digest (V4+, PRD-06)
+    #[serde(default)]
+    model_cache_identity_v2_digest_b3_hex: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -432,111 +485,111 @@ fn verify_bundle_with_options(
     Ok(report)
 }
 
-/// Compute receipt digest based on schema version
+/// Compute receipt digest based on schema version.
 ///
-/// V1 (original): context_digest + run_head + output_digest + token counts
-/// V2 (with backend): V1 fields + schema_version + backend_used + backend_attestation
-/// V3 (with seed): V2 fields + seed_digest + seed_mode + has_manifest_binding
-fn compute_receipt_digest(
+/// Uses the canonical implementation from `adapteros_core::receipt_digest` to ensure
+/// parity with production receipt generation.
+///
+/// # Schema Versions
+/// - V1 (original): context_digest + run_head + output_digest + token counts
+/// - V2 (with backend): V1 fields + schema_version + backend_used + backend_attestation
+/// - V3 (with seed): V2 fields + seed_digest + seed_mode + has_manifest_binding
+/// - V4 (production): core + stop controller + KV quota + prefix cache + model cache
+fn compute_receipt_digest_from_bundle(
     context_digest: &B3Hash,
     run_head: &B3Hash,
     output_digest: &B3Hash,
     receipt: &ReceiptDigests,
     bundle: &ReceiptBundle,
 ) -> B3Hash {
-    match receipt.schema_version {
-        RECEIPT_SCHEMA_V1 => {
-            // V1: Original digest without backend fields
-            B3Hash::hash_multi(&[
-                context_digest.as_bytes(),
-                run_head.as_bytes(),
-                output_digest.as_bytes(),
-                &receipt.logical_prompt_tokens.to_le_bytes(),
-                &receipt.prefix_cached_token_count.to_le_bytes(),
-                &receipt.billed_input_tokens.to_le_bytes(),
-                &receipt.logical_output_tokens.to_le_bytes(),
-                &receipt.billed_output_tokens.to_le_bytes(),
-            ])
-        }
-        RECEIPT_SCHEMA_V2 => {
-            // V2: Include backend identity
-            let backend_bytes = bundle.backend_used.as_deref().unwrap_or("").as_bytes();
+    // Build ReceiptDigestInput from bundle/receipt
+    let mut input = ReceiptDigestInput::new(
+        *context_digest.as_bytes(),
+        *run_head.as_bytes(),
+        *output_digest.as_bytes(),
+        receipt.logical_prompt_tokens,
+        receipt.prefix_cached_token_count,
+        receipt.billed_input_tokens,
+        receipt.logical_output_tokens,
+        receipt.billed_output_tokens,
+    );
 
-            let attestation_bytes = bundle
-                .backend_attestation_b3_hex
-                .as_ref()
-                .and_then(|h| hex::decode(h).ok())
-                .unwrap_or_default();
+    // V2+ fields: Backend identity
+    if receipt.schema_version >= RECEIPT_SCHEMA_V2 {
+        let attestation_bytes = bundle
+            .backend_attestation_b3_hex
+            .as_ref()
+            .and_then(|h| hex::decode(h).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok());
 
-            B3Hash::hash_multi(&[
-                context_digest.as_bytes(),
-                run_head.as_bytes(),
-                output_digest.as_bytes(),
-                &receipt.logical_prompt_tokens.to_le_bytes(),
-                &receipt.prefix_cached_token_count.to_le_bytes(),
-                &receipt.billed_input_tokens.to_le_bytes(),
-                &receipt.logical_output_tokens.to_le_bytes(),
-                &receipt.billed_output_tokens.to_le_bytes(),
-                // V2 additions
-                &[RECEIPT_SCHEMA_V2], // Schema version byte
-                &(backend_bytes.len() as u32).to_le_bytes(),
-                backend_bytes,
-                &(attestation_bytes.len() as u32).to_le_bytes(),
-                &attestation_bytes,
-            ])
-        }
-        RECEIPT_SCHEMA_V3 => {
-            // V3: Include backend identity + seed lineage
-            let backend_bytes = bundle.backend_used.as_deref().unwrap_or("").as_bytes();
+        input = input.with_backend(bundle.backend_used.clone(), attestation_bytes);
+    }
 
-            let attestation_bytes = bundle
-                .backend_attestation_b3_hex
-                .as_ref()
-                .and_then(|h| hex::decode(h).ok())
-                .unwrap_or_default();
+    // V3+ fields: Seed lineage
+    if receipt.schema_version >= RECEIPT_SCHEMA_V3 {
+        let seed_digest = receipt
+            .root_seed_digest_hex
+            .as_ref()
+            .and_then(|h| hex::decode(h).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok());
 
-            // Seed lineage fields (v3)
-            let seed_digest_bytes = receipt
-                .root_seed_digest_hex
-                .as_ref()
-                .and_then(|h| hex::decode(h).ok())
-                .unwrap_or_else(|| vec![0u8; 32]);
+        input = input.with_seed_lineage(
+            seed_digest,
+            receipt.seed_mode.clone(),
+            receipt.has_manifest_binding,
+        );
+    }
 
-            let seed_mode_bytes = receipt.seed_mode.as_deref().unwrap_or("unknown").as_bytes();
+    // V4 fields: Production format (stop controller, KV, prefix cache, model cache)
+    if receipt.schema_version >= RECEIPT_SCHEMA_V4 {
+        // Stop controller
+        let stop_policy_digest = receipt
+            .stop_policy_digest_b3_hex
+            .as_ref()
+            .and_then(|h| hex::decode(h).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok());
 
-            let manifest_binding_byte = if receipt.has_manifest_binding.unwrap_or(false) {
-                [1u8]
-            } else {
-                [0u8]
-            };
+        input = input.with_stop_controller(
+            receipt.stop_reason_code.clone(),
+            receipt.stop_reason_token_index,
+            stop_policy_digest,
+        );
 
-            B3Hash::hash_multi(&[
-                context_digest.as_bytes(),
-                run_head.as_bytes(),
-                output_digest.as_bytes(),
-                &receipt.logical_prompt_tokens.to_le_bytes(),
-                &receipt.prefix_cached_token_count.to_le_bytes(),
-                &receipt.billed_input_tokens.to_le_bytes(),
-                &receipt.logical_output_tokens.to_le_bytes(),
-                &receipt.billed_output_tokens.to_le_bytes(),
-                // V2 additions (included in V3)
-                &[RECEIPT_SCHEMA_V3], // Schema version byte
-                &(backend_bytes.len() as u32).to_le_bytes(),
-                backend_bytes,
-                &(attestation_bytes.len() as u32).to_le_bytes(),
-                &attestation_bytes,
-                // V3 additions: seed lineage
-                &seed_digest_bytes,
-                &(seed_mode_bytes.len() as u32).to_le_bytes(),
-                seed_mode_bytes,
-                &manifest_binding_byte,
-            ])
-        }
-        _ => {
-            // Unknown schema - return zero hash, will trigger mismatch
+        // KV quota/residency
+        input = input.with_kv_quota(
+            receipt.tenant_kv_quota_bytes,
+            receipt.tenant_kv_bytes_used,
+            receipt.kv_evictions,
+            receipt.kv_residency_policy_id.clone(),
+            receipt.kv_quota_enforced,
+        );
+
+        // Prefix cache
+        let prefix_kv_key = receipt
+            .prefix_kv_key_b3_hex
+            .as_ref()
+            .and_then(|h| hex::decode(h).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok());
+
+        input = input.with_prefix_cache(prefix_kv_key, receipt.prefix_cache_hit, receipt.prefix_kv_bytes);
+
+        // Model cache identity
+        let model_cache_identity = receipt
+            .model_cache_identity_v2_digest_b3_hex
+            .as_ref()
+            .and_then(|h| hex::decode(h).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok());
+
+        input = input.with_model_cache_identity(model_cache_identity);
+    }
+
+    // Use the canonical implementation
+    match receipt_digest::compute_receipt_digest(&input, receipt.schema_version) {
+        Some(digest) => digest,
+        None => {
             tracing::warn!(
                 schema_version = receipt.schema_version,
-                "Unknown receipt schema version"
+                "Unsupported receipt schema version"
             );
             B3Hash::zero()
         }
@@ -700,8 +753,8 @@ fn verify_bundle(bundle: &ReceiptBundle) -> Result<ReceiptVerificationReport> {
         push_reason(&mut reasons, ReasonCode::OutputMismatch);
     }
 
-    // Use schema-aware receipt digest computation
-    let receipt_digest = compute_receipt_digest(
+    // Use schema-aware receipt digest computation (canonical implementation)
+    let receipt_digest = compute_receipt_digest_from_bundle(
         &computed_context,
         &run_head,
         &output_digest,
@@ -1070,13 +1123,26 @@ mod tests {
                 billed_input_tokens,
                 logical_output_tokens,
                 billed_output_tokens,
-                // V1 schema - no backend/seed fields
+                // V1 schema - no backend/seed/V4 fields
                 schema_version: RECEIPT_SCHEMA_V1,
                 backend_used: None,
                 backend_attestation_b3_hex: None,
                 root_seed_digest_hex: None,
                 seed_mode: None,
                 has_manifest_binding: None,
+                // V4 fields (default for V1 bundles)
+                stop_reason_code: None,
+                stop_reason_token_index: None,
+                stop_policy_digest_b3_hex: None,
+                tenant_kv_quota_bytes: 0,
+                tenant_kv_bytes_used: 0,
+                kv_evictions: 0,
+                kv_residency_policy_id: None,
+                kv_quota_enforced: false,
+                prefix_kv_key_b3_hex: None,
+                prefix_cache_hit: false,
+                prefix_kv_bytes: 0,
+                model_cache_identity_v2_digest_b3_hex: None,
             },
             expected_backend: Some("coreml".to_string()),
             expected_kernel_version: Some("k1".to_string()),
@@ -1170,6 +1236,19 @@ mod tests {
                 root_seed_digest_hex: Some(seed_digest.to_hex()),
                 seed_mode: Some("strict".to_string()),
                 has_manifest_binding: Some(true),
+                // V4 fields (default for V3 bundles)
+                stop_reason_code: None,
+                stop_reason_token_index: None,
+                stop_policy_digest_b3_hex: None,
+                tenant_kv_quota_bytes: 0,
+                tenant_kv_bytes_used: 0,
+                kv_evictions: 0,
+                kv_residency_policy_id: None,
+                kv_quota_enforced: false,
+                prefix_kv_key_b3_hex: None,
+                prefix_cache_hit: false,
+                prefix_kv_bytes: 0,
+                model_cache_identity_v2_digest_b3_hex: None,
             },
             expected_backend: None,
             expected_kernel_version: None,
@@ -1281,6 +1360,19 @@ mod tests {
             root_seed_digest_hex: Some(B3Hash::hash(seed).to_hex()),
             seed_mode: Some("strict".to_string()),
             has_manifest_binding: Some(true),
+            // V4 fields (default for V3 bundles)
+            stop_reason_code: None,
+            stop_reason_token_index: None,
+            stop_policy_digest_b3_hex: None,
+            tenant_kv_quota_bytes: 0,
+            tenant_kv_bytes_used: 0,
+            kv_evictions: 0,
+            kv_residency_policy_id: None,
+            kv_quota_enforced: false,
+            prefix_kv_key_b3_hex: None,
+            prefix_cache_hit: false,
+            prefix_kv_bytes: 0,
+            model_cache_identity_v2_digest_b3_hex: None,
         };
 
         let bundle1 = ReceiptBundle {
@@ -1310,14 +1402,14 @@ mod tests {
             ..bundle1.clone()
         };
 
-        let digest1 = compute_receipt_digest(
+        let digest1 = compute_receipt_digest_from_bundle(
             &context_digest,
             &run_head,
             &output_digest,
             &bundle1.receipt,
             &bundle1,
         );
-        let digest2 = compute_receipt_digest(
+        let digest2 = compute_receipt_digest_from_bundle(
             &context_digest,
             &run_head,
             &output_digest,

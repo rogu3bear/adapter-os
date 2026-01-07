@@ -27,6 +27,7 @@
 
 pub mod adapter_repo_paths;
 pub mod adapter_store;
+pub mod audit_chain;
 pub mod adapter_type;
 pub mod backend;
 pub mod build_info;
@@ -65,6 +66,7 @@ pub mod plugins;
 pub mod policy;
 pub mod prefix_kv_key;
 pub mod preflight;
+pub mod receipt_digest;
 pub mod recovery;
 pub mod redaction;
 pub mod retry_policy;
@@ -94,6 +96,10 @@ pub use adapter_store::{
     AdapterCacheKey, AdapterPins, AdapterRecord, AdapterSnapshot, AdapterStore,
 };
 pub use adapter_type::{AdapterType, AdapterTypeParseError};
+pub use audit_chain::{
+    compute_entry_hash, verify_audit_chain, verify_audit_chains_by_tenant, AuditChainResult,
+    AuditEntry,
+};
 pub use backend::BackendKind;
 pub use build_info::BuildInfo;
 pub use circuit_breaker::{
@@ -207,6 +213,14 @@ pub use version::{
     PATH_NORMALIZATION_VERSION,
 };
 pub use worker_status::{WorkerStatus, WorkerStatusTransition};
+
+// Receipt digest computation (shared between production and CLI)
+pub use receipt_digest::{
+    compute_output_digest, compute_receipt_digest, decode_allowed_mask, encode_adapter_ids,
+    encode_allowed_mask, encode_gates_q15, hash_token_decision, update_run_head,
+    ReceiptDigestInput, RECEIPT_SCHEMA_CURRENT, RECEIPT_SCHEMA_V1, RECEIPT_SCHEMA_V2,
+    RECEIPT_SCHEMA_V3, RECEIPT_SCHEMA_V4,
+};
 
 // Invariant validation for determinism-critical operations
 pub use invariants::{

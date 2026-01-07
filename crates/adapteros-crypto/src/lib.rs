@@ -8,6 +8,7 @@ pub mod key_manager;
 pub mod key_provider;
 pub mod policy_enforcement;
 pub mod providers;
+pub mod receipt_signing;
 pub mod rotation_daemon;
 pub mod secret;
 pub mod sep_attestation;
@@ -35,6 +36,8 @@ pub use sep_attestation::{
     SepChipGeneration,
 };
 pub use signature::{sign_bytes, verify_signature, Keypair, PublicKey, Signature};
+
+pub use receipt_signing::{sign_receipt_digest, sign_receipt_digest_bytes, SignedReceipt, SigningMode};
 
 pub use decision_chain::{
     verify_bundle_commits, DecisionChainBuilder, EnvironmentIdentity, MerkleBundleCommits,
