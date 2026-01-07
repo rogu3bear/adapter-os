@@ -172,10 +172,8 @@ impl ReplayInferenceContext {
         let output_seed = derive_seed(&self.global_seed, "output");
         let output_tokens: Vec<u32> = (0..10)
             .map(|i| {
-                let token_seed = derive_seed(
-                    &B3Hash::from_bytes(output_seed),
-                    &format!("token:{}", i),
-                );
+                let token_seed =
+                    derive_seed(&B3Hash::from_bytes(output_seed), &format!("token:{}", i));
                 u32::from_le_bytes([token_seed[0], token_seed[1], token_seed[2], token_seed[3]])
             })
             .collect();
@@ -410,10 +408,7 @@ fn test_typed_seed_integrity() {
     );
 
     // Checksum must validate
-    assert!(
-        typed1.validate().is_ok(),
-        "Typed seed must pass validation"
-    );
+    assert!(typed1.validate().is_ok(), "Typed seed must pass validation");
 
     clear_thread_local_determinism_config();
 }
@@ -481,7 +476,10 @@ fn test_timestamp_determinism() {
     let ts1 = get_deterministic_timestamp();
     let ts2 = get_deterministic_timestamp();
 
-    assert_eq!(ts1, ts2, "Timestamps must be deterministic with fixed config");
+    assert_eq!(
+        ts1, ts2,
+        "Timestamps must be deterministic with fixed config"
+    );
     assert_eq!(
         ts1,
         fixed_replay_timestamp(),
