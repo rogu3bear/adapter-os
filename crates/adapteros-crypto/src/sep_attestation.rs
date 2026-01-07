@@ -289,32 +289,134 @@ fn generate_fallback_attestation(
 
 /// Verify attestation certificate chain
 ///
-/// # STUB: CRYPTO-GAP-003
-/// **Status**: NOT IMPLEMENTED - always returns Ok(()) without verification
+/// Parses and validates the X.509 certificate chain from SEP attestation.
+/// Verifies that each certificate in the chain is signed by the next
+/// certificate in the chain (signature chain validation).
 ///
-/// **Audit Impact**: When SEP attestation is active, certificate chains are
-/// not cryptographically verified. Forged certificates would be accepted.
-/// Currently mitigated by SEP API bindings being incomplete (fallback mode).
+/// # Arguments
+/// * `attestation` - The SEP attestation containing the certificate chain
 ///
-/// **Rectify Steps**:
-/// 1. Add `x509-parser` dependency
-/// 2. Parse each certificate in chain
-/// 3. Verify signature chain (cert[i] signed by cert[i+1])
-/// 4. Verify root cert is Apple's SEP root CA
-/// 5. Verify nonce is embedded in leaf certificate
+/// # Returns
+/// * `Ok(())` if chain is valid or empty (fallback mode)
+/// * `Err` if any certificate fails to parse or signature verification fails
+///
+/// # Note
+/// Full Apple SEP Root CA verification is deferred pending root certificate
+/// distribution mechanism. Current implementation validates signature chain
+/// integrity only.
 pub fn verify_attestation_chain(attestation: &SepAttestation) -> Result<()> {
+    use x509_parser::prelude::*;
+
     if attestation.certificate_chain.is_empty() {
         debug!("Attestation has no certificate chain (fallback mode)");
         return Ok(());
     }
 
-    // STUB: CRYPTO-GAP-003 - X.509 chain verification not implemented
-    warn!(
-        cert_count = attestation.certificate_chain.len(),
-        "CRYPTO-GAP-003: Certificate chain verification stub - no validation performed"
+    let chain_len = attestation.certificate_chain.len();
+    info!(
+        cert_count = chain_len,
+        "Verifying X.509 attestation certificate chain"
+    );
+
+    // Parse all certificates in the chain
+    let mut parsed_certs = Vec::with_capacity(chain_len);
+    for (idx, der_bytes) in attestation.certificate_chain.iter().enumerate() {
+        let (_, cert) = X509Certificate::from_der(der_bytes).map_err(|e| {
+            AosError::Crypto(format!(
+                "Failed to parse certificate at index {}: {:?}",
+                idx, e
+            ))
+        })?;
+        parsed_certs.push(cert);
+    }
+
+    // Verify signature chain: cert[i] is signed by cert[i+1]
+    for i in 0..(parsed_certs.len() - 1) {
+        let cert = &parsed_certs[i];
+        let issuer = &parsed_certs[i + 1];
+
+        // Get issuer's public key for verification
+        let issuer_public_key = issuer.public_key();
+
+        // Verify signature
+        cert.verify_signature(Some(issuer_public_key)).map_err(|e| {
+            AosError::Crypto(format!(
+                "Certificate chain signature verification failed at index {}: {:?}",
+                i, e
+            ))
+        })?;
+
+        debug!(
+            cert_idx = i,
+            subject = %cert.subject(),
+            issuer = %cert.issuer(),
+            "Certificate signature verified"
+        );
+    }
+
+    // Verify root certificate (self-signed check)
+    if let Some(root_cert) = parsed_certs.last() {
+        let root_public_key = root_cert.public_key();
+        root_cert
+            .verify_signature(Some(root_public_key))
+            .map_err(|e| {
+                AosError::Crypto(format!(
+                    "Root certificate self-signature verification failed: {:?}",
+                    e
+                ))
+            })?;
+        debug!(
+            subject = %root_cert.subject(),
+            "Root certificate self-signature verified"
+        );
+    }
+
+    info!(
+        chain_len = chain_len,
+        "X.509 attestation chain verification complete"
     );
 
     Ok(())
+}
+
+/// Verify that the attestation nonce is embedded in the leaf certificate
+///
+/// # Arguments
+/// * `attestation` - The SEP attestation containing the certificate chain and nonce
+///
+/// # Returns
+/// * `Ok(true)` if nonce is found in leaf certificate
+/// * `Ok(false)` if nonce is not found (may be in different extension format)
+/// * `Err` if certificate parsing fails
+pub fn verify_attestation_nonce(attestation: &SepAttestation) -> Result<bool> {
+    use x509_parser::prelude::*;
+
+    if attestation.certificate_chain.is_empty() {
+        debug!("No certificate chain for nonce verification");
+        return Ok(false);
+    }
+
+    // Get the leaf certificate (first in chain)
+    let leaf_der = &attestation.certificate_chain[0];
+    let (_, leaf_cert) = X509Certificate::from_der(leaf_der)
+        .map_err(|e| AosError::Crypto(format!("Failed to parse leaf certificate: {:?}", e)))?;
+
+    // Check extensions for nonce
+    // Apple's attestation nonce is typically in a custom extension
+    // The exact OID depends on Apple's attestation format
+    for ext in leaf_cert.extensions() {
+        // Check if extension data contains the nonce
+        if ext.value.windows(attestation.nonce.len()).any(|w| w == attestation.nonce.as_slice()) {
+            debug!(
+                oid = %ext.oid,
+                "Found attestation nonce in certificate extension"
+            );
+            return Ok(true);
+        }
+    }
+
+    debug!("Attestation nonce not found in leaf certificate extensions");
+    Ok(false)
 }
 
 /// Get key creation date from keychain (S7 requirement)
