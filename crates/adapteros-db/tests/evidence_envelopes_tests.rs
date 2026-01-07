@@ -76,6 +76,8 @@ fn sample_inference_ref(sequence: u32) -> InferenceReceiptRef {
         stop_reason_token_index: Some(49 + sequence),
         stop_policy_digest_b3: Some(B3Hash::hash(b"stop-policy")),
         model_cache_identity_v2_digest_b3: Some(B3Hash::hash(b"model-cache-id")),
+        backend_used: "mock".to_string(),
+        backend_attestation_b3: Some(B3Hash::hash(b"mock-attestation")),
     }
 }
 

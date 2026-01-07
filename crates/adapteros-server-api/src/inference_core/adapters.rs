@@ -40,6 +40,7 @@ pub fn map_router_decisions(
             policy_mask_digest_b3: policy_mask_digest,
             policy_overrides_applied: None,
             model_type: RouterModelType::Dense,
+            backend_type: d.backend_type.clone(), // PRD-DET-001: G6
         })
         .collect()
 }

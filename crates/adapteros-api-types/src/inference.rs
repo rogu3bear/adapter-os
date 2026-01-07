@@ -475,6 +475,9 @@ pub struct RouterDecision {
     /// Model type for this decision
     #[serde(default = "RouterModelType::dense")]
     pub model_type: RouterModelType,
+    /// Backend type used for this routing decision (PRD-DET-001: G6).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backend_type: Option<String>,
 }
 
 /// Flags describing which policy overrides affected routing.

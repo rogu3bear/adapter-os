@@ -389,12 +389,15 @@ impl FusedKernels for MockTextGenerationKernel {
         Ok(DeterminismReport {
             backend_type: BackendType::Mock,
             metallib_hash: None,
+            metallib_verified: false,
             manifest: None,
             rng_seed_method: RngSeedingMethod::FixedSeed(42),
             floating_point_mode: FloatingPointMode::Deterministic,
             determinism_level: DeterminismLevel::BitExact,
             compiler_flags: vec![],
             deterministic: true,
+            runtime_version: None,
+            device_id: None,
         })
     }
 

@@ -23,24 +23,24 @@ use async_trait::async_trait;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+/// Helper to create test adapter registration params
+fn test_adapter_params(
+    adapter_id: &str,
+    tenant_id: &str,
+) -> Result<adapteros_db::adapters::AdapterRegistrationParams> {
+    AdapterRegistrationBuilder::new()
+        .tenant_id(tenant_id)
+        .adapter_id(adapter_id)
+        .name(format!("Test Adapter {}", adapter_id))
+        .hash_b3(format!("b3:{}", adapter_id))
+        .rank(8)
+        .tier("warm")
+        .build()
+}
+
 #[cfg(test)]
 mod atomic_dual_write_tests {
     use super::*;
-
-    /// Helper to create test adapter registration params
-    fn test_adapter_params(
-        adapter_id: &str,
-        tenant_id: &str,
-    ) -> Result<adapteros_db::adapters::AdapterRegistrationParams> {
-        AdapterRegistrationBuilder::new()
-            .tenant_id(tenant_id)
-            .adapter_id(adapter_id)
-            .name(format!("Test Adapter {}", adapter_id))
-            .hash_b3(format!("b3:{}", adapter_id))
-            .rank(8)
-            .tier("warm")
-            .build()
-    }
 
     #[tokio::test]
     async fn test_atomic_dual_write_config_default() {
