@@ -118,7 +118,13 @@ graph TB
 
 ### 🚀 **Getting Started**
 
-For complete setup instructions, see **[QUICKSTART.md](QUICKSTART.md)** which provides:
+**New to AdapterOS?** Start here: **[docs/getting-started.md](docs/getting-started.md)** - Get running in 5 minutes with:
+- Prerequisites and system requirements
+- Build, migrate, seed, and serve workflow
+- Verification with `aosctl doctor` and `aosctl preflight`
+- Smoke test validation
+
+For extended setup including Web UI, see **[QUICKSTART.md](QUICKSTART.md)** which provides:
 
 - **Hardware Requirements**: Apple Silicon (M1/M2/M3/M4), macOS 13.0+
 - **Installation Options**: Graphical installer or manual setup

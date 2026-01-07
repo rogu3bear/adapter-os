@@ -1,5 +1,8 @@
 #![allow(dead_code)]
 
+pub mod test_failure_bundle;
+pub use test_failure_bundle::*;
+
 use std::sync::{Arc, RwLock};
 use std::{env, path::PathBuf};
 

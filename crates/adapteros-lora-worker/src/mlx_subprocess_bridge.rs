@@ -1521,12 +1521,15 @@ impl FusedKernels for MLXSubprocessBridge {
         Ok(DeterminismReport {
             backend_type: BackendType::MLX,
             metallib_hash: None, // No metallib for Python subprocess
+            metallib_verified: false,
             manifest: None,      // No kernel manifest for Python subprocess
             rng_seed_method: RngSeedingMethod::SystemEntropy,
             floating_point_mode: FloatingPointMode::FastMath,
             determinism_level: DeterminismLevel::None,
             compiler_flags: vec![],
             deterministic: false, // Python subprocess has weaker determinism guarantees
+            runtime_version: None,
+            device_id: None,
         })
     }
 

@@ -611,6 +611,7 @@ impl FusedKernels for CoreMLBackend {
         Ok(attestation::DeterminismReport {
             backend_type: attestation::BackendType::CoreML,
             metallib_hash: None,
+            metallib_verified: false,
             manifest: None,
             rng_seed_method: attestation::RngSeedingMethod::HkdfSeeded,
             floating_point_mode: attestation::FloatingPointMode::Deterministic,
@@ -621,6 +622,8 @@ impl FusedKernels for CoreMLBackend {
             },
             compiler_flags: vec![],
             deterministic: self.ane_available,
+            runtime_version: None,
+            device_id: Some(self.device_name.clone()),
         })
     }
 
