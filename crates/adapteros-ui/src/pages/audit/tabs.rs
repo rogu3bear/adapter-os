@@ -168,6 +168,9 @@ fn TimelineRow(entry: AuditLogEntry) -> impl IntoView {
 
 #[component]
 pub fn HashChainTab(chain: ReadSignal<LoadingState<AuditChainResponse>>) -> impl IntoView {
+    // Client-side pagination to reduce DOM nodes (same pattern as TimelineTab)
+    let visible_count = RwSignal::new(AUDIT_PAGE_SIZE);
+
     view! {
         <Card>
             {move || {
@@ -189,17 +192,51 @@ pub fn HashChainTab(chain: ReadSignal<LoadingState<AuditChainResponse>>) -> impl
                             }
                             .into_any()
                         } else {
+                            let entry_count = data.entries.len();
+                            let entries_data = data.entries;
+
                             view! {
                                 <div class="space-y-0">
-                                    {data
-                                        .entries
-                                        .into_iter()
-                                        .enumerate()
-                                        .map(|(idx, entry)| {
-                                            let is_last = idx == 0;
-                                            view! { <ChainEntryRow entry=entry is_first=is_last/> }
-                                        })
-                                        .collect::<Vec<_>>()}
+                                    {move || {
+                                        let count = visible_count.get().min(entry_count);
+                                        entries_data
+                                            .iter()
+                                            .take(count)
+                                            .enumerate()
+                                            .map(|(idx, entry)| {
+                                                let is_first = idx == 0;
+                                                view! { <ChainEntryRow entry=entry.clone() is_first=is_first/> }
+                                            })
+                                            .collect::<Vec<_>>()
+                                    }}
+                                </div>
+
+                                // Show more button if there are hidden items
+                                {move || {
+                                    let count = visible_count.get();
+                                    let remaining = entry_count.saturating_sub(count);
+                                    if remaining > 0 {
+                                        view! {
+                                            <div class="flex items-center justify-center py-4 border-t">
+                                                <button
+                                                    class="text-sm text-primary hover:underline"
+                                                    on:click=move |_| {
+                                                        visible_count.update(|c| *c = (*c + AUDIT_PAGE_SIZE).min(entry_count));
+                                                    }
+                                                >
+                                                    {format!("Show more ({} remaining)", remaining)}
+                                                </button>
+                                            </div>
+                                        }.into_any()
+                                    } else {
+                                        view! { <div></div> }.into_any()
+                                    }
+                                }}
+
+                                <div class="flex items-center justify-between mt-4 pt-4 border-t">
+                                    <p class="text-sm text-muted-foreground">
+                                        {format!("Showing {} of {} entries", visible_count.get().min(entry_count), entry_count)}
+                                    </p>
                                 </div>
                             }
                             .into_any()

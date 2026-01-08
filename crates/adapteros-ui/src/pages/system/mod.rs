@@ -11,7 +11,7 @@ mod utils;
 
 use crate::api::{use_sse_json, ApiClient, SseState};
 use crate::components::{ErrorDisplay, Spinner};
-use crate::hooks::{use_api_resource, use_sse_notifications, LoadingState};
+use crate::hooks::{use_api_resource, use_polling, use_sse_notifications, LoadingState};
 use adapteros_api_types::{workers::WorkerStatusUpdate, WorkerResponse};
 use leptos::prelude::*;
 use std::collections::HashMap;
@@ -110,19 +110,17 @@ pub fn System() -> impl IntoView {
         }
     });
 
-    // Set up polling interval for non-worker data (every 10 seconds)
+    // Set up polling interval for non-worker data (every 30 seconds)
     // Worker data is now primarily updated via SSE
-    Effect::new(move |_| {
-        let interval_handle = gloo_timers::callback::Interval::new(10_000, move || {
-            refetch_status_signal.with_value(|f| f());
-            refetch_nodes_signal.with_value(|f| f());
-            refetch_metrics_signal.with_value(|f| f());
-            // Only refetch workers if SSE is not connected
-            if sse_status.get() != SseState::Connected {
-                refetch_workers_signal.with_value(|f| f());
-            }
-        });
-        std::mem::forget(interval_handle);
+    // Using use_polling hook which properly cleans up on unmount
+    let _ = use_polling(30_000, move || async move {
+        refetch_status_signal.with_value(|f| f());
+        refetch_nodes_signal.with_value(|f| f());
+        refetch_metrics_signal.with_value(|f| f());
+        // Only refetch workers if SSE is not connected
+        if sse_status.get() != SseState::Connected {
+            refetch_workers_signal.with_value(|f| f());
+        }
     });
 
     view! {
