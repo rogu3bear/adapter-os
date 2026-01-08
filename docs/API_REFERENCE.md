@@ -535,6 +535,8 @@ event: done
 data: {"total_tokens": 15, "latency_ms": 450}
 ```
 
+**Note:** `/v1/infer/stream` does not support reconnection replay via `Last-Event-ID`; retry the request on disconnect.
+
 **Batch Inference:**
 ```http
 POST /v1/infer/batch
@@ -2019,13 +2021,19 @@ All streaming endpoints use Server-Sent Events (SSE) and require authentication.
 
 | Path | Description |
 |------|-------------|
-| `/v1/streams/training` | Training events |
+| `/v1/streams/training` | Training events (optional `tenant` query param; defaults to caller tenant) |
 | `/v1/streams/discovery` | Discovery events |
 | `/v1/streams/contacts` | Contacts events |
 | `/v1/streams/file-changes` | File change notifications |
 | `/v1/stream/metrics` | System metrics stream |
 | `/v1/stream/telemetry` | Telemetry events |
 | `/v1/stream/adapters` | Adapter state changes |
+| `/v1/stream/boot-progress` | Boot progress updates |
+| `/v1/stream/stack-policies/{id}` | Stack policy compliance updates |
+| `/v1/stream/notifications` | User notifications |
+| `/v1/stream/messages/{workspace_id}` | Workspace messages |
+| `/v1/stream/activity/{workspace_id}` | Workspace activity |
+| `/v1/stream/trace-receipts` | Trace receipt updates |
 
 **Example SSE Connection:**
 ```javascript
@@ -2035,10 +2043,10 @@ const eventSource = new EventSource('/v1/stream/metrics', {
   }
 });
 
-eventSource.onmessage = (event) => {
+eventSource.addEventListener('metrics', (event) => {
   const data = JSON.parse(event.data);
   console.log('Metric:', data);
-};
+});
 ```
 
 ---

@@ -21,11 +21,11 @@ use adapteros_server_api::config::Config;
 use adapteros_server_api::routes;
 use adapteros_server_api::AppState;
 use anyhow::Result;
-use tower_http::compression::CompressionLayer;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
+use tower_http::compression::CompressionLayer;
 use tracing::{error, info, warn};
 
 /// Server binding configuration extracted from config and environment variables.

@@ -1030,7 +1030,8 @@ impl App {
             Err(e) => {
                 // Update the assistant message with error
                 if let Some(last_msg) = self.chat_messages.last_mut() {
-                    last_msg.content = format!("Error: Failed to connect to inference server - {}", e);
+                    last_msg.content =
+                        format!("Error: Failed to connect to inference server - {}", e);
                 }
                 warn!("SSE inference error: {}", e);
             }
