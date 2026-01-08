@@ -83,9 +83,15 @@ impl EmbeddingModel {
             tracing::info!(shard = %shard_file, "Loading embeddings from sharded model");
             base_path.join(shard_file)
         } else {
-            // No model found - return placeholder for testing
-            tracing::warn!("No model.safetensors found, using placeholder embeddings");
-            return Ok(vec![0.1; vocab_size * hidden_dim]);
+            // No model found - RAG operations require real embeddings
+            tracing::error!(
+                "No model.safetensors or model.safetensors.index.json found in {:?}. \
+                 RAG and semantic operations require a valid embedding model.",
+                base_path
+            );
+            return Err(AosError::Worker(
+                "Embedding model not found. RAG requires model.safetensors or sharded model files.".into(),
+            ));
         };
 
         let file = File::open(&model_path)
