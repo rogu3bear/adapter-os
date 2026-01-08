@@ -171,12 +171,15 @@ pub fn App() -> impl IntoView {
                         <Route path=path!("/settings") view=|| view! { <ProtectedRoute><Shell><pages::Settings/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/models") view=|| view! { <ProtectedRoute><Shell><pages::Models/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/policies") view=|| view! { <ProtectedRoute><Shell><pages::Policies/></Shell></ProtectedRoute> }/>
+                        <Route path=path!("/training") view=|| view! { <ProtectedRoute><Shell><pages::Training/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/stacks") view=|| view! { <ProtectedRoute><Shell><pages::Stacks/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/stacks/:id") view=|| view! { <ProtectedRoute><Shell><pages::StackDetail/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/collections") view=|| view! { <ProtectedRoute><Shell><pages::Collections/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/collections/:id") view=|| view! { <ProtectedRoute><Shell><pages::CollectionDetail/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/documents") view=|| view! { <ProtectedRoute><Shell><pages::Documents/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/documents/:id") view=|| view! { <ProtectedRoute><Shell><pages::DocumentDetail/></Shell></ProtectedRoute> }/>
+                        <Route path=path!("/datasets") view=|| view! { <ProtectedRoute><Shell><pages::Datasets/></Shell></ProtectedRoute> }/>
+                        <Route path=path!("/datasets/:id") view=|| view! { <ProtectedRoute><Shell><pages::DatasetDetail/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/admin") view=|| view! { <ProtectedRoute><Shell><pages::Admin/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/audit") view=|| view! { <ProtectedRoute><Shell><pages::Audit/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/runs") view=|| view! { <ProtectedRoute><Shell><pages::FlightRecorder/></Shell></ProtectedRoute> }/>
@@ -185,6 +188,7 @@ pub fn App() -> impl IntoView {
                         <Route path=path!("/workers") view=|| view! { <ProtectedRoute><Shell><pages::Workers/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/workers/:id") view=|| view! { <ProtectedRoute><Shell><pages::WorkerDetail/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/monitoring") view=|| view! { <ProtectedRoute><Shell><pages::Monitoring/></Shell></ProtectedRoute> }/>
+                        <Route path=path!("/errors") view=|| view! { <ProtectedRoute><Shell><pages::Errors/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/routing") view=|| view! { <ProtectedRoute><Shell><pages::Routing/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/repositories") view=|| view! { <ProtectedRoute><Shell><pages::Repositories/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/repositories/:id") view=|| view! { <ProtectedRoute><Shell><pages::RepositoryDetail/></Shell></ProtectedRoute> }/>

@@ -5,23 +5,28 @@
 
 pub mod client;
 pub mod error;
+pub mod error_reporter;
 pub mod sse;
 
 pub use client::{
-    AdapterScoreResponse, ApiClient, AuditChainEntry, AuditChainResponse, AuditLogEntry,
-    AuditLogsQuery, AuditLogsResponse, ChainVerificationResponse, CodePolicy,
-    CollectionDetailResponse, CollectionDocumentInfo, CollectionListResponse, CollectionResponse,
-    ComplianceAuditResponse, ComplianceControl, CreateCollectionRequest, CreateStackRequest,
+    AdapterScoreResponse, ApiClient, ApiKeyInfo, ApiKeyListResponse, AuditChainEntry,
+    AuditChainResponse, AuditLogEntry, AuditLogsQuery, AuditLogsResponse,
+    ChainVerificationResponse, CodePolicy, CollectionDetailResponse, CollectionDocumentInfo,
+    CollectionListResponse, CollectionResponse, ColumnStatistics, ComplianceAuditResponse,
+    ComplianceControl, CreateApiKeyRequest, CreateApiKeyResponse, CreateCollectionRequest,
+    CreateStackRequest, DatasetListResponse, DatasetResponse, DatasetStatisticsResponse,
     FederationAuditResponse, GetCodePolicyResponse, HostChainSummary, InferenceRequest,
-    ProcessAlertResponse, ProcessAnomalyResponse, ProcessCrashDumpResponse,
+    ListUsersResponse, ProcessAlertResponse, ProcessAnomalyResponse, ProcessCrashDumpResponse,
     ProcessHealthMetricResponse, ProcessLogResponse, ProcessMonitoringRuleResponse,
     PublishAdapterRequest, RegisterRepositoryRequest, RepositoryAdapter, RepositoryDetailResponse,
-    RepositoryListResponse, RepositoryResponse, RepositoryVersion, RoutingCandidateResponse,
-    RoutingDebugRequest, RoutingDebugResponse, RoutingDecisionResponse, RoutingDecisionsQuery,
-    RoutingDecisionsResponse, ScanStatusResponse, StackResponse, UpdateCodePolicyRequest,
-    UpdateStackRequest, WorkerMetricsResponse, WorkflowType,
+    RepositoryListResponse, RepositoryResponse, RepositoryVersion, RevokeApiKeyResponse,
+    RoutingCandidateResponse, RoutingDebugRequest, RoutingDebugResponse, RoutingDecisionResponse,
+    RoutingDecisionsQuery, RoutingDecisionsResponse, ScanStatusResponse, SplitStatistics,
+    StackResponse, UpdateCodePolicyRequest, UpdateStackRequest, UserResponse,
+    WorkerMetricsResponse, WorkflowType,
 };
 pub use error::{ApiError, ApiResult};
+pub use error_reporter::report_error;
 pub use sse::{
     use_sse, use_sse_json, use_sse_json_events, use_sse_json_with_config, use_sse_with_config,
     CircuitBreakerConfig, SseConnection, SseEvent, SseState,

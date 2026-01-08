@@ -309,40 +309,71 @@ pub fn DetailRow(label: &'static str, value: String) -> impl IntoView {
     }
 }
 
-/// Log viewer component (placeholder with simulated logs)
+/// Log viewer component - fetches real training logs from API
 #[component]
 pub fn LogViewer(job_id: String) -> impl IntoView {
-    // In a real implementation, this would use SSE to stream logs
-    // For now, we show a placeholder with simulated log output
-    let logs = RwSignal::new(vec![
-        format!("[{job_id}] Training started..."),
-        "Loading dataset...".to_string(),
-        "Initializing model...".to_string(),
-    ]);
+    use crate::api::ApiClient;
+    use crate::hooks::use_polling;
 
-    // Simulate new log entries
+    let logs: RwSignal<Vec<String>> = RwSignal::new(vec![]);
+    let loading = RwSignal::new(true);
+    let error: RwSignal<Option<String>> = RwSignal::new(None);
+
+    // Initial fetch
+    let job_id_clone = job_id.clone();
     Effect::new(move || {
-        let interval = gloo_timers::callback::Interval::new(2000, move || {
-            logs.update(|l| {
-                if l.len() < 20 {
-                    l.push(format!(
-                        "[{:.2}s] Step {} - loss: {:.4}",
-                        l.len() as f64 * 2.0,
-                        l.len(),
-                        2.5 - (l.len() as f64 * 0.1)
-                    ));
+        let job_id = job_id_clone.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            let client = ApiClient::new();
+            match client.get_training_logs(&job_id).await {
+                Ok(log_lines) => {
+                    logs.set(log_lines);
+                    error.set(None);
                 }
-            });
+                Err(e) => {
+                    error.set(Some(e.to_string()));
+                }
+            }
+            loading.set(false);
         });
-        std::mem::forget(interval);
+    });
+
+    // Poll for updates every 3 seconds
+    let job_id_poll = job_id.clone();
+    let _ = use_polling(3_000, move || {
+        let job_id = job_id_poll.clone();
+        async move {
+            let client = ApiClient::new();
+            if let Ok(log_lines) = client.get_training_logs(&job_id).await {
+                logs.set(log_lines);
+            }
+        }
     });
 
     view! {
         <div class="h-48 overflow-auto bg-zinc-950 rounded-md p-3 font-mono text-xs text-green-400">
             {move || {
-                logs.get().into_iter().map(|line| {
-                    view! { <div>{line}</div> }
-                }).collect::<Vec<_>>()
+                if loading.get() {
+                    view! {
+                        <div class="text-muted-foreground">"Loading logs..."</div>
+                    }.into_any()
+                } else if let Some(err) = error.get() {
+                    view! {
+                        <div class="text-red-400">"Error: "{err}</div>
+                    }.into_any()
+                } else if logs.get().is_empty() {
+                    view! {
+                        <div class="text-muted-foreground">"No logs available yet..."</div>
+                    }.into_any()
+                } else {
+                    view! {
+                        <div>
+                            {logs.get().into_iter().map(|line| {
+                                view! { <div>{line}</div> }
+                            }).collect::<Vec<_>>()}
+                        </div>
+                    }.into_any()
+                }
             }}
         </div>
     }

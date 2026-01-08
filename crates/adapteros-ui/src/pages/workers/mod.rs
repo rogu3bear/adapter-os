@@ -4,7 +4,7 @@
 //! spawn controls, and lifecycle management.
 
 mod components;
-mod dialogs;
+pub mod dialogs;
 mod icons;
 mod utils;
 
