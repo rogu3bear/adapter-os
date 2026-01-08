@@ -23,16 +23,29 @@ use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_db::{sqlx, Db, ProtectedDb};
 use adapteros_deterministic_exec::spawn_deterministic;
 use adapteros_manifest::Policies;
+use adapteros_model_hub::{ModelHubClient, ModelHubConfig};
 use adapteros_profiler::{AdapterMetrics, AdapterProfiler};
 use adapteros_telemetry::TelemetryWriter;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tracing::{info, warn};
 use utoipa::ToSchema;
+
+fn env_truthy(key: &str) -> bool {
+    std::env::var(key)
+        .ok()
+        .map(|v| {
+            matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
 
 /// K reduction execution record for audit trail
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2574,6 +2587,181 @@ impl LifecycleManager {
 
     // ===== Model Hub Integration Methods =====
 
+    fn resolve_local_model_path(&self, model_id: &str, repo_id: Option<&str>) -> Option<PathBuf> {
+        let direct_path = Path::new(model_id);
+        if direct_path.exists() {
+            return Some(direct_path.to_path_buf());
+        }
+
+        let repo = repo_id.unwrap_or(model_id);
+        let cache_root = std::env::var("AOS_MODEL_CACHE_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("var/model-cache"));
+
+        let candidates = [
+            cache_root.join("models").join(repo),
+            cache_root.join(repo),
+            PathBuf::from("var/models").join(repo),
+        ];
+
+        for candidate in candidates {
+            if candidate.exists() {
+                return Some(candidate);
+            }
+        }
+
+        let loader = self.loader.read();
+        let base_path = loader.adapters_base_path();
+        let adapter_path = base_path.join(format!("{}.aos", model_id));
+        if adapter_path.exists() {
+            return Some(adapter_path);
+        }
+
+        None
+    }
+
+    fn build_model_hub_config(&self) -> ModelHubConfig {
+        let cache_dir = std::env::var("AOS_MODEL_CACHE_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("var/model-cache"));
+
+        let max_concurrent_downloads = {
+            let raw = std::env::var("AOS_MAX_CONCURRENT_DOWNLOADS").ok();
+            let parsed = raw
+                .as_deref()
+                .and_then(|s| s.parse::<usize>().ok())
+                .unwrap_or(4);
+            let clamped = parsed.clamp(1, 10);
+            if clamped != parsed {
+                warn!(
+                    env = "AOS_MAX_CONCURRENT_DOWNLOADS",
+                    raw = ?raw,
+                    parsed,
+                    clamped,
+                    "Value out of bounds; clamping to safe range"
+                );
+            }
+            clamped
+        };
+
+        let timeout_secs = {
+            let raw = std::env::var("AOS_DOWNLOAD_TIMEOUT_SECS").ok();
+            let parsed = raw
+                .as_deref()
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(300);
+            let clamped = parsed.clamp(30, 3600);
+            if clamped != parsed {
+                warn!(
+                    env = "AOS_DOWNLOAD_TIMEOUT_SECS",
+                    raw = ?raw,
+                    parsed,
+                    clamped,
+                    "Value out of bounds; clamping to safe range"
+                );
+            }
+            clamped
+        };
+
+        ModelHubConfig {
+            registry_url: std::env::var("AOS_HF_REGISTRY_URL")
+                .unwrap_or_else(|_| "https://huggingface.co".to_string()),
+            cache_dir,
+            max_concurrent_downloads,
+            timeout_secs,
+            hf_token: std::env::var("HF_TOKEN").ok(),
+        }
+    }
+
+    async fn persist_model_acquisition(
+        &self,
+        acquisition_id: &str,
+        repo_id: &str,
+        state: &AcquisitionState,
+        progress_pct: Option<u8>,
+        local_path: Option<&Path>,
+        failure_reason: Option<&str>,
+        mark_completed: bool,
+    ) {
+        let Some(ref db) = self.db else {
+            return;
+        };
+        let Some(pool) = db.pool_opt() else {
+            warn!("SQL pool unavailable; skipping model acquisition persistence");
+            return;
+        };
+
+        let state_label = match state {
+            AcquisitionState::NotAvailable => "not_cached",
+            AcquisitionState::Downloading { .. } => "downloading",
+            AcquisitionState::Verifying => "verifying",
+            AcquisitionState::Available => "available",
+            AcquisitionState::Failed { .. } => "failed",
+        };
+
+        let local_path_str = local_path.map(|p| p.to_string_lossy().to_string());
+        let size_bytes = local_path.and_then(|p| std::fs::metadata(p).ok().map(|m| m.len() as i64));
+        let completed_at = if mark_completed {
+            Some(chrono::Utc::now().to_rfc3339())
+        } else {
+            None
+        };
+
+        let result = sqlx::query(
+            r#"
+            INSERT INTO model_acquisitions (
+                id,
+                repo_id,
+                revision,
+                acquisition_state,
+                download_progress_pct,
+                local_path,
+                size_bytes,
+                failure_reason,
+                download_started_at,
+                download_completed_at,
+                updated_at
+            ) VALUES (?, ?, 'main', ?, ?, ?, ?, ?, datetime('now'), ?, datetime('now'))
+            ON CONFLICT(id) DO UPDATE SET
+                repo_id = excluded.repo_id,
+                revision = excluded.revision,
+                acquisition_state = excluded.acquisition_state,
+                download_progress_pct = excluded.download_progress_pct,
+                local_path = COALESCE(excluded.local_path, model_acquisitions.local_path),
+                size_bytes = COALESCE(excluded.size_bytes, model_acquisitions.size_bytes),
+                failure_reason = excluded.failure_reason,
+                download_started_at = COALESCE(model_acquisitions.download_started_at, excluded.download_started_at),
+                download_completed_at = CASE
+                    WHEN excluded.download_completed_at IS NOT NULL THEN excluded.download_completed_at
+                    ELSE model_acquisitions.download_completed_at
+                END,
+                updated_at = datetime('now')
+            "#,
+        )
+        .bind(acquisition_id)
+        .bind(repo_id)
+        .bind(state_label)
+        .bind(progress_pct.map(|v| v as i64))
+        .bind(local_path_str)
+        .bind(size_bytes)
+        .bind(failure_reason)
+        .bind(completed_at)
+        .execute(pool)
+        .await;
+
+        if let Err(e) = result {
+            let message = e.to_string();
+            if message.contains("no such table") || message.contains("no such column") {
+                warn!(
+                    error = %e,
+                    "Model acquisition persistence skipped (schema missing)"
+                );
+            } else {
+                warn!(error = %e, "Failed to persist model acquisition state");
+            }
+        }
+    }
+
     /// Ensure model is available (download if needed, then load)
     ///
     /// This method coordinates model acquisition from a remote hub:
@@ -2589,64 +2777,144 @@ impl LifecycleManager {
     /// # Returns
     /// Path to the locally available model file
     pub async fn ensure_available(&self, model_id: &str, repo_id: Option<&str>) -> Result<PathBuf> {
-        // Check if model is already available locally
-        if self.needs_download(model_id) {
-            // Set acquisition state to downloading
-            self.set_acquisition_state(model_id, AcquisitionState::Downloading { progress_pct: 0 });
+        let repo = repo_id.unwrap_or(model_id);
 
-            info!(
-                model_id = %model_id,
-                repo_id = ?repo_id,
-                "Starting model download from hub"
-            );
-
-            // Emit download start event
-            if let Some(ref tx) = self.download_progress_tx {
-                let _ = tx.send(DownloadProgress {
-                    model_id: model_id.to_string(),
-                    phase: "downloading".to_string(),
-                    progress_pct: 0,
-                    eta_seconds: None,
-                    speed_mbps: None,
-                });
-            }
-
-            // NOTE: Actual download implementation would go here
-            // For now, we return an error indicating this needs to be implemented
-            // by the caller or in a separate model hub crate
-            self.set_acquisition_state(
-                model_id,
-                AcquisitionState::Failed {
-                    reason: "Download not implemented - use external model hub integration"
-                        .to_string(),
-                },
-            );
-
-            return Err(AosError::NotFound(
-                "Model download not implemented in lifecycle manager - use external hub integration".to_string(),
-            ));
-        }
-
-        // Model is available, get its path
-        let loader = self.loader.read();
-        let base_path = loader.adapters_base_path();
-        let model_path = base_path.join(format!("{}.aos", model_id));
-
-        if model_path.exists() {
+        if let Some(local_path) = self.resolve_local_model_path(model_id, repo_id) {
             self.set_acquisition_state(model_id, AcquisitionState::Available);
-            Ok(model_path)
-        } else {
+            self.persist_model_acquisition(
+                repo,
+                repo,
+                &AcquisitionState::Available,
+                Some(100),
+                Some(&local_path),
+                None,
+                true,
+            )
+            .await;
+            return Ok(local_path);
+        }
+
+        if !env_truthy("AOS_HF_HUB_ENABLED") {
+            let reason = format!(
+                "Model '{}' not cached and hub downloads are disabled. Set AOS_HF_HUB_ENABLED=1 or provide a local path.",
+                repo
+            );
             self.set_acquisition_state(
                 model_id,
                 AcquisitionState::Failed {
-                    reason: "Model file not found".to_string(),
+                    reason: reason.clone(),
                 },
             );
-            Err(AosError::NotFound(format!(
-                "Model file not found: {}",
-                model_path.display()
-            )))
+            self.persist_model_acquisition(
+                repo,
+                repo,
+                &AcquisitionState::Failed {
+                    reason: reason.clone(),
+                },
+                None,
+                None,
+                Some(&reason),
+                false,
+            )
+            .await;
+            return Err(AosError::Config(reason));
         }
+
+        // Set acquisition state to downloading
+        self.set_acquisition_state(model_id, AcquisitionState::Downloading { progress_pct: 0 });
+        self.persist_model_acquisition(
+            repo,
+            repo,
+            &AcquisitionState::Downloading { progress_pct: 0 },
+            Some(0),
+            None,
+            None,
+            false,
+        )
+        .await;
+
+        info!(
+            model_id = %model_id,
+            repo_id = %repo,
+            "Starting model download from hub"
+        );
+
+        self.update_download_progress(model_id, "downloading", 5, None, None);
+
+        let client = ModelHubClient::new(self.build_model_hub_config()).map_err(|e| {
+            AosError::Config(format!("Failed to initialize model hub client: {}", e))
+        })?;
+
+        let download_path = match client.download_model(repo).await {
+            Ok(path) => path,
+            Err(e) => {
+                let reason = format!("Model download failed: {}", e);
+                self.mark_acquisition_failed(model_id, &reason);
+                self.persist_model_acquisition(
+                    repo,
+                    repo,
+                    &AcquisitionState::Failed {
+                        reason: reason.clone(),
+                    },
+                    None,
+                    None,
+                    Some(&reason),
+                    false,
+                )
+                .await;
+                return Err(AosError::Network(reason));
+            }
+        };
+
+        self.update_download_progress(model_id, "downloading", 80, None, None);
+        self.set_acquisition_state(model_id, AcquisitionState::Verifying);
+        self.persist_model_acquisition(
+            repo,
+            repo,
+            &AcquisitionState::Verifying,
+            Some(90),
+            Some(&download_path),
+            None,
+            false,
+        )
+        .await;
+
+        let resolved_path = if download_path.exists() {
+            download_path
+        } else {
+            let reason = format!(
+                "Model path missing after download: {}",
+                download_path.display()
+            );
+            self.mark_acquisition_failed(model_id, &reason);
+            self.persist_model_acquisition(
+                repo,
+                repo,
+                &AcquisitionState::Failed {
+                    reason: reason.clone(),
+                },
+                None,
+                None,
+                Some(&reason),
+                false,
+            )
+            .await;
+            return Err(AosError::NotFound(reason));
+        };
+
+        self.mark_acquisition_complete(model_id, resolved_path.clone())?;
+        self.persist_model_acquisition(
+            repo,
+            repo,
+            &AcquisitionState::Available,
+            Some(100),
+            Some(&resolved_path),
+            None,
+            true,
+        )
+        .await;
+
+        Ok(resolved_path)
     }
 
     /// Get acquisition state for a model
@@ -2731,13 +2999,7 @@ impl LifecycleManager {
         match state {
             AcquisitionState::Available => false,
             AcquisitionState::Downloading { .. } => false, // Already downloading
-            _ => {
-                // Check if file exists locally
-                let loader = self.loader.read();
-                let base_path = loader.adapters_base_path();
-                let model_path = base_path.join(format!("{}.aos", model_id));
-                !model_path.exists()
-            }
+            _ => self.resolve_local_model_path(model_id, None).is_none(),
         }
     }
 
