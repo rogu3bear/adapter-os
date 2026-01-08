@@ -39,16 +39,19 @@ pub mod capacity;
 pub mod chat_sessions;
 pub mod chunked_upload;
 pub mod code;
+pub mod code_policy;
 pub mod collections;
 pub mod coreml_verification;
 pub mod dashboard;
 pub mod datasets;
+pub mod debugging;
 pub mod dev_contracts;
 pub mod diag_bundle;
 pub mod diagnostics;
 pub mod discovery;
 pub mod documents;
 pub mod domain_adapters;
+pub mod event_applier;
 pub mod evidence;
 pub mod execution_policy;
 pub mod federation;
@@ -61,6 +64,7 @@ pub mod infrastructure;
 pub mod journeys;
 pub mod kv_isolation;
 pub mod memory_detail;
+pub mod metrics;
 pub mod metrics_time_series;
 pub mod models;
 pub mod monitoring;
@@ -1393,22 +1397,18 @@ pub async fn propose_patch(
     )
 )]
 pub async fn list_process_logs(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
-    Path(_worker_id): Path<String>,
+    Path(worker_id): Path<String>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Vec<ProcessLogResponse>>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
-
-    let _level_filter = params.get("level");
-    let _limit = params
-        .get("limit")
-        .and_then(|s| s.parse::<i32>().ok())
-        .unwrap_or(100);
-
-    // Database query for process logs - placeholder implementation
-    // For now, return empty list
-    Ok(Json(vec![]))
+    debugging::list_process_logs(
+        State(state),
+        Extension(claims),
+        Path(worker_id),
+        Query(params),
+    )
+    .await
 }
 
 /// Get process crash dumps for a worker
@@ -1428,10 +1428,7 @@ pub async fn list_process_crashes(
     Extension(claims): Extension<Claims>,
     Path(worker_id): Path<String>,
 ) -> Result<Json<Vec<ProcessCrashDumpResponse>>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
-
-    // Database query for crash dumps - placeholder implementation
-    Ok(Json(vec![]))
+    debugging::list_process_crashes(State(state), Extension(claims), Path(worker_id)).await
 }
 
 /// Start a debug session for a worker
@@ -1453,19 +1450,8 @@ pub async fn start_debug_session(
     Path(worker_id): Path<String>,
     Json(req): Json<StartDebugSessionRequest>,
 ) -> Result<Json<ProcessDebugSessionResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
-
-    // Debug session creation - placeholder implementation
-    Ok(Json(ProcessDebugSessionResponse {
-        id: uuid::Uuid::new_v7(uuid::Timestamp::now(uuid::NoContext)).to_string(),
-        worker_id: worker_id.clone(),
-        session_type: req.session_type,
-        status: "active".to_string(),
-        config_json: req.config_json,
-        started_at: chrono::Utc::now().to_rfc3339(),
-        ended_at: None,
-        results_json: None,
-    }))
+    debugging::start_debug_session(State(state), Extension(claims), Path(worker_id), Json(req))
+        .await
 }
 
 /// Run a troubleshooting step for a worker
@@ -1487,21 +1473,8 @@ pub async fn run_troubleshooting_step(
     Path(worker_id): Path<String>,
     Json(req): Json<RunTroubleshootingStepRequest>,
 ) -> Result<Json<ProcessTroubleshootingStepResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
-
-    // Troubleshooting step execution - placeholder implementation
-    Ok(Json(ProcessTroubleshootingStepResponse {
-        id: uuid::Uuid::new_v7(uuid::Timestamp::now(uuid::NoContext)).to_string(),
-        worker_id: worker_id.clone(),
-        step_name: req.step_name,
-        step_type: req.step_type,
-        status: "running".to_string(),
-        command: req.command,
-        output: None,
-        error_message: None,
-        started_at: chrono::Utc::now().to_rfc3339(),
-        completed_at: None,
-    }))
+    debugging::run_troubleshooting_step(State(state), Extension(claims), Path(worker_id), Json(req))
+        .await
 }
 
 // ===== Advanced Process Monitoring and Alerting Endpoints =====
@@ -1525,15 +1498,7 @@ pub async fn list_process_monitoring_rules(
     Extension(claims): Extension<Claims>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Vec<ProcessMonitoringRuleResponse>>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
-
-    let tenant_filter = params.get("tenant_id");
-    let rule_type_filter = params.get("rule_type");
-    let is_active_filter = params.get("is_active").and_then(|s| s.parse::<bool>().ok());
-
-    // Database query for monitoring rules - placeholder implementation
-    // For now, return empty list
-    Ok(Json(vec![]))
+    monitoring::list_process_monitoring_rules(State(state), Extension(claims), Query(params)).await
 }
 
 /// Create process monitoring rule
@@ -1551,28 +1516,7 @@ pub async fn create_process_monitoring_rule(
     Extension(claims): Extension<Claims>,
     Json(req): Json<CreateProcessMonitoringRuleRequest>,
 ) -> Result<Json<ProcessMonitoringRuleResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
-
-    // Monitoring rule creation - placeholder implementation
-    Ok(Json(ProcessMonitoringRuleResponse {
-        id: uuid::Uuid::new_v7(uuid::Timestamp::now(uuid::NoContext)).to_string(),
-        name: req.name,
-        description: req.description,
-        tenant_id: "default".to_string(), // Placeholder - would extract from claims.sub
-        rule_type: req.rule_type,
-        metric_name: req.metric_name,
-        threshold_value: req.threshold_value,
-        threshold_operator: req.threshold_operator,
-        severity: req.severity,
-        evaluation_window_seconds: req.evaluation_window_seconds.unwrap_or(300),
-        cooldown_seconds: req.cooldown_seconds.unwrap_or(60),
-        is_active: true,
-        notification_channels: req.notification_channels,
-        escalation_rules: req.escalation_rules,
-        created_by: Some(claims.sub.clone()),
-        created_at: chrono::Utc::now().to_rfc3339(),
-        updated_at: chrono::Utc::now().to_rfc3339(),
-    }))
+    monitoring::create_process_monitoring_rule(State(state), Extension(claims), Json(req)).await
 }
 
 /// List process alerts
@@ -1591,16 +1535,11 @@ pub async fn create_process_monitoring_rule(
     )
 )]
 pub async fn list_process_alerts(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
-    Query(_params): Query<HashMap<String, String>>,
+    Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Vec<ProcessAlertResponse>>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
-
-    Err((
-        StatusCode::NOT_IMPLEMENTED,
-        Json(ErrorResponse::new("Endpoint not yet implemented").with_code("NOT_IMPLEMENTED")),
-    ))
+    monitoring::list_process_alerts(State(state), Extension(claims), Query(params)).await
 }
 
 /// Acknowledge process alert
@@ -1617,17 +1556,18 @@ pub async fn list_process_alerts(
     )
 )]
 pub async fn acknowledge_process_alert(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
-    Path(_alert_id): Path<String>,
-    Json(_req): Json<AcknowledgeProcessAlertRequest>,
+    Path(alert_id): Path<String>,
+    Json(req): Json<AcknowledgeProcessAlertRequest>,
 ) -> Result<Json<ProcessAlertResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
-
-    Err((
-        StatusCode::NOT_IMPLEMENTED,
-        Json(ErrorResponse::new("Endpoint not yet implemented").with_code("NOT_IMPLEMENTED")),
-    ))
+    monitoring::acknowledge_process_alert(
+        State(state),
+        Extension(claims),
+        Path(alert_id),
+        Json(req),
+    )
+    .await
 }
 
 /// List process anomalies
@@ -1646,16 +1586,11 @@ pub async fn acknowledge_process_alert(
     )
 )]
 pub async fn list_process_anomalies(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
-    Query(_params): Query<HashMap<String, String>>,
+    Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Vec<ProcessAnomalyResponse>>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
-
-    Err((
-        StatusCode::NOT_IMPLEMENTED,
-        Json(ErrorResponse::new("Endpoint not yet implemented").with_code("NOT_IMPLEMENTED")),
-    ))
+    monitoring::list_process_anomalies(State(state), Extension(claims), Query(params)).await
 }
 
 /// Update process anomaly status
@@ -1672,17 +1607,18 @@ pub async fn list_process_anomalies(
     )
 )]
 pub async fn update_process_anomaly_status(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
-    Path(_anomaly_id): Path<String>,
-    Json(_req): Json<UpdateProcessAnomalyStatusRequest>,
+    Path(anomaly_id): Path<String>,
+    Json(req): Json<UpdateProcessAnomalyStatusRequest>,
 ) -> Result<Json<ProcessAnomalyResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
-
-    Err((
-        StatusCode::NOT_IMPLEMENTED,
-        Json(ErrorResponse::new("Endpoint not yet implemented").with_code("NOT_IMPLEMENTED")),
-    ))
+    monitoring::update_process_anomaly_status(
+        State(state),
+        Extension(claims),
+        Path(anomaly_id),
+        Json(req),
+    )
+    .await
 }
 
 /// List process monitoring dashboards
@@ -1699,16 +1635,12 @@ pub async fn update_process_anomaly_status(
     )
 )]
 pub async fn list_process_monitoring_dashboards(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
-    Query(_params): Query<HashMap<String, String>>,
+    Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Vec<ProcessMonitoringDashboardResponse>>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
-
-    Err((
-        StatusCode::NOT_IMPLEMENTED,
-        Json(ErrorResponse::new("Endpoint not yet implemented").with_code("NOT_IMPLEMENTED")),
-    ))
+    monitoring::list_process_monitoring_dashboards(State(state), Extension(claims), Query(params))
+        .await
 }
 
 /// Create process monitoring dashboard
@@ -1722,66 +1654,12 @@ pub async fn list_process_monitoring_dashboards(
     )
 )]
 pub async fn create_process_monitoring_dashboard(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
-    Json(_req): Json<CreateProcessMonitoringDashboardRequest>,
+    Json(req): Json<CreateProcessMonitoringDashboardRequest>,
 ) -> Result<Json<ProcessMonitoringDashboardResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
-
-    Err((
-        StatusCode::NOT_IMPLEMENTED,
-        Json(ErrorResponse::new("Endpoint not yet implemented").with_code("NOT_IMPLEMENTED")),
-    ))
-}
-
-fn is_missing_metrics_table(err: &adapteros_core::AosError) -> bool {
-    err.to_string()
-        .contains("no such table: process_health_metrics")
-}
-
-fn map_metrics(
-    metrics: Vec<adapteros_system_metrics::ProcessHealthMetric>,
-) -> Vec<ProcessHealthMetricResponse> {
-    metrics
-        .into_iter()
-        .map(|metric| ProcessHealthMetricResponse {
-            id: metric.id,
-            worker_id: metric.worker_id,
-            tenant_id: metric.tenant_id,
-            metric_name: metric.metric_name,
-            metric_value: metric.metric_value,
-            metric_unit: metric.metric_unit,
-            tags: metric.tags,
-            collected_at: metric.collected_at.to_rfc3339(),
-        })
-        .collect()
-}
-
-async fn fetch_process_health_metrics_with_fallback(
-    state: &AppState,
-    filters: adapteros_system_metrics::MetricFilters,
-) -> Result<Vec<ProcessHealthMetricResponse>, (StatusCode, Json<ErrorResponse>)> {
-    match adapteros_system_metrics::ProcessHealthMetric::query(state.db.pool(), filters).await {
-        Ok(metrics) => Ok(map_metrics(metrics)),
-        Err(e) => {
-            if is_missing_metrics_table(&e) {
-                warn!(
-                    error = %e,
-                    "process_health_metrics table missing; returning empty metrics payload"
-                );
-                Ok(Vec::new())
-            } else {
-                Err((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("database error")
-                            .with_code("DATABASE_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                ))
-            }
-        }
-    }
+    monitoring::create_process_monitoring_dashboard(State(state), Extension(claims), Json(req))
+        .await
 }
 
 /// List process health metrics
@@ -1804,30 +1682,7 @@ pub async fn list_process_health_metrics(
     Extension(claims): Extension<Claims>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Vec<ProcessHealthMetricResponse>>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
-
-    let worker_filter = params.get("worker_id");
-    let metric_filter = params.get("metric_name");
-    let start_time_filter = params.get("start_time");
-    let end_time_filter = params.get("end_time");
-
-    // Build filters for health metrics query
-    let filters = adapteros_system_metrics::MetricFilters {
-        worker_id: worker_filter.cloned(),
-        tenant_id: None, // Will be filtered by user's tenant access
-        metric_name: metric_filter.cloned(),
-        start_time: start_time_filter
-            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-            .map(|dt| dt.with_timezone(&chrono::Utc)),
-        end_time: end_time_filter
-            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-            .map(|dt| dt.with_timezone(&chrono::Utc)),
-        limit: Some(1000), // Limit results
-    };
-
-    let response_metrics = fetch_process_health_metrics_with_fallback(&state, filters).await?;
-
-    Ok(Json(response_metrics))
+    monitoring::list_process_health_metrics(State(state), Extension(claims), Query(params)).await
 }
 
 /// List process monitoring reports
@@ -1848,43 +1703,8 @@ pub async fn list_process_monitoring_reports(
     Extension(claims): Extension<Claims>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Vec<ProcessMonitoringReportResponse>>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
-
-    let worker_filter = params.get("worker_id");
-    let metric_filter = params.get("metric_name");
-    let start_time_filter = params.get("start_time");
-    let end_time_filter = params.get("end_time");
-
-    let filters = adapteros_system_metrics::MetricFilters {
-        worker_id: worker_filter.cloned(),
-        tenant_id: None,
-        metric_name: metric_filter.cloned(),
-        start_time: start_time_filter
-            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-            .map(|dt| dt.with_timezone(&chrono::Utc)),
-        end_time: end_time_filter
-            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-            .map(|dt| dt.with_timezone(&chrono::Utc)),
-        limit: Some(1000),
-    };
-
-    let response_metrics = fetch_process_health_metrics_with_fallback(&state, filters).await?;
-
-    let report = ProcessMonitoringReportResponse {
-        id: format!("report-{}", Uuid::now_v7()),
-        name: "Live metrics".to_string(),
-        description: Some("Alias of /v1/monitoring/health-metrics".to_string()),
-        tenant_id: claims.tenant_id.clone(),
-        report_type: "metrics_alias".to_string(),
-        report_config: json!({"alias": "health-metrics", "filters": params}),
-        generated_at: Utc::now().to_rfc3339(),
-        report_data: Some(json!(response_metrics)),
-        file_path: None,
-        file_size_bytes: None,
-        created_by: Some(claims.sub.clone()),
-    };
-
-    Ok(Json(vec![report]))
+    monitoring::list_process_monitoring_reports(State(state), Extension(claims), Query(params))
+        .await
 }
 
 /// Create process monitoring report
@@ -1898,16 +1718,11 @@ pub async fn list_process_monitoring_reports(
     )
 )]
 pub async fn create_process_monitoring_report(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
-    Json(_req): Json<CreateProcessMonitoringReportRequest>,
+    Json(req): Json<CreateProcessMonitoringReportRequest>,
 ) -> Result<Json<ProcessMonitoringReportResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
-
-    Err((
-        StatusCode::NOT_IMPLEMENTED,
-        Json(ErrorResponse::new("Endpoint not yet implemented").with_code("NOT_IMPLEMENTED")),
-    ))
+    monitoring::create_process_monitoring_report(State(state), Extension(claims), Json(req)).await
 }
 // ===== Adapter Management Endpoints =====
 /// List all adapters

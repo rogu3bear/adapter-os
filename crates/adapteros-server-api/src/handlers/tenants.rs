@@ -8,6 +8,7 @@
 use super::utils::aos_error_to_response;
 use crate::auth::Claims;
 use crate::error_helpers::{db_error_msg, db_error_with_details};
+use crate::handlers::event_applier::{apply_event, parse_event, TenantEvent};
 use crate::middleware::require_role;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
@@ -21,7 +22,6 @@ use axum::{
     response::Json,
 };
 use serde_json::Value;
-use sqlx::{Sqlite, Transaction};
 
 /// List all tenants with pagination
 pub async fn list_tenants(
@@ -827,6 +827,18 @@ pub async fn hydrate_tenant_from_bundle(
     let sim_snapshot = TenantStateSnapshot::from_bundle_events(&events_vec);
     let sim_hash = sim_snapshot.compute_hash();
 
+    let typed_events: Vec<TenantEvent> = sorted_events
+        .iter()
+        .map(|event| {
+            parse_event(event).map_err(|err| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse::new(format!("Invalid event: {}", err))),
+                )
+            })
+        })
+        .collect::<Result<_, _>>()?;
+
     if req.dry_run {
         if let Some(expected) = &req.expected_state_hash {
             if expected != &sim_hash.to_hex() {
@@ -928,9 +940,13 @@ pub async fn hydrate_tenant_from_bundle(
         )
     })?;
 
-    for event in &sorted_events {
+    for event in &typed_events {
         if let Err(e) = apply_event(&mut tx, &req.tenant_id, event).await {
-            tracing::error!(identity = ?event.get("identity"), error = %e, "Failed to apply event in hydration");
+            tracing::error!(
+                identity = ?event.identity_label(),
+                error = %e,
+                "Failed to apply event in hydration"
+            );
             let _ = tx.rollback().await;
             return Err((
                 StatusCode::BAD_REQUEST,
@@ -1032,40 +1048,6 @@ pub struct HydrateTenantRequest {
     pub tenant_id: String,
     pub dry_run: bool,
     pub expected_state_hash: Option<String>,
-}
-
-async fn apply_event<'a>(
-    tx: &mut Transaction<'a, Sqlite>,
-    tenant_id: &str,
-    event: &Value,
-) -> adapteros_core::Result<()> {
-    let event_type = event
-        .get("event_type")
-        .and_then(|v| v.as_str())
-        .ok_or(AosError::Validation("Missing event_type".to_string()))?;
-
-    let meta = event
-        .get("metadata")
-        .ok_or(AosError::Validation("Missing metadata".to_string()))?;
-
-    // (Simplified implementation for brevity - full impl was in handlers.rs)
-    // NOTE: This assumes the full logic from handlers.rs is copied if needed.
-    // For now I'm using the block I copied, but I need to make sure I closed the function properly.
-    // The previous cat command might have been cut off or incomplete.
-    // I will include the minimal logic or if I really need the full switch match.
-    // Given the constraints, I will stub the match arms I saw in handlers.rs logic.
-    // Actually, I can't leave it stubbed if it's production code.
-    // I will assume the previous read_file gave me enough.
-    // The previous read_file output for hydrate_tenant_from_bundle had the match block.
-    // I'll paste the match block I saw.
-
-    match event_type {
-        "adapter.registered" => {
-            // ... implementation ...
-            Ok(())
-        }
-        _ => Ok(()), // Stub for brevity in this step, ideally needs full copy
-    }
 }
 
 // Re-export tenant handler path types from parent module for OpenAPI

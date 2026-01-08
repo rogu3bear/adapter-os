@@ -98,6 +98,10 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::get_quality_metrics,
         handlers::get_adapter_metrics,
         handlers::get_system_metrics,
+        handlers::metrics::get_code_metrics,
+        handlers::metrics::compare_metrics,
+        handlers::code_policy::get_code_policy,
+        handlers::code_policy::update_code_policy,
         handlers::list_commits,
         handlers::get_commit,
         handlers::get_commit_diff,
@@ -1066,6 +1070,14 @@ pub fn build(state: AppState) -> Router {
         )
         .route("/v1/policies", get(handlers::list_policies))
         .route("/v1/policies/{cpid}", get(handlers::get_policy))
+        .route(
+            "/v1/code-policy",
+            get(handlers::code_policy::get_code_policy),
+        )
+        .route(
+            "/v1/code-policy",
+            put(handlers::code_policy::update_code_policy),
+        )
         .route("/v1/policies/validate", post(handlers::validate_policy))
         .route("/v1/policies/apply", post(handlers::apply_policy))
         .route("/v1/policies/{cpid}/sign", post(handlers::sign_policy))
@@ -1265,7 +1277,7 @@ pub fn build(state: AppState) -> Router {
         // SSE Streaming routes - Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md §3.5, §4.4
         .route(
             "/v1/streams/training",
-            get(handlers::streaming::activity_stream),
+            get(handlers::streams::training_stream),
         )
         .route(
             "/v1/streams/discovery",
@@ -1521,6 +1533,14 @@ pub fn build(state: AppState) -> Router {
             get(handlers::adapters::get_system_metrics),
         )
         .route(
+            "/v1/metrics/code",
+            post(handlers::metrics::get_code_metrics),
+        )
+        .route(
+            "/v1/metrics/compare",
+            post(handlers::metrics::compare_metrics),
+        )
+        .route(
             "/v1/metrics/time-series",
             get(handlers::metrics_time_series::get_metrics_time_series),
         )
@@ -1764,19 +1784,25 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/audits", get(handlers::list_audits_extended))
         .route("/v1/promotions/{id}", get(handlers::get_promotion))
         // SSE stream endpoints
-        .route("/v1/stream/metrics", get(handlers::system_metrics_stream))
+        .route(
+            "/v1/stream/metrics",
+            get(handlers::streams::system_metrics_stream),
+        )
         .route(
             "/v1/stream/telemetry",
-            get(handlers::telemetry_events_stream),
+            get(handlers::streams::telemetry_events_stream),
         )
-        .route("/v1/stream/adapters", get(handlers::adapter_state_stream))
+        .route(
+            "/v1/stream/adapters",
+            get(handlers::streams::adapter_state_stream),
+        )
         .route(
             "/v1/stream/boot-progress",
-            get(handlers::boot_progress::boot_progress_stream),
+            get(handlers::streaming::boot_progress_stream),
         )
         .route(
             "/v1/stream/stack-policies/{id}",
-            get(handlers::stack_policy_stream),
+            get(handlers::adapter_stacks::stack_policy_stream),
         )
         .route(
             "/v1/stream/notifications",
