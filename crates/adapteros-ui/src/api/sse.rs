@@ -113,6 +113,10 @@ impl SseConnection {
             ));
         }
 
+        // Clean up any existing connection and closures before reconnecting
+        // This prevents closure accumulation on reconnect cycles
+        self.disconnect();
+
         self.state.set(SseState::Connecting);
 
         let url = self.full_url();
@@ -246,7 +250,8 @@ where
         let _ = connection.connect(on_event_clone.clone());
     });
 
-    // Create reconnect function
+    // Create reconnect function - note: creates new connection for reconnect
+    // The connect() method now calls disconnect() first, preventing closure accumulation
     let connection_reconnect = SseConnection::new(endpoint);
     let reconnect = move || {
         connection_reconnect.reset_circuit();
