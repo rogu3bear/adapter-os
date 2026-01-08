@@ -279,6 +279,12 @@ pub fn create_backend_with_model(choice: BackendChoice, model_path: &Path) -> Re
                     ane_used = settings.ane_used,
                     "Creating CoreML kernel backend"
                 );
+                if settings.production_mode && !settings.ane_used {
+                    return Err(AosError::Config(
+                        "CoreML production mode requires deterministic ANE-only compute units; ANE unavailable or not selected"
+                            .to_string(),
+                    ));
+                }
                 let mut backend =
                     CoreMLBackend::new(settings.compute_units, settings.production_mode)?;
 
@@ -488,6 +494,16 @@ fn create_mlx_backend(
             create_mlx_ffi_backend(model_path, manifest_hash, model_weights_hash)
         }
         adapteros_lora_mlx_ffi::MlxImplementation::Rs => {
+            let allow_rs = std::env::var("AOS_ALLOW_MLX_RS")
+                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                .unwrap_or(false);
+            if !allow_rs {
+                return Err(AosError::Config(
+                    "mlx-rs backend is experimental (no LoRA fusion/cache). Set AOS_ALLOW_MLX_RS=1 to opt in."
+                        .to_string(),
+                ));
+            }
+
             create_mlx_rs_backend(model_path, manifest_hash, model_weights_hash)
         }
     }
@@ -855,16 +871,20 @@ fn create_metal_backend(
 
     // Load model configuration from config.json if available (with validation)
     let model_config = load_and_validate_model_config(model_path)?;
-    if let Some(ref cfg) = model_config {
-        info!(
-            architecture = %cfg.architecture,
-            hidden_size = cfg.hidden_size,
-            num_attention_heads = cfg.num_attention_heads,
-            num_kv_heads = cfg.num_key_value_heads,
-            rope_theta = cfg.rope_theta,
-            "Loaded model configuration from config.json"
-        );
-    }
+    let model_config = model_config.ok_or_else(|| {
+        AosError::Config(format!(
+            "Metal backend requires config.json with model dimensions for deterministic GQA setup (path: {})",
+            model_path.display()
+        ))
+    })?;
+    info!(
+        architecture = %model_config.architecture,
+        hidden_size = model_config.hidden_size,
+        num_attention_heads = model_config.num_attention_heads,
+        num_kv_heads = model_config.num_key_value_heads,
+        rope_theta = model_config.rope_theta,
+        "Loaded model configuration from config.json"
+    );
 
     // Create cache key - prefer manifest hash when available for canonical identity
     let cache_key = ModelKey::new(
@@ -918,16 +938,14 @@ fn create_metal_backend(
     // Create Metal backend
     let mut kernels = MetalKernels::new()?;
 
-    // Set GQA config from model config if available
-    if let Some(cfg) = model_config {
-        let gqa_config = GqaConfig::from_params(
-            cfg.num_attention_heads,
-            cfg.num_key_value_heads,
-            cfg.hidden_size,
-            cfg.rope_theta,
-        );
-        kernels.set_gqa_config(gqa_config);
-    }
+    // Set GQA config from model config (required for deterministic setup)
+    let gqa_config = GqaConfig::from_params(
+        model_config.num_attention_heads,
+        model_config.num_key_value_heads,
+        model_config.hidden_size,
+        model_config.rope_theta,
+    );
+    kernels.set_gqa_config(gqa_config);
 
     // Initialize with model weights (immutable after load). In debug and when
     // explicitly requested, re-hash after load to ensure the kernel never
@@ -1047,6 +1065,12 @@ fn create_coreml_backend(
         has_model_weights_hash = model_weights_hash.is_some(),
         "Creating CoreML kernel backend"
     );
+    if settings.production_mode && !settings.ane_used {
+        return Err(AosError::Config(
+            "CoreML production mode requires deterministic ANE-only compute units; ANE unavailable or not selected"
+                .to_string(),
+        ));
+    }
     let mut backend = CoreMLBackend::new(settings.compute_units, settings.production_mode)?;
 
     // Set model parameters from config.json if available
@@ -1146,6 +1170,18 @@ fn resolve_mlx_model_path_from_env() -> Result<PathBuf> {
     validate_mlx_model_dir(&model_path)
 }
 
+fn derive_manifest_hash_from_config(model_path: &Path) -> Result<B3Hash> {
+    let config_path = model_path.join("config.json");
+    let bytes = std::fs::read(&config_path).map_err(|e| {
+        AosError::Config(format!(
+            "Unable to read config.json at '{}': {}",
+            config_path.display(),
+            e
+        ))
+    })?;
+    Ok(B3Hash::hash(&bytes))
+}
+
 /// Create a kernel backend based on the choice (backward-compatible)
 ///
 /// This function maintains backward compatibility for code that doesn't need model paths.
@@ -1196,6 +1232,12 @@ pub fn create_backend(choice: BackendChoice) -> Result<KernelBox> {
                     ane_used = settings.ane_used,
                     "Creating CoreML kernel backend"
                 );
+                if settings.production_mode && !settings.ane_used {
+                    return Err(AosError::Config(
+                        "CoreML production mode requires deterministic ANE-only compute units; ANE unavailable or not selected"
+                            .to_string(),
+                    ));
+                }
                 let backend = CoreMLBackend::new(settings.compute_units, settings.production_mode)?;
                 Ok(Box::new(backend))
             }
@@ -1220,30 +1262,21 @@ pub fn create_backend(choice: BackendChoice) -> Result<KernelBox> {
 
             #[cfg(feature = "multi-backend")]
             {
-                use adapteros_lora_mlx_ffi::{
-                    mlx_runtime_init, mlx_runtime_is_initialized, MLXFFIBackend, MLXFFIModel,
-                };
-
-                info!(model_path = %model_path.display(), "Creating MLX FFI kernel backend");
-
-                // Ensure MLX runtime is initialized
-                if !mlx_runtime_is_initialized() {
-                    mlx_runtime_init().map_err(|e| {
-                        AosError::Config(format!("Failed to initialize MLX runtime: {}", e))
-                    })?;
-                }
-
-                // Load the model
-                let model = MLXFFIModel::load(&model_path).map_err(|e| {
+                // Derive a deterministic manifest hash from config.json so the legacy
+                // entry point still seeds MLX and uses the cache identity path.
+                let manifest_hash = derive_manifest_hash_from_config(&model_path).map_err(|e| {
                     AosError::Config(format!(
-                        "Failed to load MLX model from '{}': {}",
-                        model_path.display(),
+                        "Failed to derive manifest hash for MLX backend: {}",
                         e
                     ))
                 })?;
 
-                let backend = MLXFFIBackend::new(model);
-                Ok(Box::new(backend))
+                create_backend_with_model_hashes(
+                    BackendChoice::Mlx,
+                    &model_path,
+                    Some(&manifest_hash),
+                    None,
+                )
             }
             #[cfg(not(feature = "multi-backend"))]
             {
