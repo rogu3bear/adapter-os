@@ -3,12 +3,15 @@
 //! Provides reactive SSE connections with circuit breaker pattern
 //! and automatic reconnection.
 
+use gloo_timers::callback::{Interval, Timeout};
+use js_sys::Date;
 use leptos::prelude::*;
+use send_wrapper::SendWrapper;
 use std::cell::RefCell;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
-use web_sys::{EventSource, MessageEvent};
+use web_sys::{EventSource, EventSourceInit, MessageEvent};
 
 use super::api_base_url;
 
@@ -49,6 +52,12 @@ pub struct CircuitBreakerConfig {
     pub max_retry_delay_ms: u32,
     /// Time after which circuit resets to half-open
     pub reset_timeout_ms: u32,
+    /// Idle timeout for no events before reconnect (ms)
+    pub idle_timeout_ms: Option<u32>,
+    /// Whether to include credentials (cookies) on cross-origin SSE
+    pub with_credentials: bool,
+    /// Optional query param for auth (key, value)
+    pub auth_query_param: Option<(String, String)>,
 }
 
 impl Default for CircuitBreakerConfig {
@@ -58,19 +67,52 @@ impl Default for CircuitBreakerConfig {
             retry_delay_ms: 1000,
             max_retry_delay_ms: 30000,
             reset_timeout_ms: 60000,
+            idle_timeout_ms: Some(120_000),
+            with_credentials: false,
+            auth_query_param: None,
         }
     }
 }
 
-/// SSE connection with circuit breaker and auto-reconnection
-pub struct SseConnection {
+impl CircuitBreakerConfig {
+    /// Enable or disable sending credentials on cross-origin SSE.
+    pub fn with_credentials(mut self, enabled: bool) -> Self {
+        self.with_credentials = enabled;
+        self
+    }
+
+    /// Set an idle timeout (ms) after which the connection is recycled.
+    pub fn with_idle_timeout_ms(mut self, idle_timeout_ms: Option<u32>) -> Self {
+        self.idle_timeout_ms = idle_timeout_ms;
+        self
+    }
+
+    /// Attach a query parameter for auth (key/value).
+    pub fn with_auth_query_param(mut self, key: &str, value: &str) -> Self {
+        self.auth_query_param = Some((key.to_string(), value.to_string()));
+        self
+    }
+}
+
+#[derive(Clone)]
+struct SseContext {
     endpoint: String,
     state: RwSignal<SseState>,
     failure_count: Rc<RefCell<u32>>,
     event_source: Rc<RefCell<Option<EventSource>>>,
     config: CircuitBreakerConfig,
-    #[allow(clippy::type_complexity)]
-    closures: Rc<RefCell<Vec<Closure<dyn FnMut(MessageEvent)>>>>,
+    message_closures: Rc<RefCell<Vec<Closure<dyn FnMut(MessageEvent)>>>>,
+    event_closures: Rc<RefCell<Vec<Closure<dyn FnMut()>>>>,
+    subscriptions: Rc<RefCell<Vec<(String, Closure<dyn FnMut(MessageEvent)>)>>>,
+    last_event_at: RwSignal<Option<f64>>,
+    reconnect_timeout: Rc<RefCell<Option<Timeout>>>,
+    watchdog_handle: Rc<RefCell<Option<Interval>>>,
+    handler: Rc<RefCell<Option<Rc<dyn Fn(SseEvent)>>>>,
+}
+
+/// SSE connection with circuit breaker and auto-reconnection
+pub struct SseConnection {
+    ctx: SseContext,
 }
 
 impl SseConnection {
@@ -82,23 +124,31 @@ impl SseConnection {
     /// Create with custom circuit breaker configuration
     pub fn with_config(endpoint: &str, config: CircuitBreakerConfig) -> Self {
         Self {
-            endpoint: endpoint.to_string(),
-            state: RwSignal::new(SseState::Disconnected),
-            failure_count: Rc::new(RefCell::new(0)),
-            event_source: Rc::new(RefCell::new(None)),
-            config,
-            closures: Rc::new(RefCell::new(Vec::new())),
+            ctx: SseContext {
+                endpoint: endpoint.to_string(),
+                state: RwSignal::new(SseState::Disconnected),
+                failure_count: Rc::new(RefCell::new(0)),
+                event_source: Rc::new(RefCell::new(None)),
+                config,
+                message_closures: Rc::new(RefCell::new(Vec::new())),
+                event_closures: Rc::new(RefCell::new(Vec::new())),
+                subscriptions: Rc::new(RefCell::new(Vec::new())),
+                last_event_at: RwSignal::new(None),
+                reconnect_timeout: Rc::new(RefCell::new(None)),
+                watchdog_handle: Rc::new(RefCell::new(None)),
+                handler: Rc::new(RefCell::new(None)),
+            },
         }
     }
 
     /// Get current connection state as a signal
     pub fn state(&self) -> RwSignal<SseState> {
-        self.state
+        self.ctx.state
     }
 
-    /// Get the full URL for the SSE endpoint
-    fn full_url(&self) -> String {
-        format!("{}{}", api_base_url(), self.endpoint)
+    /// Get the last event timestamp (ms since epoch)
+    pub fn last_event_at(&self) -> ReadSignal<Option<f64>> {
+        self.ctx.last_event_at.read_only()
     }
 
     /// Connect and start receiving events
@@ -106,54 +156,45 @@ impl SseConnection {
     where
         F: Fn(SseEvent) + Clone + 'static,
     {
-        // Check circuit breaker
-        if self.state.get() == SseState::CircuitOpen {
-            return Err(crate::api::ApiError::Network(
-                "Circuit breaker open".to_string(),
-            ));
-        }
+        let handler: Rc<dyn Fn(SseEvent)> = Rc::new(on_event);
+        *self.ctx.handler.borrow_mut() = Some(handler.clone());
+        connect_with_handler(self.ctx.clone(), handler)
+    }
 
-        // Clean up any existing connection and closures before reconnecting
-        // This prevents closure accumulation on reconnect cycles
-        self.disconnect();
-
-        self.state.set(SseState::Connecting);
-
-        let url = self.full_url();
-        let event_source = EventSource::new(&url).map_err(|e| {
-            crate::api::ApiError::Network(format!("Failed to create EventSource: {:?}", e))
-        })?;
-
-        let state = self.state;
-        let failure_count = self.failure_count.clone();
-
-        // Handle open event
-        let on_open = Closure::wrap(Box::new(move || {
-            state.set(SseState::Connected);
-            *failure_count.borrow_mut() = 0;
-        }) as Box<dyn FnMut()>);
-        event_source.set_onopen(Some(on_open.as_ref().unchecked_ref()));
-        on_open.forget();
-
-        // Handle error event
-        let state_err = self.state;
-        let failure_count_err = self.failure_count.clone();
-        let threshold = self.config.failure_threshold;
-        let on_error = Closure::wrap(Box::new(move || {
-            let mut count = failure_count_err.borrow_mut();
-            *count += 1;
-            if *count >= threshold {
-                state_err.set(SseState::CircuitOpen);
-            } else {
-                state_err.set(SseState::Error);
+    /// Connect and subscribe to specific event types.
+    pub fn connect_with_event_types<F>(
+        &self,
+        event_types: &[&str],
+        on_event: F,
+    ) -> Result<(), crate::api::ApiError>
+    where
+        F: Fn(SseEvent) + Clone + 'static,
+    {
+        for event_type in event_types {
+            if self
+                .ctx
+                .subscriptions
+                .borrow()
+                .iter()
+                .any(|(existing, _)| existing == event_type)
+            {
+                continue;
             }
-        }) as Box<dyn FnMut()>);
-        event_source.set_onerror(Some(on_error.as_ref().unchecked_ref()));
-        on_error.forget();
+            self.subscribe(event_type, on_event.clone());
+        }
+        self.connect(on_event)
+    }
 
-        // Handle message events (default event type)
-        let on_event_clone = on_event.clone();
-        let on_message = Closure::wrap(Box::new(move |event: MessageEvent| {
+    /// Subscribe to a specific event type
+    pub fn subscribe<F>(&self, event_type: &str, on_event: F)
+    where
+        F: Fn(SseEvent) + 'static,
+    {
+        let event_type_owned = event_type.to_string();
+        let event_type_for_event = event_type_owned.clone();
+        let last_event_at = self.ctx.last_event_at;
+        let callback = Closure::wrap(Box::new(move |event: MessageEvent| {
+            last_event_at.set(Some(Date::now()));
             let data = event.data().as_string().unwrap_or_default();
             let last_event_id = event.last_event_id();
             let last_event_id = if last_event_id.is_empty() {
@@ -162,71 +203,54 @@ impl SseConnection {
                 Some(last_event_id)
             };
 
-            on_event_clone(SseEvent {
-                event_type: "message".to_string(),
+            on_event(SseEvent {
+                event_type: event_type_for_event.clone(),
                 data,
                 last_event_id,
             });
         }) as Box<dyn FnMut(MessageEvent)>);
-        event_source.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
 
-        // Store closures to prevent dropping
-        self.closures.borrow_mut().push(on_message);
+        let registered = if let Some(es) = self.ctx.event_source.borrow().as_ref() {
+            match es.add_event_listener_with_callback(event_type, callback.as_ref().unchecked_ref())
+            {
+                Ok(()) => true,
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to add event listener for '{}': {:?}",
+                        event_type,
+                        e
+                    );
+                    false
+                }
+            }
+        } else {
+            // No active EventSource, store for later attachment
+            true
+        };
 
-        // Store the EventSource
-        *self.event_source.borrow_mut() = Some(event_source);
-
-        Ok(())
-    }
-
-    /// Subscribe to a specific event type
-    pub fn subscribe<F>(&self, event_type: &str, on_event: F)
-    where
-        F: Fn(SseEvent) + 'static,
-    {
-        if let Some(es) = self.event_source.borrow().as_ref() {
-            let event_type_owned = event_type.to_string();
-            let callback = Closure::wrap(Box::new(move |event: MessageEvent| {
-                let data = event.data().as_string().unwrap_or_default();
-                let last_event_id = event.last_event_id();
-                let last_event_id = if last_event_id.is_empty() {
-                    None
-                } else {
-                    Some(last_event_id)
-                };
-
-                on_event(SseEvent {
-                    event_type: event_type_owned.clone(),
-                    data,
-                    last_event_id,
-                });
-            }) as Box<dyn FnMut(MessageEvent)>);
-
-            es.add_event_listener_with_callback(event_type, callback.as_ref().unchecked_ref())
-                .ok();
-
-            self.closures.borrow_mut().push(callback);
+        if registered {
+            self.ctx
+                .subscriptions
+                .borrow_mut()
+                .push((event_type_owned, callback));
         }
     }
 
     /// Disconnect from SSE stream
     pub fn disconnect(&self) {
-        if let Some(es) = self.event_source.borrow_mut().take() {
-            es.close();
-        }
-        self.closures.borrow_mut().clear();
-        self.state.set(SseState::Disconnected);
+        disconnect_inner(&self.ctx, true);
     }
 
     /// Reset circuit breaker
     pub fn reset_circuit(&self) {
-        *self.failure_count.borrow_mut() = 0;
-        self.state.set(SseState::Disconnected);
+        disconnect_inner(&self.ctx, true);
+        *self.ctx.failure_count.borrow_mut() = 0;
+        self.ctx.last_event_at.set(None);
     }
 
     /// Check if connected
     pub fn is_connected(&self) -> bool {
-        self.state.get() == SseState::Connected
+        self.ctx.state.get() == SseState::Connected
     }
 }
 
@@ -236,26 +260,330 @@ impl Drop for SseConnection {
     }
 }
 
+fn build_full_url(endpoint: &str, config: &CircuitBreakerConfig) -> String {
+    let mut url = format!("{}{}", api_base_url(), endpoint);
+    if let Some((ref key, ref value)) = config.auth_query_param {
+        let sep = if url.contains('?') { "&" } else { "?" };
+        let key = encode_component(key);
+        let value = encode_component(value);
+        url.push_str(sep);
+        url.push_str(&key);
+        url.push('=');
+        url.push_str(&value);
+    }
+    url
+}
+
+fn encode_component(value: &str) -> String {
+    js_sys::encode_uri_component(value)
+        .as_string()
+        .unwrap_or_else(|| value.to_string())
+}
+
+fn create_event_source(
+    url: &str,
+    config: &CircuitBreakerConfig,
+) -> Result<EventSource, crate::api::ApiError> {
+    let mut init = EventSourceInit::new();
+    if config.with_credentials {
+        init.with_credentials(true);
+    }
+    EventSource::new_with_event_source_init_dict(url, &init).map_err(|e| {
+        crate::api::ApiError::Network(format!("Failed to create EventSource: {:?}", e))
+    })
+}
+
+fn connect_with_handler(
+    ctx: SseContext,
+    handler: Rc<dyn Fn(SseEvent)>,
+) -> Result<(), crate::api::ApiError> {
+    if ctx.state.get_untracked() == SseState::CircuitOpen {
+        ctx.state.set(SseState::CircuitOpen);
+        return Err(crate::api::ApiError::Network(
+            "Circuit breaker open".to_string(),
+        ));
+    }
+
+    disconnect_inner(&ctx, false);
+
+    ctx.state.set(SseState::Connecting);
+
+    let url = build_full_url(&ctx.endpoint, &ctx.config);
+    let event_source = match create_event_source(&url, &ctx.config) {
+        Ok(source) => source,
+        Err(err) => {
+            handle_failure(ctx, "eventsource init failed");
+            return Err(err);
+        }
+    };
+
+    let ctx_for_open = ctx.clone();
+    let on_open = Closure::wrap(Box::new(move || {
+        ctx_for_open.state.set(SseState::Connected);
+        reset_failures(&ctx_for_open);
+        clear_reconnect(&ctx_for_open);
+        ctx_for_open.last_event_at.set(Some(Date::now()));
+    }) as Box<dyn FnMut()>);
+    event_source.set_onopen(Some(on_open.as_ref().unchecked_ref()));
+    ctx.event_closures.borrow_mut().push(on_open);
+
+    let ctx_for_error = ctx.clone();
+    let on_error = Closure::wrap(Box::new(move || {
+        handle_failure(ctx_for_error.clone(), "eventsource error");
+    }) as Box<dyn FnMut()>);
+    event_source.set_onerror(Some(on_error.as_ref().unchecked_ref()));
+    ctx.event_closures.borrow_mut().push(on_error);
+
+    let ctx_for_message = ctx.clone();
+    let handler_clone = handler.clone();
+    let on_message = Closure::wrap(Box::new(move |event: MessageEvent| {
+        ctx_for_message.last_event_at.set(Some(Date::now()));
+        let data = event.data().as_string().unwrap_or_default();
+        let last_event_id = event.last_event_id();
+        let last_event_id = if last_event_id.is_empty() {
+            None
+        } else {
+            Some(last_event_id)
+        };
+
+        handler_clone(SseEvent {
+            event_type: "message".to_string(),
+            data,
+            last_event_id,
+        });
+    }) as Box<dyn FnMut(MessageEvent)>);
+    event_source.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
+    ctx.message_closures.borrow_mut().push(on_message);
+
+    *ctx.event_source.borrow_mut() = Some(event_source);
+    if let Some(es) = ctx.event_source.borrow().as_ref() {
+        attach_subscriptions(&ctx, es);
+    }
+    start_watchdog(ctx);
+
+    Ok(())
+}
+
+fn disconnect_inner(ctx: &SseContext, update_state: bool) {
+    clear_reconnect(ctx);
+    clear_watchdog(ctx);
+
+    let event_source = ctx.event_source.borrow_mut().take();
+    ctx.message_closures.borrow_mut().clear();
+    ctx.event_closures.borrow_mut().clear();
+
+    if let Some(es) = event_source {
+        for (event_type, callback) in ctx.subscriptions.borrow().iter() {
+            let _ = es
+                .remove_event_listener_with_callback(event_type, callback.as_ref().unchecked_ref());
+        }
+        es.set_onmessage(None);
+        es.set_onopen(None);
+        es.set_onerror(None);
+        es.close();
+    }
+
+    if update_state {
+        ctx.state.set(SseState::Disconnected);
+    }
+}
+
+fn attach_subscriptions(ctx: &SseContext, es: &EventSource) {
+    for (event_type, callback) in ctx.subscriptions.borrow().iter() {
+        if let Err(e) =
+            es.add_event_listener_with_callback(event_type, callback.as_ref().unchecked_ref())
+        {
+            tracing::warn!(
+                "Failed to reattach subscription for event type '{}': {:?}",
+                event_type,
+                e
+            );
+        }
+    }
+}
+
+fn handle_failure(ctx: SseContext, reason: &str) {
+    disconnect_inner(&ctx, false);
+
+    let failures = increment_failures(&ctx);
+    let threshold = ctx.config.failure_threshold.max(1);
+    if failures >= threshold {
+        ctx.state.set(SseState::CircuitOpen);
+        tracing::warn!(
+            "SSE circuit open for {} after {} failures: {}",
+            ctx.endpoint,
+            failures,
+            reason
+        );
+        schedule_circuit_reset(ctx);
+        return;
+    }
+
+    ctx.state.set(SseState::Error);
+    tracing::warn!(
+        "SSE error for {} (attempt {}): {}",
+        ctx.endpoint,
+        failures,
+        reason
+    );
+    schedule_reconnect(ctx, failures);
+}
+
+fn increment_failures(ctx: &SseContext) -> u32 {
+    let mut count = ctx.failure_count.borrow_mut();
+    *count += 1;
+    *count
+}
+
+fn reset_failures(ctx: &SseContext) {
+    *ctx.failure_count.borrow_mut() = 0;
+}
+
+fn schedule_reconnect(ctx: SseContext, failures: u32) {
+    clear_reconnect(&ctx);
+
+    let delay_ms = compute_backoff_ms(
+        ctx.config.retry_delay_ms,
+        ctx.config.max_retry_delay_ms,
+        failures,
+    );
+    if delay_ms == 0 {
+        return;
+    }
+
+    let handler = ctx.handler.borrow().clone();
+    let Some(handler) = handler else {
+        return;
+    };
+
+    let ctx_for_timeout = ctx.clone();
+    let timeout = Timeout::new(delay_ms, move || {
+        ctx_for_timeout.state.set(SseState::Connecting);
+        let _ = connect_with_handler(ctx_for_timeout.clone(), handler.clone());
+    });
+
+    *ctx.reconnect_timeout.borrow_mut() = Some(timeout);
+}
+
+fn schedule_circuit_reset(ctx: SseContext) {
+    clear_reconnect(&ctx);
+    let delay_ms = ctx.config.reset_timeout_ms;
+    if delay_ms == 0 {
+        return;
+    }
+
+    let handler = ctx.handler.borrow().clone();
+    let ctx_for_timeout = ctx.clone();
+    let timeout = Timeout::new(delay_ms, move || {
+        reset_failures(&ctx_for_timeout);
+        ctx_for_timeout.state.set(SseState::Disconnected);
+        if let Some(handler) = handler.clone() {
+            let _ = connect_with_handler(ctx_for_timeout.clone(), handler);
+        }
+    });
+
+    *ctx.reconnect_timeout.borrow_mut() = Some(timeout);
+}
+
+fn clear_reconnect(ctx: &SseContext) {
+    ctx.reconnect_timeout.borrow_mut().take();
+}
+
+fn clear_watchdog(ctx: &SseContext) {
+    ctx.watchdog_handle.borrow_mut().take();
+}
+
+fn start_watchdog(ctx: SseContext) {
+    let Some(idle_timeout_ms) = ctx.config.idle_timeout_ms else {
+        return;
+    };
+
+    clear_watchdog(&ctx);
+    let interval_ms = (idle_timeout_ms / 2).max(1000);
+    let ctx_for_watchdog = ctx.clone();
+    let handle = Interval::new(interval_ms, move || {
+        if ctx_for_watchdog.state.get_untracked() != SseState::Connected {
+            return;
+        }
+
+        if let Some(last_event_at) = ctx_for_watchdog.last_event_at.get_untracked() {
+            let elapsed = Date::now() - last_event_at;
+            if elapsed.is_sign_negative() {
+                return;
+            }
+            if elapsed >= idle_timeout_ms as f64 {
+                handle_failure(ctx_for_watchdog.clone(), "idle timeout");
+            }
+        }
+    });
+
+    *ctx.watchdog_handle.borrow_mut() = Some(handle);
+}
+
+fn compute_backoff_ms(base_ms: u32, max_ms: u32, failures: u32) -> u32 {
+    if base_ms == 0 {
+        return 0;
+    }
+    let exp = failures.saturating_sub(1).min(16);
+    let delay = (base_ms as u64).saturating_mul(1u64 << exp);
+    let capped = std::cmp::min(delay, max_ms as u64);
+    capped as u32
+}
+
 /// Hook to use an SSE connection with automatic lifecycle management
 pub fn use_sse<F>(endpoint: &str, on_event: F) -> (RwSignal<SseState>, impl Fn())
 where
     F: Fn(SseEvent) + Clone + 'static,
 {
-    let connection = SseConnection::new(endpoint);
+    use_sse_with_config(endpoint, CircuitBreakerConfig::default(), on_event)
+}
+
+/// Hook to use SSE with custom configuration
+pub fn use_sse_with_config<F>(
+    endpoint: &str,
+    config: CircuitBreakerConfig,
+    on_event: F,
+) -> (RwSignal<SseState>, impl Fn())
+where
+    F: Fn(SseEvent) + Clone + 'static,
+{
+    let endpoint_name = endpoint.to_string();
+    let connection = Rc::new(SseConnection::with_config(endpoint, config));
     let state = connection.state();
     let on_event_clone = on_event.clone();
 
     // Connect on mount
+    let connection_for_effect = Rc::clone(&connection);
+    let endpoint_name_for_effect = endpoint_name.clone();
     Effect::new(move || {
-        let _ = connection.connect(on_event_clone.clone());
+        if let Err(err) = connection_for_effect.connect(on_event_clone.clone()) {
+            tracing::warn!(
+                "SSE connect failed for {}: {}",
+                endpoint_name_for_effect,
+                err
+            );
+        }
     });
 
-    // Create reconnect function - note: creates new connection for reconnect
-    // The connect() method now calls disconnect() first, preventing closure accumulation
-    let connection_reconnect = SseConnection::new(endpoint);
+    // Cleanup on unmount
+    let connection_for_cleanup = SendWrapper::new(Rc::clone(&connection));
+    on_cleanup(move || {
+        connection_for_cleanup.disconnect();
+    });
+
+    // Reconnect function (same connection, reset circuit)
+    let connection_reconnect = Rc::clone(&connection);
+    let on_event_reconnect = on_event.clone();
+    let endpoint_name_reconnect = endpoint_name.clone();
     let reconnect = move || {
         connection_reconnect.reset_circuit();
-        let _ = connection_reconnect.connect(on_event.clone());
+        if let Err(err) = connection_reconnect.connect(on_event_reconnect.clone()) {
+            tracing::warn!(
+                "SSE reconnect failed for {}: {}",
+                endpoint_name_reconnect,
+                err
+            );
+        }
     };
 
     (state, reconnect)
@@ -267,9 +595,125 @@ where
     T: for<'de> serde::Deserialize<'de> + 'static,
     F: Fn(T) + Clone + 'static,
 {
-    use_sse(endpoint, move |event| {
-        if let Ok(parsed) = serde_json::from_str::<T>(&event.data) {
-            on_event(parsed);
+    use_sse_json_with_config(endpoint, CircuitBreakerConfig::default(), on_event)
+}
+
+/// Hook to use SSE with parsed JSON events for specific event types
+pub fn use_sse_json_events<T, F>(
+    endpoint: &str,
+    event_types: &[&str],
+    on_event: F,
+) -> (RwSignal<SseState>, impl Fn())
+where
+    T: for<'de> serde::Deserialize<'de> + 'static,
+    F: Fn(T) + Clone + 'static,
+{
+    let endpoint_name = endpoint.to_string();
+    let event_types: Vec<String> = event_types
+        .iter()
+        .map(|event| (*event).to_string())
+        .collect();
+    let connection = Rc::new(SseConnection::with_config(
+        endpoint,
+        CircuitBreakerConfig::default(),
+    ));
+    let state = connection.state();
+    let endpoint_name_for_handler = endpoint_name.clone();
+    let on_event_handler = on_event.clone();
+
+    let handler = move |event: SseEvent| {
+        let data = event.data.trim();
+        if data.is_empty() || data == "[DONE]" {
+            return;
+        }
+
+        match serde_json::from_str::<T>(data) {
+            Ok(parsed) => on_event_handler(parsed),
+            Err(err) => {
+                let preview: String = data.chars().take(200).collect();
+                tracing::warn!(
+                    "SSE JSON parse failed for {}: {} (payload: {})",
+                    endpoint_name_for_handler,
+                    err,
+                    preview
+                );
+            }
+        }
+    };
+
+    // Connect on mount
+    let connection_for_effect = Rc::clone(&connection);
+    let endpoint_name_for_effect = endpoint_name.clone();
+    let event_types_for_effect = event_types.clone();
+    let handler_for_effect = handler.clone();
+    Effect::new(move || {
+        let event_type_refs: Vec<&str> = event_types_for_effect
+            .iter()
+            .map(|event| event.as_str())
+            .collect();
+        if let Err(err) = connection_for_effect
+            .connect_with_event_types(&event_type_refs, handler_for_effect.clone())
+        {
+            tracing::warn!(
+                "SSE connect failed for {}: {}",
+                endpoint_name_for_effect,
+                err
+            );
+        }
+    });
+
+    // Cleanup on unmount
+    let connection_for_cleanup = SendWrapper::new(Rc::clone(&connection));
+    on_cleanup(move || {
+        connection_for_cleanup.disconnect();
+    });
+
+    // Reconnect function (same connection, reset circuit)
+    let connection_reconnect = Rc::clone(&connection);
+    let handler_reconnect = handler.clone();
+    let endpoint_name_reconnect = endpoint_name.clone();
+    let reconnect = move || {
+        connection_reconnect.reset_circuit();
+        if let Err(err) = connection_reconnect.connect(handler_reconnect.clone()) {
+            tracing::warn!(
+                "SSE reconnect failed for {}: {}",
+                endpoint_name_reconnect,
+                err
+            );
+        }
+    };
+
+    (state, reconnect)
+}
+
+/// Hook to use SSE with parsed JSON events and custom configuration
+pub fn use_sse_json_with_config<T, F>(
+    endpoint: &str,
+    config: CircuitBreakerConfig,
+    on_event: F,
+) -> (RwSignal<SseState>, impl Fn())
+where
+    T: for<'de> serde::Deserialize<'de> + 'static,
+    F: Fn(T) + Clone + 'static,
+{
+    let endpoint_name = endpoint.to_string();
+    use_sse_with_config(endpoint, config, move |event| {
+        let data = event.data.trim();
+        if data.is_empty() || data == "[DONE]" {
+            return;
+        }
+
+        match serde_json::from_str::<T>(data) {
+            Ok(parsed) => on_event(parsed),
+            Err(err) => {
+                let preview: String = data.chars().take(200).collect();
+                tracing::warn!(
+                    "SSE JSON parse failed for {}: {} (payload: {})",
+                    endpoint_name,
+                    err,
+                    preview
+                );
+            }
         }
     })
 }
