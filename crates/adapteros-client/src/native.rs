@@ -353,20 +353,31 @@ impl AdapterOSClient for NativeClient {
 
     // Code Policy - STUB (endpoint not implemented in API)
     async fn get_code_policy(&self) -> Result<GetCodePolicyResponse> {
-        Err(anyhow::anyhow!("Code policy endpoint not available"))
+        let url = format!("{}/v1/code-policy", self.base_url);
+        let resp = self.client.get(&url).send().await?;
+        resp.json().await.context("Failed to parse code policy")
     }
 
-    async fn update_code_policy(&self, _req: UpdateCodePolicyRequest) -> Result<()> {
-        Err(anyhow::anyhow!("Code policy endpoint not available"))
+    async fn update_code_policy(&self, req: UpdateCodePolicyRequest) -> Result<()> {
+        let url = format!("{}/v1/code-policy", self.base_url);
+        let resp = self.client.put(&url).json(&req).send().await?;
+        resp.error_for_status()?;
+        Ok(())
     }
 
     // Metrics Dashboard - STUB (endpoints not implemented in API)
-    async fn get_code_metrics(&self, _req: CodeMetricsRequest) -> Result<CodeMetricsResponse> {
-        Err(anyhow::anyhow!("Code metrics endpoint not available"))
+    async fn get_code_metrics(&self, req: CodeMetricsRequest) -> Result<CodeMetricsResponse> {
+        let url = format!("{}/v1/metrics/code", self.base_url);
+        let resp = self.client.post(&url).json(&req).send().await?;
+        resp.json().await.context("Failed to parse code metrics")
     }
 
-    async fn compare_metrics(&self, _req: CompareMetricsRequest) -> Result<CompareMetricsResponse> {
-        Err(anyhow::anyhow!("Metrics comparison endpoint not available"))
+    async fn compare_metrics(&self, req: CompareMetricsRequest) -> Result<CompareMetricsResponse> {
+        let url = format!("{}/v1/metrics/compare", self.base_url);
+        let resp = self.client.post(&url).json(&req).send().await?;
+        resp.json()
+            .await
+            .context("Failed to parse metrics comparison")
     }
 }
 
