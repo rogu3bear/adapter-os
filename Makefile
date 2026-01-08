@@ -1,4 +1,4 @@
-.PHONY: help build prepare test test-rust test-ui test-ignored test-hw clean fmt fmt-check clippy metal ui ui-dev menu-bar menu-bar-dev menu-bar-install infra-check dev dev-no-auth build-mlx test-mlx bench-mlx verify-mlx-env cli setup-git-hooks lint-fix mvp-demo stability-check stability-ci ignored-tests-audit ignored-tests-check sbom sbom-check
+.PHONY: help build prepare test test-rust test-ui test-ignored test-hw clean fmt fmt-check clippy metal ui ui-dev menu-bar menu-bar-dev menu-bar-install infra-check dev dev-no-auth build-mlx test-mlx bench-mlx verify-mlx-env verify-mlx-metal cli setup-git-hooks lint-fix mvp-demo stability-check stability-ci ignored-tests-audit ignored-tests-check sbom sbom-check
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -99,7 +99,7 @@ clean: ## Clean build artifacts
 	cargo clean
 	rm -f metal/*.air metal/*.metallib
 	rm -rf dist node_modules
-	rm -rf crates/mplora-server/static
+	rm -rf crates/adapteros-server/static
 
 infra-check: ## Run infrastructure health checks (prevents rectification issues)
 	./scripts/prevent_infrastructure_issues.sh
@@ -204,7 +204,7 @@ stability-check: ## Must-pass stabilization gate (see docs/stability/CHECKLIST.m
 	@echo "=== Stability Gate Passed ==="
 
 install: build ## Install aosctl
-	cargo install --path crates/aos-cli
+	cargo install --path crates/adapteros-cli
 
 installer: ## Build graphical SwiftUI installer
 	cd installer && xcodebuild -project AdapterOSInstaller.xcodeproj -scheme AdapterOSInstaller -configuration Release -derivedDataPath build clean build
@@ -329,6 +329,22 @@ bench-mlx: ## Run MLX benchmarks with real backend
 	$(MAKE) verify-mlx-env
 	cargo bench -p $(MLX_PACKAGE) --features $(MLX_FEATURES)
 
-verify-mlx-metal: verify-mlx-env scripts/verify_metal_access.sh ## Verify MLX environment and Metal device access (required for GPU tests)
+verify-mlx-metal: verify-mlx-env ## Verify MLX environment and Metal device access (required for GPU tests)
+	@if [ "$$(uname)" != "Darwin" ]; then \
+		echo "Metal checks require macOS."; \
+		exit 1; \
+	fi
+	@if xcrun --find metal >/dev/null 2>&1; then \
+		echo "Metal compiler found."; \
+	else \
+		echo "Metal compiler not found (install Xcode/Metal toolchain)."; \
+		exit 1; \
+	fi
+	@if system_profiler SPDisplaysDataType | grep -A 5 "Metal" >/dev/null 2>&1; then \
+		echo "Metal device detected."; \
+	else \
+		echo "Metal device not detected."; \
+		exit 1; \
+	fi
 
 .DEFAULT_GOAL := help
