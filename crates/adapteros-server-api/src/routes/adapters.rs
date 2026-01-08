@@ -214,7 +214,9 @@ pub fn adapter_routes() -> Router<AppState> {
         )
         .route(
             "/v1/adapter-stacks/{id}",
-            get(handlers::adapter_stacks::get_stack).delete(handlers::adapter_stacks::delete_stack),
+            get(handlers::adapter_stacks::get_stack)
+                .put(handlers::adapter_stacks::update_stack)
+                .delete(handlers::adapter_stacks::delete_stack),
         )
         .route(
             "/v1/adapter-stacks/{id}/history",

@@ -17,6 +17,7 @@
 
 pub mod adapter_service;
 pub mod dataset_domain;
+pub mod error_alert_evaluator;
 pub mod repo_url;
 pub mod training_dataset;
 pub mod training_service;
@@ -37,3 +38,4 @@ pub use training_dataset::{
 pub use training_service::{
     DefaultTrainingService, TrainingCapacityInfo, TrainingService, TrainingValidationResult,
 };
+pub use error_alert_evaluator::ErrorAlertEvaluator;

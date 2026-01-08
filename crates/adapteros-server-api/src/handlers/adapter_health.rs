@@ -397,8 +397,13 @@ pub async fn get_adapter_health(
         .await
         .unwrap_or((0, 0, 0.0));
 
-    // Calculate memory usage trend (simplified - would need time-series data in production)
-    let memory_usage_mb = activations.len() as f64 * 2.5; // Rough estimate
+    // Get memory usage from performance metrics, fall back to estimate if no data
+    let memory_usage_mb = state
+        .db
+        .get_adapter_memory_usage(&adapter_id)
+        .await
+        .unwrap_or(None)
+        .unwrap_or_else(|| activations.len() as f64 * 2.5);
 
     let adapter_id_clone = adapter_id.clone();
     let adapter_id_clone2 = adapter_id.clone();

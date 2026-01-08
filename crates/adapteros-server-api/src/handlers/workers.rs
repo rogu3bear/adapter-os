@@ -621,8 +621,9 @@ pub async fn register_worker(
                     );
                 }
 
-                // Create the plan with a placeholder layout hash
-                // In dev mode, we use the manifest hash as the layout hash for simplicity
+                // Create the plan with kernel hashes for dev mode
+                // Uses MLX as the primary backend for Apple Silicon
+                let kernel_hashes_json = r#"["mlx_primary"]"#;
                 state
                     .db
                     .create_plan(
@@ -630,7 +631,7 @@ pub async fn register_worker(
                         &req.tenant_id,
                         &req.plan_id,
                         &req.manifest_hash,
-                        "[]",
+                        &kernel_hashes_json,
                         &req.manifest_hash,
                     )
                     .await

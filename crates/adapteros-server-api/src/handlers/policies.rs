@@ -157,7 +157,7 @@ pub async fn validate_policy(
             Json(PolicyValidationResponse {
                 valid: true,
                 errors: vec![],
-                hash_b3: Some("b3:placeholder".to_string()),
+                hash_b3: Some(content_hash),
             })
         }
         Err(e) => {
