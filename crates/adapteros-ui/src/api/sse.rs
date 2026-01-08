@@ -284,9 +284,9 @@ fn create_event_source(
     url: &str,
     config: &CircuitBreakerConfig,
 ) -> Result<EventSource, crate::api::ApiError> {
-    let mut init = EventSourceInit::new();
+    let init = EventSourceInit::new();
     if config.with_credentials {
-        init.with_credentials(true);
+        init.set_with_credentials(true);
     }
     EventSource::new_with_event_source_init_dict(url, &init).map_err(|e| {
         crate::api::ApiError::Network(format!("Failed to create EventSource: {:?}", e))

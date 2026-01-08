@@ -8,13 +8,18 @@ pub mod error;
 pub mod sse;
 
 pub use client::{
-    ApiClient, AuditChainEntry, AuditChainResponse, AuditLogEntry, AuditLogsQuery,
-    AuditLogsResponse, ChainVerificationResponse, CollectionDetailResponse, CollectionDocumentInfo,
-    CollectionListResponse, CollectionResponse, ComplianceAuditResponse, ComplianceControl,
-    CreateCollectionRequest, CreateStackRequest, FederationAuditResponse, HostChainSummary,
-    InferenceRequest, PublishAdapterRequest, RegisterRepositoryRequest, RepositoryAdapter,
-    RepositoryDetailResponse, RepositoryListResponse, RepositoryResponse, RepositoryVersion,
-    ScanStatusResponse, StackResponse, UpdateStackRequest, WorkerMetricsResponse, WorkflowType,
+    AdapterScoreResponse, ApiClient, AuditChainEntry, AuditChainResponse, AuditLogEntry,
+    AuditLogsQuery, AuditLogsResponse, ChainVerificationResponse, CodePolicy,
+    CollectionDetailResponse, CollectionDocumentInfo, CollectionListResponse, CollectionResponse,
+    ComplianceAuditResponse, ComplianceControl, CreateCollectionRequest, CreateStackRequest,
+    FederationAuditResponse, GetCodePolicyResponse, HostChainSummary, InferenceRequest,
+    ProcessAlertResponse, ProcessAnomalyResponse, ProcessCrashDumpResponse,
+    ProcessHealthMetricResponse, ProcessLogResponse, ProcessMonitoringRuleResponse,
+    PublishAdapterRequest, RegisterRepositoryRequest, RepositoryAdapter, RepositoryDetailResponse,
+    RepositoryListResponse, RepositoryResponse, RepositoryVersion, RoutingCandidateResponse,
+    RoutingDebugRequest, RoutingDebugResponse, RoutingDecisionResponse, RoutingDecisionsQuery,
+    RoutingDecisionsResponse, ScanStatusResponse, StackResponse, UpdateCodePolicyRequest,
+    UpdateStackRequest, WorkerMetricsResponse, WorkflowType,
 };
 pub use error::{ApiError, ApiResult};
 pub use sse::{

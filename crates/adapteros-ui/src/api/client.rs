@@ -874,6 +874,211 @@ impl ApiClient {
         )
         .await
     }
+
+    // --- Code Policy ---
+
+    /// Get code policy settings
+    pub async fn get_code_policy(&self) -> ApiResult<GetCodePolicyResponse> {
+        self.get("/v1/code-policy").await
+    }
+
+    /// Update code policy settings
+    pub async fn update_code_policy(
+        &self,
+        request: &UpdateCodePolicyRequest,
+    ) -> ApiResult<GetCodePolicyResponse> {
+        self.put("/v1/code-policy", request).await
+    }
+
+    // --- Process Monitoring ---
+
+    /// Get process logs for a worker
+    pub async fn get_worker_logs(
+        &self,
+        worker_id: &str,
+        level: Option<&str>,
+        limit: Option<u32>,
+    ) -> ApiResult<Vec<ProcessLogResponse>> {
+        let mut path = format!("/v1/workers/{}/logs", worker_id);
+        let mut params = Vec::new();
+        if let Some(l) = level {
+            params.push(format!("level={}", l));
+        }
+        if let Some(lim) = limit {
+            params.push(format!("limit={}", lim));
+        }
+        if !params.is_empty() {
+            path.push('?');
+            path.push_str(&params.join("&"));
+        }
+        self.get(&path).await
+    }
+
+    /// Get process crash dumps for a worker
+    pub async fn get_worker_crashes(&self, worker_id: &str) -> ApiResult<Vec<ProcessCrashDumpResponse>> {
+        self.get(&format!("/v1/workers/{}/crashes", worker_id)).await
+    }
+
+    /// Get process health metrics
+    pub async fn get_process_health_metrics(
+        &self,
+        worker_id: Option<&str>,
+    ) -> ApiResult<Vec<ProcessHealthMetricResponse>> {
+        let path = match worker_id {
+            Some(id) => format!("/v1/monitoring/health?worker_id={}", id),
+            None => "/v1/monitoring/health".to_string(),
+        };
+        self.get(&path).await
+    }
+
+    /// List process monitoring rules
+    pub async fn list_monitoring_rules(&self) -> ApiResult<Vec<ProcessMonitoringRuleResponse>> {
+        self.get("/v1/monitoring/rules").await
+    }
+
+    /// List process alerts
+    pub async fn list_process_alerts(
+        &self,
+        status: Option<&str>,
+    ) -> ApiResult<Vec<ProcessAlertResponse>> {
+        let path = match status {
+            Some(s) => format!("/v1/monitoring/alerts?status={}", s),
+            None => "/v1/monitoring/alerts".to_string(),
+        };
+        self.get(&path).await
+    }
+
+    /// Acknowledge a process alert
+    pub async fn acknowledge_alert(&self, alert_id: &str) -> ApiResult<ProcessAlertResponse> {
+        self.post(
+            &format!("/v1/monitoring/alerts/{}/acknowledge", alert_id),
+            &serde_json::json!({}),
+        )
+        .await
+    }
+
+    /// List process anomalies
+    pub async fn list_process_anomalies(
+        &self,
+        status: Option<&str>,
+    ) -> ApiResult<Vec<ProcessAnomalyResponse>> {
+        let path = match status {
+            Some(s) => format!("/v1/monitoring/anomalies?status={}", s),
+            None => "/v1/monitoring/anomalies".to_string(),
+        };
+        self.get(&path).await
+    }
+
+    /// Create a monitoring rule
+    pub async fn create_monitoring_rule(
+        &self,
+        request: &CreateMonitoringRuleRequest,
+    ) -> ApiResult<ProcessMonitoringRuleResponse> {
+        self.post("/v1/monitoring/rules", request).await
+    }
+
+    /// Delete a monitoring rule
+    pub async fn delete_monitoring_rule(&self, rule_id: &str) -> ApiResult<()> {
+        self.delete(&format!("/v1/monitoring/rules/{}", rule_id)).await
+    }
+
+    /// Toggle a monitoring rule enabled/disabled
+    pub async fn toggle_monitoring_rule(&self, rule_id: &str, enabled: bool) -> ApiResult<ProcessMonitoringRuleResponse> {
+        self.put(
+            &format!("/v1/monitoring/rules/{}", rule_id),
+            &serde_json::json!({ "enabled": enabled }),
+        )
+        .await
+    }
+
+    /// Suppress a process alert
+    pub async fn suppress_alert(&self, alert_id: &str, reason: &str) -> ApiResult<ProcessAlertResponse> {
+        self.post(
+            &format!("/v1/monitoring/alerts/{}/suppress", alert_id),
+            &serde_json::json!({ "reason": reason }),
+        )
+        .await
+    }
+
+    /// Resolve a process alert
+    pub async fn resolve_alert(&self, alert_id: &str) -> ApiResult<ProcessAlertResponse> {
+        self.post(
+            &format!("/v1/monitoring/alerts/{}/resolve", alert_id),
+            &serde_json::json!({}),
+        )
+        .await
+    }
+
+    // --- Routing Decisions ---
+
+    /// Get routing decisions with optional filters
+    pub async fn get_routing_decisions(
+        &self,
+        query: &RoutingDecisionsQuery,
+    ) -> ApiResult<RoutingDecisionsResponse> {
+        let mut params = Vec::new();
+        if let Some(ref tenant) = query.tenant {
+            params.push(format!("tenant={}", tenant));
+        }
+        if let Some(ref stack_id) = query.stack_id {
+            params.push(format!("stack_id={}", stack_id));
+        }
+        if let Some(ref adapter_id) = query.adapter_id {
+            params.push(format!("adapter_id={}", adapter_id));
+        }
+        if let Some(anomalies_only) = query.anomalies_only {
+            params.push(format!("anomalies_only={}", anomalies_only));
+        }
+        if let Some(min_entropy) = query.min_entropy {
+            params.push(format!("min_entropy={}", min_entropy));
+        }
+        if let Some(limit) = query.limit {
+            params.push(format!("limit={}", limit));
+        }
+        if let Some(offset) = query.offset {
+            params.push(format!("offset={}", offset));
+        }
+
+        let path = if params.is_empty() {
+            "/v1/routing/decisions".to_string()
+        } else {
+            format!("/v1/routing/decisions?{}", params.join("&"))
+        };
+        self.get(&path).await
+    }
+
+    /// Get a specific routing decision by ID
+    pub async fn get_routing_decision(&self, id: &str) -> ApiResult<RoutingDecisionResponse> {
+        self.get(&format!("/v1/routing/decisions/{}", id)).await
+    }
+
+    /// Debug routing for a prompt
+    pub async fn debug_routing(&self, request: &RoutingDebugRequest) -> ApiResult<RoutingDebugResponse> {
+        self.post("/v1/routing/debug", request).await
+    }
+
+    /// Get routing history
+    pub async fn get_routing_history(&self, limit: Option<usize>) -> ApiResult<RoutingDecisionsResponse> {
+        let path = match limit {
+            Some(l) => format!("/v1/routing/history?limit={}", l),
+            None => "/v1/routing/history".to_string(),
+        };
+        self.get(&path).await
+    }
+
+    /// Get routing decision chain for an inference request
+    pub async fn get_routing_chain(
+        &self,
+        tenant: &str,
+        inference_id: &str,
+        verify: bool,
+    ) -> ApiResult<RoutingDecisionChainResponse> {
+        self.get(&format!(
+            "/v1/routing/chain?tenant={}&inference_id={}&verify={}",
+            tenant, inference_id, verify
+        ))
+        .await
+    }
 }
 
 /// Simple inference request for chat
@@ -1795,4 +2000,284 @@ pub struct DatasetResponse {
     pub created_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<String>,
+}
+
+// ============================================================================
+// Code Policy types
+// ============================================================================
+
+/// Code policy settings for code generation safety constraints
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CodePolicy {
+    /// Minimum number of evidence spans required
+    #[serde(default = "default_min_evidence_spans")]
+    pub min_evidence_spans: usize,
+    /// Whether auto-apply is allowed
+    #[serde(default)]
+    pub allow_auto_apply: bool,
+    /// Minimum test coverage threshold (0.0 - 1.0)
+    #[serde(default = "default_test_coverage_min")]
+    pub test_coverage_min: f32,
+    /// Allowed file paths (glob patterns)
+    #[serde(default)]
+    pub path_allowlist: Vec<String>,
+    /// Denied file paths (glob patterns)
+    #[serde(default)]
+    pub path_denylist: Vec<String>,
+    /// Secret detection patterns (regex)
+    #[serde(default)]
+    pub secret_patterns: Vec<String>,
+    /// Maximum patch size in bytes
+    #[serde(default = "default_max_patch_size")]
+    pub max_patch_size: usize,
+}
+
+fn default_min_evidence_spans() -> usize {
+    1
+}
+fn default_test_coverage_min() -> f32 {
+    0.8
+}
+fn default_max_patch_size() -> usize {
+    100_000
+}
+
+impl Default for CodePolicy {
+    fn default() -> Self {
+        Self {
+            min_evidence_spans: 1,
+            allow_auto_apply: false,
+            test_coverage_min: 0.8,
+            path_allowlist: vec![],
+            path_denylist: vec![],
+            secret_patterns: vec![],
+            max_patch_size: 100_000,
+        }
+    }
+}
+
+/// Response containing code policy
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct GetCodePolicyResponse {
+    pub policy: CodePolicy,
+}
+
+/// Request to update code policy
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct UpdateCodePolicyRequest {
+    pub policy: CodePolicy,
+}
+
+// ============================================================================
+// Process Monitoring types
+// ============================================================================
+
+/// Process log entry
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ProcessLogResponse {
+    pub id: String,
+    pub worker_id: String,
+    pub level: String,
+    pub message: String,
+    pub timestamp: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata_json: Option<String>,
+}
+
+/// Process crash dump
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ProcessCrashDumpResponse {
+    pub id: String,
+    pub worker_id: String,
+    pub crash_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stack_trace: Option<String>,
+    pub timestamp: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub core_dump_path: Option<String>,
+}
+
+/// Process health metric
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ProcessHealthMetricResponse {
+    pub id: String,
+    pub worker_id: String,
+    pub tenant_id: String,
+    pub metric_name: String,
+    pub metric_value: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metric_unit: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tags: Option<serde_json::Value>,
+    pub collected_at: String,
+}
+
+/// Process monitoring rule
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ProcessMonitoringRuleResponse {
+    pub id: String,
+    pub name: String,
+    pub rule_type: String,
+    pub condition_json: String,
+    pub action_json: String,
+    pub enabled: bool,
+    pub created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
+}
+
+/// Process alert
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ProcessAlertResponse {
+    pub id: String,
+    pub rule_id: String,
+    pub worker_id: String,
+    pub severity: String,
+    pub message: String,
+    pub status: String,
+    pub triggered_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub acknowledged_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub acknowledged_by: Option<String>,
+}
+
+/// Process anomaly detection result
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ProcessAnomalyResponse {
+    pub id: String,
+    pub worker_id: String,
+    pub anomaly_type: String,
+    pub severity: String,
+    pub description: String,
+    pub status: String,
+    pub detected_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolved_at: Option<String>,
+}
+
+/// Request to create a monitoring rule
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CreateMonitoringRuleRequest {
+    pub name: String,
+    pub rule_type: String,
+    pub condition: serde_json::Value,
+    pub action: serde_json::Value,
+    #[serde(default)]
+    pub enabled: bool,
+}
+
+// ============================================================================
+// Routing Decision Types
+// ============================================================================
+
+/// Query parameters for routing decisions
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct RoutingDecisionsQuery {
+    pub tenant: Option<String>,
+    pub stack_id: Option<String>,
+    pub adapter_id: Option<String>,
+    pub anomalies_only: Option<bool>,
+    pub min_entropy: Option<f64>,
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
+}
+
+/// Paginated routing decisions response
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RoutingDecisionsResponse {
+    pub decisions: Vec<RoutingDecisionResponse>,
+    pub total: usize,
+    #[serde(default)]
+    pub offset: usize,
+    #[serde(default)]
+    pub limit: usize,
+}
+
+/// A single routing decision
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RoutingDecisionResponse {
+    pub id: String,
+    pub tenant_id: String,
+    pub request_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stack_id: Option<String>,
+    pub step: i32,
+    pub entropy: f64,
+    pub k_value: i32,
+    pub tau: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub overhead_pct: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_inference_latency_us: Option<i64>,
+    pub timestamp: String,
+    #[serde(default)]
+    pub candidates: Vec<RoutingCandidateResponse>,
+    #[serde(default)]
+    pub selected_adapter_ids: Vec<String>,
+}
+
+/// A routing candidate adapter
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RoutingCandidateResponse {
+    pub adapter_id: String,
+    pub gate_value: f64,
+    pub rank: i32,
+    pub selected: bool,
+}
+
+/// Request for routing debug
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RoutingDebugRequest {
+    pub prompt: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stack_id: Option<String>,
+}
+
+/// Response from routing debug
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RoutingDebugResponse {
+    pub detected_features: DetectedFeaturesResponse,
+    pub adapter_scores: Vec<AdapterScoreResponse>,
+    pub selected_adapters: Vec<String>,
+    pub entropy: f64,
+    pub k_value: i32,
+    pub explanation: String,
+}
+
+/// Detected features from routing debug
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DetectedFeaturesResponse {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frameworks: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verb: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+}
+
+/// Adapter score from routing debug
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AdapterScoreResponse {
+    pub adapter_id: String,
+    pub score: f64,
+    pub gate_value: f64,
+    pub selected: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// Routing decision chain response
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RoutingDecisionChainResponse {
+    pub inference_id: String,
+    pub tenant_id: String,
+    pub decisions: Vec<RoutingDecisionResponse>,
+    pub chain_verified: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chain_hash: Option<String>,
 }

@@ -185,6 +185,8 @@ pub fn App() -> impl IntoView {
                         <Route path=path!("/diff") view=|| view! { <ProtectedRoute><Shell><pages::Diff/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/workers") view=|| view! { <ProtectedRoute><Shell><pages::Workers/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/workers/:id") view=|| view! { <ProtectedRoute><Shell><pages::WorkerDetail/></Shell></ProtectedRoute> }/>
+                        <Route path=path!("/monitoring") view=|| view! { <ProtectedRoute><Shell><pages::Monitoring/></Shell></ProtectedRoute> }/>
+                        <Route path=path!("/routing") view=|| view! { <ProtectedRoute><Shell><pages::Routing/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/repositories") view=|| view! { <ProtectedRoute><Shell><pages::Repositories/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/repositories/:id") view=|| view! { <ProtectedRoute><Shell><pages::RepositoryDetail/></Shell></ProtectedRoute> }/>
                         // PRD-UI-000: Safe mode route (no auth required, no API calls)
