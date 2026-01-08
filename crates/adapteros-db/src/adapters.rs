@@ -4805,6 +4805,54 @@ impl Db {
         Ok((total, selected, avg_gate))
     }
 
+    /// Get adapter latency stats from performance summary table
+    /// Returns (avg_latency_ms, p95_latency_ms, p99_latency_ms) or None if no data
+    pub async fn get_adapter_latency_stats(
+        &self,
+        adapter_id: &str,
+    ) -> Result<Option<(f64, f64, f64)>> {
+        let row = sqlx::query(
+            r#"SELECT
+                COALESCE(avg_latency_us, 0) / 1000.0 as avg_ms,
+                COALESCE(p95_latency_us, 0) / 1000.0 as p95_ms,
+                COALESCE(p99_latency_us, 0) / 1000.0 as p99_ms
+            FROM adapter_performance_summary
+            WHERE adapter_id = ?
+            ORDER BY window_end DESC
+            LIMIT 1"#,
+        )
+        .bind(adapter_id)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(|e| AosError::database(e.to_string()))?;
+
+        match row {
+            Some(r) => {
+                let avg: f64 = r.try_get("avg_ms").unwrap_or(0.0);
+                let p95: f64 = r.try_get("p95_ms").unwrap_or(0.0);
+                let p99: f64 = r.try_get("p99_ms").unwrap_or(0.0);
+                Ok(Some((avg, p95, p99)))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Get adapter memory usage from performance metrics (last hour average)
+    /// Returns memory usage in MB or None if no data
+    pub async fn get_adapter_memory_usage(&self, adapter_id: &str) -> Result<Option<f64>> {
+        let row = sqlx::query_scalar::<_, f64>(
+            r#"SELECT AVG(memory_used_bytes) / 1024.0 / 1024.0 as memory_mb
+            FROM adapter_performance_metrics
+            WHERE adapter_id = ? AND recorded_at > datetime('now', '-1 hour')"#,
+        )
+        .bind(adapter_id)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(|e| AosError::database(e.to_string()))?;
+
+        Ok(row)
+    }
+
     /// Update adapter state
     pub async fn update_adapter_state(
         &self,

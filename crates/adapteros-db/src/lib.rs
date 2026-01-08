@@ -62,6 +62,7 @@ pub mod crypto_at_rest;
 // Database abstraction layer
 pub mod api_keys;
 pub mod chat_sessions_kv;
+pub mod client_errors;
 pub mod collections_kv;
 pub mod coreml_fusion_pairs;
 pub mod documents_kv;
@@ -1454,13 +1455,10 @@ impl Db {
             .await?;
         }
 
-        // Create sample nodes - includes "local" for single-node dev environments
+        // Create local node for single-node dev environments
         // The worker registration handler hardcodes node_id="local", so this must exist
         let nodes = vec![
             ("local", "localhost", "Local Dev", 32),
-            ("node-01", "m1-max-01.local", "M1 Max", 64),
-            ("node-02", "m2-ultra-01.local", "M2 Ultra", 128),
-            ("node-03", "m3-max-01.local", "M3 Max", 96),
         ];
 
         for (id, hostname, family, memory) in nodes {
