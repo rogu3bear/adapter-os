@@ -16,7 +16,7 @@
 //! ```
 //!
 //! # Reconnection Support
-//! Clients can reconnect using the `Last-Event-ID` header to resume from where they left off.
+//! Reconnection replay is not supported for this endpoint; clients should retry the request.
 
 use crate::api_error::ApiError;
 use crate::auth::{AuthMode, Claims, PrincipalType, JWT_ISSUER};
@@ -29,7 +29,6 @@ use crate::middleware::policy_enforcement::{
     compute_policy_mask_digest, create_hook_context, enforce_at_hook,
 };
 use crate::security::check_tenant_access;
-use crate::sse::{SseEventManager, SseStreamType};
 use crate::state::AppState;
 use crate::types::run_envelope::set_policy_mask;
 use crate::types::*;
@@ -40,7 +39,7 @@ use adapteros_types::adapters::metadata::RoutingDeterminismMode;
 use adapteros_types::coreml::CoreMLMode;
 use axum::{
     extract::{Extension, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::sse::{Event, KeepAlive, Sse},
     Json,
 };
@@ -552,37 +551,8 @@ pub async fn streaming_infer(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Extension(_identity): Extension<IdentityEnvelope>,
-    headers: HeaderMap,
     Json(req): Json<StreamingInferRequest>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<ErrorResponse>)> {
-    let sse_manager = state.sse_manager.clone();
-
-    // Parse Last-Event-ID for replay support
-    let last_event_id = SseEventManager::parse_last_event_id(&headers);
-
-    // Get replay events if reconnecting
-    let replay_events = if let Some(last_id) = last_event_id {
-        let events = sse_manager
-            .get_replay_events(SseStreamType::Inference, last_id)
-            .await;
-        if !events.is_empty() {
-            info!(
-                last_event_id = last_id,
-                replay_count = events.len(),
-                "Client reconnecting, replaying missed inference events"
-            );
-        }
-        events
-    } else {
-        Vec::new()
-    };
-
-    // Create replay stream
-    let replay_stream = futures_util::stream::iter(
-        replay_events
-            .into_iter()
-            .map(|e| Ok::<_, Infallible>(SseEventManager::to_axum_event(&e))),
-    );
     // Role check: Operator, SRE, and Admin can execute inference
     crate::permissions::require_permission(
         &claims,
@@ -950,9 +920,8 @@ pub async fn streaming_infer(
         },
     );
 
-    // Chain: replay events -> run envelope -> live stream
+    // Chain: run envelope -> live stream
     let stream = stream::once(async move { Ok(run_envelope_event(&run_envelope)) }).chain(stream);
-    let stream = replay_stream.chain(stream);
 
     Ok(Sse::new(stream).keep_alive(
         KeepAlive::new()

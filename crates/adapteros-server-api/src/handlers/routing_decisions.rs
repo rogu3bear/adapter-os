@@ -9,7 +9,10 @@ use crate::auth::Claims;
 use crate::middleware::require_any_role;
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
-use crate::types::ErrorResponse;
+use crate::types::{
+    AdapterScore, ErrorResponse, FeatureVector, RoutingDebugRequest, RoutingDebugResponse,
+    RoutingHistoryQuery,
+};
 use adapteros_core::Q15_GATE_DENOMINATOR;
 use adapteros_db::users::Role;
 use adapteros_db::{
@@ -18,12 +21,42 @@ use adapteros_db::{
 };
 use axum::extract::{Extension, Path, Query, State};
 use axum::http::StatusCode;
-use axum::{response::IntoResponse, Json};
+use axum::Json;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
 use tracing::{debug, warn};
 use utoipa::ToSchema;
 use uuid::Uuid;
+
+const LANGUAGE_ORDER: [&str; 8] = [
+    "python",
+    "rust",
+    "typescript",
+    "javascript",
+    "go",
+    "java",
+    "c",
+    "c++",
+];
+
+fn language_index(value: &str) -> Option<usize> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "python" => Some(0),
+        "rust" => Some(1),
+        "typescript" | "ts" => Some(2),
+        "javascript" | "js" => Some(3),
+        "go" | "golang" => Some(4),
+        "java" => Some(5),
+        "c" => Some(6),
+        "c++" | "cpp" => Some(7),
+        _ => None,
+    }
+}
+
+fn language_from_index(idx: usize) -> Option<&'static str> {
+    LANGUAGE_ORDER.get(idx).copied()
+}
 
 // ===== Stub Response Types =====
 
@@ -841,38 +874,200 @@ fn convert_decision_to_response(decision: DbRoutingDecision) -> RoutingDecisionR
 #[utoipa::path(
     post,
     path = "/v1/routing/debug",
-    request_body = serde_json::Value,
+    request_body = RoutingDebugRequest,
     responses(
-        (status = 200, description = "Routing debug info (not implemented)", body = NotImplementedResponse),
+        (status = 200, description = "Routing debug info", body = RoutingDebugResponse),
         (status = 500, description = "Internal server error", body = ErrorResponse)
     )
 )]
 pub async fn debug_routing(
-    State(_state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
-    Json(_payload): Json<serde_json::Value>,
-) -> impl IntoResponse {
-    // Stub implementation
-    Json(NotImplementedResponse {
-        status: "not_implemented".to_string(),
-        message: "Debug routing endpoint is not yet implemented".to_string(),
-    })
-    .into_response()
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(req): Json<RoutingDebugRequest>,
+) -> Result<Json<RoutingDebugResponse>, (StatusCode, Json<ErrorResponse>)> {
+    use adapteros_lora_router::{AdapterInfo, CodeFeatures, Router, RouterWeights};
+
+    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
+
+    let combined_context = match req.context {
+        Some(ctx) => format!("{} {}", req.prompt, ctx),
+        None => req.prompt.clone(),
+    };
+    let code_features = CodeFeatures::from_context(&combined_context);
+
+    let adapters = state
+        .db
+        .list_adapters_for_tenant(&claims.tenant_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to list adapters: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to fetch adapters for routing debug")
+                        .with_code("ADAPTER_FETCH_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let adapter_infos: Vec<AdapterInfo> = adapters
+        .iter()
+        .map(|adapter| {
+            let languages = adapter
+                .languages_json
+                .as_ref()
+                .and_then(|json| serde_json::from_str::<Vec<String>>(json).ok())
+                .map(|langs| {
+                    langs
+                        .into_iter()
+                        .filter_map(|lang| language_index(&lang))
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            AdapterInfo {
+                id: adapter.id.clone(),
+                framework: adapter.framework.clone(),
+                languages,
+                tier: adapter.tier.clone(),
+                base_model: adapter.base_model_id.clone(),
+                recommended_for_moe: adapter.recommended_for_moe.unwrap_or(true),
+                ..Default::default()
+            }
+        })
+        .collect();
+
+    let mut router = Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.02);
+    let decision = router
+        .route_with_code_features(&code_features, &adapter_infos)
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to compute routing decision for debug");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to compute routing decision")
+                        .with_code("ROUTING_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+    let explanation = router.explain_score(&code_features.to_vector());
+
+    let candidate_scores: HashMap<u16, f32> = decision
+        .candidates
+        .iter()
+        .map(|candidate| (candidate.adapter_idx, candidate.raw_score))
+        .collect();
+
+    let mut adapter_scores: Vec<AdapterScore> = Vec::new();
+    for (idx, adapter) in adapter_infos.iter().enumerate() {
+        let is_selected = decision.indices.iter().any(|&i| i as usize == idx);
+        let gate_value = if is_selected {
+            let position = decision
+                .indices
+                .iter()
+                .position(|&i| i as usize == idx)
+                .unwrap_or(0);
+            decision.gates_f32()[position] as f64
+        } else {
+            0.0
+        };
+
+        adapter_scores.push(AdapterScore {
+            adapter_id: adapter.id.clone(),
+            score: candidate_scores.get(&(idx as u16)).copied().unwrap_or(0.0) as f64,
+            gate_value,
+            selected: is_selected,
+        });
+    }
+
+    let detected_lang_idx = code_features
+        .lang_one_hot
+        .iter()
+        .enumerate()
+        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+        .map(|(idx, _)| idx);
+
+    let language = detected_lang_idx
+        .and_then(language_from_index)
+        .map(|s| s.to_string());
+
+    let frameworks: Vec<String> = code_features.framework_prior.keys().cloned().collect();
+
+    let selected_adapters: Vec<String> = decision
+        .indices
+        .iter()
+        .filter_map(|&idx| adapter_infos.get(idx as usize).map(|a| a.id.clone()))
+        .collect();
+
+    Ok(Json(RoutingDebugResponse {
+        features: FeatureVector {
+            language,
+            frameworks,
+            symbol_hits: code_features.symbol_hits as i32,
+            path_tokens: code_features.path_tokens.clone(),
+            verb: format!("{:?}", code_features.prompt_verb),
+        },
+        adapter_scores,
+        selected_adapters,
+        explanation: format!(
+            "Router selected {} adapters with entropy {:.3}. {}",
+            decision.indices.len(),
+            decision.entropy,
+            explanation.format()
+        ),
+    }))
 }
 
 /// Get routing history
 #[utoipa::path(
     get,
     path = "/v1/routing/history",
+    params(
+        ("limit" = Option<usize>, Query, description = "Maximum number of results (default: 50)")
+    ),
     responses(
-        (status = 200, description = "Routing history", body = RoutingHistoryResponse),
+        (status = 200, description = "Routing history", body = RoutingDecisionsResponse),
         (status = 500, description = "Internal server error", body = ErrorResponse)
     )
 )]
 pub async fn get_routing_history(
-    State(_state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
-) -> impl IntoResponse {
-    // Stub implementation
-    Json(RoutingHistoryResponse::default()).into_response()
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(params): Query<RoutingHistoryQuery>,
+) -> Result<Json<RoutingDecisionsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
+
+    let limit = params.limit.unwrap_or(50);
+    debug!(limit = limit, "Querying routing history from database");
+
+    let filters = RoutingDecisionFilters {
+        tenant_id: Some(claims.tenant_id.clone()),
+        limit: Some(limit),
+        ..Default::default()
+    };
+
+    let decisions = state
+        .db
+        .query_routing_decisions(&filters)
+        .await
+        .map_err(|e| {
+            warn!(error = %e, "Failed to query routing history");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to query routing decisions")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let items: Vec<RoutingDecisionResponse> = decisions
+        .into_iter()
+        .map(convert_decision_to_response)
+        .collect();
+
+    Ok(Json(RoutingDecisionsResponse { items }))
 }

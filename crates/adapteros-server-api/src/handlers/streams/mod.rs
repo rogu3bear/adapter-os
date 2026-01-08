@@ -10,7 +10,9 @@
 //! - Ring buffer storage for missed event recovery
 
 use crate::auth::Claims;
-use crate::sse::{SseEventManager, SseStreamType};
+use crate::permissions::{require_permission, Permission};
+use crate::security::check_tenant_access;
+use crate::sse::{EventGapRecoveryHint, SseErrorEvent, SseEventManager, SseStreamType};
 use crate::state::AppState;
 use crate::types::*;
 use axum::{
@@ -30,7 +32,7 @@ use tokio_stream::wrappers::BroadcastStream;
 /// Query parameters for stream endpoints
 #[derive(Debug, Deserialize)]
 pub struct StreamQuery {
-    pub tenant: String,
+    pub tenant: Option<String>,
 }
 
 /// Helper to create replay stream from Last-Event-ID
@@ -48,14 +50,30 @@ fn create_replay_stream(
 /// Pushes SystemMetrics every 5 seconds with monotonic IDs and replay support
 pub async fn system_metrics_stream(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
     headers: HeaderMap,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let has_permission = require_permission(&claims, Permission::MetricsView).is_ok();
+
+    if !has_permission {
+        tracing::warn!(
+            user_id = %claims.sub,
+            tenant_id = %claims.tenant_id,
+            "Permission denied for system metrics stream"
+        );
+        let event = Event::default()
+            .event("error")
+            .data("{\"error\": \"Permission denied - MetricsView required\"}");
+        let stream = stream::iter(vec![Ok(event)]);
+        return Sse::new(stream).keep_alive(KeepAlive::default());
+    }
+
     let sse_manager = state.sse_manager.clone();
 
     // Parse Last-Event-ID for replay
     let last_event_id = SseEventManager::parse_last_event_id(&headers);
 
+    let mut gap_events: Vec<Result<Event, Infallible>> = Vec::new();
     // Get replay events if reconnecting
     let replay_events = if let Some(last_id) = last_event_id {
         let result = sse_manager
@@ -64,6 +82,16 @@ pub async fn system_metrics_stream(
 
         // Log gap warning if events were lost
         if result.has_gap {
+            let stats = sse_manager.get_stats(SseStreamType::SystemMetrics);
+            let oldest_available_id = stats.map(|s| s.lowest_id).unwrap_or(0);
+            let gap_event = SseErrorEvent::gap_detected(
+                last_id,
+                oldest_available_id,
+                result.dropped_count,
+                EventGapRecoveryHint::RefetchFullState,
+            );
+            let gap_json = serde_json::to_string(&gap_event).unwrap_or_else(|_| "{}".to_string());
+            gap_events.push(Ok(Event::default().event("error").data(gap_json)));
             tracing::warn!(
                 last_id = last_id,
                 dropped = result.dropped_count,
@@ -76,7 +104,8 @@ pub async fn system_metrics_stream(
     };
 
     // Create replay stream
-    let replay_stream = create_replay_stream(replay_events);
+    let gap_stream = stream::iter(gap_events);
+    let replay_stream = FuturesStreamExt::chain(gap_stream, create_replay_stream(replay_events));
 
     // Create live stream
     let live_stream = stream::unfold(state.clone(), move |state| {
@@ -124,10 +153,26 @@ pub async fn system_metrics_stream(
 /// Streams telemetry events in real-time via broadcast channel with replay support
 pub async fn telemetry_events_stream(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
     headers: HeaderMap,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let has_permission = require_permission(&claims, Permission::TelemetryView).is_ok();
+
+    if !has_permission {
+        tracing::warn!(
+            user_id = %claims.sub,
+            tenant_id = %claims.tenant_id,
+            "Permission denied for telemetry events stream"
+        );
+        let event = Event::default()
+            .event("error")
+            .data("{\"error\": \"Permission denied - TelemetryView required\"}");
+        let stream = stream::iter(vec![Ok(event)]);
+        return Sse::new(stream).keep_alive(KeepAlive::default());
+    }
+
     let sse_manager = state.sse_manager.clone();
+    let tenant_id = claims.tenant_id.clone();
 
     // Parse Last-Event-ID for replay
     let last_event_id = SseEventManager::parse_last_event_id(&headers);
@@ -137,6 +182,28 @@ pub async fn telemetry_events_stream(
         sse_manager
             .get_replay_events(SseStreamType::Telemetry, last_id)
             .await
+            .into_iter()
+            .filter(|event| {
+                if event.event_type == "telemetry" {
+                    match serde_json::from_str::<
+                        adapteros_telemetry::unified_events::TelemetryEvent,
+                    >(&event.data)
+                    {
+                        Ok(parsed) => parsed.identity.tenant_id == tenant_id,
+                        Err(err) => {
+                            tracing::warn!(
+                                event_id = event.id,
+                                error = %err,
+                                "Failed to parse telemetry replay event for tenant filtering"
+                            );
+                            false
+                        }
+                    }
+                } else {
+                    true
+                }
+            })
+            .collect()
     } else {
         Vec::new()
     };
@@ -147,66 +214,70 @@ pub async fn telemetry_events_stream(
     // Subscribe to the telemetry broadcast channel for real-time events
     let receiver = state.telemetry_tx.subscribe();
 
+    let next_keepalive = tokio::time::Instant::now() + Duration::from_secs(30);
     let live_stream = stream::unfold(
-        (receiver, state.clone()),
-        move |(mut rx, state)| async move {
+        (receiver, state.clone(), tenant_id, next_keepalive),
+        move |(mut rx, state, tenant_id, mut next_keepalive)| async move {
             let mgr = state.sse_manager.clone();
 
-            // Use select to handle both real-time events and keepalive timeout
-            tokio::select! {
-                // Try to receive a real-time telemetry event
-                result = rx.recv() => {
-                    match result {
-                        Ok(telemetry_event) => {
-                            // Serialize the telemetry event
-                            let json = match serde_json::to_string(&telemetry_event) {
-                                Ok(j) => j,
-                                Err(e) => {
-                                    tracing::warn!("Failed to serialize telemetry event: {}", e);
-                                    let event = mgr
-                                        .create_error_event(SseStreamType::Telemetry, &format!("serialization failed: {}", e))
-                                        .await;
-                                    return Some((Ok(SseEventManager::to_axum_event(&event)), (rx, state)));
+            loop {
+                tokio::select! {
+                    biased;
+                    _ = tokio::time::sleep_until(next_keepalive) => {
+                        let buffer_len = state.telemetry_buffer.len().await;
+                        let health_json = serde_json::json!({
+                            "status": "keepalive",
+                            "buffer_size": buffer_len
+                        }).to_string();
+
+                        let event = mgr
+                            .create_event(SseStreamType::Telemetry, "keepalive", health_json)
+                            .await;
+                        next_keepalive = tokio::time::Instant::now() + Duration::from_secs(30);
+
+                        return Some((Ok(SseEventManager::to_axum_event(&event)), (rx, state, tenant_id, next_keepalive)));
+                    }
+                    result = rx.recv() => {
+                        match result {
+                            Ok(telemetry_event) => {
+                                if telemetry_event.identity.tenant_id != tenant_id {
+                                    continue;
                                 }
-                            };
 
-                            // Create event with monotonic ID
-                            let event = mgr
-                                .create_event(SseStreamType::Telemetry, "telemetry", json)
-                                .await;
+                                let json = match serde_json::to_string(&telemetry_event) {
+                                    Ok(j) => j,
+                                    Err(e) => {
+                                        tracing::warn!("Failed to serialize telemetry event: {}", e);
+                                        let event = mgr
+                                            .create_error_event(SseStreamType::Telemetry, &format!("serialization failed: {}", e))
+                                            .await;
+                                        next_keepalive = tokio::time::Instant::now() + Duration::from_secs(30);
+                                        return Some((Ok(SseEventManager::to_axum_event(&event)), (rx, state, tenant_id, next_keepalive)));
+                                    }
+                                };
 
-                            Some((Ok(SseEventManager::to_axum_event(&event)), (rx, state)))
-                        }
-                        Err(tokio::sync::broadcast::error::RecvError::Lagged(count)) => {
-                            // Client is lagging behind, notify and continue
-                            tracing::warn!(lagged_count = count, "Telemetry SSE client lagged behind");
-                            let data = serde_json::json!({ "lagged_events": count }).to_string();
-                            let event = mgr
-                                .create_event(SseStreamType::Telemetry, "warning", data)
-                                .await;
-                            Some((Ok(SseEventManager::to_axum_event(&event)), (rx, state)))
-                        }
-                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                            // Channel closed, end the stream gracefully
-                            tracing::info!("Telemetry broadcast channel closed");
-                            None
+                                let event = mgr
+                                    .create_event(SseStreamType::Telemetry, "telemetry", json)
+                                    .await;
+                                next_keepalive = tokio::time::Instant::now() + Duration::from_secs(30);
+
+                                return Some((Ok(SseEventManager::to_axum_event(&event)), (rx, state, tenant_id, next_keepalive)));
+                            }
+                            Err(tokio::sync::broadcast::error::RecvError::Lagged(count)) => {
+                                tracing::warn!(lagged_count = count, "Telemetry SSE client lagged behind");
+                                let data = serde_json::json!({ "lagged_events": count }).to_string();
+                                let event = mgr
+                                    .create_event(SseStreamType::Telemetry, "warning", data)
+                                    .await;
+                                next_keepalive = tokio::time::Instant::now() + Duration::from_secs(30);
+                                return Some((Ok(SseEventManager::to_axum_event(&event)), (rx, state, tenant_id, next_keepalive)));
+                            }
+                            Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                                tracing::info!("Telemetry broadcast channel closed");
+                                return None;
+                            }
                         }
                     }
-                }
-                // Send keepalive if no events for 30 seconds
-                _ = tokio::time::sleep(Duration::from_secs(30)) => {
-                    // Check buffer health and send status
-                    let buffer_len = state.telemetry_buffer.len().await;
-                    let health_json = serde_json::json!({
-                        "status": "keepalive",
-                        "buffer_size": buffer_len
-                    }).to_string();
-
-                    let event = mgr
-                        .create_event(SseStreamType::Telemetry, "keepalive", health_json)
-                        .await;
-
-                    Some((Ok(SseEventManager::to_axum_event(&event)), (rx, state)))
                 }
             }
         },
@@ -222,6 +293,21 @@ pub async fn adapter_state_stream(
     Extension(claims): Extension<Claims>,
     headers: HeaderMap,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let has_permission = require_permission(&claims, Permission::AdapterView).is_ok();
+
+    if !has_permission {
+        tracing::warn!(
+            user_id = %claims.sub,
+            tenant_id = %claims.tenant_id,
+            "Permission denied for adapter state stream"
+        );
+        let event = Event::default()
+            .event("error")
+            .data("{\"error\": \"Permission denied - AdapterView required\"}");
+        let stream = stream::iter(vec![Ok(event)]);
+        return Sse::new(stream).keep_alive(KeepAlive::default());
+    }
+
     let sse_manager = state.sse_manager.clone();
     let tenant_id = claims.tenant_id.clone();
 
@@ -307,7 +393,7 @@ pub async fn adapter_state_stream(
     get,
     path = "/v1/streams/training",
     params(
-        ("tenant" = String, Query, description = "Tenant ID for filtering events")
+        ("tenant" = Option<String>, Query, description = "Tenant ID for filtering events (defaults to caller tenant)")
     ),
     responses(
         (status = 200, description = "SSE stream of training events")
@@ -315,12 +401,29 @@ pub async fn adapter_state_stream(
 )]
 pub async fn training_stream(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
     Query(params): Query<StreamQuery>,
     headers: HeaderMap,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let tenant_id = params
+        .tenant
+        .clone()
+        .unwrap_or_else(|| claims.tenant_id.clone());
+    if !check_tenant_access(&claims, &tenant_id) {
+        tracing::warn!(
+            user_id = %claims.sub,
+            user_tenant = %claims.tenant_id,
+            requested_tenant = %tenant_id,
+            "Training stream tenant access denied"
+        );
+        let event = Event::default()
+            .event("error")
+            .data("{\"error\": \"Access denied for tenant training stream\"}");
+        let stream = stream::iter(vec![Ok(event)]);
+        return Sse::new(stream).keep_alive(KeepAlive::default());
+    }
+
     let sse_manager = state.sse_manager.clone();
-    let tenant_id = params.tenant.clone();
 
     // Parse Last-Event-ID for replay
     let last_event_id = SseEventManager::parse_last_event_id(&headers);

@@ -1,8 +1,9 @@
 //! Model runtime for base model load/unload.
 //!
 //! When mlx-ffi-backend feature is enabled, actually loads models via MLX FFI.
-//! Otherwise acts as a stub for environments where backend is not linked.
+//! Otherwise returns a clear configuration error unless demo mode enables simulation.
 
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
@@ -13,11 +14,24 @@ use adapteros_lora_mlx_ffi::{MLXFFIModel, ModelConfig};
 #[cfg(feature = "mlx-ffi-backend")]
 use lru::LruCache;
 #[cfg(feature = "mlx-ffi-backend")]
+use std::time::Instant;
+#[cfg(feature = "mlx-ffi-backend")]
 use tokio::task::AbortHandle;
 #[cfg(feature = "mlx-ffi-backend")]
 use tracing::info;
 
 use adapteros_secure_fs::traversal::normalize_path;
+
+fn env_truthy(key: &str) -> bool {
+    std::env::var(key)
+        .ok()
+        .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(false)
+}
+
+fn demo_simulation_enabled() -> bool {
+    env_truthy("AOS_DEMO_MODE")
+}
 
 /// Model loading specification
 #[derive(Clone, Debug)]
@@ -106,13 +120,17 @@ struct ModelCacheEntry {
 pub struct ModelRuntimeImpl {
     #[cfg(feature = "mlx-ffi-backend")]
     /// Loaded models by (tenant_id, model_id) with metadata
-    models: HashMap<ModelKey, ModelMetadata>,
+    models: RwLock<HashMap<ModelKey, ModelMetadata>>,
     /// Active operation handles for cancellation: (tenant_id, model_id) -> AbortHandle
     #[cfg(feature = "mlx-ffi-backend")]
-    active_operations: HashMap<ModelKey, AbortHandle>,
+    active_operations: RwLock<HashMap<ModelKey, AbortHandle>>,
     /// Model cache for lazy loading - stores recently used model paths
     #[cfg(feature = "mlx-ffi-backend")]
-    model_cache: lru::LruCache<ModelKey, ModelCacheEntry>,
+    model_cache: RwLock<lru::LruCache<ModelKey, ModelCacheEntry>>,
+    /// Simulated runtime state for demo mode when backend is unavailable
+    simulated_models: RwLock<HashMap<ModelKey, ModelHandle>>,
+    /// Whether simulation is enabled (demo mode)
+    simulated_enabled: bool,
     /// Lazy loading enabled flag
     lazy_loading_enabled: bool,
     /// Maximum number of models to keep cached
@@ -144,11 +162,15 @@ impl ModelRuntimeImpl {
     pub fn new() -> Self {
         Self {
             #[cfg(feature = "mlx-ffi-backend")]
-            models: HashMap::new(),
+            models: RwLock::new(HashMap::new()),
             #[cfg(feature = "mlx-ffi-backend")]
-            active_operations: HashMap::new(),
+            active_operations: RwLock::new(HashMap::new()),
             #[cfg(feature = "mlx-ffi-backend")]
-            model_cache: LruCache::new(std::num::NonZeroUsize::new(3).expect("Invalid cache size")),
+            model_cache: RwLock::new(LruCache::new(
+                std::num::NonZeroUsize::new(3).expect("Invalid cache size"),
+            )),
+            simulated_models: RwLock::new(HashMap::new()),
+            simulated_enabled: demo_simulation_enabled(),
             lazy_loading_enabled: false,
             max_cached_models: 3,
             cache_eviction_policy: "lru".to_string(),
@@ -169,11 +191,15 @@ impl ModelRuntimeImpl {
     ) -> Self {
         Self {
             #[cfg(feature = "mlx-ffi-backend")]
-            models: HashMap::new(),
+            models: RwLock::new(HashMap::new()),
             #[cfg(feature = "mlx-ffi-backend")]
-            active_operations: HashMap::new(),
+            active_operations: RwLock::new(HashMap::new()),
             #[cfg(feature = "mlx-ffi-backend")]
-            model_cache: LruCache::new(std::num::NonZeroUsize::new(3).expect("Invalid cache size")),
+            model_cache: RwLock::new(LruCache::new(
+                std::num::NonZeroUsize::new(3).expect("Invalid cache size"),
+            )),
+            simulated_models: RwLock::new(HashMap::new()),
+            simulated_enabled: demo_simulation_enabled(),
             lazy_loading_enabled: false,
             max_cached_models: 3,
             cache_eviction_policy: "lru".to_string(),
@@ -201,7 +227,8 @@ impl ModelRuntimeImpl {
         self.max_cached_models = max_cached;
         #[cfg(feature = "mlx-ffi-backend")]
         {
-            self.model_cache.resize(
+            let mut cache = self.model_cache.write();
+            cache.resize(
                 std::num::NonZeroUsize::new(max_cached)
                     .unwrap_or(std::num::NonZeroUsize::new(1).expect("Invalid default batch size")),
             );
@@ -217,18 +244,18 @@ impl ModelRuntimeImpl {
     #[cfg(feature = "mlx-ffi-backend")]
     pub fn evict_cache_entries(&mut self) -> usize {
         let mut evicted = 0;
+        let mut cache = self.model_cache.write();
 
         match self.cache_eviction_policy.as_str() {
             "lfu" => {
                 // Evict least frequently used entries when over capacity
-                while self.model_cache.len() > self.max_cached_models {
-                    if let Some((key, _)) = self
-                        .model_cache
+                while cache.len() > self.max_cached_models {
+                    if let Some((key, _)) = cache
                         .iter()
                         .min_by_key(|(_, entry)| entry.access_count)
                     {
                         let key_to_remove = key.clone();
-                        self.model_cache.pop(&key_to_remove);
+                        cache.pop(&key_to_remove);
                         evicted += 1;
                         info!("Evicted LFU cache entry: {:?}", key_to_remove);
                     }
@@ -238,15 +265,14 @@ impl ModelRuntimeImpl {
                 // Evict entries older than 1 hour (TTL policy)
                 let ttl_duration = Duration::from_secs(3600); // 1 hour
                 let now = Instant::now();
-                let keys_to_remove: Vec<_> = self
-                    .model_cache
+                let keys_to_remove: Vec<_> = cache
                     .iter()
                     .filter(|(_, entry)| now.duration_since(entry.created_at) > ttl_duration)
                     .map(|(key, _)| key.clone())
                     .collect();
 
                 for key in keys_to_remove {
-                    self.model_cache.pop(&key);
+                    cache.pop(&key);
                     evicted += 1;
                     info!("Evicted TTL cache entry: {:?}", key);
                 }
@@ -254,10 +280,10 @@ impl ModelRuntimeImpl {
             "lru" | _ => {
                 // LRU is handled automatically by the LruCache
                 // But we can still manually evict if over capacity
-                while self.model_cache.len() > self.max_cached_models {
-                    if let Some((key, _)) = self.model_cache.iter().next() {
+                while cache.len() > self.max_cached_models {
+                    if let Some((key, _)) = cache.iter().next() {
                         let key_to_remove = key.clone();
-                        self.model_cache.pop(&key_to_remove);
+                        cache.pop(&key_to_remove);
                         evicted += 1;
                         info!("Evicted LRU cache entry: {:?}", key_to_remove);
                     }
@@ -272,18 +298,17 @@ impl ModelRuntimeImpl {
     #[cfg(feature = "mlx-ffi-backend")]
     pub fn get_cache_stats(&self) -> HashMap<String, u64> {
         let mut stats = HashMap::new();
-        stats.insert("cache_size".to_string(), self.model_cache.len() as u64);
+        let cache = self.model_cache.read();
+        stats.insert("cache_size".to_string(), cache.len() as u64);
         stats.insert("max_cache_size".to_string(), self.max_cached_models as u64);
 
-        let total_accesses: u64 = self
-            .model_cache
+        let total_accesses: u64 = cache
             .iter()
             .map(|(_, entry)| entry.access_count)
             .sum();
         stats.insert("total_accesses".to_string(), total_accesses);
 
-        let total_size_bytes: u64 = self
-            .model_cache
+        let total_size_bytes: u64 = cache
             .iter()
             .map(|(_, entry)| entry.size_bytes)
             .sum();
@@ -298,7 +323,10 @@ impl ModelRuntimeImpl {
         tenant_id: &str,
         model_id: &str,
     ) -> Result<(), String> {
-        let _model_key = (tenant_id.to_string(), model_id.to_string());
+        let model_key = ModelKey {
+            tenant_id: tenant_id.to_string(),
+            model_id: model_id.to_string(),
+        };
 
         // If lazy loading is disabled, assume model is already loaded
         if !self.lazy_loading_enabled {
@@ -308,19 +336,25 @@ impl ModelRuntimeImpl {
         #[cfg(feature = "mlx-ffi-backend")]
         {
             // Check if model is already loaded
-            if self.models.contains_key(&model_key) {
+            if self.models.read().contains_key(&model_key) {
                 return Ok(());
             }
 
             // Check if model is in cache
-            if let Some(cache_entry) = self.model_cache.get(&model_key) {
-                // Update access statistics
-                let mut updated_entry = cache_entry.clone();
-                updated_entry.last_accessed = Instant::now();
-                updated_entry.access_count += 1;
-                self.model_cache.put(model_key.clone(), updated_entry);
+            let cache_entry = {
+                let mut cache = self.model_cache.write();
+                if let Some(entry) = cache.get(&model_key).cloned() {
+                    let mut updated_entry = entry.clone();
+                    updated_entry.last_accessed = Instant::now();
+                    updated_entry.access_count = updated_entry.access_count.saturating_add(1);
+                    cache.put(model_key.clone(), updated_entry.clone());
+                    Some(updated_entry)
+                } else {
+                    None
+                }
+            };
 
-                // Actually load the model now
+            if let Some(cache_entry) = cache_entry {
                 info!(
                     tenant_id = %tenant_id,
                     model_id = %model_id,
@@ -328,7 +362,6 @@ impl ModelRuntimeImpl {
                     cache_entry.model_path
                 );
 
-                // Call the existing load logic but skip the lazy loading path
                 let was_lazy = self.lazy_loading_enabled;
                 self.lazy_loading_enabled = false;
                 let result = self.load_model(tenant_id, model_id, &cache_entry.model_path, 0);
@@ -344,7 +377,11 @@ impl ModelRuntimeImpl {
         }
         #[cfg(not(feature = "mlx-ffi-backend"))]
         {
-            Err("MLX backend not available for model loading".to_string())
+            if self.simulated_enabled {
+                Ok(())
+            } else {
+                Err("MLX backend not available for model loading".to_string())
+            }
         }
     }
 
@@ -393,6 +430,7 @@ impl ModelRuntimeImpl {
         {
             let tenant_models = self
                 .models
+                .read()
                 .keys()
                 .filter(|key| key.tenant_id == _tenant_id)
                 .count();
@@ -420,7 +458,10 @@ impl ModelRuntimeImpl {
         model_path: &str,
         _memory_usage_mb: i32,
     ) -> Result<(), String> {
-        let _model_key = (tenant_id.to_string(), model_id.to_string());
+        let model_key = ModelKey {
+            tenant_id: tenant_id.to_string(),
+            model_id: model_id.to_string(),
+        };
 
         // If lazy loading is enabled, just cache the model path instead of loading
         if self.lazy_loading_enabled {
@@ -436,7 +477,10 @@ impl ModelRuntimeImpl {
                     created_at: Instant::now(),
                     size_bytes,
                 };
-                self.model_cache.put(model_key, cache_entry);
+                {
+                    let mut cache = self.model_cache.write();
+                    cache.put(model_key.clone(), cache_entry);
+                }
 
                 // Evict entries if we exceed capacity
                 self.evict_cache_entries();
@@ -451,8 +495,19 @@ impl ModelRuntimeImpl {
             }
             #[cfg(not(feature = "mlx-ffi-backend"))]
             {
-                warn!("Lazy loading requested but MLX backend not available - models will be cached but not actually loaded");
-                return Ok(());
+                if self.simulated_enabled {
+                    warn!(
+                        tenant_id = %tenant_id,
+                        model_id = %model_id,
+                        "Lazy loading requested in demo mode; model will be loaded on demand"
+                    );
+                    return Ok(());
+                }
+
+                return Err(
+                    "MLX backend not available. Build with `mlx-ffi-backend` or enable AOS_DEMO_MODE=1 for simulated runtime."
+                        .to_string(),
+                );
             }
         }
 
@@ -504,11 +559,16 @@ impl ModelRuntimeImpl {
             }
         }
 
+        let memory_usage_mb = if _memory_usage_mb > 0 {
+            _memory_usage_mb
+        } else {
+            ((metadata.len() / (1024 * 1024)) as i32).max(512)
+        };
+
         #[cfg(feature = "mlx-ffi-backend")]
         {
-            let key = (tenant_id.to_string(), model_id.to_string());
             // Check if model is already loaded
-            if self.models.contains_key(&key) {
+            if self.models.read().contains_key(&model_key) {
                 info!(
                     tenant_id = %tenant_id,
                     model_id = %model_id,
@@ -529,8 +589,8 @@ impl ModelRuntimeImpl {
                         memory_mb = %memory_usage_mb,
                         "Model loaded successfully"
                     );
-                    self.models.insert(
-                        key,
+                    self.models.write().insert(
+                        model_key,
                         ModelMetadata {
                             model,
                             memory_usage_mb,
@@ -540,7 +600,7 @@ impl ModelRuntimeImpl {
                 }
                 Err(e) => {
                     // Ensure no partial state: remove from HashMap if somehow present
-                    let was_present = self.models.remove(&key).is_some();
+                    let was_present = self.models.write().remove(&model_key).is_some();
                     if was_present {
                         warn!(
                             tenant_id = %tenant_id,
@@ -562,13 +622,24 @@ impl ModelRuntimeImpl {
 
         #[cfg(not(feature = "mlx-ffi-backend"))]
         {
-            warn!(
-                tenant_id = %tenant_id,
-                model_id = %model_id,
-                "Model runtime stub: mlx-ffi-backend feature not enabled"
-            );
-            // Stub mode: validation already done above
-            Ok(())
+            if self.simulated_enabled {
+                let handle = ModelHandle {
+                    key: model_key.clone(),
+                    memory_usage_mb,
+                };
+                self.simulated_models.write().insert(model_key, handle);
+                warn!(
+                    tenant_id = %tenant_id,
+                    model_id = %model_id,
+                    "Model runtime simulated load (demo mode)"
+                );
+                Ok(())
+            } else {
+                Err(
+                    "MLX backend not available. Build with `mlx-ffi-backend` or enable AOS_DEMO_MODE=1 for simulated runtime."
+                        .to_string(),
+                )
+            }
         }
     }
 
@@ -651,13 +722,13 @@ impl ModelRuntimeImpl {
             };
 
             // Check if already loaded
-            if self.models.contains_key(&key) {
+            if self.models.read().contains_key(&key) {
                 progress_callback(80.0, "Model already loaded, replacing".to_string());
-                self.models.remove(&key);
+                self.models.write().remove(&key);
             }
 
             progress_callback(80.0, "Registering model in runtime".to_string());
-            self.models.insert(
+            self.models.write().insert(
                 key,
                 ModelMetadata {
                     model,
@@ -676,13 +747,28 @@ impl ModelRuntimeImpl {
 
         #[cfg(not(feature = "mlx-ffi-backend"))]
         {
-            // Stub mode: just validate that loading would succeed
-            progress_callback(50.0, "MLX backend not available, running in stub mode".to_string());
-            warn!(
-                tenant_id = %tenant_id,
-                model_id = %model_id,
-                "Model runtime stub: mlx-ffi-backend feature not enabled"
-            );
+            if self.simulated_enabled {
+                let key = ModelKey {
+                    tenant_id: tenant_id.to_string(),
+                    model_id: model_id.to_string(),
+                };
+                let memory_usage_mb = ((metadata.len() / (1024 * 1024)) as i32).max(512);
+
+                progress_callback(50.0, "Simulating model load (demo mode)".to_string());
+                self.simulated_models.write().insert(
+                    key.clone(),
+                    ModelHandle {
+                        key,
+                        memory_usage_mb,
+                    },
+                );
+                progress_callback(80.0, "Model registered (simulated)".to_string());
+            } else {
+                return Err(
+                    "MLX backend not available. Build with `mlx-ffi-backend` or enable AOS_DEMO_MODE=1 for simulated runtime."
+                        .to_string(),
+                );
+            }
         }
 
         progress_callback(90.0, "Model loaded, finalizing".to_string());
@@ -844,15 +930,14 @@ impl ModelRuntimeImpl {
     pub fn unload_model(&mut self, tenant_id: &str, model_id: &str) -> Result<(), String> {
         #[cfg(feature = "mlx-ffi-backend")]
         {
-            let key = (tenant_id.to_string(), model_id.to_string());
-            if self.models.remove(&key).is_some() {
+            let key = ModelKey {
+                tenant_id: tenant_id.to_string(),
+                model_id: model_id.to_string(),
+            };
+            if self.models.write().remove(&key).is_some() {
                 // Also remove from active operations and cache if present
-                self.active_operations.remove(&key);
-                let cache_key = ModelKey {
-                    tenant_id: tenant_id.to_string(),
-                    model_id: model_id.to_string(),
-                };
-                self.model_cache.pop(&cache_key);
+                self.active_operations.write().remove(&key);
+                self.model_cache.write().pop(&key);
                 info!(
                     tenant_id = %tenant_id,
                     model_id = %model_id,
@@ -871,12 +956,25 @@ impl ModelRuntimeImpl {
 
         #[cfg(not(feature = "mlx-ffi-backend"))]
         {
-            warn!(
-                tenant_id = %tenant_id,
-                model_id = %model_id,
-                "Model runtime stub: unload no-op"
-            );
-            Ok(())
+            let key = ModelKey {
+                tenant_id: tenant_id.to_string(),
+                model_id: model_id.to_string(),
+            };
+            if self.simulated_models.write().remove(&key).is_some() {
+                warn!(
+                    tenant_id = %tenant_id,
+                    model_id = %model_id,
+                    "Model runtime simulated unload (demo mode)"
+                );
+            }
+            if self.simulated_enabled {
+                Ok(())
+            } else {
+                Err(
+                    "MLX backend not available. Build with `mlx-ffi-backend` or enable AOS_DEMO_MODE=1 for simulated runtime."
+                        .to_string(),
+                )
+            }
         }
     }
 
@@ -885,11 +983,14 @@ impl ModelRuntimeImpl {
         &mut self,
         tenant_id: &str,
         model_id: &str,
-        _timeout: Duration,
+        timeout: Duration,
     ) -> Result<(), String> {
         #[cfg(feature = "mlx-ffi-backend")]
         {
-            let key = (tenant_id.to_string(), model_id.to_string());
+            let key = ModelKey {
+                tenant_id: tenant_id.to_string(),
+                model_id: model_id.to_string(),
+            };
 
             // Spawn blocking task for unload (typically fast, but wrapped for consistency)
             let handle = tokio::spawn(async move {
@@ -905,23 +1006,19 @@ impl ModelRuntimeImpl {
 
             // Store abort handle
             let abort_handle = handle.abort_handle();
-            self.active_operations.insert(key.clone(), abort_handle);
+            self.active_operations.write().insert(key.clone(), abort_handle);
 
             // Apply timeout (unload should be fast, but timeout for safety)
             let result = tokio::time::timeout(timeout, handle).await;
 
-            self.active_operations.remove(&key);
+            self.active_operations.write().remove(&key);
 
             match result {
                 Ok(Ok(Ok(()))) => {
                     // Unload is just removing from HashMap
-                    if self.models.remove(&key).is_some() {
+                    if self.models.write().remove(&key).is_some() {
                         // Also remove from cache to prevent memory leak
-                        let cache_key = ModelKey {
-                            tenant_id: tenant_id.to_string(),
-                            model_id: model_id.to_string(),
-                        };
-                        self.model_cache.pop(&cache_key);
+                        self.model_cache.write().pop(&key);
                         info!(
                             tenant_id = %tenant_id,
                             model_id = %model_id,
@@ -957,7 +1054,7 @@ impl ModelRuntimeImpl {
                 }
                 Err(_) => {
                     // Timeout occurred - still try to remove from models
-                    if self.models.remove(&key).is_some() {
+                    if self.models.write().remove(&key).is_some() {
                         warn!(
                             tenant_id = %tenant_id,
                             model_id = %model_id,
@@ -971,12 +1068,25 @@ impl ModelRuntimeImpl {
 
         #[cfg(not(feature = "mlx-ffi-backend"))]
         {
-            warn!(
-                tenant_id = %tenant_id,
-                model_id = %model_id,
-                "Model runtime stub: unload no-op"
-            );
-            Ok(())
+            let key = ModelKey {
+                tenant_id: tenant_id.to_string(),
+                model_id: model_id.to_string(),
+            };
+            if self.simulated_models.write().remove(&key).is_some() {
+                warn!(
+                    tenant_id = %tenant_id,
+                    model_id = %model_id,
+                    "Model runtime simulated unload (demo mode)"
+                );
+            }
+            if self.simulated_enabled {
+                Ok(())
+            } else {
+                Err(
+                    "MLX backend not available. Build with `mlx-ffi-backend` or enable AOS_DEMO_MODE=1 for simulated runtime."
+                        .to_string(),
+                )
+            }
         }
     }
 
@@ -984,8 +1094,11 @@ impl ModelRuntimeImpl {
     pub fn cancel_operation(&mut self, _tenant_id: &str, _model_id: &str) -> bool {
         #[cfg(feature = "mlx-ffi-backend")]
         {
-            let key = (_tenant_id.to_string(), _model_id.to_string());
-            if let Some(handle) = self.active_operations.remove(&key) {
+            let key = ModelKey {
+                tenant_id: _tenant_id.to_string(),
+                model_id: _model_id.to_string(),
+            };
+            if let Some(handle) = self.active_operations.write().remove(&key) {
                 handle.abort();
                 info!(
                     tenant_id = %_tenant_id,
@@ -1008,11 +1121,14 @@ impl ModelRuntimeImpl {
     pub fn get_all_loaded_models(&self) -> Vec<ModelKey> {
         #[cfg(feature = "mlx-ffi-backend")]
         {
-            self.models.keys().cloned().collect()
+            self.models.read().keys().cloned().collect()
         }
 
         #[cfg(not(feature = "mlx-ffi-backend"))]
         {
+            if self.simulated_enabled {
+                return self.simulated_models.read().keys().cloned().collect();
+            }
             vec![]
         }
     }
@@ -1026,12 +1142,25 @@ impl ModelRuntimeImpl {
                 tenant_id: tenant_id.to_string(),
                 model_id: model_id.to_string(),
             };
-            self.models.get(&key).map(|metadata| metadata.memory_usage_mb)
+            self.models
+                .read()
+                .get(&key)
+                .map(|metadata| metadata.memory_usage_mb)
         }
 
         #[cfg(not(feature = "mlx-ffi-backend"))]
         {
-            let _ = (tenant_id, model_id);
+            let key = ModelKey {
+                tenant_id: tenant_id.to_string(),
+                model_id: model_id.to_string(),
+            };
+            if self.simulated_enabled {
+                return self
+                    .simulated_models
+                    .read()
+                    .get(&key)
+                    .map(|handle| handle.memory_usage_mb);
+            }
             None
         }
     }
@@ -1041,13 +1170,20 @@ impl ModelRuntimeImpl {
     pub fn is_model_loaded(&self, _tenant_id: &str, _model_id: &str) -> bool {
         #[cfg(feature = "mlx-ffi-backend")]
         {
-            let key = (_tenant_id.to_string(), _model_id.to_string());
-            self.models.contains_key(&key)
+            let key = ModelKey {
+                tenant_id: _tenant_id.to_string(),
+                model_id: _model_id.to_string(),
+            };
+            self.models.read().contains_key(&key)
         }
 
         #[cfg(not(feature = "mlx-ffi-backend"))]
         {
-            false // Stub mode: no models loaded
+            let key = ModelKey {
+                tenant_id: _tenant_id.to_string(),
+                model_id: _model_id.to_string(),
+            };
+            self.simulated_enabled && self.simulated_models.read().contains_key(&key)
         }
     }
 
@@ -1055,10 +1191,13 @@ impl ModelRuntimeImpl {
     pub fn get_loaded_count(&self) -> usize {
         #[cfg(feature = "mlx-ffi-backend")]
         {
-            self.models.len()
+            self.models.read().len()
         }
         #[cfg(not(feature = "mlx-ffi-backend"))]
         {
+            if self.simulated_enabled {
+                return self.simulated_models.read().len();
+            }
             0
         }
     }
@@ -1104,8 +1243,8 @@ impl ModelRuntimeImpl {
 impl ModelRuntime for ModelRuntimeImpl {
     async fn load_model_async_with_progress<F>(
         &self,
-        _req: LoadModelSpec,
-        _on_progress: F,
+        req: LoadModelSpec,
+        on_progress: F,
     ) -> Result<ModelHandle, ModelLoadError>
     where
         F: Fn(ProgressEvent) + Send + Sync + 'static,
@@ -1118,7 +1257,7 @@ impl ModelRuntime for ModelRuntimeImpl {
                 model_id: req.model_id.clone(),
             };
 
-            if let Some(metadata) = self.models.get(&key) {
+            if let Some(metadata) = self.models.read().get(&key) {
                 on_progress(ProgressEvent {
                     pct: 100.0,
                     message: "Model already loaded".to_string(),
@@ -1175,7 +1314,7 @@ impl ModelRuntime for ModelRuntimeImpl {
                 model,
                 memory_usage_mb,
             };
-            self.models.insert(key.clone(), metadata);
+            self.models.write().insert(key.clone(), metadata);
 
             Ok(ModelHandle {
                 key,
@@ -1184,27 +1323,58 @@ impl ModelRuntime for ModelRuntimeImpl {
         }
         #[cfg(not(feature = "mlx-ffi-backend"))]
         {
-            Err(ModelLoadError::Backend(
-                "MLX backend not available".to_string(),
-            ))
+            if self.simulated_enabled {
+                let key = ModelKey {
+                    tenant_id: req.tenant_id.clone(),
+                    model_id: req.model_id.clone(),
+                };
+                let memory_usage_mb = std::fs::metadata(&req.model_path)
+                    .map(|m| ((m.len() / (1024 * 1024)) as i32).max(512))
+                    .unwrap_or(512);
+
+                on_progress(ProgressEvent {
+                    pct: 60.0,
+                    message: "Simulating model load (demo mode)".to_string(),
+                });
+
+                let handle = ModelHandle {
+                    key: key.clone(),
+                    memory_usage_mb,
+                };
+                self.simulated_models
+                    .write()
+                    .insert(key.clone(), handle.clone());
+
+                on_progress(ProgressEvent {
+                    pct: 100.0,
+                    message: "Model loaded (simulated)".to_string(),
+                });
+
+                Ok(handle)
+            } else {
+                Err(ModelLoadError::Backend(
+                    "MLX backend not available. Build with `mlx-ffi-backend` or enable AOS_DEMO_MODE=1 for simulated runtime."
+                        .to_string(),
+                ))
+            }
         }
     }
 
     fn is_loaded(&self, _key: &ModelKey) -> bool {
         #[cfg(feature = "mlx-ffi-backend")]
         {
-            self.models.contains_key(_key)
+            self.models.read().contains_key(_key)
         }
         #[cfg(not(feature = "mlx-ffi-backend"))]
         {
-            false
+            self.simulated_enabled && self.simulated_models.read().contains_key(_key)
         }
     }
 
     async fn unload(&self, _key: &ModelKey) -> Result<(), ModelLoadError> {
         #[cfg(feature = "mlx-ffi-backend")]
         {
-            if self.models.remove(_key).is_some() {
+            if self.models.write().remove(_key).is_some() {
                 Ok(())
             } else {
                 Err(ModelLoadError::NotFound(format!(
@@ -1215,9 +1385,21 @@ impl ModelRuntime for ModelRuntimeImpl {
         }
         #[cfg(not(feature = "mlx-ffi-backend"))]
         {
-            Err(ModelLoadError::Backend(
-                "MLX backend not available".to_string(),
-            ))
+            if self.simulated_enabled {
+                if self.simulated_models.write().remove(_key).is_some() {
+                    Ok(())
+                } else {
+                    Err(ModelLoadError::NotFound(format!(
+                        "{}:{}",
+                        _key.tenant_id, _key.model_id
+                    )))
+                }
+            } else {
+                Err(ModelLoadError::Backend(
+                    "MLX backend not available. Build with `mlx-ffi-backend` or enable AOS_DEMO_MODE=1 for simulated runtime."
+                        .to_string(),
+                ))
+            }
         }
     }
 }
