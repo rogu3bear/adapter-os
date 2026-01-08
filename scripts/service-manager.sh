@@ -1247,9 +1247,10 @@ start_worker() {
 
     echo "$pid" > "$WORKER_PID_FILE"
 
-    # Wait for socket to be created (configurable timeout, default 30 seconds)
+    # Wait for socket to be created (configurable timeout, default 90 seconds)
     local waited=0
-    local timeout="${AOS_WORKER_TIMEOUT:-30}"
+    local timeout="${AOS_WORKER_TIMEOUT:-90}"
+    local log_interval=5
     while [ $waited -lt "$timeout" ]; do
         # Early exit: check if process died during startup
         if ! kill -0 "$pid" 2>/dev/null; then
@@ -1271,6 +1272,9 @@ start_worker() {
 
             return 0
         fi
+        if (( waited % log_interval == 0 )); then
+            status_msg "Waiting for worker socket... elapsed=${waited}s target=${uds_path} pid=${pid}"
+        fi
         sleep 1
         ((waited++))
     done
@@ -1278,7 +1282,7 @@ start_worker() {
     # Check if process is still running
     if kill -0 "$pid" 2>/dev/null; then
         # Process is running but socket never created - this is a failure
-        error_msg "Worker process running but socket never created after 30s (PID: $pid)"
+        error_msg "Worker process running but socket never created after ${timeout}s (PID: $pid, Socket: $uds_path)"
         error_msg "This usually indicates a startup error. Check logs: $WORKER_LOG"
         # Don't register worker in DB since it's not functional
         update_worker_status "failed" || true

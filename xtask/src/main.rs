@@ -10,6 +10,7 @@ mod determinism_report;
 mod openapi_docs;
 mod pack_lora;
 mod sbom;
+mod test_orchestrator;
 mod train_base_adapter;
 mod verify_adapters;
 mod verify_artifacts;
@@ -51,6 +52,18 @@ async fn main() -> Result<()> {
                 pack_lora::PackLoraArgs::parse()
             };
             pack_lora::run(parsed).await?;
+        }
+        Some("test-orchestrator") => {
+            use clap::Parser;
+            let args_vec: Vec<String> = env::args().collect();
+            let parsed = if args_vec.len() > 1 {
+                let mut new_args = vec![args_vec[0].clone()];
+                new_args.extend(args_vec[2..].to_vec());
+                test_orchestrator::TestOrchestratorArgs::parse_from(new_args)
+            } else {
+                test_orchestrator::TestOrchestratorArgs::parse()
+            };
+            test_orchestrator::run(parsed)?;
         }
         Some("train-base-adapter") => {
             use clap::Parser;
@@ -109,6 +122,7 @@ fn print_help() {
     println!("  verify-artifacts    Verify and sign release artifacts");
     println!("  openapi-docs        Generate OpenAPI documentation markdown");
     println!("  verify-adapters     Verify all adapter deliverables and proofs");
+    println!("  test-orchestrator   Plan/run tests with inventory + capability gating");
     println!("  code2db-dataset     Build JSON training dataset for code→DB tasks");
     println!("  pack-lora           Quantize and package trained LoRA weights");
     println!("  train-base-adapter  Train base adapter from manifest");

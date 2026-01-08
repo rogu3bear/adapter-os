@@ -143,7 +143,35 @@ else
 fi
 echo ""
 
-# 5. Summary
+# 5. Validate SRI digests match on-disk assets
+echo "--- SRI Validation ---"
+if command -v openssl >/dev/null 2>&1 && command -v perl >/dev/null 2>&1; then
+    if [ -f "$INDEX_FILE" ]; then
+        while read -r asset integrity; do
+            if [ -z "$asset" ] || [ -z "$integrity" ]; then
+                continue
+            fi
+            asset_path="$STATIC_DIR/$asset"
+            if [ ! -f "$asset_path" ]; then
+                log_error "Integrity entry refers to missing asset: $asset"
+                continue
+            fi
+            actual="sha384-$(openssl dgst -sha384 -binary "$asset_path" | base64)"
+            if [ "$actual" = "$integrity" ]; then
+                log_success "SRI ok: $asset"
+            else
+                log_error "SRI mismatch for $asset (index=$integrity, actual=$actual)"
+            fi
+        done < <(perl -ne 'while (/href="\/([^"]+)"[^>]*integrity="(sha384-[^"]+)"/g){print "$1 $2\n"}' "$INDEX_FILE")
+    else
+        log_error "index.html missing; cannot validate integrity attributes"
+    fi
+else
+    log_info "Skipping SRI validation (openssl/perl not available)"
+fi
+echo ""
+
+# 6. Summary
 echo "=== Summary ==="
 if [ $ERRORS -eq 0 ]; then
     echo "All UI asset checks passed!"

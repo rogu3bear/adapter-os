@@ -42,6 +42,7 @@ if [[ -z "$WASM_FILE" ]]; then
     echo "Error: WASM file not found in $STATIC_DIR"
     exit 1
 fi
+JS_FILE=$(ls "$STATIC_DIR"/adapteros-ui-*.js 2>/dev/null | head -1)
 
 BEFORE_SIZE=$(stat -f%z "$WASM_FILE" 2>/dev/null || stat -c%s "$WASM_FILE" 2>/dev/null)
 echo "Before optimization: $BEFORE_SIZE bytes ($(echo "scale=2; $BEFORE_SIZE / 1048576" | bc) MB)"
@@ -105,6 +106,49 @@ if [[ "$BROTLI_SIZE" -gt 0 ]]; then
         echo ""
         echo "✓ Within size budgets"
     fi
+fi
+
+# Recompute SRI hashes so index.html stays in sync after post-processing
+update_integrity_attr() {
+    local index_file="$1"
+    local asset_path="$2"
+    if [[ -z "$asset_path" ]]; then
+        echo "Skipping SRI update for empty asset path"
+        return
+    fi
+    local asset_name
+    asset_name="$(basename "$asset_path")"
+
+    if [[ ! -f "$asset_path" ]]; then
+        echo "Skipping SRI update for missing asset: $asset_name"
+        return
+    fi
+
+    local sri
+    sri=$(openssl dgst -sha384 -binary "$asset_path" | base64)
+    if perl -0pi -e 's|(href="/\Q'"$asset_name"'\E"[^>]*integrity=")sha384-[^"]+(")|${1}sha384-'"$sri"'${2}|' "$index_file"; then
+        echo "Updated integrity for $asset_name (sha384-$sri)"
+    else
+        echo "Note: integrity attribute not found for $asset_name (skipped)"
+    fi
+}
+
+INDEX_FILE="$STATIC_DIR/index.html"
+if command -v openssl >/dev/null 2>&1 && command -v perl >/dev/null 2>&1 && [[ -f "$INDEX_FILE" ]]; then
+    echo ""
+    echo "=== Updating Subresource Integrity Digests ==="
+    if [[ -n "$JS_FILE" ]]; then
+        update_integrity_attr "$INDEX_FILE" "$JS_FILE"
+    fi
+    if [[ -n "$WASM_FILE" ]]; then
+        update_integrity_attr "$INDEX_FILE" "$WASM_FILE"
+    fi
+    for css_file in "$STATIC_DIR"/*.css; do
+        update_integrity_attr "$INDEX_FILE" "$css_file"
+    done
+else
+    echo ""
+    echo "Skipping SRI update (missing openssl/perl or index.html)"
 fi
 
 echo ""
