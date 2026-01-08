@@ -41,11 +41,19 @@ use std::path::PathBuf;
 /// Serialize WeightGroup to safetensors binary format
 fn serialize_weights_to_safetensors(weights: &WeightGroup) -> Result<Vec<u8>> {
     // Flatten lora_a: Vec<Vec<f32>> -> Vec<f32> -> bytes
-    let lora_a_flat: Vec<f32> = weights.lora_a.iter().flat_map(|row| row.iter().copied()).collect();
+    let lora_a_flat: Vec<f32> = weights
+        .lora_a
+        .iter()
+        .flat_map(|row| row.iter().copied())
+        .collect();
     let lora_a_bytes: Vec<u8> = lora_a_flat.iter().flat_map(|f| f.to_le_bytes()).collect();
 
     // Flatten lora_b: Vec<Vec<f32>> -> Vec<f32> -> bytes
-    let lora_b_flat: Vec<f32> = weights.lora_b.iter().flat_map(|row| row.iter().copied()).collect();
+    let lora_b_flat: Vec<f32> = weights
+        .lora_b
+        .iter()
+        .flat_map(|row| row.iter().copied())
+        .collect();
     let lora_b_bytes: Vec<u8> = lora_b_flat.iter().flat_map(|f| f.to_le_bytes()).collect();
 
     // Get shapes
@@ -57,19 +65,18 @@ fn serialize_weights_to_safetensors(weights: &WeightGroup) -> Result<Vec<u8>> {
         safetensors::Dtype::F32,
         vec![rank, hidden_dim],
         &lora_a_bytes,
-    ).map_err(|e| AosError::Training(format!("Failed to create lora_a tensor: {}", e)))?;
+    )
+    .map_err(|e| AosError::Training(format!("Failed to create lora_a tensor: {}", e)))?;
 
     let lora_b_view = TensorView::new(
         safetensors::Dtype::F32,
         vec![hidden_dim, rank],
         &lora_b_bytes,
-    ).map_err(|e| AosError::Training(format!("Failed to create lora_b tensor: {}", e)))?;
+    )
+    .map_err(|e| AosError::Training(format!("Failed to create lora_b tensor: {}", e)))?;
 
     // Serialize to safetensors format
-    let tensors = vec![
-        ("lora_a", lora_a_view),
-        ("lora_b", lora_b_view),
-    ];
+    let tensors = vec![("lora_a", lora_a_view), ("lora_b", lora_b_view)];
 
     safetensors::tensor::serialize(tensors, &None)
         .map_err(|e| AosError::Training(format!("Failed to serialize weights: {}", e)))
@@ -195,7 +202,6 @@ pub struct MigrateArgs {
     #[arg(long, default_value = "true")]
     pub backup: bool,
 }
-
 
 pub async fn run(args: AosArgs, output: &OutputWriter) -> Result<()> {
     match args.cmd {

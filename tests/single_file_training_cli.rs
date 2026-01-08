@@ -344,12 +344,15 @@ async fn verify_weight_values_match(
     Ok(())
 }
 
-/// Verify .aos file exists and has valid AOS format header
-fn verify_aos_file_exists(aos_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+/// Verify .aos file has valid AOS format header (at least 64 bytes)
+fn verify_aos_file_header(aos_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     assert!(aos_path.exists(), "AOS file should exist");
     // Verify it's at least the size of an AOS header (64 bytes)
     let metadata = std::fs::metadata(aos_path)?;
-    assert!(metadata.len() >= 64, "AOS file should have at least 64-byte header");
+    assert!(
+        metadata.len() >= 64,
+        "AOS file should have at least 64-byte header"
+    );
     Ok(())
 }
 

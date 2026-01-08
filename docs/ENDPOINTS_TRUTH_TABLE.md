@@ -397,15 +397,20 @@ Routes are organized into 6 main groups with specific middleware chains:
 
 | Method | Path | Handler | Purpose |
 |--------|------|---------|---------|
-| GET | `/v1/stream/metrics` | `system_metrics_stream` | Metrics stream |
-| GET | `/v1/stream/telemetry` | `telemetry_events_stream` | Telemetry stream |
-| GET | `/v1/stream/adapters` | `adapter_state_stream` | Adapter stream |
-| GET | `/v1/stream/boot-progress` | `boot_progress_stream` | Boot progress |
-| GET | `/v1/stream/stack-policies/{id}` | `stack_policy_stream` | Stack policy |
-| GET/HEAD | `/v1/stream/notifications` | `notifications_stream` | Notifications |
-| GET | `/v1/stream/messages/{ws_id}` | `messages_stream` | Messages |
-| GET | `/v1/stream/activity/{ws_id}` | `activity_stream` | Activity |
-| GET | `/v1/stream/trace-receipts` | `trace_receipts_stream` | Trace receipts |
+| GET | `/v1/stream/metrics` | `streams::system_metrics_stream` | Metrics stream |
+| GET | `/v1/stream/telemetry` | `streams::telemetry_events_stream` | Telemetry stream |
+| GET | `/v1/stream/adapters` | `streams::adapter_state_stream` | Adapter stream |
+| GET | `/v1/stream/boot-progress` | `streaming::boot_progress_stream` | Boot progress |
+| GET | `/v1/stream/stack-policies/{id}` | `adapter_stacks::stack_policy_stream` | Stack policy |
+| GET/HEAD | `/v1/stream/notifications` | `streaming::notifications_stream` | Notifications |
+| GET | `/v1/stream/messages/{ws_id}` | `streaming::messages_stream` | Messages |
+| GET | `/v1/stream/activity/{ws_id}` | `streaming::activity_stream` | Activity |
+| GET | `/v1/stream/trace-receipts` | `streaming::trace_receipts_stream` | Trace receipts |
+| GET | `/v1/streams/training` | `streams::training_stream` | Training events |
+| GET | `/v1/streams/discovery` | `discovery::discovery_stream` | Discovery events |
+| GET | `/v1/streams/contacts` | `discovery::contacts_stream` | Contacts events |
+| GET | `/v1/streams/file-changes` | `git::file_changes_stream` | File change notifications |
+| GET | `/v1/logs/stream` | `telemetry::stream_logs` | Log stream |
 
 ---
 

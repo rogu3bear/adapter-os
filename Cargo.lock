@@ -920,6 +920,7 @@ dependencies = [
  "adapteros-lora-kernel-mtl",
  "adapteros-manifest",
  "adapteros-memory",
+ "adapteros-model-hub",
  "adapteros-profiler",
  "adapteros-single-file-adapter",
  "adapteros-telemetry",

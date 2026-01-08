@@ -40,12 +40,13 @@
 |-----------|----------|--------|------|
 | System Status | `/v1/system/status` | GET | One-time |
 | Workers List | `/v1/workers` | GET | One-time |
-| Live Metrics | `/api/v1/stream/metrics` | SSE | Real-time |
+| Live Metrics | `/v1/stream/metrics` | SSE (`metrics` event) | Real-time |
 
 **Features:**
 - Metrics history (60 data points max)
 - Sparklines for CPU, Memory, GPU, RPS, Latency
 - SSE connection state indicator
+- Dashboard listens to the `metrics` event type for live updates
 
 ---
 
@@ -338,7 +339,7 @@
 | Delete | DELETE | `/v1/documents/{id}` |
 | Action | POST | `/v1/workers/{id}/drain` |
 | Stream | POST/SSE | `/v1/infer/stream` |
-| Metrics Stream | GET/SSE | `/api/v1/stream/metrics` |
+| Metrics Stream | GET/SSE | `/v1/stream/metrics` |
 
 ---
 
