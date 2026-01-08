@@ -4,8 +4,8 @@
 
 use crate::api::client::{ApiClient, PolicyPackResponse};
 use crate::components::{
-    Button, ButtonVariant, Card, Spinner, Table, TableBody, TableCell, TableHead, TableHeader,
-    TableRow,
+    Button, ButtonVariant, Card, ErrorDisplay, Spinner, SplitPanel, Table, TableBody, TableCell,
+    TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use leptos::prelude::*;
@@ -32,82 +32,76 @@ pub fn Policies() -> impl IntoView {
         selected_cpid.set(None);
     };
 
-    // Dynamic class for left panel width
-    let left_panel_class = move || {
-        if selected_cpid.get().is_some() {
-            "w-1/2 space-y-6 pr-4"
-        } else {
-            "flex-1 space-y-6 pr-4"
-        }
-    };
+    // Derive selection state for SplitPanel
+    let has_selection = Signal::derive(move || selected_cpid.get().is_some());
 
     view! {
-        <div class="p-6 flex h-full">
-                // Left panel: Policy list
-                <div class=left_panel_class>
-                    <div class="flex items-center justify-between">
-                        <div>
-                            <h1 class="text-3xl font-bold tracking-tight">"Policy Packs"</h1>
-                            <p class="text-muted-foreground mt-1">"Manage inference policies and enforcement rules"</p>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <Button
-                                variant=ButtonVariant::Outline
-                                on_click=Callback::new(move |_| refetch_signal.with_value(|f| f()))
-                            >
-                                "Refresh"
-                            </Button>
-                        </div>
-                    </div>
-
-                    {move || {
-                        match policies.get() {
-                            LoadingState::Idle | LoadingState::Loading => {
-                                view! {
-                                    <div class="flex items-center justify-center py-12">
-                                        <Spinner/>
-                                    </div>
-                                }.into_any()
-                            }
-                            LoadingState::Loaded(data) => {
-                                view! {
-                                    <PolicyList
-                                        policies=data
-                                        selected_cpid=selected_cpid
-                                        on_select=on_policy_select
-                                    />
-                                }.into_any()
-                            }
-                            LoadingState::Error(e) => {
-                                view! {
-                                    <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
-                                        <p class="text-destructive">{e.to_string()}</p>
-                                        <button
-                                            class="mt-2 text-sm text-destructive underline"
-                                            on:click=move |_| refetch_signal.with_value(|f| f())
-                                        >
-                                            "Retry"
-                                        </button>
-                                    </div>
-                                }.into_any()
-                            }
-                        }
-                    }}
-                </div>
-
-                // Right panel: Policy detail (when selected)
-                {move || {
-                    selected_cpid.get().map(|cpid| {
-                        view! {
-                            <div class="w-1/2 border-l pl-4">
-                                <PolicyDetail
-                                    cpid=cpid
-                                    on_close=on_close_detail
-                                />
+        <div class="p-6 space-y-6">
+            <SplitPanel
+                has_selection=has_selection
+                on_close=Callback::new(move |_| on_close_detail())
+                back_label="Back to Policies"
+                list_panel=move || {
+                    view! {
+                        <div class="space-y-6">
+                            // Header
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <h1 class="text-3xl font-bold tracking-tight">"Policy Packs"</h1>
+                                    <p class="text-muted-foreground mt-1">"Manage inference policies and enforcement rules"</p>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <Button
+                                        variant=ButtonVariant::Outline
+                                        on_click=Callback::new(move |_| refetch_signal.with_value(|f| f()))
+                                    >
+                                        "Refresh"
+                                    </Button>
+                                </div>
                             </div>
-                        }
-                    })
-                }}
+
+                            // Policy list
+                            {move || {
+                                match policies.get() {
+                                    LoadingState::Idle | LoadingState::Loading => {
+                                        view! {
+                                            <div class="flex items-center justify-center py-12">
+                                                <Spinner/>
+                                            </div>
+                                        }.into_any()
+                                    }
+                                    LoadingState::Loaded(data) => {
+                                        view! {
+                                            <PolicyList
+                                                policies=data
+                                                selected_cpid=selected_cpid
+                                                on_select=on_policy_select
+                                            />
+                                        }.into_any()
+                                    }
+                                    LoadingState::Error(e) => {
+                                        view! {
+                                            <ErrorDisplay
+                                                error=e
+                                                on_retry=Callback::new(move |_| refetch_signal.with_value(|f| f()))
+                                            />
+                                        }.into_any()
+                                    }
+                                }
+                            }}
+                        </div>
+                    }
+                }
+                detail_panel=move || {
+                    let cpid = selected_cpid.get().unwrap_or_default();
+                    view! {
+                        <PolicyDetail
+                            cpid=cpid
+                            on_close=on_close_detail
+                        />
+                    }
+                }
+            />
         </div>
     }
 }
@@ -247,15 +241,10 @@ fn PolicyDetail(cpid: String, on_close: impl Fn() + Copy + 'static) -> impl Into
                     }
                     LoadingState::Error(e) => {
                         view! {
-                            <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
-                                <p class="text-destructive">{e.to_string()}</p>
-                                <button
-                                    class="mt-2 text-sm text-destructive underline"
-                                    on:click=move |_| refetch_signal.with_value(|f| f())
-                                >
-                                    "Retry"
-                                </button>
-                            </div>
+                            <ErrorDisplay
+                                error=e
+                                on_retry=Callback::new(move |_| refetch_signal.with_value(|f| f()))
+                            />
                         }.into_any()
                     }
                 }

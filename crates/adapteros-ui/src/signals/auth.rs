@@ -173,7 +173,11 @@ impl AuthAction {
         if self.current_attempt() != my_attempt {
             boot_log(
                 "auth",
-                &format!("ignoring stale result (attempt {} != current {})", my_attempt, self.current_attempt()),
+                &format!(
+                    "ignoring stale result (attempt {} != current {})",
+                    my_attempt,
+                    self.current_attempt()
+                ),
             );
             return;
         }

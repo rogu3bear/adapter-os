@@ -1,193 +1,31 @@
-//! System page
+//! System page components
 //!
-//! Comprehensive system overview with status, workers, nodes, health details,
-//! metrics summary, and recent events.
-//!
-//! Uses SSE for real-time worker status updates via `/v1/stream/workers`.
+//! UI components for the system overview page including status cards,
+//! workers/nodes tables, health details, metrics, and boot status.
 
-use crate::api::{use_sse_json, ApiClient, SseState};
+use crate::api::SseState;
 use crate::components::{
-    Badge, BadgeVariant, Card, Spinner, StatusColor, StatusIndicator, Table, TableBody, TableCell,
+    Badge, BadgeVariant, Card, StatusColor, StatusIndicator, Table, TableBody, TableCell,
     TableHead, TableHeader, TableRow,
 };
-use crate::hooks::{use_api_resource, use_sse_notifications, LoadingState};
 use adapteros_api_types::{
-    workers::WorkerStatusUpdate, ComponentCheck, DriftLevel, InferenceBlocker, InferenceReadyState,
-    NodeResponse, StatusIndicator as ApiStatusIndicator, SystemMetricsResponse,
-    SystemStatusResponse, WorkerResponse,
+    ComponentCheck, DriftLevel, InferenceBlocker, InferenceReadyState, NodeResponse,
+    StatusIndicator as ApiStatusIndicator, SystemMetricsResponse, SystemStatusResponse,
+    WorkerResponse,
 };
 use leptos::prelude::*;
 use std::collections::HashMap;
-use std::sync::Arc;
 
-/// SSE event wrapper for worker updates from /v1/stream/workers
-/// The server sends either a full list of workers or incremental updates
-#[derive(Debug, Clone, serde::Deserialize)]
-#[serde(untagged)]
-pub enum WorkerStreamEvent {
-    /// Full list of workers (sent on connection and periodically)
-    FullList { workers: Vec<WorkerResponse> },
-    /// Individual worker status update
-    StatusUpdate(WorkerStatusUpdate),
-    /// Heartbeat/keepalive
-    Heartbeat { status: String },
-}
+use super::icons::{CheckCircleIcon, WarningIcon};
+use super::utils::{format_timestamp, format_uptime, NODES_PAGE_SIZE, WORKERS_PAGE_SIZE};
 
-/// System overview page
-#[component]
-pub fn System() -> impl IntoView {
-    // Fetch system status
-    let (status, refetch_status) =
-        use_api_resource(|client: Arc<ApiClient>| async move { client.system_status().await });
-
-    // Fetch workers list (initial load, then updated via SSE)
-    let (workers, refetch_workers) =
-        use_api_resource(|client: Arc<ApiClient>| async move { client.list_workers().await });
-
-    // Fetch nodes list
-    let (nodes, refetch_nodes) =
-        use_api_resource(|client: Arc<ApiClient>| async move { client.list_nodes().await });
-
-    // Fetch system metrics
-    let (metrics, refetch_metrics) =
-        use_api_resource(|client: Arc<ApiClient>| async move { client.system_metrics().await });
-
-    // Store refetch functions in signals for sharing
-    let refetch_status_signal = StoredValue::new(refetch_status);
-    let refetch_workers_signal = StoredValue::new(refetch_workers);
-    let refetch_nodes_signal = StoredValue::new(refetch_nodes);
-    let refetch_metrics_signal = StoredValue::new(refetch_metrics);
-
-    // Real-time worker status updates via SSE
-    // Maps worker_id -> (status, timestamp) for incremental updates
-    let worker_status_overrides: RwSignal<HashMap<String, (String, String)>> =
-        RwSignal::new(HashMap::new());
-
-    // Track when we last received a full worker list via SSE
-    let last_sse_update = RwSignal::new(Option::<String>::None);
-
-    // SSE connection for worker status stream
-    let (sse_status, _reconnect) =
-        use_sse_json::<WorkerStreamEvent, _>("/v1/stream/workers", move |event| {
-            match event {
-                WorkerStreamEvent::FullList { workers: _ } => {
-                    // When we receive a full list, clear overrides and trigger refetch
-                    // to get the complete worker data
-                    worker_status_overrides.set(HashMap::new());
-                    last_sse_update.set(Some(chrono::Utc::now().to_rfc3339()));
-                    refetch_workers_signal.with_value(|f| f());
-                }
-                WorkerStreamEvent::StatusUpdate(update) => {
-                    // Apply incremental status update
-                    worker_status_overrides.update(|overrides| {
-                        overrides.insert(
-                            update.worker_id.clone(),
-                            (update.status.clone(), update.timestamp.clone()),
-                        );
-                    });
-                }
-                WorkerStreamEvent::Heartbeat { status: _ } => {
-                    // Heartbeat received, connection is healthy
-                }
-            }
-        });
-
-    // Bridge SSE connection state to user notifications
-    use_sse_notifications(sse_status.read_only());
-
-    // Set up polling interval for non-worker data (every 10 seconds)
-    // Worker data is now primarily updated via SSE
-    Effect::new(move |_| {
-        let interval_handle = gloo_timers::callback::Interval::new(10_000, move || {
-            refetch_status_signal.with_value(|f| f());
-            refetch_nodes_signal.with_value(|f| f());
-            refetch_metrics_signal.with_value(|f| f());
-            // Only refetch workers if SSE is not connected
-            if sse_status.get() != SseState::Connected {
-                refetch_workers_signal.with_value(|f| f());
-            }
-        });
-        std::mem::forget(interval_handle);
-    });
-
-    view! {
-        <div class="p-6 space-y-6">
-            // Header with title and refresh button
-                <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-4">
-                        <h1 class="text-3xl font-bold tracking-tight">"System"</h1>
-                        <SseIndicator state=sse_status/>
-                    </div>
-                    <button
-                        class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-                        on:click=move |_| {
-                            refetch_status_signal.with_value(|f| f());
-                            refetch_workers_signal.with_value(|f| f());
-                            refetch_nodes_signal.with_value(|f| f());
-                            refetch_metrics_signal.with_value(|f| f());
-                        }
-                    >
-                        <RefreshIcon/>
-                        "Refresh"
-                    </button>
-                </div>
-
-                // Main content
-                {move || {
-                    let status_state = status.get();
-                    let workers_state = workers.get();
-                    let nodes_state = nodes.get();
-                    let metrics_state = metrics.get();
-                    let overrides = worker_status_overrides.get();
-
-                    match status_state {
-                        LoadingState::Idle | LoadingState::Loading => {
-                            view! {
-                                <div class="flex items-center justify-center py-12">
-                                    <Spinner/>
-                                </div>
-                            }.into_any()
-                        }
-                        LoadingState::Loaded(status_data) => {
-                            let workers_data = match workers_state {
-                                LoadingState::Loaded(w) => w,
-                                _ => Vec::new(),
-                            };
-                            let nodes_data = match nodes_state {
-                                LoadingState::Loaded(n) => n,
-                                _ => Vec::new(),
-                            };
-                            let metrics_data = match metrics_state {
-                                LoadingState::Loaded(m) => Some(m),
-                                _ => None,
-                            };
-                            view! {
-                                <SystemContent
-                                    status=status_data
-                                    workers=workers_data
-                                    nodes=nodes_data
-                                    metrics=metrics_data
-                                    worker_status_overrides=overrides
-                                />
-                            }.into_any()
-                        }
-                        LoadingState::Error(e) => {
-                            view! {
-                                <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
-                                    <p class="text-destructive font-medium">"Failed to load system status"</p>
-                                    <p class="text-sm text-destructive/80 mt-1">{e.to_string()}</p>
-                                </div>
-                            }.into_any()
-                        }
-                    }
-                }}
-        </div>
-    }
-}
+// ============================================================================
+// SSE Indicator
+// ============================================================================
 
 /// SSE connection status indicator with detailed state display
 #[component]
-fn SseIndicator(state: RwSignal<SseState>) -> impl IntoView {
+pub fn SseIndicator(state: RwSignal<SseState>) -> impl IntoView {
     view! {
         {move || {
             let current_state = state.get();
@@ -243,30 +81,13 @@ fn SseIndicator(state: RwSignal<SseState>) -> impl IntoView {
     }
 }
 
-/// Refresh icon SVG
-#[component]
-fn RefreshIcon() -> impl IntoView {
-    view! {
-        <svg
-            class="h-4 w-4"
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            stroke-width="2"
-        >
-            <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-            />
-        </svg>
-    }
-}
+// ============================================================================
+// System Content
+// ============================================================================
 
 /// Main system content with all sections
 #[component]
-fn SystemContent(
+pub fn SystemContent(
     status: SystemStatusResponse,
     workers: Vec<WorkerResponse>,
     nodes: Vec<NodeResponse>,
@@ -338,6 +159,10 @@ fn SystemContent(
     }
 }
 
+// ============================================================================
+// Status Overview
+// ============================================================================
+
 /// Status overview cards at the top
 #[component]
 fn StatusOverview(
@@ -402,9 +227,16 @@ fn StatusOverview(
     }
 }
 
-/// Workers section with table
+// ============================================================================
+// Workers Section
+// ============================================================================
+
+/// Workers section with table (client-side pagination)
 #[component]
 fn WorkersSection(workers: Vec<WorkerResponse>) -> impl IntoView {
+    let total = workers.len();
+    let visible_count = RwSignal::new(WORKERS_PAGE_SIZE);
+
     view! {
         <Card title="Workers".to_string() description="Active worker processes and their status".to_string()>
             {if workers.is_empty() {
@@ -428,11 +260,36 @@ fn WorkersSection(workers: Vec<WorkerResponse>) -> impl IntoView {
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {workers.into_iter().map(|worker| {
-                                view! { <WorkerRow worker=worker/> }
-                            }).collect::<Vec<_>>()}
+                            {move || {
+                                let count = visible_count.get();
+                                workers.iter().take(count).cloned().map(|worker| {
+                                    view! { <WorkerRow worker=worker/> }
+                                }).collect::<Vec<_>>()
+                            }}
                         </TableBody>
                     </Table>
+
+                    // Show more button
+                    {move || {
+                        let count = visible_count.get();
+                        if count < total {
+                            let remaining = total - count;
+                            Some(view! {
+                                <div class="text-center py-4 border-t">
+                                    <button
+                                        class="text-sm text-muted-foreground hover:text-foreground underline"
+                                        on:click=move |_| {
+                                            visible_count.update(|c| *c = (*c + WORKERS_PAGE_SIZE).min(total));
+                                        }
+                                    >
+                                        {format!("Show more ({} remaining)", remaining)}
+                                    </button>
+                                </div>
+                            })
+                        } else {
+                            None
+                        }
+                    }}
                 }.into_any()
             }}
         </Card>
@@ -574,9 +431,16 @@ fn WorkerDetails(#[prop(into)] worker: WorkerResponse) -> impl IntoView {
     }
 }
 
-/// Nodes section
+// ============================================================================
+// Nodes Section
+// ============================================================================
+
+/// Nodes section (client-side pagination)
 #[component]
 fn NodesSection(nodes: Vec<NodeResponse>) -> impl IntoView {
+    let total = nodes.len();
+    let visible_count = RwSignal::new(NODES_PAGE_SIZE);
+
     view! {
         <Card title="Nodes".to_string() description="Cluster nodes and their connectivity status".to_string()>
             {if nodes.is_empty() {
@@ -598,51 +462,86 @@ fn NodesSection(nodes: Vec<NodeResponse>) -> impl IntoView {
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {nodes.into_iter().map(|node| {
-                                let status_variant = match node.status.as_str() {
-                                    "healthy" | "active" => BadgeVariant::Success,
-                                    "draining" => BadgeVariant::Warning,
-                                    "error" | "offline" => BadgeVariant::Destructive,
-                                    _ => BadgeVariant::Secondary,
-                                };
-
-                                let short_id = if node.id.len() > 8 {
-                                    format!("{}...", &node.id[..8])
-                                } else {
-                                    node.id.clone()
-                                };
-
-                                view! {
-                                    <TableRow>
-                                        <TableCell>
-                                            <span class="font-mono text-sm" title=node.id.clone()>{short_id}</span>
-                                        </TableCell>
-                                        <TableCell>
-                                            <span class="text-sm">{node.hostname.clone()}</span>
-                                        </TableCell>
-                                        <TableCell>
-                                            <Badge variant=status_variant>
-                                                {node.status.clone()}
-                                            </Badge>
-                                        </TableCell>
-                                        <TableCell>
-                                            <span class="text-sm font-mono">{node.agent_endpoint.clone()}</span>
-                                        </TableCell>
-                                        <TableCell>
-                                            <span class="text-sm text-muted-foreground">
-                                                {node.last_seen_at.clone().map(|t| format_timestamp(&t)).unwrap_or("-".to_string())}
-                                            </span>
-                                        </TableCell>
-                                    </TableRow>
-                                }
-                            }).collect::<Vec<_>>()}
+                            {move || {
+                                let count = visible_count.get();
+                                nodes.iter().take(count).cloned().map(|node| {
+                                    view! { <NodeRow node=node/> }
+                                }).collect::<Vec<_>>()
+                            }}
                         </TableBody>
                     </Table>
+
+                    // Show more button
+                    {move || {
+                        let count = visible_count.get();
+                        if count < total {
+                            let remaining = total - count;
+                            Some(view! {
+                                <div class="text-center py-4 border-t">
+                                    <button
+                                        class="text-sm text-muted-foreground hover:text-foreground underline"
+                                        on:click=move |_| {
+                                            visible_count.update(|c| *c = (*c + NODES_PAGE_SIZE).min(total));
+                                        }
+                                    >
+                                        {format!("Show more ({} remaining)", remaining)}
+                                    </button>
+                                </div>
+                            })
+                        } else {
+                            None
+                        }
+                    }}
                 }.into_any()
             }}
         </Card>
     }
 }
+
+/// Single node row component
+#[component]
+fn NodeRow(node: NodeResponse) -> impl IntoView {
+    let status_variant = match node.status.as_str() {
+        "healthy" | "active" => BadgeVariant::Success,
+        "draining" => BadgeVariant::Warning,
+        "error" | "offline" => BadgeVariant::Destructive,
+        _ => BadgeVariant::Secondary,
+    };
+
+    let short_id = if node.id.len() > 8 {
+        format!("{}...", &node.id[..8])
+    } else {
+        node.id.clone()
+    };
+
+    view! {
+        <TableRow>
+            <TableCell>
+                <span class="font-mono text-sm" title=node.id.clone()>{short_id}</span>
+            </TableCell>
+            <TableCell>
+                <span class="text-sm">{node.hostname.clone()}</span>
+            </TableCell>
+            <TableCell>
+                <Badge variant=status_variant>
+                    {node.status.clone()}
+                </Badge>
+            </TableCell>
+            <TableCell>
+                <span class="text-sm font-mono">{node.agent_endpoint.clone()}</span>
+            </TableCell>
+            <TableCell>
+                <span class="text-sm text-muted-foreground">
+                    {node.last_seen_at.clone().map(|t| format_timestamp(&t)).unwrap_or("-".to_string())}
+                </span>
+            </TableCell>
+        </TableRow>
+    }
+}
+
+// ============================================================================
+// Health Details
+// ============================================================================
 
 /// Health details section
 #[component]
@@ -761,6 +660,10 @@ fn HealthCheckCard(name: String, check: ComponentCheck) -> impl IntoView {
         </div>
     }
 }
+
+// ============================================================================
+// Metrics Summary
+// ============================================================================
 
 /// Metrics summary section
 #[component]
@@ -886,6 +789,10 @@ fn MetricCard(label: String, value: String, sub_label: Option<String>) -> impl I
     }
 }
 
+// ============================================================================
+// Inference Blockers
+// ============================================================================
+
 /// Inference blockers / recent events section
 #[component]
 fn InferenceBlockersSection(blockers: Vec<InferenceBlocker>) -> impl IntoView {
@@ -926,9 +833,13 @@ fn InferenceBlockersSection(blockers: Vec<InferenceBlocker>) -> impl IntoView {
     }
 }
 
+// ============================================================================
+// Boot Status
+// ============================================================================
+
 /// Boot status section (optional, shown when boot info is available)
 #[component]
-fn BootStatusSection(boot: adapteros_api_types::BootStatus) -> impl IntoView {
+pub fn BootStatusSection(boot: adapteros_api_types::BootStatus) -> impl IntoView {
     view! {
         <Card title="Boot Status".to_string() description="System boot lifecycle information".to_string()>
             <div class="space-y-4">
@@ -1009,79 +920,5 @@ fn BootStatusSection(boot: adapteros_api_types::BootStatus) -> impl IntoView {
                 })}
             </div>
         </Card>
-    }
-}
-
-// --- Icon Components ---
-
-#[component]
-fn ChevronDownIcon() -> impl IntoView {
-    view! {
-        <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-        </svg>
-    }
-}
-
-#[component]
-fn ChevronUpIcon() -> impl IntoView {
-    view! {
-        <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"/>
-        </svg>
-    }
-}
-
-#[component]
-fn CheckCircleIcon() -> impl IntoView {
-    view! {
-        <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-        </svg>
-    }
-}
-
-#[component]
-fn WarningIcon() -> impl IntoView {
-    view! {
-        <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
-        </svg>
-    }
-}
-
-// --- Helper Functions ---
-
-/// Format a timestamp for display
-fn format_timestamp(timestamp: &str) -> String {
-    // Try to parse and format nicely, otherwise return as-is
-    if timestamp == "-" || timestamp.is_empty() {
-        return "-".to_string();
-    }
-
-    // If it looks like an ISO timestamp, try to make it more readable
-    if timestamp.contains('T') {
-        // Extract time portion
-        if let Some(time_part) = timestamp.split('T').nth(1) {
-            let time = time_part.split('.').next().unwrap_or(time_part);
-            return time.to_string();
-        }
-    }
-
-    timestamp.to_string()
-}
-
-/// Format uptime in human-readable format
-fn format_uptime(seconds: u64) -> String {
-    let days = seconds / 86400;
-    let hours = (seconds % 86400) / 3600;
-    let minutes = (seconds % 3600) / 60;
-
-    if days > 0 {
-        format!("{}d {}h", days, hours)
-    } else if hours > 0 {
-        format!("{}h {}m", hours, minutes)
-    } else {
-        format!("{}m", minutes)
     }
 }

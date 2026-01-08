@@ -4,8 +4,8 @@
 
 use crate::api::client::{ApiClient, ModelListResponse, ModelStatusResponse};
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonVariant, Card, Spinner, Table, TableBody, TableCell,
-    TableHead, TableHeader, TableRow,
+    Badge, BadgeVariant, Button, ButtonVariant, Card, ErrorDisplay, Spinner, SplitPanel, Table,
+    TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use leptos::prelude::*;
@@ -32,79 +32,73 @@ pub fn Models() -> impl IntoView {
         selected_model_id.set(None);
     };
 
-    // Dynamic class for left panel width
-    let left_panel_class = move || {
-        if selected_model_id.get().is_some() {
-            "w-1/2 space-y-6 pr-4"
-        } else {
-            "flex-1 space-y-6 pr-4"
-        }
-    };
+    // Derive selection state for SplitPanel
+    let has_selection = Signal::derive(move || selected_model_id.get().is_some());
 
     view! {
-        <div class="p-6 flex h-full">
-                // Left panel: Model list
-                <div class=left_panel_class>
-                    <div class="flex items-center justify-between">
-                        <h1 class="text-3xl font-bold tracking-tight">"Models"</h1>
-                        <div class="flex items-center gap-2">
-                            <Button
-                                variant=ButtonVariant::Outline
-                                on_click=Callback::new(move |_| refetch_signal.with_value(|f| f()))
-                            >
-                                "Refresh"
-                            </Button>
-                        </div>
-                    </div>
-
-                    {move || {
-                        match models.get() {
-                            LoadingState::Idle | LoadingState::Loading => {
-                                view! {
-                                    <div class="flex items-center justify-center py-12">
-                                        <Spinner/>
-                                    </div>
-                                }.into_any()
-                            }
-                            LoadingState::Loaded(data) => {
-                                view! {
-                                    <ModelList
-                                        models=data
-                                        selected_id=selected_model_id
-                                        on_select=on_model_select
-                                    />
-                                }.into_any()
-                            }
-                            LoadingState::Error(e) => {
-                                view! {
-                                    <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
-                                        <p class="text-destructive">{e.to_string()}</p>
-                                        <button
-                                            class="mt-2 text-sm text-destructive underline"
-                                            on:click=move |_| refetch_signal.with_value(|f| f())
-                                        >
-                                            "Retry"
-                                        </button>
-                                    </div>
-                                }.into_any()
-                            }
-                        }
-                    }}
-                </div>
-
-                // Right panel: Model detail (when selected)
-                {move || {
-                    selected_model_id.get().map(|model_id| {
-                        view! {
-                            <div class="w-1/2 border-l pl-4">
-                                <ModelDetail
-                                    model_id=model_id
-                                    on_close=on_close_detail
-                                />
+        <div class="p-6 space-y-6">
+            <SplitPanel
+                has_selection=has_selection
+                on_close=Callback::new(move |_| on_close_detail())
+                back_label="Back to Models"
+                list_panel=move || {
+                    view! {
+                        <div class="space-y-6">
+                            // Header
+                            <div class="flex items-center justify-between">
+                                <h1 class="text-3xl font-bold tracking-tight">"Models"</h1>
+                                <div class="flex items-center gap-2">
+                                    <Button
+                                        variant=ButtonVariant::Outline
+                                        on_click=Callback::new(move |_| refetch_signal.with_value(|f| f()))
+                                    >
+                                        "Refresh"
+                                    </Button>
+                                </div>
                             </div>
-                        }
-                    })
-                }}
+
+                            // Model list
+                            {move || {
+                                match models.get() {
+                                    LoadingState::Idle | LoadingState::Loading => {
+                                        view! {
+                                            <div class="flex items-center justify-center py-12">
+                                                <Spinner/>
+                                            </div>
+                                        }.into_any()
+                                    }
+                                    LoadingState::Loaded(data) => {
+                                        view! {
+                                            <ModelList
+                                                models=data
+                                                selected_id=selected_model_id
+                                                on_select=on_model_select
+                                            />
+                                        }.into_any()
+                                    }
+                                    LoadingState::Error(e) => {
+                                        view! {
+                                            <ErrorDisplay
+                                                error=e
+                                                on_retry=Callback::new(move |_| refetch_signal.with_value(|f| f()))
+                                            />
+                                        }.into_any()
+                                    }
+                                }
+                            }}
+                        </div>
+                    }
+                }
+                detail_panel=move || {
+                    let model_id = selected_model_id.get().unwrap_or_default();
+                    view! {
+                        <ModelDetail
+                            model_id=model_id
+                            on_close=on_close_detail
+                        />
+                    }
+                }
+            />
         </div>
     }
 }
@@ -275,15 +269,10 @@ fn ModelDetail(model_id: String, on_close: impl Fn() + Copy + 'static) -> impl I
                     }
                     LoadingState::Error(e) => {
                         view! {
-                            <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
-                                <p class="text-destructive">{e.to_string()}</p>
-                                <button
-                                    class="mt-2 text-sm text-destructive underline"
-                                    on:click=move |_| refetch_signal.with_value(|f| f())
-                                >
-                                    "Retry"
-                                </button>
-                            </div>
+                            <ErrorDisplay
+                                error=e
+                                on_retry=Callback::new(move |_| refetch_signal.with_value(|f| f()))
+                            />
                         }.into_any()
                     }
                 }

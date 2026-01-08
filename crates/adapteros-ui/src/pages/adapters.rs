@@ -2,8 +2,8 @@
 
 use crate::api::ApiClient;
 use crate::components::{
-    Badge, BadgeVariant, Card, Spinner, Table, TableBody, TableCell, TableHead, TableHeader,
-    TableRow,
+    Badge, BadgeVariant, Card, ErrorDisplay, Spinner, Table, TableBody, TableCell, TableHead,
+    TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use adapteros_api_types::AdapterResponse;
@@ -17,13 +17,15 @@ pub fn Adapters() -> impl IntoView {
     let (adapters, refetch) =
         use_api_resource(|client: Arc<ApiClient>| async move { client.list_adapters().await });
 
+    let refetch_signal = StoredValue::new(refetch);
+
     view! {
         <div class="p-6 space-y-6">
             <div class="flex items-center justify-between">
                 <h1 class="text-3xl font-bold tracking-tight">"Adapters"</h1>
                 <button
                     class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-                    on:click=move |_| refetch()
+                    on:click=move |_| refetch_signal.with_value(|f| f())
                 >
                     "Refresh"
                 </button>
@@ -43,9 +45,10 @@ pub fn Adapters() -> impl IntoView {
                     }
                     LoadingState::Error(e) => {
                         view! {
-                            <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
-                                <p class="text-destructive">{e.to_string()}</p>
-                            </div>
+                            <ErrorDisplay
+                                error=e
+                                on_retry=Callback::new(move |_| refetch_signal.with_value(|f| f()))
+                            />
                         }.into_any()
                     }
                 }
@@ -165,6 +168,8 @@ pub fn AdapterDetail() -> impl IntoView {
         async move { client.get_adapter(&id).await }
     });
 
+    let refetch_signal = StoredValue::new(refetch);
+
     view! {
         <div class="p-6 space-y-6">
             <div class="flex items-center justify-between">
@@ -176,7 +181,7 @@ pub fn AdapterDetail() -> impl IntoView {
                 </div>
                 <button
                     class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-                    on:click=move |_| refetch()
+                    on:click=move |_| refetch_signal.with_value(|f| f())
                 >
                     "Refresh"
                 </button>
@@ -196,9 +201,10 @@ pub fn AdapterDetail() -> impl IntoView {
                     }
                     LoadingState::Error(e) => {
                         view! {
-                            <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
-                                <p class="text-destructive">{e.to_string()}</p>
-                            </div>
+                            <ErrorDisplay
+                                error=e
+                                on_retry=Callback::new(move |_| refetch_signal.with_value(|f| f()))
+                            />
                         }.into_any()
                     }
                 }

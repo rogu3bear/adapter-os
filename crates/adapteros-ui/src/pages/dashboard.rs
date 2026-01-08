@@ -271,7 +271,7 @@ fn DashboardContent(
     let total_workers = workers.len();
 
     view! {
-        <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <div class="grid gap-4 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-4">
             // System Status Card
             <Card title="System Status".to_string()>
                 <div class="flex items-center gap-2">
@@ -363,21 +363,17 @@ fn LiveMetricsSection(
 ) -> impl IntoView {
     // Use Memo for sparkline data - only recomputes when history version changes
     // Each Memo captures the specific field, avoiding full history clone on render
-    let cpu_sparkline = Memo::new(move |_| {
-        history.with(|h| h.cpu_usage.iter().copied().collect::<Vec<_>>())
-    });
-    let memory_sparkline = Memo::new(move |_| {
-        history.with(|h| h.memory_usage.iter().copied().collect::<Vec<_>>())
-    });
-    let gpu_sparkline = Memo::new(move |_| {
-        history.with(|h| h.gpu_utilization.iter().copied().collect::<Vec<_>>())
-    });
+    let cpu_sparkline =
+        Memo::new(move |_| history.with(|h| h.cpu_usage.iter().copied().collect::<Vec<_>>()));
+    let memory_sparkline =
+        Memo::new(move |_| history.with(|h| h.memory_usage.iter().copied().collect::<Vec<_>>()));
+    let gpu_sparkline =
+        Memo::new(move |_| history.with(|h| h.gpu_utilization.iter().copied().collect::<Vec<_>>()));
     let rps_sparkline = Memo::new(move |_| {
         history.with(|h| h.requests_per_second.iter().copied().collect::<Vec<_>>())
     });
-    let latency_sparkline = Memo::new(move |_| {
-        history.with(|h| h.avg_latency_ms.iter().copied().collect::<Vec<_>>())
-    });
+    let latency_sparkline =
+        Memo::new(move |_| history.with(|h| h.avg_latency_ms.iter().copied().collect::<Vec<_>>()));
 
     // Time series for the line charts - memoized to avoid redundant computation
     let throughput_data = Memo::new(move |_| history.with(|h| h.throughput_series()));
@@ -390,7 +386,7 @@ fn LiveMetricsSection(
                 {move || {
                     match metrics.get() {
                         Some(m) => view! {
-                            <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                            <div class="grid gap-4 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-4">
                                 // CPU with sparkline
                                 <SparklineMetric
                                     label="CPU Usage".to_string()
