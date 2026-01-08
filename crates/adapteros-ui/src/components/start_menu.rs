@@ -92,9 +92,9 @@ fn get_menu_groups() -> Vec<MenuGroup> {
         MenuGroup {
             name: "Operations",
             items: vec![
-                MenuItem::disabled("Monitoring", "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z", "/monitoring", "requires API route"),
+                MenuItem::enabled("Monitoring", "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z", "/monitoring"),
                 MenuItem::disabled("Replay", "M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15", "/replay", "coming soon"),
-                MenuItem::disabled("Routing", "M13 10V3L4 14h7v7l9-11h-7z", "/routing", "coming soon"),
+                MenuItem::enabled("Routing", "M13 10V3L4 14h7v7l9-11h-7z", "/routing"),
             ],
         },
         MenuGroup {
