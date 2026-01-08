@@ -339,3 +339,12 @@ src/bin/test_*.rs
 # Auto-generated claude-mem context files
 **/CLAUDE.md
 \!CLAUDE.md
+
+# SQLite WAL files
+registry.db-shm
+registry.db-wal
+registry.db.bak-shm
+registry.db.bak-wal
+
+# Test orchestrator reports
+reports/test-orchestrator/
