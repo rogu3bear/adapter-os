@@ -181,7 +181,7 @@ impl CdpStore {
 
     /// Remove a CDP (for cleanup)
     pub fn remove_cdp(&mut self, cdp_id: &CdpId) -> Result<()> {
-        if let Some(metadata) = self.metadata_index.remove(cdp_id) {
+        if let Some(_metadata) = self.metadata_index.remove(cdp_id) {
             // Note: We don't remove from CAS as it might be referenced elsewhere
             // In a production system, you'd want reference counting or garbage collection
             tracing::info!("Removed CDP metadata: {}", cdp_id);

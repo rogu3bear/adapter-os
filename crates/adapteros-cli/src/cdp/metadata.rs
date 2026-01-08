@@ -176,7 +176,7 @@ impl MetadataExtractor {
             )));
         }
 
-        let [hash, author_name, author_email, author_date, committer_name, committer_email, committer_date, message] = [
+        let [_hash, author_name, author_email, author_date, committer_name, committer_email, _committer_date, message] = [
             parts[0], parts[1], parts[2], parts[3], parts[4], parts[5], parts[6], parts[7],
         ];
 
