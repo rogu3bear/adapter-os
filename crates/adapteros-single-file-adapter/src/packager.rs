@@ -33,10 +33,7 @@ fn serialize_weights_to_safetensors(weights: &WeightGroup) -> Result<Vec<u8>> {
         .iter()
         .flat_map(|row| row.iter().copied())
         .collect();
-    let lora_a_bytes: Vec<u8> = lora_a_flat
-        .iter()
-        .flat_map(|f| f.to_le_bytes())
-        .collect();
+    let lora_a_bytes: Vec<u8> = lora_a_flat.iter().flat_map(|f| f.to_le_bytes()).collect();
 
     // Flatten lora_b: Vec<Vec<f32>> -> Vec<f32> -> bytes
     let lora_b_flat: Vec<f32> = weights
@@ -44,10 +41,7 @@ fn serialize_weights_to_safetensors(weights: &WeightGroup) -> Result<Vec<u8>> {
         .iter()
         .flat_map(|row| row.iter().copied())
         .collect();
-    let lora_b_bytes: Vec<u8> = lora_b_flat
-        .iter()
-        .flat_map(|f| f.to_le_bytes())
-        .collect();
+    let lora_b_bytes: Vec<u8> = lora_b_flat.iter().flat_map(|f| f.to_le_bytes()).collect();
 
     // Get shapes from weight matrices
     let rank = weights.lora_a.len();
@@ -60,11 +54,19 @@ fn serialize_weights_to_safetensors(weights: &WeightGroup) -> Result<Vec<u8>> {
     }
 
     // Create tensor views
-    let lora_a_view = TensorView::new(safetensors::Dtype::F32, vec![rank, hidden_dim], &lora_a_bytes)
-        .map_err(|e| AosError::Training(format!("Failed to create lora_a tensor: {}", e)))?;
+    let lora_a_view = TensorView::new(
+        safetensors::Dtype::F32,
+        vec![rank, hidden_dim],
+        &lora_a_bytes,
+    )
+    .map_err(|e| AosError::Training(format!("Failed to create lora_a tensor: {}", e)))?;
 
-    let lora_b_view = TensorView::new(safetensors::Dtype::F32, vec![hidden_dim, rank], &lora_b_bytes)
-        .map_err(|e| AosError::Training(format!("Failed to create lora_b tensor: {}", e)))?;
+    let lora_b_view = TensorView::new(
+        safetensors::Dtype::F32,
+        vec![hidden_dim, rank],
+        &lora_b_bytes,
+    )
+    .map_err(|e| AosError::Training(format!("Failed to create lora_b tensor: {}", e)))?;
 
     // Serialize to safetensors format
     let tensors = vec![("lora_a", lora_a_view), ("lora_b", lora_b_view)];

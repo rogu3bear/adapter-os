@@ -4,7 +4,7 @@ use crate::{
     cache::WebBrowseCache,
     config::{TenantBrowseConfig, WebBrowseConfig},
     error::{WebBrowseError, WebBrowseResult},
-    evidence::BrowseEvidence,
+    evidence::{BrowseEvidence, EvidenceBuilder, EvidenceType, SourceRecord},
     providers::{
         fetch::{PageFetcher, PageFetcherConfig},
         search::{BraveSearchProvider, SearchProvider, SearchProviderConfig},
@@ -15,7 +15,9 @@ use crate::{
 use adapteros_db::Db;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 /// Web search request
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -362,7 +364,10 @@ impl DefaultWebBrowseService {
     }
 
     /// Load tenant configuration from database, falling back to defaults
-    async fn load_tenant_config(&self, tenant_id: &TenantId) -> WebBrowseResult<TenantBrowseConfig> {
+    async fn load_tenant_config(
+        &self,
+        tenant_id: &TenantId,
+    ) -> WebBrowseResult<TenantBrowseConfig> {
         // Try database lookup if available
         if let Some(ref db) = self.db {
             #[derive(sqlx::FromRow)]
@@ -457,12 +462,16 @@ impl WebBrowseService for DefaultWebBrowseService {
             requests_per_day: tenant_config.requests_per_day,
             enabled: true,
         };
-        self.rate_limiter.check_with_config(tenant_id, &rate_config).await?;
+        self.rate_limiter
+            .check_with_config(tenant_id, &rate_config)
+            .await?;
 
         // Check cache first
         let cache_key_query = format!("search:{}", &request.query);
         if let Ok(Some(entry)) = self.cache.get("search", &cache_key_query, tenant_id).await {
-            if let Ok(cached_response) = serde_json::from_str::<WebSearchResponse>(&entry.response_json) {
+            if let Ok(cached_response) =
+                serde_json::from_str::<WebSearchResponse>(&entry.response_json)
+            {
                 tracing::debug!(tenant_id = %tenant_id, query = %request.query, "Cache hit for search");
                 return Ok(WebSearchResponse {
                     from_cache: true,
@@ -483,13 +492,16 @@ impl WebBrowseService for DefaultWebBrowseService {
 
         // Cache the result
         if let Ok(json) = serde_json::to_string(&response) {
-            let _ = self.cache.set(
-                "search",
-                &cache_key_query,
-                tenant_id,
-                &json,
-                Some(tenant_config.cache_ttl_secs),
-            ).await;
+            let _ = self
+                .cache
+                .set(
+                    "search",
+                    &cache_key_query,
+                    tenant_id,
+                    &json,
+                    Some(tenant_config.cache_ttl_secs),
+                )
+                .await;
         }
 
         Ok(response)
@@ -519,12 +531,20 @@ impl WebBrowseService for DefaultWebBrowseService {
             requests_per_day: tenant_config.requests_per_day,
             enabled: true,
         };
-        self.rate_limiter.check_with_config(tenant_id, &rate_config).await?;
+        self.rate_limiter
+            .check_with_config(tenant_id, &rate_config)
+            .await?;
 
         // Check cache first
         let cache_key_query = format!("fetch:{}", &request.url);
-        if let Ok(Some(entry)) = self.cache.get("page_fetch", &cache_key_query, tenant_id).await {
-            if let Ok(cached_response) = serde_json::from_str::<PageFetchResponse>(&entry.response_json) {
+        if let Ok(Some(entry)) = self
+            .cache
+            .get("page_fetch", &cache_key_query, tenant_id)
+            .await
+        {
+            if let Ok(cached_response) =
+                serde_json::from_str::<PageFetchResponse>(&entry.response_json)
+            {
                 tracing::debug!(tenant_id = %tenant_id, url = %request.url, "Cache hit for page fetch");
                 return Ok(PageFetchResponse {
                     from_cache: true,
@@ -538,13 +558,16 @@ impl WebBrowseService for DefaultWebBrowseService {
 
         // Cache the result
         if let Ok(json) = serde_json::to_string(&response) {
-            let _ = self.cache.set(
-                "page_fetch",
-                &cache_key_query,
-                tenant_id,
-                &json,
-                Some(tenant_config.cache_ttl_secs),
-            ).await;
+            let _ = self
+                .cache
+                .set(
+                    "page_fetch",
+                    &cache_key_query,
+                    tenant_id,
+                    &json,
+                    Some(tenant_config.cache_ttl_secs),
+                )
+                .await;
         }
 
         Ok(response)
@@ -574,19 +597,128 @@ impl WebBrowseService for DefaultWebBrowseService {
             requests_per_day: tenant_config.requests_per_day,
             enabled: true,
         };
-        self.rate_limiter.check_with_config(tenant_id, &rate_config).await?;
+        self.rate_limiter
+            .check_with_config(tenant_id, &rate_config)
+            .await?;
 
-        // Image search provider not yet implemented - return empty with evidence
-        // Future: wire up image search provider when available
-        Ok(ImageSearchResponse {
-            results: Vec::new(),
-            total_results: 0,
-            provider: "none".to_string(),
-            query: request.query,
-            evidence: BrowseEvidence::new(tenant_id.clone(), request.request_id),
-            latency_ms: 0,
-            from_cache: false,
-        })
+        let requested_max = request
+            .max_results
+            .unwrap_or(tenant_config.max_results_per_query);
+        let max_results = requested_max
+            .min(tenant_config.max_results_per_query)
+            .max(1);
+
+        let cache_key_query = format!(
+            "images:{}|size:{}|safe:{}|max:{}",
+            request.query,
+            request.size_filter.as_deref().unwrap_or("any"),
+            request.safe_search.as_deref().unwrap_or("default"),
+            max_results
+        );
+        if let Ok(Some(entry)) = self
+            .cache
+            .get("image_search", &cache_key_query, tenant_id)
+            .await
+        {
+            if let Ok(cached_response) =
+                serde_json::from_str::<ImageSearchResponse>(&entry.response_json)
+            {
+                tracing::debug!(
+                    tenant_id = %tenant_id,
+                    query = %request.query,
+                    "Cache hit for image search"
+                );
+                return Ok(ImageSearchResponse {
+                    from_cache: true,
+                    ..cached_response
+                });
+            }
+        }
+
+        let start = Instant::now();
+        let api_key = std::env::var(&self.config.search_endpoints.brave_api_key_env).ok();
+        let response = if let Some(api_key) = api_key {
+            let api_url = brave_image_api_url(&self.config.search_endpoints.brave_api_url);
+            let client = reqwest::Client::builder()
+                .timeout(Duration::from_secs(self.config.default_timeout_secs as u64))
+                .user_agent(&self.config.user_agent)
+                .build()
+                .unwrap_or_default();
+
+            let mut query_params = vec![
+                ("q", request.query.clone()),
+                ("count", max_results.to_string()),
+            ];
+
+            if let Some(size) = &request.size_filter {
+                query_params.push(("size", size.to_ascii_lowercase()));
+            }
+            if let Some(safe) = &request.safe_search {
+                query_params.push(("safesearch", safe.to_ascii_lowercase()));
+            }
+
+            let resp = client
+                .get(&api_url)
+                .header("X-Subscription-Token", api_key)
+                .header("Accept", "application/json")
+                .query(&query_params)
+                .send()
+                .await?;
+
+            if !resp.status().is_success() {
+                return Err(WebBrowseError::HttpError {
+                    status: resp.status().as_u16(),
+                    message: resp.text().await.unwrap_or_default(),
+                });
+            }
+
+            let body: serde_json::Value = resp.json().await.map_err(|e| {
+                WebBrowseError::ParseError(format!("Failed to parse Brave image response: {}", e))
+            })?;
+
+            let results = parse_brave_image_results(&body, max_results);
+            let latency_ms = start.elapsed().as_millis() as u64;
+            let evidence = build_image_evidence(tenant_id, &request, &results, latency_ms, false);
+
+            ImageSearchResponse {
+                results,
+                total_results: max_results as u64,
+                provider: "brave".to_string(),
+                query: request.query.clone(),
+                evidence,
+                latency_ms,
+                from_cache: false,
+            }
+        } else {
+            let results = deterministic_image_results(&request.query, max_results);
+            let latency_ms = start.elapsed().as_millis() as u64;
+            let evidence = build_image_evidence(tenant_id, &request, &results, latency_ms, false);
+
+            ImageSearchResponse {
+                results,
+                total_results: max_results as u64,
+                provider: "local".to_string(),
+                query: request.query.clone(),
+                evidence,
+                latency_ms,
+                from_cache: false,
+            }
+        };
+
+        if let Ok(json) = serde_json::to_string(&response) {
+            let _ = self
+                .cache
+                .set(
+                    "image_search",
+                    &cache_key_query,
+                    tenant_id,
+                    &json,
+                    Some(tenant_config.cache_ttl_secs),
+                )
+                .await;
+        }
+
+        Ok(response)
     }
 
     async fn check_rate_limit(&self, tenant_id: &TenantId) -> WebBrowseResult<RateLimitStatus> {
@@ -671,4 +803,226 @@ impl WebBrowseService for DefaultWebBrowseService {
             avg_latency_ms: 0,
         })
     }
+}
+
+fn brave_image_api_url(base: &str) -> String {
+    if base.is_empty() {
+        return "https://api.search.brave.com/res/v1/images/search".to_string();
+    }
+    if base.contains("/images/search") {
+        return base.to_string();
+    }
+    if base.contains("/web/search") {
+        return base.replace("/web/search", "/images/search");
+    }
+    if base.ends_with("/search") {
+        let trimmed = base.trim_end_matches("/search").trim_end_matches('/');
+        return format!("{}/images/search", trimmed);
+    }
+    format!("{}/images/search", base.trim_end_matches('/'))
+}
+
+fn parse_brave_image_results(
+    body: &serde_json::Value,
+    max_results: u32,
+) -> Vec<ImageSearchResult> {
+    let items = body
+        .pointer("/images/results")
+        .and_then(|v| v.as_array())
+        .or_else(|| body.get("results").and_then(|v| v.as_array()))
+        .or_else(|| body.get("images").and_then(|v| v.as_array()));
+
+    let Some(items) = items else {
+        return Vec::new();
+    };
+
+    let mut results = Vec::new();
+    for item in items.iter().take(max_results as usize) {
+        let image_url = item
+            .get("url")
+            .and_then(|v| v.as_str())
+            .or_else(|| item.get("image").and_then(|v| v.as_str()))
+            .or_else(|| item.get("image").and_then(|v| v.get("url")).and_then(|v| v.as_str()))
+            .or_else(|| item.get("link").and_then(|v| v.as_str()));
+        let Some(image_url) = image_url else {
+            continue;
+        };
+
+        let source_url = item
+            .get("source_url")
+            .and_then(|v| v.as_str())
+            .or_else(|| item.get("page_url").and_then(|v| v.as_str()))
+            .or_else(|| item.get("source").and_then(|v| v.as_str()))
+            .or_else(|| item.get("source").and_then(|v| v.get("url")).and_then(|v| v.as_str()))
+            .unwrap_or(image_url);
+
+        let title = item
+            .get("title")
+            .and_then(|v| v.as_str())
+            .or_else(|| item.get("name").and_then(|v| v.as_str()))
+            .or_else(|| item.get("description").and_then(|v| v.as_str()))
+            .unwrap_or("Image result")
+            .to_string();
+
+        let thumbnail_url = item
+            .get("thumbnail_url")
+            .and_then(|v| v.as_str())
+            .or_else(|| item.get("thumbnail").and_then(|v| v.get("src")).and_then(|v| v.as_str()))
+            .or_else(|| item.get("thumbnail").and_then(|v| v.get("url")).and_then(|v| v.as_str()))
+            .or_else(|| item.get("thumbnail").and_then(|v| v.as_str()))
+            .map(|s| s.to_string());
+
+        let width = item
+            .get("width")
+            .and_then(json_u32)
+            .or_else(|| item.pointer("/properties/width").and_then(json_u32))
+            .or_else(|| item.pointer("/image/width").and_then(json_u32));
+        let height = item
+            .get("height")
+            .and_then(json_u32)
+            .or_else(|| item.pointer("/properties/height").and_then(json_u32))
+            .or_else(|| item.pointer("/image/height").and_then(json_u32));
+
+        let domain = extract_domain(source_url)
+            .or_else(|| extract_domain(image_url))
+            .unwrap_or_default();
+
+        results.push(ImageSearchResult {
+            url: image_url.to_string(),
+            thumbnail_url,
+            title,
+            source_url: source_url.to_string(),
+            domain,
+            width,
+            height,
+        });
+    }
+
+    results
+}
+
+fn deterministic_image_results(query: &str, max_results: u32) -> Vec<ImageSearchResult> {
+    let mut results = Vec::new();
+    for idx in 0..max_results {
+        let mut hasher = Sha256::new();
+        hasher.update(query.as_bytes());
+        hasher.update(b"|");
+        hasher.update(idx.to_string().as_bytes());
+        let hash = hasher.finalize();
+        let hex = hex::encode(&hash);
+
+        let width = 360 + (hash[0] as u32 % 5) * 80;
+        let height = 240 + (hash[1] as u32 % 5) * 64;
+        let color_a = format!("#{:02x}{:02x}{:02x}", hash[2], hash[3], hash[4]);
+        let color_b = format!("#{:02x}{:02x}{:02x}", hash[5], hash[6], hash[7]);
+        let accent = format!("#{:02x}{:02x}{:02x}", hash[8], hash[9], hash[10]);
+        let label = escape_svg_text(&format!("{} - {}", query, idx + 1));
+
+        let svg = format!(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}\" height=\"{height}\" viewBox=\"0 0 {width} {height}\">\
+<defs><linearGradient id=\"g\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\">\
+<stop offset=\"0%\" stop-color=\"{color_a}\"/>\
+<stop offset=\"100%\" stop-color=\"{color_b}\"/>\
+</linearGradient></defs>\
+<rect width=\"{width}\" height=\"{height}\" fill=\"url(#g)\"/>\
+<circle cx=\"{cx}\" cy=\"{cy}\" r=\"{r}\" fill=\"{accent}\" opacity=\"0.75\"/>\
+<rect x=\"18\" y=\"18\" width=\"{w2}\" height=\"{h2}\" fill=\"none\" stroke=\"rgba(255,255,255,0.75)\" stroke-width=\"2\"/>\
+<text x=\"24\" y=\"{text_y}\" font-family=\"Arial\" font-size=\"{font_size}\" fill=\"white\">{label}</text>\
+</svg>",
+            width = width,
+            height = height,
+            color_a = color_a,
+            color_b = color_b,
+            accent = accent,
+            cx = 40 + (hash[11] as u32 % (width / 3).max(1)),
+            cy = 40 + (hash[12] as u32 % (height / 3).max(1)),
+            r = 30 + (hash[13] as u32 % 40),
+            w2 = width.saturating_sub(36),
+            h2 = height.saturating_sub(36),
+            text_y = height.saturating_sub(24),
+            font_size = 16 + (hash[14] as u32 % 6),
+            label = label
+        );
+
+        let thumbnail_size = 180 + (hash[15] as u32 % 3) * 24;
+        let thumbnail = format!(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{size}\" height=\"{size}\" viewBox=\"0 0 {size} {size}\">\
+<rect width=\"{size}\" height=\"{size}\" fill=\"{color_a}\"/>\
+<rect x=\"12\" y=\"12\" width=\"{inner}\" height=\"{inner}\" fill=\"{color_b}\"/>\
+<text x=\"18\" y=\"{text_y}\" font-family=\"Arial\" font-size=\"14\" fill=\"white\">{label}</text>\
+</svg>",
+            size = thumbnail_size,
+            inner = thumbnail_size.saturating_sub(24),
+            color_a = color_a,
+            color_b = color_b,
+            text_y = thumbnail_size.saturating_sub(18),
+            label = label
+        );
+
+        let source_url = format!("https://local.demo/images/{}", &hex[..16]);
+        let domain = extract_domain(&source_url).unwrap_or_else(|| "local.demo".to_string());
+
+        results.push(ImageSearchResult {
+            url: svg_data_uri(&svg),
+            thumbnail_url: Some(svg_data_uri(&thumbnail)),
+            title: format!("{} ({})", query, idx + 1),
+            source_url,
+            domain,
+            width: Some(width),
+            height: Some(height),
+        });
+    }
+    results
+}
+
+fn build_image_evidence(
+    tenant_id: &TenantId,
+    request: &ImageSearchRequest,
+    results: &[ImageSearchResult],
+    latency_ms: u64,
+    used_cache: bool,
+) -> BrowseEvidence {
+    let mut builder = EvidenceBuilder::new(tenant_id.clone(), request.request_id.clone())
+        .evidence_type(EvidenceType::ImageSearch)
+        .latency_ms(latency_ms)
+        .used_cache(used_cache);
+
+    for result in results {
+        let source_url = if result.source_url.is_empty() {
+            &result.url
+        } else {
+            &result.source_url
+        };
+        let source = SourceRecord::new(source_url).with_title(&result.title);
+        builder = builder.add_source(source);
+    }
+
+    builder.build()
+}
+
+fn svg_data_uri(svg: &str) -> String {
+    let encoded: String = url::form_urlencoded::byte_serialize(svg.as_bytes()).collect();
+    format!("data:image/svg+xml;utf8,{}", encoded)
+}
+
+fn extract_domain(url: &str) -> Option<String> {
+    url::Url::parse(url)
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.to_string()))
+}
+
+fn json_u32(value: &serde_json::Value) -> Option<u32> {
+    value
+        .as_u64()
+        .and_then(|v| u32::try_from(v).ok())
+        .or_else(|| value.as_str().and_then(|s| s.parse::<u32>().ok()))
+}
+
+fn escape_svg_text(input: &str) -> String {
+    input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('\"', "&quot;")
+        .replace('\'', "&apos;")
 }
