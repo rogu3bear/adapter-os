@@ -258,10 +258,21 @@ fn generate_tokens_once(seed: &[u8]) -> Result<Vec<u32>, String> {
     let vocab_size = 16;
     let eos_token = 999;
 
+    // Create adapter info for the 2 adapters configured in the router
+    let adapter_info: Vec<AdapterInfo> = (0..2)
+        .map(|i| AdapterInfo {
+            id: format!("test_adapter_{}", i),
+            stable_id: i as u64,
+            tier: "persistent".to_string(),
+            ..Default::default()
+        })
+        .collect();
+
     generator
         .generate_tokens(
             &mut kernels,
             &mut router,
+            &adapter_info,
             initial_tokens,
             6,
             vocab_size,

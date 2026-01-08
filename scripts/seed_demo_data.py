@@ -510,47 +510,8 @@ def seed_core_entities(cur: sqlite3.Cursor) -> None:
         ),
     )
 
-    delete_existing(cur, "nodes", "id", ["node-demo-east"])
-    cur.execute(
-        """
-        INSERT INTO nodes (id, hostname, agent_endpoint, status, last_seen_at, labels_json, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            "node-demo-east",
-            "demo-east.local",
-            "http://127.0.0.1:9101",
-            "active",
-            iso(10),
-            json.dumps({"arch": "apple-silicon", "region": "iad"}),
-            iso(2),
-        ),
-    )
-
-    delete_existing(cur, "workers", "id", ["worker-demo-frontend"])
-    cur.execute(
-        """
-        INSERT INTO workers (
-            id, tenant_id, node_id, plan_id, uds_path, pid, status,
-            memory_headroom_pct, k_current, adapters_loaded_json, started_at, last_heartbeat_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            "worker-demo-frontend",
-            "default",
-            "node-demo-east",
-            "plan-demo-qwen",
-            "/var/run/aos/default/worker.sock",
-            4312,
-            "serving",
-            34.2,
-            16,
-            json.dumps(["demo-adapter", "safety-kit"]),
-            iso(12),
-            iso(18),
-        ),
-    )
+    # NOTE: Demo nodes and workers removed to avoid fake data in UI
+    # Real workers and nodes are registered by the actual worker processes
 
 
 def seed_monitoring_data(cur: sqlite3.Cursor) -> None:
