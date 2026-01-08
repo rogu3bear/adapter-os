@@ -1,0 +1,149 @@
+//! Training page
+//!
+//! Complete training jobs management with list view, detail panel, and job creation.
+
+mod components;
+mod detail;
+mod dialogs;
+mod utils;
+
+use crate::api::ApiClient;
+use crate::components::{Button, ButtonVariant, ErrorDisplay, Spinner, SplitPanel};
+use crate::hooks::{use_api_resource, use_polling, LoadingState};
+use adapteros_api_types::TrainingListParams;
+use leptos::prelude::*;
+use std::sync::Arc;
+
+use components::{StatusFilter, TrainingJobList};
+use detail::TrainingJobDetail;
+use dialogs::CreateJobDialog;
+
+/// Training jobs page with list and detail panels
+#[component]
+pub fn Training() -> impl IntoView {
+    // Selected job ID for detail panel
+    let selected_job_id = RwSignal::new(None::<String>);
+
+    // Status filter
+    let status_filter = RwSignal::new(String::new());
+
+    // Dialog open state
+    let create_dialog_open = RwSignal::new(false);
+
+    // Fetch training jobs with server-side filtering
+    let (jobs, refetch_jobs) = use_api_resource(move |client: Arc<ApiClient>| {
+        let filter = status_filter.get();
+        async move {
+            let params = if filter.is_empty() {
+                None
+            } else {
+                Some(TrainingListParams {
+                    status: Some(filter),
+                    ..Default::default()
+                })
+            };
+            client.list_training_jobs(params.as_ref()).await
+        }
+    });
+
+    // Store refetch in a signal for sharing
+    let refetch_signal = StoredValue::new(refetch_jobs);
+
+    // Polling for live updates (every 5 seconds when jobs are running)
+    // Return value (stop fn) intentionally ignored - polling runs until unmount
+    let _ = use_polling(5000, move || async move {
+        refetch_signal.with_value(|f| f());
+    });
+
+    let on_job_select = move |job_id: String| {
+        selected_job_id.set(Some(job_id));
+    };
+
+    let on_close_detail = move || {
+        selected_job_id.set(None);
+    };
+
+    let on_job_created = move || {
+        create_dialog_open.set(false);
+        refetch_signal.with_value(|f| f());
+    };
+
+    // Derive selection state for SplitPanel
+    let has_selection = Signal::derive(move || selected_job_id.get().is_some());
+
+    view! {
+        <div class="p-6 space-y-6">
+            <SplitPanel
+                has_selection=has_selection
+                on_close=Callback::new(move |_| on_close_detail())
+                back_label="Back to Training Jobs"
+                list_panel=move || {
+                    view! {
+                        <div class="space-y-6">
+                            // Header
+                            <div class="flex items-center justify-between">
+                                <h1 class="text-3xl font-bold tracking-tight">"Training Jobs"</h1>
+                                <div class="flex items-center gap-2">
+                                    <StatusFilter filter=status_filter/>
+                                    <Button
+                                        variant=ButtonVariant::Primary
+                                        on_click=Callback::new(move |_| create_dialog_open.set(true))
+                                    >
+                                        "New Training Job"
+                                    </Button>
+                                </div>
+                            </div>
+
+                            // Job list
+                            {move || {
+                                match jobs.get() {
+                                    LoadingState::Idle | LoadingState::Loading => {
+                                        view! {
+                                            <div class="flex items-center justify-center py-12">
+                                                <Spinner/>
+                                            </div>
+                                        }.into_any()
+                                    }
+                                    LoadingState::Loaded(data) => {
+                                        view! {
+                                            <TrainingJobList
+                                                jobs=data.jobs.clone()
+                                                selected_id=selected_job_id
+                                                on_select=on_job_select
+                                            />
+                                        }.into_any()
+                                    }
+                                    LoadingState::Error(e) => {
+                                        view! {
+                                            <ErrorDisplay
+                                                error=e
+                                                on_retry=Callback::new(move |_| refetch_signal.with_value(|f| f()))
+                                            />
+                                        }.into_any()
+                                    }
+                                }
+                            }}
+                        </div>
+                    }
+                }
+                detail_panel=move || {
+                    // Detail panel content - job_id comes from selected_job_id
+                    let job_id = selected_job_id.get().unwrap_or_default();
+                    view! {
+                        <TrainingJobDetail
+                            job_id=job_id
+                            on_close=on_close_detail
+                            on_cancelled=move || refetch_signal.with_value(|f| f())
+                        />
+                    }
+                }
+            />
+
+            // Create job dialog (outside SplitPanel, it's a modal)
+            <CreateJobDialog
+                open=create_dialog_open
+                on_created=on_job_created
+            />
+        </div>
+    }
+}

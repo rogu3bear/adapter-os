@@ -393,9 +393,8 @@ pub fn MiniLineChart(
     let stroke_color = color.unwrap_or_else(|| colors::PRIMARY.to_string());
 
     // Memoize all computed chart data
-    let chart_data = Memo::new(move |_| {
-        data.with(|d| MiniChartData::compute(d, width, height, padding, fill))
-    });
+    let chart_data =
+        Memo::new(move |_| data.with(|d| MiniChartData::compute(d, width, height, padding, fill)));
 
     view! {
         <svg

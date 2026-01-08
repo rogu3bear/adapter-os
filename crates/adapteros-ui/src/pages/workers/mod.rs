@@ -1,0 +1,323 @@
+//! Workers management page
+//!
+//! Comprehensive worker management with detailed status, metrics,
+//! spawn controls, and lifecycle management.
+
+mod components;
+mod dialogs;
+mod icons;
+mod utils;
+
+use crate::api::ApiClient;
+use crate::components::{ErrorDisplay, Spinner};
+use crate::hooks::{use_api_resource, use_navigate, LoadingState};
+use adapteros_api_types::SpawnWorkerRequest;
+use leptos::prelude::*;
+use std::sync::Arc;
+
+use components::{WorkerDetailPanel, WorkerDetailView, WorkersList, WorkersSummary};
+use dialogs::{PlanOption, SpawnWorkerDialog};
+use icons::{BackIcon, CloseIcon, PlusIcon, RefreshIcon};
+
+/// Workers management page
+#[component]
+pub fn Workers() -> impl IntoView {
+    // Fetch workers list
+    let (workers, refetch_workers) =
+        use_api_resource(|client: Arc<ApiClient>| async move { client.list_workers().await });
+
+    // Fetch nodes for spawn form
+    let (nodes, _refetch_nodes) =
+        use_api_resource(|client: Arc<ApiClient>| async move { client.list_nodes().await });
+
+    // Fetch plans for spawn form
+    let (plans, _refetch_plans) = use_api_resource(|client: Arc<ApiClient>| async move {
+        client.get::<Vec<PlanOption>>("/v1/plans").await
+    });
+
+    // Dialog state
+    let show_spawn_dialog = RwSignal::new(false);
+    let selected_worker = RwSignal::new(Option::<String>::None);
+    let action_loading = RwSignal::new(false);
+    let action_error = RwSignal::new(Option::<String>::None);
+
+    // Store refetch for sharing
+    let refetch_workers_signal = StoredValue::new(refetch_workers);
+
+    // Debug logging for list sizes
+    #[cfg(debug_assertions)]
+    Effect::new(move |_| {
+        if let LoadingState::Loaded(ref w) = workers.get() {
+            web_sys::console::log_1(&format!("[list] workers: {} items", w.len()).into());
+        }
+    });
+
+    // Set up polling interval (every 5 seconds for workers)
+    Effect::new(move |_| {
+        let interval_handle = gloo_timers::callback::Interval::new(5_000, move || {
+            refetch_workers_signal.with_value(|f| f());
+        });
+        std::mem::forget(interval_handle);
+    });
+
+    view! {
+        <div class="space-y-6">
+            // Header with title and actions
+            <div class="flex items-center justify-between">
+                <div>
+                    <h1 class="text-3xl font-bold tracking-tight">"Workers"</h1>
+                    <p class="text-muted-foreground mt-1">
+                        "Manage inference workers, monitor health, and control lifecycle"
+                    </p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button
+                        class="inline-flex items-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent"
+                        on:click=move |_| refetch_workers_signal.with_value(|f| f())
+                    >
+                        <RefreshIcon/>
+                        "Refresh"
+                    </button>
+                    <button
+                        class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                        on:click=move |_| show_spawn_dialog.set(true)
+                    >
+                        <PlusIcon/>
+                        "Spawn Worker"
+                    </button>
+                </div>
+            </div>
+
+            // Error banner
+            {move || action_error.get().map(|e| view! {
+                <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
+                    <div class="flex items-center justify-between">
+                        <p class="text-destructive font-medium">{e}</p>
+                        <button
+                            class="text-destructive hover:text-destructive/80"
+                            on:click=move |_| action_error.set(None)
+                        >
+                            <CloseIcon/>
+                        </button>
+                    </div>
+                </div>
+            })}
+
+            // Main content
+            {move || {
+                let workers_state = workers.get();
+                let nodes_list = match nodes.get() {
+                    LoadingState::Loaded(n) => n,
+                    _ => Vec::new(),
+                };
+                let plans_list = match plans.get() {
+                    LoadingState::Loaded(p) => p,
+                    _ => Vec::new(),
+                };
+
+                match workers_state {
+                    LoadingState::Idle | LoadingState::Loading => {
+                        view! {
+                            <div class="flex items-center justify-center py-12">
+                                <Spinner/>
+                            </div>
+                        }.into_any()
+                    }
+                    LoadingState::Loaded(workers_data) => {
+                        view! {
+                            // Summary cards
+                            <WorkersSummary workers=workers_data.clone()/>
+
+                            // Workers list
+                            <WorkersList
+                                workers=workers_data.clone()
+                                selected_worker=selected_worker
+                                on_drain=Callback::new({
+                                    let refetch = refetch_workers_signal;
+                                    move |worker_id: String| {
+                                        action_loading.set(true);
+                                        let client = ApiClient::new();
+                                        let worker_id = worker_id.clone();
+                                        wasm_bindgen_futures::spawn_local(async move {
+                                            match client.drain_worker(&worker_id).await {
+                                                Ok(_) => {
+                                                    action_error.set(None);
+                                                    refetch.with_value(|f| f());
+                                                }
+                                                Err(e) => {
+                                                    action_error.set(Some(format!("Failed to drain worker: {}", e)));
+                                                }
+                                            }
+                                            action_loading.set(false);
+                                        });
+                                    }
+                                })
+                                on_stop=Callback::new({
+                                    let refetch = refetch_workers_signal;
+                                    move |worker_id: String| {
+                                        action_loading.set(true);
+                                        let client = ApiClient::new();
+                                        let worker_id = worker_id.clone();
+                                        wasm_bindgen_futures::spawn_local(async move {
+                                            match client.stop_worker(&worker_id).await {
+                                                Ok(_) => {
+                                                    action_error.set(None);
+                                                    refetch.with_value(|f| f());
+                                                }
+                                                Err(e) => {
+                                                    action_error.set(Some(format!("Failed to stop worker: {}", e)));
+                                                }
+                                            }
+                                            action_loading.set(false);
+                                        });
+                                    }
+                                })
+                            />
+
+                            // Worker detail panel
+                            {move || selected_worker.get().and_then(|worker_id| {
+                                let worker = workers_data.iter().find(|w| w.id == worker_id).cloned();
+                                worker.map(|w| view! {
+                                    <WorkerDetailPanel
+                                        worker=w
+                                        on_close=Callback::new(move |_| selected_worker.set(None))
+                                    />
+                                })
+                            })}
+
+                            // Spawn dialog
+                            <SpawnWorkerDialog
+                                open=show_spawn_dialog
+                                nodes=nodes_list
+                                plans=plans_list
+                                on_spawn=Callback::new({
+                                    let refetch = refetch_workers_signal;
+                                    move |request: SpawnWorkerRequest| {
+                                        action_loading.set(true);
+                                        show_spawn_dialog.set(false);
+                                        let client = ApiClient::new();
+                                        wasm_bindgen_futures::spawn_local(async move {
+                                            match client.spawn_worker(&request).await {
+                                                Ok(_) => {
+                                                    action_error.set(None);
+                                                    refetch.with_value(|f| f());
+                                                }
+                                                Err(e) => {
+                                                    action_error.set(Some(format!("Failed to spawn worker: {}", e)));
+                                                }
+                                            }
+                                            action_loading.set(false);
+                                        });
+                                    }
+                                })
+                            />
+                        }.into_any()
+                    }
+                    LoadingState::Error(e) => {
+                        view! {
+                            <ErrorDisplay
+                                error=e
+                                on_retry=Callback::new(move |_| refetch_workers_signal.with_value(|f| f()))
+                            />
+                        }.into_any()
+                    }
+                }
+            }}
+        </div>
+    }
+}
+
+/// Worker detail page (for direct navigation)
+#[component]
+pub fn WorkerDetail() -> impl IntoView {
+    let params = leptos_router::hooks::use_params_map();
+    let navigate = use_navigate();
+
+    let worker_id = move || params.with(|p| p.get("id").unwrap_or_default());
+
+    // Fetch worker details
+    let (worker, refetch_worker) = use_api_resource({
+        let worker_id = worker_id.clone();
+        move |client: Arc<ApiClient>| {
+            let id = worker_id();
+            async move { client.get_worker(&id).await }
+        }
+    });
+
+    // Fetch worker metrics
+    let (metrics, refetch_metrics) = use_api_resource({
+        let worker_id = worker_id.clone();
+        move |client: Arc<ApiClient>| {
+            let id = worker_id();
+            async move { client.get_worker_metrics(&id).await }
+        }
+    });
+
+    let refetch_worker_signal = StoredValue::new(refetch_worker);
+    let refetch_metrics_signal = StoredValue::new(refetch_metrics);
+
+    // Set up polling for metrics
+    Effect::new(move |_| {
+        let interval_handle = gloo_timers::callback::Interval::new(3_000, move || {
+            refetch_metrics_signal.with_value(|f| f());
+        });
+        std::mem::forget(interval_handle);
+    });
+
+    view! {
+        <div class="space-y-6">
+            // Back button
+            <div class="flex items-center gap-4">
+                <button
+                    class="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+                    on:click=move |_| navigate("/workers")
+                >
+                    <BackIcon/>
+                    "Back to Workers"
+                </button>
+            </div>
+
+            {move || {
+                let worker_state = worker.get();
+                let metrics_state = metrics.get();
+
+                match worker_state {
+                    LoadingState::Idle | LoadingState::Loading => {
+                        view! {
+                            <div class="flex items-center justify-center py-12">
+                                <Spinner/>
+                            </div>
+                        }.into_any()
+                    }
+                    LoadingState::Loaded(w) => {
+                        let metrics_data = match metrics_state {
+                            LoadingState::Loaded(m) => Some(m),
+                            _ => None,
+                        };
+                        view! {
+                            <WorkerDetailView
+                                worker=w
+                                metrics=metrics_data
+                                on_refresh=Callback::new(move |_| {
+                                    refetch_worker_signal.with_value(|f| f());
+                                    refetch_metrics_signal.with_value(|f| f());
+                                })
+                            />
+                        }.into_any()
+                    }
+                    LoadingState::Error(e) => {
+                        view! {
+                            <ErrorDisplay
+                                error=e
+                                on_retry=Callback::new(move |_| {
+                                    refetch_worker_signal.with_value(|f| f());
+                                    refetch_metrics_signal.with_value(|f| f());
+                                })
+                            />
+                        }.into_any()
+                    }
+                }
+            }}
+        </div>
+    }
+}

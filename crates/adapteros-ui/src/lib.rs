@@ -248,9 +248,7 @@ pub fn boot_log(phase: &str, message: &str) {
     static BOOT_START: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
     let start = *BOOT_START.get_or_init(now);
     let elapsed = now() - start;
-    web_sys::console::log_1(
-        &format!("[boot T+{:.0}ms] {}: {}", elapsed, phase, message).into(),
-    );
+    web_sys::console::log_1(&format!("[boot T+{:.0}ms] {}: {}", elapsed, phase, message).into());
 }
 
 /// PRD-UI-000: Custom panic hook that displays errors in the DOM with redaction

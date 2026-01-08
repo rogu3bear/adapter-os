@@ -1,316 +1,28 @@
-//! Workers management page
+//! Workers page view components
 //!
-//! Comprehensive worker management with detailed status, metrics,
-//! spawn controls, and lifecycle management.
+//! Subcomponents for displaying worker lists, details, and metrics.
 
 use crate::api::{ApiClient, WorkerMetricsResponse};
 use crate::components::{
-    Badge, BadgeVariant, Card, Dialog, Input, Select, Spinner, StatusColor, StatusIndicator, Table,
-    TableBody, TableCell, TableHead, TableHeader, TableRow,
+    Badge, BadgeVariant, Card, Spinner, StatusColor, StatusIndicator, Table, TableBody, TableCell,
+    TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, use_navigate, LoadingState};
-use adapteros_api_types::{NodeResponse, SpawnWorkerRequest, WorkerResponse};
+use adapteros_api_types::WorkerResponse;
 use leptos::prelude::*;
 use std::sync::Arc;
 
-/// Workers management page
-#[component]
-pub fn Workers() -> impl IntoView {
-    // Fetch workers list
-    let (workers, refetch_workers) =
-        use_api_resource(|client: Arc<ApiClient>| async move { client.list_workers().await });
-
-    // Fetch nodes for spawn form
-    let (nodes, _refetch_nodes) =
-        use_api_resource(|client: Arc<ApiClient>| async move { client.list_nodes().await });
-
-    // Fetch plans for spawn form
-    let (plans, _refetch_plans) = use_api_resource(|client: Arc<ApiClient>| async move {
-        client.get::<Vec<PlanOption>>("/v1/plans").await
-    });
-
-    // Dialog state
-    let show_spawn_dialog = RwSignal::new(false);
-    let selected_worker = RwSignal::new(Option::<String>::None);
-    let action_loading = RwSignal::new(false);
-    let action_error = RwSignal::new(Option::<String>::None);
-
-    // Store refetch for sharing
-    let refetch_workers_signal = StoredValue::new(refetch_workers);
-
-    // Set up polling interval (every 5 seconds for workers)
-    Effect::new(move |_| {
-        let interval_handle = gloo_timers::callback::Interval::new(5_000, move || {
-            refetch_workers_signal.with_value(|f| f());
-        });
-        std::mem::forget(interval_handle);
-    });
-
-    view! {
-        <div class="space-y-6">
-            // Header with title and actions
-            <div class="flex items-center justify-between">
-                <div>
-                    <h1 class="text-3xl font-bold tracking-tight">"Workers"</h1>
-                    <p class="text-muted-foreground mt-1">
-                        "Manage inference workers, monitor health, and control lifecycle"
-                    </p>
-                </div>
-                <div class="flex items-center gap-2">
-                    <button
-                        class="inline-flex items-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent"
-                        on:click=move |_| refetch_workers_signal.with_value(|f| f())
-                    >
-                        <RefreshIcon/>
-                        "Refresh"
-                    </button>
-                    <button
-                        class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-                        on:click=move |_| show_spawn_dialog.set(true)
-                    >
-                        <PlusIcon/>
-                        "Spawn Worker"
-                    </button>
-                </div>
-            </div>
-
-            // Error banner
-            {move || action_error.get().map(|e| view! {
-                <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
-                    <div class="flex items-center justify-between">
-                        <p class="text-destructive font-medium">{e}</p>
-                        <button
-                            class="text-destructive hover:text-destructive/80"
-                            on:click=move |_| action_error.set(None)
-                        >
-                            <CloseIcon/>
-                        </button>
-                    </div>
-                </div>
-            })}
-
-            // Main content
-            {move || {
-                let workers_state = workers.get();
-                let nodes_list = match nodes.get() {
-                    LoadingState::Loaded(n) => n,
-                    _ => Vec::new(),
-                };
-                let plans_list = match plans.get() {
-                    LoadingState::Loaded(p) => p,
-                    _ => Vec::new(),
-                };
-
-                match workers_state {
-                    LoadingState::Idle | LoadingState::Loading => {
-                        view! {
-                            <div class="flex items-center justify-center py-12">
-                                <Spinner/>
-                            </div>
-                        }.into_any()
-                    }
-                    LoadingState::Loaded(workers_data) => {
-                        view! {
-                            // Summary cards
-                            <WorkersSummary workers=workers_data.clone()/>
-
-                            // Workers list
-                            <WorkersList
-                                workers=workers_data.clone()
-                                selected_worker=selected_worker
-                                on_drain=Callback::new({
-                                    let refetch = refetch_workers_signal;
-                                    move |worker_id: String| {
-                                        action_loading.set(true);
-                                        let client = ApiClient::new();
-                                        let worker_id = worker_id.clone();
-                                        wasm_bindgen_futures::spawn_local(async move {
-                                            match client.drain_worker(&worker_id).await {
-                                                Ok(_) => {
-                                                    action_error.set(None);
-                                                    refetch.with_value(|f| f());
-                                                }
-                                                Err(e) => {
-                                                    action_error.set(Some(format!("Failed to drain worker: {}", e)));
-                                                }
-                                            }
-                                            action_loading.set(false);
-                                        });
-                                    }
-                                })
-                                on_stop=Callback::new({
-                                    let refetch = refetch_workers_signal;
-                                    move |worker_id: String| {
-                                        action_loading.set(true);
-                                        let client = ApiClient::new();
-                                        let worker_id = worker_id.clone();
-                                        wasm_bindgen_futures::spawn_local(async move {
-                                            match client.stop_worker(&worker_id).await {
-                                                Ok(_) => {
-                                                    action_error.set(None);
-                                                    refetch.with_value(|f| f());
-                                                }
-                                                Err(e) => {
-                                                    action_error.set(Some(format!("Failed to stop worker: {}", e)));
-                                                }
-                                            }
-                                            action_loading.set(false);
-                                        });
-                                    }
-                                })
-                            />
-
-                            // Worker detail panel
-                            {move || selected_worker.get().and_then(|worker_id| {
-                                let worker = workers_data.iter().find(|w| w.id == worker_id).cloned();
-                                worker.map(|w| view! {
-                                    <WorkerDetailPanel
-                                        worker=w
-                                        on_close=Callback::new(move |_| selected_worker.set(None))
-                                    />
-                                })
-                            })}
-
-                            // Spawn dialog
-                            <SpawnWorkerDialog
-                                open=show_spawn_dialog
-                                nodes=nodes_list
-                                plans=plans_list
-                                on_spawn=Callback::new({
-                                    let refetch = refetch_workers_signal;
-                                    move |request: SpawnWorkerRequest| {
-                                        action_loading.set(true);
-                                        show_spawn_dialog.set(false);
-                                        let client = ApiClient::new();
-                                        wasm_bindgen_futures::spawn_local(async move {
-                                            match client.spawn_worker(&request).await {
-                                                Ok(_) => {
-                                                    action_error.set(None);
-                                                    refetch.with_value(|f| f());
-                                                }
-                                                Err(e) => {
-                                                    action_error.set(Some(format!("Failed to spawn worker: {}", e)));
-                                                }
-                                            }
-                                            action_loading.set(false);
-                                        });
-                                    }
-                                })
-                            />
-                        }.into_any()
-                    }
-                    LoadingState::Error(e) => {
-                        view! {
-                            <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
-                                <p class="text-destructive font-medium">"Failed to load workers"</p>
-                                <p class="text-sm text-destructive/80 mt-1">{e.to_string()}</p>
-                            </div>
-                        }.into_any()
-                    }
-                }
-            }}
-        </div>
-    }
-}
-
-/// Worker detail page (for direct navigation)
-#[component]
-pub fn WorkerDetail() -> impl IntoView {
-    let params = leptos_router::hooks::use_params_map();
-    let navigate = use_navigate();
-
-    let worker_id = move || params.with(|p| p.get("id").unwrap_or_default());
-
-    // Fetch worker details
-    let (worker, refetch_worker) = use_api_resource({
-        let worker_id = worker_id.clone();
-        move |client: Arc<ApiClient>| {
-            let id = worker_id();
-            async move { client.get_worker(&id).await }
-        }
-    });
-
-    // Fetch worker metrics
-    let (metrics, refetch_metrics) = use_api_resource({
-        let worker_id = worker_id.clone();
-        move |client: Arc<ApiClient>| {
-            let id = worker_id();
-            async move { client.get_worker_metrics(&id).await }
-        }
-    });
-
-    let refetch_worker_signal = StoredValue::new(refetch_worker);
-    let refetch_metrics_signal = StoredValue::new(refetch_metrics);
-
-    // Set up polling for metrics
-    Effect::new(move |_| {
-        let interval_handle = gloo_timers::callback::Interval::new(3_000, move || {
-            refetch_metrics_signal.with_value(|f| f());
-        });
-        std::mem::forget(interval_handle);
-    });
-
-    view! {
-        <div class="space-y-6">
-            // Back button
-            <div class="flex items-center gap-4">
-                <button
-                    class="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
-                    on:click=move |_| navigate("/workers")
-                >
-                    <BackIcon/>
-                    "Back to Workers"
-                </button>
-            </div>
-
-            {move || {
-                let worker_state = worker.get();
-                let metrics_state = metrics.get();
-
-                match worker_state {
-                    LoadingState::Idle | LoadingState::Loading => {
-                        view! {
-                            <div class="flex items-center justify-center py-12">
-                                <Spinner/>
-                            </div>
-                        }.into_any()
-                    }
-                    LoadingState::Loaded(w) => {
-                        let metrics_data = match metrics_state {
-                            LoadingState::Loaded(m) => Some(m),
-                            _ => None,
-                        };
-                        view! {
-                            <WorkerDetailView
-                                worker=w
-                                metrics=metrics_data
-                                on_refresh=Callback::new(move |_| {
-                                    refetch_worker_signal.with_value(|f| f());
-                                    refetch_metrics_signal.with_value(|f| f());
-                                })
-                            />
-                        }.into_any()
-                    }
-                    LoadingState::Error(e) => {
-                        view! {
-                            <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
-                                <p class="text-destructive font-medium">"Failed to load worker"</p>
-                                <p class="text-sm text-destructive/80 mt-1">{e.to_string()}</p>
-                            </div>
-                        }.into_any()
-                    }
-                }
-            }}
-        </div>
-    }
-}
+use super::icons::{CloseIcon, PauseIcon, RefreshIcon, ServerIcon, StopIcon};
+use super::utils::{
+    format_timestamp, format_uptime, short_hash, short_id, status_badge_variant, WORKERS_PAGE_SIZE,
+};
 
 // ============================================================================
 // Summary Cards
 // ============================================================================
 
 #[component]
-fn WorkersSummary(workers: Vec<WorkerResponse>) -> impl IntoView {
+pub fn WorkersSummary(workers: Vec<WorkerResponse>) -> impl IntoView {
     let total = workers.len();
     let healthy = workers.iter().filter(|w| w.status == "healthy").count();
     let draining = workers.iter().filter(|w| w.status == "draining").count();
@@ -378,11 +90,8 @@ fn WorkersSummary(workers: Vec<WorkerResponse>) -> impl IntoView {
 // Workers List
 // ============================================================================
 
-/// Page size for client-side pagination (reduces initial DOM nodes)
-const WORKERS_PAGE_SIZE: usize = 25;
-
 #[component]
-fn WorkersList(
+pub fn WorkersList(
     workers: Vec<WorkerResponse>,
     selected_worker: RwSignal<Option<String>>,
     on_drain: Callback<String>,
@@ -488,7 +197,7 @@ fn WorkersList(
 }
 
 #[component]
-fn WorkerRow(
+pub fn WorkerRow(
     worker: WorkerResponse,
     on_select: Callback<()>,
     on_drain: Callback<()>,
@@ -504,7 +213,7 @@ fn WorkerRow(
         _ => BadgeVariant::Secondary,
     };
 
-    let short_id = if worker.id.len() > 12 {
+    let short_worker_id = if worker.id.len() > 12 {
         format!("{}...", &worker.id[..12])
     } else {
         worker.id.clone()
@@ -543,7 +252,7 @@ fn WorkerRow(
                     title=worker.id.clone()
                     on:click=move |_| on_select.run(())
                 >
-                    {short_id.clone()}
+                    {short_worker_id.clone()}
                 </button>
             </TableCell>
             <TableCell>
@@ -597,7 +306,7 @@ fn WorkerRow(
 // ============================================================================
 
 #[component]
-fn WorkerDetailPanel(worker: WorkerResponse, on_close: Callback<()>) -> impl IntoView {
+pub fn WorkerDetailPanel(worker: WorkerResponse, on_close: Callback<()>) -> impl IntoView {
     let navigate = use_navigate();
     let worker_id = worker.id.clone();
 
@@ -721,7 +430,7 @@ fn WorkerDetailPanel(worker: WorkerResponse, on_close: Callback<()>) -> impl Int
 }
 
 #[component]
-fn DetailItem(label: &'static str, value: String) -> impl IntoView {
+pub fn DetailItem(label: &'static str, value: String) -> impl IntoView {
     let value_clone = value.clone();
     view! {
         <div>
@@ -736,7 +445,7 @@ fn DetailItem(label: &'static str, value: String) -> impl IntoView {
 // ============================================================================
 
 #[component]
-fn WorkerDetailView(
+pub fn WorkerDetailView(
     worker: WorkerResponse,
     metrics: Option<WorkerMetricsResponse>,
     on_refresh: Callback<()>,
@@ -939,8 +648,12 @@ fn WorkerDetailView(
     }
 }
 
+// ============================================================================
+// Worker Metrics Components
+// ============================================================================
+
 #[component]
-fn WorkerMetricsPanel(metrics: WorkerMetricsResponse) -> impl IntoView {
+pub fn WorkerMetricsPanel(metrics: WorkerMetricsResponse) -> impl IntoView {
     view! {
         <div>
             <h4 class="text-sm font-medium mb-3">"Performance Metrics"</h4>
@@ -967,7 +680,7 @@ fn WorkerMetricsPanel(metrics: WorkerMetricsResponse) -> impl IntoView {
 }
 
 #[component]
-fn WorkerMetricsCard(metrics: WorkerMetricsResponse) -> impl IntoView {
+pub fn WorkerMetricsCard(metrics: WorkerMetricsResponse) -> impl IntoView {
     view! {
         <Card title="Performance Metrics".to_string()>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-6">
@@ -1085,7 +798,7 @@ fn WorkerMetricsCard(metrics: WorkerMetricsResponse) -> impl IntoView {
 }
 
 #[component]
-fn MetricTile(label: &'static str, value: String) -> impl IntoView {
+pub fn MetricTile(label: &'static str, value: String) -> impl IntoView {
     view! {
         <div class="p-4 rounded-lg border">
             <p class="text-xs text-muted-foreground mb-1">{label}</p>
@@ -1095,7 +808,7 @@ fn MetricTile(label: &'static str, value: String) -> impl IntoView {
 }
 
 #[component]
-fn ResourceBar(label: &'static str, value: String, percentage: f64) -> impl IntoView {
+pub fn ResourceBar(label: &'static str, value: String, percentage: f64) -> impl IntoView {
     let color = if percentage > 90.0 {
         "bg-destructive"
     } else if percentage > 70.0 {
@@ -1117,322 +830,5 @@ fn ResourceBar(label: &'static str, value: String, percentage: f64) -> impl Into
                 />
             </div>
         </div>
-    }
-}
-
-// ============================================================================
-// Spawn Worker Dialog
-// ============================================================================
-
-/// Local plan option type for spawn form
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct PlanOption {
-    pub id: String,
-    pub tenant_id: String,
-    pub manifest_hash_b3: String,
-    pub status: String,
-}
-
-#[component]
-fn SpawnWorkerDialog(
-    open: RwSignal<bool>,
-    nodes: Vec<NodeResponse>,
-    plans: Vec<PlanOption>,
-    on_spawn: Callback<SpawnWorkerRequest>,
-) -> impl IntoView {
-    // Form state
-    let tenant_id = RwSignal::new(String::new());
-    let node_id = RwSignal::new(String::new());
-    let plan_id = RwSignal::new(String::new());
-    let uds_path = RwSignal::new(String::new());
-
-    // Validation
-    let is_valid = move || {
-        !tenant_id.get().is_empty()
-            && !node_id.get().is_empty()
-            && !plan_id.get().is_empty()
-            && !uds_path.get().is_empty()
-    };
-
-    // Build node options
-    let node_options: Vec<(String, String)> =
-        std::iter::once(("".to_string(), "Select a node...".to_string()))
-            .chain(
-                nodes
-                    .iter()
-                    .map(|n| (n.id.clone(), format!("{} ({})", n.hostname, n.id))),
-            )
-            .collect();
-
-    // Build plan options
-    let plan_options: Vec<(String, String)> =
-        std::iter::once(("".to_string(), "Select a plan...".to_string()))
-            .chain(plans.iter().map(|p| {
-                (
-                    p.id.clone(),
-                    format!("{} ({})", short_hash(&p.manifest_hash_b3), p.id),
-                )
-            }))
-            .collect();
-
-    // Auto-generate UDS path when node is selected
-    Effect::new(move || {
-        let node = node_id.get();
-        if !node.is_empty() && uds_path.get().is_empty() {
-            let timestamp = js_sys::Date::now() as u64;
-            uds_path.set(format!(
-                "/tmp/aos-worker-{}-{}.sock",
-                short_id(&node),
-                timestamp
-            ));
-        }
-    });
-
-    view! {
-        <Dialog
-            open=open
-            title="Spawn New Worker".to_string()
-            description="Configure and spawn a new inference worker".to_string()
-        >
-            <div class="space-y-4">
-                <Input
-                    value=tenant_id
-                    label="Tenant ID".to_string()
-                    placeholder="Enter tenant ID".to_string()
-                />
-
-                <Select
-                    value=node_id
-                    options=node_options
-                    label="Node".to_string()
-                />
-
-                <Select
-                    value=plan_id
-                    options=plan_options
-                    label="Plan".to_string()
-                />
-
-                <Input
-                    value=uds_path
-                    label="UDS Path".to_string()
-                    placeholder="/tmp/aos-worker.sock".to_string()
-                />
-
-                <div class="flex justify-end gap-2 pt-4">
-                    <button
-                        class="inline-flex items-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent"
-                        on:click=move |_| {
-                            open.set(false);
-                            // Reset form
-                            tenant_id.set(String::new());
-                            node_id.set(String::new());
-                            plan_id.set(String::new());
-                            uds_path.set(String::new());
-                        }
-                    >
-                        "Cancel"
-                    </button>
-                    <button
-                        class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-                        disabled=move || !is_valid()
-                        on:click=move |_| {
-                            let request = SpawnWorkerRequest {
-                                tenant_id: tenant_id.get(),
-                                node_id: node_id.get(),
-                                plan_id: plan_id.get(),
-                                uds_path: uds_path.get(),
-                            };
-                            on_spawn.run(request);
-                            // Reset form
-                            tenant_id.set(String::new());
-                            node_id.set(String::new());
-                            plan_id.set(String::new());
-                            uds_path.set(String::new());
-                        }
-                    >
-                        "Spawn Worker"
-                    </button>
-                </div>
-            </div>
-        </Dialog>
-    }
-}
-
-// ============================================================================
-// Icons
-// ============================================================================
-
-#[component]
-fn RefreshIcon() -> impl IntoView {
-    view! {
-        <svg
-            class="h-4 w-4"
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            stroke-width="2"
-        >
-            <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-            />
-        </svg>
-    }
-}
-
-#[component]
-fn PlusIcon() -> impl IntoView {
-    view! {
-        <svg
-            class="h-4 w-4"
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            stroke-width="2"
-        >
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
-        </svg>
-    }
-}
-
-#[component]
-fn CloseIcon() -> impl IntoView {
-    view! {
-        <svg
-            class="h-4 w-4"
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            stroke-width="2"
-        >
-            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
-        </svg>
-    }
-}
-
-#[component]
-fn BackIcon() -> impl IntoView {
-    view! {
-        <svg
-            class="h-4 w-4"
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            stroke-width="2"
-        >
-            <path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
-        </svg>
-    }
-}
-
-#[component]
-fn PauseIcon() -> impl IntoView {
-    view! {
-        <svg
-            class="h-4 w-4"
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            stroke-width="2"
-        >
-            <path stroke-linecap="round" stroke-linejoin="round" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
-        </svg>
-    }
-}
-
-#[component]
-fn StopIcon() -> impl IntoView {
-    view! {
-        <svg
-            class="h-4 w-4"
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            stroke-width="2"
-        >
-            <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-            <path stroke-linecap="round" stroke-linejoin="round" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"/>
-        </svg>
-    }
-}
-
-#[component]
-fn ServerIcon(#[prop(optional, into)] class: String) -> impl IntoView {
-    view! {
-        <svg
-            class=class
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            stroke-width="2"
-        >
-            <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"/>
-        </svg>
-    }
-}
-
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
-fn format_timestamp(timestamp: &str) -> String {
-    if timestamp == "-" || timestamp.is_empty() {
-        return "-".to_string();
-    }
-    if timestamp.contains('T') {
-        if let Some(time_part) = timestamp.split('T').nth(1) {
-            let time = time_part.split('.').next().unwrap_or(time_part);
-            return time.to_string();
-        }
-    }
-    timestamp.to_string()
-}
-
-fn format_uptime(seconds: u64) -> String {
-    let days = seconds / 86400;
-    let hours = (seconds % 86400) / 3600;
-    let minutes = (seconds % 3600) / 60;
-
-    if days > 0 {
-        format!("{}d {}h", days, hours)
-    } else if hours > 0 {
-        format!("{}h {}m", hours, minutes)
-    } else {
-        format!("{}m", minutes)
-    }
-}
-
-fn short_id(id: &str) -> String {
-    if id.len() > 12 {
-        format!("{}...", &id[..12])
-    } else {
-        id.to_string()
-    }
-}
-
-fn short_hash(hash: &str) -> String {
-    if hash.len() > 8 {
-        format!("{}...", &hash[..8])
-    } else {
-        hash.to_string()
-    }
-}
-
-fn status_badge_variant(status: &str) -> BadgeVariant {
-    match status {
-        "healthy" => BadgeVariant::Success,
-        "draining" => BadgeVariant::Warning,
-        "registered" => BadgeVariant::Secondary,
-        "error" | "stopped" => BadgeVariant::Destructive,
-        _ => BadgeVariant::Secondary,
     }
 }

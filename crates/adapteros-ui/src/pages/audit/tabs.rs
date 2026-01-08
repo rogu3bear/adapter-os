@@ -1,501 +1,30 @@
-//! Audit page
+//! Audit page tab components
 //!
-//! Immutable audit log viewer with hash chain visualization and verification.
+//! Individual tab views for timeline, hash chain, merkle tree, and compliance.
 
 use crate::api::{
-    ApiClient, AuditChainEntry, AuditChainResponse, AuditLogEntry, AuditLogsQuery,
-    AuditLogsResponse, ChainVerificationResponse, ComplianceAuditResponse,
+    AuditChainEntry, AuditChainResponse, AuditLogEntry, AuditLogsResponse,
+    ChainVerificationResponse, ComplianceAuditResponse,
 };
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonVariant, Card, Spinner, Table, TableBody, TableCell,
-    TableHead, TableHeader, TableRow,
+    Badge, BadgeVariant, Card, ErrorDisplay, Spinner, Table, TableBody, TableCell, TableHead,
+    TableHeader, TableRow,
 };
-use crate::hooks::{use_api_resource, LoadingState};
+use crate::hooks::LoadingState;
 use leptos::prelude::*;
-use std::sync::Arc;
 
-// ============================================================================
-// Audit page - main component
-// ============================================================================
-
-/// Audit log viewer page with chain visualization
-#[component]
-pub fn Audit() -> impl IntoView {
-    // Active tab state
-    let active_tab = RwSignal::new(AuditTab::Timeline);
-
-    // Filter state
-    let action_filter = RwSignal::new(String::new());
-    let status_filter = RwSignal::new(String::new());
-    let resource_filter = RwSignal::new(String::new());
-
-    // Build query from filters
-    let query = Memo::new(move |_| AuditLogsQuery {
-        action: {
-            let a = action_filter.get();
-            if a.is_empty() {
-                None
-            } else {
-                Some(a)
-            }
-        },
-        status: {
-            let s = status_filter.get();
-            if s.is_empty() {
-                None
-            } else {
-                Some(s)
-            }
-        },
-        resource_type: {
-            let r = resource_filter.get();
-            if r.is_empty() {
-                None
-            } else {
-                Some(r)
-            }
-        },
-        limit: Some(100),
-        ..Default::default()
-    });
-
-    // Fetch audit logs
-    let (logs, refetch_logs) = use_api_resource(move |client: Arc<ApiClient>| {
-        let q = query.get();
-        async move { client.query_audit_logs(&q).await }
-    });
-
-    // Fetch audit chain
-    let (chain, refetch_chain) =
-        use_api_resource(
-            |client: Arc<ApiClient>| async move { client.get_audit_chain(Some(50)).await },
-        );
-
-    // Fetch chain verification
-    let (verification, refetch_verification) =
-        use_api_resource(|client: Arc<ApiClient>| async move { client.verify_audit_chain().await });
-
-    // Fetch compliance
-    let (compliance, _refetch_compliance) =
-        use_api_resource(
-            |client: Arc<ApiClient>| async move { client.get_compliance_audit().await },
-        );
-
-    let refetch_all = move || {
-        refetch_logs();
-        refetch_chain();
-        refetch_verification();
-    };
-
-    view! {
-        <div class="p-6 space-y-6">
-                // Header
-                <div class="flex items-center justify-between">
-                    <div>
-                        <h1 class="text-3xl font-bold tracking-tight">"Audit Log"</h1>
-                        <p class="text-muted-foreground mt-1">
-                            "Immutable record of all system events with cryptographic verification"
-                        </p>
-                    </div>
-                    <div class="flex items-center gap-2">
-                        <Button variant=ButtonVariant::Outline on:click=move |_| refetch_all()>
-                            "Refresh"
-                        </Button>
-                        <Button variant=ButtonVariant::Outline>"Export"</Button>
-                    </div>
-                </div>
-
-                // Chain status summary
-                <ChainStatusSummary
-                    verification=verification
-                    chain=chain
-                    compliance=compliance
-                />
-
-                // Tab navigation
-                <div class="border-b border-border">
-                    <nav class="-mb-px flex space-x-8">
-                        <TabButton label="Event Timeline" tab=AuditTab::Timeline active_tab=active_tab/>
-                        <TabButton label="Hash Chain" tab=AuditTab::HashChain active_tab=active_tab/>
-                        <TabButton label="Merkle Tree" tab=AuditTab::MerkleTree active_tab=active_tab/>
-                        <TabButton label="Compliance" tab=AuditTab::Compliance active_tab=active_tab/>
-                    </nav>
-                </div>
-
-                // Filters section
-                <FilterSection
-                    active_tab=active_tab
-                    action_filter=action_filter
-                    status_filter=status_filter
-                    resource_filter=resource_filter
-                />
-
-                // Tab content
-                {move || {
-                    match active_tab.get() {
-                        AuditTab::Timeline => {
-                            view! { <TimelineTab logs=logs/> }.into_any()
-                        }
-                        AuditTab::HashChain => {
-                            view! { <HashChainTab chain=chain/> }.into_any()
-                        }
-                        AuditTab::MerkleTree => {
-                            view! { <MerkleTreeTab chain=chain verification=verification/> }.into_any()
-                        }
-                        AuditTab::Compliance => {
-                            view! { <ComplianceTab compliance=compliance/> }.into_any()
-                        }
-                    }
-                }}
-        </div>
-    }
-}
-
-// ============================================================================
-// Tab types
-// ============================================================================
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AuditTab {
-    Timeline,
-    HashChain,
-    MerkleTree,
-    Compliance,
-}
-
-#[component]
-fn TabButton(label: &'static str, tab: AuditTab, active_tab: RwSignal<AuditTab>) -> impl IntoView {
-    let is_active = move || active_tab.get() == tab;
-
-    view! {
-        <button
-            class=move || {
-                let base = "py-4 px-1 border-b-2 font-medium text-sm transition-colors";
-                if is_active() {
-                    format!("{} border-primary text-primary", base)
-                } else {
-                    format!(
-                        "{} border-transparent text-muted-foreground hover:text-foreground hover:border-border",
-                        base,
-                    )
-                }
-            }
-            on:click=move |_| active_tab.set(tab)
-        >
-            {label}
-        </button>
-    }
-}
-
-// ============================================================================
-// Filter Section
-// ============================================================================
-
-#[component]
-fn FilterSection(
-    active_tab: RwSignal<AuditTab>,
-    action_filter: RwSignal<String>,
-    status_filter: RwSignal<String>,
-    resource_filter: RwSignal<String>,
-) -> impl IntoView {
-    let show_filters = move || matches!(active_tab.get(), AuditTab::Timeline | AuditTab::HashChain);
-
-    view! {
-        <div class=move || {
-            if show_filters() { "block" } else { "hidden" }
-        }>
-            <Card>
-                <div class="flex items-end gap-4">
-                    <div class="flex-1">
-                        <label class="text-sm font-medium mb-2 block">"Action Type"</label>
-                        <select
-                            class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                            on:change=move |ev| action_filter.set(event_target_value(&ev))
-                        >
-                            <option value="">"All Actions"</option>
-                            <option value="create">"Create"</option>
-                            <option value="update">"Update"</option>
-                            <option value="delete">"Delete"</option>
-                            <option value="login">"Login"</option>
-                            <option value="logout">"Logout"</option>
-                            <option value="inference">"Inference"</option>
-                            <option value="training">"Training"</option>
-                        </select>
-                    </div>
-                    <div class="flex-1">
-                        <label class="text-sm font-medium mb-2 block">"Status"</label>
-                        <select
-                            class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                            on:change=move |ev| status_filter.set(event_target_value(&ev))
-                        >
-                            <option value="">"All Statuses"</option>
-                            <option value="success">"Success"</option>
-                            <option value="failure">"Failure"</option>
-                            <option value="pending">"Pending"</option>
-                        </select>
-                    </div>
-                    <div class="flex-1">
-                        <label class="text-sm font-medium mb-2 block">"Resource Type"</label>
-                        <select
-                            class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                            on:change=move |ev| resource_filter.set(event_target_value(&ev))
-                        >
-                            <option value="">"All Resources"</option>
-                            <option value="adapter">"Adapter"</option>
-                            <option value="model">"Model"</option>
-                            <option value="stack">"Stack"</option>
-                            <option value="policy">"Policy"</option>
-                            <option value="training_job">"Training Job"</option>
-                            <option value="user">"User"</option>
-                        </select>
-                    </div>
-                </div>
-            </Card>
-        </div>
-    }
-}
-
-// ============================================================================
-// Chain Status Summary
-// ============================================================================
-
-#[component]
-fn ChainStatusSummary(
-    verification: ReadSignal<LoadingState<ChainVerificationResponse>>,
-    chain: ReadSignal<LoadingState<AuditChainResponse>>,
-    compliance: ReadSignal<LoadingState<ComplianceAuditResponse>>,
-) -> impl IntoView {
-    view! {
-        <div class="grid gap-4 md:grid-cols-4">
-            // Chain Integrity
-            <Card>
-                <div class="flex items-center gap-3">
-                    {move || {
-                        match verification.get() {
-                            LoadingState::Loaded(v) => {
-                                if v.chain_valid {
-                                    view! {
-                                        <div class="h-10 w-10 rounded-full bg-green-500/10 flex items-center justify-center">
-                                            <svg
-                                                class="h-5 w-5 text-green-500"
-                                                viewBox="0 0 24 24"
-                                                fill="none"
-                                                stroke="currentColor"
-                                                stroke-width="2"
-                                            >
-                                                <path d="M9 12l2 2 4-4"/>
-                                                <circle cx="12" cy="12" r="10"/>
-                                            </svg>
-                                        </div>
-                                    }
-                                    .into_any()
-                                } else {
-                                    view! {
-                                        <div class="h-10 w-10 rounded-full bg-red-500/10 flex items-center justify-center">
-                                            <svg
-                                                class="h-5 w-5 text-red-500"
-                                                viewBox="0 0 24 24"
-                                                fill="none"
-                                                stroke="currentColor"
-                                                stroke-width="2"
-                                            >
-                                                <circle cx="12" cy="12" r="10"/>
-                                                <line x1="15" y1="9" x2="9" y2="15"/>
-                                                <line x1="9" y1="9" x2="15" y2="15"/>
-                                            </svg>
-                                        </div>
-                                    }
-                                    .into_any()
-                                }
-                            }
-                            _ => {
-                                view! {
-                                    <div class="h-10 w-10 rounded-full bg-muted flex items-center justify-center">
-                                        <Spinner/>
-                                    </div>
-                                }
-                                .into_any()
-                            }
-                        }
-                    }}
-                    <div>
-                        <p class="text-sm font-medium">"Chain Integrity"</p>
-                        {move || {
-                            match verification.get() {
-                                LoadingState::Loaded(v) => {
-                                    let text = if v.chain_valid { "Verified" } else { "Invalid" };
-                                    let class = if v.chain_valid {
-                                        "text-green-500"
-                                    } else {
-                                        "text-red-500"
-                                    };
-                                    view! {
-                                        <p class=format!("text-lg font-bold {}", class)>{text}</p>
-                                    }
-                                    .into_any()
-                                }
-                                LoadingState::Loading => {
-                                    view! {
-                                        <p class="text-lg font-bold text-muted-foreground">
-                                            "Checking..."
-                                        </p>
-                                    }
-                                    .into_any()
-                                }
-                                _ => {
-                                    view! {
-                                        <p class="text-lg font-bold text-muted-foreground">"--"</p>
-                                    }
-                                    .into_any()
-                                }
-                            }
-                        }}
-                    </div>
-                </div>
-            </Card>
-
-            // Total Entries
-            <Card>
-                <div class="flex items-center gap-3">
-                    <div class="h-10 w-10 rounded-full bg-blue-500/10 flex items-center justify-center">
-                        <svg
-                            class="h-5 w-5 text-blue-500"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                        >
-                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                            <polyline points="14 2 14 8 20 8"/>
-                            <line x1="16" y1="13" x2="8" y2="13"/>
-                            <line x1="16" y1="17" x2="8" y2="17"/>
-                        </svg>
-                    </div>
-                    <div>
-                        <p class="text-sm font-medium">"Total Events"</p>
-                        {move || {
-                            match chain.get() {
-                                LoadingState::Loaded(c) => {
-                                    view! { <p class="text-lg font-bold">{c.total_entries}</p> }
-                                        .into_any()
-                                }
-                                _ => {
-                                    view! {
-                                        <p class="text-lg font-bold text-muted-foreground">"--"</p>
-                                    }
-                                    .into_any()
-                                }
-                            }
-                        }}
-                    </div>
-                </div>
-            </Card>
-
-            // Merkle Root
-            <Card>
-                <div class="flex items-center gap-3">
-                    <div class="h-10 w-10 rounded-full bg-purple-500/10 flex items-center justify-center">
-                        <svg
-                            class="h-5 w-5 text-purple-500"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                        >
-                            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-                            <path d="M2 17l10 5 10-5"/>
-                            <path d="M2 12l10 5 10-5"/>
-                        </svg>
-                    </div>
-                    <div>
-                        <p class="text-sm font-medium">"Merkle Root"</p>
-                        {move || {
-                            match chain.get() {
-                                LoadingState::Loaded(c) => {
-                                    let root = c
-                                        .merkle_root
-                                        .clone()
-                                        .unwrap_or_else(|| "N/A".to_string());
-                                    let short = if root.len() > 12 {
-                                        format!("{}...", &root[..12])
-                                    } else {
-                                        root
-                                    };
-                                    view! {
-                                        <p
-                                            class="text-sm font-mono text-muted-foreground"
-                                            title=c.merkle_root.clone().unwrap_or_default()
-                                        >
-                                            {short}
-                                        </p>
-                                    }
-                                    .into_any()
-                                }
-                                _ => {
-                                    view! {
-                                        <p class="text-sm font-mono text-muted-foreground">"--"</p>
-                                    }
-                                    .into_any()
-                                }
-                            }
-                        }}
-                    </div>
-                </div>
-            </Card>
-
-            // Compliance Rate
-            <Card>
-                <div class="flex items-center gap-3">
-                    <div class="h-10 w-10 rounded-full bg-yellow-500/10 flex items-center justify-center">
-                        <svg
-                            class="h-5 w-5 text-yellow-500"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                        >
-                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-                        </svg>
-                    </div>
-                    <div>
-                        <p class="text-sm font-medium">"Compliance"</p>
-                        {move || {
-                            match compliance.get() {
-                                LoadingState::Loaded(c) => {
-                                    let rate = format!("{:.0}%", c.compliance_rate * 100.0);
-                                    let class = if c.compliance_rate >= 0.95 {
-                                        "text-green-500"
-                                    } else if c.compliance_rate >= 0.8 {
-                                        "text-yellow-500"
-                                    } else {
-                                        "text-red-500"
-                                    };
-                                    view! {
-                                        <p class=format!("text-lg font-bold {}", class)>{rate}</p>
-                                    }
-                                    .into_any()
-                                }
-                                _ => {
-                                    view! {
-                                        <p class="text-lg font-bold text-muted-foreground">"--"</p>
-                                    }
-                                    .into_any()
-                                }
-                            }
-                        }}
-                    </div>
-                </div>
-            </Card>
-        </div>
-    }
-}
+/// Page size for client-side pagination (reduces initial DOM nodes)
+const AUDIT_PAGE_SIZE: usize = 25;
 
 // ============================================================================
 // Timeline Tab
 // ============================================================================
 
 #[component]
-fn TimelineTab(logs: ReadSignal<LoadingState<AuditLogsResponse>>) -> impl IntoView {
+pub fn TimelineTab(logs: ReadSignal<LoadingState<AuditLogsResponse>>) -> impl IntoView {
+    // Client-side pagination to reduce DOM nodes
+    let visible_count = RwSignal::new(AUDIT_PAGE_SIZE);
+
     view! {
         <Card>
             {move || {
@@ -519,6 +48,8 @@ fn TimelineTab(logs: ReadSignal<LoadingState<AuditLogsResponse>>) -> impl IntoVi
                         } else {
                             let log_count = data.logs.len();
                             let total = data.total;
+                            let logs_data = data.logs;
+
                             view! {
                                 <Table>
                                     <TableHeader>
@@ -531,18 +62,44 @@ fn TimelineTab(logs: ReadSignal<LoadingState<AuditLogsResponse>>) -> impl IntoVi
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
-                                        {data
-                                            .logs
-                                            .into_iter()
-                                            .map(|entry| {
-                                                view! { <TimelineRow entry=entry/> }
-                                            })
-                                            .collect::<Vec<_>>()}
+                                        {move || {
+                                            let count = visible_count.get().min(log_count);
+                                            logs_data
+                                                .iter()
+                                                .take(count)
+                                                .map(|entry| {
+                                                    view! { <TimelineRow entry=entry.clone()/> }
+                                                })
+                                                .collect::<Vec<_>>()
+                                        }}
                                     </TableBody>
                                 </Table>
+
+                                // Show more button if there are hidden items
+                                {move || {
+                                    let count = visible_count.get();
+                                    let remaining = log_count.saturating_sub(count);
+                                    if remaining > 0 {
+                                        view! {
+                                            <div class="flex items-center justify-center py-4 border-t">
+                                                <button
+                                                    class="text-sm text-primary hover:underline"
+                                                    on:click=move |_| {
+                                                        visible_count.update(|c| *c = (*c + AUDIT_PAGE_SIZE).min(log_count));
+                                                    }
+                                                >
+                                                    {format!("Show more ({} remaining)", remaining)}
+                                                </button>
+                                            </div>
+                                        }.into_any()
+                                    } else {
+                                        view! { <div></div> }.into_any()
+                                    }
+                                }}
+
                                 <div class="flex items-center justify-between mt-4 pt-4 border-t">
                                     <p class="text-sm text-muted-foreground">
-                                        {format!("Showing {} of {} events", log_count, total)}
+                                        {format!("Showing {} of {} events", visible_count.get().min(log_count), total)}
                                     </p>
                                 </div>
                             }
@@ -551,9 +108,7 @@ fn TimelineTab(logs: ReadSignal<LoadingState<AuditLogsResponse>>) -> impl IntoVi
                     }
                     LoadingState::Error(e) => {
                         view! {
-                            <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
-                                <p class="text-destructive">{e.to_string()}</p>
-                            </div>
+                            <ErrorDisplay error=e/>
                         }
                         .into_any()
                     }
@@ -612,7 +167,7 @@ fn TimelineRow(entry: AuditLogEntry) -> impl IntoView {
 // ============================================================================
 
 #[component]
-fn HashChainTab(chain: ReadSignal<LoadingState<AuditChainResponse>>) -> impl IntoView {
+pub fn HashChainTab(chain: ReadSignal<LoadingState<AuditChainResponse>>) -> impl IntoView {
     view! {
         <Card>
             {move || {
@@ -652,9 +207,7 @@ fn HashChainTab(chain: ReadSignal<LoadingState<AuditChainResponse>>) -> impl Int
                     }
                     LoadingState::Error(e) => {
                         view! {
-                            <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
-                                <p class="text-destructive">{e.to_string()}</p>
-                            </div>
+                            <ErrorDisplay error=e/>
                         }
                         .into_any()
                     }
@@ -796,7 +349,7 @@ fn ChainEntryRow(entry: AuditChainEntry, is_first: bool) -> impl IntoView {
 // ============================================================================
 
 #[component]
-fn MerkleTreeTab(
+pub fn MerkleTreeTab(
     chain: ReadSignal<LoadingState<AuditChainResponse>>,
     verification: ReadSignal<LoadingState<ChainVerificationResponse>>,
 ) -> impl IntoView {
@@ -1053,7 +606,9 @@ fn MerkleTreeTab(
 // ============================================================================
 
 #[component]
-fn ComplianceTab(compliance: ReadSignal<LoadingState<ComplianceAuditResponse>>) -> impl IntoView {
+pub fn ComplianceTab(
+    compliance: ReadSignal<LoadingState<ComplianceAuditResponse>>,
+) -> impl IntoView {
     view! {
         <Card>
             {move || {
@@ -1159,9 +714,7 @@ fn ComplianceTab(compliance: ReadSignal<LoadingState<ComplianceAuditResponse>>) 
                     }
                     LoadingState::Error(e) => {
                         view! {
-                            <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
-                                <p class="text-destructive">{e.to_string()}</p>
-                            </div>
+                            <ErrorDisplay error=e/>
                         }
                         .into_any()
                     }

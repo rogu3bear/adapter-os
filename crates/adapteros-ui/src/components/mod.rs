@@ -23,6 +23,7 @@ pub mod offline_banner;
 pub mod responsive;
 pub mod search_results;
 pub mod spinner;
+pub mod split_panel;
 pub mod start_menu;
 pub mod status;
 pub mod status_center;
@@ -31,6 +32,7 @@ pub mod tabs;
 pub mod toast;
 pub mod toggle;
 pub mod trace_viewer;
+pub mod virtual_list;
 pub mod workspace;
 
 pub use async_state::{
@@ -55,6 +57,7 @@ pub use responsive::{
 };
 pub use search_results::{SearchEmptyState, SearchResultsList};
 pub use spinner::Spinner;
+pub use split_panel::{SplitMode, SplitPanel, SplitRatio};
 pub use start_menu::{MenuGroup, MenuItem, MenuItemState, StartButton, StartMenu};
 pub use status::{
     BackendStatus, BackendStatusBadge, BackendStatusIndicator, Badge, BadgeVariant, StatusColor,
@@ -68,6 +71,9 @@ pub use workspace::{
     TwoColumnRatio, Workspace, WorkspaceColumn, WorkspaceGrid, WorkspaceHeader, WorkspacePanel,
     WorkspaceThreeColumn, WorkspaceTwoColumn,
 };
+
+// Virtual list components for efficient large list rendering
+pub use virtual_list::{CappedList, VirtualList, VirtualListConfig, VirtualTableBody};
 
 // Chart components (Liquid Glass Charts - PRD-UI-101)
 pub use charts::{

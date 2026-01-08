@@ -272,7 +272,7 @@ pub fn ChatSession() -> impl IntoView {
     };
 
     view! {
-        <div class="p-6 flex h-[calc(100vh-8rem)] flex-col gap-4">
+        <div class="p-6 flex h-full min-h-0 flex-col gap-4">
             // Header
             <div class="flex flex-wrap items-start justify-between gap-3 border-b pb-4">
                 <div class="space-y-1">
