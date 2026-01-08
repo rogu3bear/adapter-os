@@ -12,13 +12,14 @@ mod utils;
 use crate::api::{use_sse_json, ApiClient, SseState};
 use crate::components::{ErrorDisplay, Spinner};
 use crate::hooks::{use_api_resource, use_polling, use_sse_notifications, LoadingState};
-use adapteros_api_types::{workers::WorkerStatusUpdate, WorkerResponse};
+use crate::pages::workers::dialogs::{PlanOption, SpawnWorkerDialog};
+use adapteros_api_types::{workers::WorkerStatusUpdate, SpawnWorkerRequest, WorkerResponse};
 use leptos::prelude::*;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use components::{SseIndicator, SystemContent};
-use icons::RefreshIcon;
+use icons::{PlusIcon, RefreshIcon};
 
 /// SSE event wrapper for worker updates from /v1/stream/workers
 /// The server sends either a full list of workers or incremental updates
@@ -51,6 +52,15 @@ pub fn System() -> impl IntoView {
     // Fetch system metrics
     let (metrics, refetch_metrics) =
         use_api_resource(|client: Arc<ApiClient>| async move { client.system_metrics().await });
+
+    // Fetch plans for spawn form
+    let (plans, _refetch_plans) = use_api_resource(|client: Arc<ApiClient>| async move {
+        client.get::<Vec<PlanOption>>("/v1/plans").await
+    });
+
+    // Spawn dialog state
+    let show_spawn_dialog = RwSignal::new(false);
+    let spawn_error = RwSignal::new(Option::<String>::None);
 
     // Store refetch functions in signals for sharing
     let refetch_status_signal = StoredValue::new(refetch_status);
@@ -125,25 +135,49 @@ pub fn System() -> impl IntoView {
 
     view! {
         <div class="p-6 space-y-6">
-            // Header with title and refresh button
+            // Header with title and action buttons
                 <div class="flex items-center justify-between">
                     <div class="flex items-center gap-4">
                         <h1 class="text-3xl font-bold tracking-tight">"System"</h1>
                         <SseIndicator state=sse_status/>
                     </div>
-                    <button
-                        class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-                        on:click=move |_| {
-                            refetch_status_signal.with_value(|f| f());
-                            refetch_workers_signal.with_value(|f| f());
-                            refetch_nodes_signal.with_value(|f| f());
-                            refetch_metrics_signal.with_value(|f| f());
-                        }
-                    >
-                        <RefreshIcon/>
-                        "Refresh"
-                    </button>
+                    <div class="flex items-center gap-2">
+                        <button
+                            class="inline-flex items-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent"
+                            on:click=move |_| {
+                                refetch_status_signal.with_value(|f| f());
+                                refetch_workers_signal.with_value(|f| f());
+                                refetch_nodes_signal.with_value(|f| f());
+                                refetch_metrics_signal.with_value(|f| f());
+                            }
+                        >
+                            <RefreshIcon/>
+                            "Refresh"
+                        </button>
+                        <button
+                            class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                            on:click=move |_| show_spawn_dialog.set(true)
+                        >
+                            <PlusIcon/>
+                            "Spawn Worker"
+                        </button>
+                    </div>
                 </div>
+
+                // Error banner for spawn errors
+                {move || spawn_error.get().map(|e| view! {
+                    <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
+                        <div class="flex items-center justify-between">
+                            <p class="text-destructive font-medium">{e}</p>
+                            <button
+                                class="text-destructive hover:text-destructive/80"
+                                on:click=move |_| spawn_error.set(None)
+                            >
+                                "×"
+                            </button>
+                        </div>
+                    </div>
+                })}
 
                 // Main content
                 {move || {
@@ -197,6 +231,43 @@ pub fn System() -> impl IntoView {
                                 />
                             }.into_any()
                         }
+                    }
+                }}
+
+                // Spawn worker dialog
+                {move || {
+                    let nodes_list = match nodes.get() {
+                        LoadingState::Loaded(n) => n,
+                        _ => Vec::new(),
+                    };
+                    let plans_list = match plans.get() {
+                        LoadingState::Loaded(p) => p,
+                        _ => Vec::new(),
+                    };
+                    view! {
+                        <SpawnWorkerDialog
+                            open=show_spawn_dialog
+                            nodes=nodes_list
+                            plans=plans_list
+                            on_spawn=Callback::new({
+                                let refetch = refetch_workers_signal;
+                                move |request: SpawnWorkerRequest| {
+                                    show_spawn_dialog.set(false);
+                                    let client = ApiClient::new();
+                                    wasm_bindgen_futures::spawn_local(async move {
+                                        match client.spawn_worker(&request).await {
+                                            Ok(_) => {
+                                                spawn_error.set(None);
+                                                refetch.with_value(|f| f());
+                                            }
+                                            Err(e) => {
+                                                spawn_error.set(Some(format!("Failed to spawn worker: {}", e)));
+                                            }
+                                        }
+                                    });
+                                }
+                            })
+                        />
                     }
                 }}
         </div>

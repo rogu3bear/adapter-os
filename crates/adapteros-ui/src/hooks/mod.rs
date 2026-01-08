@@ -6,9 +6,15 @@ pub mod use_sse_notifications;
 
 pub use use_sse_notifications::use_sse_notifications;
 
-use crate::api::{ApiClient, ApiError, ApiResult};
+use crate::api::{report_error, ApiClient, ApiError, ApiResult};
 use leptos::prelude::*;
 use std::sync::Arc;
+
+/// Get the current page path for error reporting
+fn get_current_path() -> Option<String> {
+    web_sys::window()
+        .and_then(|w| w.location().pathname().ok())
+}
 
 /// Resource loading state
 #[derive(Debug, Clone)]
@@ -47,6 +53,8 @@ impl<T> LoadingState<T> {
 }
 
 /// Create a resource that fetches data from the API
+///
+/// Automatically reports API errors to the server for persistent logging.
 pub fn use_api_resource<T, F, Fut>(fetch: F) -> (ReadSignal<LoadingState<T>>, impl Fn())
 where
     T: Clone + Send + Sync + 'static,
@@ -55,6 +63,7 @@ where
 {
     let (state, set_state) = signal(LoadingState::<T>::Idle);
     let client = Arc::new(ApiClient::new());
+    let is_authenticated = client.is_authenticated();
 
     let fetch_clone = fetch.clone();
     let client_clone = Arc::clone(&client);
@@ -67,15 +76,27 @@ where
         wasm_bindgen_futures::spawn_local(async move {
             match fetch(client).await {
                 Ok(data) => set_state.set(LoadingState::Loaded(data)),
-                Err(e) => set_state.set(LoadingState::Error(e)),
+                Err(e) => {
+                    // Report error to server (fire-and-forget)
+                    let page = get_current_path();
+                    report_error(&e, page.as_deref(), is_authenticated);
+
+                    set_state.set(LoadingState::Error(e));
+                }
             }
         });
     };
 
-    // Initial fetch
+    // Initial fetch - use untracked to avoid reactive re-runs causing RefCell re-entrancy
+    // The caller controls re-fetching via the returned refetch function
     let refetch_init = refetch.clone();
     Effect::new(move || {
-        refetch_init();
+        // Run untracked to prevent this effect from re-running on signal changes
+        // inside the fetch closure (e.g., route params). This avoids synchronous
+        // re-entrancy in wasm-bindgen-futures task queue.
+        untrack(|| {
+            refetch_init();
+        });
     });
 
     (state, refetch)

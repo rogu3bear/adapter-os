@@ -160,6 +160,12 @@ impl ApiClient {
         }
     }
 
+    /// Perform a DELETE request and deserialize response
+    pub async fn delete_with_response<T: DeserializeOwned>(&self, path: &str) -> ApiResult<T> {
+        let response = self.request("DELETE", path).send().await?;
+        self.handle_response(response).await
+    }
+
     /// Handle response and deserialize JSON
     async fn handle_response<T: DeserializeOwned>(
         &self,
@@ -219,6 +225,50 @@ impl ApiClient {
     /// Logout
     pub async fn logout(&self) -> ApiResult<()> {
         self.post_no_response("/v1/auth/logout", &serde_json::json!({}))
+            .await
+    }
+
+    // --- Admin ---
+
+    /// List users (Admin role required)
+    pub async fn list_users(
+        &self,
+        page: Option<i64>,
+        page_size: Option<i64>,
+    ) -> ApiResult<ListUsersResponse> {
+        let mut url = "/v1/admin/users".to_string();
+        let mut params = Vec::new();
+        if let Some(p) = page {
+            params.push(format!("page={}", p));
+        }
+        if let Some(ps) = page_size {
+            params.push(format!("page_size={}", ps));
+        }
+        if !params.is_empty() {
+            url.push('?');
+            url.push_str(&params.join("&"));
+        }
+        self.get(&url).await
+    }
+
+    // --- API Keys ---
+
+    /// List API keys for the current tenant
+    pub async fn list_api_keys(&self) -> ApiResult<ApiKeyListResponse> {
+        self.get("/v1/api-keys").await
+    }
+
+    /// Create a new API key
+    pub async fn create_api_key(
+        &self,
+        request: &CreateApiKeyRequest,
+    ) -> ApiResult<CreateApiKeyResponse> {
+        self.post("/v1/api-keys", request).await
+    }
+
+    /// Revoke an API key
+    pub async fn revoke_api_key(&self, id: &str) -> ApiResult<RevokeApiKeyResponse> {
+        self.delete_with_response(&format!("/v1/api-keys/{}", id))
             .await
     }
 
@@ -802,7 +852,7 @@ impl ApiClient {
         use wasm_bindgen::JsCast;
         use wasm_bindgen_futures::JsFuture;
 
-        let url = format!("{}/v1/documents", self.base_url);
+        let url = format!("{}/v1/documents/upload", self.base_url);
 
         // Create FormData and append file
         let form_data = web_sys::FormData::new()
@@ -854,7 +904,27 @@ impl ApiClient {
         Ok(result)
     }
 
-    // --- Datasets from Documents ---
+    // --- Datasets ---
+
+    /// List all datasets
+    pub async fn list_datasets(&self) -> ApiResult<DatasetListResponse> {
+        self.get("/v1/datasets").await
+    }
+
+    /// Get a single dataset by ID
+    pub async fn get_dataset(&self, id: &str) -> ApiResult<DatasetResponse> {
+        self.get(&format!("/v1/datasets/{}", id)).await
+    }
+
+    /// Delete a dataset
+    pub async fn delete_dataset(&self, id: &str) -> ApiResult<()> {
+        self.delete(&format!("/v1/datasets/{}", id)).await
+    }
+
+    /// Get dataset statistics
+    pub async fn get_dataset_statistics(&self, id: &str) -> ApiResult<DatasetStatisticsResponse> {
+        self.get(&format!("/v1/datasets/{}/statistics", id)).await
+    }
 
     /// Create a training dataset from existing document(s)
     pub async fn create_dataset_from_documents(
@@ -1078,6 +1148,69 @@ impl ApiClient {
             tenant, inference_id, verify
         ))
         .await
+    }
+
+    // --- Client Errors ---
+
+    /// List client errors with optional filtering
+    pub async fn list_client_errors(
+        &self,
+        error_type: Option<&str>,
+        http_status: Option<i32>,
+        page_pattern: Option<&str>,
+        since: Option<&str>,
+        until: Option<&str>,
+        limit: Option<u32>,
+        offset: Option<u32>,
+    ) -> ApiResult<adapteros_api_types::telemetry::ClientErrorsListResponse> {
+        let mut params = Vec::new();
+        if let Some(t) = error_type {
+            params.push(format!("error_type={}", t));
+        }
+        if let Some(s) = http_status {
+            params.push(format!("http_status={}", s));
+        }
+        if let Some(p) = page_pattern {
+            params.push(format!("page_pattern={}", p));
+        }
+        if let Some(s) = since {
+            params.push(format!("since={}", s));
+        }
+        if let Some(u) = until {
+            params.push(format!("until={}", u));
+        }
+        if let Some(l) = limit {
+            params.push(format!("limit={}", l));
+        }
+        if let Some(o) = offset {
+            params.push(format!("offset={}", o));
+        }
+        let path = if params.is_empty() {
+            "/v1/telemetry/client-errors".to_string()
+        } else {
+            format!("/v1/telemetry/client-errors?{}", params.join("&"))
+        };
+        self.get(&path).await
+    }
+
+    /// Get client error statistics
+    pub async fn get_client_error_stats(
+        &self,
+        since: Option<&str>,
+    ) -> ApiResult<adapteros_api_types::telemetry::ClientErrorStatsResponse> {
+        let path = match since {
+            Some(s) => format!("/v1/telemetry/client-errors/stats?since={}", s),
+            None => "/v1/telemetry/client-errors/stats".to_string(),
+        };
+        self.get(&path).await
+    }
+
+    /// Get a specific client error by ID
+    pub async fn get_client_error(
+        &self,
+        id: &str,
+    ) -> ApiResult<adapteros_api_types::telemetry::ClientErrorItem> {
+        self.get(&format!("/v1/telemetry/client-errors/{}", id)).await
     }
 }
 
@@ -2002,6 +2135,50 @@ pub struct DatasetResponse {
     pub updated_at: Option<String>,
 }
 
+/// Response for listing datasets
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DatasetListResponse {
+    #[serde(default)]
+    pub schema_version: String,
+    pub datasets: Vec<DatasetResponse>,
+    #[serde(default)]
+    pub total: i64,
+}
+
+/// Dataset statistics response
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DatasetStatisticsResponse {
+    #[serde(default)]
+    pub schema_version: String,
+    pub dataset_id: String,
+    pub row_count: i64,
+    #[serde(default)]
+    pub size_bytes: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub split_stats: Option<SplitStatistics>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub column_stats: Option<Vec<ColumnStatistics>>,
+}
+
+/// Split statistics for a dataset
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SplitStatistics {
+    pub train_count: i64,
+    pub validation_count: i64,
+    pub test_count: i64,
+}
+
+/// Column statistics
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ColumnStatistics {
+    pub column_name: String,
+    pub data_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub null_count: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unique_count: Option<i64>,
+}
+
 // ============================================================================
 // Code Policy types
 // ============================================================================
@@ -2280,4 +2457,83 @@ pub struct RoutingDecisionChainResponse {
     pub chain_verified: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub chain_hash: Option<String>,
+}
+
+// ============================================================================
+// Admin Types
+// ============================================================================
+
+/// User response from admin API
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct UserResponse {
+    pub user_id: String,
+    pub id: String,
+    pub email: String,
+    pub display_name: String,
+    pub role: String,
+    pub tenant_id: String,
+    pub created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_login_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mfa_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub permissions: Option<Vec<String>>,
+}
+
+/// List users response
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ListUsersResponse {
+    #[serde(default)]
+    pub schema_version: String,
+    pub users: Vec<UserResponse>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
+}
+
+// ============================================================================
+// API Key Types
+// ============================================================================
+
+/// Request to create a new API key
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CreateApiKeyRequest {
+    /// Name/label for the API key
+    pub name: String,
+    /// List of roles/scopes allowed for this key
+    pub scopes: Vec<String>,
+}
+
+/// Response after creating an API key (includes the actual token - shown only once)
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CreateApiKeyResponse {
+    pub id: String,
+    /// The actual API token - only shown once at creation time
+    pub token: String,
+    pub created_at: String,
+}
+
+/// API key info (without the actual token)
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ApiKeyInfo {
+    pub id: String,
+    pub name: String,
+    pub scopes: Vec<String>,
+    pub created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub revoked_at: Option<String>,
+}
+
+/// Response for listing API keys
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ApiKeyListResponse {
+    pub api_keys: Vec<ApiKeyInfo>,
+}
+
+/// Response after revoking an API key
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RevokeApiKeyResponse {
+    pub id: String,
+    pub revoked: bool,
 }
