@@ -7,6 +7,10 @@ use chrono::{DateTime, Utc};
 use leptos::prelude::*;
 use std::sync::Arc;
 
+/// Maximum number of messages to retain in chat history.
+/// Prevents unbounded memory growth in long sessions.
+const MAX_MESSAGES: usize = 100;
+
 /// A single chat message
 #[derive(Debug, Clone)]
 pub struct ChatMessage {
@@ -170,9 +174,13 @@ impl ChatAction {
             return Ok(());
         }
 
-        // Add user message
+        // Add user message with FIFO eviction
         self.state.update(|s| {
             s.messages.push(ChatMessage::user(content.clone()));
+            // Evict oldest messages if over limit
+            while s.messages.len() > MAX_MESSAGES {
+                s.messages.remove(0);
+            }
             s.loading = true;
             s.error = None;
         });
@@ -193,6 +201,10 @@ impl ChatAction {
             Ok(response) => {
                 self.state.update(|s| {
                     s.messages.push(ChatMessage::assistant(response.text));
+                    // Evict oldest messages if over limit
+                    while s.messages.len() > MAX_MESSAGES {
+                        s.messages.remove(0);
+                    }
                     s.loading = false;
                     // Increment unread count if dock is narrow
                     if s.dock_state == DockState::Narrow {

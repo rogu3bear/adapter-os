@@ -445,6 +445,120 @@ stop_process() {
 }
 
 # =============================================================================
+# Dev Flag Detection
+# =============================================================================
+
+# List of environment variables that are development bypass flags.
+# These flags must NOT be used with release binaries (which reject them).
+DEV_BYPASS_FLAGS=(
+    "AOS_DEV_NO_AUTH"
+    "AOS_DEV_SKIP_METALLIB_CHECK"
+    "AOS_DEV_SKIP_DRIFT_CHECK"
+)
+
+# Check if any dev bypass flags are enabled (set to 1 or true).
+# Returns 0 (true) if dev mode, 1 (false) if prod mode.
+is_dev_mode() {
+    for flag in "${DEV_BYPASS_FLAGS[@]}"; do
+        local val="${!flag:-}"
+        if [[ "$val" == "1" || "$val" == "true" || "$val" == "yes" ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Get list of active dev flags (for logging/errors).
+get_active_dev_flags() {
+    local active=()
+    for flag in "${DEV_BYPASS_FLAGS[@]}"; do
+        local val="${!flag:-}"
+        if [[ "$val" == "1" || "$val" == "true" || "$val" == "yes" ]]; then
+            active+=("$flag")
+        fi
+    done
+    echo "${active[*]}"
+}
+
+# Select the appropriate server binary based on dev flags.
+# In dev mode (dev flags set): prefer debug binary (required for dev flags)
+# In prod mode (no dev flags): prefer release binary (optimized)
+#
+# Returns: path to binary on stdout, exits with error if required binary missing.
+# NOTE: Status messages go to stderr to keep stdout clean for command substitution.
+select_server_binary() {
+    local debug_bin="$PROJECT_ROOT/target/debug/adapteros-server"
+    local release_bin="$PROJECT_ROOT/target/release/adapteros-server"
+
+    if is_dev_mode; then
+        local active_flags
+        active_flags=$(get_active_dev_flags)
+        if [ -f "$debug_bin" ]; then
+            # Log to stderr so stdout only contains the path
+            status_msg "Dev mode detected ($active_flags) → using debug binary" >&2
+            echo "$debug_bin"
+            return 0
+        else
+            error_msg "Dev bypass flags are set ($active_flags) but debug binary not found."
+            error_msg "Release binaries reject dev flags for security. Build debug binary:"
+            error_msg "  cargo build -p adapteros-server"
+            error_msg ""
+            error_msg "Or disable dev flags in .env to use release binary."
+            return 1
+        fi
+    else
+        # Prod mode: prefer release, fall back to debug
+        if [ -f "$release_bin" ]; then
+            echo "$release_bin"
+            return 0
+        elif [ -f "$debug_bin" ]; then
+            # Log to stderr so stdout only contains the path
+            warning_msg "No release binary found, using debug binary (slower)" >&2
+            echo "$debug_bin"
+            return 0
+        else
+            error_msg "No server binary found. Build with:"
+            error_msg "  cargo build -p adapteros-server           # debug build"
+            error_msg "  cargo build -p adapteros-server --release # release build"
+            return 1
+        fi
+    fi
+}
+
+# Select the appropriate worker binary based on dev flags.
+# Same logic as server binary selection.
+# NOTE: Status messages go to stderr to keep stdout clean for command substitution.
+select_worker_binary() {
+    local debug_bin="$PROJECT_ROOT/target/debug/aos-worker"
+    local release_bin="$PROJECT_ROOT/target/release/aos-worker"
+
+    if is_dev_mode; then
+        if [ -f "$debug_bin" ]; then
+            echo "$debug_bin"
+            return 0
+        else
+            error_msg "Dev mode active but debug worker binary not found."
+            error_msg "Build with: cargo build -p adapteros-lora-worker"
+            return 1
+        fi
+    else
+        if [ -f "$release_bin" ]; then
+            echo "$release_bin"
+            return 0
+        elif [ -f "$debug_bin" ]; then
+            # Log to stderr so stdout only contains the path
+            warning_msg "No release worker binary, using debug (slower)" >&2
+            echo "$debug_bin"
+            return 0
+        else
+            error_msg "Worker binary not found. Build with:"
+            error_msg "  cargo build -p adapteros-lora-worker"
+            return 1
+        fi
+    fi
+}
+
+# =============================================================================
 # Service: Backend
 # =============================================================================
 
@@ -474,26 +588,10 @@ start_backend() {
         return 1
     fi
 
-    # Check if binary exists
+    # Select binary based on dev mode (dev flags → debug binary, prod → release)
     local server_bin=""
-    if [ -f "$PROJECT_ROOT/target/release/adapteros-server" ]; then
-        server_bin="$PROJECT_ROOT/target/release/adapteros-server"
-    elif [ -f "$PROJECT_ROOT/target/debug/adapteros-server" ]; then
-        server_bin="$PROJECT_ROOT/target/debug/adapteros-server"
-    else
-        status_msg "Backend binary not found. Building..."
-        cd "$PROJECT_ROOT"
-        if cargo build 2>&1 | tail -10; then
-            if [ -f "$PROJECT_ROOT/target/debug/adapteros-server" ]; then
-                server_bin="$PROJECT_ROOT/target/debug/adapteros-server"
-            else
-                error_msg "Build completed but binary not found"
-                return 1
-            fi
-        else
-            error_msg "Failed to build backend"
-            return 1
-        fi
+    if ! server_bin=$(select_server_binary); then
+        return 1
     fi
 
     # Set up environment
@@ -1083,15 +1181,9 @@ start_worker() {
 
     status_msg "Starting Inference Worker..."
 
-    # Check if binary exists (prefer debug for multi-backend feature)
+    # Select binary based on dev mode (dev flags → debug binary, prod → release)
     local worker_bin=""
-    if [ -f "$PROJECT_ROOT/target/debug/aos-worker" ]; then
-        worker_bin="$PROJECT_ROOT/target/debug/aos-worker"
-    elif [ -f "$PROJECT_ROOT/target/release/aos-worker" ]; then
-        worker_bin="$PROJECT_ROOT/target/release/aos-worker"
-    else
-        error_msg "Worker binary not found at target/debug/aos-worker or target/release/aos-worker"
-        error_msg "Build with: cargo build -p adapteros-lora-worker"
+    if ! worker_bin=$(select_worker_binary); then
         return 1
     fi
 

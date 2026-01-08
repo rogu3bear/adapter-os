@@ -10,7 +10,7 @@ mod utils;
 
 use crate::api::ApiClient;
 use crate::components::{ErrorDisplay, Spinner};
-use crate::hooks::{use_api_resource, use_navigate, LoadingState};
+use crate::hooks::{use_api_resource, use_navigate, use_polling, LoadingState};
 use adapteros_api_types::SpawnWorkerRequest;
 use leptos::prelude::*;
 use std::sync::Arc;
@@ -52,12 +52,10 @@ pub fn Workers() -> impl IntoView {
         }
     });
 
-    // Set up polling interval (every 5 seconds for workers)
-    Effect::new(move |_| {
-        let interval_handle = gloo_timers::callback::Interval::new(5_000, move || {
-            refetch_workers_signal.with_value(|f| f());
-        });
-        std::mem::forget(interval_handle);
+    // Set up polling interval (every 10 seconds for workers)
+    // Using use_polling hook which properly cleans up on unmount
+    let _ = use_polling(10_000, move || async move {
+        refetch_workers_signal.with_value(|f| f());
     });
 
     view! {
