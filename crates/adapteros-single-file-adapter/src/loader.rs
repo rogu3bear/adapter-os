@@ -217,30 +217,27 @@ impl SingleFileAdapterLoader {
         use safetensors::Dtype;
 
         match tensor.dtype() {
-            Dtype::F16 => {
-                Ok(tensor.data()
-                    .chunks(2)
-                    .map(|chunk| {
-                        let bits = u16::from_le_bytes([chunk[0], chunk[1]]);
-                        half::f16::from_bits(bits).to_f32()
-                    })
-                    .collect())
-            }
-            Dtype::F32 => {
-                Ok(tensor.data()
-                    .chunks(4)
-                    .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
-                    .collect())
-            }
-            Dtype::BF16 => {
-                Ok(tensor.data()
-                    .chunks(2)
-                    .map(|chunk| {
-                        let bits = u16::from_le_bytes([chunk[0], chunk[1]]);
-                        half::bf16::from_bits(bits).to_f32()
-                    })
-                    .collect())
-            }
+            Dtype::F16 => Ok(tensor
+                .data()
+                .chunks(2)
+                .map(|chunk| {
+                    let bits = u16::from_le_bytes([chunk[0], chunk[1]]);
+                    half::f16::from_bits(bits).to_f32()
+                })
+                .collect()),
+            Dtype::F32 => Ok(tensor
+                .data()
+                .chunks(4)
+                .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+                .collect()),
+            Dtype::BF16 => Ok(tensor
+                .data()
+                .chunks(2)
+                .map(|chunk| {
+                    let bits = u16::from_le_bytes([chunk[0], chunk[1]]);
+                    half::bf16::from_bits(bits).to_f32()
+                })
+                .collect()),
             other => Err(AosError::Parse(format!(
                 "Unsupported tensor dtype: {:?}",
                 other
