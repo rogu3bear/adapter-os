@@ -232,6 +232,22 @@ use utoipa_swagger_ui::SwaggerUi;
         // Recent activity handlers
         handlers::telemetry::get_recent_activity,
         handlers::telemetry::recent_activity_stream,
+        // Client error reporting handlers
+        handlers::client_errors::report_client_error,
+        handlers::client_errors::report_client_error_anonymous,
+        handlers::client_errors::list_client_errors,
+        handlers::client_errors::get_client_error,
+        handlers::client_errors::get_client_error_stats,
+        handlers::client_errors::stream_client_errors,
+        // Error alert handlers
+        handlers::error_alerts::list_error_alert_rules,
+        handlers::error_alerts::get_error_alert_rule,
+        handlers::error_alerts::create_error_alert_rule,
+        handlers::error_alerts::update_error_alert_rule,
+        handlers::error_alerts::delete_error_alert_rule,
+        handlers::error_alerts::list_error_alert_history,
+        handlers::error_alerts::acknowledge_error_alert,
+        handlers::error_alerts::resolve_error_alert,
         // Dataset handlers
         handlers::datasets::upload_dataset,
         handlers::datasets::initiate_chunked_upload,
@@ -771,6 +787,11 @@ pub fn build(state: AppState) -> Router {
             get(handlers::health::get_invariant_status),
         )
         .route("/v1/search", get(handlers::search::global_search))
+        // Client error reporting (anonymous, for pre-auth errors)
+        .route(
+            "/v1/telemetry/client-errors/anonymous",
+            post(handlers::client_errors::report_client_error_anonymous),
+        )
         .route(
             "/admin/lifecycle/request-shutdown",
             post(handlers::admin_lifecycle::request_shutdown),
@@ -1678,6 +1699,48 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/telemetry/events/recent/stream",
             get(handlers::telemetry::recent_activity_stream),
+        )
+        // Client error reporting and querying (authenticated)
+        .route(
+            "/v1/telemetry/client-errors",
+            get(handlers::client_errors::list_client_errors)
+                .post(handlers::client_errors::report_client_error),
+        )
+        .route(
+            "/v1/telemetry/client-errors/stats",
+            get(handlers::client_errors::get_client_error_stats),
+        )
+        .route(
+            "/v1/telemetry/client-errors/{id}",
+            get(handlers::client_errors::get_client_error),
+        )
+        .route(
+            "/v1/stream/client-errors",
+            get(handlers::client_errors::stream_client_errors),
+        )
+        // Error alert routes
+        .route(
+            "/v1/error-alerts/rules",
+            get(handlers::error_alerts::list_error_alert_rules)
+                .post(handlers::error_alerts::create_error_alert_rule),
+        )
+        .route(
+            "/v1/error-alerts/rules/{id}",
+            get(handlers::error_alerts::get_error_alert_rule)
+                .put(handlers::error_alerts::update_error_alert_rule)
+                .delete(handlers::error_alerts::delete_error_alert_rule),
+        )
+        .route(
+            "/v1/error-alerts/history",
+            get(handlers::error_alerts::list_error_alert_history),
+        )
+        .route(
+            "/v1/error-alerts/{id}/acknowledge",
+            post(handlers::error_alerts::acknowledge_error_alert),
+        )
+        .route(
+            "/v1/error-alerts/{id}/resolve",
+            post(handlers::error_alerts::resolve_error_alert),
         )
         // Metrics snapshot/series routes
         .route(

@@ -514,6 +514,172 @@ fn parse_routing_mode(raw: &Option<String>) -> Option<RoutingDeterminismMode> {
         .and_then(|s| RoutingDeterminismMode::from_str(s).ok())
 }
 
+/// Request to update an existing adapter stack
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct UpdateStackRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adapter_ids: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workflow_type: Option<WorkflowType>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<HashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub determinism_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = String)]
+    pub routing_determinism_mode: Option<RoutingDeterminismMode>,
+}
+
+/// Audit action constant for stack update
+const ACTION_STACK_UPDATE: &str = "stack.update";
+
+/// Update an existing adapter stack
+#[utoipa::path(
+    put,
+    path = "/v1/adapter-stacks/{id}",
+    params(
+        ("id" = String, Path, description = "Stack ID")
+    ),
+    request_body = UpdateStackRequest,
+    responses(
+        (status = 200, description = "Stack updated", body = StackResponse),
+        (status = 400, description = "Invalid request"),
+        (status = 404, description = "Stack not found"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn update_stack(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(id): Path<String>,
+    Json(req): Json<UpdateStackRequest>,
+) -> Result<Json<StackResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::AdapterRegister)?;
+
+    let tenant_id = claims.tenant_id.clone();
+
+    // First fetch existing stack
+    let existing = state
+        .db
+        .get_stack(&tenant_id, &id)
+        .await
+        .map_err(db_error)?
+        .ok_or_else(|| not_found("Stack"))?;
+
+    // CRITICAL: Validate tenant isolation
+    validate_tenant_isolation(&claims, &existing.tenant_id)?;
+
+    // Validate new name if provided
+    if let Some(ref new_name) = req.name {
+        let _ = StackName::parse(new_name).map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new(format!("Invalid stack name: {}", e))
+                        .with_code("VALIDATION_ERROR"),
+                ),
+            )
+        })?;
+    }
+
+    // Check if adapter_ids are being updated before consuming
+    let adapter_ids_changed = req.adapter_ids.is_some();
+
+    // Merge with existing values
+    let name = req.name.unwrap_or(existing.name.clone());
+    let description = req.description.or(existing.description.clone());
+    let adapter_ids: Vec<String> = req.adapter_ids.unwrap_or_else(|| {
+        serde_json::from_str(&existing.adapter_ids_json).unwrap_or_default()
+    });
+    let workflow_type = req
+        .workflow_type
+        .map(|w| format!("{:?}", w))
+        .or(existing.workflow_type.clone());
+    let determinism_mode = req.determinism_mode.or(existing.determinism_mode.clone());
+    let routing_determinism_mode = req
+        .routing_determinism_mode
+        .map(|m| m.to_string())
+        .or(existing.routing_determinism_mode.clone());
+
+    // Validate adapter base model compatibility if adapter_ids changed
+    if adapter_ids_changed {
+        let _ = validate_stack_base_model_compatibility(&state.db, &tenant_id, &adapter_ids).await?;
+    }
+
+    info!(
+        tenant_id = %tenant_id,
+        stack_id = %id,
+        "Updating adapter stack"
+    );
+
+    let update_req = adapteros_db::traits::CreateStackRequest {
+        tenant_id: tenant_id.clone(),
+        name: name.clone(),
+        description: description.clone(),
+        adapter_ids: adapter_ids.clone(),
+        workflow_type: workflow_type.clone(),
+        determinism_mode: determinism_mode.clone(),
+        routing_determinism_mode: routing_determinism_mode.clone(),
+    };
+
+    state
+        .db
+        .update_stack(&id, &update_req)
+        .await
+        .map_err(db_error)?;
+
+    // Audit log: stack update success
+    log_success_or_warn(
+        &state.db,
+        &claims,
+        ACTION_STACK_UPDATE,
+        resources::ADAPTER,
+        Some(&id),
+    )
+    .await;
+
+    // Fetch updated stack for response
+    let updated = state
+        .db
+        .get_stack(&tenant_id, &id)
+        .await
+        .map_err(db_error)?
+        .ok_or_else(|| internal_error("Stack disappeared after update"))?;
+
+    let default_stack_id = state.db.get_default_stack(&tenant_id).await.unwrap_or(None);
+    let is_default = default_stack_id.as_ref() == Some(&updated.id);
+
+    let wf_type = updated.workflow_type.and_then(|s| match s.as_str() {
+        "Parallel" => Some(WorkflowType::Parallel),
+        "UpstreamDownstream" => Some(WorkflowType::UpstreamDownstream),
+        "Sequential" => Some(WorkflowType::Sequential),
+        _ => None,
+    });
+
+    Ok(Json(StackResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+        id: updated.id,
+        tenant_id: updated.tenant_id,
+        name: updated.name,
+        description: updated.description,
+        adapter_ids,
+        workflow_type: wf_type,
+        created_at: updated.created_at,
+        updated_at: updated.updated_at,
+        is_active: false,
+        is_default,
+        version: updated.version,
+        lifecycle_state: updated.lifecycle_state,
+        warnings: vec![],
+        determinism_mode: updated.determinism_mode,
+        routing_determinism_mode: parse_routing_mode(&updated.routing_determinism_mode),
+    }))
+}
+
 /// Delete an adapter stack
 #[utoipa::path(
     delete,

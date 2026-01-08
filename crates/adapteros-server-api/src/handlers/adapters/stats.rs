@@ -105,11 +105,13 @@ pub async fn get_adapter_stats(
         0.0
     };
 
-    // For latency metrics, we would typically aggregate from telemetry
-    // Using placeholder values since detailed latency tracking isn't in the adapter table
-    let avg_latency_ms = 0.0;
-    let p95_latency_ms = 0.0;
-    let p99_latency_ms = 0.0;
+    // Get latency metrics from performance summary table
+    let (avg_latency_ms, p95_latency_ms, p99_latency_ms) = state
+        .db
+        .get_adapter_latency_stats(&adapter_id)
+        .await
+        .unwrap_or(None)
+        .unwrap_or((0.0, 0.0, 0.0));
 
     Ok(Json(AdapterStatsResponse {
         adapter_id: adapter.adapter_id.unwrap_or(adapter.id),
