@@ -6,11 +6,11 @@
 
 use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
+use crate::state::AppState;
 use crate::types::ErrorResponse;
 use axum::{extract::State, http::StatusCode, Extension, Json};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::sync::Arc;
+use sqlx::Row;
 
 /// Inference metrics response
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,48 +46,6 @@ pub struct AdapterMetricItem {
     pub selection_percentage: f64,
 }
 
-/// Mock state for demonstration (replace with actual state in production)
-#[derive(Clone)]
-pub struct MetricsState {
-    // In production, this would hold InferenceMetricsCollector
-}
-
-impl MetricsState {
-    pub fn new() -> Self {
-        Self {}
-    }
-
-    /// Get inference metrics (mock implementation)
-    pub async fn get_inference_metrics(&self) -> InferenceMetricsResponse {
-        // In production, this would query InferenceMetricsCollector
-        InferenceMetricsResponse {
-            schema_version: "1.0".to_string(),
-            total_requests: 0,
-            successful_requests: 0,
-            failed_requests: 0,
-            total_tokens: 0,
-            tokens_per_second: 0.0,
-            latency_p50_ms: 0,
-            latency_p95_ms: 0,
-            latency_p99_ms: 0,
-            latency_mean_ms: 0.0,
-            last_updated: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
-        }
-    }
-
-    /// Get adapter metrics (mock implementation)
-    pub async fn get_adapter_metrics(&self) -> AdapterMetricsResponse {
-        // In production, this would query InferenceMetricsCollector
-        AdapterMetricsResponse {
-            schema_version: "1.0".to_string(),
-            adapters: vec![],
-        }
-    }
-}
-
 /// GET /v1/metrics/inference
 ///
 /// Returns overall inference performance metrics including:
@@ -112,14 +70,103 @@ impl MetricsState {
     tag = "metrics"
 )]
 pub async fn get_inference_metrics_handler(
-    State(state): State<Arc<MetricsState>>,
+    State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<InferenceMetricsResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::MetricsView)?;
 
-    let metrics = state.get_inference_metrics().await;
+    let pool = state.db.pool();
 
-    Ok(Json(metrics))
+    // Query total requests from routing_decisions (most reliable inference counter)
+    let total_requests: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM routing_decisions WHERE tenant_id = ?",
+    )
+    .bind(&claims.tenant_id)
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0);
+
+    // Query failed requests (those with null or error status in request_log if available)
+    let failed_requests: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM request_log WHERE tenant_id = ? AND status_code >= 500",
+    )
+    .bind(&claims.tenant_id)
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0);
+
+    let successful_requests = (total_requests - failed_requests).max(0);
+
+    // Query total tokens from telemetry events
+    let total_tokens: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(json_extract(event_data, '$.total_tokens')), 0) \
+         FROM telemetry_events \
+         WHERE tenant_id = ? AND event_type = 'inference_complete'",
+    )
+    .bind(&claims.tenant_id)
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0);
+
+    // Calculate tokens per second from last 5 minutes
+    let tokens_last_5min: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(json_extract(event_data, '$.total_tokens')), 0) \
+         FROM telemetry_events \
+         WHERE tenant_id = ? AND event_type = 'inference_complete' \
+         AND timestamp > datetime('now', '-5 minutes')",
+    )
+    .bind(&claims.tenant_id)
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0);
+
+    let tokens_per_second = (tokens_last_5min as f64) / 300.0;
+
+    // Query latency percentiles from routing_decisions
+    let latencies: Vec<i64> = sqlx::query_scalar(
+        "SELECT total_inference_latency_us FROM routing_decisions \
+         WHERE tenant_id = ? AND total_inference_latency_us IS NOT NULL \
+         ORDER BY total_inference_latency_us ASC",
+    )
+    .bind(&claims.tenant_id)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    let (latency_p50_ms, latency_p95_ms, latency_p99_ms, latency_mean_ms) = if latencies.is_empty() {
+        (0, 0, 0, 0.0)
+    } else {
+        let len = latencies.len();
+        let p50_idx = (len as f64 * 0.50).floor() as usize;
+        let p95_idx = (len as f64 * 0.95).floor() as usize;
+        let p99_idx = (len as f64 * 0.99).floor() as usize;
+
+        let p50 = (latencies.get(p50_idx).copied().unwrap_or(0) / 1000) as u64;
+        let p95 = (latencies.get(p95_idx.min(len - 1)).copied().unwrap_or(0) / 1000) as u64;
+        let p99 = (latencies.get(p99_idx.min(len - 1)).copied().unwrap_or(0) / 1000) as u64;
+        let mean = latencies.iter().sum::<i64>() as f64 / len as f64 / 1000.0;
+
+        (p50, p95, p99, mean)
+    };
+
+    let last_updated = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    Ok(Json(InferenceMetricsResponse {
+        schema_version: "1.0".to_string(),
+        total_requests: total_requests as u64,
+        successful_requests: successful_requests as u64,
+        failed_requests: failed_requests as u64,
+        total_tokens: total_tokens as u64,
+        tokens_per_second,
+        latency_p50_ms,
+        latency_p95_ms,
+        latency_p99_ms,
+        latency_mean_ms,
+        last_updated,
+    }))
 }
 
 /// GET /v1/metrics/adapters
@@ -145,28 +192,76 @@ pub async fn get_inference_metrics_handler(
     tag = "metrics"
 )]
 pub async fn get_adapter_metrics_handler(
-    State(state): State<Arc<MetricsState>>,
+    State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<AdapterMetricsResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::MetricsView)?;
 
-    let metrics = state.get_adapter_metrics().await;
+    // List all adapters for the tenant
+    let adapters = state
+        .db
+        .list_adapters_for_tenant(&claims.tenant_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to list adapters")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
 
-    Ok(Json(metrics))
+    // Get total inference count for percentage calculation
+    let total_inferences: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM routing_decisions WHERE tenant_id = ?",
+    )
+    .bind(&claims.tenant_id)
+    .fetch_one(state.db.pool())
+    .await
+    .unwrap_or(0);
+
+    let mut adapter_metrics = Vec::new();
+
+    for adapter in adapters {
+        let adapter_id = adapter
+            .adapter_id
+            .clone()
+            .unwrap_or_else(|| adapter.id.clone());
+
+        // Get adapter stats (total decisions, selected count, avg gate)
+        let (_, selected, _) = state
+            .db
+            .get_adapter_stats(&claims.tenant_id, &adapter_id)
+            .await
+            .unwrap_or((0, 0, 0.0));
+
+        let selection_percentage = if total_inferences > 0 {
+            (selected as f64 / total_inferences as f64) * 100.0
+        } else {
+            0.0
+        };
+
+        adapter_metrics.push(AdapterMetricItem {
+            adapter_id,
+            selection_count: selected as u64,
+            selection_percentage,
+        });
+    }
+
+    // Sort by selection count descending
+    adapter_metrics.sort_by(|a, b| b.selection_count.cmp(&a.selection_count));
+
+    Ok(Json(AdapterMetricsResponse {
+        schema_version: "1.0".to_string(),
+        adapters: adapter_metrics,
+    }))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[tokio::test]
-    async fn test_metrics_state_creation() {
-        let state = MetricsState::new();
-        let metrics = state.get_inference_metrics().await;
-
-        assert_eq!(metrics.schema_version, "1.0");
-        assert!(metrics.last_updated > 0);
-    }
 
     #[tokio::test]
     async fn test_inference_metrics_response_structure() {

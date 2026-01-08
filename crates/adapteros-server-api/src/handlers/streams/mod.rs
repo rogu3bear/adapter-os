@@ -18,7 +18,7 @@ use crate::types::*;
 use axum::{
     extract::{Path, Query, State},
     http::HeaderMap,
-    response::sse::{Event, KeepAlive, Sse},
+    response::{sse::{Event, KeepAlive, KeepAliveStream, Sse}, IntoResponse},
     Extension,
 };
 use futures_util::stream::{self, Stream};
@@ -28,6 +28,18 @@ use std::convert::Infallible;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio_stream::wrappers::BroadcastStream;
+
+/// Boxed SSE stream type for unified returns with keep-alive
+type BoxedSseStream = std::pin::Pin<Box<dyn Stream<Item = Result<Event, Infallible>> + Send>>;
+type SseResponse = Sse<KeepAliveStream<BoxedSseStream>>;
+
+/// Helper to create SSE response from any stream with keep-alive
+fn sse_response<S>(stream: S) -> SseResponse
+where
+    S: Stream<Item = Result<Event, Infallible>> + Send + 'static,
+{
+    Sse::new(Box::pin(stream) as BoxedSseStream).keep_alive(KeepAlive::default())
+}
 
 /// Query parameters for stream endpoints
 #[derive(Debug, Deserialize)]
@@ -52,7 +64,7 @@ pub async fn system_metrics_stream(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     headers: HeaderMap,
-) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+) -> SseResponse {
     let has_permission = require_permission(&claims, Permission::MetricsView).is_ok();
 
     if !has_permission {
@@ -64,8 +76,7 @@ pub async fn system_metrics_stream(
         let event = Event::default()
             .event("error")
             .data("{\"error\": \"Permission denied - MetricsView required\"}");
-        let stream = stream::iter(vec![Ok(event)]);
-        return Sse::new(stream).keep_alive(KeepAlive::default());
+        return sse_response(stream::iter(vec![Ok(event)]));
     }
 
     let sse_manager = state.sse_manager.clone();
@@ -146,7 +157,7 @@ pub async fn system_metrics_stream(
     });
 
     // Chain replay with live stream
-    Sse::new(FuturesStreamExt::chain(replay_stream, live_stream)).keep_alive(KeepAlive::default())
+    sse_response(FuturesStreamExt::chain(replay_stream, live_stream))
 }
 
 /// SSE stream for telemetry events
@@ -155,7 +166,7 @@ pub async fn telemetry_events_stream(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     headers: HeaderMap,
-) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+) -> SseResponse {
     let has_permission = require_permission(&claims, Permission::TelemetryView).is_ok();
 
     if !has_permission {
@@ -167,8 +178,7 @@ pub async fn telemetry_events_stream(
         let event = Event::default()
             .event("error")
             .data("{\"error\": \"Permission denied - TelemetryView required\"}");
-        let stream = stream::iter(vec![Ok(event)]);
-        return Sse::new(stream).keep_alive(KeepAlive::default());
+        return sse_response(stream::iter(vec![Ok(event)]));
     }
 
     let sse_manager = state.sse_manager.clone();
@@ -283,7 +293,7 @@ pub async fn telemetry_events_stream(
         },
     );
 
-    Sse::new(FuturesStreamExt::chain(replay_stream, live_stream)).keep_alive(KeepAlive::default())
+    sse_response(FuturesStreamExt::chain(replay_stream, live_stream))
 }
 
 /// SSE stream for adapter state transitions
@@ -292,7 +302,7 @@ pub async fn adapter_state_stream(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     headers: HeaderMap,
-) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+) -> SseResponse {
     let has_permission = require_permission(&claims, Permission::AdapterView).is_ok();
 
     if !has_permission {
@@ -304,8 +314,7 @@ pub async fn adapter_state_stream(
         let event = Event::default()
             .event("error")
             .data("{\"error\": \"Permission denied - AdapterView required\"}");
-        let stream = stream::iter(vec![Ok(event)]);
-        return Sse::new(stream).keep_alive(KeepAlive::default());
+        return sse_response(stream::iter(vec![Ok(event)]));
     }
 
     let sse_manager = state.sse_manager.clone();
@@ -373,7 +382,7 @@ pub async fn adapter_state_stream(
         },
     );
 
-    Sse::new(FuturesStreamExt::chain(replay_stream, live_stream)).keep_alive(KeepAlive::default())
+    sse_response(FuturesStreamExt::chain(replay_stream, live_stream))
 }
 
 /// Training stream SSE endpoint
@@ -404,7 +413,7 @@ pub async fn training_stream(
     Extension(claims): Extension<Claims>,
     Query(params): Query<StreamQuery>,
     headers: HeaderMap,
-) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+) -> SseResponse {
     let tenant_id = params
         .tenant
         .clone()
@@ -419,8 +428,7 @@ pub async fn training_stream(
         let event = Event::default()
             .event("error")
             .data("{\"error\": \"Access denied for tenant training stream\"}");
-        let stream = stream::iter(vec![Ok(event)]);
-        return Sse::new(stream).keep_alive(KeepAlive::default());
+        return sse_response(stream::iter(vec![Ok(event)]));
     }
 
     let sse_manager = state.sse_manager.clone();
@@ -517,7 +525,7 @@ pub async fn training_stream(
     let merged_stream = futures_util::stream::select(signal_stream, heartbeat_stream);
 
     // Chain replay with merged stream
-    Sse::new(FuturesStreamExt::chain(replay_stream, merged_stream)).keep_alive(KeepAlive::default())
+    sse_response(FuturesStreamExt::chain(replay_stream, merged_stream))
 }
 
 /// SSE stream for alerts
@@ -526,7 +534,7 @@ pub async fn alerts_stream(
     State(state): State<AppState>,
     Extension(_claims): Extension<Claims>,
     headers: HeaderMap,
-) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+) -> SseResponse {
     let sse_manager = state.sse_manager.clone();
 
     // Parse Last-Event-ID for replay
@@ -589,7 +597,7 @@ pub async fn alerts_stream(
         Some((Ok(SseEventManager::to_axum_event(&event)), state))
     });
 
-    Sse::new(FuturesStreamExt::chain(replay_stream, live_stream)).keep_alive(KeepAlive::default())
+    sse_response(FuturesStreamExt::chain(replay_stream, live_stream))
 }
 
 /// SSE stream for anomalies
@@ -598,7 +606,7 @@ pub async fn anomalies_stream(
     State(state): State<AppState>,
     Extension(_claims): Extension<Claims>,
     headers: HeaderMap,
-) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+) -> SseResponse {
     let sse_manager = state.sse_manager.clone();
 
     // Parse Last-Event-ID for replay
@@ -661,7 +669,7 @@ pub async fn anomalies_stream(
         Some((Ok(SseEventManager::to_axum_event(&event)), state))
     });
 
-    Sse::new(FuturesStreamExt::chain(replay_stream, live_stream)).keep_alive(KeepAlive::default())
+    sse_response(FuturesStreamExt::chain(replay_stream, live_stream))
 }
 
 /// SSE stream for dashboard-specific metrics
@@ -671,7 +679,7 @@ pub async fn dashboard_metrics_stream(
     Extension(_claims): Extension<Claims>,
     Path(dashboard_id): Path<String>,
     headers: HeaderMap,
-) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+) -> SseResponse {
     let sse_manager = state.sse_manager.clone();
 
     // Parse Last-Event-ID for replay
@@ -884,7 +892,7 @@ pub async fn dashboard_metrics_stream(
         },
     );
 
-    Sse::new(FuturesStreamExt::chain(replay_stream, live_stream)).keep_alive(KeepAlive::default())
+    sse_response(FuturesStreamExt::chain(replay_stream, live_stream))
 }
 
 /// Enhanced system metrics stream with monitoring data
@@ -893,7 +901,7 @@ pub async fn enhanced_system_metrics_stream(
     State(state): State<AppState>,
     Extension(_claims): Extension<Claims>,
     headers: HeaderMap,
-) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+) -> SseResponse {
     let sse_manager = state.sse_manager.clone();
 
     // Parse Last-Event-ID for replay
@@ -1010,7 +1018,7 @@ pub async fn enhanced_system_metrics_stream(
         Some((Ok(SseEventManager::to_axum_event(&event)), state))
     });
 
-    Sse::new(FuturesStreamExt::chain(replay_stream, live_stream)).keep_alive(KeepAlive::default())
+    sse_response(FuturesStreamExt::chain(replay_stream, live_stream))
 }
 
 // Helper to extract system metrics logic

@@ -1,11 +1,21 @@
+use crate::auth::Claims;
+use crate::middleware::require_any_role;
+use crate::state::AppState;
+use crate::types::{ApplyEventRequest, ApplyEventResponse, ErrorResponse};
 use adapteros_core::AosError;
+use adapteros_db::users::Role;
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    Extension, Json,
+};
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use serde_json::Value;
 use sqlx::{Row, Sqlite, Transaction};
 use std::collections::BTreeMap;
 use thiserror::Error;
-use tracing::instrument;
+use tracing::{info, instrument};
 
 const DEFAULT_TARGETS_JSON: &str = "[]";
 const DEFAULT_ADAPTER_TIER: &str = "warm";
@@ -30,7 +40,10 @@ impl From<EventApplierError> for AosError {
         match err {
             EventApplierError::Validation { reason, .. } => AosError::Validation(reason),
             EventApplierError::Serialization { reason, .. } => {
-                AosError::Serialization(serde_json::Error::custom(reason))
+                AosError::Serialization(serde_json::Error::io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    reason,
+                )))
             }
             EventApplierError::Database { event_type, source } => {
                 AosError::Database(format!("{}: {}", event_type, source))
@@ -461,6 +474,132 @@ async fn upsert_tenant_config(
     })?;
 
     Ok(())
+}
+
+// =============================================================================
+// HTTP Handler
+// =============================================================================
+
+/// Apply a single event to a tenant's state.
+///
+/// This endpoint allows applying configuration events to modify tenant state
+/// deterministically. Events are recorded in the audit log for compliance.
+///
+/// Supported event types:
+/// - `adapter.registered` - Register a new adapter
+/// - `stack.created` - Create an adapter stack
+/// - `policy.updated` - Update a policy
+/// - `config.updated` - Update tenant configuration
+/// - `plugin.config.updated` - Update plugin configuration
+/// - `feature.flag.toggled` - Toggle a feature flag
+#[utoipa::path(
+    tag = "tenants",
+    post,
+    path = "/v1/tenants/{tenant_id}/events",
+    request_body = ApplyEventRequest,
+    responses(
+        (status = 200, description = "Event applied successfully", body = ApplyEventResponse),
+        (status = 400, description = "Invalid event format", body = ErrorResponse),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden - insufficient permissions", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    params(
+        ("tenant_id" = String, Path, description = "Tenant ID to apply event to")
+    ),
+    security(("bearer_token" = []))
+)]
+pub async fn apply_tenant_event(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(tenant_id): Path<String>,
+    Json(req): Json<ApplyEventRequest>,
+) -> Result<Json<ApplyEventResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Require Admin or Operator role for event application
+    require_any_role(&claims, &[Role::Admin, Role::Operator])?;
+
+    // Validate tenant isolation - users can only apply events to their own tenant
+    if claims.tenant_id != tenant_id {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(
+                ErrorResponse::new("cannot apply events to a different tenant")
+                    .with_code("TENANT_MISMATCH"),
+            ),
+        ));
+    }
+
+    // Build the event value for parsing
+    let event_value = serde_json::json!({
+        "event_type": req.event_type,
+        "metadata": req.metadata,
+        "identity": req.identity,
+    });
+
+    // Parse the event
+    let event = parse_event(&event_value).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("invalid event format")
+                    .with_code("INVALID_EVENT")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    // Apply the event within a transaction
+    let mut tx = state.db.pool().begin().await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to start transaction")
+                    .with_code("DATABASE_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    let clock = SystemClock;
+    let applied_at = clock.now();
+
+    apply_event_with_clock(&mut tx, &tenant_id, &event, &clock)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("failed to apply event")
+                        .with_code("EVENT_APPLICATION_FAILED")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    tx.commit().await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to commit transaction")
+                    .with_code("DATABASE_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    info!(
+        tenant_id = %tenant_id,
+        event_type = %req.event_type,
+        user = %claims.sub,
+        "Applied tenant event"
+    );
+
+    Ok(Json(ApplyEventResponse {
+        success: true,
+        event_type: event.event_type().to_string(),
+        applied_at: applied_at.to_rfc3339(),
+        identity_label: event.identity_label(),
+    }))
 }
 
 #[cfg(test)]

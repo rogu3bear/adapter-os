@@ -208,25 +208,109 @@ pub async fn create_replay_session(
     // Generate session ID
     let session_id = uuid::Uuid::new_v4().to_string();
 
-    // Fetch adapter state, routing decisions, etc. from telemetry bundles - placeholder implementation
-    // For now, create minimal snapshot
-    let adapter_state = AdapterStateSnapshot {
-        adapters: vec![],
-        timestamp: chrono::Utc::now().to_rfc3339(),
-        memory_usage_bytes: 0,
-    };
-
     let snapshot_at = req
         .snapshot_at
         .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
 
-    // Create signature
-    let keypair = Keypair::generate();
-    let snapshot_data = format!(
-        "{}:{}:{}:{}",
-        req.cpid, req.plan_id, snapshot_at, req.tenant_id
+    // Fetch telemetry bundles to extract merkle roots for manifest hash
+    let mut merkle_roots: Vec<String> = Vec::new();
+
+    for bundle_id in &req.telemetry_bundle_ids {
+        if let Ok(Some(bundle)) = state.db.get_telemetry_bundle(&req.tenant_id, bundle_id).await {
+            merkle_roots.push(bundle.merkle_root_b3.clone());
+        }
+    }
+
+    // Fetch recent telemetry events for adapter info extraction
+    let telemetry_events = state
+        .db
+        .get_telemetry_by_tenant(&req.tenant_id, 100)
+        .await
+        .unwrap_or_default();
+
+    let mut adapter_infos: Vec<serde_json::Value> = Vec::new();
+    let mut routing_decisions: Vec<serde_json::Value> = Vec::new();
+
+    for event in telemetry_events {
+        if let Ok(event_data) = serde_json::from_str::<serde_json::Value>(&event.event_data) {
+            // Extract adapter IDs from inference events
+            if let Some(adapter_ids) = event_data.get("adapter_ids") {
+                adapter_infos.push(serde_json::json!({
+                    "adapter_ids": adapter_ids,
+                    "event_type": event.event_type,
+                    "timestamp": event.timestamp
+                }));
+            }
+            // Collect routing decisions
+            if event.event_type == "routing_decision" {
+                routing_decisions.push(event_data);
+            }
+        }
+    }
+
+    let adapter_state = AdapterStateSnapshot {
+        adapters: adapter_infos,
+        timestamp: snapshot_at.clone(),
+        memory_usage_bytes: 0, // Memory stats not tracked in telemetry
+    };
+
+    // Generate global seed - use deterministic derivation from session data
+    let seed_input = format!(
+        "{}:{}:{}:{}:{}",
+        req.tenant_id,
+        req.cpid,
+        req.plan_id,
+        snapshot_at,
+        req.telemetry_bundle_ids.join(",")
     );
-    let signature = keypair.sign(snapshot_data.as_bytes());
+    let seed_hash = B3Hash::hash(seed_input.as_bytes());
+    let seed_global_b3 = format!("b3:{}", seed_hash.to_hex());
+
+    // Generate RNG state with global nonce derived from seed
+    let global_nonce = u64::from_le_bytes(seed_hash.as_bytes()[0..8].try_into().unwrap_or([0u8; 8]));
+    let rng_state = serde_json::json!({
+        "global_nonce": global_nonce,
+        "label": format!("replay:{}", session_id),
+        "step_count": 0
+    });
+    let rng_state_json = serde_json::to_string(&rng_state).map_err(internal_error)?;
+
+    // Compute manifest hash from merkle roots of telemetry bundles
+    let manifest_input = if merkle_roots.is_empty() {
+        format!("manifest:{}:{}:{}", req.tenant_id, req.cpid, snapshot_at)
+    } else {
+        merkle_roots.join(":")
+    };
+    let manifest_hash = B3Hash::hash(manifest_input.as_bytes());
+    let manifest_hash_b3 = format!("b3:{}", manifest_hash.to_hex());
+
+    // Look up active policy pack and hash it
+    let policy_hash_b3 = {
+        let active_policy = state
+            .db
+            .list_policy_packs(None, Some("active"))
+            .await
+            .ok()
+            .and_then(|packs| packs.into_iter().next());
+
+        if let Some(policy) = active_policy {
+            let policy_input = format!("{}:{}:{}", policy.id, policy.version, policy.policy_type);
+            let policy_hash = B3Hash::hash(policy_input.as_bytes());
+            format!("b3:{}", policy_hash.to_hex())
+        } else {
+            // Fallback: derive from session params
+            let policy_input = format!("policy:{}:{}", req.tenant_id, snapshot_at);
+            let policy_hash = B3Hash::hash(policy_input.as_bytes());
+            format!("b3:{}", policy_hash.to_hex())
+        }
+    };
+
+    // Create signature using server's signing keypair
+    let snapshot_data = format!(
+        "{}:{}:{}:{}:{}:{}",
+        req.tenant_id, req.cpid, req.plan_id, manifest_hash_b3, policy_hash_b3, seed_global_b3
+    );
+    let signature = state.crypto.signing_keypair.sign(snapshot_data.as_bytes());
 
     let session = ReplaySession {
         id: session_id.clone(),
@@ -234,15 +318,15 @@ pub async fn create_replay_session(
         cpid: req.cpid,
         plan_id: req.plan_id,
         snapshot_at,
-        seed_global_b3: "b3:placeholder".to_string(), // Placeholder - would get from manifest
-        rng_state_json: "{}".to_string(),             // Placeholder - would initialize RNG state
-        manifest_hash_b3: "b3:placeholder".to_string(),
-        policy_hash_b3: "b3:placeholder".to_string(),
+        seed_global_b3,
+        rng_state_json,
+        manifest_hash_b3,
+        policy_hash_b3,
         kernel_hash_b3: None,
         telemetry_bundle_ids_json: serde_json::to_string(&req.telemetry_bundle_ids)
             .map_err(internal_error)?,
         adapter_state_json: serde_json::to_string(&adapter_state).map_err(internal_error)?,
-        routing_decisions_json: "[]".to_string(),
+        routing_decisions_json: serde_json::to_string(&routing_decisions).map_err(internal_error)?,
         inference_traces_json: None,
         signature: hex::encode(signature.to_bytes()),
         created_at: chrono::Utc::now().to_rfc3339(),
