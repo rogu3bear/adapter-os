@@ -1,8 +1,8 @@
 //! Orchestration configuration handlers
 //!
-//! Provides a minimal single-node orchestration config so the UI can render
-//! without 404s. This stub is intentionally deterministic and does not persist
-//! changes yet; PUT echoes the provided payload.
+//! Provides tenant-scoped orchestration configuration with persistence.
+//! Includes prompt analysis with rule matching and stack scoring,
+//! plus routing decision metrics aggregation.
 
 use crate::handlers::{AppState, Claims, ErrorResponse};
 use crate::permissions::{require_any_role, require_permission, Permission};
@@ -181,7 +181,7 @@ pub async fn get_orchestration_config(
     Ok(Json(config))
 }
 
-/// Update orchestration configuration (echo-only stub)
+/// Update orchestration configuration
 #[utoipa::path(
     put,
     path = "/v1/orchestration/config",
@@ -240,15 +240,18 @@ pub async fn update_orchestration_config(
     Ok((StatusCode::OK, Json(payload)))
 }
 
-/// Analyze prompt for orchestration (stubbed 501)
+/// Analyze prompt for orchestration
+///
+/// Matches custom rules, scores stacks, and recommends adapter selection.
 #[utoipa::path(
     post,
     path = "/v1/orchestration/analyze",
     request_body = PromptAnalysisRequest,
     responses(
-        (status = 501, description = "Orchestration analysis not available", body = ErrorResponse),
+        (status = 200, description = "Prompt analysis result", body = Value),
         (status = 401, description = "Unauthorized"),
-        (status = 403, description = "Forbidden")
+        (status = 403, description = "Forbidden"),
+        (status = 500, description = "Internal server error")
     ),
     tag = "orchestration"
 )]
@@ -375,14 +378,17 @@ pub async fn analyze_orchestration_prompt(
     })))
 }
 
-/// Retrieve orchestration metrics (stubbed 501)
+/// Retrieve orchestration metrics
+///
+/// Returns routing decision counts, averages, and top stack usage.
 #[utoipa::path(
     get,
     path = "/v1/orchestration/metrics",
     responses(
-        (status = 501, description = "Orchestration metrics not available", body = ErrorResponse),
+        (status = 200, description = "Orchestration metrics", body = Value),
         (status = 401, description = "Unauthorized"),
-        (status = 403, description = "Forbidden")
+        (status = 403, description = "Forbidden"),
+        (status = 500, description = "Internal server error")
     ),
     tag = "orchestration"
 )]

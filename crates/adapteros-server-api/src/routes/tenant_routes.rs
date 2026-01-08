@@ -76,6 +76,11 @@ pub fn tenant_routes() -> Router<AppState> {
             "/v1/tenants/{tenant_id}/execution-policy/history",
             get(handlers::execution_policy::get_execution_policy_history),
         )
+        // Event application endpoint
+        .route(
+            "/v1/tenants/{tenant_id}/events",
+            post(handlers::event_applier::apply_tenant_event),
+        )
 }
 
 #[cfg(test)]

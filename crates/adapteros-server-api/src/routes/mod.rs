@@ -180,6 +180,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::pilot_status::get_pilot_status,
         handlers::registry::get_registry_status,
         handlers::tenants::hydrate_tenant_from_bundle,
+        handlers::event_applier::apply_tenant_event,
         // Service handlers
         handlers::services::start_service,
         handlers::services::stop_service,
@@ -393,6 +394,13 @@ use utoipa_swagger_ui::SwaggerUi;
         crate::types::SetDefaultStackRequest,
         crate::types::DefaultStackResponse,
         crate::types::TokenRevocationResponse,
+        // Event applier types
+        crate::types::ApplyEventRequest,
+        crate::types::ApplyEventResponse,
+        crate::types::ApplyEventsBatchRequest,
+        crate::types::ApplyEventsBatchResponse,
+        crate::types::EventApplicationError,
+        crate::types::TenantEventType,
         handlers::adapter_stacks::StackResponse,
         handlers::adapter_stacks::CreateStackRequest,
         handlers::adapter_stacks::WorkflowType,
