@@ -247,19 +247,41 @@ impl CpClient for WasmClient {
 
     // Code Policy - STUB (endpoint not implemented in API)
     async fn get_code_policy(&self) -> Result<GetCodePolicyResponse> {
-        Err(anyhow::anyhow!("Code policy endpoint not available"))
+        let url = format!("{}/v1/code-policy", self.base_url);
+        let resp = Request::get(&url).send().await?;
+        if !resp.ok() {
+            return Err(anyhow::anyhow!("Failed to get code policy: HTTP {}", resp.status()));
+        }
+        resp.json().await.context("Failed to parse code policy")
     }
 
-    async fn update_code_policy(&self, _req: UpdateCodePolicyRequest) -> Result<()> {
-        Err(anyhow::anyhow!("Code policy endpoint not available"))
+    async fn update_code_policy(&self, req: UpdateCodePolicyRequest) -> Result<()> {
+        let url = format!("{}/v1/code-policy", self.base_url);
+        let resp = Request::put(&url).json(&req)?.send().await?;
+        if !resp.ok() {
+            return Err(anyhow::anyhow!("Failed to update code policy"));
+        }
+        Ok(())
     }
 
-    // Metrics Dashboard - STUB (endpoints not implemented in API)
-    async fn get_code_metrics(&self, _req: CodeMetricsRequest) -> Result<CodeMetricsResponse> {
-        Err(anyhow::anyhow!("Code metrics endpoint not available"))
+    // Metrics Dashboard
+    async fn get_code_metrics(&self, req: CodeMetricsRequest) -> Result<CodeMetricsResponse> {
+        let url = format!("{}/v1/metrics/code", self.base_url);
+        let resp = Request::post(&url).json(&req)?.send().await?;
+        if !resp.ok() {
+            return Err(anyhow::anyhow!("Failed to get code metrics: HTTP {}", resp.status()));
+        }
+        resp.json().await.context("Failed to parse code metrics")
     }
 
-    async fn compare_metrics(&self, _req: CompareMetricsRequest) -> Result<CompareMetricsResponse> {
-        Err(anyhow::anyhow!("Metrics comparison endpoint not available"))
+    async fn compare_metrics(&self, req: CompareMetricsRequest) -> Result<CompareMetricsResponse> {
+        let url = format!("{}/v1/metrics/compare", self.base_url);
+        let resp = Request::post(&url).json(&req)?.send().await?;
+        if !resp.ok() {
+            return Err(anyhow::anyhow!("Failed to compare metrics: HTTP {}", resp.status()));
+        }
+        resp.json()
+            .await
+            .context("Failed to parse metrics comparison")
     }
 }
