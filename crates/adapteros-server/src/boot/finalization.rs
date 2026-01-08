@@ -112,21 +112,11 @@ pub async fn finalize_boot(
     // Build router with UI
     let api_routes = routes::build(state.clone());
 
-    // Provide root-level compat shims for health/readiness while keeping /api canonical.
-    let compat_routes = axum::Router::new()
-        .route(
-            "/readyz",
-            axum::routing::get(adapteros_server_api::handlers::health::ready),
-        )
-        .route(
-            "/healthz",
-            axum::routing::get(adapteros_server_api::handlers::health::health),
-        )
-        .with_state(state);
-
+    // API routes are merged directly at root level (routes already have /v1/ prefix)
+    // The api_routes already include /healthz and /readyz endpoints
+    // Order matters: specific API routes first, then UI fallback for SPA
     let app = axum::Router::new()
-        .nest("/api", api_routes) // API routes under /api prefix
-        .merge(compat_routes) // Backwards-compatible root probes
+        .merge(api_routes) // API routes at their defined paths (/v1/*, /healthz, etc.)
         .merge(ui_routes) // UI fallback for non-API paths
         .layer(CompressionLayer::new()); // Response compression (gzip, br) for all routes
 
