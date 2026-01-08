@@ -550,7 +550,7 @@ async fn stream_inference(
     messages: RwSignal<Vec<ChatMessage>>,
     abort_signal: Option<&AbortSignal>,
 ) -> Result<StreamTraceInfo, String> {
-    let url = format!("{}/api/v1/infer/stream", api_base_url());
+    let url = format!("{}/v1/infer/stream", api_base_url());
 
     let body = serde_json::to_string(request)
         .map_err(|e| format!("Failed to serialize request: {}", e))?;

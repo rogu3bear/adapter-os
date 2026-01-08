@@ -1,6 +1,6 @@
 //! Dashboard page
 
-use crate::api::{use_sse_json, ApiClient, SseState};
+use crate::api::{use_sse_json_events, ApiClient, SseState};
 use crate::boot_log;
 use crate::components::{
     Badge, BadgeVariant, Card, ChartPoint, DataSeries, LineChart, SparklineMetric, Spinner,
@@ -148,17 +148,27 @@ pub fn Dashboard() -> impl IntoView {
 
     // Metrics history for charts
     let metrics_history: RwSignal<MetricsHistory> = RwSignal::new(MetricsHistory::default());
+    let last_metrics_update = StoredValue::new(0u64);
 
     // SSE connection for real-time metrics updates
-    let (sse_status, _sse_reconnect) =
-        use_sse_json::<SystemMetricsResponse, _>("/api/v1/stream/metrics", move |metrics| {
+    let (sse_status, _sse_reconnect) = use_sse_json_events::<SystemMetricsResponse, _>(
+        "/v1/stream/metrics",
+        &["metrics"],
+        move |metrics| {
+            let now = js_sys::Date::now() as u64;
+            let last = last_metrics_update.get_value();
+            if now.saturating_sub(last) < 250 {
+                return;
+            }
+            last_metrics_update.set_value(now);
+
             // Store lightweight snapshot instead of full response
             live_metrics.set(Some(MetricsSnapshot::from(&metrics)));
 
             // Add to history with timestamp
-            let timestamp = js_sys::Date::now() as u64;
-            metrics_history.update(|h| h.push(&metrics, timestamp));
-        });
+            metrics_history.update(|h| h.push(&metrics, now));
+        },
+    );
 
     // Bridge SSE connection state to user notifications
     use_sse_notifications(sse_status.read_only());

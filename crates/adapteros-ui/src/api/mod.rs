@@ -17,7 +17,10 @@ pub use client::{
     ScanStatusResponse, StackResponse, UpdateStackRequest, WorkerMetricsResponse, WorkflowType,
 };
 pub use error::{ApiError, ApiResult};
-pub use sse::{use_sse, use_sse_json, CircuitBreakerConfig, SseConnection, SseEvent, SseState};
+pub use sse::{
+    use_sse, use_sse_json, use_sse_json_events, use_sse_json_with_config, use_sse_with_config,
+    CircuitBreakerConfig, SseConnection, SseEvent, SseState,
+};
 
 /// Base URL for API requests (configured at runtime)
 pub fn api_base_url() -> String {
