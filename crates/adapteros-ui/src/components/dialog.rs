@@ -72,9 +72,15 @@ pub fn Dialog(
     });
 
     // Keyboard handler for Escape key
+    // Use a guard to prevent multiple listener registrations (memory leak prevention)
+    let keyboard_handler_registered = StoredValue::new(false);
+
     Effect::new(move || {
         let is_open = open.get();
-        if is_open {
+        // Only register listener once, when dialog first opens
+        if is_open && !keyboard_handler_registered.get_value() {
+            keyboard_handler_registered.set_value(true);
+
             let dialog_id = dialog_id_for_keyboard.clone();
             let open_signal = open;
 
@@ -102,7 +108,7 @@ pub fn Dialog(
             }
 
             // Closure is leaked intentionally (WASM limitation for event listeners)
-            // The check for is_open prevents stale handlers from doing anything
+            // The check for dialog ID and focus prevents stale handlers from triggering
             closure.forget();
         }
     });
