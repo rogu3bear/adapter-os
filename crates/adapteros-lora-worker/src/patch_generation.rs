@@ -117,51 +117,17 @@ impl<K: FusedKernels + crate::StrictnessControl + Send + Sync + 'static> Worker<
         use crate::evidence::{EvidenceResult, EvidenceSpan, EvidenceType};
         use std::collections::HashMap;
 
-        // Use real evidence retriever if available
+        // Use real evidence retriever - required for patch generation
         if let Some(ref mut retriever) = self.evidence_retriever {
             retriever
                 .retrieve_patch_evidence(request, "default_tenant")
                 .await
                 .map_err(|e| AosError::Internal(e.to_string()))
         } else {
-            // Fallback to basic mock if no retriever is available
-            let mock_spans = vec![
-                EvidenceSpan {
-                    doc_id: "mock_doc_1".to_string(),
-                    rev: "v1".to_string(),
-                    span_hash: "hash1".to_string(),
-                    score: 0.9,
-                    evidence_type: EvidenceType::Symbol,
-                    file_path: request
-                        .target_files
-                        .first()
-                        .unwrap_or(&"src/test.rs".to_string())
-                        .clone(),
-                    start_line: 10,
-                    end_line: 15,
-                    content: format!("Mock evidence for: {}", request.query),
-                    metadata: HashMap::new(),
-                },
-                EvidenceSpan {
-                    doc_id: "mock_doc_2".to_string(),
-                    rev: "v1".to_string(),
-                    span_hash: "hash2".to_string(),
-                    score: 0.8,
-                    evidence_type: EvidenceType::Test,
-                    file_path: "tests/test.rs".to_string(),
-                    start_line: 20,
-                    end_line: 25,
-                    content: "Mock test evidence".to_string(),
-                    metadata: HashMap::new(),
-                },
-            ];
-
-            Ok(EvidenceResult {
-                spans: mock_spans,
-                total_found: 2,
-                retrieval_time_ms: 50,
-                sources_used: vec![EvidenceType::Symbol, EvidenceType::Test],
-            })
+            // Evidence retriever required for grounded patch generation
+            Err(AosError::Worker(
+                "Evidence retriever not configured. Patch generation requires RAG backend.".into(),
+            ))
         }
     }
 

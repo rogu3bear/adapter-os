@@ -200,15 +200,31 @@ impl Generator {
     ///
     /// # Returns
     /// Complete token sequence including initial tokens
+    ///
+    /// # Arguments
+    /// * `backend` - Kernel backend for inference
+    /// * `router` - Router for adapter selection
+    /// * `adapter_info` - Adapter metadata for routing decisions
+    /// * `initial_tokens` - Starting token sequence
+    /// * `max_tokens` - Maximum tokens to generate
+    /// * `vocab_size` - Vocabulary size
+    /// * `eos_token` - End-of-sequence token ID
     pub fn generate_tokens(
         &mut self,
         backend: &mut dyn adapteros_lora_kernel_api::FusedKernels,
         router: &mut adapteros_lora_router::Router,
+        adapter_info: &[AdapterInfo],
         initial_tokens: Vec<u32>,
         max_tokens: usize,
         vocab_size: usize,
         eos_token: u32,
     ) -> Result<Vec<u32>> {
+        if adapter_info.is_empty() {
+            return Err(AosError::Worker(
+                "generate_tokens requires at least one adapter in adapter_info".into(),
+            ));
+        }
+
         let initial_len = initial_tokens.len();
         let mut tokens = initial_tokens;
         let mut io = adapteros_lora_kernel_api::IoBuffers::new(vocab_size);
@@ -224,25 +240,14 @@ impl Generator {
             io.input_ids = vec![*last_token];
             io.position = tokens.len() - 1;
 
-            // Get router decision
-            // For now, use dummy features and uniform priors sized to adapter_count
-            let num_adapters = 8; // Default adapter count for dummy routing
-            let features = vec![0.0f32; 16]; // Dummy features
+            // Get router decision using provided adapter info
+            let num_adapters = adapter_info.len();
+            let features = vec![0.0f32; 16]; // Feature vector (simplified)
             let priors = vec![1.0f32 / num_adapters as f32; num_adapters]; // Uniform priors
-                                                                           // Create dummy adapter info for route_with_adapter_info
-            let adapter_info: Vec<AdapterInfo> = (0..num_adapters)
-                .map(|i| AdapterInfo {
-                    id: format!("adapter_{}", i),
-                    framework: None,
-                    languages: vec![0], // Default language
-                    tier: "persistent".to_string(),
-                    ..Default::default()
-                })
-                .collect();
             let adapter_ids: Vec<String> = adapter_info.iter().map(|a| a.id.clone()).collect();
             let policy_mask = PolicyMask::allow_all(&adapter_ids, None);
             let decision =
-                router.route_with_adapter_info(&features, &priors, &adapter_info, &policy_mask)?;
+                router.route_with_adapter_info(&features, &priors, adapter_info, &policy_mask)?;
 
             // Run inference step
             // Convert Decision to RouterRing

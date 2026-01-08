@@ -62,6 +62,8 @@ pub struct InferencePipelineConfig {
     pub manifest_hash: Option<B3Hash>,
     /// Optional allowlist of adapter IDs permitted for routing
     pub allowed_adapters: Option<Vec<String>>,
+    /// Adapter metadata for routing decisions (required for inference)
+    pub adapters: Vec<AdapterInfo>,
 }
 
 impl Default for InferencePipelineConfig {
@@ -76,6 +78,7 @@ impl Default for InferencePipelineConfig {
             top_p: Some(0.95),
             manifest_hash: None,
             allowed_adapters: None,
+            adapters: Vec::new(),
         }
     }
 }
@@ -92,6 +95,7 @@ impl InferencePipelineConfig {
             top_p: Some(0.95),
             manifest_hash: None,
             allowed_adapters: None,
+            adapters: Vec::new(),
         }
     }
 
@@ -111,7 +115,14 @@ impl InferencePipelineConfig {
             top_p,
             manifest_hash: None,
             allowed_adapters: None,
+            adapters: Vec::new(),
         }
+    }
+
+    /// Set adapter metadata for routing decisions
+    pub fn with_adapters(mut self, adapters: Vec<AdapterInfo>) -> Self {
+        self.adapters = adapters;
+        self
     }
 
     /// Set the manifest hash for deterministic HKDF seed derivation
@@ -1369,19 +1380,17 @@ impl InferencePipeline {
             // 5. Router decision: select K adapters
             // Create feature vector from token embeddings (simplified for now)
             let features = self.create_feature_vector(&current_tokens);
-            let priors = vec![1.0; 8]; // Uniform priors for all adapters
-                                       // Create dummy adapter info for route_with_adapter_info
-            let adapter_info: Vec<AdapterInfo> = (0..8)
-                .map(|i| AdapterInfo {
-                    id: format!("adapter_{}", i),
-                    framework: None,
-                    languages: vec![0], // Default language
-                    tier: "persistent".to_string(),
-                    ..Default::default()
-                })
-                .collect();
 
-            let (adapter_info, priors) = self.filter_adapters(&adapter_info, &priors)?;
+            // Use configured adapters for routing (requires config.adapters to be set)
+            if self.config.adapters.is_empty() {
+                return Err(AosError::Worker(
+                    "InferencePipeline requires adapters in config. Use config.with_adapters() to set adapter metadata.".into(),
+                ));
+            }
+            let adapter_info = &self.config.adapters;
+            let priors = vec![1.0f32; adapter_info.len()]; // Uniform priors for all adapters
+
+            let (adapter_info, priors) = self.filter_adapters(adapter_info, &priors)?;
             let adapter_clusters: Vec<Option<String>> = adapter_info
                 .iter()
                 .map(|a| derive_cluster_from_id(&a.id))
