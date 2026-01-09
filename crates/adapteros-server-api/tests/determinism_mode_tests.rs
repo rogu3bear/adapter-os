@@ -28,11 +28,11 @@
 //!
 //! **For Scenario 2 (strict mode validation error):**
 //! ```bash
-//! make dev  # Start control plane only (port 8080, NO_AUTH=1)
+//! AOS_DEV_NO_AUTH=1 ./start up --skip-worker  # Start control plane only (port 8080)
 //! ```
 //!
 //! **For Scenarios 1 and 3 (full inference):**
-//! Requires worker with loaded model. See `make full-stack` or equivalent.
+//! Requires worker with loaded model. See `./start up` with a configured worker or equivalent.
 //!
 //! ## Scenario 1: Relaxed mode, no seed (requires worker)
 //! ```bash

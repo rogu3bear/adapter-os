@@ -93,7 +93,7 @@ flowchart TD
 
     PreCheck -->|Yes| ChooseMethod{Installation<br/>Method}
 
-    ChooseMethod -->|Graphical| Installer[GUI Installer<br/>make installer]
+    ChooseMethod -->|Graphical| Installer[GUI Installer<br/>xcodebuild AdapterOSInstaller]
     ChooseMethod -->|Manual| Build[Build from Source<br/>cargo build --release]
     ChooseMethod -->|Air-Gapped| Bundle[Transfer Bundle<br/>adapteros-airgap.tar.gz]
 
@@ -193,10 +193,10 @@ The native macOS installer provides guided setup with hardware validation:
 
 ```bash
 # Build the installer
-make installer
+cd installer && xcodebuild -project AdapterOSInstaller.xcodeproj -scheme AdapterOSInstaller -configuration Release -derivedDataPath build clean build
 
 # Or open in Xcode for development
-make installer-open
+open installer/AdapterOSInstaller.xcodeproj
 ```
 
 **Features:**
@@ -227,7 +227,7 @@ cd adapter-os
 cargo build --release
 
 # Build Metal shaders
-make metal
+cd metal && bash build.sh
 
 # Initialize database and create default tenant
 ./target/release/aosctl db migrate
@@ -617,7 +617,9 @@ curl -X POST http://localhost:8080/v1/inference \
 
 ```bash
 # Run determinism test suite
-make determinism-check
+cargo test --test determinism_core_suite -- --test-threads=8
+cargo test -p adapteros-lora-router --test determinism
+bash scripts/check_fast_math_flags.sh
 
 # Or manually test same prompt twice:
 ./target/release/aosctl infer \
@@ -677,7 +679,7 @@ For environments without internet access:
 ```mermaid
 flowchart TD
     subgraph Connected[Connected Machine]
-        Build[1. Build System<br/>make build]
+        Build[1. Build System<br/>./scripts/fresh-build.sh + cargo build]
         Bundle[2. Create Bundle<br/>tar -czf adapteros-airgap.tar.gz]
 
         Build --> Bundle
@@ -727,7 +729,11 @@ git clone --recursive https://github.com/rogu3bear/adapter-os.git
 cd adapter-os
 
 # Build the complete system
-make build
+./scripts/fresh-build.sh
+cargo build --release --locked --offline
+./scripts/build_metadata.sh
+./scripts/record_env.sh
+./scripts/strip_timestamps.sh
 
 # Vendor Rust dependencies
 cargo vendor
@@ -1610,7 +1616,7 @@ inference_timeout_secs = 60  # Increase from 30
 
 ```bash
 # Clean up ports
-make prepare  # Stops services, cleans ports
+./scripts/fresh-build.sh  # Stops services, cleans ports
 
 # Manual port cleanup
 lsof -ti:8080 | xargs kill
@@ -1673,7 +1679,7 @@ tail -f /var/log/adapteros/telemetry.jsonl
 1. Check seed derivation (same inputs → same seeds)
 2. Verify router sorting (score DESC, index ASC tie-break)
 3. Confirm Q15 denominator = 32767.0
-4. Run `make determinism-check`
+4. Run `cargo test --test determinism_core_suite -- --test-threads=8`, `cargo test -p adapteros-lora-router --test determinism`, and `bash scripts/check_fast_math_flags.sh`
 
 ### Health Check Failures
 

@@ -442,7 +442,8 @@ Please investigate and optimize before merging.
 
 ```bash
 # Run all tests and benchmarks
-make mlx-perf
+cargo test -p adapteros-lora-mlx-ffi --features multi-backend,mlx
+cargo bench -p adapteros-lora-mlx-ffi --features multi-backend,mlx
 
 # Run specific benchmark
 cargo bench -p adapteros-lora-mlx-ffi --bench comprehensive_performance forward_pass_latency

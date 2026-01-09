@@ -62,23 +62,29 @@ cargo test -- --test-threads=1
 cargo test --no-run
 ```
 
-### Makefile Commands
+### Direct Commands
 
 ```bash
-# Run all checks (fmt + clippy + test + determinism)
-make check
+# Run formatter/lints/tests
+bash scripts/test/all.sh all
 
 # Run all tests + Miri (memory safety)
-make test
+bash scripts/test/all.sh all
 
 # Determinism test suite
-make determinism-check
+cargo test --test determinism_core_suite -- --test-threads=8
+cargo test -p adapteros-lora-router --test determinism
+bash scripts/check_fast_math_flags.sh
 
 # E2E worker startup test
-make e2e-worker-test
+AOS_E2E_MODEL_PATH=./var/models/Qwen2.5-7B-Instruct-4bit \
+AOS_E2E_BACKEND=mlx \
+AOS_E2E_UDS=./var/run/aos-e2e.sock \
+AOS_WORKER_MANIFEST=manifests/qwen7b-4bit-mlx.yaml \
+cargo test -p adapteros-lora-worker --test startup_lifecycle -- --nocapture
 
 # MLX-specific tests (if MLX features enabled)
-make test-mlx
+cargo test -p adapteros-lora-mlx-ffi --features multi-backend,mlx
 ```
 
 ---
@@ -246,7 +252,11 @@ cargo test --test e2e_adapter_lifecycle
 cargo test --test e2e_training_workflow -- --nocapture
 
 # Worker startup E2E (requires model files)
-make e2e-worker-test
+AOS_E2E_MODEL_PATH=./var/models/Qwen2.5-7B-Instruct-4bit \
+AOS_E2E_BACKEND=mlx \
+AOS_E2E_UDS=./var/run/aos-e2e.sock \
+AOS_WORKER_MANIFEST=manifests/qwen7b-4bit-mlx.yaml \
+cargo test -p adapteros-lora-worker --test startup_lifecycle -- --nocapture
 ```
 
 ### E2E Test Pattern
@@ -292,14 +302,14 @@ Determinism tests ensure reproducibility of routing and inference decisions.
 
 ```bash
 # Determinism test suite
-make determinism-check
-
-# Or manually:
 cargo test --test determinism_core_suite -- --test-threads=8
 cargo test -p adapteros-lora-router --test determinism
+bash scripts/check_fast_math_flags.sh
 
 # Release mode (faster):
-PROFILE=release make determinism-check
+cargo test --release --test determinism_core_suite -- --test-threads=8
+cargo test --release -p adapteros-lora-router --test determinism
+bash scripts/check_fast_math_flags.sh
 ```
 
 ### Determinism Test Pattern
@@ -327,7 +337,7 @@ fn test_router_determinism() {
 2. **Verify router sorting**: Score DESC, index ASC tie-break
 3. **Confirm Q15 denominator**: Must be 32767.0
 4. **Validate replay metadata**: All fields stored correctly
-5. **Run**: `make determinism-check`
+5. **Run**: `cargo test --test determinism_core_suite -- --test-threads=8`, `cargo test -p adapteros-lora-router --test determinism`, and `bash scripts/check_fast_math_flags.sh`
 
 ---
 
@@ -457,7 +467,7 @@ cargo test -- --skip ignored
 
 ```bash
 # Clean up ports
-make prepare
+./scripts/fresh-build.sh
 lsof -ti:8080 | xargs kill
 lsof -ti:3200 | xargs kill
 ```

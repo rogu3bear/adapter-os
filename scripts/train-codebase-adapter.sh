@@ -363,7 +363,7 @@ need_cmd python3
 
 step "Checking control plane connectivity (${BASE_URL})"
 if ! curl -sS --max-time 2 "${BASE_URL}/healthz" >/dev/null 2>&1; then
-  die "cannot reach control plane at ${BASE_URL}. Start it (e.g. make dev-no-auth) and retry."
+  die "cannot reach control plane at ${BASE_URL}. Start it (e.g. AOS_DEV_NO_AUTH=1 ./start up) and retry."
 fi
 
 maybe_login || true

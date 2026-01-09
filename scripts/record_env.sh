@@ -131,7 +131,6 @@ CPU_FEATURES=$(sysctl -n machdep.cpu.features 2>/dev/null || echo "unknown")
 MEMORY_SIZE=$(sysctl -n hw.memsize 2>/dev/null || echo "unknown")
 
 # Build Tools
-MAKE_VERSION=$(make --version 2>/dev/null | head -1 || echo "unknown")
 GIT_VERSION=$(git --version 2>/dev/null || echo "unknown")
 EOF
 

@@ -26,7 +26,7 @@ echo "📍 Server URL: $SERVER_URL"
 if [ ! -f "$OPENAPI_DOC" ]; then
     echo "❌ API documentation file not found: $OPENAPI_DOC"
     echo "💡 Generate it first:"
-    echo "   make openapi-docs"
+    echo "   cargo xtask openapi-docs"
     exit 1
 fi
 

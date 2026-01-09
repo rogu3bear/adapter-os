@@ -316,7 +316,7 @@ grep -i "stub.*backend.*active" var/aos-worker.log
 cargo build --release --features mlx-backend  # macOS only
 
 # 3. Verify Metal shaders (if using Metal)
-make metal
+cd metal && bash build.sh
 ls -la crates/adapteros-lora-kernel-mtl/metal/kernels.metallib
 
 # 4. Check GPU availability

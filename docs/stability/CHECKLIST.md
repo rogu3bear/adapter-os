@@ -6,16 +6,17 @@ Use this checklist before stabilization runs or release candidates.
 
 ```bash
 # Full stability gate (must pass)
-make stability-check
+bash scripts/ci/stability.sh
 
 # Feature matrix validation
-make stability-ci
+./scripts/ci/feature_matrix.sh
 
 # Ignored test sweep (non-blocking)
-make test-ignored
+cargo test --workspace --features extended-tests --lib --bins --examples -- --ignored
+cargo test --workspace --features extended-tests --tests -- --ignored
 
 # Hardware-dependent tests (local only)
-make test-hw
+# See the Hardware Tests section below for exact commands.
 ```
 
 ---
@@ -41,7 +42,7 @@ Gate: No clippy warnings allowed. The `clippy.toml` at the repo root configures 
 ### 3. Unit and Integration Tests (Rust + Leptos UI)
 
 ```bash
-# Full suite (run by make test)
+# Full suite
 bash scripts/test/all.sh all
 ```
 
@@ -75,18 +76,18 @@ Gate: All inference must route through `InferenceCore`. Direct backend calls are
 
 ---
 
-## Combined Targets
+## Combined Sequence
 
-### stability-check (Makefile)
+### Stability Gate
 
 Runs all blocking gates in sequence:
 
 ```bash
-make stability-check
+bash scripts/ci/stability.sh
 # Runs:
 #   1. ./scripts/check_inference_bypass.sh
-#   2. make test  (full suite: fmt, clippy, Rust tests, Leptos UI tests, Miri)
-#   3. make determinism-check
+#   2. bash scripts/test/all.sh all  (fmt, clippy, Rust tests, Leptos UI tests, Miri)
+#   3. determinism checks (see below)
 ```
 
 ### stability-ci (Feature Matrix)
@@ -94,8 +95,7 @@ make stability-check
 Validates builds with default and all-features configurations to prevent feature drift.
 
 ```bash
-make stability-ci
-# Runs: ./scripts/ci/feature_matrix.sh
+./scripts/ci/feature_matrix.sh
 ```
 
 **What It Does:**
@@ -124,10 +124,10 @@ The feature matrix script runs two critical build profiles:
 
 ```bash
 # Run with release optimizations
-PROFILE=release make stability-ci
+PROFILE=release ./scripts/ci/feature_matrix.sh
 
 # Use real MLX backend (requires C++ library installation)
-MLX_FORCE_STUB=0 make stability-ci
+MLX_FORCE_STUB=0 PROFILE=release ./scripts/ci/feature_matrix.sh
 ```
 
 **Maintenance:**
@@ -146,7 +146,6 @@ default = ["deterministic-only", "coreml-backend"]
 **Integration Points:**
 
 - Script: `scripts/ci/feature_matrix.sh`
-- Makefile target: `stability-ci` (line 175-176)
 - CI workflow: `.github/workflows/stability.yml`
 
 ---
@@ -156,7 +155,8 @@ default = ["deterministic-only", "coreml-backend"]
 ### Ignored Test Sweep
 
 ```bash
-make test-ignored
+cargo test --workspace --features extended-tests --lib --bins --examples -- --ignored
+cargo test --workspace --features extended-tests --tests -- --ignored
 # Runs:
 #   cargo test --workspace --features extended-tests --lib --bins --examples -- --ignored
 #   cargo test --workspace --features extended-tests --tests -- --ignored
@@ -167,17 +167,26 @@ Purpose: Surface failing ignored tests before release. These require infrastruct
 Customization:
 ```bash
 # Exclude specific crates
-IGNORED_EXCLUDE="adapteros-lora-mlx-ffi adapteros-memory" make test-ignored
+cargo test --workspace --exclude adapteros-lora-mlx-ffi --exclude adapteros-memory \
+  --features extended-tests --lib --bins --examples -- --ignored
+cargo test --workspace --exclude adapteros-lora-mlx-ffi --exclude adapteros-memory \
+  --features extended-tests --tests -- --ignored
 
 # Disable extended-tests feature
-IGNORED_FEATURES="" make test-ignored
+cargo test --workspace --lib --bins --examples -- --ignored
+cargo test --workspace --tests -- --ignored
 ```
 
 ### Hardware Tests
 
 ```bash
-make test-hw
-# Runs Metal/VRAM/residency tests on macOS with GPU
+cargo test --test lora_buffer_population_integration --features extended-tests --profile release -- --ignored --nocapture
+cargo test --test kv_residency_quota_integration --features hardware-residency
+cargo test -p adapteros-lora-worker --features hardware-residency,ci-residency --test worker_enforcement_tests
+cargo test -p adapteros-lora-worker --features hardware-residency,ci-residency --test residency_probe
+cargo test -p adapteros-lora-kernel-coreml --test integration_tests -- --ignored
+cargo test -p adapteros-memory --test metal_heap_tests --profile release -- --ignored
+cargo test -p adapteros-memory --lib --profile release -- --ignored
 ```
 
 Purpose: Validate hardware-dependent behavior. Cannot run in CI (requires Metal device).
@@ -212,7 +221,10 @@ jobs:
 
 The `scripts/ci/stability.sh` script runs:
 1. `./scripts/check_inference_bypass.sh`
-2. `make stability-check`
+2. `bash scripts/test/all.sh all`
+3. `cargo test --test determinism_core_suite -- --test-threads=8`
+4. `cargo test -p adapteros-lora-router --test determinism`
+5. `bash scripts/check_fast_math_flags.sh`
 
 ### Ignored Test Sweep Job
 
@@ -224,7 +236,8 @@ The `scripts/ci/stability.sh` script runs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
-      - run: make test-ignored
+      - run: cargo test --workspace --features extended-tests --lib --bins --examples -- --ignored
+      - run: cargo test --workspace --features extended-tests --tests -- --ignored
 ```
 
 This job is non-blocking (`continue-on-error: true`). Review failures before release.
@@ -253,10 +266,10 @@ The full registry is maintained at: **`docs/stability/IGNORED_TESTS.md`**
 
 ### Before Release
 
-1. Run `make ignored-tests-check` to verify registry is in sync
+1. Run `grep -rn '#\\[ignore *= *"' --include='*.rs' crates tests | grep -v 'tracking: STAB-IGN'` to verify registry is in sync
 2. Review `docs/stability/IGNORED_TESTS.md` for stale entries
-3. Run `make test-ignored` and triage new failures
-4. Run `make test-hw` on a macOS machine with Metal GPU
+3. Run the ignored-test sweep commands and triage new failures
+4. Run the hardware test commands on a macOS machine with Metal GPU
 5. Update tracking IDs for any newly ignored tests
 
 ---
@@ -266,9 +279,11 @@ The full registry is maintained at: **`docs/stability/IGNORED_TESTS.md`**
 For release builds, set `PROFILE=release`:
 
 ```bash
-PROFILE=release make stability-check
-PROFILE=release make stability-ci
-PROFILE=release make determinism-check
+PROFILE=release bash scripts/ci/stability.sh
+PROFILE=release ./scripts/ci/feature_matrix.sh
+cargo test --release --test determinism_core_suite -- --test-threads=8
+cargo test --release -p adapteros-lora-router --test determinism
+bash scripts/check_fast_math_flags.sh
 ```
 
 This validates release-mode compilation and runs determinism tests with optimizations enabled.
@@ -292,7 +307,8 @@ Ensure:
 
 Run the audit target:
 ```bash
-make ignored-tests-audit
+grep -rn '#\\[ignore *= *"' --include='*.rs' crates tests 2>/dev/null | grep -c 'tracking: STAB-IGN'
+grep -rn '#\\[ignore *= *"' --include='*.rs' crates tests 2>/dev/null | grep -v 'tracking: STAB-IGN'
 ```
 
 This shows:
@@ -306,7 +322,7 @@ If default features in `Cargo.toml` change:
 1. Update this checklist (stability-ci section)
 2. Update `scripts/ci/feature_matrix.sh` header documentation
 3. Update CI workflow if feature names changed
-4. Run `make stability-ci` to verify both profiles build
+4. Run `./scripts/ci/feature_matrix.sh` to verify both profiles build
 
 ### MLX stub vs real backend issues
 
@@ -318,7 +334,7 @@ export MLX_INCLUDE_DIR=/opt/homebrew/include
 export MLX_LIB_DIR=/opt/homebrew/lib
 
 # Run with real MLX
-MLX_FORCE_STUB=0 make stability-ci
+MLX_FORCE_STUB=0 ./scripts/ci/feature_matrix.sh
 ```
 
 ---
@@ -327,14 +343,14 @@ MLX_FORCE_STUB=0 make stability-ci
 
 The stabilization profile consists of:
 
-1. **Feature Matrix** (`make stability-ci`)
+1. **Feature Matrix** (`./scripts/ci/feature_matrix.sh`)
    - Default features build (production config)
    - All features build (drift detection)
 
-2. **Core Test Suite** (`make test`)
+2. **Core Test Suite** (`bash scripts/test/all.sh all`)
    - Formatting, linting, unit tests, integration tests
 
-3. **Determinism Verification** (`make determinism-check`)
+3. **Determinism Verification** (`cargo test --test determinism_core_suite -- --test-threads=8`, `cargo test -p adapteros-lora-router --test determinism`, `bash scripts/check_fast_math_flags.sh`)
    - Reproducible inference output validation
 
 4. **Inference Bypass Guard** (`./scripts/check_inference_bypass.sh`)

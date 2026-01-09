@@ -52,7 +52,7 @@ async fn index_handler() -> impl IntoResponse {
         Some(content) => Html(content.data.into_owned()).into_response(),
         None => (
             StatusCode::SERVICE_UNAVAILABLE,
-            "UI not built. Run: make ui",
+            "UI not built. Run: cd crates/adapteros-ui && trunk build --release",
         )
             .into_response(),
     }

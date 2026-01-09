@@ -438,7 +438,7 @@ check_command() {
 
     # Check if service is running
     if ! ps aux | grep -E "adapteros-server" | grep -v grep >/dev/null; then
-        recommendations+=("Service is not running. Start with: make dev")
+        recommendations+=("Service is not running. Start with: ./start up")
     fi
 
     # Check for stub backend
@@ -547,7 +547,7 @@ echo
 # Suggest next steps based on findings
 if ! curl -f -s -m 5 "$PROBE_BASE/healthz" >/dev/null 2>&1; then
     echo -e "${YELLOW}NEXT STEPS:${NC}"
-    echo "1. Start the service: make dev"
+    echo "1. Start the service: ./start up"
     echo "2. Check logs: tail -50 var/aos-cp.log"
     echo "3. Verify database: sqlite3 var/aos-cp.sqlite3 'SELECT 1;'"
     echo
