@@ -7,9 +7,9 @@ use adapteros_core::{AosError, Result};
 use adapteros_lora_worker::training::{
     DeterminismConfig, MicroLoRATrainer, TrainingConfig, TrainingExample,
 };
+use adapteros_types::training::{ExampleMetadataV1, TRAINING_DATA_CONTRACT_VERSION};
 use clap::Args;
 use serde_json;
-use std::collections::HashMap;
 use std::path::PathBuf;
 use tracing::{info, warn};
 
@@ -28,6 +28,10 @@ pub struct TrainArgs {
     #[arg(short, long)]
     output: PathBuf,
 
+    /// Base model path for training
+    #[arg(long)]
+    base_model: PathBuf,
+
     /// Plan file for Metal backend initialization
     #[arg(long)]
     plan: Option<PathBuf>,
@@ -44,6 +48,10 @@ pub struct TrainArgs {
     #[arg(long)]
     resume: bool,
 
+    /// Force resume even if config changed (may produce incorrect results)
+    #[arg(long, help = "Force resume even if config changed (may produce incorrect results)")]
+    force_resume: bool,
+
     /// Common training hyperparameters
     #[command(flatten)]
     common: CommonTrainingArgs,
@@ -52,14 +60,7 @@ pub struct TrainArgs {
 /// Training data format
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct TrainingData {
-    examples: Vec<TrainingExampleData>,
-}
-
-#[derive(serde::Deserialize, serde::Serialize)]
-pub struct TrainingExampleData {
-    input: Vec<u32>,
-    target: Vec<u32>,
-    metadata: Option<HashMap<String, serde_json::Value>>,
+    examples: Vec<TrainingExample>,
 }
 
 impl TrainArgs {
@@ -76,12 +77,13 @@ impl TrainArgs {
 
         // Create trainer
         let mut trainer = MicroLoRATrainer::new(config)?;
+        trainer.set_force_resume(self.force_resume);
 
         // Enable checkpointing for resume support
         trainer.enable_checkpointing(&self.output, "training", 5);
 
         // Check for checkpoint availability
-        let checkpoint_exists = trainer.try_resume_from_checkpoint().await.is_some();
+        let checkpoint_exists = trainer.has_checkpoint().await;
 
         // Initialize Metal kernels if plan is provided
         if let Some(plan_path) = &self.plan {
@@ -99,9 +101,20 @@ impl TrainArgs {
 
         // Train the adapter (with resume if requested)
         let (result, resumed_from_epoch) = if self.resume {
-            if let Some((epoch, _weights, loss)) = trainer.try_resume_from_checkpoint().await {
-                info!("Resuming from epoch {} with loss {:.4}", epoch, loss);
-                let result = trainer.train_with_resume(&examples, |_| {}).await?;
+            if let Some(checkpoint) = trainer.try_resume_from_checkpoint().await? {
+                info!(
+                    "Resuming from checkpoint at epoch {} with config: {}",
+                    checkpoint.epoch,
+                    checkpoint.config.summary()
+                );
+                info!(
+                    "Checkpoint loss at resume: {:.4}",
+                    checkpoint.loss
+                );
+                let epoch = checkpoint.epoch;
+                let result = trainer
+                    .train_with_resume_state(&examples, |_| {}, Some(checkpoint))
+                    .await?;
                 (result, Some(epoch))
             } else {
                 info!("No checkpoint found, starting fresh training");
@@ -138,9 +151,10 @@ impl TrainArgs {
             let config_str = std::fs::read_to_string(config_path)
                 .map_err(|e| AosError::Io(format!("Failed to read config file: {}", e)))?;
 
-            let config: TrainingConfig = serde_json::from_str(&config_str)
+            let mut config: TrainingConfig = serde_json::from_str(&config_str)
                 .map_err(|e| AosError::Parse(format!("Failed to parse config: {}", e)))?;
 
+            config.base_model_path = Some(self.base_model.clone());
             info!(
                 "Loaded training configuration from: {}",
                 config_path.display()
@@ -156,6 +170,9 @@ impl TrainArgs {
                 epochs: self.common.epochs,
                 hidden_dim: self.common.hidden_dim,
                 vocab_size: 50272,
+                training_contract_version: TRAINING_DATA_CONTRACT_VERSION.to_string(),
+                pad_token_id: 0,
+                ignore_index: 0,
                 max_gpu_memory_mb: 0,
                 preferred_backend: None,
                 require_gpu: false,
@@ -163,6 +180,9 @@ impl TrainArgs {
                 warmup_steps: None,
                 max_seq_length: None,
                 gradient_accumulation_steps: None,
+                early_stopping: None,
+                patience: None,
+                min_delta: None,
                 determinism: if self.deterministic || self.seed.is_some() {
                     Some(DeterminismConfig {
                         seed: self.seed,
@@ -179,9 +199,10 @@ impl TrainArgs {
                 moe_config: None,
                 use_gpu_backward: true,
                 optimizer_config: Default::default(),
-                base_model_path: None,
+                base_model_path: Some(self.base_model.clone()),
                 hidden_state_layer: None,
                 validation_split: 0.0,
+                preprocessing: None,
             };
 
             info!("Using command-line training configuration");
@@ -197,26 +218,7 @@ impl TrainArgs {
         let training_data: TrainingData = serde_json::from_str(&data_str)
             .map_err(|e| AosError::Parse(format!("Failed to parse training data: {}", e)))?;
 
-        let examples: Vec<TrainingExample> = training_data
-            .examples
-            .into_iter()
-            .map(|ex| TrainingExample {
-                input: ex.input,
-                target: ex.target,
-                metadata: ex
-                    .metadata
-                    .unwrap_or_default()
-                    .into_iter()
-                    // Preserve metadata deterministically:
-                    // - if JSON string => use raw string (no quotes)
-                    // - else => stringify JSON value (numbers/bools/null/objects/arrays)
-                    .map(|(k, v)| (k, stringify_metadata_value(v)))
-                    .collect(),
-                weight: 1.0,
-            })
-            .collect();
-
-        Ok(examples)
+        Ok(training_data.examples)
     }
 
     /// Save trained adapter
@@ -257,13 +259,6 @@ impl TrainArgs {
     }
 }
 
-fn stringify_metadata_value(v: serde_json::Value) -> String {
-    match v {
-        serde_json::Value::String(s) => s,
-        other => other.to_string(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -296,10 +291,12 @@ mod tests {
             config: Some(config_path),
             data: PathBuf::from("dummy"),
             output: PathBuf::from("dummy"),
+            base_model: PathBuf::from("dummy-model"),
             plan: None,
             deterministic: false,
             seed: None,
             resume: false,
+            force_resume: false,
             common: CommonTrainingArgs {
                 rank: 4,
                 alpha: 16.0,
@@ -321,23 +318,22 @@ mod tests {
         let temp_dir = new_test_tempdir();
         let data_path = temp_dir.path().join("data.json");
 
-        let mut metadata = HashMap::new();
-        metadata.insert("str".to_string(), serde_json::json!("hello"));
-        metadata.insert("num".to_string(), serde_json::json!(123));
-        metadata.insert("bool".to_string(), serde_json::json!(true));
-
+        let provenance =
+            serde_json::json!({"str": "hello", "num": "123", "bool": "true"}).to_string();
         let training_data = TrainingData {
             examples: vec![
-                TrainingExampleData {
-                    input: vec![1, 2, 3],
-                    target: vec![4, 5, 6],
-                    metadata: None,
-                },
-                TrainingExampleData {
-                    input: vec![7, 8, 9],
-                    target: vec![10, 11, 12],
-                    metadata: Some(metadata),
-                },
+                TrainingExample::new(
+                    vec![1, 2, 3],
+                    vec![4, 5, 6],
+                    TrainingExample::attention_mask_from_tokens(&[1, 2, 3], 0),
+                    ExampleMetadataV1::new("test", 1, "{}", 0),
+                ),
+                TrainingExample::new(
+                    vec![7, 8, 9],
+                    vec![10, 11, 12],
+                    TrainingExample::attention_mask_from_tokens(&[7, 8, 9], 0),
+                    ExampleMetadataV1::new("test", 2, provenance, 0),
+                ),
             ],
         };
 
@@ -347,10 +343,12 @@ mod tests {
             config: None,
             data: data_path,
             output: PathBuf::from("dummy"),
+            base_model: PathBuf::from("dummy-model"),
             plan: None,
             deterministic: false,
             seed: None,
             resume: false,
+            force_resume: false,
             common: CommonTrainingArgs {
                 rank: 4,
                 alpha: 16.0,
@@ -363,8 +361,8 @@ mod tests {
 
         let examples = args.load_training_data().unwrap();
         assert_eq!(examples.len(), 2);
-        assert_eq!(examples[0].input, vec![1, 2, 3]);
-        assert_eq!(examples[0].target, vec![4, 5, 6]);
+        assert_eq!(examples[0].input_tokens, vec![1, 2, 3]);
+        assert_eq!(examples[0].target_tokens, vec![4, 5, 6]);
 
         // Non-string metadata must not be silently coerced to empty string.
         assert_eq!(examples[1].metadata.get("str").unwrap(), "hello");

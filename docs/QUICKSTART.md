@@ -119,7 +119,7 @@ Visit http://127.0.0.1:8080 (UI served from static/) and http://127.0.0.1:8080/a
 
 ```bash
 # 1. Build UI
-make ui
+cd crates/adapteros-ui && trunk build --release
 
 # 2. Build control plane with embedded UI
 cargo build --release --bin adapteros-server
@@ -211,12 +211,10 @@ curl http://localhost:9443/api/v1/code/metrics/<cpid> \
 
 ## Troubleshooting
 
-### "UI not built. Run: make ui"
+### "UI not built. Run: trunk build"
 
 Build the UI first:
 ```bash
-make ui
-# Or manually:
 cd crates/adapteros-ui && trunk build --release
 ```
 

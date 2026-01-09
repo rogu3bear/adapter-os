@@ -19,30 +19,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Step 1: Create training examples (tiny dataset for demonstration)
     println!("Step 1: Creating training examples...");
     let examples = vec![
-        TrainingExample {
-            input: vec![1, 2, 3, 4, 5],
-            target: vec![6, 7, 8, 9, 10],
-            metadata: Default::default(),
-            weight: 1.0,
-        },
-        TrainingExample {
-            input: vec![11, 12, 13, 14, 15],
-            target: vec![16, 17, 18, 19, 20],
-            metadata: Default::default(),
-            weight: 1.0,
-        },
-        TrainingExample {
-            input: vec![21, 22, 23, 24, 25],
-            target: vec![26, 27, 28, 29, 30],
-            metadata: Default::default(),
-            weight: 1.0,
-        },
-        TrainingExample {
-            input: vec![31, 32, 33, 34, 35],
-            target: vec![36, 37, 38, 39, 40],
-            metadata: Default::default(),
-            weight: 1.0,
-        },
+        TrainingExample::new(vec![1, 2, 3, 4, 5], vec![6, 7, 8, 9, 10]),
+        TrainingExample::new(vec![11, 12, 13, 14, 15], vec![16, 17, 18, 19, 20]),
+        TrainingExample::new(vec![21, 22, 23, 24, 25], vec![26, 27, 28, 29, 30]),
+        TrainingExample::new(vec![31, 32, 33, 34, 35], vec![36, 37, 38, 39, 40]),
     ];
     println!("   Created {} training examples", examples.len());
 

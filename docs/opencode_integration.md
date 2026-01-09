@@ -21,8 +21,8 @@ If your client instead expects a root base URL and appends `/v1` internally, use
 
 For local development, you can disable auth (debug builds only):
 
-- `make dev-no-auth`
-- or `AOS_DEV_NO_AUTH=1 cargo run --bin adapteros-server`
+- `AOS_DEV_NO_AUTH=1 ./start up`
+- or `AOS_DEV_NO_AUTH=1 cargo run -p adapteros-server -- --config configs/cp.toml`
 
 In no-auth mode, requests succeed without an `Authorization` header (some clients still require a dummy API key in their config).
 
@@ -63,4 +63,3 @@ Expected shape (abridged):
 ## Notes
 
 - `stream=true` is not supported on `/v1/chat/completions` yet; use `POST /v1/infer/stream` for SSE streaming.
-

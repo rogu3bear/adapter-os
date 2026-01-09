@@ -841,46 +841,14 @@ async fn list_storage_issues(limit: i64, json: bool, output: &OutputWriter) -> R
 fn load_dataset(path: &PathBuf) -> Result<Vec<TrainingExample>> {
     #[derive(Deserialize)]
     struct TrainingData {
-        examples: Vec<TrainingExampleData>,
-    }
-    #[derive(Deserialize)]
-    struct TrainingExampleData {
-        input: Vec<u32>,
-        target: Vec<u32>,
-        #[serde(default)]
-        metadata: Option<HashMap<String, serde_json::Value>>,
+        examples: Vec<TrainingExample>,
     }
 
     let content = fs::read_to_string(path)
         .map_err(|e| AosError::Io(format!("Failed to read dataset: {e}")))?;
     let data: TrainingData = serde_json::from_str(&content)
         .map_err(|e| AosError::Parse(format!("Dataset parse error: {e}")))?;
-    let examples = data
-        .examples
-        .into_iter()
-        .map(|ex| TrainingExample {
-            input: ex.input,
-            target: ex.target,
-            metadata: ex
-                .metadata
-                .unwrap_or_default()
-                .into_iter()
-                // Preserve metadata deterministically:
-                // - if JSON string => use raw string (no quotes)
-                // - else => stringify JSON value (numbers/bools/null/objects/arrays)
-                .map(|(k, v)| (k, stringify_metadata_value(v)))
-                .collect(),
-            weight: 1.0,
-        })
-        .collect();
-    Ok(examples)
-}
-
-fn stringify_metadata_value(v: serde_json::Value) -> String {
-    match v {
-        serde_json::Value::String(s) => s,
-        other => other.to_string(),
-    }
+    Ok(data.examples)
 }
 
 fn parse_backend(raw: &str) -> Result<TrainingBackend> {

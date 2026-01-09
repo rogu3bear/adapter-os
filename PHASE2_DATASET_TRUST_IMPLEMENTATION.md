@@ -184,7 +184,7 @@ A test script is provided at `var/tmp/test_dataset_trust_phase2.sh`:
 
 ```bash
 # Start the server in no-auth mode
-make dev-no-auth
+AOS_DEV_NO_AUTH=1 ./start up
 
 # Run the test script
 bash var/tmp/test_dataset_trust_phase2.sh

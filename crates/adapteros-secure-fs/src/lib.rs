@@ -5,6 +5,7 @@
 
 pub mod caps;
 pub mod content;
+pub mod path_policy;
 pub mod permissions;
 pub mod symlink;
 pub mod traversal;

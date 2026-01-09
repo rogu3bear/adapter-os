@@ -72,6 +72,9 @@ pub const DEFAULT_QWEN_INT4_MANIFEST_DIR: &str = "artifacts/qwen2_5_7b_int4";
 /// Default telemetry directory.
 pub const DEFAULT_TELEMETRY_DIR: &str = "./var/telemetry";
 
+/// Default subdirectory under artifacts root for training reports.
+pub const DEFAULT_TRAINING_REPORTS_SUBDIR: &str = "training-reports";
+
 /// Default index root directory (per-tenant subdirs will be appended).
 pub const DEFAULT_INDEX_ROOT: &str = "./var/indices";
 

@@ -32,10 +32,7 @@ A Tauri-based desktop application for visualizing and analyzing CodeGraph databa
 From the project root:
 
 ```bash
-# Build production version
-make codegraph-viewer
-
-# Or manually:
+# Build production version:
 cd crates/mplora-codegraph-viewer/frontend
 pnpm install
 pnpm build
@@ -152,9 +149,6 @@ Located in the bottom-left corner:
 
 ```bash
 # From project root
-make codegraph-viewer-dev
-
-# Or manually
 cd crates/mplora-codegraph-viewer/frontend
 pnpm install
 pnpm dev
@@ -256,4 +250,3 @@ See [CONTRIBUTING.md](../../CONTRIBUTING.md) in the project root.
 - [mplora-codegraph](../mplora-codegraph/): CodeGraph generation library
 - [CodeGraph Specification](../../docs/codegraph-spec.md): Full specification
 - [AdapterOS Documentation](../../docs/): Main documentation
-

@@ -63,6 +63,10 @@ pub fn training_routes() -> Router<AppState> {
             get(handlers::training::get_training_metrics),
         )
         .route(
+            "/v1/training/jobs/{job_id}/report",
+            get(handlers::training::get_training_report),
+        )
+        .route(
             "/v1/training/jobs/{job_id}/progress",
             get(handlers::training::stream_training_progress),
         )

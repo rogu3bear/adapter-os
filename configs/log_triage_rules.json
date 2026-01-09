@@ -150,7 +150,7 @@
         ],
         "commands": [
           "tail -n 200 var/logs/ui.log",
-          "make ui-dev"
+          "cd crates/adapteros-ui && trunk serve"
         ]
       }
     },

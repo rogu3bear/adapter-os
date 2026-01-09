@@ -377,8 +377,8 @@ fn assert_rag_chunks_equal(first: &[RagChunkParams], second: &[RagChunkParams]) 
 fn assert_training_data_equal(first: &TrainingData, second: &TrainingData) {
     assert_eq!(first.examples.len(), second.examples.len());
     for (a, b) in first.examples.iter().zip(second.examples.iter()) {
-        assert_eq!(a.input, b.input);
-        assert_eq!(a.target, b.target);
+        assert_eq!(a.input_tokens, b.input_tokens);
+        assert_eq!(a.target_tokens, b.target_tokens);
         assert_eq!(a.metadata, b.metadata);
     }
 }

@@ -20,6 +20,14 @@ We value tasteful code. This means:
 
 When in doubt, do less. The right change is often the smallest one that solves the problem.
 
+### Opportunities Are Not Mandates
+
+Complex work surfaces many opportunities - a function that could be cleaner, a pattern that could be extracted, a bug adjacent to your change. Seeing an opportunity does not mean taking it.
+
+Most opportunities are traps. They feel productive. They expand the diff. They create the satisfying illusion of thoroughness. But they dilute focus, introduce risk, and burden reviewers with unrelated decisions.
+
+A tasteful agent sees the opportunity, evaluates whether it was asked for, and usually lets it pass. The restraint *is* the skill.
+
 ## Build Commands
 
 ```bash

@@ -13,6 +13,7 @@ adapteros-core = { path = "../adapteros-core" }
 adapteros-config = { path = "../adapteros-config" }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 adapteros-trace = { path = "../adapteros-trace" }
+adapteros-secure-fs = { path = "../adapteros-secure-fs" }
 
 # Workspace dependencies
 anyhow.workspace = true

@@ -465,7 +465,7 @@ async fn check_model(cmd: &PreflightCommand) -> CheckResult {
         return CheckResult::fail_with_code(
             "Model Directory",
             &format!("Model directory not found: {}", model_path.display()),
-            Some("make download-model  # or: aosctl models seed".to_string()),
+            Some("./scripts/download-model.sh  # or: aosctl models seed".to_string()),
             PreflightErrorCode::ModelNotFound,
         );
     }
@@ -485,7 +485,7 @@ async fn check_model(cmd: &PreflightCommand) -> CheckResult {
         return CheckResult::fail_with_code(
             "Model Files",
             &format!("Missing required files: {}", missing_files.join(", ")),
-            Some("make download-model  # or: aosctl models seed".to_string()),
+            Some("./scripts/download-model.sh  # or: aosctl models seed".to_string()),
             PreflightErrorCode::ModelFileMissing,
         );
     }
@@ -506,7 +506,7 @@ async fn check_model(cmd: &PreflightCommand) -> CheckResult {
         return CheckResult::fail_with_code(
             "Model Weights",
             "No weight files (.safetensors or .bin) found",
-            Some("make download-model  # or: aosctl models seed".to_string()),
+            Some("./scripts/download-model.sh  # or: aosctl models seed".to_string()),
             PreflightErrorCode::ModelWeightsMissing,
         );
     }

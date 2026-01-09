@@ -9,6 +9,7 @@ use adapteros_lora_worker::{
     TrainingExample,
 };
 use adapteros_platform::common::PlatformUtils;
+use adapteros_types::training::ExampleMetadataV1;
 use std::collections::HashMap;
 use tempfile::TempDir;
 
@@ -20,11 +21,13 @@ fn new_test_tempdir() -> TempDir {
 
 fn create_examples(n: usize) -> Vec<TrainingExample> {
     (0..n)
-        .map(|i| TrainingExample {
-            input: vec![(i % 100) as u32; 5],
-            target: vec![((i + 1) % 100) as u32; 5],
-            metadata: HashMap::new(),
-            weight: 1.0,
+        .map(|i| {
+            let input_tokens = vec![(i % 100) as u32; 5];
+            let target_tokens = vec![((i + 1) % 100) as u32; 5];
+            let attention_mask =
+                TrainingExample::attention_mask_from_tokens(&input_tokens, 0);
+            let metadata = ExampleMetadataV1::new("test", i as u64, "{}", 0);
+            TrainingExample::new(input_tokens, target_tokens, attention_mask, metadata)
         })
         .collect()
 }

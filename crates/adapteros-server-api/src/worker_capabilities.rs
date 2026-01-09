@@ -184,6 +184,9 @@ fn derive_from_backend_label(label: &str) -> Option<WorkerCapabilities> {
         None
     };
 
+    let gpu_backward = normalized == "mlx";
+    let multi_backend = matches!(normalized.as_str(), "mlx" | "bridge");
+
     Some(WorkerCapabilities {
         backend_kind: normalized,
         implementation,
@@ -191,6 +194,8 @@ fn derive_from_backend_label(label: &str) -> Option<WorkerCapabilities> {
         supports_bulk,
         supports_logits,
         supports_streaming,
+        gpu_backward,
+        multi_backend,
     })
 }
 

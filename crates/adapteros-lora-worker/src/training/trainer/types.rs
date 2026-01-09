@@ -1,7 +1,7 @@
 use adapteros_core::backend::BackendKind;
 use adapteros_core::{AosError, Result};
 use adapteros_types::coreml::CoreMLPlacementSpec;
-use adapteros_types::training::TrainingBackendPolicy;
+use adapteros_types::training::{TrainingBackendPolicy, TRAINING_DATA_CONTRACT_VERSION};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -122,6 +122,10 @@ pub struct TrainingPerformanceMetrics {
 pub struct EpochMetrics {
     pub epoch: u32,
     pub loss: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validation_loss: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validation_perplexity: Option<f32>,
     pub duration_us: u64,
     pub examples_in_epoch: u64,
     pub tokens_in_epoch: u64,
@@ -237,6 +241,89 @@ impl Default for DevicePolicyConfig {
     }
 }
 
+/// Optional compression choices for cached preprocessing tensors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PreprocessCompression {
+    /// No compression (store f32 tensors).
+    None,
+    /// Q15 fixed-point compression (i16 + scale).
+    Q15,
+}
+
+impl PreprocessCompression {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            PreprocessCompression::None => "none",
+            PreprocessCompression::Q15 => "q15",
+        }
+    }
+}
+
+/// Output feature selection for preprocessing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PreprocessOutputFeature {
+    /// Emit per-token embedding features.
+    Embedding,
+    /// Emit the last hidden state token.
+    HiddenStateLast,
+    /// Emit a pooled (mean) hidden state.
+    Pooled,
+}
+
+impl Default for PreprocessOutputFeature {
+    fn default() -> Self {
+        PreprocessOutputFeature::Pooled
+    }
+}
+
+impl PreprocessOutputFeature {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            PreprocessOutputFeature::Embedding => "embedding",
+            PreprocessOutputFeature::HiddenStateLast => "hidden_state_last",
+            PreprocessOutputFeature::Pooled => "pooled",
+        }
+    }
+}
+
+/// Optional preprocessing stage for tokenized inputs.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub struct PreprocessingConfig {
+    /// Explicitly enable preprocessing when set to true.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Optional CoreML model identifier (resolved via model cache).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coreml_model_id: Option<String>,
+    /// Optional CoreML model path for preprocessing (mlpackage or mlmodelc).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coreml_model_path: Option<PathBuf>,
+    /// Output feature selection (embedding/hidden_state_last/pooled).
+    #[serde(default)]
+    pub output_feature: PreprocessOutputFeature,
+    /// Layer key aligned to hidden_state_layer naming (optional override).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layer_key: Option<String>,
+    /// Maximum sequence length for preprocessing (0 = use input length).
+    #[serde(default)]
+    pub max_seq_len: u32,
+    /// Batch size hint for preprocessing (0 = no batching).
+    #[serde(default)]
+    pub batch_size: u32,
+    /// Optional feature compression to apply to cached tensors.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compression: Option<PreprocessCompression>,
+    /// Optional cache directory override (defaults to dataset artifacts root).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_dir: Option<PathBuf>,
+    /// Optional seed to pin preprocessing determinism.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed: Option<u64>,
+}
+
 /// Deterministic training configuration for harnesses and reproducibility checks.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DeterminismConfig {
@@ -318,6 +405,12 @@ pub struct TrainingConfig {
     pub hidden_dim: usize,
     /// Vocabulary size (model-specific)
     pub vocab_size: usize,
+    /// Training data contract version.
+    pub training_contract_version: String,
+    /// Explicit pad token ID.
+    pub pad_token_id: u32,
+    /// Explicit ignore index for loss masking (-1 disables masking).
+    pub ignore_index: i32,
     /// Optional CoreML placement spec to align training/inference attachment.
     #[serde(default)]
     pub coreml_placement: Option<CoreMLPlacementSpec>,
@@ -358,6 +451,15 @@ pub struct TrainingConfig {
     /// TODO: Not yet implemented in MicroLoRATrainer - accepted from API but not used in training
     #[serde(default)]
     pub gradient_accumulation_steps: Option<u32>,
+    /// Enable early stopping based on validation loss.
+    #[serde(default)]
+    pub early_stopping: Option<bool>,
+    /// Patience for early stopping (epochs without improvement).
+    #[serde(default)]
+    pub patience: Option<u32>,
+    /// Minimum delta for validation loss improvement.
+    #[serde(default)]
+    pub min_delta: Option<f32>,
     /// Deterministic training/test harness configuration
     #[serde(default)]
     pub determinism: Option<DeterminismConfig>,
@@ -389,6 +491,9 @@ pub struct TrainingConfig {
     /// Validation loss is used for convergence detection and early stopping.
     #[serde(default = "default_validation_split")]
     pub validation_split: f32,
+    /// Optional preprocessing stage for tokenized inputs (disabled by default).
+    #[serde(default)]
+    pub preprocessing: Option<PreprocessingConfig>,
 }
 
 fn default_validation_split() -> f32 {
@@ -405,6 +510,35 @@ impl TrainingConfig {
     pub fn num_experts(&self) -> usize {
         self.moe_config.as_ref().map(|m| m.num_experts).unwrap_or(1)
     }
+
+    /// Render a concise summary for logging and resume checks.
+    pub fn summary(&self) -> String {
+        format!(
+            "rank={}, alpha={}, lr={}, batch_size={}, epochs={}, hidden_dim={}, vocab_size={}, contract_version={}, pad_token_id={}, ignore_index={}, validation_split={}, hidden_state_layer={:?}, early_stopping={:?}, patience={:?}, min_delta={:?}, optimizer={:?}, beta1={}, beta2={}, epsilon={}, weight_decay={}, momentum={}, use_gpu_backward={}",
+            self.rank,
+            self.alpha,
+            self.learning_rate,
+            self.batch_size,
+            self.epochs,
+            self.hidden_dim,
+            self.vocab_size,
+            self.training_contract_version,
+            self.pad_token_id,
+            self.ignore_index,
+            self.validation_split,
+            self.hidden_state_layer,
+            self.early_stopping,
+            self.patience,
+            self.min_delta,
+            self.optimizer_config.optimizer_type,
+            self.optimizer_config.beta1,
+            self.optimizer_config.beta2,
+            self.optimizer_config.epsilon,
+            self.optimizer_config.weight_decay,
+            self.optimizer_config.momentum,
+            self.use_gpu_backward
+        )
+    }
 }
 
 impl Default for TrainingConfig {
@@ -417,6 +551,9 @@ impl Default for TrainingConfig {
             epochs: 3,
             hidden_dim: 768,
             vocab_size: 32000, // Default LLaMA/Mistral vocab size
+            training_contract_version: TRAINING_DATA_CONTRACT_VERSION.to_string(),
+            pad_token_id: 0,
+            ignore_index: 0,
             coreml_placement: None,
             preferred_backend: None,
             backend_policy: None,
@@ -429,6 +566,9 @@ impl Default for TrainingConfig {
             warmup_steps: None,
             max_seq_length: None,
             gradient_accumulation_steps: None,
+            early_stopping: Some(false),
+            patience: Some(5),
+            min_delta: Some(0.001),
             determinism: None,
             moe_config: None,
             use_gpu_backward: true,
@@ -436,6 +576,7 @@ impl Default for TrainingConfig {
             base_model_path: None,
             hidden_state_layer: None,
             validation_split: default_validation_split(),
+            preprocessing: None,
         }
     }
 }
@@ -594,6 +735,21 @@ pub struct TrainingResult {
     /// Validation perplexity per epoch
     #[serde(default)]
     pub validation_perplexity_curve: Vec<f32>,
+    /// BLAKE3 hash of deterministic train/validation split
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub split_hash_b3: Option<String>,
+    /// Number of examples in training split
+    #[serde(default)]
+    pub train_example_count: u64,
+    /// Number of examples in validation split
+    #[serde(default)]
+    pub validation_example_count: u64,
+    /// Token count in training split
+    #[serde(default)]
+    pub train_token_count: u64,
+    /// Token count in validation split
+    #[serde(default)]
+    pub validation_token_count: u64,
     /// Best validation loss achieved and the epoch
     #[serde(default)]
     pub best_validation: Option<(f32, u32)>,

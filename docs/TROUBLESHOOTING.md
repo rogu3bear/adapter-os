@@ -32,7 +32,7 @@ flowchart TD
     B -->|Yes| D{Health Endpoint OK?}
 
     C --> C1[lsof -ti:8080]
-    C1 --> C2[make prepare]
+    C1 --> C2[./scripts/fresh-build.sh]
     C2 --> C3[Restart Service]
 
     D -->|No| E{Database Connected?}
@@ -131,7 +131,7 @@ grep "AOS_DEV_NO_AUTH" .env .env.local
 echo "AOS_DEV_NO_AUTH=1" >> .env.local
 
 # Restart server
-make dev-no-auth
+AOS_DEV_NO_AUTH=1 ./start up
 ```
 
 ### Training Takes Too Long
@@ -216,7 +216,7 @@ curl -s http://localhost:8080/api/v1/metrics/system | jq '.adapters.loaded_count
 
 3. **Restart system:**
    ```bash
-   make dev  # Restarts with clean state
+   ./start up  # Restarts with clean state
    ```
 
 ### No Difference in Compare Mode
@@ -286,7 +286,7 @@ grep "Dev bypass" var/aos-cp.log | tail -5
 **Symptoms:**
 - "Address already in use" error
 - Server fails to start on port 8080 or 3200
-- `make dev` or `make ui-dev` fails
+- `./start up` or `trunk serve` fails
 
 **Diagnosis:**
 
@@ -302,8 +302,8 @@ lsof -i:8080
 **Solution:**
 
 ```bash
-# Quick fix: Use make prepare
-make prepare  # Stops services, cleans ports
+# Quick fix: Use fresh-build cleanup
+./scripts/fresh-build.sh  # Stops services, cleans ports
 
 # Manual cleanup
 lsof -ti:8080 | xargs kill -9
@@ -382,7 +382,7 @@ cargo tree -p adapteros-lora-worker -f "{p} {f}"
 
 ```bash
 # Build Metal shaders
-make metal
+cd metal && bash build.sh
 
 # Verify metallib exists
 ls -la crates/adapteros-lora-kernel-mtl/metal/kernels.metallib
@@ -590,7 +590,7 @@ curl -s http://localhost:8080/api/v1/adapters | jq '.[] | select(.status == "Loa
    done
 
    # Restart if memory leak suspected
-   make dev
+   ./start up
    ```
 
 ### High Latency
@@ -686,7 +686,7 @@ sqlite3 var/aos-cp.sqlite3 "PRAGMA user_version;"
    pkill -f adapteros-server
 
    # Restart single instance
-   make dev
+   ./start up
    ```
 
 3. **Corrupted database:**
@@ -738,7 +738,7 @@ grep "migration" var/aos-cp.log | tail -20
    # WARNING: Deletes all data
    rm var/aos-cp.sqlite3
    cargo sqlx migrate run
-   make dev
+   ./start up
    ```
 
 3. **Fix foreign key issues:**
@@ -778,12 +778,12 @@ netstat -an | grep LISTEN | grep -E '8080|3200'
 # Method 1: Kill conflicting process
 lsof -ti:8080 | xargs kill -9
 
-# Method 2: Use make prepare (comprehensive cleanup)
-make prepare
+# Method 2: Use fresh-build cleanup (comprehensive cleanup)
+./scripts/fresh-build.sh
 
 # Method 3: Change port
 export AOS_SERVER_PORT=8081
-make dev
+./start up
 ```
 
 ### Connection Refused
@@ -812,7 +812,7 @@ sudo pfctl -s rules | grep 8080
 1. **Service not running:**
    ```bash
    # Start service
-   make dev
+   ./start up
 
    # Verify it's listening
    lsof -i:8080
@@ -856,7 +856,7 @@ curl -v -H "Origin: http://localhost:3200" http://localhost:8080/healthz
 ```bash
 # Ensure both are running with correct config
 # Terminal 1: Backend
-make dev-no-auth
+AOS_DEV_NO_AUTH=1 ./start up
 
 # Terminal 2: Frontend
 cd ui && pnpm dev
@@ -997,7 +997,7 @@ sudo powermetrics --samplers gpu_power -n 5
 
 1. **Build Metal shaders:**
    ```bash
-   make metal
+cd metal && bash build.sh
 
    # Verify compilation
    ls -lh crates/adapteros-lora-kernel-mtl/metal/kernels.metallib
@@ -1149,7 +1149,7 @@ grep -i "stub\|fallback" var/aos-cp.log | tail -20
 
 ```bash
 # Stop everything and restart fresh
-make prepare && make dev
+./scripts/fresh-build.sh && ./start up
 
 # Check system health
 curl http://localhost:8080/healthz && echo OK

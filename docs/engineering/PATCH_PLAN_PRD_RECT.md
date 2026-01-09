@@ -369,7 +369,9 @@ cargo clippy -p adapteros-db -p adapteros-server-api -- -D warnings
 
 # Final verification:
 cargo test --workspace
-make determinism-check
+cargo test --test determinism_core_suite -- --test-threads=8
+cargo test -p adapteros-lora-router --test determinism
+bash scripts/check_fast_math_flags.sh
 ```
 
 ---

@@ -5,7 +5,7 @@
 
 use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tracing::warn;
 
@@ -20,7 +20,22 @@ use tokio::task::AbortHandle;
 #[cfg(feature = "mlx-ffi-backend")]
 use tracing::info;
 
-use adapteros_secure_fs::traversal::normalize_path;
+use adapteros_config::resolve_base_model_location;
+use adapteros_secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
+
+fn model_allowed_roots() -> Result<Vec<PathBuf>, String> {
+    let location = resolve_base_model_location(None, None, false).map_err(|e| e.to_string())?;
+    if !location.cache_root.exists() {
+        std::fs::create_dir_all(&location.cache_root).map_err(|e| {
+            format!(
+                "Failed to create model cache root {}: {}",
+                location.cache_root.display(),
+                e
+            )
+        })?;
+    }
+    Ok(vec![location.cache_root])
+}
 
 fn env_truthy(key: &str) -> bool {
     std::env::var(key)
@@ -790,8 +805,10 @@ impl ModelRuntimeImpl {
     fn validate_model_files(&self, model_path: &str) -> Result<(), String> {
         let path = Path::new(model_path);
 
+        let allowed_roots =
+            model_allowed_roots().map_err(|e| format!("Failed to resolve model roots: {}", e))?;
         // Canonicalize path for security validation
-        let canonical_path = normalize_path(path)
+        let canonical_path = canonicalize_strict_in_allowed_roots(path, &allowed_roots)
             .map_err(|e| format!("Path security validation failed for {}: {}", model_path, e))?;
 
         // Check if path exists

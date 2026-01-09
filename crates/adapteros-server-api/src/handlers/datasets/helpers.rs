@@ -13,13 +13,17 @@ use tokio::io::AsyncReadExt;
 use crate::services::CanonicalRow;
 use crate::state::AppState;
 
-use super::paths::{resolve_dataset_root, DatasetPaths};
+use super::paths::resolve_dataset_root;
+use adapteros_secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
 
 /// Maximum file size (100MB)
 pub const MAX_FILE_SIZE: usize = 100 * 1024 * 1024;
 
 /// Maximum total upload size (500MB)
 pub const MAX_TOTAL_SIZE: usize = 500 * 1024 * 1024;
+
+/// Maximum number of files per upload
+pub const MAX_FILE_COUNT: usize = 1000;
 
 pub const DEFAULT_DATASET_HARD_QUOTA_BYTES: u64 = 10 * 1024 * 1024 * 1024; // 10 GiB
 pub const DEFAULT_SOFT_PCT: f64 = 0.8;
@@ -117,22 +121,24 @@ pub async fn ensure_dataset_file_within_root(
     file_path: &std::path::Path,
 ) -> Result<std::path::PathBuf, (StatusCode, Json<ErrorResponse>)> {
     let dataset_root = resolve_dataset_root(state).map_err(internal_error)?;
-    let paths = DatasetPaths::new(dataset_root);
     let candidate = if file_path.is_absolute() {
         file_path.to_path_buf()
     } else {
-        paths.root().join(file_path)
+        dataset_root.join(file_path)
     };
-    let canonical = fs::canonicalize(&candidate).await.map_err(|e| {
-        internal_error(format!(
-            "Failed to canonicalize dataset file path {}: {}",
-            candidate.display(),
-            e
-        ))
+    let allowed_roots = [dataset_root];
+    let canonical = canonicalize_strict_in_allowed_roots(&candidate, &allowed_roots).map_err(|e| {
+        let msg = e.to_string();
+        if msg.contains("allowed roots") || msg.contains("traversal") {
+            forbidden(&format!("Dataset file path rejected: {}", msg))
+        } else {
+            internal_error(format!(
+                "Failed to resolve dataset file path {}: {}",
+                candidate.display(),
+                msg
+            ))
+        }
     })?;
-    paths
-        .validate_within_root(&canonical)
-        .map_err(|e| forbidden(&format!("Dataset file path escapes dataset root: {}", e)))?;
     Ok(canonical)
 }
 

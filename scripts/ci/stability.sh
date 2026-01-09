@@ -7,4 +7,7 @@ cd "$ROOT_DIR"
 ./scripts/ci/check_openapi_drift.sh
 ./scripts/ci/build_leptos_wasm.sh
 ./scripts/check_inference_bypass.sh
-make stability-check
+bash scripts/test/all.sh all
+cargo test --test determinism_core_suite -- --test-threads=8
+cargo test -p adapteros-lora-router --test determinism
+bash scripts/check_fast_math_flags.sh

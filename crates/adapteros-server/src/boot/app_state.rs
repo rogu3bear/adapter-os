@@ -109,7 +109,7 @@ pub async fn build_app_state(
     let (dataset_progress_tx, _) = tokio::sync::broadcast::channel(100);
 
     // Wire training service to DB + dataset storage so training uses real datasets (not synthetic).
-    let training_storage_root = {
+    let (training_storage_root, training_artifacts_root) = {
         let cfg = server_config
             .read()
             .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?;
@@ -119,12 +119,18 @@ pub async fn build_app_state(
             Some(cfg.paths.datasets_root.clone())
         };
         let env_root = std::env::var(ENV_DATASETS_DIR).ok();
-        resolve_dataset_root_lenient_from_strings(env_root, config_root)
+        let datasets_root = resolve_dataset_root_lenient_from_strings(env_root, config_root)
             .map_err(|e| anyhow::anyhow!(
                 "Failed to resolve datasets root: {}. \
                  Please ensure AOS_DATASETS_DIR or paths.datasets_root points to a valid, persistent directory.",
                 e
-            ))?
+            ))?;
+        let artifacts_root = if cfg.paths.artifacts_root.is_empty() {
+            None
+        } else {
+            Some(PathBuf::from(cfg.paths.artifacts_root.clone()))
+        };
+        (datasets_root, artifacts_root)
     };
     if let Err(e) = std::fs::create_dir_all(&training_storage_root) {
         warn!(
@@ -133,10 +139,12 @@ pub async fn build_app_state(
             "Failed to ensure training storage root exists; training may fail"
         );
     }
-    let training_service = Arc::new(TrainingService::with_db(
-        db.clone(),
-        training_storage_root.clone(),
-    ));
+    let mut training_service =
+        TrainingService::with_db(db.clone(), training_storage_root.clone());
+    if let Some(root) = training_artifacts_root {
+        training_service.set_artifacts_root(root);
+    }
+    let training_service = Arc::new(training_service);
     info!(
         path = %training_storage_root.display(),
         "Training service initialized with DB-backed storage root"

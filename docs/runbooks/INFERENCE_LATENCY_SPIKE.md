@@ -161,7 +161,7 @@ grep -i "database.*error\|sqlite.*lock" var/aos-cp.log | tail -20
 
 # Restart control plane
 pkill -f adapteros-server
-make dev
+./start up
 ```
 
 **Root Cause Fix:**
@@ -256,7 +256,7 @@ ps aux | grep adapteros-server | grep -v grep
 # Kill duplicates
 pkill -f adapteros-server
 sleep 2
-make dev
+./start up
 
 # If WAL file too large:
 sqlite3 var/aos-cp.sqlite3 "PRAGMA wal_checkpoint(TRUNCATE);"

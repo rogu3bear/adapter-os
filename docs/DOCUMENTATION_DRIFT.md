@@ -247,10 +247,12 @@ cat plan/drift-findings.json | jq '.findings[].status'
 **Integration Testing:**
 ```bash
 # Run full test suite
-make test
+bash scripts/test/all.sh all
 
 # Run determinism checks
-make determinism-check
+cargo test --test determinism_core_suite -- --test-threads=8
+cargo test -p adapteros-lora-router --test determinism
+bash scripts/check_fast_math_flags.sh
 
 # Run security audit
 cargo audit

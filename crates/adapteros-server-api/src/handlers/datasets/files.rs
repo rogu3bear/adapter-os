@@ -7,7 +7,7 @@
 //! - Validating individual files for format, structure, and content compliance
 
 use crate::auth::Claims;
-use crate::error_helpers::{db_error, forbidden, not_found};
+use crate::error_helpers::{db_error, forbidden, not_found, payload_too_large};
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
@@ -29,7 +29,7 @@ use tokio::io::AsyncReadExt;
 use tracing::{debug, warn};
 use utoipa::ToSchema;
 
-use super::helpers::{ensure_dataset_file_within_root, STREAM_BUFFER_SIZE};
+use super::helpers::{ensure_dataset_file_within_root, MAX_FILE_SIZE, STREAM_BUFFER_SIZE};
 use super::validation::{
     deep_validate_file, quick_validate_file, validate_file_integrity, DatasetValidationResult,
     ValidationCategory, ValidationConfig, ValidationError, ValidationSeverity,
@@ -510,8 +510,16 @@ pub async fn get_dataset_file_content(
     let storage = resolve_dataset_storage(&state)?;
     let resolved_path = resolve_dataset_file_path(&storage, &dataset, &file, None)?;
     let safe_path = ensure_dataset_file_within_root(&state, &resolved_path).await?;
-    let safe_path = ensure_dataset_file_within_root(&state, &resolved_path).await?;
-    let safe_path = ensure_dataset_file_within_root(&state, &resolved_path).await?;
+
+    let metadata = fs::metadata(&safe_path)
+        .await
+        .map_err(|e| db_error(format!("Failed to stat file: {}", e)))?;
+    if metadata.len() > MAX_FILE_SIZE as u64 {
+        return Err(payload_too_large(&format!(
+            "File exceeds maximum size of {}MB",
+            MAX_FILE_SIZE / 1024 / 1024
+        )));
+    }
 
     // Read file content
     let file_data = fs::read(&safe_path)

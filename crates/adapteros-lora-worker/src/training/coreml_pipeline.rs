@@ -5,7 +5,9 @@
 //! - Scales token ids to [-1, 1] and pads to `hidden_dim`.
 //! - Batches examples with a conservative token budget to avoid OOM.
 //! - Emits a dataset summary for observability.
-use super::dataset::TrainingExample;
+use super::limits::DatasetSizeLimits;
+use adapteros_types::training::{ExampleMetadataV1, TrainingExampleV1};
+type TrainingExample = TrainingExampleV1;
 use adapteros_core::{AosError, Result};
 use std::collections::HashMap;
 
@@ -52,12 +54,12 @@ pub struct PreparedExample {
     pub padded_input: Vec<u32>,
     pub padded_target: Vec<u32>,
     pub scaled_input: Vec<f32>,
+    pub preprocessed: Option<Vec<f32>>,
     pub input_mask: Vec<u8>,
     pub target_mask: Vec<u8>,
     pub input_len: usize,
     pub target_len: usize,
-    pub metadata: HashMap<String, String>,
-    pub weight: f32,
+    pub metadata: ExampleMetadataV1,
 }
 
 /// Batch of prepared examples with pre-computed token accounting.
@@ -109,7 +111,7 @@ pub struct PreparedDataset {
 /// - Scales tokens to [-1, 1] and pads to `hidden_dim`.
 /// - Batches deterministically using `batch_size_hint` and token budget.
 pub fn prepare_coreml_dataset(
-    examples: &[TrainingExample],
+    examples: &[TrainingExampleV1],
     spec: CoreMLInputSpec,
     batch_size_hint: usize,
     max_tokens_per_batch: Option<usize>,
@@ -126,6 +128,15 @@ pub fn prepare_coreml_dataset(
         return Err(AosError::Training(
             "batch_size_hint must be greater than zero".to_string(),
         ));
+    }
+
+    let limits = DatasetSizeLimits::from_env();
+    if examples.len() > limits.max_samples {
+        return Err(AosError::Training(format!(
+            "Dataset sample count exceeds limit: {} > {}",
+            examples.len(),
+            limits.max_samples
+        )));
     }
 
     let token_budget = max_tokens_per_batch.unwrap_or_else(|| {
@@ -148,34 +159,34 @@ pub fn prepare_coreml_dataset(
     let mut lengths: Vec<usize> = Vec::with_capacity(examples.len());
 
     for (idx, ex) in examples.iter().enumerate() {
-        if ex.input.is_empty() || ex.target.is_empty() {
+        if ex.input_tokens.is_empty() || ex.target_tokens.is_empty() {
             return Err(AosError::Training(format!(
                 "Example {} has empty input or target",
                 idx
             )));
         }
-        if ex.input.len() > spec.context_window {
+        if ex.input_tokens.len() > spec.context_window {
             return Err(AosError::Training(format!(
                 "Example {} input exceeds context window: {} > {}",
                 idx,
-                ex.input.len(),
+                ex.input_tokens.len(),
                 spec.context_window
             )));
         }
-        if ex.target.len() > spec.context_window {
+        if ex.target_tokens.len() > spec.context_window {
             return Err(AosError::Training(format!(
                 "Example {} target exceeds context window: {} > {}",
                 idx,
-                ex.target.len(),
+                ex.target_tokens.len(),
                 spec.context_window
             )));
         }
 
         // Token range validation
         let max_token = ex
-            .input
+            .input_tokens
             .iter()
-            .chain(ex.target.iter())
+            .chain(ex.target_tokens.iter())
             .copied()
             .max()
             .unwrap_or(0);
@@ -190,38 +201,46 @@ pub fn prepare_coreml_dataset(
         let mut padded_input = vec![0u32; spec.hidden_dim];
         let mut scaled_input = vec![0.0f32; spec.hidden_dim];
         let mut input_mask = vec![0u8; spec.hidden_dim];
-        for (i, tok) in ex.input.iter().enumerate() {
+        for (i, tok) in ex.input_tokens.iter().enumerate() {
             padded_input[i] = *tok;
             scaled_input[i] = spec.scale_token(*tok);
-            input_mask[i] = 1;
+        }
+        for (i, &mask_value) in ex.attention_mask.iter().enumerate() {
+            input_mask[i] = mask_value;
         }
 
         let mut padded_target = vec![0u32; spec.hidden_dim];
         let mut target_mask = vec![0u8; spec.hidden_dim];
-        for (i, tok) in ex.target.iter().enumerate() {
+        for (i, tok) in ex.target_tokens.iter().enumerate() {
             padded_target[i] = *tok;
             target_mask[i] = 1;
         }
 
-        let input_len = ex.input.len();
-        let target_len = ex.target.len();
+        let input_len = ex.input_tokens.len();
+        let target_len = ex.target_tokens.len();
         min_seq_len = min_seq_len.min(input_len);
         max_seq_len = max_seq_len.max(input_len);
         total_tokens += (input_len + target_len) as u64;
+        if total_tokens > limits.max_tokens {
+            return Err(AosError::Training(format!(
+                "Dataset token count exceeds limit: {} > {}",
+                total_tokens, limits.max_tokens
+            )));
+        }
         lengths.push(input_len);
 
         prepared_examples.push(PreparedExample {
-            input_tokens: ex.input.clone(),
-            target_tokens: ex.target.clone(),
+            input_tokens: ex.input_tokens.clone(),
+            target_tokens: ex.target_tokens.clone(),
             padded_input,
             padded_target,
             scaled_input,
+            preprocessed: None,
             input_mask,
             target_mask,
             input_len,
             target_len,
             metadata: ex.metadata.clone(),
-            weight: ex.weight,
         });
     }
 
@@ -318,6 +337,7 @@ fn build_histogram(lengths: &[usize], context_window: usize) -> LengthHistogram 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adapteros_types::training::ExampleMetadataV1;
 
     fn spec() -> CoreMLInputSpec {
         CoreMLInputSpec {
@@ -327,14 +347,16 @@ mod tests {
         }
     }
 
+    fn make_example(input_tokens: Vec<u32>, target_tokens: Vec<u32>, row_id: u64) -> TrainingExample {
+        let metadata = ExampleMetadataV1::new("test", row_id, "{}", 0);
+        let attention_mask =
+            TrainingExample::attention_mask_from_tokens(&input_tokens, 0);
+        TrainingExample::new(input_tokens, target_tokens, attention_mask, metadata)
+    }
+
     #[test]
     fn prepare_valid_dataset() {
-        let examples = vec![TrainingExample {
-            input: vec![1, 2, 3],
-            target: vec![3, 2, 1],
-            metadata: HashMap::new(),
-            weight: 1.0,
-        }];
+        let examples = vec![make_example(vec![1, 2, 3], vec![3, 2, 1], 1)];
 
         let prepared = prepare_coreml_dataset(&examples, spec(), 2, None).unwrap();
         assert_eq!(prepared.summary.total_examples, 1);
@@ -346,12 +368,7 @@ mod tests {
 
     #[test]
     fn reject_out_of_vocab() {
-        let examples = vec![TrainingExample {
-            input: vec![99],
-            target: vec![1],
-            metadata: HashMap::new(),
-            weight: 1.0,
-        }];
+        let examples = vec![make_example(vec![99], vec![1], 1)];
 
         let err = prepare_coreml_dataset(&examples, spec(), 1, None).unwrap_err();
         assert!(
@@ -362,12 +379,11 @@ mod tests {
 
     #[test]
     fn reject_context_overflow() {
-        let examples = vec![TrainingExample {
-            input: vec![1, 2, 3, 4, 5, 6, 7, 8, 9],
-            target: vec![1],
-            metadata: HashMap::new(),
-            weight: 1.0,
-        }];
+        let examples = vec![make_example(
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 9],
+            vec![1],
+            1,
+        )];
 
         let err = prepare_coreml_dataset(&examples, spec(), 1, None).unwrap_err();
         assert!(err.to_string().contains("context window"));
@@ -376,18 +392,8 @@ mod tests {
     #[test]
     fn batches_respect_token_budget() {
         let examples = vec![
-            TrainingExample {
-                input: vec![1, 2, 3, 4],
-                target: vec![1],
-                metadata: HashMap::new(),
-                weight: 1.0,
-            },
-            TrainingExample {
-                input: vec![1, 2, 3, 4],
-                target: vec![1],
-                metadata: HashMap::new(),
-                weight: 1.0,
-            },
+            make_example(vec![1, 2, 3, 4], vec![1], 1),
+            make_example(vec![1, 2, 3, 4], vec![1], 2),
         ];
 
         // Force one example per batch via token budget.

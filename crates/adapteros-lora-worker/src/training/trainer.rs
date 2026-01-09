@@ -8,17 +8,25 @@ use super::checkpoint::{CheckpointManager, TrainingCheckpoint};
 use super::coreml_pipeline::{
     prepare_coreml_dataset, BatchPlan, CoreMLInputSpec, PreparedDataset, PreparedExample,
 };
-pub use super::dataset::TrainingExample;
+pub use adapteros_types::training::TrainingExampleV1 as TrainingExample;
+use super::loss::{self, LOSS_IGNORE_INDEX};
+use super::perplexity::compute_perplexity;
+use super::dataset::example_hash_for_tokens;
+use super::preprocessing::{preprocess_examples, PreprocessResult};
 use adapteros_core::{derive_seed, AosError, Result};
 use adapteros_db::{Db, TrainingMetricRow};
 use adapteros_lora_kernel_api::FusedKernels;
 use adapteros_lora_router::ROUTER_GATE_Q15_MAX;
 use adapteros_telemetry::TelemetryWriter;
-use adapteros_types::training::TrainingBackendPolicy;
+use adapteros_types::training::{
+    validate_training_examples, PreprocessedExampleV1, TrainingBackendPolicy,
+    TrainingDataContractConfig, TrainingExampleBatchSummary, PREPROCESSED_EXAMPLE_SCHEMA_VERSION,
+    PREPROCESSED_FEATURE_BACKEND_COREML,
+};
 use chrono::Utc;
 use parking_lot::RwLock;
 use rand::Rng;
-use std::collections::VecDeque;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -30,15 +38,15 @@ use std::path::Path;
 // MLX training FFI imports for GPU-accelerated backward pass
 #[cfg(feature = "multi-backend")]
 use adapteros_lora_mlx_ffi::training::{
-    mlx_cross_entropy_loss_gpu, mlx_lora_backward_ce_gpu, mlx_lora_backward_gpu, MlxOptimizer,
-    MlxOptimizerType,
+    mlx_lora_backward_ce_gpu, mlx_lora_backward_gpu, MlxOptimizer,
 };
 
 mod types;
 pub use types::{
     DatasetSubsample, DeterminismConfig, DevicePolicyConfig, EpochMetrics, LoRAWeights,
-    MoELoRAStrategy, MoETrainingConfig, OptimizerConfig, OptimizerType, TrainingBackend,
-    TrainingConfig, TrainingPerformanceMetrics, TrainingResult,
+    MoELoRAStrategy, MoETrainingConfig, OptimizerConfig, OptimizerType, PreprocessCompression,
+    PreprocessOutputFeature, PreprocessingConfig, TrainingBackend, TrainingConfig,
+    TrainingPerformanceMetrics, TrainingResult,
 };
 
 /// Micro-LoRA trainer with multi-backend GPU support.
@@ -68,8 +76,22 @@ pub struct MicroLoRATrainer {
     total_tokens_processed: u64,
     /// Cumulative example counter for the current run
     total_examples_processed: u64,
+    /// Prepared validation examples for per-epoch evaluation
+    validation_examples: Vec<PreparedExample>,
+    /// Optional preprocessed example cache keyed by example hash
+    preprocessed_examples: Option<HashMap<[u8; 32], PreprocessedExampleV1>>,
+    /// BLAKE3 hash of deterministic train/validation split
+    split_hash_b3: Option<String>,
+    /// Token counts for train/validation splits
+    train_token_count: u64,
+    validation_token_count: u64,
+    /// Example counts for train/validation splits
+    train_example_count: u64,
+    validation_example_count: u64,
     /// Optional checkpoint manager for saving/resuming training
     checkpoint_manager: Option<CheckpointManager>,
+    /// Force resume even when config mismatches checkpoint.
+    force_resume: bool,
     /// Cancellation token - set to true to request training stop
     cancel_token: Option<Arc<AtomicBool>>,
     /// Job ID for this training run (used for metrics persistence and cancellation)
@@ -89,6 +111,12 @@ struct BackendAvailability {
     coreml: bool,
     mlx: bool,
     metal: bool,
+}
+
+struct SplitExamplesResult {
+    train: Vec<TrainingExample>,
+    validation: Vec<TrainingExample>,
+    split_hash_b3: String,
 }
 
 impl BackendAvailability {
@@ -186,6 +214,10 @@ impl MicroLoRATrainer {
             "Created MicroLoRA trainer with seed: {}, GPU optional: {}",
             training_seed, !config.require_gpu
         );
+        #[cfg(feature = "multi-backend")]
+        {
+            info!("MLX version: {}", adapteros_lora_mlx_ffi::mlx_version());
+        }
 
         let config_for_metrics = config.clone();
 
@@ -234,7 +266,15 @@ impl MicroLoRATrainer {
             })),
             total_tokens_processed: 0,
             total_examples_processed: 0,
+            validation_examples: Vec::new(),
+            preprocessed_examples: None,
+            split_hash_b3: None,
+            train_token_count: 0,
+            validation_token_count: 0,
+            train_example_count: 0,
+            validation_example_count: 0,
             checkpoint_manager: None,
+            force_resume: false,
             cancel_token: None,
             job_id: None,
             db: None,
@@ -308,7 +348,15 @@ impl MicroLoRATrainer {
             })),
             total_tokens_processed: 0,
             total_examples_processed: 0,
+            validation_examples: Vec::new(),
+            preprocessed_examples: None,
+            split_hash_b3: None,
+            train_token_count: 0,
+            validation_token_count: 0,
+            train_example_count: 0,
+            validation_example_count: 0,
             checkpoint_manager: None,
+            force_resume: false,
             cancel_token: None,
             job_id: None,
             db: None,
@@ -671,6 +719,329 @@ impl MicroLoRATrainer {
         }
     }
 
+    fn log_training_contract(&self, summary: &TrainingExampleBatchSummary) {
+        info!(
+            contract_version = %summary.contract_version,
+            pad_token_id = summary.pad_token_id,
+            ignore_index = summary.ignore_index,
+            total_examples = summary.total_examples,
+            total_tokens = summary.total_tokens,
+            "Training example contract validated"
+        );
+        self.telemetry
+            .log(
+                "training.contract",
+                serde_json::json!({
+                    "contract_version": summary.contract_version,
+                    "pad_token_id": summary.pad_token_id,
+                    "ignore_index": summary.ignore_index,
+                    "total_examples": summary.total_examples,
+                    "total_tokens": summary.total_tokens,
+                }),
+            )
+            .ok();
+    }
+
+    fn training_contract_config(&self) -> TrainingDataContractConfig {
+        TrainingDataContractConfig {
+            contract_version: self.config.training_contract_version.clone(),
+            pad_token_id: self.config.pad_token_id,
+            ignore_index: self.config.ignore_index,
+        }
+    }
+
+    fn split_examples_for_validation(&self, examples: &[TrainingExample]) -> SplitExamplesResult {
+        let (train_examples, validation_examples, summary) =
+            super::dataset::split_examples_for_validation(
+                examples,
+                self.config.validation_split,
+                self.training_seed,
+            );
+
+        info!(
+            train = summary.train_count,
+            validation = summary.validation_count,
+            split_ratio = summary.split_ratio,
+            split_hash = %summary.split_hash_b3,
+            "Training/validation split"
+        );
+
+        SplitExamplesResult {
+            train: train_examples,
+            validation: validation_examples,
+            split_hash_b3: summary.split_hash_b3,
+        }
+    }
+
+    fn prepare_validation_examples(
+        &self,
+        examples: &[TrainingExample],
+        batch_plan: &BatchPlan,
+    ) -> Result<Vec<PreparedExample>> {
+        let spec = CoreMLInputSpec {
+            hidden_dim: self.config.hidden_dim,
+            vocab_size: self.config.vocab_size,
+            context_window: self.config.effective_context_window(),
+        };
+
+        let mut prepared = prepare_coreml_dataset(
+            examples,
+            spec,
+            batch_plan.effective_batch_size,
+            Some(batch_plan.max_tokens_per_batch),
+        )?;
+
+        if self.preprocessed_examples.is_some() {
+            self.attach_preprocessed_from_map(&mut prepared.examples, examples)?;
+        }
+
+        Ok(prepared.examples)
+    }
+
+    fn maybe_preprocess_examples(
+        &self,
+        examples: &[TrainingExample],
+    ) -> Result<Option<PreprocessResult>> {
+        let Some(cfg) = self.config.preprocessing.as_ref() else {
+            return Ok(None);
+        };
+        if !cfg.enabled {
+            return Ok(None);
+        }
+
+        let base_model_path = self.config.base_model_path.as_ref().ok_or_else(|| {
+            AosError::Config(
+                "preprocessing enabled but base_model_path is missing".to_string(),
+            )
+        })?;
+        let seed = cfg.seed.unwrap_or(self.training_seed);
+        let contract = self.training_contract_config();
+        let result = preprocess_examples(
+            examples,
+            &contract,
+            cfg,
+            self.config.hidden_dim,
+            self.config.vocab_size,
+            base_model_path,
+            None,
+            None,
+            None,
+            seed,
+        )?;
+
+        Ok(Some(result))
+    }
+
+    pub fn set_preprocessed_examples(
+        &mut self,
+        examples: Vec<PreprocessedExampleV1>,
+    ) -> Result<()> {
+        let mut map = HashMap::with_capacity(examples.len());
+        for (idx, example) in examples.into_iter().enumerate() {
+            if example.schema_version != PREPROCESSED_EXAMPLE_SCHEMA_VERSION {
+                return Err(AosError::Training(format!(
+                    "Preprocessed schema version mismatch at {}: {}",
+                    idx, example.schema_version
+                )));
+            }
+            if example.backend != PREPROCESSED_FEATURE_BACKEND_COREML {
+                return Err(AosError::Training(format!(
+                    "Preprocessed backend mismatch at {}: {}",
+                    idx, example.backend
+                )));
+            }
+            let hash = example_hash_for_tokens(
+                self.training_seed,
+                &example.input_tokens,
+                &example.target_tokens,
+                &example.attention_mask,
+            );
+            if map.insert(hash, example).is_some() {
+                return Err(AosError::Training(format!(
+                    "Duplicate preprocessed example hash at {}",
+                    idx
+                )));
+            }
+        }
+        self.preprocessed_examples = Some(map);
+        Ok(())
+    }
+
+    fn attach_preprocessed_from_map(
+        &self,
+        prepared: &mut [PreparedExample],
+        examples: &[TrainingExample],
+    ) -> Result<()> {
+        let Some(map) = self.preprocessed_examples.as_ref() else {
+            return Ok(());
+        };
+        if prepared.len() != examples.len() {
+            return Err(AosError::Training(format!(
+                "Preprocessed mapping length mismatch: {} != {}",
+                prepared.len(),
+                examples.len()
+            )));
+        }
+        for (idx, (prepared_example, example)) in
+            prepared.iter_mut().zip(examples.iter()).enumerate()
+        {
+            let hash = example_hash_for_tokens(
+                self.training_seed,
+                &example.input_tokens,
+                &example.target_tokens,
+                &example.attention_mask,
+            );
+            let preprocessed = map.get(&hash).ok_or_else(|| {
+                AosError::Training(format!(
+                    "Missing preprocessed example for index {}",
+                    idx
+                ))
+            })?;
+            if preprocessed.input_tokens != example.input_tokens
+                || preprocessed.target_tokens != example.target_tokens
+            {
+                return Err(AosError::Training(format!(
+                    "Preprocessed token mismatch at {}",
+                    idx
+                )));
+            }
+            if preprocessed.features.len() != self.config.hidden_dim {
+                return Err(AosError::Training(format!(
+                    "Preprocessed hidden state size mismatch: {} != {}",
+                    preprocessed.features.len(),
+                    self.config.hidden_dim
+                )));
+            }
+            prepared_example.preprocessed = Some(preprocessed.features.clone());
+        }
+        Ok(())
+    }
+
+    fn prepare_datasets_for_training(
+        &mut self,
+        examples: &[TrainingExample],
+    ) -> Result<PreparedDataset> {
+        let contract = self.training_contract_config();
+        let summary =
+            validate_training_examples(examples, self.config.vocab_size, &contract).map_err(|e| {
+            AosError::Training(format!(
+                "Training example contract validation failed: {}",
+                e
+            ))
+        })?;
+        self.log_training_contract(&summary);
+
+        let split = self.split_examples_for_validation(examples);
+        let prepared_dataset = self.prepare_dataset_for_training(&split.train)?;
+
+        if split.validation.is_empty() {
+            self.validation_examples.clear();
+        } else {
+            self.validation_examples = self.prepare_validation_examples(
+                &split.validation,
+                &prepared_dataset.batch_plan,
+            )?;
+        }
+
+        self.split_hash_b3 = Some(split.split_hash_b3);
+        self.train_example_count = prepared_dataset.summary.total_examples as u64;
+        self.train_token_count = prepared_dataset.summary.total_tokens;
+        self.validation_example_count = self.validation_examples.len() as u64;
+        self.validation_token_count = self.total_tokens_in_prepared(&self.validation_examples);
+
+        Ok(prepared_dataset)
+    }
+
+    fn prepare_datasets_for_training_with_split(
+        &mut self,
+        train_examples: &[TrainingExample],
+        validation_examples: &[TrainingExample],
+    ) -> Result<PreparedDataset> {
+        let contract = self.training_contract_config();
+        let train_summary =
+            validate_training_examples(train_examples, self.config.vocab_size, &contract).map_err(|e| {
+                AosError::Training(format!(
+                    "Training example contract validation failed: {}",
+                    e
+                ))
+            })?;
+        let combined_summary = if validation_examples.is_empty() {
+            train_summary.clone()
+        } else {
+            let validation_summary =
+                validate_training_examples(validation_examples, self.config.vocab_size, &contract)
+                    .map_err(|e| {
+                        AosError::Training(format!(
+                            "Training example contract validation failed: {}",
+                            e
+                        ))
+                    })?;
+            if validation_summary.contract_version != train_summary.contract_version {
+                return Err(AosError::Training(format!(
+                    "Training example contract_version mismatch between splits: train={} validation={}",
+                    train_summary.contract_version, validation_summary.contract_version
+                )));
+            }
+            if validation_summary.pad_token_id != train_summary.pad_token_id {
+                return Err(AosError::Training(format!(
+                    "Training example pad_token_id mismatch between splits: train={:?} validation={:?}",
+                    train_summary.pad_token_id, validation_summary.pad_token_id
+                )));
+            }
+            if validation_summary.ignore_index != train_summary.ignore_index {
+                return Err(AosError::Training(format!(
+                    "Training example ignore_index mismatch between splits: train={:?} validation={:?}",
+                    train_summary.ignore_index, validation_summary.ignore_index
+                )));
+            }
+            TrainingExampleBatchSummary {
+                contract_version: train_summary.contract_version.clone(),
+                pad_token_id: train_summary.pad_token_id,
+                ignore_index: train_summary.ignore_index,
+                total_examples: train_summary.total_examples + validation_summary.total_examples,
+                total_tokens: train_summary.total_tokens + validation_summary.total_tokens,
+            }
+        };
+        self.log_training_contract(&combined_summary);
+
+        let prepared_dataset = self.prepare_dataset_for_training(train_examples)?;
+
+        if validation_examples.is_empty() {
+            self.validation_examples.clear();
+        } else {
+            self.validation_examples = self.prepare_validation_examples(
+                validation_examples,
+                &prepared_dataset.batch_plan,
+            )?;
+        }
+
+        let total_examples = train_examples.len() + validation_examples.len();
+        let split_ratio = if total_examples == 0 {
+            0.0
+        } else {
+            validation_examples.len() as f32 / total_examples as f32
+        };
+        self.split_hash_b3 = Some(super::dataset::compute_split_hash_for_sets(
+            train_examples,
+            validation_examples,
+            self.training_seed,
+            split_ratio,
+        ));
+        self.train_example_count = prepared_dataset.summary.total_examples as u64;
+        self.train_token_count = prepared_dataset.summary.total_tokens;
+        self.validation_example_count = self.validation_examples.len() as u64;
+        self.validation_token_count = self.total_tokens_in_prepared(&self.validation_examples);
+
+        Ok(prepared_dataset)
+    }
+
+    fn total_tokens_in_prepared(&self, examples: &[PreparedExample]) -> u64 {
+        examples
+            .iter()
+            .map(|example| (example.input_len + example.target_len) as u64)
+            .sum()
+    }
+
     fn prepare_dataset_for_training(
         &mut self,
         examples: &[TrainingExample],
@@ -693,6 +1064,40 @@ impl MicroLoRATrainer {
         // Preserve planner metadata (currently zeroed in pipeline).
         prepared.batch_plan.sequences_truncated = plan.sequences_truncated;
         prepared.batch_plan.sequences_dropped = plan.sequences_dropped;
+
+        if self.preprocessed_examples.is_some() {
+            self.attach_preprocessed_from_map(&mut prepared.examples, examples)?;
+        } else if let Some(preprocessed) = self.maybe_preprocess_examples(examples)? {
+            if preprocessed.examples.len() != prepared.examples.len() {
+                return Err(AosError::Training(format!(
+                    "Preprocessing output size mismatch: {} examples for {} inputs",
+                    preprocessed.examples.len(),
+                    prepared.examples.len()
+                )));
+            }
+            for (example, preprocessed_example) in prepared
+                .examples
+                .iter_mut()
+                .zip(preprocessed.examples.into_iter())
+            {
+                example.preprocessed = Some(preprocessed_example.features);
+            }
+            self.telemetry
+                .log(
+                    "training.preprocessing_completed",
+                    serde_json::json!({
+                        "backend": preprocessed.stats.backend,
+                        "cache_hit": preprocessed.stats.cache_hit,
+                        "cached_examples": preprocessed.stats.cached_examples,
+                        "processed_examples": preprocessed.stats.processed_examples,
+                        "elapsed_ms": preprocessed.stats.elapsed_ms,
+                        "cache_dir": preprocessed.stats.cache_dir,
+                        "preprocess_id": preprocessed.stats.preprocess_id,
+                        "cache_key": preprocessed.stats.cache_key,
+                    }),
+                )
+                .ok();
+        }
 
         self.record_preparation_metrics(backend, &plan, &prepared);
 
@@ -1148,17 +1553,21 @@ impl MicroLoRATrainer {
     #[cfg(feature = "multi-backend")]
     pub fn load_base_model(&mut self, model_path: &Path) -> Result<()> {
         use adapteros_lora_mlx_ffi::MLXFFIModel;
+        use crate::backend_factory::canonicalize_model_path;
 
+        let canonical_path = canonicalize_model_path(model_path).map_err(|e| {
+            AosError::Training(format!("Model path rejected: {}", e))
+        })?;
         info!(
-            model_path = %model_path.display(),
+            model_path = %canonical_path.display(),
             "Loading base model for hidden state extraction during training"
         );
 
         // Load the MLX model
-        let model = MLXFFIModel::load(model_path).map_err(|e| {
+        let model = MLXFFIModel::load(&canonical_path).map_err(|e| {
             AosError::Training(format!(
                 "Failed to load base model from '{}': {}",
-                model_path.display(),
+                canonical_path.display(),
                 e
             ))
         })?;
@@ -1348,32 +1757,278 @@ impl MicroLoRATrainer {
         );
     }
 
+    /// Force resume behavior when config mismatches checkpoint.
+    pub fn set_force_resume(&mut self, force_resume: bool) {
+        self.force_resume = force_resume;
+    }
+
+    /// Check if a latest checkpoint exists.
+    pub async fn has_checkpoint(&self) -> bool {
+        if let Some(manager) = self.checkpoint_manager.as_ref() {
+            manager.has_checkpoint().await
+        } else {
+            false
+        }
+    }
+
     /// Resume training from a checkpoint
     ///
-    /// Loads the latest checkpoint and returns the starting epoch and weights.
+    /// Loads the latest checkpoint and returns the checkpoint data.
     /// Returns None if no checkpoint exists.
-    pub async fn try_resume_from_checkpoint(&self) -> Option<(u32, LoRAWeights, f32)> {
-        let manager = self.checkpoint_manager.as_ref()?;
+    /// Returns an error if a checkpoint exists but the config is incompatible.
+    pub async fn try_resume_from_checkpoint(&self) -> Result<Option<TrainingCheckpoint>> {
+        let manager = match self.checkpoint_manager.as_ref() {
+            Some(manager) => manager,
+            None => return Ok(None),
+        };
 
         if !manager.has_checkpoint().await {
             info!("No checkpoint found, starting fresh training");
-            return None;
+            return Ok(None);
         }
 
         match manager.load_latest().await {
             Ok(checkpoint) => {
-                info!(
-                    epoch = checkpoint.epoch,
-                    loss = checkpoint.loss,
-                    "Resuming training from checkpoint"
-                );
-                Some((checkpoint.epoch, checkpoint.weights, checkpoint.best_loss))
+                let mismatches = self.validate_config_compatibility(&checkpoint.config);
+                if !mismatches.is_empty() {
+                    if self.force_resume {
+                        error!(
+                            mismatches = ?mismatches,
+                            "Force resume enabled; continuing despite config mismatch"
+                        );
+                    } else {
+                        return Err(AosError::Config(format!(
+                            "Cannot resume: config changed since checkpoint. Mismatches: {}. \
+Use --force-resume to override (may produce incorrect results).",
+                            mismatches.join(", ")
+                        )));
+                    }
+                }
+
+                let warnings = self.detect_config_warnings(&checkpoint.config);
+                for warning in warnings {
+                    warn!("Config change on resume: {}", warning);
+                }
+
+                Ok(Some(checkpoint))
             }
             Err(e) => {
                 warn!(error = %e, "Failed to load checkpoint, starting fresh training");
-                None
+                Ok(None)
             }
         }
+    }
+
+    fn validate_config_compatibility(&self, checkpoint_config: &TrainingConfig) -> Vec<String> {
+        const FLOAT_TOLERANCE: f32 = 1e-6;
+        let mut mismatches = Vec::new();
+
+        if self.config.optimizer_config.optimizer_type
+            != checkpoint_config.optimizer_config.optimizer_type
+        {
+            mismatches.push(format!(
+                "optimizer_type: checkpoint={:?}, current={:?}",
+                checkpoint_config.optimizer_config.optimizer_type,
+                self.config.optimizer_config.optimizer_type
+            ));
+        }
+
+        if self.config.hidden_dim != checkpoint_config.hidden_dim {
+            mismatches.push(format!(
+                "hidden_dim: checkpoint={} current={}",
+                checkpoint_config.hidden_dim, self.config.hidden_dim
+            ));
+        }
+
+        if self.config.rank != checkpoint_config.rank {
+            mismatches.push(format!(
+                "rank: checkpoint={} current={}",
+                checkpoint_config.rank, self.config.rank
+            ));
+        }
+
+        if self.config.hidden_state_layer != checkpoint_config.hidden_state_layer {
+            mismatches.push(format!(
+                "hidden_state_layer: checkpoint={:?} current={:?}",
+                checkpoint_config.hidden_state_layer, self.config.hidden_state_layer
+            ));
+        }
+
+        if self.config.base_model_path != checkpoint_config.base_model_path {
+            mismatches.push(format!(
+                "base_model_path: checkpoint={:?} current={:?}",
+                checkpoint_config.base_model_path, self.config.base_model_path
+            ));
+        }
+        if self.config.preprocessing != checkpoint_config.preprocessing {
+            mismatches.push(format!(
+                "preprocessing: checkpoint={:?} current={:?}",
+                checkpoint_config.preprocessing, self.config.preprocessing
+            ));
+        }
+
+        if (self.config.learning_rate - checkpoint_config.learning_rate).abs() > FLOAT_TOLERANCE {
+            mismatches.push(format!(
+                "learning_rate: checkpoint={} current={}",
+                checkpoint_config.learning_rate, self.config.learning_rate
+            ));
+        }
+
+        if self.config.batch_size != checkpoint_config.batch_size {
+            mismatches.push(format!(
+                "batch_size: checkpoint={} current={}",
+                checkpoint_config.batch_size, self.config.batch_size
+            ));
+        }
+
+        if (self.config.validation_split - checkpoint_config.validation_split).abs() > FLOAT_TOLERANCE
+        {
+            mismatches.push(format!(
+                "validation_split: checkpoint={:.4} current={:.4}",
+                checkpoint_config.validation_split, self.config.validation_split
+            ));
+        }
+
+        let current_opt = self.config.optimizer_config.optimizer_type;
+        let checkpoint_opt = checkpoint_config.optimizer_config.optimizer_type;
+        if current_opt == checkpoint_opt {
+            match current_opt {
+                OptimizerType::Sgd => {
+                    if (self.config.optimizer_config.momentum
+                        - checkpoint_config.optimizer_config.momentum)
+                        .abs()
+                        > FLOAT_TOLERANCE
+                    {
+                        mismatches.push(format!(
+                            "momentum: checkpoint={} current={}",
+                            checkpoint_config.optimizer_config.momentum,
+                            self.config.optimizer_config.momentum
+                        ));
+                    }
+                    if (self.config.optimizer_config.weight_decay
+                        - checkpoint_config.optimizer_config.weight_decay)
+                        .abs()
+                        > FLOAT_TOLERANCE
+                    {
+                        mismatches.push(format!(
+                            "weight_decay: checkpoint={} current={}",
+                            checkpoint_config.optimizer_config.weight_decay,
+                            self.config.optimizer_config.weight_decay
+                        ));
+                    }
+                }
+                OptimizerType::Adam | OptimizerType::AdamW => {
+                    if (self.config.optimizer_config.beta1
+                        - checkpoint_config.optimizer_config.beta1)
+                        .abs()
+                        > FLOAT_TOLERANCE
+                    {
+                        mismatches.push(format!(
+                            "beta1: checkpoint={} current={}",
+                            checkpoint_config.optimizer_config.beta1,
+                            self.config.optimizer_config.beta1
+                        ));
+                    }
+                    if (self.config.optimizer_config.beta2
+                        - checkpoint_config.optimizer_config.beta2)
+                        .abs()
+                        > FLOAT_TOLERANCE
+                    {
+                        mismatches.push(format!(
+                            "beta2: checkpoint={} current={}",
+                            checkpoint_config.optimizer_config.beta2,
+                            self.config.optimizer_config.beta2
+                        ));
+                    }
+                    if (self.config.optimizer_config.epsilon
+                        - checkpoint_config.optimizer_config.epsilon)
+                        .abs()
+                        > FLOAT_TOLERANCE
+                    {
+                        mismatches.push(format!(
+                            "epsilon: checkpoint={} current={}",
+                            checkpoint_config.optimizer_config.epsilon,
+                            self.config.optimizer_config.epsilon
+                        ));
+                    }
+                    if (self.config.optimizer_config.weight_decay
+                        - checkpoint_config.optimizer_config.weight_decay)
+                        .abs()
+                        > FLOAT_TOLERANCE
+                    {
+                        mismatches.push(format!(
+                            "weight_decay: checkpoint={} current={}",
+                            checkpoint_config.optimizer_config.weight_decay,
+                            self.config.optimizer_config.weight_decay
+                        ));
+                    }
+                }
+            }
+        }
+
+        mismatches
+    }
+
+    fn detect_config_warnings(&self, checkpoint_config: &TrainingConfig) -> Vec<String> {
+        const FLOAT_TOLERANCE: f32 = 1e-6;
+        let mut warnings = Vec::new();
+
+        if self.config.epochs != checkpoint_config.epochs {
+            warnings.push(format!(
+                "epochs: checkpoint={} current={}",
+                checkpoint_config.epochs, self.config.epochs
+            ));
+        }
+
+        if self.config.checkpoint_interval != checkpoint_config.checkpoint_interval {
+            warnings.push(format!(
+                "checkpoint_interval: checkpoint={:?} current={:?}",
+                checkpoint_config.checkpoint_interval, self.config.checkpoint_interval
+            ));
+        }
+
+        if self.config.early_stopping != checkpoint_config.early_stopping {
+            warnings.push(format!(
+                "early_stopping: checkpoint={:?} current={:?}",
+                checkpoint_config.early_stopping, self.config.early_stopping
+            ));
+        }
+
+        if self.config.patience != checkpoint_config.patience {
+            warnings.push(format!(
+                "patience: checkpoint={:?} current={:?}",
+                checkpoint_config.patience, self.config.patience
+            ));
+        }
+
+        match (self.config.min_delta, checkpoint_config.min_delta) {
+            (Some(current), Some(checkpoint)) => {
+                if (current - checkpoint).abs() > FLOAT_TOLERANCE {
+                    warnings.push(format!(
+                        "min_delta: checkpoint={} current={}",
+                        checkpoint, current
+                    ));
+                }
+            }
+            (current, checkpoint) if current != checkpoint => {
+                warnings.push(format!(
+                    "min_delta: checkpoint={:?} current={:?}",
+                    checkpoint, current
+                ));
+            }
+            _ => {}
+        }
+
+        if (self.config.validation_split - checkpoint_config.validation_split).abs()
+            > FLOAT_TOLERANCE
+        {
+            warnings.push(format!(
+                "validation_split: checkpoint={} current={}",
+                checkpoint_config.validation_split, self.config.validation_split
+            ));
+        }
+
+        warnings
     }
 
     /// Train LoRA adapter on examples with GPU acceleration (if available)
@@ -1397,20 +2052,94 @@ impl MicroLoRATrainer {
     where
         C: FnMut(EpochMetrics),
     {
-        // Try to resume from checkpoint
-        let resume_state = self.try_resume_from_checkpoint().await;
+        self.train_with_resume_state(examples, on_epoch, None).await
+    }
 
-        let prepared_dataset = self.prepare_dataset_for_training(examples)?;
+    /// Train with optional preloaded resume state.
+    pub async fn train_with_resume_state<C>(
+        &mut self,
+        examples: &[TrainingExample],
+        on_epoch: C,
+        resume_state: Option<TrainingCheckpoint>,
+    ) -> Result<TrainingResult>
+    where
+        C: FnMut(EpochMetrics),
+    {
+        let mut resume_state = resume_state;
+        let loaded_internally = resume_state.is_none();
+        if loaded_internally {
+            // Try to resume from checkpoint
+            resume_state = self.try_resume_from_checkpoint().await?;
+        }
 
-        if let Some((start_epoch, weights, _best_loss)) = resume_state {
-            info!(
-                start_epoch = start_epoch,
-                "Resuming training from checkpoint"
-            );
+        let prepared_dataset = self.prepare_datasets_for_training(examples)?;
+
+        if let Some(checkpoint) = resume_state {
+            if loaded_internally {
+                info!(
+                    start_epoch = checkpoint.epoch,
+                    config = %checkpoint.config.summary(),
+                    "Resuming training from checkpoint"
+                );
+            }
             self.run_training(
                 prepared_dataset,
-                start_epoch as usize,
-                Some(weights),
+                checkpoint.epoch as usize,
+                Some(checkpoint.weights),
+                on_epoch,
+            )
+            .await
+        } else {
+            self.run_training(prepared_dataset, 0, None, on_epoch).await
+        }
+    }
+
+    /// Train with automatic checkpoint resume using pre-split datasets.
+    pub async fn train_with_resume_split<C>(
+        &mut self,
+        train_examples: &[TrainingExample],
+        validation_examples: &[TrainingExample],
+        on_epoch: C,
+    ) -> Result<TrainingResult>
+    where
+        C: FnMut(EpochMetrics),
+    {
+        self.train_with_resume_split_state(train_examples, validation_examples, on_epoch, None)
+            .await
+    }
+
+    /// Train with optional preloaded resume state using pre-split datasets.
+    pub async fn train_with_resume_split_state<C>(
+        &mut self,
+        train_examples: &[TrainingExample],
+        validation_examples: &[TrainingExample],
+        on_epoch: C,
+        resume_state: Option<TrainingCheckpoint>,
+    ) -> Result<TrainingResult>
+    where
+        C: FnMut(EpochMetrics),
+    {
+        let mut resume_state = resume_state;
+        let loaded_internally = resume_state.is_none();
+        if loaded_internally {
+            resume_state = self.try_resume_from_checkpoint().await?;
+        }
+
+        let prepared_dataset =
+            self.prepare_datasets_for_training_with_split(train_examples, validation_examples)?;
+
+        if let Some(checkpoint) = resume_state {
+            if loaded_internally {
+                info!(
+                    start_epoch = checkpoint.epoch,
+                    config = %checkpoint.config.summary(),
+                    "Resuming training from checkpoint (pre-split)"
+                );
+            }
+            self.run_training(
+                prepared_dataset,
+                checkpoint.epoch as usize,
+                Some(checkpoint.weights),
                 on_epoch,
             )
             .await
@@ -1555,6 +2284,8 @@ impl MicroLoRATrainer {
             let epoch_metrics = EpochMetrics {
                 epoch: (epoch + 1) as u32,
                 loss: epoch_loss,
+                validation_loss: None,
+                validation_perplexity: None,
                 duration_us: epoch_duration_us,
                 examples_in_epoch: examples.len() as u64,
                 tokens_in_epoch: tokens_per_epoch,
@@ -1665,7 +2396,7 @@ impl MicroLoRATrainer {
             backend_device: self.backend_device.clone(),
             using_gpu: self.using_gpu(),
             effective_batch_size: Some(self.config.batch_size),
-            loss_curve: Vec::new(),
+            loss_curve,
             determinism_seed: self.config.determinism.as_ref().and_then(|d| d.seed),
             determinism_backend: self
                 .config
@@ -1684,10 +2415,14 @@ impl MicroLoRATrainer {
                 .determinism
                 .as_ref()
                 .and_then(|d| d.dataset_version_id.clone()),
-            // Validation metrics (not yet implemented - requires validation_split > 0)
             validation_loss_curve: Vec::new(),
             train_perplexity_curve: Vec::new(),
             validation_perplexity_curve: Vec::new(),
+            split_hash_b3: self.split_hash_b3.clone(),
+            train_example_count: self.train_example_count,
+            validation_example_count: self.validation_example_count,
+            train_token_count: self.train_token_count,
+            validation_token_count: self.validation_token_count,
             best_validation: None,
             final_validation_loss: None,
         })
@@ -1775,7 +2510,7 @@ impl MicroLoRATrainer {
         let using_gpu = self.using_gpu();
         let target_epochs = self.target_epochs();
 
-        let prepared_dataset = self.prepare_dataset_for_training(examples)?;
+        let prepared_dataset = self.prepare_datasets_for_training(examples)?;
         let total_examples = prepared_dataset.summary.total_examples;
 
         info!(
@@ -1841,7 +2576,46 @@ impl MicroLoRATrainer {
         self.total_examples_processed = examples_processed;
         let mut was_cancelled = false;
         let target_epochs = self.target_epochs();
-        let mut loss_curve = Vec::with_capacity(target_epochs.saturating_sub(start_epoch));
+        let curve_capacity = target_epochs.saturating_sub(start_epoch);
+        let mut loss_curve = Vec::with_capacity(curve_capacity);
+        let mut train_perplexity_curve = Vec::with_capacity(curve_capacity);
+        let validation_enabled = !self.validation_examples.is_empty();
+        let mut validation_loss_curve = Vec::with_capacity(curve_capacity);
+        let mut validation_perplexity_curve = Vec::with_capacity(curve_capacity);
+        let mut best_validation: Option<(f32, u32)> = None;
+        let mut epochs_without_improvement: u32 = 0;
+        let early_stopping_enabled =
+            validation_enabled && self.config.early_stopping.unwrap_or(false);
+        let patience = self.config.patience.unwrap_or(5);
+        let min_delta = self.config.min_delta.unwrap_or(0.001);
+        let training_loss_spec = loss::training_loss_spec(self.config.ignore_index);
+        info!(loss_spec = %training_loss_spec.summary(), "Training loss spec");
+        if validation_enabled {
+            let validation_loss_spec = loss::validation_loss_spec(self.config.ignore_index);
+            let diffs = training_loss_spec.diffs(&validation_loss_spec);
+            if !diffs.is_empty() {
+                warn!(
+                    mismatches = ?diffs,
+                    "Training and validation loss specs are not comparable"
+                );
+            }
+            info!(
+                loss_spec = %validation_loss_spec.summary(),
+                "Validation loss spec"
+            );
+        }
+
+        #[cfg(feature = "multi-backend")]
+        let validation_output_proj = if validation_enabled {
+            let model = self.base_model.as_ref().ok_or_else(|| {
+                AosError::Training(
+                    "Base model required for validation loss computation".to_string(),
+                )
+            })?;
+            Some(model.get_weight("lm_head.weight")?)
+        } else {
+            None
+        };
 
         for epoch in start_epoch..target_epochs {
             // Check for cancellation at start of each epoch
@@ -1888,10 +2662,91 @@ impl MicroLoRATrainer {
             final_loss = epoch_loss;
             completed_epochs = (epoch + 1) as u32;
             loss_curve.push(epoch_loss);
+            train_perplexity_curve.push(compute_perplexity(epoch_loss));
             examples_processed += dataset.summary.total_examples as u64;
             tokens_processed += tokens_per_epoch;
             self.total_tokens_processed = tokens_processed;
             self.total_examples_processed = examples_processed;
+
+            let mut validation_loss: Option<f32> = None;
+            let mut validation_perplexity: Option<f32> = None;
+            let mut should_stop_early = false;
+
+            if validation_enabled {
+                let mut total_validation_loss = 0.0;
+                let mut validation_warnings = HashSet::new();
+                #[cfg(feature = "multi-backend")]
+                {
+                    let output_proj = validation_output_proj.as_ref().ok_or_else(|| {
+                        AosError::Training(
+                            "Validation output projection missing for loss computation"
+                                .to_string(),
+                        )
+                    })?;
+                    for example in &self.validation_examples {
+                        let (_output, hidden) = self.forward(&weights, example)?;
+                        let report = loss::compute_validation_loss_with_output_proj(
+                            &self.config,
+                            &weights,
+                            &hidden,
+                            &example.target_tokens,
+                            output_proj,
+                        )?;
+                        total_validation_loss += report.loss;
+                        loss::merge_loss_warnings(&mut validation_warnings, &report);
+                    }
+                }
+                #[cfg(not(feature = "multi-backend"))]
+                {
+                    return Err(AosError::Training(
+                        "Validation loss requires multi-backend (MLX) support".to_string(),
+                    ));
+                }
+
+                if !validation_warnings.is_empty() {
+                    for warning in validation_warnings {
+                        warn!("Validation loss warning: {}", warning);
+                    }
+                }
+
+                let val_loss = total_validation_loss / self.validation_examples.len() as f32;
+                let val_perplexity = compute_perplexity(val_loss);
+                validation_loss_curve.push(val_loss);
+                validation_perplexity_curve.push(val_perplexity);
+                validation_loss = Some(val_loss);
+                validation_perplexity = Some(val_perplexity);
+
+                let previous_best = best_validation.map(|(loss, _)| loss);
+                if previous_best.map_or(true, |best| val_loss < best) {
+                    best_validation = Some((val_loss, (epoch + 1) as u32));
+                }
+
+                if early_stopping_enabled {
+                    if let Some(best_loss) = previous_best {
+                        let improvement = best_loss - val_loss;
+                        if improvement > min_delta {
+                            epochs_without_improvement = 0;
+                        } else {
+                            epochs_without_improvement =
+                                epochs_without_improvement.saturating_add(1);
+                            if epochs_without_improvement >= patience {
+                                should_stop_early = true;
+                                info!(
+                                    epoch = epoch + 1,
+                                    best_validation_loss = best_validation
+                                        .map(|(loss, _)| loss)
+                                        .unwrap_or(val_loss),
+                                    patience,
+                                    min_delta,
+                                    "Early stopping triggered: validation loss plateaued"
+                                );
+                            }
+                        }
+                    } else {
+                        epochs_without_improvement = 0;
+                    }
+                }
+            }
 
             info!("Epoch {} loss: {:.4}", epoch + 1, epoch_loss);
 
@@ -1931,6 +2786,8 @@ impl MicroLoRATrainer {
             let epoch_metrics = EpochMetrics {
                 epoch: (epoch + 1) as u32,
                 loss: epoch_loss,
+                validation_loss,
+                validation_perplexity,
                 duration_us: epoch_duration_us,
                 examples_in_epoch: dataset.summary.total_examples as u64,
                 tokens_in_epoch: tokens_per_epoch,
@@ -1986,6 +2843,10 @@ impl MicroLoRATrainer {
                 break;
             }
 
+            if should_stop_early {
+                break;
+            }
+
             if epoch_loss < 0.01 {
                 info!("Early stopping: loss below threshold");
                 break;
@@ -2010,6 +2871,8 @@ impl MicroLoRATrainer {
             perf.total_examples_processed = examples_processed;
         }
         let backend_name = self.backend_info().unwrap_or("CPU").to_string();
+
+        let final_validation_loss = validation_loss_curve.last().copied();
 
         Ok(TrainingResult {
             adapter_id,
@@ -2045,12 +2908,16 @@ impl MicroLoRATrainer {
                 .determinism
                 .as_ref()
                 .and_then(|d| d.dataset_version_id.clone()),
-            // Validation metrics (not yet implemented - requires validation_split > 0)
-            validation_loss_curve: Vec::new(),
-            train_perplexity_curve: Vec::new(),
-            validation_perplexity_curve: Vec::new(),
-            best_validation: None,
-            final_validation_loss: None,
+            validation_loss_curve,
+            train_perplexity_curve,
+            validation_perplexity_curve,
+            split_hash_b3: self.split_hash_b3.clone(),
+            train_example_count: self.train_example_count,
+            validation_example_count: self.validation_example_count,
+            train_token_count: self.train_token_count,
+            validation_token_count: self.validation_token_count,
+            best_validation,
+            final_validation_loss,
         })
     }
 
@@ -2063,9 +2930,6 @@ impl MicroLoRATrainer {
         dataset: &PreparedDataset,
         epoch: usize,
     ) -> Result<f32> {
-        use rand::SeedableRng;
-        use rand_chacha::ChaCha20Rng;
-
         // Create epoch-specific RNG seed
         let epoch_seed_bytes = derive_seed(
             &adapteros_core::B3Hash::hash(&self.training_seed.to_le_bytes()),
@@ -2081,8 +2945,6 @@ impl MicroLoRATrainer {
             epoch_seed_bytes[6],
             epoch_seed_bytes[7],
         ]);
-        let mut rng = ChaCha20Rng::seed_from_u64(epoch_seed);
-
         let mut total_loss = 0.0;
         let mut num_batches = 0;
 
@@ -2107,7 +2969,7 @@ impl MicroLoRATrainer {
             }
 
             let loss =
-                self.train_batch_deterministic(weights, batch.examples.as_slice(), &mut rng)?;
+                self.train_batch_deterministic(weights, batch.examples.as_slice(), epoch_seed)?;
             total_loss += loss;
             num_batches += 1;
         }
@@ -2120,43 +2982,14 @@ impl MicroLoRATrainer {
         &mut self,
         weights: &mut LoRAWeights,
         batch: &[PreparedExample],
-        rng: &mut impl Rng,
+        epoch_seed: u64,
     ) -> Result<f32> {
-        // Check if GPU kernels are available
         if self.kernels.is_some() {
-            // GPU-accelerated training path with fallback-on-failure when GPU optional
-            match self.train_batch_gpu(weights, batch, rng) {
-                Ok(loss) => Ok(loss),
-                Err(e) => {
-                    if self.config.require_gpu {
-                        return Err(e);
-                    }
-
-                    warn!(
-                        "GPU batch failed ({}), falling back to CPU for remaining training",
-                        e
-                    );
-                    self.append_backend_reason(format!("gpu_batch_failed_fallback_cpu: {}", e));
-                    self.telemetry
-                        .log(
-                            "training.gpu_fallback",
-                            serde_json::json!({
-                                "original_backend": self.backend_info().unwrap_or("unknown"),
-                                "reason": e.to_string(),
-                                "using_cpu": true,
-                                "phase": "mid-training"
-                            }),
-                        )
-                        .ok();
-                    self.kernels = None;
-                    self.selected_backend = Some(TrainingBackend::Cpu);
-                    self.backend_device = self.resolve_backend_device(TrainingBackend::Cpu);
-                    self.train_batch_cpu(weights, batch, rng)
-                }
-            }
+            self.train_batch_gpu(weights, batch, epoch_seed)
         } else {
-            // CPU-only training path (fallback)
-            self.train_batch_cpu(weights, batch, rng)
+            Err(AosError::Training(
+                "GPU kernels are required for training. Configure a GPU backend.".to_string(),
+            ))
         }
     }
 
@@ -2165,7 +2998,7 @@ impl MicroLoRATrainer {
         &mut self,
         weights: &mut LoRAWeights,
         batch: &[PreparedExample],
-        rng: &mut impl Rng,
+        epoch_seed: u64,
     ) -> Result<f32> {
         use adapteros_lora_kernel_api::{IoBuffers, RouterRing};
 
@@ -2181,28 +3014,41 @@ impl MicroLoRATrainer {
             let mut ring = RouterRing::new(1); // K=1 for training (single adapter)
             ring.set(&[0], &[ROUTER_GATE_Q15_MAX]); // Max Q15 gate value for training
 
-            // Prepare IO buffers for GPU inference
-            let mut io = IoBuffers::new(vocab_size);
-            io.input_ids = example.padded_input.clone();
-            io.position = 0;
+            let (hidden, forward_us) = if let Some(ref preprocessed) = example.preprocessed {
+                (preprocessed.clone(), 0u64)
+            } else {
+                // Prepare IO buffers for GPU inference
+                let mut io = IoBuffers::new(vocab_size);
+                io.input_ids = example.padded_input.clone();
+                io.position = 0;
 
-            // Measure GPU forward pass time
-            let gpu_start = Instant::now();
+                // Measure GPU forward pass time
+                let gpu_start = Instant::now();
 
-            // GPU forward pass through kernels
-            if let Some(ref mut kernels) = self.kernels {
-                kernels.run_step(&ring, &mut io)?;
+                // GPU forward pass through kernels
+                if let Some(ref mut kernels) = self.kernels {
+                    kernels.run_step(&ring, &mut io)?;
+                }
+
+                let forward_us = gpu_start.elapsed().as_micros() as u64;
+                if matches!(self.selected_backend, Some(TrainingBackend::CoreML)) {
+                    self.record_coreml_forward_latency(forward_us);
+                }
+
+                // Extract hidden state from GPU output
+                let hidden: Vec<f32> = io.output_logits[..self.config.hidden_dim].to_vec();
+                (hidden, forward_us)
+            };
+
+            if hidden.len() != self.config.hidden_dim {
+                return Err(AosError::Training(format!(
+                    "Preprocessed hidden state size mismatch: {} != {}",
+                    hidden.len(),
+                    self.config.hidden_dim
+                )));
             }
 
-            let forward_us = gpu_start.elapsed().as_micros() as u64;
             gpu_time_us += forward_us;
-            if matches!(self.selected_backend, Some(TrainingBackend::CoreML)) {
-                self.record_coreml_forward_latency(forward_us);
-            }
-
-            // Extract hidden state from GPU output
-            let hidden: Vec<f32> = io.output_logits[..self.config.hidden_dim].to_vec();
-            let output = io.output_logits.clone();
 
             // Backward pass and update weights using cross-entropy loss
             // GPU backward is always used with base model (now required)
@@ -2223,40 +3069,16 @@ impl MicroLoRATrainer {
                     &hidden,
                     &example.target_tokens,
                     model,
+                    epoch_seed,
                 )?;
 
                 gpu_time_us += backward_start.elapsed().as_micros() as u64;
                 gpu_loss
             } else {
-                // CPU backward pass (deprecated fallback - produces incorrect results)
-                warn!(
-                    "CPU backward pass is deprecated. Enable GPU backward for correct training."
-                );
-                let loss = self.compute_loss(&output, &example.target_tokens);
-                self.backward_and_update_deterministic(
-                    weights,
-                    &hidden,
-                    &output,
-                    &example.target_tokens,
-                    loss,
-                    rng,
-                )?;
-                loss
-            };
-
-            #[cfg(not(feature = "multi-backend"))]
-            let loss = {
-                // CPU backward pass (no GPU training available)
-                let loss = self.compute_loss(&output, &example.target_tokens);
-                self.backward_and_update_deterministic(
-                    weights,
-                    &hidden,
-                    &output,
-                    &example.target_tokens,
-                    loss,
-                    rng,
-                )?;
-                loss
+                return Err(AosError::Training(
+                    "GPU backward is required for correct training. Enable MLX GPU backward."
+                        .to_string(),
+                ));
             };
 
             batch_loss += loss;
@@ -2293,51 +3115,6 @@ impl MicroLoRATrainer {
             "GPU batch: {}us GPU, {}us CPU, {:.1}% GPU utilization",
             gpu_time_us, cpu_time_us, gpu_utilization
         );
-
-        Ok(batch_loss / batch.len() as f32)
-    }
-
-    /// Train one batch on CPU (fallback when GPU unavailable)
-    #[cfg(feature = "multi-backend")]
-    fn train_batch_cpu(
-        &self,
-        weights: &mut LoRAWeights,
-        batch: &[PreparedExample],
-        rng: &mut impl Rng,
-    ) -> Result<f32> {
-        let batch_start = Instant::now();
-        let mut batch_loss = 0.0;
-        let batch_tokens = self.tokens_in_batch(batch);
-
-        for example in batch {
-            // CPU forward pass
-            let (output, hidden) = self.forward(weights, example)?;
-
-            // Compute loss (simplified cross-entropy)
-            let loss = self.compute_loss(&output, &example.target_tokens);
-            batch_loss += loss;
-
-            // Backward pass and update weights with deterministic RNG
-            self.backward_and_update_deterministic(
-                weights,
-                &hidden,
-                &output,
-                &example.target_tokens,
-                loss,
-                rng,
-            )?;
-        }
-
-        // Update CPU metrics
-        let cpu_time_ms = batch_start.elapsed().as_millis() as u64;
-        {
-            let mut metrics = self.performance_metrics.write();
-            metrics.total_cpu_time_ms += cpu_time_ms;
-            metrics.cpu_operations += batch.len() as u64;
-            metrics.total_examples_processed += batch.len() as u64;
-            metrics.total_tokens_processed += batch_tokens;
-            metrics.total_batches += 1;
-        }
 
         Ok(batch_loss / batch.len() as f32)
     }
@@ -2388,7 +3165,7 @@ impl MicroLoRATrainer {
     fn tokens_per_epoch(&self, examples: &[TrainingExample]) -> u64 {
         examples
             .iter()
-            .map(|ex| (ex.input.len() + ex.target.len()) as u64)
+            .map(|ex| (ex.input_tokens.len() + ex.target_tokens.len()) as u64)
             .sum()
     }
 
@@ -2615,7 +3392,14 @@ impl MicroLoRATrainer {
         Ok((output, hidden))
     }
 
-    /// Compute loss (simplified cross-entropy)
+    /// Compute loss (simplified cross-entropy).
+    #[cfg(test)]
+    fn compute_loss_ce(&self, output: &[f32], target: &[u32]) -> f32 {
+        self.compute_loss(output, target)
+    }
+
+    /// Compute loss (simplified cross-entropy).
+    #[cfg(test)]
     fn compute_loss(&self, output: &[f32], target: &[u32]) -> f32 {
         let mut loss = 0.0;
         let n = output.len().min(target.len());
@@ -2638,6 +3422,7 @@ impl MicroLoRATrainer {
     }
 
     /// Backward pass and weight update with deterministic RNG
+    #[cfg(test)]
     fn backward_and_update_deterministic(
         &self,
         weights: &mut LoRAWeights,
@@ -2757,6 +3542,7 @@ impl MicroLoRATrainer {
         weights: &mut LoRAWeights,
         hidden: &[f32],
         target: &[u32],
+        seed: u64,
     ) -> Result<f32> {
         use adapteros_lora_mlx_ffi::MLXFFITensor;
 
@@ -2788,6 +3574,7 @@ impl MicroLoRATrainer {
             &lora_b_tensor,
             alpha,
             rank,
+            seed,
         )?;
 
         let loss = result.loss;
@@ -2849,6 +3636,7 @@ impl MicroLoRATrainer {
         hidden: &[f32],
         target_tokens: &[u32],
         model: &adapteros_lora_mlx_ffi::MLXFFIModel,
+        seed: u64,
     ) -> Result<f32> {
         use adapteros_lora_mlx_ffi::MLXFFITensor;
 
@@ -2885,7 +3673,8 @@ impl MicroLoRATrainer {
             &lora_b_tensor,
             alpha,
             rank,
-            0, // ignore_index for padding
+            LOSS_IGNORE_INDEX,
+            seed,
         )?;
 
         let loss = result.loss;
@@ -2977,6 +3766,7 @@ impl MicroLoRATrainer {
     /// Gradients are scaled by the routing weights for active experts.
     /// For routing-weighted shared LoRA:
     /// `grad_scale = sum(routing_weight[e]) for e in active_experts`
+    #[cfg(test)]
     #[allow(dead_code, clippy::too_many_arguments)]
     fn backward_and_update_moe(
         &self,
@@ -3073,6 +3863,7 @@ impl MicroLoRATrainer {
     ///
     /// For training, we simulate routing by distributing examples across experts
     /// using deterministic routing based on the example index and MoE config.
+    #[cfg(test)]
     #[allow(dead_code)]
     fn train_batch_moe(
         &self,
@@ -3113,7 +3904,7 @@ impl MicroLoRATrainer {
             let (output, hidden) = self.forward_moe(weights, example, &normalized_weights)?;
 
             // Compute loss
-            let loss = self.compute_loss(&output, &example.target_tokens);
+            let loss = self.compute_loss_ce(&output, &example.target_tokens);
             batch_loss += loss;
 
             // MoE backward pass with routing weights
@@ -3140,6 +3931,20 @@ impl MicroLoRATrainer {
         }
 
         Ok(batch_loss / batch.len() as f32)
+    }
+
+    /// MoE training is disabled in production because it relies on deprecated CPU loss.
+    #[cfg(not(test))]
+    #[allow(dead_code)]
+    fn train_batch_moe(
+        &self,
+        _weights: &mut LoRAWeights,
+        _batch: &[PreparedExample],
+        _rng: &mut impl Rng,
+    ) -> Result<f32> {
+        Err(AosError::Training(
+            "MoE training uses deprecated CPU loss and is disabled in production".to_string(),
+        ))
     }
 
     /// Generate unique adapter ID

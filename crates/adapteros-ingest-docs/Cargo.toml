@@ -25,6 +25,7 @@ adapteros-core = { path = "../adapteros-core" }
 adapteros-db = { path = "../adapteros-db" }
 adapteros-lora-rag = { path = "../adapteros-lora-rag" }
 adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true, features = ["mlx"] }
+adapteros-types = { path = "../adapteros-types" }
 tokenizers = { workspace = true }
 pulldown-cmark = "0.13"
 lopdf = "0.38"

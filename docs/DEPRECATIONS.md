@@ -129,13 +129,13 @@ The CI guardrail fails the build if any `scripts/*.sh` file is not referenced by
 
 - `scripts/build_ui.sh`
   - Status: **DEPRECATED**
-  - Replacement: `pnpm build` or `make ui`
+  - Replacement: `cd crates/adapteros-ui && trunk build --release`
   - Notes: Obsolete WebAssembly/Trunk approach. UI is now React-based using pnpm. Zero active usage.
   - Sources: `[source: scripts/build_ui.sh L1-L30]`
 
 - `scripts/build_web_ui.sh`
   - Status: **DEPRECATED**
-  - Replacement: `pnpm build` or `make ui`
+  - Replacement: `cd crates/adapteros-ui && trunk build --release`
   - Notes: Redundant with `pnpm build`. Contains outdated path assumptions.
   - Sources: `[source: scripts/build_web_ui.sh L1-L30]`
 
@@ -267,8 +267,8 @@ The CI guardrail fails the build if any `scripts/*.sh` file is not referenced by
 
 - `scripts/ai-slop-detector.sh`
   - Status: **DEPRECATED**
-  - Replacement: `make dup` and `cargo clippy`
-  - Notes: Script itself states "For duplication, prefer make dup". Superseded by authoritative tools.
+  - Replacement: `bash scripts/run_jscpd.sh` and `cargo clippy`
+  - Notes: Script itself states "For duplication, prefer scripts/run_jscpd.sh". Superseded by authoritative tools.
   - Sources: `[source: scripts/ai-slop-detector.sh L1-L150]`
 
 ### Already in `scripts/deprecated/` Directory

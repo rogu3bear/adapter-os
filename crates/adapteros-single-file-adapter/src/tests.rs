@@ -10,7 +10,7 @@ mod tests {
     use super::validator::SingleFileAdapterValidator;
     use super::SingleFileAdapter;
     use adapteros_crypto::Keypair;
-    use std::collections::HashMap;
+    use adapteros_types::training::ExampleMetadataV1;
     use tempfile::TempDir;
 
     fn new_test_tempdir() -> TempDir {
@@ -47,12 +47,14 @@ mod tests {
             combined: None,
         };
 
-        let training_data = vec![TrainingExample {
-            input: vec![1, 2, 3],
-            target: vec![4, 5, 6],
-            metadata: HashMap::new(),
-            weight: 1.0,
-        }];
+        let metadata = ExampleMetadataV1::new("test", 1, "{}", 0);
+        let attention_mask = TrainingExample::attention_mask_from_tokens(&[1, 2, 3], 0);
+        let training_data = vec![TrainingExample::new(
+            vec![1, 2, 3],
+            vec![4, 5, 6],
+            attention_mask,
+            metadata,
+        )];
         let config = TrainingConfig {
             rank: 16,
             alpha: 32.0,

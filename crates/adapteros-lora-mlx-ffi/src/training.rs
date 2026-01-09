@@ -15,7 +15,8 @@
 //! let mut optimizer = MlxOptimizer::adam(0.001, 0.9, 0.999, 1e-8, 0.0)?;
 //!
 //! // Compute gradients
-//! let (loss, grad_a, grad_b) = mlx_lora_backward_gpu(&hidden, &targets, &lora_a, &lora_b, 16.0, 16)?;
+//! let (loss, grad_a, grad_b) =
+//!     mlx_lora_backward_gpu(&hidden, &targets, &lora_a, &lora_b, 16.0, 16, 42)?;
 //!
 //! // Clip gradients
 //! let grad_norm = mlx_clip_grad_norm_gpu(&mut [grad_a, grad_b], 1.0);
@@ -54,6 +55,7 @@ extern "C" {
         lora_b: *mut c_void,
         alpha: f32,
         rank: i32,
+        seed: u64,
         out_loss: *mut f32,
         out_grad_a: *mut *mut c_void,
         out_grad_b: *mut *mut c_void,
@@ -68,6 +70,7 @@ extern "C" {
         alpha: f32,
         rank: i32,
         ignore_index: i32,
+        seed: u64,
         out_loss: *mut f32,
         out_grad_a: *mut *mut c_void,
         out_grad_b: *mut *mut c_void,
@@ -185,13 +188,14 @@ pub struct LoraBackwardResult {
 /// * `lora_b` - LoRA B matrix (up-projection) [hidden_dim, rank]
 /// * `alpha` - LoRA scaling factor
 /// * `rank` - LoRA rank dimension
+/// * `seed` - Deterministic seed for MLX RNG
 ///
 /// # Returns
 /// `LoraBackwardResult` containing loss value and gradients for A and B matrices
 ///
 /// # Example
 /// ```ignore
-/// let result = mlx_lora_backward_gpu(&hidden, &targets, &lora_a, &lora_b, 16.0, 16)?;
+/// let result = mlx_lora_backward_gpu(&hidden, &targets, &lora_a, &lora_b, 16.0, 16, 42)?;
 /// println!("Loss: {}", result.loss);
 /// // Use result.grad_a and result.grad_b for optimizer step
 /// ```
@@ -202,6 +206,7 @@ pub fn mlx_lora_backward_gpu(
     lora_b: &MLXFFITensor,
     alpha: f32,
     rank: usize,
+    seed: u64,
 ) -> Result<LoraBackwardResult> {
     ffi_error::clear_ffi_error();
 
@@ -217,6 +222,7 @@ pub fn mlx_lora_backward_gpu(
             lora_b.as_ptr() as *mut c_void,
             alpha,
             rank as i32,
+            seed,
             &mut loss,
             &mut grad_a,
             &mut grad_b,
@@ -251,6 +257,7 @@ pub fn mlx_lora_backward_gpu(
 /// * `alpha` - LoRA scaling factor
 /// * `rank` - LoRA rank dimension
 /// * `ignore_index` - Token ID to ignore in loss (e.g., padding token), use -1 to disable
+/// * `seed` - Deterministic seed for MLX RNG
 ///
 /// # Returns
 /// `LoraBackwardResult` containing loss value and gradients for A and B matrices
@@ -263,7 +270,7 @@ pub fn mlx_lora_backward_gpu(
 /// // Compute backward pass with cross-entropy loss
 /// let result = mlx_lora_backward_ce_gpu(
 ///     &hidden, &output_proj, &target_tokens,
-///     &lora_a, &lora_b, 16.0, 16, 0 // ignore padding token 0
+///     &lora_a, &lora_b, 16.0, 16, 0, 42 // ignore padding token 0
 /// )?;
 /// println!("CE Loss: {}", result.loss);
 /// ```
@@ -276,6 +283,7 @@ pub fn mlx_lora_backward_ce_gpu(
     alpha: f32,
     rank: usize,
     ignore_index: i32,
+    seed: u64,
 ) -> Result<LoraBackwardResult> {
     ffi_error::clear_ffi_error();
 
@@ -293,6 +301,7 @@ pub fn mlx_lora_backward_ce_gpu(
             alpha,
             rank as i32,
             ignore_index,
+            seed,
             &mut loss,
             &mut grad_a,
             &mut grad_b,
@@ -361,7 +370,7 @@ impl Default for MlxOptimizerType {
 ///
 /// // Training loop
 /// for epoch in 0..num_epochs {
-///     let (loss, grad_a, grad_b) = mlx_lora_backward_gpu(...)?;
+///     let (loss, grad_a, grad_b) = mlx_lora_backward_gpu(..., seed)?;
 ///     optimizer.step(&mut [lora_a, lora_b], &[grad_a, grad_b])?;
 ///     optimizer.set_learning_rate(new_lr); // Optional LR schedule
 /// }

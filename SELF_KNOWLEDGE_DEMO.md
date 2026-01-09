@@ -69,7 +69,7 @@ golden_runs/
    export DATABASE_URL=sqlite://var/aos-cp.sqlite3
    export AOS_MODEL_PATH=models/qwen2.5-7b-instruct-4bit-mlx
    export AOS_TOKENIZER_PATH=models/qwen2.5-7b-instruct-4bit-mlx/tokenizer.json
-   make dev
+   ./start up
    ```
 
 2. **Navigate to Owner Home:**
@@ -243,4 +243,4 @@ ls -la golden_runs/
 
 The self-knowledge demo infrastructure is complete and ready for use. The documentation adapter has been trained on 340 markdown files, generating 7,201 Q&A pairs, and is configured to power the Owner Home chat interface. The golden runs infrastructure is initialized and ready to capture reference baselines once the server is running.
 
-To complete the demo, start the server with `make dev` and navigate to the Owner Home page to interact with the AI-powered documentation assistant.
+To complete the demo, start the server with `./start up` and navigate to the Owner Home page to interact with the AI-powered documentation assistant.

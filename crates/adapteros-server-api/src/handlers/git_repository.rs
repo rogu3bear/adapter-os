@@ -3,6 +3,7 @@
 //! Implements git repository registration, analysis, and training pipeline integration.
 //! Follows evidence-first philosophy and security-first principles established in the codebase.
 
+use crate::handlers::training::{ensure_training_worker_capable, resolve_base_model_path};
 use crate::handlers::{require_any_role, AppState, Claims, ErrorResponse};
 use adapteros_core::{error::AosError, Result};
 use adapteros_db::users::Role;
@@ -109,6 +110,7 @@ pub struct EvidenceSpan {
 #[derive(Debug, Deserialize)]
 pub struct TrainRepositoryRequest {
     pub repo_id: String,
+    pub base_model_id: String,
     pub config: TrainingConfig,
 }
 
@@ -495,6 +497,11 @@ pub async fn train_repository_adapter(
     let training_id = Uuid::now_v7().to_string();
     let estimated_duration = estimate_training_duration(&request.config, &analysis);
 
+    let base_model_id = request.base_model_id.trim().to_string();
+    let base_model_path =
+        resolve_base_model_path(&state, &claims.tenant_id, &base_model_id).await?;
+    ensure_training_worker_capable(&state, &claims.tenant_id).await?;
+
     // Start training job using TrainingService
     let training_config = adapteros_orchestrator::TrainingConfig {
         rank: request.config.rank as u32,
@@ -521,9 +528,14 @@ pub async fn train_repository_adapter(
         enable_coreml_export: Some(false),
         require_gpu: false,
         max_gpu_memory_mb: None,
-        base_model_path: None,
+        base_model_path: Some(base_model_path),
         hidden_state_layer: None,
         validation_split: None,
+        preprocessing: None,
+        force_resume: false,
+        training_contract_version: adapteros_types::training::TRAINING_DATA_CONTRACT_VERSION.to_string(),
+        pad_token_id: 0,
+        ignore_index: -1,
     };
 
     let training_job = state
@@ -542,7 +554,7 @@ pub async fn train_repository_adapter(
             Some(claims.tenant_id.clone()),
             Some(claims.sub.clone()),
             Some(claims.role.clone()),
-            None,                         // base_model_id
+            Some(base_model_id.clone()),  // base_model_id
             None,                         // collection_id
             None,                         // scope
             None,                         // lora_tier

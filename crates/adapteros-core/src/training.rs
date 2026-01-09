@@ -14,5 +14,7 @@
 
 // Re-export canonical types from adapteros-types
 pub use adapteros_types::training::{
-    TrainingConfig, TrainingJob, TrainingJobStatus, TrainingTemplate,
+    OptimizerConfigSummary, TrainingConfig, TrainingJob, TrainingJobStatus, TrainingReportCurves,
+    TrainingReportMetricDefinitions, TrainingReportSummary, TrainingReportV1, TrainingTemplate,
+    TRAINING_REPORT_VERSION,
 };

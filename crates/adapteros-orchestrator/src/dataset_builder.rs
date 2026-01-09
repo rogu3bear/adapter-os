@@ -10,6 +10,7 @@ use adapteros_lora_worker::training::{
     dataset::ChangeType, dataset::FilePatch, DatasetGenerator, TrainingExample,
 };
 use adapteros_platform::common::PlatformUtils;
+use adapteros_secure_fs::path_policy::{canonicalize_strict, canonicalize_strict_in_allowed_roots};
 use std::path::Path;
 use tracing::info;
 use walkdir::WalkDir;
@@ -45,7 +46,11 @@ pub fn build_from_directory(
     }
 
     // Analyze the directory to get symbols and metadata
-    let target_path = root.join(rel);
+    let canonical_root = canonicalize_strict(root)?;
+    let allowed_roots = [canonical_root.clone()];
+    let target_path = canonical_root.join(rel);
+    let target_path = canonicalize_strict_in_allowed_roots(&target_path, &allowed_roots)
+        .map_err(|e| AosError::Validation(format!("Dataset path rejected: {}", e)))?;
     let analysis = analyze_directory(&target_path)?;
 
     info!(
@@ -70,7 +75,7 @@ pub fn build_from_directory(
             Err(_) => continue,
         };
         let rel_path = path_abs
-            .strip_prefix(root)
+            .strip_prefix(&canonical_root)
             .unwrap_or(&path_abs)
             .to_path_buf();
         patches.push(FilePatch {

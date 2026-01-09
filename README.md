@@ -138,7 +138,8 @@ For extended setup including Web UI, see **[QUICKSTART.md](QUICKSTART.md)** whic
 # Clone and build
 git clone https://github.com/rogu3bear/adapter-os.git
 cd adapter-os
-make cli  # Build CLI and create ./aosctl symlink
+cargo build --release -p adapteros-cli --features tui
+ln -sf target/release/aosctl ./aosctl
 
 # Initialize database
 ./aosctl db migrate
@@ -149,7 +150,7 @@ huggingface-cli download mlx-community/Qwen2.5-7B-Instruct \
     --local-dir models/qwen2.5-7b-mlx
 
 # Start the server
-make dev
+./start up
 ```
 
 ### Prerequisites
@@ -167,22 +168,26 @@ git clone https://github.com/rogu3bear/adapter-os.git
 cd adapter-os
 
 # Build with fresh cleanup (recommended - stops services, cleans ports)
-make build
+./scripts/fresh-build.sh
+cargo build --release --locked --offline
+./scripts/build_metadata.sh
+./scripts/record_env.sh
+./scripts/strip_timestamps.sh
 
 # Or just prepare environment without building
-make prepare
+./scripts/fresh-build.sh
 
 # Manual build without cleanup (not recommended)
 cargo build --release
 ```
 
-**Fresh Build System**: The `fresh-build` target ensures clean rebuilds by:
+**Fresh Build System**: `./scripts/fresh-build.sh` ensures clean rebuilds by:
 - Stopping any running AdapterOS services
 - Freeing occupied ports (8080, 3200)
 - Cleaning orphaned processes
 - Removing stale build artifacts
 
-Use `make fresh-build` before rebuilding to prevent port conflicts and build errors.
+Use `./scripts/fresh-build.sh` before rebuilding to prevent port conflicts and build errors.
 
 **Note**: MLX is the primary backend for inference and training on Apple Silicon. CoreML provides ANE-accelerated operations for specific layers. Metal provides low-level GPU kernels.
 
@@ -240,7 +245,7 @@ export AOS_MLX_FFI_MODEL=var/models/qwen2.5-7b-mlx
 
 ```bash
 # Start dev server (port 8080)
-make dev
+./start up
 
 # Or use aosctl to serve with a specific tenant and plan
 ./aosctl serve --tenant default --plan <plan-id>
@@ -449,7 +454,7 @@ cargo clippy --workspace -- -D warnings
 
 ### Duplication Monitoring
 
-- Run a local scan: `make dup` (writes reports under `var/reports/jscpd/<timestamp>`)
+- Run a local scan: `bash scripts/run_jscpd.sh` (writes reports under `var/reports/jscpd/<timestamp>`)
 
 ---
 

@@ -262,6 +262,9 @@ pub(crate) async fn package_and_register_adapter(
         epochs: worker_cfg.epochs,
         hidden_dim: worker_cfg.hidden_dim,
         vocab_size: worker_cfg.vocab_size,
+        training_contract_version: worker_cfg.training_contract_version.clone(),
+        pad_token_id: worker_cfg.pad_token_id,
+        ignore_index: worker_cfg.ignore_index,
         coreml_placement: worker_cfg.coreml_placement.clone(),
         preferred_backend: worker_cfg.preferred_backend,
         backend_policy: worker_cfg.backend_policy,
@@ -274,6 +277,9 @@ pub(crate) async fn package_and_register_adapter(
         warmup_steps: worker_cfg.warmup_steps,
         max_seq_length: worker_cfg.max_seq_length,
         gradient_accumulation_steps: worker_cfg.gradient_accumulation_steps,
+        early_stopping: worker_cfg.early_stopping,
+        patience: worker_cfg.patience,
+        min_delta: worker_cfg.min_delta,
         determinism: None,
         moe_config: None,
         use_gpu_backward: worker_cfg.use_gpu_backward,
@@ -281,6 +287,7 @@ pub(crate) async fn package_and_register_adapter(
         base_model_path: worker_cfg.base_model_path.clone(),
         hidden_state_layer: worker_cfg.hidden_state_layer.clone(),
         validation_split: worker_cfg.validation_split,
+        preprocessing: worker_cfg.preprocessing.clone(),
     };
 
     // Generate unique adapter ID from job_id

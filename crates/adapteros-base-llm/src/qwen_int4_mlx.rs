@@ -4,10 +4,14 @@
 //! and uses MLX FFI for Metal-backed inference with deterministic execution.
 
 use crate::{BaseLLM, BaseLLMMetadata, ModelState};
-use adapteros_config::{get_model_path_optional, resolve_qwen_int4_manifest_dir};
+use adapteros_config::{
+    get_model_path_optional, reject_tmp_persistent_path, resolve_base_model_location,
+    resolve_qwen_int4_manifest_dir,
+};
 use adapteros_core::{AosError, Result};
 use adapteros_deterministic_exec::DeterministicExecutor;
 use adapteros_lora_mlx_ffi::{LoRAAdapter, MLXFFIBackend, MLXFFIModel};
+use adapteros_secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
 use adapteros_trace::Event;
 use bytemuck;
 use parking_lot::RwLock;
@@ -45,6 +49,28 @@ pub struct Qwen25Int4Mlx {
     manifest_dir: Option<PathBuf>,
     sequence: Vec<u32>,
     checkpoints: u64,
+}
+
+fn model_allowed_roots() -> Result<Vec<PathBuf>> {
+    let location = resolve_base_model_location(None, None, false)?;
+    if !location.cache_root.exists() {
+        std::fs::create_dir_all(&location.cache_root).map_err(|e| {
+            AosError::Config(format!(
+                "Failed to create model cache root {}: {}",
+                location.cache_root.display(),
+                e
+            ))
+        })?;
+    }
+    Ok(vec![location.cache_root])
+}
+
+fn canonicalize_model_path(model_path: &Path) -> Result<PathBuf> {
+    let allowed_roots = model_allowed_roots()?;
+    let canonical = canonicalize_strict_in_allowed_roots(model_path, &allowed_roots)
+        .map_err(|e| AosError::Config(format!("Model path rejected: {}", e)))?;
+    reject_tmp_persistent_path(&canonical, "model-path")?;
+    Ok(canonical)
 }
 
 impl Qwen25Int4Mlx {
@@ -339,7 +365,8 @@ impl BaseLLM for Qwen25Int4Mlx {
 
         let (model, backend_arc) = if let Some(ref path) = model_path {
             // Standard path: load from MLX format
-            let model = MLXFFIModel::load(path.to_string_lossy().as_ref())?;
+            let canonical_path = canonicalize_model_path(path)?;
+            let model = MLXFFIModel::load(&canonical_path)?;
             let backend = MLXFFIBackend::new(model);
             (None, Arc::new(RwLock::new(backend)))
         } else {

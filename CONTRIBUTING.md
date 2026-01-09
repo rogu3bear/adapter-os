@@ -258,7 +258,7 @@ flowchart TD
     Local --> Fmt[cargo fmt --all]
     Fmt --> Clippy[cargo clippy --workspace]
     Clippy --> Tests[cargo test --workspace]
-    Tests --> Dup[make dup]
+    Tests --> Dup[bash scripts/run_jscpd.sh]
 
     Dup --> AllPass{All Checks<br/>Pass?}
     AllPass -->|No| Fix2[Fix Issues]
