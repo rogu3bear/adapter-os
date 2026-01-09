@@ -201,6 +201,11 @@ pub(crate) async fn run_training_job(
             gradient_accumulation_steps: orchestrator_cfg.gradient_accumulation_steps,
             determinism: None,
             moe_config: None,
+            use_gpu_backward: true,
+            optimizer_config: Default::default(),
+            base_model_path: orchestrator_cfg.base_model_path.clone(),
+            hidden_state_layer: orchestrator_cfg.hidden_state_layer.clone(),
+            validation_split: orchestrator_cfg.validation_split.unwrap_or(0.0),
         };
 
         // If a CoreML placement is provided, align hidden_dim to the placement shapes for training.

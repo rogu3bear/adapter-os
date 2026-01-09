@@ -1016,6 +1016,9 @@ impl From<TrainingConfigRequest> for TrainingConfig {
             enable_coreml_export: req.enable_coreml_export,
             require_gpu: req.require_gpu.unwrap_or(false),
             max_gpu_memory_mb: req.max_gpu_memory_mb,
+            base_model_path: None,
+            hidden_state_layer: None,
+            validation_split: Some(0.0),
         }
     }
 }
