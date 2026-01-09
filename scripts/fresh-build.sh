@@ -242,7 +242,7 @@ fresh_build() {
     if [ $errors -eq 0 ]; then
         success_msg "Fresh build preparation complete in ${duration}s"
         success_msg "Ready for clean build!"
-        echo -e "${WHITE}Next: Run your build command (make build, cargo build, etc.)${NC}"
+        echo -e "${WHITE}Next: Run your build command (cargo build --release --locked --offline, etc.)${NC}"
         return 0
     else
         warning_msg "Fresh build preparation completed with $errors issue(s) in ${duration}s"
@@ -269,8 +269,7 @@ usage() {
     echo "  4. Clean build artifacts"
     echo "  5. Verify environment is ready for clean build"
     echo ""
-    echo "Use with make: make build (includes cleanup) or make prepare (cleanup only)"
-    echo "Or directly: ./scripts/fresh-build.sh"
+    echo "Use with: ./scripts/fresh-build.sh then your build command"
 }
 
 # Main

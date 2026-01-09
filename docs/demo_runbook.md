@@ -30,7 +30,8 @@
 ### 0) One-time (only if needed): build the CLI
 If `./aosctl` doesn’t exist:
 ```bash
-make cli
+cargo build --release -p adapteros-cli --features tui
+ln -sf target/release/aosctl ./aosctl
 ```
 
 ### 1) Reset + seed the demo DB (Terminal B)

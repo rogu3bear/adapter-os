@@ -304,7 +304,7 @@ date
 ```bash
 # Use dev bypass (development only)
 export AOS_DEV_NO_AUTH=1
-make dev-no-auth
+./start up
 
 # Generate new token
 ./aosctl auth login
@@ -485,7 +485,7 @@ curl -X POST http://localhost:8080/api/v1/adapters/evict?tier=cold
 # min_headroom_pct = 20
 
 # Restart if leak suspected
-make dev
+./start up
 ```
 
 ##### "Inference timeout: exceeded 30s"
@@ -776,7 +776,7 @@ tail -f var/logs/worker.log | grep -i "ready\|initialized"
 Authentication Failure
 │
 ├─ Dev mode needed?
-│  └─ Enable: AOS_DEV_NO_AUTH=1 make dev-no-auth
+│  └─ Enable: AOS_DEV_NO_AUTH=1 ./start up
 │
 ├─ JWT token invalid?
 │  ├─ Token expired?
@@ -1067,7 +1067,7 @@ Problem Detected
 
 ```
 1. Is the service running?
-   NO  → Start service: make dev
+   NO  → Start service: ./start up
    YES → Continue to 2
 
 2. Does /healthz return 200?
@@ -1268,7 +1268,7 @@ sqlite3 var/aos-cp.sqlite3 "SELECT 1;"
 cargo sqlx migrate info
 
 # Start service
-make dev
+./start up
 ```
 
 #### Adapter Won't Load

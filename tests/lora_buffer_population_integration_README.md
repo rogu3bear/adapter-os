@@ -74,7 +74,7 @@ cargo test --test lora_buffer_population_integration
 ### With Metal Kernel
 ```bash
 # First, ensure Metal kernel is properly built and signed
-make build-metal  # or equivalent build command
+cd metal && bash build.sh  # or equivalent build command
 
 # Then run with --ignored flag
 cargo test --test lora_buffer_population_integration -- --ignored --nocapture
@@ -107,4 +107,3 @@ These tests should be run:
 - `crates/adapteros-lora-kernel-mtl/src/manifest.rs` - Manifest verification
 - `tests/adapter_hotswap.rs` - Related adapter lifecycle tests
 - `tests/integration_tests.rs` - Other Metal kernel integration tests
-

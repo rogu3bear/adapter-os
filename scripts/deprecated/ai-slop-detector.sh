@@ -19,7 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUTPUT_DIR="${SCRIPT_DIR}/ai_slop_reports"
 SEARCH_ROOT="${SLOP_SEARCH_ROOT:-crates}"
 RUN_ADAPTEROS_LINT="${RUN_ADAPTEROS_LINT:-0}"
-RUN_MAKE_DUP="${RUN_MAKE_DUP:-1}"
+RUN_DUP_CHECK="${RUN_DUP_CHECK:-1}"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 REPORT_FILE="${OUTPUT_DIR}/ai_slop_report_${TIMESTAMP}.md"
 JSON_REPORT="${OUTPUT_DIR}/ai_slop_data_${TIMESTAMP}.json"
@@ -396,14 +396,14 @@ $(if [ "$GENERIC_ERROR_COUNT" -gt 0 ]; then echo "- Replace generic error types 
 $(if [ "$PLATFORM_COUNT" -gt 0 ]; then echo "- Update platform-agnostic code to use AdapterOS patterns"; fi)
 
 #### **Informational (noise-prone):**
-$(if [ "$DUPLICATION_COUNT" -gt 0 ]; then echo "- For duplication, prefer \`make dup\` or \`adapteros-lint\` for authoritative signal"; fi)
+$(if [ "$DUPLICATION_COUNT" -gt 0 ]; then echo "- For duplication, prefer \`bash scripts/run_jscpd.sh\` or \`adapteros-lint\` for authoritative signal"; fi)
 $(if [ "$BOILERPLATE_COUNT" -gt 50 ]; then echo "- Consider extracting repeated patterns; counts are heuristic"; fi)
 $(if [ "$TODO_COUNT" -gt 20 ]; then echo "- Resolve TODO/FIXME comments or create implementation plans"; fi)
 
 ### **Quality Metrics (informational only):**
 - **Error Handling:** $([ "$GENERIC_ERROR_COUNT" -eq 0 ] && echo "✅ Excellent" || echo "⚠️ Needs refactoring")
 - **Platform Awareness:** $([ "$PLATFORM_COUNT" -eq 0 ] && echo "✅ Excellent" || echo "⚠️ Critical fixes needed")
-- **Duplication/Boilerplate:** Heuristic; prefer \`make dup\`/\`adapteros-lint\` for authoritative checks
+- **Duplication/Boilerplate:** Heuristic; prefer \`bash scripts/run_jscpd.sh\`/\`adapteros-lint\` for authoritative checks
 
 ---
 
@@ -426,12 +426,12 @@ if [ "$RUN_ADAPTEROS_LINT" -eq 1 ] && command -v adapteros-lint >/dev/null 2>&1;
     fi
 fi
 
-if [ "$RUN_MAKE_DUP" -eq 1 ]; then
-    log_info "Running make dup (duplication check)..."
-    if ! make dup; then
-        log_warn "make dup reported duplication issues"
+if [ "$RUN_DUP_CHECK" -eq 1 ]; then
+    log_info "Running scripts/run_jscpd.sh (duplication check)..."
+    if ! bash scripts/run_jscpd.sh; then
+        log_warn "scripts/run_jscpd.sh reported duplication issues"
     else
-        log_success "make dup completed without reported issues"
+        log_success "scripts/run_jscpd.sh completed without reported issues"
     fi
 fi
 

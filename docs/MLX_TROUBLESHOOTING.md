@@ -91,10 +91,11 @@ ls -la $MLX_INCLUDE_DIR/mlx/
 
 # Rebuild
 cargo clean
-cargo build -p adapteros-lora-mlx-ffi --features mlx --release
+cargo build -p adapteros-lora-mlx-ffi --features multi-backend,mlx --release
 
-# Or run environment verification
-make verify-mlx-env
+# Verify headers/libs exist
+ls -la $MLX_INCLUDE_DIR/mlx/
+ls -la $MLX_LIB_DIR/libmlx.*
 ```
 
 ### Error: libmlx.dylib Missing
@@ -206,13 +207,13 @@ nm target/release/libadapteros_lora_mlx_ffi.a | grep mlx_wrapper_is_real
 **Solution:**
 ```bash
 # Build with mlx feature
-cargo build -p adapteros-lora-mlx-ffi --features mlx --release
+cargo build -p adapteros-lora-mlx-ffi --features multi-backend,mlx --release
 
 # Clear target/ if necessary
 cargo clean
 
-# Rebuild with make
-make build-mlx
+# Rebuild explicitly
+cargo build -p adapteros-lora-mlx-ffi --features multi-backend,mlx --release
 ```
 
 ### Model Path Validation Fails
@@ -320,8 +321,8 @@ export RUST_LOG=trace,adapteros_lora_mlx_ffi=trace
   --max-tokens 10
 
 # Compare against Metal baseline
-make bench-mlx
-make bench-metal
+cargo bench -p adapteros-lora-mlx-ffi --features multi-backend,mlx
+cargo bench -p adapteros-lora-kernel-mtl --bench kernel_benchmarks
 ```
 
 **Solution:**
@@ -578,13 +579,10 @@ sudo dtruss -t open ./target/debug/deps/adapteros_lora_mlx_ffi-* 2>&1 | grep Met
 
 ```bash
 # Build with real MLX
-make build-mlx
-
-# Or manually
-cargo build --features multi-backend,mlx --release
+cargo build -p adapteros-lora-mlx-ffi --features multi-backend,mlx --release
 
 # Verify real build
-cargo build -p adapteros-lora-mlx-ffi --features mlx 2>&1 | grep "MLX FFI build: REAL"
+cargo build -p adapteros-lora-mlx-ffi --features multi-backend,mlx 2>&1 | grep "MLX FFI build: REAL"
 ```
 
 #### 2. Update Config
@@ -629,23 +627,20 @@ curl http://localhost:8080/v1/backends/mlx/status | jq
 
 ```bash
 # Unit + integration tests
-make test-mlx
-
-# Or manually
-cargo test -p adapteros-lora-mlx-ffi --features mlx
+cargo test -p adapteros-lora-mlx-ffi --features multi-backend,mlx
 
 # Determinism tests
-cargo test -p adapteros-lora-mlx-ffi --features mlx determinism_tests
+cargo test -p adapteros-lora-mlx-ffi --features multi-backend,mlx determinism_tests
 ```
 
 #### 5. Benchmark
 
 ```bash
 # Benchmark MLX
-make bench-mlx
+cargo bench -p adapteros-lora-mlx-ffi --features multi-backend,mlx
 
 # Compare to Metal baseline
-make bench-metal
+cargo bench -p adapteros-lora-kernel-mtl --bench kernel_benchmarks
 
 # Target: <20% delta
 ```
@@ -848,17 +843,17 @@ curl -s http://localhost:8080/v1/backends/mlx/memory | jq
 
 ```bash
 # Determinism tests
-cargo test -p adapteros-lora-mlx-ffi determinism_tests --features mlx
+cargo test -p adapteros-lora-mlx-ffi determinism_tests --features multi-backend,mlx
 
 # Full test suite
-make test-mlx
+cargo test -p adapteros-lora-mlx-ffi --features multi-backend,mlx
 
 # Benchmarks
-make bench-mlx
+cargo bench -p adapteros-lora-mlx-ffi --features multi-backend,mlx
 
 # Compare backends
-make bench-metal
-make bench-mlx
+cargo bench -p adapteros-lora-kernel-mtl --bench kernel_benchmarks
+cargo bench -p adapteros-lora-mlx-ffi --features multi-backend,mlx
 ```
 
 ### Log Signals
@@ -938,7 +933,7 @@ Before requesting support:
 1. [ ] Check documentation and existing issues
 2. [ ] Enable debug logging: `RUST_LOG=debug`
 3. [ ] Capture full error output and logs
-4. [ ] Run diagnostics: `make verify-mlx-env`
+4. [ ] Run diagnostics: verify `$MLX_INCLUDE_DIR/mlx` and `$MLX_LIB_DIR/libmlx.*` exist
 5. [ ] Test with stub build to isolate MLX issues
 
 ### Debug Information to Collect

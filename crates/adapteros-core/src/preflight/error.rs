@@ -182,7 +182,7 @@ impl PreflightErrorCode {
                 adapter_id
             )),
             Self::ModelNotFound | Self::ModelFileMissing | Self::ModelWeightsMissing => {
-                Some("Run: make download-model  # or: aosctl models seed".to_string())
+                Some("Run: ./scripts/download-model.sh  # or: aosctl models seed".to_string())
             }
             Self::ModelPathResolutionFailed => Some(
                 "Set AOS_MODEL_CACHE_DIR and AOS_BASE_MODEL_ID environment variables, or use --model-path".to_string()

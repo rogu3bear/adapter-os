@@ -57,7 +57,7 @@ if "$CLI" preflight "$@"; then
     echo ""
     echo -e "${BLUE}Next steps:${NC}"
     echo "  1. Start server: ${YELLOW}cargo run --release -p adapteros-server-api${NC}"
-    echo "  2. Or use UI:    ${YELLOW}make ui${NC}"
+    echo "  2. Or use UI:    ${YELLOW}cd crates/adapteros-ui && trunk build --release${NC}"
     echo "  3. Check health: ${YELLOW}aosctl doctor${NC}"
     echo ""
     exit 0
@@ -69,7 +69,7 @@ else
     echo -e "${RED}╚═══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     echo -e "${BLUE}Common fixes:${NC}"
-    echo "  Download model:     ${YELLOW}make download-model${NC}"
+    echo "  Download model:     ${YELLOW}./scripts/download-model.sh${NC}"
     echo "  Initialize DB:      ${YELLOW}cargo run -p adapteros-cli -- db migrate${NC}"
     echo "  Install Xcode CLI:  ${YELLOW}xcode-select --install${NC}"
     echo ""

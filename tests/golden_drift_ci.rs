@@ -21,7 +21,6 @@
 //!
 //! ```bash
 //! cargo test --test golden_drift_ci
-//! make golden-drift-check  # Convenience target
 //! ```
 
 #![allow(clippy::useless_vec)]

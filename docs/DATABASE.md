@@ -1020,7 +1020,7 @@ export AOS_ATOMIC_DUAL_WRITE_STRICT=1  # Auto-enforced in kv_primary/kv_only
 
 ```bash
 # Start control plane in KV-only mode
-STORAGE_BACKEND=kv_only AOS_KV_PATH=var/aos-kv.redb make dev
+STORAGE_BACKEND=kv_only AOS_KV_PATH=var/aos-kv.redb ./start up
 
 # System bootstrap creates 'system' tenant and seeds core policies via KV
 # No SQLite required for KV-only deployments
@@ -1055,7 +1055,20 @@ aosctl storage verify --json --fail-on-drift
 
 ```bash
 # Run in CI pipeline
-make kv-verify
+mkdir -p var
+cargo run -p adapteros-cli -- db migrate --db-path ./var/aos-cp.sqlite3
+cargo run -p adapteros-cli -- storage migrate \
+  --db-path ./var/aos-cp.sqlite3 \
+  --kv-path ./var/aos-kv.redb \
+  --domains adapters,tenants,stacks,plans,auth_sessions,runtime_sessions,rag_artifacts,policy_audit,training_jobs,chat_sessions \
+  --batch-size 200 \
+  --force
+cargo run -p adapteros-cli -- storage verify \
+  --json \
+  --db-path ./var/aos-cp.sqlite3 \
+  --kv-path ./var/aos-kv.redb \
+  --domains adapters,tenants,stacks,plans,auth_sessions,runtime_sessions,rag_artifacts,policy_audit,training_jobs,chat_sessions \
+  --fail-on-drift
 
 # Equivalent to:
 aosctl storage verify --json \

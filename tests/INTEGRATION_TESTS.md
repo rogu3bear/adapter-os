@@ -16,22 +16,22 @@ The integration test suite validates end-to-end functionality of key AdapterOS s
 
 Blocking suites are the stability gate. For integration tests, "blocking" means any
 test that is not marked `#[ignore]` (or `cfg_attr(..., ignore = "...")`) and is run
-by default in `make test` / `make stability-check`.
+by default in `bash scripts/test/all.sh all` / `bash scripts/ci/stability.sh`.
 
 | Suite | Status | Command |
 | --- | --- | --- |
 | Rust integration tests (non-ignored) | Blocking | `cargo test --workspace --exclude adapteros-lora-mlx-ffi --tests` |
-| Rust ignored tests | Non-blocking | `make test-ignored` |
-| Hardware-dependent tests (Metal/VRAM/residency) | Non-blocking | `make test-hw` |
+| Rust ignored tests | Non-blocking | `cargo test --workspace --features extended-tests --lib --bins --examples -- --ignored` + `cargo test --workspace --features extended-tests --tests -- --ignored` |
+| Hardware-dependent tests (Metal/VRAM/residency) | Non-blocking | See `docs/stability/CHECKLIST.md` (Hardware Tests) |
 
 **Tracking requirement:** any test that remains ignored must include a tracking tag
 in the ignore reason, e.g. `[tracking: STAB-IGN-0001]`, and the ID must have a
 matching entry in `docs/stability/IGNORED_TESTS.md`.
 
-`make test-ignored` runs with `extended-tests` enabled by default; use
+The ignored-test sweep runs with `extended-tests` enabled by default; use
 `IGNORED_FEATURES` or `IGNORED_EXCLUDE` to adjust coverage for your environment.
 
-`make test-hw` currently covers:
+Hardware tests currently cover:
 - `tests/lora_buffer_population_integration.rs`
 - `tests/kv_residency_quota_integration.rs`
 - `crates/adapteros-lora-worker/tests/worker_enforcement_tests.rs`
@@ -223,10 +223,17 @@ cargo test --tests
 cargo test --tests -- --ignored
 
 # Run ignored Rust tests (unit + integration) across the workspace
-make test-ignored
+cargo test --workspace --features extended-tests --lib --bins --examples -- --ignored
+cargo test --workspace --features extended-tests --tests -- --ignored
 
 # Run hardware-dependent test suites (Metal/VRAM/residency)
-make test-hw
+cargo test --test lora_buffer_population_integration --features extended-tests --profile release -- --ignored --nocapture
+cargo test --test kv_residency_quota_integration --features hardware-residency
+cargo test -p adapteros-lora-worker --features hardware-residency,ci-residency --test worker_enforcement_tests
+cargo test -p adapteros-lora-worker --features hardware-residency,ci-residency --test residency_probe
+cargo test -p adapteros-lora-kernel-coreml --test integration_tests -- --ignored
+cargo test -p adapteros-memory --test metal_heap_tests --profile release -- --ignored
+cargo test -p adapteros-memory --lib --profile release -- --ignored
 
 # Run all tests (unit + integration)
 cargo test --all

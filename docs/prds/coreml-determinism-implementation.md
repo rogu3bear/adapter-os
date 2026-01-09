@@ -215,7 +215,7 @@ Regulated customers require cryptographic proof that inference outputs are repro
 **Primary Files:**
 - `crates/adapteros-lora-kernel-coreml/build.rs`
 - `metal/src/kernels/*.metal`
-- CI determinism checks (make determinism-check)
+- CI determinism checks (cargo test determinism_core_suite + router determinism + fast-math guard)
 
 **Acceptance Criteria:**
 - CI fails on forbidden flags.
@@ -241,7 +241,7 @@ Regulated customers require cryptographic proof that inference outputs are repro
 - Router tie-break stress tests.
 
 **Exit Criteria:**
-- `make determinism-check` passes.
+- `cargo test --test determinism_core_suite -- --test-threads=8`, `cargo test -p adapteros-lora-router --test determinism`, and `bash scripts/check_fast_math_flags.sh` pass.
 - CoreML production mode fails fast without ANE.
 - Router tests pass across 1000 iterations.
 

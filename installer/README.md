@@ -37,7 +37,7 @@ The built app will be in `build/Release/AdapterOS Installer.app`
 ### Build from Project Root
 
 ```bash
-make installer
+cd installer && xcodebuild -project AdapterOSInstaller.xcodeproj -scheme AdapterOSInstaller -configuration Release
 ```
 
 ## Architecture
@@ -141,4 +141,3 @@ The smoke test runs automatically after installation and provides detailed feedb
 ## License
 
 MIT OR Apache-2.0 (matches parent project)
-

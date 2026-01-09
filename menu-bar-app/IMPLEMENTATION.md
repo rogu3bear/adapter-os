@@ -75,11 +75,11 @@ A lightweight macOS menu bar application that displays AdapterOS status with zer
 
 ### Build System
 
-#### Updated `Makefile`
+#### SwiftPM Commands
 ```bash
-make menu-bar          # Build release
-make menu-bar-dev      # Build and run debug
-make menu-bar-install  # Install to /usr/local/bin/aos-menu
+cd menu-bar-app && swift build -c release
+cd menu-bar-app && swift run
+cd menu-bar-app && swift build -c release && cp .build/release/AdapterOSMenu /usr/local/bin/aos-menu
 ```
 
 ### Security & Deployment
@@ -123,10 +123,10 @@ make menu-bar-install  # Install to /usr/local/bin/aos-menu
 cargo build --release
 
 # Build Swift menu bar app
-make menu-bar
+cd menu-bar-app && swift build -c release
 
 # Or build both
-cargo build --release && make menu-bar
+cargo build --release && (cd menu-bar-app && swift build -c release)
 ```
 
 ### Run
@@ -136,10 +136,10 @@ cargo build --release && make menu-bar
 ./target/release/mplora-server
 
 # Terminal 2: Start menu bar app
-make menu-bar-dev
+cd menu-bar-app && swift run
 
 # Or install and run in background
-make menu-bar-install
+cd menu-bar-app && swift build -c release && cp .build/release/AdapterOSMenu /usr/local/bin/aos-menu
 /usr/local/bin/aos-menu
 ```
 
@@ -147,7 +147,7 @@ make menu-bar-install
 
 ```bash
 # Install binary
-make menu-bar-install
+cd menu-bar-app && swift build -c release && cp .build/release/AdapterOSMenu /usr/local/bin/aos-menu
 
 # Copy launchd plist
 cp menu-bar-app/com.adapteros.menu.plist.template \
@@ -333,7 +333,7 @@ Caused by: no such table: adapters
 ```
 Deterministic mode: false
 ```
-**Solution:** Build Metal kernels: `make metal`
+**Solution:** Build Metal kernels: `cd metal && bash build.sh`
 
 ### Performance Tuning
 
@@ -377,7 +377,7 @@ rm -rf var/
 # Restart
 cargo build --release
 ./target/release/mplora-server &
-make menu-bar-dev
+cd menu-bar-app && swift run
 ```
 
 #### Emergency Status File
@@ -491,7 +491,6 @@ menu-bar-app/Sources/AdapterOSMenu/AdapterOSMenuApp.swift
 menu-bar-app/AdapterOSMenu.entitlements
 menu-bar-app/com.adapteros.menu.plist.template
 menu-bar-app/.gitignore
-Makefile (modified)
 ```
 
 **Runtime files:**

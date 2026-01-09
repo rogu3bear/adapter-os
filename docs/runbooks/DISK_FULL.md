@@ -203,7 +203,7 @@ sqlite3 var/aos-cp.sqlite3 "PRAGMA wal_autocheckpoint=1000;"
 # Checkpoints every 1000 pages (~4MB) instead of default
 
 # 6. Restart control plane
-make dev
+./start up
 
 # 7. Monitor WAL size
 watch -n 300 'ls -lh var/aos-cp.sqlite3-wal'

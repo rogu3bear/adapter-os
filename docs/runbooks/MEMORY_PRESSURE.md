@@ -229,7 +229,7 @@ watch -n 5 'aosctl metrics show | grep -E "pressure|headroom"'
 
 # Restart control plane to apply
 pkill -f adapteros-server
-make dev
+./start up
 
 # Verify new limits
 grep -A5 "\[memory\]" configs/cp.toml
@@ -245,7 +245,7 @@ grep -A5 "\[memory\]" configs/cp.toml
 
 # Restart to apply
 pkill -f adapteros-server
-make dev
+./start up
 ```
 
 ### Root Cause Fix: Handle Pinned Adapters
@@ -321,7 +321,7 @@ watch -n 60 'ps aux | grep aos-worker | awk "{print \$4}"'
 
 # Restart control plane
 pkill -f adapteros-server
-make dev
+./start up
 
 # Verify change
 grep "k_sparse" configs/cp.toml
