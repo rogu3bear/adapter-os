@@ -14,7 +14,6 @@ include_globs=(
   ".cargo/config"
   ".cargo/config.toml"
   "build.rs"
-  "Makefile"
   "*.mk"
   "*.cmake"
   "CMakeLists.txt"
@@ -64,7 +63,6 @@ else
     find . -type f \\( \\
       -name "Cargo.toml" -o \\
       -name "build.rs" -o \\
-      -name "Makefile" -o \\
       -name "*.mk" -o \\
       -name "*.cmake" -o \\
       -name "CMakeLists.txt" -o \\

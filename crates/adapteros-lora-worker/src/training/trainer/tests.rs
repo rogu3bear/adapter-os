@@ -6,8 +6,9 @@ use adapteros_platform::common::PlatformUtils;
 use blake3;
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
-use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use tempfile::TempDir;
+use adapteros_types::training::ExampleMetadataV1;
 
 fn new_test_tempdir() -> TempDir {
     let root = PlatformUtils::temp_dir();
@@ -16,7 +17,11 @@ fn new_test_tempdir() -> TempDir {
 }
 
 fn make_prepared(example: &TrainingExample, hidden_dim: usize) -> coreml_pipeline::PreparedExample {
-    let mut scaled_input: Vec<f32> = example.input.iter().map(|t| *t as f32).collect();
+    let mut scaled_input: Vec<f32> = example
+        .input_tokens
+        .iter()
+        .map(|t| *t as f32)
+        .collect();
     if scaled_input.len() < hidden_dim {
         scaled_input.resize(hidden_dim, 0.0);
     } else {
@@ -24,18 +29,81 @@ fn make_prepared(example: &TrainingExample, hidden_dim: usize) -> coreml_pipelin
     }
 
     coreml_pipeline::PreparedExample {
-        input_tokens: example.input.clone(),
-        target_tokens: example.target.clone(),
-        padded_input: example.input.clone(),
-        padded_target: example.target.clone(),
+        input_tokens: example.input_tokens.clone(),
+        target_tokens: example.target_tokens.clone(),
+        padded_input: example.input_tokens.clone(),
+        padded_target: example.target_tokens.clone(),
         scaled_input,
-        input_mask: vec![1; example.input.len()],
-        target_mask: vec![1; example.target.len()],
-        input_len: example.input.len(),
-        target_len: example.target.len(),
+        preprocessed: None,
+        input_mask: example.attention_mask.clone(),
+        target_mask: vec![1; example.target_tokens.len()],
+        input_len: example.input_tokens.len(),
+        target_len: example.target_tokens.len(),
         metadata: example.metadata.clone(),
-        weight: example.weight,
     }
+}
+
+fn example(input_tokens: Vec<u32>, target_tokens: Vec<u32>) -> TrainingExample {
+    let metadata = ExampleMetadataV1::new("test", 0, "{}", 0);
+    let attention_mask =
+        TrainingExample::attention_mask_from_tokens(&input_tokens, 0);
+    TrainingExample::new(input_tokens, target_tokens, attention_mask, metadata)
+}
+
+
+fn find_model_dir(path: &Path) -> Option<PathBuf> {
+    if path.is_dir() && path.join("config.json").is_file() {
+        return Some(path.to_path_buf());
+    }
+
+    if !path.is_dir() {
+        return None;
+    }
+
+    let mut entries: Vec<PathBuf> = std::fs::read_dir(path)
+        .ok()?
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|entry| entry.is_dir())
+        .collect();
+    entries.sort();
+
+    for entry in entries {
+        if entry.join("config.json").is_file() {
+            return Some(entry);
+        }
+    }
+
+    None
+}
+
+fn resolve_test_model_path() -> Option<PathBuf> {
+    for var in ["AOS_TEST_MODEL_PATH", "AOS_MODEL_PATH"] {
+        if let Ok(path) = std::env::var(var) {
+            if let Some(model_dir) = find_model_dir(Path::new(&path)) {
+                return Some(model_dir);
+            }
+        }
+    }
+
+    let base_paths = ["./var/models", "../var/models", "../../var/models"];
+    for base in base_paths {
+        if let Some(model_dir) = find_model_dir(Path::new(base)) {
+            return Some(model_dir);
+        }
+    }
+
+    None
+}
+
+fn load_test_model_path_or_skip() -> Option<PathBuf> {
+    let model_path = resolve_test_model_path();
+    if model_path.is_none() {
+        eprintln!(
+            "SKIPPED: model path not found. Set AOS_TEST_MODEL_PATH or AOS_MODEL_PATH (e.g. ./var/models/<model>)."
+        );
+    }
+    model_path
 }
 
 #[test]
@@ -314,12 +382,7 @@ fn test_training_updates_only_lora_weights() {
 
     let base_snapshot = vec![1.0f32, 2.0, 3.0, 4.0];
 
-    let examples = vec![TrainingExample {
-        input: vec![1, 2, 3, 4],
-        target: vec![4, 3, 2, 1],
-        metadata: HashMap::new(),
-        weight: 1.0,
-    }];
+    let examples = vec![example(vec![1, 2, 3, 4], vec![4, 3, 2, 1])];
 
     let dataset = trainer
         .prepare_dataset_for_training(&examples)
@@ -388,12 +451,7 @@ fn test_forward_pass() {
     let mut trainer = MicroLoRATrainer::new_for_test(config).unwrap();
     let weights = trainer.initialize_weights_deterministic().unwrap();
 
-    let examples = vec![TrainingExample {
-        input: vec![1, 2, 3, 4, 5],
-        target: vec![1, 2, 3, 4, 5],
-        metadata: HashMap::new(),
-        weight: 1.0,
-    }];
+    let examples = vec![example(vec![1, 2, 3, 4, 5], vec![1, 2, 3, 4, 5])];
     let dataset = trainer
         .prepare_dataset_for_training(&examples)
         .expect("prepare dataset");
@@ -427,18 +485,8 @@ async fn test_train_small() {
     let mut trainer = MicroLoRATrainer::new_for_test(config).unwrap();
 
     let examples = vec![
-        TrainingExample {
-            input: vec![1, 2, 3],
-            target: vec![4, 5, 6],
-            metadata: HashMap::new(),
-            weight: 1.0,
-        },
-        TrainingExample {
-            input: vec![7, 8, 9],
-            target: vec![10, 11, 12],
-            metadata: HashMap::new(),
-            weight: 1.0,
-        },
+        example(vec![1, 2, 3], vec![4, 5, 6]),
+        example(vec![7, 8, 9], vec![10, 11, 12]),
     ];
 
     let result = trainer.train(&examples).await.unwrap();
@@ -470,15 +518,10 @@ fn test_backward_only_updates_lora_weights() {
     let mut weights = trainer.initialize_weights_deterministic().unwrap();
     let original_weights = weights.clone();
 
-    let example = TrainingExample {
-        input: vec![1, 2],
-        target: vec![1, 2, 3, 4],
-        metadata: HashMap::new(),
-        weight: 1.0,
-    };
+    let example = example(vec![1, 2], vec![1, 2, 3, 4]);
     let prepared = make_prepared(&example, trainer.config.hidden_dim);
     let (output, hidden) = trainer.forward(&weights, &prepared).unwrap();
-    let target = example.target.clone();
+    let target = example.target_tokens.clone();
 
     let mut rng = ChaCha20Rng::from_seed(derive_seed(
         &B3Hash::hash(b"test_backward_only_updates_lora_weights"),
@@ -512,12 +555,7 @@ async fn test_train_with_cpu_backend_optional() {
     };
     let mut trainer = MicroLoRATrainer::new_for_test(config).unwrap();
 
-    let examples = vec![TrainingExample {
-        input: vec![1, 2],
-        target: vec![3, 4],
-        metadata: HashMap::new(),
-        weight: 1.0,
-    }];
+    let examples = vec![example(vec![1, 2], vec![3, 4])];
 
     // init_kernels should complete successfully (CPU path)
     trainer
@@ -622,12 +660,7 @@ async fn test_train_with_checkpointing() {
     let temp_dir = new_test_tempdir();
     trainer.enable_checkpointing(temp_dir.path(), "test-adapter", 3);
 
-    let examples = vec![TrainingExample {
-        input: vec![1, 2],
-        target: vec![3, 4],
-        metadata: HashMap::new(),
-        weight: 1.0,
-    }];
+    let examples = vec![example(vec![1, 2], vec![3, 4])];
 
     // Train - checkpoints should be saved each epoch
     let result = trainer.train(&examples).await;
@@ -656,7 +689,7 @@ async fn test_try_resume_from_checkpoint_no_checkpoint() {
     let trainer = MicroLoRATrainer::new_for_test(config).unwrap();
 
     // No checkpoint manager configured, should return None
-    let resume_state = trainer.try_resume_from_checkpoint().await;
+    let resume_state = trainer.try_resume_from_checkpoint().await.unwrap();
     assert!(resume_state.is_none());
 }
 
@@ -694,11 +727,79 @@ async fn test_try_resume_from_checkpoint_with_checkpoint() {
     manager.save_checkpoint(&checkpoint).await.unwrap();
 
     // Now try to resume
-    let resume_state = trainer.try_resume_from_checkpoint().await;
+    let resume_state = trainer.try_resume_from_checkpoint().await.unwrap();
     assert!(resume_state.is_some());
 
-    let (epoch, _weights, _best_loss) = resume_state.unwrap();
-    assert_eq!(epoch, 5);
+    let checkpoint = resume_state.unwrap();
+    assert_eq!(checkpoint.epoch, 5);
+}
+
+#[tokio::test]
+async fn test_try_resume_from_checkpoint_mismatched_optimizer() {
+    use crate::training::checkpoint::TrainingCheckpoint;
+
+    let checkpoint_config = TrainingConfig::default();
+    let mut resume_config = TrainingConfig::default();
+    resume_config.optimizer_config.optimizer_type = OptimizerType::Sgd;
+
+    let mut trainer = MicroLoRATrainer::new_for_test(checkpoint_config.clone()).unwrap();
+    let temp_dir = new_test_tempdir();
+    trainer.enable_checkpointing(temp_dir.path(), "test-adapter", 3);
+
+    let weights = LoRAWeights {
+        lora_a: vec![vec![1.0, 2.0]],
+        lora_b: vec![vec![3.0, 4.0]],
+        moe_config: None,
+        precomputed_delta: None,
+    };
+    let checkpoint = TrainingCheckpoint::new(5, 0, 0.5, 0.001, checkpoint_config, weights);
+
+    let manager = trainer.checkpoint_manager.as_ref().unwrap();
+    manager.save_checkpoint(&checkpoint).await.unwrap();
+
+    let mut resume_trainer = MicroLoRATrainer::new_for_test(resume_config).unwrap();
+    resume_trainer.enable_checkpointing(temp_dir.path(), "test-adapter", 3);
+
+    let resume_state = resume_trainer.try_resume_from_checkpoint().await;
+    assert!(resume_state.is_err());
+    let err = format!("{}", resume_state.unwrap_err());
+    assert!(
+        err.contains("optimizer_type"),
+        "expected optimizer_type mismatch, got: {}",
+        err
+    );
+}
+
+#[tokio::test]
+async fn test_try_resume_from_checkpoint_force_resume() {
+    use crate::training::checkpoint::TrainingCheckpoint;
+
+    let checkpoint_config = TrainingConfig::default();
+    let mut resume_config = TrainingConfig::default();
+    resume_config.optimizer_config.optimizer_type = OptimizerType::Sgd;
+
+    let mut trainer = MicroLoRATrainer::new_for_test(checkpoint_config.clone()).unwrap();
+    let temp_dir = new_test_tempdir();
+    trainer.enable_checkpointing(temp_dir.path(), "test-adapter", 3);
+
+    let weights = LoRAWeights {
+        lora_a: vec![vec![1.0, 2.0]],
+        lora_b: vec![vec![3.0, 4.0]],
+        moe_config: None,
+        precomputed_delta: None,
+    };
+    let checkpoint = TrainingCheckpoint::new(5, 0, 0.5, 0.001, checkpoint_config, weights);
+
+    let manager = trainer.checkpoint_manager.as_ref().unwrap();
+    manager.save_checkpoint(&checkpoint).await.unwrap();
+
+    let mut resume_trainer = MicroLoRATrainer::new_for_test(resume_config).unwrap();
+    resume_trainer.set_force_resume(true);
+    resume_trainer.enable_checkpointing(temp_dir.path(), "test-adapter", 3);
+
+    let resume_state = resume_trainer.try_resume_from_checkpoint().await.unwrap();
+    assert!(resume_state.is_some());
+    assert_eq!(resume_state.unwrap().epoch, 5);
 }
 
 #[tokio::test]
@@ -729,12 +830,7 @@ async fn test_adapter_only_training_updates_lora_only() {
     };
     let mut trainer = MicroLoRATrainer::new_for_test(config).unwrap();
 
-    let examples = vec![TrainingExample {
-        input: vec![1, 2, 3, 4],
-        target: vec![5, 6, 7, 8],
-        metadata: HashMap::new(),
-        weight: 1.0,
-    }];
+    let examples = vec![example(vec![1, 2, 3, 4], vec![5, 6, 7, 8])];
 
     // Snapshot initial LoRA weights and base (input-derived) hidden state.
     let initial_weights = trainer.initialize_weights_deterministic().unwrap();
@@ -814,6 +910,57 @@ fn test_should_use_gpu_backward_logic() {
     );
 }
 
+const CHILD_PROCESS_TEST_NAME: &str =
+    concat!(module_path!(), "::test_determinism_child_process");
+
+fn child_process_test_names() -> Vec<String> {
+    let with_crate = CHILD_PROCESS_TEST_NAME.to_string();
+    let crate_prefix = format!("{}::", env!("CARGO_PKG_NAME").replace('-', "_"));
+    if let Some(stripped) = with_crate.strip_prefix(&crate_prefix) {
+        vec![with_crate.clone(), stripped.to_string()]
+    } else {
+        vec![with_crate]
+    }
+}
+
+fn spawn_determinism_child(
+    model_path: &std::path::Path,
+    output_path: &std::path::Path,
+    seed: u64,
+) -> std::result::Result<(), String> {
+    let exe = std::env::current_exe()
+        .map_err(|e| format!("failed to find test binary path: {}", e))?;
+    let mut last_error = None;
+
+    for test_name in child_process_test_names() {
+        let _ = std::fs::remove_file(output_path);
+        let output = std::process::Command::new(&exe)
+            .arg("--exact")
+            .arg(&test_name)
+            .arg("--ignored")
+            .arg("--nocapture")
+            .env("AOS_TEST_MODEL_PATH", model_path)
+            .env("AOS_MODEL_PATH", model_path)
+            .env("AOS_DETERMINISM_OUTPUT", output_path)
+            .env("AOS_DETERMINISM_SEED", seed.to_string())
+            .output()
+            .map_err(|e| format!("failed to spawn child test '{}': {}", test_name, e))?;
+
+        if output.status.success() && output_path.exists() {
+            return Ok(());
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        last_error = Some(format!(
+            "child test '{}' failed (status: {})\nstdout:\n{}\nstderr:\n{}",
+            test_name, output.status, stdout, stderr
+        ));
+    }
+
+    Err(last_error.unwrap_or_else(|| "child test failed".to_string()))
+}
+
 // ========================================================================
 // GPU Training Integration Tests
 // These require MLX hardware and are ignored by default
@@ -825,31 +972,21 @@ fn test_should_use_gpu_backward_logic() {
 ///
 /// Requirements:
 /// - MLX hardware (Apple Silicon)
-/// - AOS_TEST_MODEL_PATH environment variable pointing to a valid model directory
+/// - AOS_TEST_MODEL_PATH or AOS_MODEL_PATH pointing to a valid model directory
+///   (defaults to ./var/models/<model> when present)
 ///
 /// Known limitation: Full 28-layer transformer forward pass through quantized weights
 /// has shape handling issues that need to be resolved. Currently uses test_for_test
 /// to validate the training infrastructure without full model inference.
 ///
-/// Run with: AOS_TEST_MODEL_PATH=/path/to/model cargo test -p adapteros-lora-worker test_gpu_backward_determinism -- --ignored --nocapture
+/// Run with: AOS_MODEL_PATH=./var/models/<model> cargo test -p adapteros-lora-worker test_gpu_backward_determinism -- --ignored --nocapture
 #[tokio::test]
 #[ignore] // Requires MLX hardware and test model
 async fn test_gpu_backward_determinism() {
-    use std::path::PathBuf;
-
-    // Check for test model path
-    let model_path = match std::env::var("AOS_TEST_MODEL_PATH") {
-        Ok(path) => PathBuf::from(path),
-        Err(_) => {
-            eprintln!("SKIPPED: AOS_TEST_MODEL_PATH not set. Set this env var to a valid model directory to run this test.");
-            return;
-        }
+    let model_path = match load_test_model_path_or_skip() {
+        Some(path) => path,
+        None => return,
     };
-
-    if !model_path.exists() {
-        eprintln!("SKIPPED: Model path {:?} does not exist", model_path);
-        return;
-    }
 
     // Helper to train with deterministic config and return weights + loss curve
     // Uses Qwen2.5-7B dimensions: hidden_dim=3584, vocab_size=152064
@@ -881,18 +1018,11 @@ async fn test_gpu_backward_determinism() {
         eprintln!("Trainer created, has_base_model: {}", trainer.has_base_model());
 
         let examples = vec![
-            TrainingExample {
-                input: vec![1, 2, 3, 4, 5, 6, 7, 8],
-                target: vec![2, 3, 4, 5, 6, 7, 8, 9],
-                metadata: HashMap::new(),
-                weight: 1.0,
-            },
-            TrainingExample {
-                input: vec![10, 11, 12, 13, 14, 15, 16, 17],
-                target: vec![11, 12, 13, 14, 15, 16, 17, 18],
-                metadata: HashMap::new(),
-                weight: 1.0,
-            },
+            example(vec![1, 2, 3, 4, 5, 6, 7, 8], vec![2, 3, 4, 5, 6, 7, 8, 9]),
+            example(
+                vec![10, 11, 12, 13, 14, 15, 16, 17],
+                vec![11, 12, 13, 14, 15, 16, 17, 18],
+            ),
         ];
 
         let result = trainer.train(&examples).await.map_err(|e| format!("Training failed: {}", e))?;
@@ -939,36 +1069,119 @@ async fn test_gpu_backward_determinism() {
     }
 }
 
-/// Test that GPU backward pass produces loss values equivalent to CPU backward pass.
-/// This verifies that the GPU implementation is mathematically correct by comparing
-/// against the reference CPU implementation.
+/// Test that GPU backward pass is deterministic across separate processes.
 ///
-/// Note: Due to floating-point non-associativity, bit-exact match may not be possible.
-/// This test allows a small tolerance (1e-5 relative error) for numerical differences.
+/// Spawns two isolated test processes with identical configs and compares
+/// their serialized final weights byte-for-byte.
 ///
 /// Requirements:
 /// - MLX hardware (Apple Silicon)
-/// - AOS_TEST_MODEL_PATH environment variable pointing to a valid model directory
+/// - AOS_TEST_MODEL_PATH or AOS_MODEL_PATH pointing to a valid model directory
+///   (defaults to ./var/models/<model> when present)
+#[tokio::test]
+#[ignore] // Requires MLX hardware and test model
+async fn test_determinism_across_processes() {
+    let model_path = match load_test_model_path_or_skip() {
+        Some(path) => path,
+        None => return,
+    };
+
+    let temp_dir = new_test_tempdir();
+    let weights_a = temp_dir.path().join("weights_a.json");
+    let weights_b = temp_dir.path().join("weights_b.json");
+    let seed = 12345_u64;
+
+    spawn_determinism_child(&model_path, &weights_a, seed)
+        .expect("first deterministic child process should succeed");
+    spawn_determinism_child(&model_path, &weights_b, seed)
+        .expect("second deterministic child process should succeed");
+
+    let bytes_a = std::fs::read(&weights_a).expect("read weights from first child");
+    let bytes_b = std::fs::read(&weights_b).expect("read weights from second child");
+
+    assert_eq!(
+        bytes_a, bytes_b,
+        "Serialized weights must match byte-for-byte across processes"
+    );
+}
+
+/// Child process for multi-process determinism testing.
+#[tokio::test]
+#[ignore] // Invoked by test_determinism_across_processes via --ignored
+async fn test_determinism_child_process() {
+    let model_path = match load_test_model_path_or_skip() {
+        Some(path) => path,
+        None => return,
+    };
+
+    let output_path = std::env::var("AOS_DETERMINISM_OUTPUT")
+        .map(PathBuf::from)
+        .expect("AOS_DETERMINISM_OUTPUT must be set for child determinism test");
+    let seed = std::env::var("AOS_DETERMINISM_SEED")
+        .ok()
+        .and_then(|val| val.parse::<u64>().ok())
+        .unwrap_or(12345);
+
+    let config = TrainingConfig {
+        rank: 4,
+        hidden_dim: 3584,    // Qwen2.5-7B hidden size
+        vocab_size: 152064,  // Qwen2.5-7B vocab size
+        batch_size: 1,
+        epochs: 1,
+        learning_rate: 0.01,
+        use_gpu_backward: true,
+        preferred_backend: Some(TrainingBackend::Mlx),
+        require_gpu: true,
+        base_model_path: Some(model_path),
+        determinism: Some(DeterminismConfig {
+            seed: Some(seed),
+            dataset_version_id: Some("process-test-v1".to_string()),
+            device: None,
+            backend: Some("mlx".to_string()),
+            max_steps: None,
+            subsample: None,
+        }),
+        ..Default::default()
+    };
+
+    let mut trainer = MicroLoRATrainer::new(config).expect("child trainer should initialize");
+
+    let examples = vec![
+        example(vec![1, 2, 3, 4, 5, 6, 7, 8], vec![2, 3, 4, 5, 6, 7, 8, 9]),
+        example(
+            vec![10, 11, 12, 13, 14, 15, 16, 17],
+            vec![11, 12, 13, 14, 15, 16, 17, 18],
+        ),
+    ];
+
+    let result = trainer
+        .train(&examples)
+        .await
+        .expect("child training should complete");
+
+    if let Some(parent) = output_path.parent() {
+        std::fs::create_dir_all(parent).expect("create output directory");
+    }
+    let serialized = serde_json::to_vec(&result.weights).expect("serialize weights");
+    std::fs::write(&output_path, serialized).expect("write weights to output file");
+}
+
+/// Test that the deprecated CPU backward path is rejected.
+/// This ensures there is no silent fallback from GPU cross-entropy to CPU MSE loss.
 ///
-/// Run with: AOS_TEST_MODEL_PATH=/path/to/model cargo test -p adapteros-lora-worker test_gpu_cpu_loss_equivalence -- --ignored --nocapture
+/// Requirements:
+/// - MLX hardware (Apple Silicon)
+/// - AOS_TEST_MODEL_PATH or AOS_MODEL_PATH pointing to a valid model directory
+///   (defaults to ./var/models/<model> when present)
+///
+/// Run with: AOS_MODEL_PATH=./var/models/<model> cargo test -p adapteros-lora-worker test_gpu_cpu_loss_equivalence -- --ignored --nocapture
 #[tokio::test]
 #[ignore] // Requires MLX hardware and test model
 async fn test_gpu_cpu_loss_equivalence() {
-    use std::path::PathBuf;
-
-    // Check for test model path
-    let model_path = match std::env::var("AOS_TEST_MODEL_PATH") {
-        Ok(path) => PathBuf::from(path),
-        Err(_) => {
-            eprintln!("SKIPPED: AOS_TEST_MODEL_PATH not set. Set this env var to a valid model directory to run this test.");
-            return;
-        }
+    let model_path = match load_test_model_path_or_skip() {
+        Some(path) => path,
+        None => return,
     };
-
-    if !model_path.exists() {
-        eprintln!("SKIPPED: Model path {:?} does not exist", model_path);
-        return;
-    }
 
     let determinism_config = DeterminismConfig {
         seed: Some(54321),
@@ -980,18 +1193,8 @@ async fn test_gpu_cpu_loss_equivalence() {
     };
 
     let examples = vec![
-        TrainingExample {
-            input: vec![1, 2, 3, 4],
-            target: vec![2, 3, 4, 5],
-            metadata: HashMap::new(),
-            weight: 1.0,
-        },
-        TrainingExample {
-            input: vec![10, 11, 12, 13],
-            target: vec![11, 12, 13, 14],
-            metadata: HashMap::new(),
-            weight: 1.0,
-        },
+        example(vec![1, 2, 3, 4], vec![2, 3, 4, 5]),
+        example(vec![10, 11, 12, 13], vec![11, 12, 13, 14]),
     ];
 
     // Train with GPU backward (uses real base model forward pass)
@@ -1011,10 +1214,12 @@ async fn test_gpu_cpu_loss_equivalence() {
         ..Default::default()
     };
     let mut gpu_trainer = MicroLoRATrainer::new(gpu_config).expect("GPU trainer should initialize");
-    let gpu_result = gpu_trainer.train(&examples).await.expect("GPU training should complete");
+    let _gpu_result = gpu_trainer
+        .train(&examples)
+        .await
+        .expect("GPU training should complete");
 
-    // Train with CPU backward (same determinism config)
-    // Both paths use real base model for forward pass; backward differs (GPU autograd vs CPU manual)
+    // Train with CPU backward (deprecated)
     let cpu_config = TrainingConfig {
         rank: 4,
         hidden_dim: 3584,
@@ -1031,64 +1236,9 @@ async fn test_gpu_cpu_loss_equivalence() {
     };
     // CPU backward path also needs base model for forward pass
     let mut cpu_trainer = MicroLoRATrainer::new(cpu_config).expect("CPU trainer should initialize");
-    let cpu_result = cpu_trainer.train(&examples).await.expect("CPU training should complete");
-
-    // Compare final losses with tolerance
-    let tolerance = 1e-5_f32;
-    let relative_error: f32 = if cpu_result.final_loss.abs() > 1e-10 {
-        (gpu_result.final_loss - cpu_result.final_loss).abs() / cpu_result.final_loss.abs()
-    } else {
-        (gpu_result.final_loss - cpu_result.final_loss).abs()
-    };
-
+    let cpu_result = cpu_trainer.train(&examples).await;
     assert!(
-        relative_error < tolerance,
-        "GPU and CPU final loss should be within {:.0e} relative error. \
-         GPU loss: {}, CPU loss: {}, relative error: {:.6e}",
-        tolerance,
-        gpu_result.final_loss,
-        cpu_result.final_loss,
-        relative_error
+        cpu_result.is_err(),
+        "CPU backward should be rejected to avoid deprecated loss usage"
     );
-
-    // Compare loss curves (if bit-exact determinism is achieved, these should match)
-    // If not bit-exact, at least verify they're in the same ballpark
-    assert_eq!(
-        gpu_result.loss_curve.len(),
-        cpu_result.loss_curve.len(),
-        "Loss curve lengths should match"
-    );
-
-    for (epoch, (gpu_loss, cpu_loss)) in gpu_result
-        .loss_curve
-        .iter()
-        .zip(cpu_result.loss_curve.iter())
-        .enumerate()
-    {
-        let epoch_rel_error: f32 = if cpu_loss.abs() > 1e-10 {
-            (gpu_loss - cpu_loss).abs() / cpu_loss.abs()
-        } else {
-            (gpu_loss - cpu_loss).abs()
-        };
-
-        // Allow slightly larger tolerance for intermediate epochs
-        let epoch_tolerance = tolerance * 10.0;
-        assert!(
-            epoch_rel_error < epoch_tolerance,
-            "Epoch {} loss mismatch: GPU={}, CPU={}, relative error={:.6e} (tolerance: {:.0e})",
-            epoch,
-            gpu_loss,
-            cpu_loss,
-            epoch_rel_error,
-            epoch_tolerance
-        );
-    }
-
-    // Log comparison for debugging (visible with --nocapture)
-    println!("GPU vs CPU Loss Comparison:");
-    println!("  GPU final loss: {}", gpu_result.final_loss);
-    println!("  CPU final loss: {}", cpu_result.final_loss);
-    println!("  Relative error: {:.6e}", relative_error);
-    println!("  Training backend (GPU): {:?}", gpu_result.backend);
-    println!("  Training backend (CPU): {:?}", cpu_result.backend);
 }

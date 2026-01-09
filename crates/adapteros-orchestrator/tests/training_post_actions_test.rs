@@ -188,7 +188,7 @@ fn test_e2e_training_creates_stack_without_setting_default() {
     // This test documents the expected flow but cannot run without infrastructure.
     //
     // To manually verify:
-    // 1. Start the server: make dev
+    // 1. Start the server: ./start up
     // 2. Submit a training job via the API
     // 3. Wait for completion
     // 4. Check: GET /v1/stacks - new stack should exist

@@ -873,7 +873,9 @@ adapters:
 ### 1. Determinism Self-Test
 
 ```bash
-make determinism-check
+cargo test --test determinism_core_suite -- --test-threads=8
+cargo test -p adapteros-lora-router --test determinism
+bash scripts/check_fast_math_flags.sh
 ```
 
 Runs:
@@ -931,7 +933,7 @@ ORDER BY inference_id;
 3. Confirm Q15 denominator = 32767.0
 4. Ensure no `thread_rng()` or `rand::random()` usage
 5. Verify backend consistency (same backend for both runs?)
-6. Run `make determinism-check`
+6. Run `cargo test --test determinism_core_suite -- --test-threads=8`, `cargo test -p adapteros-lora-router --test determinism`, and `bash scripts/check_fast_math_flags.sh`
 
 ### Issue: Replay Fails
 

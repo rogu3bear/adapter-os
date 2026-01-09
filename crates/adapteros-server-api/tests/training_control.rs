@@ -6,7 +6,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use adapteros_api_types::{
-    DatasetVersionSelection, StartTrainingRequest, TrainingConfigRequest, TrainingListParams,
+    workers::WorkerCapabilities, DatasetVersionSelection, StartTrainingRequest, TrainingConfigRequest,
+    TrainingListParams,
 };
 use adapteros_core::B3Hash;
 use adapteros_db::adapter_repositories::CreateRepositoryParams;
@@ -18,21 +19,33 @@ use adapteros_server_api::handlers::training::{
 };
 use adapteros_server_api::state::AppState;
 use adapteros_types::training::{BranchClassification, TrainingConfig};
-use axum::http::StatusCode;
-use axum::{extract::State, Extension, Json};
+use axum::body::Body;
+use axum::http::{Request, StatusCode};
+use axum::routing::post;
+use axum::{extract::State, Extension, Json, Router};
+use std::path::PathBuf;
 use tempfile::TempDir;
 use tokio::time::sleep;
+use tower::ServiceExt;
 
 mod common;
-use common::{create_test_dataset, test_admin_claims};
+use common::{
+    create_test_dataset, register_test_model, register_test_worker, test_admin_claims,
+    TestkitEnvGuard,
+};
 
-async fn create_test_repo(state: &AppState, tenant_id: &str, created_by: &str) -> String {
+async fn create_test_repo(
+    state: &AppState,
+    tenant_id: &str,
+    created_by: &str,
+    base_model_id: &str,
+) -> String {
     state
         .db
         .create_adapter_repository(CreateRepositoryParams {
             tenant_id,
             name: "test-repo",
-            base_model_id: None,
+            base_model_id: Some(base_model_id),
             default_branch: Some("main"),
             created_by: Some(created_by),
             description: None,
@@ -41,7 +54,7 @@ async fn create_test_repo(state: &AppState, tenant_id: &str, created_by: &str) -
         .expect("create adapter repository")
 }
 
-fn make_request(name: &str, repo_id: String) -> StartTrainingRequest {
+fn make_request(name: &str, repo_id: String, base_model_id: &str) -> StartTrainingRequest {
     let cfg = TrainingConfig::quick_training();
     StartTrainingRequest {
         adapter_name: name.to_string(),
@@ -49,6 +62,9 @@ fn make_request(name: &str, repo_id: String) -> StartTrainingRequest {
             rank: cfg.rank,
             alpha: cfg.alpha,
             targets: cfg.targets,
+            training_contract_version: cfg.training_contract_version,
+            pad_token_id: cfg.pad_token_id,
+            ignore_index: cfg.ignore_index,
             coreml_training_fallback: None,
             coreml_placement: None,
             epochs: cfg.epochs,
@@ -57,11 +73,15 @@ fn make_request(name: &str, repo_id: String) -> StartTrainingRequest {
             warmup_steps: cfg.warmup_steps,
             max_seq_length: cfg.max_seq_length,
             gradient_accumulation_steps: cfg.gradient_accumulation_steps,
+            validation_split: cfg.validation_split,
             preferred_backend: None,
             backend_policy: None,
             enable_coreml_export: None,
             require_gpu: None,
             max_gpu_memory_mb: None,
+            base_model_path: None,
+            preprocessing: None,
+            force_resume: None,
         },
         template_id: None,
         repo_id: Some(repo_id),
@@ -76,7 +96,7 @@ fn make_request(name: &str, repo_id: String) -> StartTrainingRequest {
         dataset_version_ids: None,
         synthetic_mode: true,
         data_lineage_mode: None,
-        base_model_id: None,
+        base_model_id: base_model_id.to_string(),
         collection_id: None,
         lora_tier: None,
         scope: None,
@@ -94,7 +114,7 @@ fn make_request(name: &str, repo_id: String) -> StartTrainingRequest {
     }
 }
 
-async fn setup_training_state() -> (AppState, TempDir) {
+async fn setup_training_state() -> (AppState, TempDir, String, bool) {
     std::env::set_var("AOS_ALLOW_NONDET_TRAINING", "1");
     let mut state = common::setup_state(None).await.expect("state");
     let tmp_root = std::path::PathBuf::from("var").join("tmp");
@@ -111,7 +131,39 @@ async fn setup_training_state() -> (AppState, TempDir) {
         ));
     }
 
-    (state, temp_dir)
+    let (model_path, has_real_model) = match std::env::var("AOS_TEST_MODEL_PATH") {
+        Ok(raw) => {
+            let path = PathBuf::from(raw);
+            if path.exists() {
+                (path, true)
+            } else {
+                (temp_dir.path().join("model.safetensors"), false)
+            }
+        }
+        Err(_) => (temp_dir.path().join("model.safetensors"), false),
+    };
+    if !model_path.exists() {
+        std::fs::write(&model_path, b"stub").expect("write model stub");
+    }
+    let base_model_id = register_test_model(&state, &model_path)
+        .await
+        .expect("register model");
+
+    let caps = WorkerCapabilities {
+        backend_kind: "mlx".to_string(),
+        implementation: None,
+        supports_step: true,
+        supports_bulk: false,
+        supports_logits: true,
+        supports_streaming: true,
+        gpu_backward: true,
+        multi_backend: true,
+    };
+    register_test_worker(&state, "tenant-1", caps)
+        .await
+        .expect("register worker");
+
+    (state, temp_dir, base_model_id, has_real_model)
 }
 
 async fn wait_for_terminal(state: &AppState, job_id: &str) -> TrainingJobStatus {
@@ -129,14 +181,15 @@ async fn wait_for_terminal(state: &AppState, job_id: &str) -> TrainingJobStatus 
 
 #[tokio::test]
 async fn test_training_start() {
-    let (state, _temp_dir) = setup_training_state().await;
+    let (state, _temp_dir, base_model_id, _has_real_model) = setup_training_state().await;
     let claims = test_admin_claims();
-    let repo_id = create_test_repo(&state, &claims.tenant_id, &claims.sub).await;
+    let repo_id =
+        create_test_repo(&state, &claims.tenant_id, &claims.sub, &base_model_id).await;
 
     let Json(job) = start_training(
         State(state.clone()),
         Extension(claims),
-        Json(make_request("adapter-start", repo_id)),
+        Json(make_request("adapter-start", repo_id, &base_model_id)),
     )
     .await
     .expect("start training");
@@ -146,12 +199,67 @@ async fn test_training_start() {
 }
 
 #[tokio::test]
-async fn test_training_rejects_missing_dataset_versions_when_non_synthetic() {
-    let (state, _temp_dir) = setup_training_state().await;
+async fn training_rejects_missing_base_model_id() {
+    let _env = TestkitEnvGuard::disabled().await;
+    let state = common::setup_state(None).await.expect("state");
     let claims = test_admin_claims();
-    let repo_id = create_test_repo(&state, &claims.tenant_id, &claims.sub).await;
 
-    let mut req = make_request("adapter-no-dataset", repo_id);
+    let app = Router::new()
+        .route("/v1/training/start", post(start_training))
+        .layer(Extension(claims))
+        .with_state(state);
+
+    let body = serde_json::json!({
+        "adapter_name": "adapter-missing-base",
+        "config": {
+            "rank": 4,
+            "alpha": 8,
+            "targets": ["q_proj"],
+            "epochs": 1,
+            "learning_rate": 0.01,
+            "batch_size": 1
+        },
+        "repo_id": "repo-missing-base",
+        "synthetic_mode": true
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/training/start")
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .expect("request build"),
+        )
+        .await
+        .expect("router response");
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn training_rejects_unknown_base_model_id() {
+    let (state, _temp_dir, base_model_id, _has_real_model) = setup_training_state().await;
+    let claims = test_admin_claims();
+    let repo_id =
+        create_test_repo(&state, &claims.tenant_id, &claims.sub, &base_model_id).await;
+
+    let req = make_request("adapter-missing-model", repo_id, "missing-model");
+    let result = start_training(State(state.clone()), Extension(claims), Json(req)).await;
+    let (status, _body) = result.expect_err("missing base model should be rejected");
+
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_training_rejects_missing_dataset_versions_when_non_synthetic() {
+    let (state, _temp_dir, base_model_id, _has_real_model) = setup_training_state().await;
+    let claims = test_admin_claims();
+    let repo_id =
+        create_test_repo(&state, &claims.tenant_id, &claims.sub, &base_model_id).await;
+
+    let mut req = make_request("adapter-no-dataset", repo_id, &base_model_id);
     req.synthetic_mode = false;
 
     let result = start_training(State(state.clone()), Extension(claims), Json(req)).await;
@@ -161,14 +269,19 @@ async fn test_training_rejects_missing_dataset_versions_when_non_synthetic() {
 
 #[tokio::test]
 async fn test_training_status_completes() {
-    let (state, _temp_dir) = setup_training_state().await;
+    let (state, _temp_dir, base_model_id, has_real_model) = setup_training_state().await;
+    if !has_real_model {
+        eprintln!("SKIPPED: AOS_TEST_MODEL_PATH not set; training completion requires a real model");
+        return;
+    }
     let claims = test_admin_claims();
-    let repo_id = create_test_repo(&state, &claims.tenant_id, &claims.sub).await;
+    let repo_id =
+        create_test_repo(&state, &claims.tenant_id, &claims.sub, &base_model_id).await;
 
     let Json(job) = start_training(
         State(state.clone()),
         Extension(claims),
-        Json(make_request("adapter-status", repo_id)),
+        Json(make_request("adapter-status", repo_id, &base_model_id)),
     )
     .await
     .expect("start training");
@@ -179,14 +292,15 @@ async fn test_training_status_completes() {
 
 #[tokio::test]
 async fn test_training_list_includes_started_job() {
-    let (state, _temp_dir) = setup_training_state().await;
+    let (state, _temp_dir, base_model_id, _has_real_model) = setup_training_state().await;
     let claims = test_admin_claims();
-    let repo_id = create_test_repo(&state, &claims.tenant_id, &claims.sub).await;
+    let repo_id =
+        create_test_repo(&state, &claims.tenant_id, &claims.sub, &base_model_id).await;
 
     let Json(job) = start_training(
         State(state.clone()),
         Extension(claims.clone()),
-        Json(make_request("adapter-list", repo_id)),
+        Json(make_request("adapter-list", repo_id, &base_model_id)),
     )
     .await
     .expect("start training");
@@ -207,11 +321,16 @@ async fn test_training_list_includes_started_job() {
 
 #[tokio::test]
 async fn test_training_list_exposes_required_metadata() {
-    let (state, _temp_dir) = setup_training_state().await;
+    let (state, _temp_dir, base_model_id, has_real_model) = setup_training_state().await;
+    if !has_real_model {
+        eprintln!("SKIPPED: AOS_TEST_MODEL_PATH not set; training completion requires a real model");
+        return;
+    }
     let claims = test_admin_claims();
-    let repo_id = create_test_repo(&state, &claims.tenant_id, &claims.sub).await;
+    let repo_id =
+        create_test_repo(&state, &claims.tenant_id, &claims.sub, &base_model_id).await;
 
-    let mut req = make_request("adapter-meta", repo_id.clone());
+    let mut req = make_request("adapter-meta", repo_id.clone(), &base_model_id);
     req.data_spec = Some(r#"{"mode":"synthetic","purpose":"metadata-test"}"#.to_string());
 
     let Json(job) = start_training(State(state.clone()), Extension(claims.clone()), Json(req))
@@ -262,14 +381,15 @@ async fn test_training_list_exposes_required_metadata() {
 
 #[tokio::test]
 async fn test_training_logs_return_entries() {
-    let (state, _temp_dir) = setup_training_state().await;
+    let (state, _temp_dir, base_model_id, _has_real_model) = setup_training_state().await;
     let claims = test_admin_claims();
-    let repo_id = create_test_repo(&state, &claims.tenant_id, &claims.sub).await;
+    let repo_id =
+        create_test_repo(&state, &claims.tenant_id, &claims.sub, &base_model_id).await;
 
     let Json(job) = start_training(
         State(state.clone()),
         Extension(claims.clone()),
-        Json(make_request("adapter-logs", repo_id)),
+        Json(make_request("adapter-logs", repo_id, &base_model_id)),
     )
     .await
     .expect("start training");
@@ -296,11 +416,16 @@ async fn test_training_logs_return_entries() {
 
 #[tokio::test]
 async fn test_training_cancel_transitions_job() {
-    let (state, _temp_dir) = setup_training_state().await;
+    let (state, _temp_dir, base_model_id, has_real_model) = setup_training_state().await;
+    if !has_real_model {
+        eprintln!("SKIPPED: AOS_TEST_MODEL_PATH not set; training cancel requires a real model");
+        return;
+    }
     let claims = test_admin_claims();
-    let repo_id = create_test_repo(&state, &claims.tenant_id, &claims.sub).await;
+    let repo_id =
+        create_test_repo(&state, &claims.tenant_id, &claims.sub, &base_model_id).await;
 
-    let mut req = make_request("adapter-cancel", repo_id);
+    let mut req = make_request("adapter-cancel", repo_id, &base_model_id);
     req.config.epochs = 25;
     req.config.gradient_accumulation_steps = Some(16);
 
@@ -370,9 +495,10 @@ async fn seed_dataset_version(
 
 #[tokio::test]
 async fn ui_path_computes_data_spec_hash_when_missing() {
-    let (state, _temp_dir) = setup_training_state().await;
+    let (state, _temp_dir, base_model_id, _has_real_model) = setup_training_state().await;
     let claims = test_admin_claims();
-    let repo_id = create_test_repo(&state, &claims.tenant_id, &claims.sub).await;
+    let repo_id =
+        create_test_repo(&state, &claims.tenant_id, &claims.sub, &base_model_id).await;
     let dataset_id = "ds-ui";
     let version_id = "ds-ui-ver-1";
     let manifest_hash = B3Hash::hash(b"dataset-ui-manifest").to_hex();
@@ -387,7 +513,7 @@ async fn ui_path_computes_data_spec_hash_when_missing() {
     .await
     .expect("seed dataset version");
 
-    let mut req = make_request("adapter-versioned", repo_id);
+    let mut req = make_request("adapter-versioned", repo_id, &base_model_id);
     req.synthetic_mode = false;
     req.dataset_id = Some(dataset_id.to_string());
     req.dataset_version_ids = Some(vec![DatasetVersionSelection {
@@ -409,9 +535,10 @@ async fn ui_path_computes_data_spec_hash_when_missing() {
 
 #[tokio::test]
 async fn cli_path_rejects_data_spec_hash_mismatch() {
-    let (state, _temp_dir) = setup_training_state().await;
+    let (state, _temp_dir, base_model_id, _has_real_model) = setup_training_state().await;
     let claims = test_admin_claims();
-    let repo_id = create_test_repo(&state, &claims.tenant_id, &claims.sub).await;
+    let repo_id =
+        create_test_repo(&state, &claims.tenant_id, &claims.sub, &base_model_id).await;
     let dataset_id = "ds-cli";
     let version_id = "ds-cli-ver-1";
     let manifest_hash = B3Hash::hash(b"dataset-cli-manifest").to_hex();
@@ -426,7 +553,7 @@ async fn cli_path_rejects_data_spec_hash_mismatch() {
     .await
     .expect("seed dataset version");
 
-    let mut req = make_request("adapter-cli", repo_id);
+    let mut req = make_request("adapter-cli", repo_id, &base_model_id);
     req.synthetic_mode = false;
     req.dataset_id = Some(dataset_id.to_string());
     req.dataset_version_ids = Some(vec![DatasetVersionSelection {

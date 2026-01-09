@@ -1256,7 +1256,9 @@ The following invariants must be maintained for determinism:
 
 Run determinism self-test:
 ```bash
-make determinism-check
+cargo test --test determinism_core_suite -- --test-threads=8
+cargo test -p adapteros-lora-router --test determinism
+bash scripts/check_fast_math_flags.sh
 ```
 
 See [DETERMINISM.md](DETERMINISM.md) for detailed implementation guide.

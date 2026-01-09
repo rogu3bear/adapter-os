@@ -37,8 +37,8 @@ set +a
 3. Run the server and UI:
 
 ```bash
-make dev
-make ui-dev
+./start up
+cd crates/adapteros-ui && trunk serve
 ```
 
 Endpoints:

@@ -43,6 +43,7 @@ pub struct StartTrainingRequest {
     pub adapter_name: String,
     pub description: String,
     pub training_config: serde_json::Value,
+    pub base_model_id: String,
     pub tenant_id: String,
 }
 

@@ -19,10 +19,13 @@
 //! - `multi-backend`: MLX FFI backend (research/training)
 //! - `mlx-backend`: Alias for multi-backend
 
+use adapteros_config::{reject_tmp_persistent_path, resolve_base_model_location};
 use adapteros_core::{AosError, Result};
 use adapteros_lora_kernel_api::{AdapterLookup, FusedKernels, IoBuffers, RouterRing};
+use adapteros_secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
@@ -458,6 +461,28 @@ pub struct RealBackendAdapterBackend {
     backend_name: String,
 }
 
+fn model_allowed_roots() -> Result<Vec<PathBuf>> {
+    let location = resolve_base_model_location(None, None, false)?;
+    if !location.cache_root.exists() {
+        std::fs::create_dir_all(&location.cache_root).map_err(|e| {
+            AosError::Config(format!(
+                "Failed to create model cache root {}: {}",
+                location.cache_root.display(),
+                e
+            ))
+        })?;
+    }
+    Ok(vec![location.cache_root])
+}
+
+fn canonicalize_model_path(model_path: &Path) -> Result<PathBuf> {
+    let allowed_roots = model_allowed_roots()?;
+    let canonical = canonicalize_strict_in_allowed_roots(model_path, &allowed_roots)
+        .map_err(|e| AosError::Config(format!("Model path rejected: {}", e)))?;
+    reject_tmp_persistent_path(&canonical, "model-path")?;
+    Ok(canonical)
+}
+
 impl RealBackendAdapterBackend {
     /// Create a new real backend with automatic selection (CoreML -> Metal -> MLX)
     ///
@@ -617,16 +642,29 @@ impl RealBackendAdapterBackend {
     ) -> Result<Self> {
         use adapteros_lora_mlx_ffi::{MLXFFIBackend, MLXFFIModel};
 
+        let canonical_model_path = canonicalize_model_path(Path::new(&model_path)).map_err(|e| {
+            error!(
+                requested_path = %model_path,
+                error = %e,
+                "MLX model path rejected"
+            );
+            e
+        })?;
+
         info!(
-            model_path = %model_path,
+            model_path = %canonical_model_path.display(),
             adapters_count = adapter_names.len(),
             vocab_size = vocab_size,
             "Initializing RealBackendAdapterBackend with MLX backend"
         );
 
         // Load the model
-        let model = MLXFFIModel::load(&model_path).map_err(|e| {
-            error!(error = %e, model_path = %model_path, "Failed to load MLX model");
+        let model = MLXFFIModel::load(&canonical_model_path).map_err(|e| {
+            error!(
+                error = %e,
+                model_path = %canonical_model_path.display(),
+                "Failed to load MLX model"
+            );
             AosError::Kernel(format!("MLX model load failed: {}", e))
         })?;
 

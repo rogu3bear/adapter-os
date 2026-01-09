@@ -26,6 +26,7 @@
 #include <mlx/ops.h>
 #include <mlx/array.h>
 #include <mlx/random.h>
+#include <mlx/version.h>
 #include <mlx/io.h>
 #include <mlx/fast.h>
 #include <mlx/backend/metal/metal.h>
@@ -1502,7 +1503,12 @@ extern "C" int mlx_backend_info(mlx_backend_capabilities_t* capabilities) {
         }
 
         // Version strings
-        std::strncpy(capabilities->mlx_version, "0.16.0", sizeof(capabilities->mlx_version) - 1);
+        const char* mlx_version = mx::version();
+        if (mlx_version && mlx_version[0] != '\0') {
+            std::strncpy(capabilities->mlx_version, mlx_version, sizeof(capabilities->mlx_version) - 1);
+        } else {
+            std::strncpy(capabilities->mlx_version, "unknown", sizeof(capabilities->mlx_version) - 1);
+        }
         std::strncpy(capabilities->metal_version, "3.0", sizeof(capabilities->metal_version) - 1);
 
         return 0;
@@ -1513,8 +1519,8 @@ extern "C" int mlx_backend_info(mlx_backend_capabilities_t* capabilities) {
 }
 
 extern "C" const char* mlx_get_version(void) {
-    static const char* version = "0.16.0";
-    return version;
+    const char* version = mx::version();
+    return version && version[0] != '\0' ? version : "unknown";
 }
 
 // ============================================================================
@@ -1905,6 +1911,7 @@ extern "C" int mlx_lora_backward(
     mlx_array_t* lora_b,
     float alpha,
     int rank,
+    uint64_t seed,
     float* out_loss,
     mlx_array_t** out_grad_a,
     mlx_array_t** out_grad_b
@@ -1919,6 +1926,11 @@ extern "C" int mlx_lora_backward(
         auto targets_w = reinterpret_cast<MLXArrayWrapper*>(targets);
         auto lora_a_w = reinterpret_cast<MLXArrayWrapper*>(lora_a);
         auto lora_b_w = reinterpret_cast<MLXArrayWrapper*>(lora_b);
+
+        // Seed MLX RNG for deterministic stochastic ops (dropout/sampling).
+        // MLX does not expose a deterministic reduction mode; parallel reduction
+        // ordering can still introduce FP non-associativity across runs.
+        mx::random::seed(seed);
 
         // Capture arrays for closure
         mx::array h = hidden_w->arr;
@@ -1980,6 +1992,7 @@ extern "C" int mlx_lora_backward_ce(
     float alpha,
     int rank,
     int ignore_index,
+    uint64_t seed,
     float* out_loss,
     mlx_array_t** out_grad_a,
     mlx_array_t** out_grad_b
@@ -1995,6 +2008,11 @@ extern "C" int mlx_lora_backward_ce(
         auto targets_w = reinterpret_cast<MLXArrayWrapper*>(targets);
         auto lora_a_w = reinterpret_cast<MLXArrayWrapper*>(lora_a);
         auto lora_b_w = reinterpret_cast<MLXArrayWrapper*>(lora_b);
+
+        // Seed MLX RNG for deterministic stochastic ops (dropout/sampling).
+        // MLX does not expose a deterministic reduction mode; parallel reduction
+        // ordering can still introduce FP non-associativity across runs.
+        mx::random::seed(seed);
 
         // Capture arrays for closure
         mx::array h = hidden_w->arr;           // [batch, seq_len, hidden_dim] or [seq_len, hidden_dim]

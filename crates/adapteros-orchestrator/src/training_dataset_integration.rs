@@ -7,16 +7,22 @@
 //! 4. Create training dataset record in database
 //! 5. Link dataset to training jobs
 
+use adapteros_config::resolve_tokenizer_path;
 use adapteros_core::{AosError, Result};
 use adapteros_db::Db;
 use adapteros_ingest_docs::{
     default_ingest_options, generate_training_data, load_tokenizer, DocumentIngestor,
     TrainingExample as IngestTrainingExample, TrainingGenConfig, TrainingStrategy,
 };
+use adapteros_lora_worker::tokenizer::QwenTokenizer;
 use adapteros_lora_worker::training::TrainingExample as WorkerTrainingExample;
+use adapteros_types::training::{provenance_from_map, ExampleMetadataV1};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use tracing::{debug, info};
@@ -207,7 +213,7 @@ impl TrainingDatasetManager {
             let tokens_count: usize = training_data
                 .examples
                 .iter()
-                .map(|ex| ex.input.len() + ex.target.len())
+                .map(|ex| ex.input_tokens.len() + ex.target_tokens.len())
                 .sum();
 
             info!(
@@ -232,13 +238,13 @@ impl TrainingDatasetManager {
         // Calculate statistics
         let total_tokens: usize = all_examples
             .iter()
-            .map(|ex| ex.input.len() + ex.target.len())
+            .map(|ex| ex.input_tokens.len() + ex.target_tokens.len())
             .sum();
 
-        let avg_input_length = all_examples.iter().map(|ex| ex.input.len()).sum::<usize>() as f64
+        let avg_input_length = all_examples.iter().map(|ex| ex.input_tokens.len()).sum::<usize>() as f64
             / all_examples.len() as f64;
 
-        let avg_target_length = all_examples.iter().map(|ex| ex.target.len()).sum::<usize>() as f64
+        let avg_target_length = all_examples.iter().map(|ex| ex.target_tokens.len()).sum::<usize>() as f64
             / all_examples.len() as f64;
 
         // Create storage directory if it doesn't exist
@@ -362,15 +368,8 @@ impl TrainingDatasetManager {
         let mut file = File::create(path).await?;
 
         for example in examples {
-            // Convert to worker format
-            let worker_example = WorkerTrainingExample {
-                input: example.input.clone(),
-                target: example.target.clone(),
-                metadata: example.metadata.clone().unwrap_or_default(),
-                weight: 1.0, // Default weight for examples from ingest-docs
-            };
-
-            let json = serde_json::to_string(&worker_example)?;
+            // TrainingExample and WorkerTrainingExample are now the same type (TrainingExampleV1)
+            let json = serde_json::to_string(&example)?;
             file.write_all(json.as_bytes()).await?;
             file.write_all(b"\n").await?;
         }
@@ -391,12 +390,19 @@ impl TrainingDatasetManager {
         let content = tokio::fs::read_to_string(path).await?;
 
         let mut examples = Vec::new();
+        let mut tokenizer: Option<QwenTokenizer> = None;
         for (line_num, line) in content.lines().enumerate() {
-            if line.trim().is_empty() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
                 continue;
             }
 
-            let example: WorkerTrainingExample = serde_json::from_str(line).map_err(|e| {
+            if let Ok(example) = serde_json::from_str::<WorkerTrainingExample>(trimmed) {
+                examples.push(example);
+                continue;
+            }
+
+            let value: Value = serde_json::from_str(trimmed).map_err(|e| {
                 AosError::Internal(format!(
                     "Failed to parse line {} in {}: {}",
                     line_num + 1,
@@ -405,7 +411,112 @@ impl TrainingDatasetManager {
                 ))
             })?;
 
-            examples.push(example);
+            let obj = value.as_object().ok_or_else(|| {
+                AosError::Internal(format!(
+                    "Failed to parse line {} in {}: expected JSON object",
+                    line_num + 1,
+                    path.display()
+                ))
+            })?;
+
+            let prompt = obj
+                .get("prompt")
+                .or_else(|| obj.get("input"))
+                .or_else(|| obj.get("text"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+
+            let response = obj
+                .get("response")
+                .or_else(|| obj.get("output"))
+                .or_else(|| obj.get("completion"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+
+            if prompt.trim().is_empty() {
+                return Err(AosError::Internal(format!(
+                    "Failed to parse line {} in {}: prompt is empty",
+                    line_num + 1,
+                    path.display()
+                )));
+            }
+
+            let response = if response.trim().is_empty() {
+                prompt
+            } else {
+                response
+            };
+
+            if tokenizer.is_none() {
+                tokenizer = Some(self.load_text_tokenizer()?);
+            }
+            let tokenizer_ref = tokenizer.as_ref().ok_or_else(|| {
+                AosError::Internal("Failed to initialize tokenizer".to_string())
+            })?;
+
+            let input = tokenizer_ref.encode(prompt)?;
+            let target = tokenizer_ref.encode(response)?;
+            let pad_token_id = tokenizer_ref.pad_token_id().ok_or_else(|| {
+                AosError::Internal("Tokenizer missing pad_token_id".to_string())
+            })?;
+
+            if input.is_empty() || target.is_empty() {
+                return Err(AosError::Internal(format!(
+                    "Failed to parse line {} in {}: empty token sequence",
+                    line_num + 1,
+                    path.display()
+                )));
+            }
+
+            let weight = obj
+                .get("weight")
+                .and_then(|v| v.as_f64())
+                .map(|v| v as f32)
+                .unwrap_or(1.0);
+
+            let source_str = path.display().to_string();
+            let mut provenance = BTreeMap::new();
+            provenance.insert(
+                "source_path".to_string(),
+                serde_json::Value::String(source_str.clone()),
+            );
+            if let Some(num) = serde_json::Number::from_f64(weight as f64) {
+                provenance.insert("weight".to_string(), serde_json::Value::Number(num));
+            } else {
+                provenance.insert(
+                    "weight".to_string(),
+                    serde_json::Value::String(weight.to_string()),
+                );
+            }
+            if let Some(metadata_obj) = obj.get("metadata").and_then(|v| v.as_object()) {
+                for (key, value) in metadata_obj {
+                    let flat_value = flatten_metadata_value(value);
+                    if !flat_value.is_empty() {
+                        provenance.insert(
+                            key.clone(),
+                            serde_json::Value::String(flat_value),
+                        );
+                    }
+                }
+            }
+            let provenance = provenance_from_map(&provenance).map_err(|e| {
+                AosError::Internal(format!("Failed to serialize metadata: {}", e))
+            })?;
+            let created_at = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            let metadata =
+                ExampleMetadataV1::new(source_str, line_num as u64, provenance, created_at);
+            let attention_mask =
+                WorkerTrainingExample::attention_mask_from_tokens(&input, pad_token_id);
+
+            examples.push(WorkerTrainingExample::new(
+                input,
+                target,
+                attention_mask,
+                metadata,
+            ));
         }
 
         Ok(examples)
@@ -416,6 +527,30 @@ impl TrainingDatasetManager {
         let bytes = tokio::fs::read(path).await?;
         let hash = blake3::hash(&bytes);
         Ok(hash.to_hex().to_string())
+    }
+
+    fn load_text_tokenizer(&self) -> Result<QwenTokenizer> {
+        let tokenizer_path = match self.tokenizer_path.as_ref() {
+            Some(path) => path.clone(),
+            None => resolve_tokenizer_path(None)?,
+        };
+        QwenTokenizer::from_file(tokenizer_path)
+    }
+}
+
+fn flatten_metadata_value(value: &Value) -> String {
+    match value {
+        Value::Null => String::new(),
+        Value::Bool(b) => b.to_string(),
+        Value::Number(n) => n.to_string(),
+        Value::String(s) => s.clone(),
+        Value::Array(arr) => arr
+            .iter()
+            .map(flatten_metadata_value)
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join(","),
+        Value::Object(_) => serde_json::to_string(value).unwrap_or_default(),
     }
 }
 
@@ -432,6 +567,13 @@ mod tests {
         let root = PlatformUtils::temp_dir();
         std::fs::create_dir_all(&root).expect("create var/tmp");
         TempDir::new_in(&root).expect("tempdir")
+    }
+
+    fn make_example(input_tokens: Vec<u32>, target_tokens: Vec<u32>, row_id: u64) -> WorkerTrainingExample {
+        let metadata = ExampleMetadataV1::new("test", row_id, "{}", 0);
+        let attention_mask =
+            WorkerTrainingExample::attention_mask_from_tokens(&input_tokens, 0);
+        WorkerTrainingExample::new(input_tokens, target_tokens, attention_mask, metadata)
     }
 
     /// Minimal in-memory DB for dataset validation gates (no global migrations)
@@ -502,19 +644,8 @@ mod tests {
 
         // Create test examples
         let examples = vec![
-            IngestTrainingExample {
-                input: vec![1, 2, 3],
-                target: vec![4, 5, 6],
-                metadata: Some(std::collections::HashMap::from([(
-                    "source".to_string(),
-                    "test".to_string(),
-                )])),
-            },
-            IngestTrainingExample {
-                input: vec![7, 8, 9],
-                target: vec![10, 11, 12],
-                metadata: None,
-            },
+            make_example(vec![1, 2, 3], vec![4, 5, 6], 1),
+            make_example(vec![7, 8, 9], vec![10, 11, 12], 2),
         ];
 
         // Save examples
@@ -530,10 +661,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(loaded.len(), 2);
-        assert_eq!(loaded[0].input, vec![1, 2, 3]);
-        assert_eq!(loaded[0].target, vec![4, 5, 6]);
-        assert_eq!(loaded[1].input, vec![7, 8, 9]);
-        assert_eq!(loaded[1].target, vec![10, 11, 12]);
+        assert_eq!(loaded[0].input_tokens, vec![1, 2, 3]);
+        assert_eq!(loaded[0].target_tokens, vec![4, 5, 6]);
+        assert_eq!(loaded[1].input_tokens, vec![7, 8, 9]);
+        assert_eq!(loaded[1].target_tokens, vec![10, 11, 12]);
     }
 
     #[tokio::test]
@@ -542,7 +673,8 @@ mod tests {
         let dataset_path = temp_dir.path().join("dataset.jsonl");
 
         // Prepare on-disk dataset file with a single training example
-        let example_json = r#"{"input":[1,2],"target":[3,4],"metadata":{},"weight":1.0}"#;
+        let example_json =
+            serde_json::to_string(&make_example(vec![1, 2], vec![3, 4], 1)).unwrap();
         tokio::fs::write(&dataset_path, format!("{}\n", example_json))
             .await
             .unwrap();
@@ -584,8 +716,8 @@ mod tests {
             .expect("valid dataset should load");
 
         assert_eq!(examples.len(), 1);
-        assert_eq!(examples[0].input, vec![1, 2]);
-        assert_eq!(examples[0].target, vec![3, 4]);
+        assert_eq!(examples[0].input_tokens, vec![1, 2]);
+        assert_eq!(examples[0].target_tokens, vec![3, 4]);
     }
 
     #[tokio::test]
@@ -593,12 +725,10 @@ mod tests {
         let temp_dir = new_test_tempdir();
         let dataset_path = temp_dir.path().join("dataset.jsonl");
 
-        tokio::fs::write(
-            &dataset_path,
-            "{\"input\":[1],\"target\":[2],\"metadata\":{},\"weight\":1.0}\n",
-        )
-        .await
-        .unwrap();
+        let example_json = serde_json::to_string(&make_example(vec![1], vec![2], 1)).unwrap();
+        tokio::fs::write(&dataset_path, format!("{}\n", example_json))
+            .await
+            .unwrap();
 
         let db = minimal_dataset_db().await;
         let manager = TrainingDatasetManager::new(db.clone(), temp_dir.path().to_path_buf(), None);

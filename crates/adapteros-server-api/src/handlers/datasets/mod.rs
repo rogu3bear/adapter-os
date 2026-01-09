@@ -45,7 +45,10 @@ pub use self::tenant::bind_dataset_to_tenant;
 pub use types::*;
 
 // Re-export helper functions that may be needed externally
-pub use helpers::{map_validation_errors, map_validation_status, STREAM_BUFFER_SIZE};
+pub use helpers::{
+    dataset_quota_limits, map_validation_errors, map_validation_status, quota_error,
+    MAX_FILE_COUNT, MAX_FILE_SIZE, MAX_TOTAL_SIZE, STREAM_BUFFER_SIZE,
+};
 
 // Re-export all handler functions
 pub use chunked_handlers::{

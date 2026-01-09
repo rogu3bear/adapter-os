@@ -12,6 +12,7 @@
 #![allow(clippy::too_many_arguments)]
 
 use adapteros_core::{AosError, B3Hash, Result};
+use adapteros_secure_fs::path_policy::canonicalize_strict;
 use std::path::{Path, PathBuf};
 
 // Pure Rust mlx-rs array abstraction (experimental fallback)
@@ -48,6 +49,8 @@ pub mod adapter_cache;
 
 // Mock module for testing - always available since integration tests need it
 pub mod mock;
+
+include!(concat!(env!("OUT_DIR"), "/mlx_build_info.rs"));
 
 pub use adapter_cache::{AdapterCacheStats, MLXAdapterCache, MLXAdapterCacheConfig};
 pub use array::{Dtype, MlxArray};
@@ -738,12 +741,18 @@ impl MLXFFIModel {
     ) -> Result<Self> {
         let model_path = model_path.as_ref();
 
-        if !model_path.exists() {
-            return Err(AosError::Config(format!(
-                "MLX model path '{}' does not exist. Set AOS_MODEL_PATH to a valid MLX model directory.",
-                model_path.display()
-            )));
-        }
+        // Canonicalize path to prevent directory traversal and resolve symlinks.
+        // This normalizes ../.. sequences and converts relative paths to absolute.
+        // Fails if path doesn't exist (defense in depth).
+        let model_path = canonicalize_strict(model_path).map_err(|e| {
+            AosError::Config(format!(
+                "Failed to canonicalize model path '{}': {}. \
+                 Ensure the path exists and is accessible.",
+                model_path.display(),
+                e
+            ))
+        })?;
+        let model_path = model_path.as_path();
 
         if !model_path.is_dir() {
             return Err(AosError::Config(format!(
@@ -2079,6 +2088,7 @@ fn mlx_runtime_init_internal_ffi(device: Option<MlxDeviceType>) -> Result<()> {
             None => tracing::info!("MLX runtime initialized successfully"),
             Some(dev) => tracing::info!(?dev, "MLX runtime initialized with specific device"),
         }
+        log_mlx_runtime_version_mismatch();
         Ok(())
     } else {
         let error = ffi_error::get_ffi_error_or("Unknown initialization error");
@@ -2089,6 +2099,38 @@ fn mlx_runtime_init_internal_ffi(device: Option<MlxDeviceType>) -> Result<()> {
                 .unwrap_or_default(),
             error
         )))
+    }
+}
+
+fn log_mlx_runtime_version_mismatch() {
+    if MLX_BUILD_VERSION == "unknown" || MLX_BUILD_VERSION == "stub" {
+        return;
+    }
+
+    // Runtime library hashing is not reliable across install layouts; compare version strings.
+    let runtime_version = unsafe {
+        let version_ptr = mlx_get_version();
+        if version_ptr.is_null() {
+            "unknown".to_string()
+        } else {
+            std::ffi::CStr::from_ptr(version_ptr)
+                .to_string_lossy()
+                .to_string()
+        }
+    };
+
+    if runtime_version == "unknown" {
+        return;
+    }
+
+    if runtime_version != MLX_BUILD_VERSION {
+        tracing::warn!(
+            build_version = MLX_BUILD_VERSION,
+            runtime_version,
+            build_hash = MLX_BUILD_HASH,
+            build_hash_source = MLX_BUILD_HASH_SOURCE,
+            "MLX runtime version differs from build-time headers; results may drift across runs"
+        );
     }
 }
 

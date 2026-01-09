@@ -123,7 +123,11 @@ cd adapter-os
 direnv allow  # Load .env + .env.local
 
 # 2. Build the project
-make build
+./scripts/fresh-build.sh
+cargo build --release --locked --offline
+./scripts/build_metadata.sh
+./scripts/record_env.sh
+./scripts/strip_timestamps.sh
 
 # 3. Run migrations
 cargo sqlx migrate run
@@ -477,7 +481,7 @@ When adding or updating documentation:
 3. Use clear headings and code examples
 4. Update API documentation when changing interfaces
 5. Keep the quick start guide current
-6. Run `make check` before committing
+6. Run `bash scripts/test/all.sh all`, then `cargo test --test determinism_core_suite -- --test-threads=8`, `cargo test -p adapteros-lora-router --test determinism`, `bash scripts/check_fast_math_flags.sh`, and `cargo run -p xtask -- sbom` + `git diff --exit-code sbom/cargo-sbom.json` before committing
 
 See [CONTRIBUTING.md](../CONTRIBUTING.md) in the project root for general contribution guidelines.
 

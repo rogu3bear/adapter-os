@@ -43,11 +43,11 @@ The AdapterOS Menu Bar App provides real-time monitoring and management of Adapt
 ## Installation
 1. Build the app:
    ```
-   make menu-bar
+   cd menu-bar-app && swift build -c release
    ```
 2. Install to `/usr/local/bin`:
    ```
-   make menu-bar-install
+   cd menu-bar-app && swift build -c release && cp .build/release/AdapterOSMenu /usr/local/bin/aos-menu
    ```
 3. Run:
    ```
@@ -65,7 +65,7 @@ The AdapterOS Menu Bar App provides real-time monitoring and management of Adapt
 - **API Calls**: Manages services via supervisor endpoints (`/api/services/start`, `/api/services/essential/start`, etc.). Models via main server `/v1/models/:id/unload`.
 - **Auth**: Basic auth with Keychain-cached tokens (1h TTL). Requires shared secret.
 - **Error Handling**: Circuit breaker (5 failures → 60s cooldown), retries (3x exponential backoff), JSON validation.
-- **Testing**: `make test-menu-bar-integration` creates sample JSON and verifies build/parsing.
+- **Testing**: `cd menu-bar-app && swift test --filter IntegrationTests` creates sample JSON and verifies build/parsing.
 
 ## Troubleshooting
 - If offline: Check server status, file permissions on `/var/run/adapteros_status.json`.
@@ -165,7 +165,6 @@ Dual-licensed under Apache 2.0 or MIT.
 [source: menu-bar-app/Sources/AdapterOSMenu/AdapterOSMenuApp.swift L1-L20]
 [source: menu-bar-app/Sources/AdapterOSMenu/Services/StatusReader.swift L1-L50]
 [source: menu-bar-app/Sources/AdapterOSMenu/Views/StatusMenuView.swift L1-L100]
-
 
 
 

@@ -34,12 +34,7 @@ fn test_dataset_generator_creates_pairs() {
 #[test]
 fn test_dataset_validation() {
     let gen = DatasetGenerator::default();
-    let examples = vec![TrainingExample {
-        input: vec![1, 2, 3],
-        target: vec![4, 5, 6],
-        metadata: HashMap::new(),
-        weight: 1.0,
-    }];
+    let examples = vec![TrainingExample::new(vec![1, 2, 3], vec![4, 5, 6])];
 
     assert!(gen.validate_examples(&examples).is_ok());
 }
@@ -75,18 +70,8 @@ async fn test_training_loop_small_dataset() {
 
     let trainer = MicroLoRATrainer::new(config);
     let examples = vec![
-        TrainingExample {
-            input: vec![1, 2, 3],
-            target: vec![4, 5, 6],
-            metadata: HashMap::new(),
-            weight: 1.0,
-        },
-        TrainingExample {
-            input: vec![7, 8, 9],
-            target: vec![10, 11, 12],
-            metadata: HashMap::new(),
-            weight: 1.0,
-        },
+        TrainingExample::new(vec![1, 2, 3], vec![4, 5, 6]),
+        TrainingExample::new(vec![7, 8, 9], vec![10, 11, 12]),
     ];
 
     let result = trainer.train(&examples).await;
@@ -165,12 +150,7 @@ async fn test_end_to_end_training_and_quantization() {
     };
 
     let mut trainer = MicroLoRATrainer::new(config).unwrap();
-    let examples = vec![TrainingExample {
-        input: vec![1, 2, 3],
-        target: vec![4, 5, 6],
-        metadata: HashMap::new(),
-        weight: 1.0,
-    }];
+    let examples = vec![TrainingExample::new(vec![1, 2, 3], vec![4, 5, 6])];
 
     // Train
     let result = trainer.train(&examples).await.unwrap();
@@ -203,12 +183,13 @@ async fn test_training_performance_benchmark() {
     // Generate 100 examples
     let mut examples = Vec::new();
     for i in 0..100 {
-        examples.push(TrainingExample {
-            input: vec![i as u32; 50],
-            target: vec![i as u32 + 1; 50],
-            metadata: HashMap::new(),
-            weight: 1.0,
-        });
+        examples.push(TrainingExample::with_metadata(
+            vec![i as u32; 50],
+            vec![i as u32 + 1; 50],
+            None,
+            HashMap::new(),
+            1.0,
+        ));
     }
 
     let start = Instant::now();

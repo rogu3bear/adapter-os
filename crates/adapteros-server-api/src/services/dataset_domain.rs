@@ -460,6 +460,7 @@ impl DatasetDomainService {
         DatasetManifest {
             dataset_id: dataset_id.to_string(),
             dataset_version_id: dataset_version_id.to_string(),
+            training_contract_version: adapteros_types::training::TRAINING_DATA_CONTRACT_VERSION.to_string(),
             hash_b3: hash_b3.to_string(),
             total_rows: kept,
             dropped_rows: dropped,
@@ -648,6 +649,15 @@ impl DatasetDomain for DatasetDomainService {
         {
             let manifest: DatasetManifest = serde_json::from_str(&manifest_json)
                 .map_err(|e| AosError::Internal(format!("Failed to parse manifest json: {}", e)))?;
+            if manifest.training_contract_version
+                != adapteros_types::training::TRAINING_DATA_CONTRACT_VERSION
+            {
+                return Err(AosError::Validation(format!(
+                    "Dataset manifest training contract version mismatch: expected {}, got {}",
+                    adapteros_types::training::TRAINING_DATA_CONTRACT_VERSION,
+                    manifest.training_contract_version
+                )));
+            }
             return Ok(Some(manifest));
         }
 
@@ -657,6 +667,15 @@ impl DatasetDomain for DatasetDomainService {
             })?;
             let manifest: DatasetManifest = serde_json::from_str(&content)
                 .map_err(|e| AosError::Internal(format!("Failed to parse manifest json: {}", e)))?;
+            if manifest.training_contract_version
+                != adapteros_types::training::TRAINING_DATA_CONTRACT_VERSION
+            {
+                return Err(AosError::Validation(format!(
+                    "Dataset manifest training contract version mismatch: expected {}, got {}",
+                    adapteros_types::training::TRAINING_DATA_CONTRACT_VERSION,
+                    manifest.training_contract_version
+                )));
+            }
             return Ok(Some(manifest));
         }
 

@@ -74,10 +74,10 @@ OpenAPI specs are still generated for external documentation and potential futur
 
 ```bash
 # Generate OpenAPI documentation
-make openapi-docs
+cargo xtask openapi-docs
 
 # Validate OpenAPI spec
-make validate-openapi
+./scripts/validate_openapi_docs.sh
 ```
 
 The OpenAPI spec is generated from utoipa annotations in `adapteros-server-api` and stored at `docs/api/openapi.json`.
@@ -141,10 +141,10 @@ cd crates/adapteros-ui && trunk build --release
 
 ```bash
 # Full test suite (includes Leptos UI tests)
-make test
+bash scripts/test/all.sh all
 
 # Leptos UI tests only
-make test-ui
+bash scripts/test/all.sh ui
 
 # Check WASM target compiles
 cargo check -p adapteros-ui --target wasm32-unknown-unknown

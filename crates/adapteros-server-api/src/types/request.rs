@@ -492,6 +492,9 @@ pub fn training_config_from_request(
         rank: req.rank,
         alpha: req.alpha,
         targets: req.targets,
+        training_contract_version: req.training_contract_version,
+        pad_token_id: req.pad_token_id,
+        ignore_index: req.ignore_index,
         coreml_placement: req.coreml_placement,
         epochs: req.epochs,
         learning_rate: req.learning_rate,
@@ -513,16 +516,18 @@ pub fn training_config_from_request(
         enable_coreml_export: req.enable_coreml_export,
         require_gpu: req.require_gpu.unwrap_or(false),
         max_gpu_memory_mb: req.max_gpu_memory_mb,
-        base_model_path: None,
+        base_model_path: req.base_model_path.clone(),
         hidden_state_layer: None,
-        validation_split: None,
+        validation_split: req.validation_split,
+        preprocessing: req.preprocessing,
+        force_resume: req.force_resume.unwrap_or(false),
     }
 }
 
 #[cfg(test)]
 mod training_config_tests {
     use super::*;
-    use adapteros_types::training::TrainingBackendKind;
+    use adapteros_types::training::{TrainingBackendKind, TRAINING_DATA_CONTRACT_VERSION};
 
     #[test]
     fn training_config_from_request_preserves_coreml_intent_and_fallback() {
@@ -530,6 +535,9 @@ mod training_config_tests {
             rank: 4,
             alpha: 8,
             targets: vec!["q_proj".to_string()],
+            training_contract_version: TRAINING_DATA_CONTRACT_VERSION.to_string(),
+            pad_token_id: 0,
+            ignore_index: 0,
             coreml_placement: None,
             epochs: 1,
             learning_rate: 0.001,
@@ -537,12 +545,16 @@ mod training_config_tests {
             warmup_steps: None,
             max_seq_length: None,
             gradient_accumulation_steps: None,
+            validation_split: None,
             preferred_backend: Some(TrainingBackendKind::CoreML),
             backend_policy: None,
             coreml_training_fallback: Some(TrainingBackendKind::Mlx),
             enable_coreml_export: None,
             require_gpu: Some(false),
             max_gpu_memory_mb: None,
+            base_model_path: None,
+            preprocessing: None,
+            force_resume: None,
         };
 
         let cfg = training_config_from_request(req);

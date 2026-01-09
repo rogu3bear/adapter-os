@@ -1294,7 +1294,7 @@ Warning: MLX bridge restart count exceeded (3)
 ### Performance Expectations
 
 - Target: MLX within 20% of Metal baseline for inference; better on training-heavy paths
-- Use `make bench-mlx` and compare to CoreML/Metal runs; watch `latency_ms` and tokens/sec
+- Use `cargo bench -p adapteros-lora-mlx-ffi --features multi-backend,mlx` and compare to CoreML/Metal runs; watch `latency_ms` and tokens/sec
 
 ### Backend Comparison
 

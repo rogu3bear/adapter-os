@@ -459,6 +459,19 @@ pub fn validate_path_within_bases(
     )))
 }
 
+/// Resolve a path within allowed base directories using strict canonicalization.
+///
+/// This function:
+/// - Rejects traversal patterns (../, URL-encoded, etc.)
+/// - Canonicalizes the full path (must exist)
+/// - Validates it stays within allowed bases after canonicalization
+pub fn resolve_path_within_allowed_roots<P: AsRef<Path>, B: AsRef<Path>>(
+    path: P,
+    allowed_bases: &[B],
+) -> Result<PathBuf> {
+    crate::path_policy::canonicalize_strict_in_allowed_roots(path, allowed_bases)
+}
+
 /// Safe file existence check with path validation
 pub fn safe_file_exists(
     path: impl AsRef<Path>,
@@ -807,6 +820,52 @@ mod tests {
         let outside_file = outside_dir.path().join("outside.txt");
         std::fs::write(&outside_file, "test")?;
         assert!(!is_path_within_base(&outside_file, base)?);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_resolve_path_within_allowed_roots() -> Result<()> {
+        let root = test_temp_root()?;
+        let temp_dir = TempDir::new_in(&root)?;
+        let base = temp_dir.path().join("datasets");
+        std::fs::create_dir_all(&base)?;
+
+        let nested = base.join("tenant").join("file.txt");
+        std::fs::create_dir_all(nested.parent().unwrap())?;
+        std::fs::write(&nested, "ok")?;
+
+        let resolved = resolve_path_within_allowed_roots(&nested, &[&base])?;
+        assert!(resolved.starts_with(&base.canonicalize()?));
+
+        let outside = temp_dir.path().join("outside.txt");
+        std::fs::write(&outside, "nope")?;
+        assert!(resolve_path_within_allowed_roots(&outside, &[&base]).is_err());
+
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_resolve_path_blocks_symlink_escape() -> Result<()> {
+        use std::os::unix::fs::symlink;
+
+        let root = test_temp_root()?;
+        let temp_dir = TempDir::new_in(&root)?;
+        let base = temp_dir.path().join("datasets");
+        let outside_dir = temp_dir.path().join("outside");
+
+        std::fs::create_dir_all(&base)?;
+        std::fs::create_dir_all(&outside_dir)?;
+
+        let escape = base.join("escape");
+        symlink(&outside_dir, &escape)?;
+
+        let escaped_file = escape.join("secret.txt");
+        std::fs::write(&outside_dir.join("secret.txt"), "secret")?;
+
+        let result = resolve_path_within_allowed_roots(&escaped_file, &[&base]);
+        assert!(result.is_err(), "Symlink escape should be rejected");
 
         Ok(())
     }

@@ -203,10 +203,9 @@ build_project() {
     cargo build --release --workspace --exclude adapteros-fuzz $build_features 2>&1 | tail -5
 
     # Build CLI with TUI
-    if [ -f "${REPO_ROOT}/Makefile" ]; then
-        log_step "Building CLI..."
-        make cli 2>&1 | tail -3
-    fi
+    log_step "Building CLI..."
+    cargo build --release -p adapteros-cli --features tui 2>&1 | tail -5
+    ln -sf target/release/aosctl ./aosctl
 
     # Build UI if pnpm available
     if command -v pnpm &>/dev/null && [ -d "${REPO_ROOT}/ui" ]; then

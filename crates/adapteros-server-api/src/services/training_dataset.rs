@@ -10,14 +10,17 @@ use crate::error_helpers::payload_too_large;
 use crate::error_helpers::{bad_request, db_error, internal_error, not_found};
 use crate::handlers::chunked_upload::FileValidator;
 use crate::handlers::datasets::{
-    bind_dataset_to_tenant, clean_dataset_dir, ensure_dirs, hash_file, map_validation_errors,
-    map_validation_status, resolve_dataset_root, DatasetPaths, STREAM_BUFFER_SIZE,
+    bind_dataset_to_tenant, clean_dataset_dir, dataset_quota_limits, ensure_dirs, hash_file,
+    map_validation_errors, map_validation_status, quota_error, resolve_dataset_root, DatasetPaths,
+    STREAM_BUFFER_SIZE,
 };
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
+use crate::storage_usage::compute_tenant_storage_usage;
 use crate::types::{DatasetResponse, ErrorResponse};
 #[cfg(feature = "embeddings")]
 use adapteros_core::reject_forbidden_tmp_path;
+use adapteros_secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
 use async_trait::async_trait;
 use axum::body::Bytes;
 use axum::http::StatusCode;
@@ -181,6 +184,7 @@ impl DefaultTrainingDatasetService {
         let content_hash = hash_file(content_bytes);
         let dataset_root = resolve_dataset_root(&self.state).map_err(internal_error)?;
         let dataset_paths = DatasetPaths::new(dataset_root);
+        let allowed_roots = [dataset_paths.root().to_path_buf()];
         ensure_dirs([
             dataset_paths.files.as_path(),
             dataset_paths.temp.as_path(),
@@ -214,9 +218,31 @@ impl DefaultTrainingDatasetService {
             self.cleanup_dataset(&dataset_id, &dataset_path).await;
             return Err(e);
         }
+        let dataset_path = canonicalize_strict_in_allowed_roots(&dataset_path, &allowed_roots)
+            .map_err(|e| internal_error(format!("Dataset path rejected: {}", e)))?;
 
         let file_name = "training.jsonl";
         let file_path = dataset_path.join(file_name);
+
+        let (soft_quota, hard_quota) = dataset_quota_limits();
+        let usage = compute_tenant_storage_usage(&self.state, &claims.tenant_id)
+            .await
+            .map_err(|e| internal_error(format!("Failed to compute storage usage: {}", e)))?;
+        let predicted_usage = usage.total_bytes().saturating_add(file_size as u64);
+        if predicted_usage > hard_quota {
+            return Err(quota_error(format!(
+                "Dataset storage quota exceeded: {} > {} bytes",
+                predicted_usage, hard_quota
+            )));
+        }
+        if predicted_usage > soft_quota {
+            warn!(
+                tenant_id = %claims.tenant_id,
+                predicted_usage,
+                soft_quota,
+                "Dataset storage soft quota exceeded"
+            );
+        }
 
         // Write JSONL file
         if let Err(e) = fs::write(&file_path, content_bytes).await {

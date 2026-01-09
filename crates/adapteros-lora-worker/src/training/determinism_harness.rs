@@ -59,14 +59,17 @@ pub fn deterministic_slice(
     subsample: Option<DatasetSubsample>,
 ) -> Vec<TrainingExample> {
     examples.sort_by_key(|ex| {
-        let mut buf = Vec::with_capacity(ex.input.len() * 4 + ex.target.len() * 4 + 8);
+        let mut buf = Vec::with_capacity(
+            ex.input_tokens.len() * 4 + ex.target_tokens.len() * 4 + ex.attention_mask.len() + 8,
+        );
         buf.extend_from_slice(&seed.to_le_bytes());
-        for t in &ex.input {
+        for t in &ex.input_tokens {
             buf.extend_from_slice(&t.to_le_bytes());
         }
-        for t in &ex.target {
+        for t in &ex.target_tokens {
             buf.extend_from_slice(&t.to_le_bytes());
         }
+        buf.extend_from_slice(&ex.attention_mask);
         blake3::hash(&buf).as_bytes().to_owned()
     });
 
@@ -105,6 +108,10 @@ pub fn build_harness_training_config(
         epochs,
         hidden_dim: hyperparams.hidden_dim,
         vocab_size: hyperparams.vocab_size,
+        training_contract_version: adapteros_types::training::TRAINING_DATA_CONTRACT_VERSION
+            .to_string(),
+        pad_token_id: 0,
+        ignore_index: -1,
         coreml_placement: None,
         preferred_backend: Some(backend),
         backend_policy: None,
@@ -120,6 +127,9 @@ pub fn build_harness_training_config(
         warmup_steps: None,
         max_seq_length: None,
         gradient_accumulation_steps: None,
+        early_stopping: None,
+        patience: None,
+        min_delta: None,
         determinism: Some(DeterminismConfig {
             seed: Some(seed),
             dataset_version_id,
@@ -134,6 +144,7 @@ pub fn build_harness_training_config(
         base_model_path: Some(base_model_path),
         hidden_state_layer: None,
         validation_split: 0.0, // Disable validation for determinism harness
+        preprocessing: None,
     };
 
     // Enforce deterministic GPU fallback policy explicitly.
@@ -253,7 +264,14 @@ fn cosine_sim(a: &[f32], b: &[f32]) -> Option<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
+    use adapteros_types::training::ExampleMetadataV1;
+
+    fn make_example(input_tokens: Vec<u32>, target_tokens: Vec<u32>, row_id: u64) -> TrainingExample {
+        let metadata = ExampleMetadataV1::new("test", row_id, "{}", 0);
+        let attention_mask =
+            TrainingExample::attention_mask_from_tokens(&input_tokens, 0);
+        TrainingExample::new(input_tokens, target_tokens, attention_mask, metadata)
+    }
 
     fn simple_result(loss: f32, backend: &str) -> TrainingResult {
         TrainingResult {
@@ -284,6 +302,11 @@ mod tests {
             validation_loss_curve: Vec::new(),
             train_perplexity_curve: Vec::new(),
             validation_perplexity_curve: Vec::new(),
+            split_hash_b3: None,
+            train_example_count: 0,
+            validation_example_count: 0,
+            train_token_count: 0,
+            validation_token_count: 0,
             best_validation: None,
             final_validation_loss: None,
         }
@@ -292,24 +315,9 @@ mod tests {
     #[test]
     fn deterministic_slice_is_stable_with_subsample() {
         let examples = vec![
-            TrainingExample {
-                input: vec![1, 2],
-                target: vec![3],
-                metadata: HashMap::new(),
-                weight: 1.0,
-            },
-            TrainingExample {
-                input: vec![2, 3],
-                target: vec![4],
-                metadata: HashMap::new(),
-                weight: 1.0,
-            },
-            TrainingExample {
-                input: vec![3, 4],
-                target: vec![5],
-                metadata: HashMap::new(),
-                weight: 1.0,
-            },
+            make_example(vec![1, 2], vec![3], 1),
+            make_example(vec![2, 3], vec![4], 2),
+            make_example(vec![3, 4], vec![5], 3),
         ];
 
         let window = DatasetSubsample {
@@ -319,8 +327,8 @@ mod tests {
         let first = deterministic_slice(examples.clone(), 42, Some(2), Some(window.clone()));
         let second = deterministic_slice(examples, 42, Some(2), Some(window));
         assert_eq!(first.len(), 2);
-        assert_eq!(first[0].input, second[0].input);
-        assert_eq!(first[1].target, second[1].target);
+        assert_eq!(first[0].input_tokens, second[0].input_tokens);
+        assert_eq!(first[1].target_tokens, second[1].target_tokens);
     }
 
     #[test]

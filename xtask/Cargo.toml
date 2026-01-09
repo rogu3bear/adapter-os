@@ -10,6 +10,7 @@ anyhow = { workspace = true }
 adapteros-config = { path = "../crates/adapteros-config" }
 adapteros-sbom = { path = "../crates/adapteros-sbom" }
 adapteros-core = { path = "../crates/adapteros-core" }
+adapteros-types = { path = "../crates/adapteros-types" }
 adapteros-lora-worker = { path = "../crates/adapteros-lora-worker" }
 cargo-lock = "11.0"
 blake3 = "1.5"

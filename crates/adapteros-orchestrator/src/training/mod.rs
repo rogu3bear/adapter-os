@@ -95,6 +95,8 @@ mod execution;
 mod job;
 mod metrics;
 mod packaging;
+mod pipeline;
+mod report;
 mod service;
 mod versioning;
 
