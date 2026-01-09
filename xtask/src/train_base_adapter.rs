@@ -184,6 +184,9 @@ pub async fn run(args: TrainBaseAdapterArgs) -> Result<()> {
         base_model_path: None,
         hidden_state_layer: None,
         validation_split: 0.0,
+        early_stopping: None,
+        patience: None,
+        min_delta: None,
     };
 
     // Train positive adapter

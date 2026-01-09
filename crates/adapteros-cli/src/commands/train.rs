@@ -28,6 +28,10 @@ pub struct TrainArgs {
     #[arg(short, long)]
     output: PathBuf,
 
+    /// Base model path for training
+    #[arg(long)]
+    base_model: PathBuf,
+
     /// Plan file for Metal backend initialization
     #[arg(long)]
     plan: Option<PathBuf>,
@@ -43,6 +47,10 @@ pub struct TrainArgs {
     /// Resume from latest checkpoint if available
     #[arg(long)]
     resume: bool,
+
+    /// Force resume even if config changed (may produce incorrect results)
+    #[arg(long, help = "Force resume even if config changed (may produce incorrect results)")]
+    force_resume: bool,
 
     /// Common training hyperparameters
     #[command(flatten)]
@@ -76,12 +84,13 @@ impl TrainArgs {
 
         // Create trainer
         let mut trainer = MicroLoRATrainer::new(config)?;
+        trainer.set_force_resume(self.force_resume);
 
         // Enable checkpointing for resume support
         trainer.enable_checkpointing(&self.output, "training", 5);
 
         // Check for checkpoint availability
-        let checkpoint_exists = trainer.try_resume_from_checkpoint().await.is_some();
+        let checkpoint_exists = trainer.has_checkpoint().await;
 
         // Initialize Metal kernels if plan is provided
         if let Some(plan_path) = &self.plan {
@@ -99,9 +108,20 @@ impl TrainArgs {
 
         // Train the adapter (with resume if requested)
         let (result, resumed_from_epoch) = if self.resume {
-            if let Some((epoch, _weights, loss)) = trainer.try_resume_from_checkpoint().await {
-                info!("Resuming from epoch {} with loss {:.4}", epoch, loss);
-                let result = trainer.train_with_resume(&examples, |_| {}).await?;
+            if let Some(checkpoint) = trainer.try_resume_from_checkpoint().await? {
+                info!(
+                    "Resuming from checkpoint at epoch {} with config: {}",
+                    checkpoint.epoch,
+                    checkpoint.config.summary()
+                );
+                info!(
+                    "Checkpoint loss at resume: {:.4}",
+                    checkpoint.loss
+                );
+                let epoch = checkpoint.epoch;
+                let result = trainer
+                    .train_with_resume_state(&examples, |_| {}, Some(checkpoint))
+                    .await?;
                 (result, Some(epoch))
             } else {
                 info!("No checkpoint found, starting fresh training");
@@ -138,9 +158,10 @@ impl TrainArgs {
             let config_str = std::fs::read_to_string(config_path)
                 .map_err(|e| AosError::Io(format!("Failed to read config file: {}", e)))?;
 
-            let config: TrainingConfig = serde_json::from_str(&config_str)
+            let mut config: TrainingConfig = serde_json::from_str(&config_str)
                 .map_err(|e| AosError::Parse(format!("Failed to parse config: {}", e)))?;
 
+            config.base_model_path = Some(self.base_model.clone());
             info!(
                 "Loaded training configuration from: {}",
                 config_path.display()
@@ -163,6 +184,9 @@ impl TrainArgs {
                 warmup_steps: None,
                 max_seq_length: None,
                 gradient_accumulation_steps: None,
+                early_stopping: None,
+                patience: None,
+                min_delta: None,
                 determinism: if self.deterministic || self.seed.is_some() {
                     Some(DeterminismConfig {
                         seed: self.seed,
@@ -179,7 +203,7 @@ impl TrainArgs {
                 moe_config: None,
                 use_gpu_backward: true,
                 optimizer_config: Default::default(),
-                base_model_path: None,
+                base_model_path: Some(self.base_model.clone()),
                 hidden_state_layer: None,
                 validation_split: 0.0,
             };
@@ -296,10 +320,12 @@ mod tests {
             config: Some(config_path),
             data: PathBuf::from("dummy"),
             output: PathBuf::from("dummy"),
+            base_model: PathBuf::from("dummy-model"),
             plan: None,
             deterministic: false,
             seed: None,
             resume: false,
+            force_resume: false,
             common: CommonTrainingArgs {
                 rank: 4,
                 alpha: 16.0,
@@ -347,10 +373,12 @@ mod tests {
             config: None,
             data: data_path,
             output: PathBuf::from("dummy"),
+            base_model: PathBuf::from("dummy-model"),
             plan: None,
             deterministic: false,
             seed: None,
             resume: false,
+            force_resume: false,
             common: CommonTrainingArgs {
                 rank: 4,
                 alpha: 16.0,
