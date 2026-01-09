@@ -955,6 +955,7 @@ dependencies = [
  "anyhow",
  "arc-swap",
  "bindgen 0.69.5",
+ "blake3",
  "cc",
  "core-foundation 0.9.4",
  "criterion",

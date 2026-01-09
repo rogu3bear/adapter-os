@@ -120,6 +120,9 @@ pub fn build_harness_training_config(
         warmup_steps: None,
         max_seq_length: None,
         gradient_accumulation_steps: None,
+        early_stopping: None,
+        patience: None,
+        min_delta: None,
         determinism: Some(DeterminismConfig {
             seed: Some(seed),
             dataset_version_id,

@@ -461,6 +461,7 @@ mlx_array_t* mlx_mse_loss(
 //   lora_b: LoRA B matrix (up-projection) [hidden_dim, rank]
 //   alpha: LoRA scaling factor
 //   rank: LoRA rank dimension
+//   seed: deterministic seed for MLX RNG
 //   out_loss: output pointer for scalar loss value
 //   out_grad_a: output pointer for gradient of LoRA A (caller must free)
 //   out_grad_b: output pointer for gradient of LoRA B (caller must free)
@@ -472,6 +473,7 @@ int mlx_lora_backward(
     mlx_array_t* lora_b,
     float alpha,
     int rank,
+    uint64_t seed,
     float* out_loss,
     mlx_array_t** out_grad_a,
     mlx_array_t** out_grad_b
@@ -488,6 +490,7 @@ int mlx_lora_backward(
 //   alpha: LoRA scaling factor
 //   rank: LoRA rank dimension
 //   ignore_index: token ID to ignore in loss (e.g., padding), use -1 to disable
+//   seed: deterministic seed for MLX RNG
 //   out_loss: output pointer for scalar loss value
 //   out_grad_a: output pointer for gradient of LoRA A (caller must free)
 //   out_grad_b: output pointer for gradient of LoRA B (caller must free)
@@ -501,6 +504,7 @@ int mlx_lora_backward_ce(
     float alpha,
     int rank,
     int ignore_index,
+    uint64_t seed,
     float* out_loss,
     mlx_array_t** out_grad_a,
     mlx_array_t** out_grad_b

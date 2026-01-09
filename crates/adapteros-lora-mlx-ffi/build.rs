@@ -13,6 +13,58 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+struct MlxBuildInfo {
+    version: String,
+    header_hash: String,
+    header_hash_source: String,
+}
+
+impl MlxBuildInfo {
+    fn new(version: String, header_hash: String, header_hash_source: String) -> Self {
+        Self {
+            version,
+            header_hash,
+            header_hash_source,
+        }
+    }
+
+    fn stub(label: &str) -> Self {
+        Self::new(label.to_string(), label.to_string(), label.to_string())
+    }
+}
+
+fn write_build_info(info: &MlxBuildInfo) {
+    let out_dir = env::var("OUT_DIR").expect("OUT_DIR not set");
+    let out_path = PathBuf::from(out_dir).join("mlx_build_info.rs");
+    let contents = format!(
+        "pub const MLX_BUILD_VERSION: &str = {};\n\
+pub const MLX_BUILD_HASH: &str = {};\n\
+pub const MLX_BUILD_HASH_SOURCE: &str = {};\n",
+        format!("{:?}", info.version),
+        format!("{:?}", info.header_hash),
+        format!("{:?}", info.header_hash_source),
+    );
+    std::fs::write(&out_path, contents).expect("write mlx build info");
+}
+
+fn compute_mlx_header_hash(include_dir: &Path) -> Option<(String, String)> {
+    let candidates = [
+        include_dir.join("mlx/version.h"),
+        include_dir.join("version.h"),
+        include_dir.join("mlx/mlx.h"),
+    ];
+
+    for candidate in candidates {
+        if candidate.exists() {
+            let bytes = std::fs::read(&candidate).ok()?;
+            let hash = blake3::hash(&bytes).to_hex().to_string();
+            return Some((hash, candidate.display().to_string()));
+        }
+    }
+
+    None
+}
+
 fn main() {
     // Tell cargo to re-run this build script if wrapper files change
     println!("cargo:rerun-if-changed=wrapper.h");
@@ -36,6 +88,7 @@ fn main() {
         println!("cargo:warning=MLX BACKEND: mlx-rs (deprecated)");
         println!("cargo:warning=Using Rust mlx-rs bindings with C++ stub for FFI compat");
         println!("cargo:warning==========================================================");
+        write_build_info(&MlxBuildInfo::stub("mlx-rs"));
         compile_stub_wrapper();
         println!("cargo:rustc-link-lib=static=mlx_wrapper_stub");
         println!("cargo:rustc-cfg=mlx_stub");
@@ -46,6 +99,13 @@ fn main() {
     if real_mlx_enabled {
         match find_mlx_with_version() {
             Some((include_dir, lib_dir, version)) => {
+                let (header_hash, header_hash_source) = compute_mlx_header_hash(&include_dir)
+                    .unwrap_or_else(|| ("unknown".to_string(), "unknown".to_string()));
+                write_build_info(&MlxBuildInfo::new(
+                    version.clone(),
+                    header_hash,
+                    header_hash_source,
+                ));
                 println!("cargo:warning==========================================================");
                 println!("cargo:warning=MLX BACKEND: Real C++ FFI (feature 'mlx' enabled)");
                 println!("cargo:warning=MLX version: {}", version);
@@ -80,6 +140,7 @@ fn main() {
                 println!("cargo:rustc-cfg=mlx_real");
             }
             None => {
+                write_build_info(&MlxBuildInfo::stub("unknown"));
                 println!("cargo:warning==========================================================");
                 println!(
                     "cargo:warning=MLX NOT FOUND (feature 'mlx' enabled but MLX not detected)"
@@ -99,6 +160,7 @@ fn main() {
             }
         }
     } else {
+        write_build_info(&MlxBuildInfo::stub("stub"));
         println!("cargo:warning==========================================================");
         println!("cargo:warning=MLX BACKEND: Stub (feature 'mlx' NOT enabled)");
         println!("cargo:warning=To enable real MLX, build with: --features mlx");

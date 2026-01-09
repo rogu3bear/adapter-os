@@ -481,6 +481,7 @@ impl TrainDocsArgs {
             epochs: self.common.epochs,
             hidden_dim: model_config.hidden_size,
             vocab_size,
+            base_model_path: Some(base_model_location.full_path.clone()),
             determinism: if self.deterministic || self.seed.is_some() {
                 Some(DeterminismConfig {
                     seed: self.seed,
@@ -498,13 +499,24 @@ impl TrainDocsArgs {
         trainer.enable_checkpointing(&output_dir, &adapter_id, 5);
 
         // Check for checkpoint availability
-        let checkpoint_exists = trainer.try_resume_from_checkpoint().await.is_some();
+        let checkpoint_exists = trainer.has_checkpoint().await;
 
         // Train with optional resume
         let (result, resumed_from_epoch) = if self.resume {
-            if let Some((epoch, _weights, loss)) = trainer.try_resume_from_checkpoint().await {
-                info!("Resuming from epoch {} with loss {:.4}", epoch, loss);
-                let result = trainer.train_with_resume(&examples, |_| {}).await?;
+            if let Some(checkpoint) = trainer.try_resume_from_checkpoint().await? {
+                info!(
+                    "Resuming from checkpoint at epoch {} with config: {}",
+                    checkpoint.epoch,
+                    checkpoint.config.summary()
+                );
+                info!(
+                    "Checkpoint loss at resume: {:.4}",
+                    checkpoint.loss
+                );
+                let epoch = checkpoint.epoch;
+                let result = trainer
+                    .train_with_resume_state(&examples, |_| {}, Some(checkpoint))
+                    .await?;
                 (result, Some(epoch))
             } else {
                 info!("No checkpoint found, starting fresh training");

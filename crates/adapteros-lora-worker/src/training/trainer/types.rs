@@ -122,6 +122,10 @@ pub struct TrainingPerformanceMetrics {
 pub struct EpochMetrics {
     pub epoch: u32,
     pub loss: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validation_loss: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validation_perplexity: Option<f32>,
     pub duration_us: u64,
     pub examples_in_epoch: u64,
     pub tokens_in_epoch: u64,
@@ -358,6 +362,15 @@ pub struct TrainingConfig {
     /// TODO: Not yet implemented in MicroLoRATrainer - accepted from API but not used in training
     #[serde(default)]
     pub gradient_accumulation_steps: Option<u32>,
+    /// Enable early stopping based on validation loss.
+    #[serde(default)]
+    pub early_stopping: Option<bool>,
+    /// Patience for early stopping (epochs without improvement).
+    #[serde(default)]
+    pub patience: Option<u32>,
+    /// Minimum delta for validation loss improvement.
+    #[serde(default)]
+    pub min_delta: Option<f32>,
     /// Deterministic training/test harness configuration
     #[serde(default)]
     pub determinism: Option<DeterminismConfig>,
@@ -405,6 +418,31 @@ impl TrainingConfig {
     pub fn num_experts(&self) -> usize {
         self.moe_config.as_ref().map(|m| m.num_experts).unwrap_or(1)
     }
+
+    /// Render a concise summary for logging and resume checks.
+    pub fn summary(&self) -> String {
+        format!(
+            "rank={}, alpha={}, lr={}, batch_size={}, epochs={}, hidden_dim={}, validation_split={}, hidden_state_layer={:?}, early_stopping={:?}, patience={:?}, min_delta={:?}, optimizer={:?}, beta1={}, beta2={}, epsilon={}, weight_decay={}, momentum={}, use_gpu_backward={}",
+            self.rank,
+            self.alpha,
+            self.learning_rate,
+            self.batch_size,
+            self.epochs,
+            self.hidden_dim,
+            self.validation_split,
+            self.hidden_state_layer,
+            self.early_stopping,
+            self.patience,
+            self.min_delta,
+            self.optimizer_config.optimizer_type,
+            self.optimizer_config.beta1,
+            self.optimizer_config.beta2,
+            self.optimizer_config.epsilon,
+            self.optimizer_config.weight_decay,
+            self.optimizer_config.momentum,
+            self.use_gpu_backward
+        )
+    }
 }
 
 impl Default for TrainingConfig {
@@ -429,6 +467,9 @@ impl Default for TrainingConfig {
             warmup_steps: None,
             max_seq_length: None,
             gradient_accumulation_steps: None,
+            early_stopping: Some(false),
+            patience: Some(5),
+            min_delta: Some(0.001),
             determinism: None,
             moe_config: None,
             use_gpu_backward: true,

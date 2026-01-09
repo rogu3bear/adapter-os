@@ -655,6 +655,7 @@ extern "C" int mlx_lora_backward(
     mlx_array_t* /*lora_b*/,
     float /*alpha*/,
     int /*rank*/,
+    uint64_t /*seed*/,
     float* out_loss,
     mlx_array_t** out_grad_a,
     mlx_array_t** out_grad_b) {
@@ -674,6 +675,7 @@ extern "C" int mlx_lora_backward_ce(
     float /*alpha*/,
     int /*rank*/,
     int /*ignore_index*/,
+    uint64_t /*seed*/,
     float* out_loss,
     mlx_array_t** out_grad_a,
     mlx_array_t** out_grad_b) {
