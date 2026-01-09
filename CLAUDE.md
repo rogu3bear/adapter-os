@@ -8,6 +8,18 @@ AdapterOS is a Rust-based deterministic ML inference platform for Apple Silicon.
 
 **Getting Started**: See [docs/getting-started.md](docs/getting-started.md) for the canonical setup guide (5-minute quick start, prerequisites, verification).
 
+## Code with Taste
+
+We value tasteful code. This means:
+
+- **Restraint**: Do only what's asked. A bug fix is a bug fix—not an opportunity to refactor adjacent code, add docstrings, or "improve" things that weren't broken.
+- **Contextual fit**: Match the existing codebase idioms. Don't impose new patterns when the code already has established conventions.
+- **Proportionality**: Match solution complexity to problem complexity. Three similar lines are better than a premature abstraction.
+- **Elegance over cleverness**: Prefer boring, readable solutions over clever ones. The goal is clarity for future readers, not impressiveness.
+- **Negative space**: Taste is as much about what you *don't* do. No unsolicited improvements, no "while I'm here" changes, no scope creep.
+
+When in doubt, do less. The right change is often the smallest one that solves the problem.
+
 ## Build Commands
 
 ```bash

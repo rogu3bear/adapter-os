@@ -918,6 +918,7 @@ dependencies = [
  "adapteros-deterministic-exec",
  "adapteros-lora-kernel-api",
  "adapteros-lora-kernel-mtl",
+ "adapteros-lora-mlx-ffi",
  "adapteros-manifest",
  "adapteros-memory",
  "adapteros-model-hub",
