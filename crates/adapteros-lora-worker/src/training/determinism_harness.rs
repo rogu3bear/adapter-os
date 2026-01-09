@@ -83,6 +83,9 @@ pub fn deterministic_slice(
 }
 
 /// Build a harness-scoped training config with deterministic fields populated.
+///
+/// # Arguments
+/// * `base_model_path` - Path to the base model for hidden state extraction. Required for training.
 pub fn build_harness_training_config(
     hyperparams: HarnessHyperparams,
     backend: TrainingBackend,
@@ -91,6 +94,7 @@ pub fn build_harness_training_config(
     dataset_version_id: Option<String>,
     device: Option<String>,
     subsample: Option<DatasetSubsample>,
+    base_model_path: std::path::PathBuf,
 ) -> TrainingConfig {
     let epochs = steps.max(1);
     let mut cfg = TrainingConfig {
@@ -125,6 +129,11 @@ pub fn build_harness_training_config(
             subsample,
         }),
         moe_config: None,
+        use_gpu_backward: false,
+        optimizer_config: super::trainer::OptimizerConfig::default(),
+        base_model_path: Some(base_model_path),
+        hidden_state_layer: None,
+        validation_split: 0.0, // Disable validation for determinism harness
     };
 
     // Enforce deterministic GPU fallback policy explicitly.
@@ -142,6 +151,7 @@ pub async fn run_backend_with_examples(
     dataset_version_id: Option<String>,
     device: Option<String>,
     subsample: Option<DatasetSubsample>,
+    base_model_path: std::path::PathBuf,
     examples: &[TrainingExample],
 ) -> Result<BackendRun> {
     let training_cfg = build_harness_training_config(
@@ -152,6 +162,7 @@ pub async fn run_backend_with_examples(
         dataset_version_id,
         device,
         subsample,
+        base_model_path,
     );
 
     info!(
@@ -270,6 +281,11 @@ mod tests {
             determinism_backend: Some(backend.into()),
             determinism_device: None,
             dataset_version_id: None,
+            validation_loss_curve: Vec::new(),
+            train_perplexity_curve: Vec::new(),
+            validation_perplexity_curve: Vec::new(),
+            best_validation: None,
+            final_validation_loss: None,
         }
     }
 

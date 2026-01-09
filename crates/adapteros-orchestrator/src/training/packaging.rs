@@ -276,6 +276,11 @@ pub(crate) async fn package_and_register_adapter(
         gradient_accumulation_steps: worker_cfg.gradient_accumulation_steps,
         determinism: None,
         moe_config: None,
+        use_gpu_backward: worker_cfg.use_gpu_backward,
+        optimizer_config: worker_cfg.optimizer_config.clone(),
+        base_model_path: worker_cfg.base_model_path.clone(),
+        hidden_state_layer: worker_cfg.hidden_state_layer.clone(),
+        validation_split: worker_cfg.validation_split,
     };
 
     // Generate unique adapter ID from job_id

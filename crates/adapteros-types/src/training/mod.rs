@@ -1083,6 +1083,18 @@ pub struct TrainingConfig {
     /// Maximum number of checkpoints to keep
     #[serde(rename = "max_checkpoints", skip_serializing_if = "Option::is_none")]
     pub max_checkpoints: Option<u32>,
+
+    /// Path to base model for hidden state extraction (required for training)
+    #[serde(rename = "base_model_path", skip_serializing_if = "Option::is_none")]
+    pub base_model_path: Option<std::path::PathBuf>,
+
+    /// Hidden state layer to extract from base model (e.g., "model.layers.31.output")
+    #[serde(rename = "hidden_state_layer", skip_serializing_if = "Option::is_none")]
+    pub hidden_state_layer: Option<String>,
+
+    /// Fraction of dataset to use for validation (0.0-0.5, default 0.0 = no validation)
+    #[serde(rename = "validation_split", skip_serializing_if = "Option::is_none")]
+    pub validation_split: Option<f32>,
 }
 
 impl TrainingConfig {
@@ -1121,6 +1133,9 @@ impl TrainingConfig {
             enable_coreml_export: None,
             require_gpu: false,
             max_gpu_memory_mb: None,
+            base_model_path: None,
+            hidden_state_layer: None,
+            validation_split: None,
         }
     }
 
@@ -1156,6 +1171,9 @@ impl TrainingConfig {
             enable_coreml_export: None,
             require_gpu: false,
             max_gpu_memory_mb: None,
+            base_model_path: None,
+            hidden_state_layer: None,
+            validation_split: None,
         }
     }
 
@@ -1196,6 +1214,9 @@ impl TrainingConfig {
             enable_coreml_export: None,
             require_gpu: false,
             max_gpu_memory_mb: None,
+            base_model_path: None,
+            hidden_state_layer: None,
+            validation_split: None,
         }
     }
 }
