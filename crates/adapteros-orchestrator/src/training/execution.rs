@@ -231,6 +231,11 @@ pub(crate) async fn run_training_job(
         let data_spec_hash_for_training = versioning_snapshot
             .as_ref()
             .and_then(|v| v.data_spec_hash.clone());
+        let tokenizer_path = worker_cfg
+            .base_model_path
+            .as_ref()
+            .map(|path| path.join("tokenizer.json"))
+            .filter(|path| path.exists());
 
         // Load training examples from dataset versions (if provided) or dataset_id, otherwise synthetic
         let examples: Vec<WorkerTrainingExample> = match (
@@ -241,7 +246,8 @@ pub(crate) async fn run_training_job(
         ) {
             (Some(version_selections), _, Some(database), Some(storage)) => {
                 use crate::training_dataset_integration::TrainingDatasetManager;
-                let dataset_manager = TrainingDatasetManager::new(database, storage, None);
+                let dataset_manager =
+                    TrainingDatasetManager::new(database, storage, tokenizer_path.clone());
 
                 if version_selections.is_empty() {
                     return Err(anyhow::anyhow!(
@@ -286,7 +292,8 @@ pub(crate) async fn run_training_job(
             }
             (_, Some(ds_id), Some(database), Some(storage)) => {
                 use crate::training_dataset_integration::TrainingDatasetManager;
-                let dataset_manager = TrainingDatasetManager::new(database, storage, None);
+                let dataset_manager =
+                    TrainingDatasetManager::new(database, storage, tokenizer_path.clone());
                 dataset_manager
                     .load_dataset_examples(&ds_id)
                     .await
