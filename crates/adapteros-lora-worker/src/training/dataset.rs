@@ -3,8 +3,11 @@
 //! Converts code patches into training examples with tokenization and context windows.
 
 use adapteros_core::{AosError, Result};
+use adapteros_types::training::{provenance_from_map, ExampleMetadataV1, TrainingExampleV1};
+type TrainingExample = TrainingExampleV1;
+use blake3::Hasher;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use tracing::{debug, info};
 
 /// Dataset generator for creating training examples from patches
@@ -12,24 +15,22 @@ use tracing::{debug, info};
 pub struct DatasetGenerator {
     context_window: usize,
     min_examples: usize,
+    pad_token_id: u32,
 }
 
-/// Single training example
+/// Summary of a deterministic train/validation split.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TrainingExample {
-    /// Input token IDs
-    pub input: Vec<u32>,
-    /// Target token IDs
-    pub target: Vec<u32>,
-    /// Example metadata
-    pub metadata: HashMap<String, String>,
-    /// Example weight (default: 1.0)
-    #[serde(default = "default_weight")]
-    pub weight: f32,
-}
-
-fn default_weight() -> f32 {
-    1.0
+pub struct ValidationSplitSummary {
+    /// Clamped split ratio used (0.0-0.5).
+    pub split_ratio: f32,
+    /// Total examples considered for splitting.
+    pub total_examples: usize,
+    /// Number of training examples.
+    pub train_count: usize,
+    /// Number of validation examples.
+    pub validation_count: usize,
+    /// BLAKE3 hash of the ordered example hashes for split integrity.
+    pub split_hash_b3: String,
 }
 
 /// File patch for training
@@ -55,6 +56,7 @@ impl Default for DatasetGenerator {
         Self {
             context_window: 512,
             min_examples: 10,
+            pad_token_id: 0,
         }
     }
 }
@@ -65,11 +67,18 @@ impl DatasetGenerator {
         Self {
             context_window,
             min_examples,
+            pad_token_id: 0,
         }
     }
 
+    /// Set pad token id for attention mask generation.
+    pub fn with_pad_token_id(mut self, pad_token_id: u32) -> Self {
+        self.pad_token_id = pad_token_id;
+        self
+    }
+
     /// Generate training examples from patches
-    pub fn generate_from_patches(&self, patches: &[FilePatch]) -> Result<Vec<TrainingExample>> {
+    pub fn generate_from_patches(&self, patches: &[FilePatch]) -> Result<Vec<TrainingExampleV1>> {
         info!(
             "Generating training examples from {} patches",
             patches.len()
@@ -95,7 +104,7 @@ impl DatasetGenerator {
     }
 
     /// Generate examples from a single patch
-    fn generate_from_patch(&self, patch: &FilePatch) -> Result<Vec<TrainingExample>> {
+    fn generate_from_patch(&self, patch: &FilePatch) -> Result<Vec<TrainingExampleV1>> {
         let mut examples = Vec::new();
 
         match patch.change_type {
@@ -110,24 +119,36 @@ impl DatasetGenerator {
                 // Create sliding window pairs
                 let pairs = self.create_pairs(&old_tokens, &new_tokens);
 
-                for (input, target) in pairs {
-                    let mut metadata = HashMap::new();
-                    metadata.insert("file_path".to_string(), patch.file_path.clone());
-                    metadata.insert(
-                        "change_type".to_string(),
-                        format!("{:?}", patch.change_type),
+                for (pair_idx, (input, target)) in pairs.into_iter().enumerate() {
+                    let mut provenance = BTreeMap::new();
+                    provenance.insert(
+                        "file_path".to_string(),
+                        serde_json::Value::String(patch.file_path.clone()),
                     );
-                    metadata.insert(
+                    provenance.insert(
+                        "change_type".to_string(),
+                        serde_json::Value::String(format!("{:?}", patch.change_type)),
+                    );
+                    provenance.insert(
                         "file_extension".to_string(),
-                        Self::extract_extension(&patch.file_path),
+                        serde_json::Value::String(Self::extract_extension(&patch.file_path)),
                     );
 
-                    examples.push(TrainingExample {
+                    let metadata = ExampleMetadataV1::new(
+                        patch.file_path.clone(),
+                        pair_idx as u64,
+                        provenance_from_map(&provenance)
+                            .map_err(|e| AosError::Training(format!("Metadata error: {}", e)))?,
+                        0,
+                    );
+                    let attention_mask =
+                        TrainingExampleV1::attention_mask_from_tokens(&input, self.pad_token_id);
+                    examples.push(TrainingExampleV1::new(
                         input,
                         target,
+                        attention_mask,
                         metadata,
-                        weight: 1.0,
-                    });
+                    ));
                 }
             }
             ChangeType::Delete => {
@@ -200,37 +221,43 @@ impl DatasetGenerator {
     }
 
     /// Validate training examples
-    pub fn validate_examples(&self, examples: &[TrainingExample]) -> Result<()> {
+    pub fn validate_examples(&self, examples: &[TrainingExampleV1]) -> Result<()> {
         if examples.is_empty() {
             return Err(AosError::Training("No training examples".to_string()));
         }
 
         for (idx, example) in examples.iter().enumerate() {
-            if example.input.is_empty() {
+            if example.input_tokens.is_empty() {
                 return Err(AosError::Training(format!(
                     "Example {} has empty input",
                     idx
                 )));
             }
-            if example.target.is_empty() {
+            if example.target_tokens.is_empty() {
                 return Err(AosError::Training(format!(
                     "Example {} has empty target",
                     idx
                 )));
             }
-            if example.input.len() > self.context_window {
+            if example.attention_mask.len() != example.input_tokens.len() {
+                return Err(AosError::Training(format!(
+                    "Example {} attention_mask length mismatch",
+                    idx
+                )));
+            }
+            if example.input_tokens.len() > self.context_window {
                 return Err(AosError::Training(format!(
                     "Example {} input exceeds context window: {} > {}",
                     idx,
-                    example.input.len(),
+                    example.input_tokens.len(),
                     self.context_window
                 )));
             }
-            if example.target.len() > self.context_window {
+            if example.target_tokens.len() > self.context_window {
                 return Err(AosError::Training(format!(
                     "Example {} target exceeds context window: {} > {}",
                     idx,
-                    example.target.len(),
+                    example.target_tokens.len(),
                     self.context_window
                 )));
             }
@@ -240,9 +267,170 @@ impl DatasetGenerator {
     }
 }
 
+pub fn example_hash_for_tokens(
+    seed: u64,
+    input_tokens: &[u32],
+    target_tokens: &[u32],
+    attention_mask: &[u8],
+) -> [u8; 32] {
+    let mut buf = Vec::with_capacity(
+        input_tokens.len() * 4 + target_tokens.len() * 4 + attention_mask.len() + 8,
+    );
+    buf.extend_from_slice(&seed.to_le_bytes());
+    for token in input_tokens {
+        buf.extend_from_slice(&token.to_le_bytes());
+    }
+    for token in target_tokens {
+        buf.extend_from_slice(&token.to_le_bytes());
+    }
+    buf.extend_from_slice(attention_mask);
+    let hash = blake3::hash(&buf);
+    *hash.as_bytes()
+}
+
+pub fn example_hash_for_seed(seed: u64, example: &TrainingExampleV1) -> [u8; 32] {
+    example_hash_for_tokens(
+        seed,
+        &example.input_tokens,
+        &example.target_tokens,
+        &example.attention_mask,
+    )
+}
+
+fn split_hash_from_hashes(
+    hashes: impl Iterator<Item = [u8; 32]>,
+    seed: u64,
+    split_ratio: f32,
+    total: usize,
+    train_len: usize,
+) -> String {
+    let mut hasher = Hasher::new();
+    hasher.update(&seed.to_le_bytes());
+    hasher.update(&split_ratio.to_le_bytes());
+    hasher.update(&(total as u64).to_le_bytes());
+    hasher.update(&(train_len as u64).to_le_bytes());
+    for hash in hashes {
+        hasher.update(&hash);
+    }
+    hasher.finalize().to_hex().to_string()
+}
+
+/// Compute a deterministic split hash for pre-split training examples.
+///
+/// This is useful when train/validation sets are provided explicitly while
+/// still emitting a comparable split hash for reporting and audits.
+pub fn compute_split_hash_for_sets(
+    train_examples: &[TrainingExampleV1],
+    validation_examples: &[TrainingExampleV1],
+    seed: u64,
+    split_ratio: f32,
+) -> String {
+    let mut train_hashes: Vec<[u8; 32]> =
+        train_examples
+            .iter()
+            .map(|ex| example_hash_for_seed(seed, ex))
+            .collect();
+    let mut validation_hashes: Vec<[u8; 32]> =
+        validation_examples
+            .iter()
+            .map(|ex| example_hash_for_seed(seed, ex))
+            .collect();
+
+    train_hashes.sort();
+    validation_hashes.sort();
+
+    let mut combined = Vec::with_capacity(train_hashes.len() + validation_hashes.len());
+    combined.extend(train_hashes);
+    combined.extend(validation_hashes);
+
+    let total = combined.len();
+    let train_len = train_examples.len();
+    let split = split_ratio.clamp(0.0, 0.5);
+
+    split_hash_from_hashes(combined.into_iter(), seed, split, total, train_len)
+}
+
+/// Deterministically split examples into train and validation sets.
+///
+/// The split is stable for a given seed + dataset contents, producing the same
+/// ordering as the trainer's internal split logic.
+pub fn split_examples_for_validation(
+    examples: &[TrainingExampleV1],
+    split_ratio: f32,
+    seed: u64,
+) -> (Vec<TrainingExampleV1>, Vec<TrainingExampleV1>, ValidationSplitSummary) {
+    let split = split_ratio.clamp(0.0, 0.5);
+    let total = examples.len();
+
+    if split <= 0.0 || total <= 1 {
+        let hashes = examples
+            .iter()
+            .map(|ex| example_hash_for_seed(seed, ex));
+        let split_hash_b3 = split_hash_from_hashes(hashes, seed, split, total, total);
+        return (
+            examples.to_vec(),
+            Vec::new(),
+            ValidationSplitSummary {
+                split_ratio: split,
+                total_examples: total,
+                train_count: total,
+                validation_count: 0,
+                split_hash_b3,
+            },
+        );
+    }
+
+    let mut hashed: Vec<([u8; 32], TrainingExampleV1)> = examples
+        .iter()
+        .cloned()
+        .map(|ex| (example_hash_for_seed(seed, &ex), ex))
+        .collect();
+
+    hashed.sort_by_key(|(hash, _)| *hash);
+
+    let mut train_len = ((total as f32) * (1.0 - split)).floor() as usize;
+    if train_len >= total {
+        train_len = total.saturating_sub(1);
+    }
+
+    let split_hash_b3 = split_hash_from_hashes(
+        hashed.iter().map(|(hash, _)| *hash),
+        seed,
+        split,
+        total,
+        train_len,
+    );
+
+    let validation_pairs = hashed.split_off(train_len);
+    let train_examples: Vec<TrainingExampleV1> =
+        hashed.into_iter().map(|(_, ex)| ex).collect();
+    let validation_examples: Vec<TrainingExampleV1> =
+        validation_pairs.into_iter().map(|(_, ex)| ex).collect();
+
+    (
+        train_examples,
+        validation_examples,
+        ValidationSplitSummary {
+            split_ratio: split,
+            total_examples: total,
+            train_count: train_len,
+            validation_count: total.saturating_sub(train_len),
+            split_hash_b3,
+        },
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adapteros_types::training::ExampleMetadataV1;
+
+    fn make_example(input_tokens: Vec<u32>, target_tokens: Vec<u32>, row_id: u64) -> TrainingExampleV1 {
+        let metadata = ExampleMetadataV1::new("test", row_id, "{}", 0);
+        let attention_mask =
+            TrainingExampleV1::attention_mask_from_tokens(&input_tokens, 0);
+        TrainingExampleV1::new(input_tokens, target_tokens, attention_mask, metadata)
+    }
 
     #[test]
     fn test_tokenize() {
@@ -285,18 +473,18 @@ mod tests {
 
         let examples = gen.generate_from_patch(&patch).unwrap();
         assert!(!examples.is_empty());
-        assert_eq!(examples[0].metadata.get("file_path").unwrap(), "test.rs");
+        let provenance: serde_json::Value =
+            serde_json::from_str(&examples[0].metadata.provenance).unwrap();
+        assert_eq!(
+            provenance.get("file_path").and_then(|v| v.as_str()),
+            Some("test.rs")
+        );
     }
 
     #[test]
     fn test_validate_examples() {
         let gen = DatasetGenerator::default();
-        let examples = vec![TrainingExample {
-            input: vec![1, 2, 3],
-            target: vec![4, 5, 6],
-            metadata: HashMap::new(),
-            weight: 1.0,
-        }];
+        let examples = vec![make_example(vec![1, 2, 3], vec![4, 5, 6], 1)];
 
         assert!(gen.validate_examples(&examples).is_ok());
     }
@@ -312,13 +500,25 @@ mod tests {
     #[test]
     fn test_validate_target_over_context() {
         let gen = DatasetGenerator::new(4, 1);
-        let examples = vec![TrainingExample {
-            input: vec![1, 2],
-            target: vec![1, 2, 3, 4, 5],
-            metadata: HashMap::new(),
-            weight: 1.0,
-        }];
+        let examples = vec![make_example(vec![1, 2], vec![1, 2, 3, 4, 5], 1)];
 
         assert!(gen.validate_examples(&examples).is_err());
+    }
+
+    #[test]
+    fn split_examples_is_deterministic() {
+        let examples = vec![
+            make_example(vec![1, 2], vec![3, 4], 1),
+            make_example(vec![5, 6], vec![7, 8], 2),
+            make_example(vec![9], vec![10], 3),
+        ];
+
+        let (train_a, val_a, summary_a) = split_examples_for_validation(&examples, 0.25, 42);
+        let (train_b, val_b, summary_b) = split_examples_for_validation(&examples, 0.25, 42);
+
+        assert_eq!(summary_a.split_hash_b3, summary_b.split_hash_b3);
+        assert_eq!(train_a.len(), train_b.len());
+        assert_eq!(val_a.len(), val_b.len());
+        assert_eq!(summary_a.train_count + summary_a.validation_count, examples.len());
     }
 }

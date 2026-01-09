@@ -3,7 +3,7 @@
 //! Trains separate LoRA weight sets for positive and negative examples,
 //! enabling better control over reinforcement learning and adversarial training.
 
-use super::dataset::TrainingExample;
+use adapteros_types::training::{weight_from_metadata, TrainingExampleV1 as TrainingExample};
 use super::trainer::{LoRAWeights, TrainingConfig};
 use adapteros_config::resolve_telemetry_dir;
 use adapteros_core::{derive_seed, AosError, B3Hash, Result};
@@ -62,6 +62,13 @@ impl WeightGroupResult {
 impl SeparatedLoRATrainer {
     /// Create a new separated LoRA trainer
     pub fn new(config: TrainingConfig) -> Result<Self> {
+        if !cfg!(test) {
+            return Err(AosError::Training(
+                "SeparatedLoRATrainer uses deprecated CPU loss and is disabled in production"
+                    .to_string(),
+            ));
+        }
+
         // Create a base hash for seed derivation (using config hash as base)
         let config_bytes = format!("{:?}", config).into_bytes();
         let base_hash = B3Hash::hash(&config_bytes);
@@ -148,7 +155,7 @@ impl SeparatedLoRATrainer {
         })
     }
 
-    /// Separate examples into positive and negative groups
+    /// Separate examples into positive and negative groups.
     fn separate_examples(
         &self,
         examples: &[TrainingExample],
@@ -157,12 +164,12 @@ impl SeparatedLoRATrainer {
         let mut negative = Vec::new();
 
         for example in examples {
-            if example.weight > 0.0 {
+            let weight = weight_from_metadata(&example.metadata).unwrap_or(1.0);
+            if weight > 0.0 {
                 positive.push(example.clone());
-            } else if example.weight < 0.0 {
+            } else if weight < 0.0 {
                 negative.push(example.clone());
             }
-            // Skip zero-weight examples
         }
 
         (positive, negative)
@@ -240,15 +247,15 @@ impl SeparatedLoRATrainer {
 
         for example in batch {
             // Forward pass
-            let (output, hidden) = self.forward(weights, &example.input)?;
+            let (output, hidden) = self.forward(weights, &example.input_tokens)?;
 
             // Compute loss
-            let loss = self.compute_loss(&output, &example.target);
+            let loss = self.compute_loss(&output, &example.target_tokens);
             total_loss += loss;
             example_count += 1;
 
             // Backward pass and weight update
-            self.backward_and_update(weights, &hidden, &output, &example.target, loss)?;
+            self.backward_and_update(weights, &hidden, &output, &example.target_tokens, loss)?;
         }
 
         let avg_loss = if example_count > 0 {
@@ -262,7 +269,7 @@ impl SeparatedLoRATrainer {
 
     /// Create batches from examples
     fn create_batches(&self, examples: &[TrainingExample]) -> Vec<Vec<TrainingExample>> {
-        let mut batches = Vec::new();
+        let mut batches: Vec<Vec<TrainingExample>> = Vec::new();
         let batch_size = self.config.batch_size;
 
         for chunk in examples.chunks(batch_size) {
@@ -457,7 +464,12 @@ impl SeparatedTrainingResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
+    use adapteros_types::training::{ExampleMetadataV1, TRAINING_DATA_CONTRACT_VERSION};
+
+    fn make_metadata(row_id: u64, weight: f32) -> ExampleMetadataV1 {
+        let provenance = serde_json::json!({ "weight": weight }).to_string();
+        ExampleMetadataV1::new("test_source", row_id, provenance, 0)
+    }
 
     #[test]
     fn test_separated_training() {
@@ -469,6 +481,9 @@ mod tests {
             epochs: 2,
             hidden_dim: 128,
             vocab_size: 32000,
+            training_contract_version: TRAINING_DATA_CONTRACT_VERSION.to_string(),
+            pad_token_id: 0,
+            ignore_index: -1,
             coreml_placement: None,
             preferred_backend: None,
             backend_policy: None,
@@ -491,23 +506,24 @@ mod tests {
             base_model_path: None,
             hidden_state_layer: None,
             validation_split: 0.0,
+            preprocessing: None,
         };
 
         let trainer = SeparatedLoRATrainer::new(config).unwrap();
 
         let examples = vec![
-            TrainingExample {
-                input: vec![1, 2, 3, 4],
-                target: vec![5, 6, 7, 8],
-                metadata: HashMap::new(),
-                weight: 1.0,
-            },
-            TrainingExample {
-                input: vec![9, 10, 11, 12],
-                target: vec![13, 14, 15, 16],
-                metadata: HashMap::new(),
-                weight: -1.0,
-            },
+            TrainingExample::with_pad_token(
+                vec![1, 2, 3, 4],
+                vec![5, 6, 7, 8],
+                0,
+                make_metadata(0, 1.0),
+            ),
+            TrainingExample::with_pad_token(
+                vec![9, 10, 11, 12],
+                vec![13, 14, 15, 16],
+                0,
+                make_metadata(1, -1.0),
+            ),
         ];
 
         let result = trainer
