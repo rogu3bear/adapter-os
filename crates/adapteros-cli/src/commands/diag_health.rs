@@ -56,6 +56,9 @@ pub enum HealthSubcommand {
         /// Optional manifest (.aos manifest) to persist drift metadata
         #[arg(long)]
         manifest: Option<PathBuf>,
+        /// Path to base model for hidden state extraction (required for training)
+        #[arg(long, env = "AOS_BASE_MODEL_PATH")]
+        base_model: PathBuf,
         /// Deterministic seed
         #[arg(long, default_value_t = 42)]
         seed: u64,
@@ -147,6 +150,7 @@ pub async fn run(cmd: HealthCommand, output: &OutputWriter) -> Result<()> {
             baseline_backend,
             assurance_tier,
             manifest,
+            base_model,
             seed,
             steps,
             slice_size,
@@ -161,6 +165,7 @@ pub async fn run(cmd: HealthCommand, output: &OutputWriter) -> Result<()> {
                 baseline_backend,
                 assurance_tier,
                 manifest,
+                base_model,
                 seed,
                 steps,
                 slice_size,
@@ -224,6 +229,7 @@ async fn run_drift_harness(
     baseline_backend: Option<String>,
     assurance_tier: Option<String>,
     manifest: Option<PathBuf>,
+    base_model: PathBuf,
     seed: u64,
     steps: usize,
     slice_size: Option<usize>,
@@ -278,6 +284,7 @@ async fn run_drift_harness(
             Some(dataset_version_id.clone()),
             None,
             subsample.clone(),
+            base_model.clone(),
             &sliced,
         )
         .await?;
