@@ -263,6 +263,50 @@ Output: `.aos` archive with:
 - JSON manifest (`rank`, `alpha`, `training_backend`, `determinism`, `gate_q15_denominator=32767`, `quantization="q15"`)
 - Ed25519 signature
 
+### Orchestrator Phases (Receipted)
+
+The training orchestrator tracks a stricter, receipted pipeline for resumable jobs:
+
+1. **Dataset build** — load examples and compute `dataset_content_hash`
+2. **Preprocessing** — optional CoreML preprocessing cache (explicit phase)
+3. **Deterministic split** — derive train/validation split with a seeded hash
+4. **Training loop** — resume-safe training with checkpoints
+5. **Validation + early stopping** — aligned metrics and early stop gates
+6. **Packaging** — produce and register the `.aos` artifact
+
+Each phase writes a receipt under `var/training_pipeline/<job_id>/receipts/`, and the
+pipeline receipt (`pipeline_receipt.json`) captures:
+- `pipeline_id` = hash(`dataset_content_hash` + `training_config_hash` + `base_model_hash`)
+- `dataset_content_hash`, `preprocess_hash`, `split_hash`
+- `training_config_hash` (optimizer hyperparameters + learning rate + GPU backward flag)
+- `base_model_hash`
+
+Resume guards enforce matching receipt inputs. If any guard fails, training stops with
+an error unless `force_resume=true` is explicitly set (logged as unsafe).
+
+### Preprocessing (CoreML)
+
+The preprocessing phase is optional and disabled by default. When enabled, the
+worker runs a CoreML model in inference mode to emit cached feature tensors
+before training.
+
+**Config fields (`preprocessing`):**
+- `enabled` (bool) — must be true to activate preprocessing
+- `coreml_model_id` or `coreml_model_path` — CoreML asset to load
+- `output_feature` — `embedding`, `hidden_state_last`, or `pooled`
+- `layer_key` — optional output override (matches CoreML output name)
+- `max_seq_len` — cap input length (0 = no cap)
+- `batch_size` — hint only (0 = no batching)
+- `compression` — `none` or `q15`
+- `cache_dir` — optional override for cache root
+- `seed` — optional deterministic seed override
+
+**Cache layout:**
+`<artifacts_root>/datasets/<dataset_id>/preprocessed/<preprocess_id>/`
+- `preprocess_manifest.json` — config + compatibility hashes
+- `features.bin` — contiguous feature storage (f32 or q15)
+- `features.index` — per-example offsets, shapes, hashes
+
 ### Training Job Lifecycle
 
 Training jobs progress through states:
