@@ -6,7 +6,8 @@ authors.workspace = true
 license.workspace = true
 
 [features]
-default = []
+# multi-backend is default because training requires MLX FFI for base model forward pass
+default = ["multi-backend"]
 deterministic-only = []
 telemetry-sysinfo = ["dep:sysinfo"]
 
@@ -45,9 +46,21 @@ mlx = ["multi-backend"]  # Enable real MLX backend (includes multi-backend for F
 real-mlx = ["mlx"]       # Legacy alias (deprecated)
 loom = []
 
+# base-model-training: DEPRECATED - base model is now always required
+#   - This feature flag is kept for backward compatibility but has no effect
+#   - Training always requires a base model for proper cross-entropy loss computation
+#   - The "scaled token ID proxy" approach has been removed as it produced incorrect adapters
+#   - Use multi-backend feature to enable MLX training support
+base-model-training = ["multi-backend"]
+
 # Residency testing features
 ci-residency = []                    # Enable standard CI residency tests
 hardware-residency = []             # Enable hardware residency tests (Mac Studio)
+
+# test-utils: Enables test helper methods like MicroLoRATrainer::new_for_test()
+#   - Use this in integration tests that need a trainer without a real base model
+#   - Not intended for production use
+test-utils = []
 
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }

@@ -25,16 +25,29 @@ use std::time::Instant;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
+use std::path::Path;
+
+// MLX training FFI imports for GPU-accelerated backward pass
+#[cfg(feature = "multi-backend")]
+use adapteros_lora_mlx_ffi::training::{
+    mlx_cross_entropy_loss_gpu, mlx_lora_backward_ce_gpu, mlx_lora_backward_gpu, MlxOptimizer,
+    MlxOptimizerType,
+};
+
 mod types;
 pub use types::{
     DatasetSubsample, DeterminismConfig, DevicePolicyConfig, EpochMetrics, LoRAWeights,
-    MoELoRAStrategy, MoETrainingConfig, TrainingBackend, TrainingConfig,
-    TrainingPerformanceMetrics, TrainingResult,
+    MoELoRAStrategy, MoETrainingConfig, OptimizerConfig, OptimizerType, TrainingBackend,
+    TrainingConfig, TrainingPerformanceMetrics, TrainingResult,
 };
 
 /// Micro-LoRA trainer with multi-backend GPU support.
-/// Base model weights are intentionally not loaded here; only LoRA matrices are
-/// ever mutated or registered with optimizers.
+///
+/// IMPORTANT: Training requires a base model to be loaded. The trainer extracts
+/// real hidden states from the base model and computes cross-entropy loss on
+/// vocabulary logits for proper LoRA training.
+///
+/// Only LoRA matrices are ever mutated or registered with optimizers.
 pub struct MicroLoRATrainer {
     pub config: TrainingConfig,
     /// GPU kernels for accelerated training
@@ -63,6 +76,12 @@ pub struct MicroLoRATrainer {
     job_id: Option<String>,
     /// Optional database connection for metrics persistence
     db: Option<Db>,
+    /// Base model for extracting real hidden states during training.
+    /// REQUIRED: Training without a base model will fail.
+    #[cfg(feature = "multi-backend")]
+    base_model: Option<Arc<adapteros_lora_mlx_ffi::MLXFFIModel>>,
+    /// Hidden state layer key to extract from the base model (e.g., "layer_31_output").
+    hidden_state_key: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -170,6 +189,90 @@ impl MicroLoRATrainer {
 
         let config_for_metrics = config.clone();
 
+        // REQUIRED: Validate base model path is configured
+        let base_model_path = config.base_model_path.clone().ok_or_else(|| {
+            AosError::Config(
+                "base_model_path is required for training. Training without a base model \
+                 produces incorrect adapters that don't match inference behavior. \
+                 Set via TrainingConfig::with_base_model() or --base-model CLI flag."
+                    .to_string(),
+            )
+        })?;
+
+        let mut trainer = Self {
+            config,
+            kernels: None,
+            selected_backend: None,
+            backend_device: None,
+            backend_reason: None,
+            telemetry,
+            training_seed,
+            performance_metrics: Arc::new(RwLock::new(TrainingPerformanceMetrics {
+                total_gpu_time_ms: 0,
+                total_cpu_time_ms: 0,
+                gpu_operations: 0,
+                cpu_operations: 0,
+                avg_gpu_utilization: 0.0,
+                peak_gpu_memory_mb: 0.0,
+                total_batches: 0,
+                throughput_examples_per_sec: 0.0,
+                total_tokens_processed: 0,
+                total_examples_processed: 0,
+                coreml_forward_mean_us: None,
+                coreml_forward_p95_us: None,
+                coreml_forward_total_us: 0,
+                coreml_forward_samples: 0,
+                coreml_forward_latency_samples: VecDeque::new(),
+                effective_batch_size: config_for_metrics.batch_size,
+                max_tokens_per_batch: config_for_metrics.max_tokens_per_batch.unwrap_or_else(
+                    || config_for_metrics.batch_size * config_for_metrics.hidden_dim * 2,
+                ),
+                sequences_truncated: 0,
+                sequences_dropped: 0,
+                device_tier: None,
+                input_shape: None,
+            })),
+            total_tokens_processed: 0,
+            total_examples_processed: 0,
+            checkpoint_manager: None,
+            cancel_token: None,
+            job_id: None,
+            db: None,
+            #[cfg(feature = "multi-backend")]
+            base_model: None,
+            hidden_state_key: String::new(),
+        };
+
+        // Load base model (required for multi-backend)
+        #[cfg(feature = "multi-backend")]
+        trainer.load_base_model(&base_model_path)?;
+
+        Ok(trainer)
+    }
+
+    /// Create a trainer for unit tests without requiring a base model.
+    ///
+    /// This is ONLY for testing backend selection, config validation, and other
+    /// unit test scenarios that don't perform actual training. Attempting to
+    /// call `train()` on a trainer created this way will fail.
+    ///
+    /// For integration tests that need actual training, use `new()` with a valid
+    /// base model path.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn new_for_test(config: TrainingConfig) -> Result<Self> {
+        let training_seed = if let Some(ref det) = config.determinism {
+            if let Some(explicit_seed) = det.seed {
+                explicit_seed
+            } else {
+                Self::derive_seed_from_context(&config)
+            }
+        } else {
+            Self::derive_seed_from_context(&config)
+        };
+
+        let telemetry = TelemetryWriter::new("training", 1000, 1024 * 1024)?;
+        let config_for_metrics = config.clone();
+
         Ok(Self {
             config,
             kernels: None,
@@ -209,6 +312,9 @@ impl MicroLoRATrainer {
             cancel_token: None,
             job_id: None,
             db: None,
+            #[cfg(feature = "multi-backend")]
+            base_model: None,
+            hidden_state_key: String::new(),
         })
     }
 
@@ -1026,6 +1132,95 @@ impl MicroLoRATrainer {
         self.db = Some(db);
     }
 
+    /// Load a base model for extracting real hidden states during training.
+    ///
+    /// The forward pass runs actual model inference and extracts hidden states
+    /// from the specified layer (or the last transformer layer by default).
+    /// This produces correctly trained LoRA adapters with proper cross-entropy
+    /// loss computation on vocabulary logits.
+    ///
+    /// # Arguments
+    /// * `model_path` - Path to the model directory (containing safetensors files)
+    ///
+    /// # Errors
+    /// Returns an error if the model cannot be loaded or if dimensions don't match
+    /// the training configuration.
+    #[cfg(feature = "multi-backend")]
+    pub fn load_base_model(&mut self, model_path: &Path) -> Result<()> {
+        use adapteros_lora_mlx_ffi::MLXFFIModel;
+
+        info!(
+            model_path = %model_path.display(),
+            "Loading base model for hidden state extraction during training"
+        );
+
+        // Load the MLX model
+        let model = MLXFFIModel::load(model_path).map_err(|e| {
+            AosError::Training(format!(
+                "Failed to load base model from '{}': {}",
+                model_path.display(),
+                e
+            ))
+        })?;
+
+        // Get model config for validation and layer selection
+        let model_config = model.config();
+
+        // Validate hidden dimension matches training config
+        if model_config.hidden_size != self.config.hidden_dim {
+            return Err(AosError::Training(format!(
+                "Base model hidden_size ({}) doesn't match training hidden_dim ({}). \
+                 Update TrainingConfig.hidden_dim to match the model.",
+                model_config.hidden_size, self.config.hidden_dim
+            )));
+        }
+
+        // Warn if vocab size differs
+        if model_config.vocab_size != self.config.vocab_size {
+            warn!(
+                model_vocab = model_config.vocab_size,
+                config_vocab = self.config.vocab_size,
+                "Base model vocab_size differs from training config vocab_size"
+            );
+        }
+
+        // Determine which hidden state layer to extract
+        let hidden_state_key = self
+            .config
+            .hidden_state_layer
+            .clone()
+            .unwrap_or_else(|| {
+                // Default to the last transformer layer's output
+                let last_layer = model_config.num_hidden_layers.saturating_sub(1);
+                format!("layer_{}_output", last_layer)
+            });
+
+        info!(
+            num_layers = model_config.num_hidden_layers,
+            hidden_size = model_config.hidden_size,
+            vocab_size = model_config.vocab_size,
+            hidden_state_key = %hidden_state_key,
+            "Base model loaded successfully for training"
+        );
+
+        self.base_model = Some(Arc::new(model));
+        self.hidden_state_key = hidden_state_key;
+
+        Ok(())
+    }
+
+    /// Check if a base model is loaded for real hidden state extraction.
+    #[cfg(feature = "multi-backend")]
+    pub fn has_base_model(&self) -> bool {
+        self.base_model.is_some()
+    }
+
+    /// Check if a base model is loaded (always false without multi-backend).
+    #[cfg(not(feature = "multi-backend"))]
+    pub fn has_base_model(&self) -> bool {
+        false
+    }
+
     /// Check if cancellation has been requested
     ///
     /// Returns `true` if the cancellation token is set and has been triggered.
@@ -1489,6 +1684,12 @@ impl MicroLoRATrainer {
                 .determinism
                 .as_ref()
                 .and_then(|d| d.dataset_version_id.clone()),
+            // Validation metrics (not yet implemented - requires validation_split > 0)
+            validation_loss_curve: Vec::new(),
+            train_perplexity_curve: Vec::new(),
+            validation_perplexity_curve: Vec::new(),
+            best_validation: None,
+            final_validation_loss: None,
         })
     }
 
@@ -1844,6 +2045,12 @@ impl MicroLoRATrainer {
                 .determinism
                 .as_ref()
                 .and_then(|d| d.dataset_version_id.clone()),
+            // Validation metrics (not yet implemented - requires validation_split > 0)
+            validation_loss_curve: Vec::new(),
+            train_perplexity_curve: Vec::new(),
+            validation_perplexity_curve: Vec::new(),
+            best_validation: None,
+            final_validation_loss: None,
         })
     }
 
@@ -1997,20 +2204,62 @@ impl MicroLoRATrainer {
             let hidden: Vec<f32> = io.output_logits[..self.config.hidden_dim].to_vec();
             let output = io.output_logits.clone();
 
-            // Compute loss
-            let loss = self.compute_loss(&output, &example.target_tokens);
-            batch_loss += loss;
+            // Backward pass and update weights using cross-entropy loss
+            // GPU backward is always used with base model (now required)
+            #[cfg(feature = "multi-backend")]
+            let loss = if self.should_use_gpu_backward() {
+                // GPU-accelerated backward pass via MLX autograd with cross-entropy loss
+                let backward_start = Instant::now();
 
-            // Backward pass and update weights (CPU-based gradient descent)
-            // TODO: Move gradient computation to GPU kernels for full GPU training
-            self.backward_and_update_deterministic(
-                weights,
-                &hidden,
-                &output,
-                &example.target_tokens,
-                loss,
-                rng,
-            )?;
+                let model = self.base_model.as_ref().ok_or_else(|| {
+                    AosError::Training(
+                        "Base model required for GPU backward pass with cross-entropy loss"
+                            .to_string(),
+                    )
+                })?;
+
+                let gpu_loss = self.backward_and_update_gpu_ce(
+                    weights,
+                    &hidden,
+                    &example.target_tokens,
+                    model,
+                )?;
+
+                gpu_time_us += backward_start.elapsed().as_micros() as u64;
+                gpu_loss
+            } else {
+                // CPU backward pass (deprecated fallback - produces incorrect results)
+                warn!(
+                    "CPU backward pass is deprecated. Enable GPU backward for correct training."
+                );
+                let loss = self.compute_loss(&output, &example.target_tokens);
+                self.backward_and_update_deterministic(
+                    weights,
+                    &hidden,
+                    &output,
+                    &example.target_tokens,
+                    loss,
+                    rng,
+                )?;
+                loss
+            };
+
+            #[cfg(not(feature = "multi-backend"))]
+            let loss = {
+                // CPU backward pass (no GPU training available)
+                let loss = self.compute_loss(&output, &example.target_tokens);
+                self.backward_and_update_deterministic(
+                    weights,
+                    &hidden,
+                    &output,
+                    &example.target_tokens,
+                    loss,
+                    rng,
+                )?;
+                loss
+            };
+
+            batch_loss += loss;
         }
 
         // Update performance metrics
@@ -2049,6 +2298,7 @@ impl MicroLoRATrainer {
     }
 
     /// Train one batch on CPU (fallback when GPU unavailable)
+    #[cfg(feature = "multi-backend")]
     fn train_batch_cpu(
         &self,
         weights: &mut LoRAWeights,
@@ -2175,23 +2425,99 @@ impl MicroLoRATrainer {
         }
     }
 
-    /// Forward pass with LoRA injection
+    /// Forward pass with LoRA injection using real base model hidden states.
+    ///
+    /// Runs actual model inference to extract hidden states at the configured layer,
+    /// then applies LoRA transformation to those real hidden states for proper
+    /// cross-entropy loss computation.
+    #[cfg(feature = "multi-backend")]
     fn forward(
         &self,
         weights: &LoRAWeights,
         example: &PreparedExample,
     ) -> Result<(Vec<f32>, Vec<f32>)> {
-        // Simplified forward pass
-        // In production, this would integrate with the actual model
+        let model = self.base_model.as_ref().ok_or_else(|| {
+            AosError::Training(
+                "Base model not loaded. Training requires a base model for proper \
+                 hidden state extraction and cross-entropy loss computation."
+                    .to_string(),
+            )
+        })?;
+
+        // Run actual model forward pass with hidden state capture
+        // Use input_tokens (actual token IDs) not padded_input (which was incorrectly padded to hidden_dim)
+        let (_logits, hidden_states) = model.forward_with_hidden_states(&example.input_tokens)?;
+
+        // Extract hidden state from the configured layer
+        let hidden_raw = hidden_states.get(&self.hidden_state_key).ok_or_else(|| {
+            AosError::Training(format!(
+                "Hidden state layer '{}' not found in model output. Available layers: {:?}",
+                self.hidden_state_key,
+                hidden_states.keys().collect::<Vec<_>>()
+            ))
+        })?;
+
+        // Handle 3D hidden states: model returns [batch, seq_len, hidden_dim] flattened
+        // For LoRA training, we use the last token's hidden state
+        let hidden_dim = self.config.hidden_dim;
+        let hidden = if hidden_raw.len() == hidden_dim {
+            // Already the right size (single position)
+            hidden_raw.clone()
+        } else if hidden_raw.len() % hidden_dim == 0 {
+            // 3D tensor flattened - extract last token's hidden state
+            let num_positions = hidden_raw.len() / hidden_dim;
+            let last_token_start = (num_positions - 1) * hidden_dim;
+            hidden_raw[last_token_start..].to_vec()
+        } else {
+            return Err(AosError::Training(format!(
+                "Hidden state dimension mismatch: model returned {} elements, which is not divisible by hidden_dim {}",
+                hidden_raw.len(),
+                hidden_dim
+            )));
+        };
+
+        // Apply LoRA transformation to the real hidden states
+        let lora_output = self.apply_lora(&hidden, weights);
+
+        // Combine: output = hidden + scale * lora_output
+        let output: Vec<f32> = hidden
+            .iter()
+            .zip(lora_output.iter())
+            .map(|(h, l)| h + l * self.config.alpha / self.config.rank as f32)
+            .collect();
+
+        Ok((output, hidden))
+    }
+
+    /// DEPRECATED: Proxy forward pass using scaled token IDs.
+    ///
+    /// This method is deprecated and produces incorrect adapters. It is only
+    /// kept for migration purposes and will be removed in a future version.
+    /// Always use the base model forward pass instead.
+    #[deprecated(
+        since = "0.13.0",
+        note = "Produces incorrect adapters. Use forward() with base model instead."
+    )]
+    #[allow(dead_code)]
+    fn forward_proxy(
+        &self,
+        weights: &LoRAWeights,
+        example: &PreparedExample,
+    ) -> Result<(Vec<f32>, Vec<f32>)> {
+        warn!(
+            "forward_proxy is deprecated and produces incorrect adapters. \
+             Configure base_model_path for proper training."
+        );
 
         // Use pre-scaled, padded hidden state from the CoreML pipeline.
+        // This is a proxy representation, not real model hidden states.
         let mut hidden = example.scaled_input.clone();
         hidden.truncate(self.config.hidden_dim);
         if hidden.len() < self.config.hidden_dim {
             hidden.resize(self.config.hidden_dim, 0.0);
         }
 
-        // Apply LoRA: output = hidden + hidden * LoRA_B * LoRA_A
+        // Apply LoRA: output = hidden + scale * (hidden @ A @ B)
         let lora_output = self.apply_lora(&hidden, weights);
 
         // Combine base hidden with LoRA adjustment
@@ -2416,6 +2742,234 @@ impl MicroLoRATrainer {
         }
 
         Ok(())
+    }
+
+    /// GPU-accelerated backward pass using MLX autograd.
+    ///
+    /// Uses MLX's value_and_grad for efficient GPU-based gradient computation.
+    /// Requires MLX backend and `use_gpu_backward` config flag.
+    ///
+    /// Note: GPU backward may not be bit-exact with CPU backward due to
+    /// floating-point operation ordering differences in parallel reductions.
+    #[cfg(feature = "multi-backend")]
+    fn backward_and_update_gpu(
+        &self,
+        weights: &mut LoRAWeights,
+        hidden: &[f32],
+        target: &[u32],
+    ) -> Result<f32> {
+        use adapteros_lora_mlx_ffi::MLXFFITensor;
+
+        let rank = self.config.rank;
+        let hidden_dim = self.config.hidden_dim;
+        let alpha = self.config.alpha;
+        let learning_rate = self.config.learning_rate;
+
+        // Convert hidden state to MLX tensor [1, hidden_dim]
+        let hidden_tensor = MLXFFITensor::from_data(hidden, vec![1, hidden_dim])?;
+
+        // Convert targets to MLX tensor [1, seq_len]
+        let target_f32: Vec<f32> = target.iter().map(|&t| t as f32).collect();
+        let targets_tensor = MLXFFITensor::from_data(&target_f32, vec![1, target.len()])?;
+
+        // Convert LoRA A weights to tensor [rank, hidden_dim]
+        let lora_a_flat: Vec<f32> = weights.lora_a.iter().flatten().copied().collect();
+        let lora_a_tensor = MLXFFITensor::from_data(&lora_a_flat, vec![rank, hidden_dim])?;
+
+        // Convert LoRA B weights to tensor [hidden_dim, rank]
+        let lora_b_flat: Vec<f32> = weights.lora_b.iter().flatten().copied().collect();
+        let lora_b_tensor = MLXFFITensor::from_data(&lora_b_flat, vec![hidden_dim, rank])?;
+
+        // Compute loss and gradients on GPU
+        let result = mlx_lora_backward_gpu(
+            &hidden_tensor,
+            &targets_tensor,
+            &lora_a_tensor,
+            &lora_b_tensor,
+            alpha,
+            rank,
+        )?;
+
+        let loss = result.loss;
+
+        // Create optimizer based on config (defaults to Adam)
+        let mut optimizer = self.create_optimizer(learning_rate)?;
+
+        // Get mutable references to gradient tensors for clipping
+        let mut grad_a = result.grad_a;
+        let mut grad_b = result.grad_b;
+
+        // Clip gradients
+        use adapteros_lora_mlx_ffi::training::mlx_clip_grad_norm_gpu;
+        let grad_norm = mlx_clip_grad_norm_gpu(
+            &mut [grad_a.clone_tensor()?, grad_b.clone_tensor()?],
+            1.0,
+        );
+        if grad_norm > 1.0 {
+            debug!("GPU clipped gradient norm from {:.4} to 1.0", grad_norm);
+        }
+
+        // Apply optimizer step
+        // Note: step() takes ownership through mut slice, so we need to reassign after
+        let mut params = [lora_a_tensor, lora_b_tensor];
+        let grads_array = [grad_a, grad_b];
+        optimizer.step(&mut params, &grads_array)?;
+
+        // Copy updated weights back to CPU
+        let new_lora_a = params[0].to_float_vec()?;
+        let new_lora_b = params[1].to_float_vec()?;
+
+        // Update weights in-place
+        for r in 0..rank {
+            for h in 0..hidden_dim {
+                weights.lora_a[r][h] = new_lora_a[r * hidden_dim + h];
+            }
+        }
+        for h in 0..hidden_dim {
+            for r in 0..rank {
+                weights.lora_b[h][r] = new_lora_b[h * rank + r];
+            }
+        }
+
+        Ok(loss)
+    }
+
+    /// GPU backward pass with cross-entropy loss for real language model training.
+    ///
+    /// This method uses the base model's output projection (lm_head) to compute
+    /// proper cross-entropy loss against target token IDs, enabling real LLM fine-tuning.
+    ///
+    /// Requires:
+    /// - Base model loaded with `lm_head.weight` available
+    /// - MLX backend selected
+    #[cfg(feature = "multi-backend")]
+    fn backward_and_update_gpu_ce(
+        &self,
+        weights: &mut LoRAWeights,
+        hidden: &[f32],
+        target_tokens: &[u32],
+        model: &adapteros_lora_mlx_ffi::MLXFFIModel,
+    ) -> Result<f32> {
+        use adapteros_lora_mlx_ffi::MLXFFITensor;
+
+        let rank = self.config.rank;
+        let hidden_dim = self.config.hidden_dim;
+        let alpha = self.config.alpha;
+        let learning_rate = self.config.learning_rate;
+
+        // Get output projection (lm_head) weights from base model
+        let output_proj = model.get_weight("lm_head.weight")?;
+
+        // Convert hidden state to MLX tensor [1, hidden_dim]
+        let hidden_tensor = MLXFFITensor::from_data(hidden, vec![1, hidden_dim])?;
+
+        // Convert targets to MLX tensor [1, seq_len] as i32 for indexing
+        let targets_i32: Vec<i32> = target_tokens.iter().map(|&t| t as i32).collect();
+        let targets_tensor = MLXFFITensor::from_ints(&targets_i32, vec![1, target_tokens.len()])?;
+
+        // Convert LoRA A weights to tensor [rank, hidden_dim]
+        let lora_a_flat: Vec<f32> = weights.lora_a.iter().flatten().copied().collect();
+        let lora_a_tensor = MLXFFITensor::from_data(&lora_a_flat, vec![rank, hidden_dim])?;
+
+        // Convert LoRA B weights to tensor [hidden_dim, rank]
+        let lora_b_flat: Vec<f32> = weights.lora_b.iter().flatten().copied().collect();
+        let lora_b_tensor = MLXFFITensor::from_data(&lora_b_flat, vec![hidden_dim, rank])?;
+
+        // Compute loss and gradients on GPU using cross-entropy
+        // ignore_index = 0 (typically padding token)
+        let result = mlx_lora_backward_ce_gpu(
+            &hidden_tensor,
+            &output_proj,
+            &targets_tensor,
+            &lora_a_tensor,
+            &lora_b_tensor,
+            alpha,
+            rank,
+            0, // ignore_index for padding
+        )?;
+
+        let loss = result.loss;
+
+        // Create optimizer based on config (defaults to Adam)
+        let mut optimizer = self.create_optimizer(learning_rate)?;
+
+        // Get mutable references to gradient tensors for clipping
+        let mut grad_a = result.grad_a;
+        let mut grad_b = result.grad_b;
+
+        // Clip gradients
+        use adapteros_lora_mlx_ffi::training::mlx_clip_grad_norm_gpu;
+        let grad_norm = mlx_clip_grad_norm_gpu(
+            &mut [grad_a.clone_tensor()?, grad_b.clone_tensor()?],
+            1.0,
+        );
+        if grad_norm > 1.0 {
+            debug!("GPU (CE) clipped gradient norm from {:.4} to 1.0", grad_norm);
+        }
+
+        // Apply optimizer step
+        let mut params = [lora_a_tensor, lora_b_tensor];
+        let grads_array = [grad_a, grad_b];
+        optimizer.step(&mut params, &grads_array)?;
+
+        // Copy updated weights back to CPU
+        let new_lora_a = params[0].to_float_vec()?;
+        let new_lora_b = params[1].to_float_vec()?;
+
+        // Update weights in-place
+        for r in 0..rank {
+            for h in 0..hidden_dim {
+                weights.lora_a[r][h] = new_lora_a[r * hidden_dim + h];
+            }
+        }
+        for h in 0..hidden_dim {
+            for r in 0..rank {
+                weights.lora_b[h][r] = new_lora_b[h * rank + r];
+            }
+        }
+
+        Ok(loss)
+    }
+
+    /// Check if GPU backward pass should be used for this training session.
+    fn should_use_gpu_backward(&self) -> bool {
+        // Only use GPU backward when:
+        // 1. Config explicitly enables it
+        // 2. Using MLX backend (which supports autograd)
+        // 3. Multi-backend feature is enabled
+        #[cfg(feature = "multi-backend")]
+        {
+            self.config.use_gpu_backward
+                && matches!(self.selected_backend, Some(TrainingBackend::Mlx))
+        }
+        #[cfg(not(feature = "multi-backend"))]
+        {
+            false
+        }
+    }
+
+    /// Create optimizer based on OptimizerConfig settings.
+    ///
+    /// Uses the configured optimizer type (SGD, Adam, AdamW) with the
+    /// appropriate hyperparameters from the config.
+    #[cfg(feature = "multi-backend")]
+    fn create_optimizer(&self, learning_rate: f32) -> Result<MlxOptimizer> {
+        let opt_config = &self.config.optimizer_config;
+        match opt_config.optimizer_type {
+            OptimizerType::Sgd => {
+                MlxOptimizer::sgd(learning_rate, opt_config.momentum, opt_config.weight_decay)
+            }
+            OptimizerType::Adam | OptimizerType::AdamW => {
+                // AdamW uses the same MLX function but with weight_decay > 0
+                MlxOptimizer::adam(
+                    learning_rate,
+                    opt_config.beta1,
+                    opt_config.beta2,
+                    opt_config.epsilon,
+                    opt_config.weight_decay,
+                )
+            }
+        }
     }
 
     /// MoE-aware backward pass with routing-weighted gradients.

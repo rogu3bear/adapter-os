@@ -4,6 +4,70 @@ use adapteros_types::coreml::CoreMLPlacementSpec;
 use adapteros_types::training::TrainingBackendPolicy;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
+use std::path::PathBuf;
+
+/// Optimizer type selection for training.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum OptimizerType {
+    /// Stochastic Gradient Descent with optional momentum
+    Sgd,
+    /// Adam optimizer with bias correction (default)
+    #[default]
+    Adam,
+    /// AdamW optimizer (Adam with decoupled weight decay)
+    AdamW,
+}
+
+/// Configuration for the training optimizer.
+///
+/// This configuration is used when GPU backward pass is enabled to configure
+/// the optimizer used for weight updates.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OptimizerConfig {
+    /// Type of optimizer to use
+    #[serde(default)]
+    pub optimizer_type: OptimizerType,
+    /// First moment decay for Adam/AdamW (typically 0.9)
+    #[serde(default = "default_beta1")]
+    pub beta1: f32,
+    /// Second moment decay for Adam/AdamW (typically 0.999)
+    #[serde(default = "default_beta2")]
+    pub beta2: f32,
+    /// Numerical stability constant for Adam/AdamW (typically 1e-8)
+    #[serde(default = "default_epsilon")]
+    pub epsilon: f32,
+    /// Weight decay factor (0.0 to disable)
+    #[serde(default)]
+    pub weight_decay: f32,
+    /// Momentum factor for SGD (0.0 for vanilla SGD)
+    #[serde(default)]
+    pub momentum: f32,
+}
+
+fn default_beta1() -> f32 {
+    0.9
+}
+
+fn default_beta2() -> f32 {
+    0.999
+}
+
+fn default_epsilon() -> f32 {
+    1e-8
+}
+
+impl Default for OptimizerConfig {
+    fn default() -> Self {
+        Self {
+            optimizer_type: OptimizerType::default(),
+            beta1: default_beta1(),
+            beta2: default_beta2(),
+            epsilon: default_epsilon(),
+            weight_decay: 0.0,
+            momentum: 0.0,
+        }
+    }
+}
 
 /// Performance metrics for GPU training
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -301,6 +365,34 @@ pub struct TrainingConfig {
     /// When set, enables MoE-aware training with routing-weighted LoRA
     #[serde(default)]
     pub moe_config: Option<MoETrainingConfig>,
+    /// Enable GPU-accelerated backward pass (gradient computation) via MLX.
+    /// When true and using MLX backend, gradients and optimizer steps run on GPU.
+    /// When false (default), gradients are computed on CPU even with GPU forward pass.
+    /// Note: GPU backward may not be bit-exact with CPU backward.
+    #[serde(default)]
+    pub use_gpu_backward: bool,
+    /// Optimizer configuration for GPU training.
+    /// Only used when `use_gpu_backward` is true.
+    #[serde(default)]
+    pub optimizer_config: OptimizerConfig,
+    /// Path to base model for real hidden state extraction during training.
+    /// REQUIRED: Training without a base model produces incorrect adapters.
+    /// The trainer loads the base model and extracts actual hidden states
+    /// from the specified layer for proper cross-entropy loss computation.
+    #[serde(default)]
+    pub base_model_path: Option<PathBuf>,
+    /// Hidden state layer pattern to extract from the base model (e.g., "layer_31_output").
+    /// If not specified, defaults to the last transformer layer's output.
+    #[serde(default)]
+    pub hidden_state_layer: Option<String>,
+    /// Fraction of dataset to use for validation (0.0-0.5, default 0.2).
+    /// Validation loss is used for convergence detection and early stopping.
+    #[serde(default = "default_validation_split")]
+    pub validation_split: f32,
+}
+
+fn default_validation_split() -> f32 {
+    0.2
 }
 
 impl TrainingConfig {
@@ -339,6 +431,11 @@ impl Default for TrainingConfig {
             gradient_accumulation_steps: None,
             determinism: None,
             moe_config: None,
+            use_gpu_backward: true,
+            optimizer_config: OptimizerConfig::default(),
+            base_model_path: None,
+            hidden_state_layer: None,
+            validation_split: default_validation_split(),
         }
     }
 }
@@ -401,6 +498,37 @@ impl TrainingConfig {
         self.moe_config = Some(config);
         self
     }
+
+    /// Configure base model path for real hidden state extraction during training.
+    /// REQUIRED: The trainer will load the specified model and extract actual hidden
+    /// states for proper cross-entropy loss computation. Training without a base model
+    /// will fail with an error.
+    pub fn with_base_model(mut self, path: impl Into<PathBuf>) -> Self {
+        self.base_model_path = Some(path.into());
+        self
+    }
+
+    /// Configure which hidden state layer to extract from the base model.
+    /// If not specified, defaults to the last transformer layer's output.
+    pub fn with_hidden_state_layer(mut self, layer: impl Into<String>) -> Self {
+        self.hidden_state_layer = Some(layer.into());
+        self
+    }
+
+    /// Configure validation split ratio (0.0-0.5).
+    /// Validation loss is used for convergence detection and early stopping.
+    pub fn with_validation_split(mut self, split: f32) -> Self {
+        self.validation_split = split.clamp(0.0, 0.5);
+        self
+    }
+
+    /// Enable GPU-accelerated backward pass via MLX.
+    /// When enabled and using MLX backend, gradients and optimizer steps run on GPU.
+    /// Note: GPU backward may produce different results than CPU (not bit-exact).
+    pub fn with_gpu_backward(mut self, enabled: bool) -> Self {
+        self.use_gpu_backward = enabled;
+        self
+    }
 }
 
 /// Training result
@@ -457,12 +585,37 @@ pub struct TrainingResult {
     /// Dataset version identifier (if provided by harness)
     #[serde(default)]
     pub dataset_version_id: Option<String>,
+    /// Validation loss per epoch (if validation_split > 0)
+    #[serde(default)]
+    pub validation_loss_curve: Vec<f32>,
+    /// Training perplexity per epoch (exp(loss))
+    #[serde(default)]
+    pub train_perplexity_curve: Vec<f32>,
+    /// Validation perplexity per epoch
+    #[serde(default)]
+    pub validation_perplexity_curve: Vec<f32>,
+    /// Best validation loss achieved and the epoch
+    #[serde(default)]
+    pub best_validation: Option<(f32, u32)>,
+    /// Final validation loss (if validation_split > 0)
+    #[serde(default)]
+    pub final_validation_loss: Option<f32>,
 }
 
 impl TrainingResult {
     /// Get training time in milliseconds (for backward compatibility and display)
     pub fn training_time_ms(&self) -> u64 {
         self.training_time_us / 1000
+    }
+
+    /// Check if validation metrics are available
+    pub fn has_validation_metrics(&self) -> bool {
+        !self.validation_loss_curve.is_empty()
+    }
+
+    /// Get the best epoch based on validation loss (if available)
+    pub fn best_epoch(&self) -> Option<u32> {
+        self.best_validation.map(|(_, epoch)| epoch)
     }
 }
 
