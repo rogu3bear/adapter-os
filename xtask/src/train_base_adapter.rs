@@ -179,6 +179,11 @@ pub async fn run(args: TrainBaseAdapterArgs) -> Result<()> {
         gradient_accumulation_steps: None,
         determinism: None,
         moe_config: None,
+        use_gpu_backward: true,
+        optimizer_config: Default::default(),
+        base_model_path: None,
+        hidden_state_layer: None,
+        validation_split: 0.0,
     };
 
     // Train positive adapter
