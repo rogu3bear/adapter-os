@@ -783,6 +783,10 @@ fn build_capabilities_detail(backend_choice: BackendChoice) -> WorkerCapabilitie
         None
     };
 
+    let runtime_caps = detect_backend_capabilities();
+    let multi_backend = cfg!(feature = "multi-backend");
+    let gpu_backward = multi_backend && runtime_caps.has_mlx;
+
     WorkerCapabilities {
         backend_kind: backend_kind.to_string(),
         implementation,
@@ -790,6 +794,8 @@ fn build_capabilities_detail(backend_choice: BackendChoice) -> WorkerCapabilitie
         supports_bulk,
         supports_logits,
         supports_streaming,
+        gpu_backward,
+        multi_backend,
     }
 }
 
@@ -801,6 +807,8 @@ fn mock_capabilities_detail() -> WorkerCapabilities {
         supports_bulk: false,
         supports_logits: true,
         supports_streaming: true,
+        gpu_backward: false,
+        multi_backend: false,
     }
 }
 

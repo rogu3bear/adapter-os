@@ -248,6 +248,8 @@ async fn test_step_mode_filters_bulk_only_bridge_worker() {
         supports_bulk: true,
         supports_logits: false,
         supports_streaming: false,
+        gpu_backward: false,
+        multi_backend: true,
     };
     let mlx_caps = WorkerCapabilities {
         backend_kind: "mlx".to_string(),
@@ -256,6 +258,8 @@ async fn test_step_mode_filters_bulk_only_bridge_worker() {
         supports_bulk: false,
         supports_logits: true,
         supports_streaming: true,
+        gpu_backward: true,
+        multi_backend: true,
     };
 
     register_worker_with_caps(

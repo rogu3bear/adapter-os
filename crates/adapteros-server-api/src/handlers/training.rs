@@ -11,6 +11,7 @@ use crate::security::validate_tenant_isolation;
 use crate::services::{DefaultTrainingService, TrainingService};
 use crate::state::AppState;
 use crate::types::*;
+use crate::worker_capabilities::parse_worker_capabilities;
 use adapteros_config::resolve_worker_socket_for_cp;
 use adapteros_core::AosError;
 use adapteros_db::CreateDraftVersionParams as CreateDraftAdapterVersionParams;
@@ -34,6 +35,7 @@ use chrono::Utc;
 use futures_util::stream::{self, Stream};
 use serde::Deserialize;
 use std::convert::Infallible;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{error, info, warn};
@@ -82,6 +84,137 @@ fn parse_lora_tier(value: Option<&str>) -> Option<LoraTier> {
         Some("max") => Some(LoraTier::Max),
         _ => None,
     }
+}
+
+pub(crate) async fn resolve_base_model_path(
+    state: &AppState,
+    tenant_id: &str,
+    base_model_id: &str,
+) -> Result<PathBuf, (StatusCode, Json<ErrorResponse>)> {
+    let trimmed = base_model_id.trim();
+    if trimmed.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new(
+                    "base_model_id is required. Training without a base model produces incorrect adapters.",
+                )
+                .with_code("VALIDATION_ERROR"),
+            ),
+        ));
+    }
+
+    let model = state
+        .db
+        .get_model_for_tenant(tenant_id, trimmed)
+        .await
+        .map_err(|e| {
+            error!(base_model_id = %trimmed, error = %e, "Failed to load base model");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to load base model")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new(format!("Model not found: {}", trimmed))
+                        .with_code("NOT_FOUND")
+                        .with_string_details(trimmed.to_string()),
+                ),
+            )
+        })?;
+
+    let model_path = model
+        .model_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .ok_or_else(|| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new(format!(
+                        "Model '{}' does not have a configured path",
+                        trimmed
+                    ))
+                    .with_code("VALIDATION_ERROR"),
+                ),
+            )
+        })?;
+
+    let path = PathBuf::from(model_path);
+    if !path.exists() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new(format!(
+                    "Model '{}' path does not exist: {}",
+                    trimmed,
+                    path.display()
+                ))
+                .with_code("VALIDATION_ERROR"),
+            ),
+        ));
+    }
+
+    Ok(path)
+}
+
+pub(crate) async fn ensure_training_worker_capable(
+    state: &AppState,
+    tenant_id: &str,
+) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    let workers = state
+        .db
+        .list_healthy_workers_by_tenant(tenant_id)
+        .await
+        .map_err(|e| {
+            error!(tenant_id = %tenant_id, error = %e, "Failed to list workers for tenant");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to list workers")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    if workers.is_empty() {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(
+                ErrorResponse::new("No registered workers available for training")
+                    .with_code("WORKER_CAPABILITY_MISSING"),
+            ),
+        ));
+    }
+
+    let has_gpu_backward = workers.into_iter().any(|worker| {
+        parse_worker_capabilities(worker.capabilities_json.as_deref(), worker.backend.as_deref(), &[])
+            .map(|caps| caps.gpu_backward)
+            .unwrap_or(false)
+    });
+
+    if !has_gpu_backward {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(
+                ErrorResponse::new(
+                    "No registered worker advertises gpu_backward support. Training requires GPU backward.",
+                )
+                .with_code("WORKER_CAPABILITY_MISSING"),
+            ),
+        ));
+    }
+
+    Ok(())
 }
 
 async fn record_training_rejection_metric(state: &AppState, series: &str) {
@@ -426,6 +559,11 @@ pub async fn create_training_job(
         ));
     }
 
+    let base_model_id = req.base_model_id.trim().to_string();
+    let base_model_path =
+        resolve_base_model_path(&state, &workspace_id, &base_model_id).await?;
+    ensure_training_worker_capable(&state, &workspace_id).await?;
+
     // Resolve dataset version (default to latest)
     let dataset_version_id = match req.dataset_version_id {
         Some(id) => id,
@@ -450,7 +588,8 @@ pub async fn create_training_job(
         .clone()
         .unwrap_or_else(|| format!("ws-{}-{}", workspace_id, Uuid::now_v7()));
 
-    let config = training_config_from_request(req.params.clone());
+    let mut config = training_config_from_request(req.params.clone());
+    config.base_model_path = Some(base_model_path);
     let dataset_version_ids = vec![CoreDatasetVersionSelection {
         dataset_version_id,
         weight: 1.0,
@@ -472,7 +611,7 @@ pub async fn create_training_job(
             Some(claims.tenant_id.clone()),  // tenant_id
             Some(claims.sub.clone()),        // initiated_by
             Some(claims.role.clone()),       // initiated_by_role
-            Some(req.base_model_id.clone()), // base_model_id
+            Some(base_model_id.clone()), // base_model_id
             None,                            // collection_id
             Some(workspace_id.clone()),      // scope
             req.lora_tier,                   // lora tier
@@ -673,6 +812,11 @@ pub async fn start_training(
             Json(ErrorResponse::new("Adapter name is required").with_code("VALIDATION_ERROR")),
         ));
     }
+
+    let base_model_id = request.base_model_id.trim().to_string();
+    let base_model_path =
+        resolve_base_model_path(&state, &claims.tenant_id, &base_model_id).await?;
+    ensure_training_worker_capable(&state, &claims.tenant_id).await?;
 
     // Enforce tenant isolation and commit provenance for system repositories
     if let Some(repo_id) = request.repo_id.as_deref() {
@@ -919,6 +1063,7 @@ pub async fn start_training(
 
     // Convert request config to training config
     let mut config = training_config_from_request(request.config);
+    config.base_model_path = Some(base_model_path);
 
     // Resolve repository + branch context (required for versioning)
     let repo_id = match request.repo_id.clone() {
@@ -1417,7 +1562,7 @@ pub async fn start_training(
             Some(claims.tenant_id.clone()),
             Some(claims.sub.clone()),
             Some(claims.role.clone()),
-            request.base_model_id.clone(),
+            Some(base_model_id.clone()),
             request.collection_id.clone(),
             request.scope.clone(),
             request.lora_tier,
@@ -2049,16 +2194,43 @@ pub async fn retry_training(
         ));
     }
 
+    let tenant_id = original_job.tenant_id.as_deref().ok_or_else(|| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("Training job missing tenant_id for retry")
+                    .with_code("VALIDATION_ERROR"),
+            ),
+        )
+    })?;
+    let base_model_id = original_job
+        .base_model_id
+        .clone()
+        .ok_or_else(|| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new(
+                        "base_model_id is required to retry training jobs created before base model enforcement",
+                    )
+                    .with_code("VALIDATION_ERROR"),
+                ),
+            )
+        })?;
+    let base_model_path = resolve_base_model_path(&state, tenant_id, &base_model_id).await?;
+
     // Create a new job with the same configuration, linking to original as retry
     let data_lineage_mode = original_job
         .data_lineage_mode
         .unwrap_or(DataLineageMode::Versioned);
+    let mut retry_config = original_job.config.clone();
+    retry_config.base_model_path = Some(base_model_path);
 
     let new_job = state
         .training_service
         .start_training(
             original_job.adapter_name.clone(),
-            original_job.config.clone(),
+            retry_config,
             original_job.template_id.clone(),
             original_job.repo_id.clone(),
             original_job.target_branch.clone(),
@@ -2070,7 +2242,7 @@ pub async fn retry_training(
             original_job.tenant_id.clone(),
             Some(claims.sub.clone()),
             Some(claims.role.clone()),
-            original_job.base_model_id.clone(),
+            Some(base_model_id.clone()),
             original_job.collection_id.clone(),
             original_job.scope.clone(),
             original_job.lora_tier,

@@ -65,6 +65,12 @@ pub struct WorkerCapabilities {
     pub supports_logits: bool,
     /// Supports streaming tokens via step loop
     pub supports_streaming: bool,
+    /// Supports GPU backward pass for training (MLX autograd).
+    #[serde(default)]
+    pub gpu_backward: bool,
+    /// Binary compiled with multi-backend support.
+    #[serde(default)]
+    pub multi_backend: bool,
 }
 
 /// Worker registration response

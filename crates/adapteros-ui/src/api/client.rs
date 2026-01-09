@@ -1429,6 +1429,8 @@ pub struct TrainingConfigRequest {
     pub max_seq_length: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gradient_accumulation_steps: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub validation_split: Option<f32>,
 }
 
 /// Worker metrics response
