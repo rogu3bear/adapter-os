@@ -531,6 +531,11 @@ pub async fn train_repository_adapter(
         base_model_path: Some(base_model_path),
         hidden_state_layer: None,
         validation_split: None,
+        preprocessing: None,
+        force_resume: false,
+        training_contract_version: adapteros_types::training::TRAINING_DATA_CONTRACT_VERSION.to_string(),
+        pad_token_id: 0,
+        ignore_index: -1,
     };
 
     let training_job = state

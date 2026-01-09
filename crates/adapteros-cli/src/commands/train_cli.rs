@@ -10,7 +10,7 @@ use crate::output::OutputWriter;
 use adapteros_api_types::{
     training::{
         DatasetVersionSelection, StartTrainingRequest, TrainingConfigRequest,
-        TrainingJobListResponse, TrainingJobResponse,
+        TrainingJobListResponse, TrainingJobResponse, TrainingReportResponse,
     },
     ErrorResponse,
 };
@@ -19,6 +19,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use chrono::{DateTime, Utc};
 use clap::{Args, Subcommand};
 use reqwest::Client;
+use std::path::PathBuf;
 
 #[derive(Debug, Subcommand, Clone)]
 pub enum TrainCommand {
@@ -31,6 +32,9 @@ pub enum TrainCommand {
 
     /// List training jobs with filters
     List(TrainListArgs),
+
+    /// Fetch a training report artifact
+    Report(TrainReportArgs),
 
     /// Legacy on-device training (kept for compatibility)
     #[command(name = "local", hide = true)]
@@ -124,11 +128,27 @@ pub struct TrainListArgs {
     pub base_url: String,
 }
 
+#[derive(Debug, Args, Clone)]
+pub struct TrainReportArgs {
+    /// Training job/pipeline ID
+    #[arg(long, value_name = "ID")]
+    pub id: String,
+
+    /// Control plane base URL
+    #[arg(long, default_value = "http://127.0.0.1:8080")]
+    pub base_url: String,
+
+    /// Optional path to save the report JSON
+    #[arg(long)]
+    pub output: Option<PathBuf>,
+}
+
 pub async fn run(cmd: TrainCommand, output: &OutputWriter) -> Result<()> {
     match cmd {
         TrainCommand::Start(args) => start(args, output).await,
         TrainCommand::Status(args) => status(args, output).await,
         TrainCommand::List(args) => list(args, output).await,
+        TrainCommand::Report(args) => report(args, output).await,
         TrainCommand::Local(args) => args
             .execute()
             .await
@@ -189,6 +209,11 @@ async fn start(args: TrainStartArgs, output: &OutputWriter) -> Result<()> {
         require_gpu: None,
         max_gpu_memory_mb: None,
         base_model_path: None,
+        preprocessing: None,
+        force_resume: None,
+        training_contract_version: adapteros_types::training::TRAINING_DATA_CONTRACT_VERSION.to_string(),
+        pad_token_id: 0,
+        ignore_index: -1,
     };
 
     let adapter_name = args
@@ -430,6 +455,71 @@ async fn list(args: TrainListArgs, output: &OutputWriter) -> Result<()> {
             progress_pct
         ));
     }
+    Ok(())
+}
+
+async fn report(args: TrainReportArgs, output: &OutputWriter) -> Result<()> {
+    let client = Client::new();
+    let base = args.base_url.trim_end_matches('/');
+    let url = format!("{}/v1/training/jobs/{}/report", base, args.id);
+
+    let resp =
+        send_with_refresh_from_store(&client, |c, auth| c.get(&url).bearer_auth(&auth.token))
+            .await?;
+
+    let status = resp.status();
+    let text = resp.text().await.unwrap_or_default();
+    if !status.is_success() {
+        bail!("failed to fetch training report: {} {}", status, text);
+    }
+
+    let response: TrainingReportResponse =
+        serde_json::from_str(&text).context("failed to parse training report response")?;
+
+    if let Some(path) = args.output.as_ref() {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).with_context(|| {
+                format!("failed to create output directory {}", parent.display())
+            })?;
+        }
+        let json = serde_json::to_string_pretty(&response.report)
+            .context("failed to serialize training report")?;
+        std::fs::write(path, json)
+            .with_context(|| format!("failed to write report to {}", path.display()))?;
+    }
+
+    if output.is_json() {
+        output.json(&response)?;
+        return Ok(());
+    }
+
+    output.info(format!("Training report {}", response.report.pipeline_id));
+    output.kv("dataset_id", &response.report.dataset_id);
+    output.kv("dataset_content_hash", &response.report.dataset_content_hash);
+    output.kv("split_hash", &response.report.split_hash);
+    output.kv("base_model_id", &response.report.base_model_id);
+    output.kv("base_model_hash", &response.report.base_model_hash);
+    output.kv(
+        "final_epoch",
+        &response.report.summary.final_epoch.to_string(),
+    );
+    output.kv("best_epoch", &response.report.summary.best_epoch.to_string());
+    output.kv(
+        "early_stopped",
+        &response.report.summary.early_stopped.to_string(),
+    );
+    output.kv(
+        "total_steps",
+        &response.report.summary.total_steps.to_string(),
+    );
+    output.kv(
+        "total_tokens",
+        &response.report.summary.total_tokens.to_string(),
+    );
+    if let Some(path) = args.output.as_ref() {
+        output.kv("saved_to", &path.display().to_string());
+    }
+
     Ok(())
 }
 

@@ -47,9 +47,11 @@ use adapteros_types::{
     training::{
         BranchClassification, DataLineageMode,
         DatasetVersionSelection as CoreDatasetVersionSelection, LoraTier, TrainingBackendKind,
-        TrainingBackendPolicy, TrainingConfig, TrainingJob, TrainingTemplate,
+        PreprocessingConfig, TrainingBackendPolicy, TrainingConfig, TrainingJob, TrainingTemplate,
+        TRAINING_DATA_CONTRACT_VERSION,
     },
 };
+use adapteros_types::training::TrainingReportV1;
 use serde::{Deserialize, Serialize};
 
 use crate::schema_version;
@@ -289,6 +291,9 @@ pub struct TrainingConfigRequest {
     pub rank: u32,
     pub alpha: u32,
     pub targets: Vec<String>,
+    pub training_contract_version: String,
+    pub pad_token_id: u32,
+    pub ignore_index: i32,
     pub epochs: u32,
     pub learning_rate: f32,
     pub batch_size: u32,
@@ -327,6 +332,12 @@ pub struct TrainingConfigRequest {
     #[serde(default)]
     #[schema(value_type = Option<String>)]
     pub base_model_path: Option<std::path::PathBuf>,
+    /// Optional CoreML preprocessing stage configuration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preprocessing: Option<PreprocessingConfig>,
+    /// Force resume even when pipeline/checkpoint compatibility checks fail.
+    #[serde(default)]
+    pub force_resume: Option<bool>,
 }
 
 #[cfg(feature = "server")]
@@ -339,6 +350,12 @@ impl TrainingConfigRequest {
         }
         if self.learning_rate <= 0.0 {
             errors.push("learning_rate must be > 0".to_string());
+        }
+        if self.training_contract_version != TRAINING_DATA_CONTRACT_VERSION {
+            errors.push(format!(
+                "training_contract_version must be {}",
+                TRAINING_DATA_CONTRACT_VERSION
+            ));
         }
 
         if errors.is_empty() {
@@ -697,6 +714,7 @@ impl From<TrainingJob> for TrainingJobResponse {
             batch_size: usize,
             epochs: usize,
             hidden_dim: usize,
+            preprocessing: Option<PreprocessingConfig>,
         }
 
         let adapter_version_id = job
@@ -726,6 +744,7 @@ impl From<TrainingJob> for TrainingJobResponse {
                 batch_size: job.config.batch_size as usize,
                 epochs: job.config.epochs as usize,
                 hidden_dim: 768,
+                preprocessing: job.config.preprocessing.clone(),
             };
             serde_json::to_string(&params)
                 .ok()
@@ -943,6 +962,7 @@ mod tests {
             batch_size: usize,
             epochs: usize,
             hidden_dim: usize,
+            preprocessing: Option<PreprocessingConfig>,
         }
 
         let mut job = TrainingJob::new(
@@ -965,6 +985,7 @@ mod tests {
             batch_size: job.config.batch_size as usize,
             epochs: job.config.epochs as usize,
             hidden_dim: 768,
+            preprocessing: job.config.preprocessing.clone(),
         };
         let expected_config_hash =
             B3Hash::hash(serde_json::to_string(&params).unwrap().as_bytes()).to_hex();
@@ -1022,6 +1043,9 @@ impl From<TrainingConfigRequest> for TrainingConfig {
             rank: req.rank,
             alpha: req.alpha,
             targets: req.targets,
+            training_contract_version: req.training_contract_version,
+            pad_token_id: req.pad_token_id,
+            ignore_index: req.ignore_index,
             coreml_placement: req.coreml_placement,
             epochs: req.epochs,
             learning_rate: req.learning_rate,
@@ -1046,6 +1070,8 @@ impl From<TrainingConfigRequest> for TrainingConfig {
             base_model_path: req.base_model_path.clone(),
             hidden_state_layer: None,
             validation_split: req.validation_split,
+            preprocessing: req.preprocessing,
+            force_resume: req.force_resume.unwrap_or(false),
         }
     }
 }
@@ -1138,6 +1164,17 @@ pub struct TrainingMetricsListResponse {
     pub job_id: String,
     /// Time-series metrics
     pub metrics: Vec<TrainingMetricEntry>,
+}
+
+/// Training report response for report artifact retrieval.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct TrainingReportResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
+    /// Training report artifact.
+    pub report: TrainingReportV1,
 }
 
 // ===== Dataset Types =====

@@ -127,6 +127,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::create_training_session,
         handlers::get_training_logs,
         handlers::get_training_metrics,
+        handlers::get_training_report,
         handlers::training::stream_training_progress,
         handlers::training::batch_training_status,
         handlers::list_training_templates,

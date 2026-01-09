@@ -1,6 +1,6 @@
 //! Dataset CRUD handlers (list, get, delete).
 
-use super::helpers::{map_validation_errors, map_validation_status};
+use super::helpers::{ensure_dataset_file_within_root, map_validation_errors, map_validation_status};
 use super::types::ListDatasetsQuery;
 use crate::auth::Claims;
 use crate::error_helpers::{db_error, forbidden, not_found};
@@ -260,21 +260,20 @@ pub async fn delete_dataset(
         .map_err(|e| db_error(format!("Failed to delete dataset: {}", e)))?;
 
     // Delete files from filesystem
-    if tokio::fs::try_exists(&dataset.storage_path)
-        .await
-        .unwrap_or(false)
-    {
-        tokio::fs::remove_dir_all(&dataset.storage_path)
-            .await
-            .map_err(|e| {
-                error!(
-                    "Failed to delete dataset files at {}: {}",
-                    dataset.storage_path, e
-                );
-                // Don't fail the request if filesystem cleanup fails
-                e
-            })
-            .ok();
+    let storage_path = dataset.storage_path.trim();
+    if !storage_path.is_empty() {
+        let safe_path =
+            ensure_dataset_file_within_root(&state, std::path::Path::new(storage_path)).await?;
+        if tokio::fs::try_exists(&safe_path).await.unwrap_or(false) {
+            tokio::fs::remove_dir_all(&safe_path)
+                .await
+                .map_err(|e| {
+                    error!("Failed to delete dataset files at {}: {}", safe_path.display(), e);
+                    // Don't fail the request if filesystem cleanup fails
+                    e
+                })
+                .ok();
+        }
     }
 
     info!("Deleted dataset {} and its files", dataset_id);

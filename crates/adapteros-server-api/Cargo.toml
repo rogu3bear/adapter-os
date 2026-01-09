@@ -25,6 +25,7 @@ adapteros-orchestrator = { path = "../adapteros-orchestrator" }
 adapteros-policy = { path = "../adapteros-policy" }
 adapteros-registry = { path = "../adapteros-registry" }
 adapteros-storage = { path = "../adapteros-storage" }
+adapteros-secure-fs = { path = "../adapteros-secure-fs" }
 adapteros-lora-router = { path = "../adapteros-lora-router" }
 adapteros-metrics-exporter = { path = "../adapteros-metrics-exporter" }
 adapteros-system-metrics = { path = "../adapteros-system-metrics" }

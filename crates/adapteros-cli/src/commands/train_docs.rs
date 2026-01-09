@@ -431,17 +431,8 @@ impl TrainDocsArgs {
             ));
         }
 
-        // Convert to worker TrainingExample format
-        let examples: Vec<TrainingExample> = training_data
-            .examples
-            .into_iter()
-            .map(|ex| TrainingExample {
-                input: ex.input,
-                target: ex.target,
-                metadata: ex.metadata.unwrap_or_default(),
-                weight: 1.0,
-            })
-            .collect();
+        // Examples are already in the correct TrainingExample format from adapteros_types
+        let examples: Vec<TrainingExample> = training_data.examples;
 
         // Create output directory
         fs::create_dir_all(&output_dir)
@@ -450,15 +441,7 @@ impl TrainDocsArgs {
         if self.skip_training {
             // Just save training data
             let data_path = output_dir.join("training_data.json");
-            let data_json = serde_json::json!({
-                "examples": examples.iter().map(|ex| {
-                    serde_json::json!({
-                        "input": ex.input,
-                        "target": ex.target,
-                        "metadata": ex.metadata,
-                    })
-                }).collect::<Vec<_>>()
-            });
+            let data_json = serde_json::json!({ "examples": examples });
             fs::write(&data_path, serde_json::to_string_pretty(&data_json)?)?;
             info!(
                 "Saved training data to {} (training skipped)",
