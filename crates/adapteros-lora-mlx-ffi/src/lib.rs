@@ -40,6 +40,7 @@ pub mod safetensors_loader;
 pub mod streaming;
 pub mod tensor;
 pub mod tokenizer;
+pub mod training;
 pub mod unified_loader;
 
 // Adapter cache for efficient LoRA weight management
@@ -73,6 +74,11 @@ pub use routing::apply_multi_lora;
 pub use safetensors_loader::{SafetensorsLoader, TensorInfo};
 pub use tensor::MLXFFITensor;
 pub use tokenizer::MLXTokenizer;
+pub use training::{
+    mlx_clip_grad_norm_gpu, mlx_cross_entropy_loss_gpu, mlx_lora_backward_ce_gpu,
+    mlx_lora_backward_gpu, mlx_mse_loss_gpu, mlx_zero_grad_gpu, LoraBackwardResult, MlxOptimizer,
+    MlxOptimizerType,
+};
 pub use unified_loader::{LoadStrategy, TensorMetadata, UnifiedSafeTensorsLoader};
 
 // Re-export FFI error utilities for external use
@@ -1346,6 +1352,37 @@ impl MLXFFIModel {
     pub fn config(&self) -> &ModelConfig {
         &self.config
     }
+
+    /// Get a specific weight tensor from the model by name.
+    ///
+    /// This is useful for training to access the output projection (lm_head) weights
+    /// needed for cross-entropy loss computation.
+    ///
+    /// # Arguments
+    /// * `weight_name` - Name of the weight to retrieve (e.g., "lm_head.weight")
+    ///
+    /// # Returns
+    /// Weight tensor as MLXFFITensor, or error if not found
+    ///
+    /// # Example
+    /// ```ignore
+    /// let lm_head = model.get_weight("lm_head.weight")?;
+    /// ```
+    pub fn get_weight(&self, weight_name: &str) -> Result<MLXFFITensor> {
+        let weight_name_c = std::ffi::CString::new(weight_name)
+            .map_err(|_| AosError::Validation("Invalid weight name".to_string()))?;
+
+        let weight_ptr = unsafe { mlx_model_get_weight(self.model, weight_name_c.as_ptr()) };
+
+        if weight_ptr.is_null() {
+            return Err(AosError::Validation(format!(
+                "Weight '{}' not found in model",
+                weight_name
+            )));
+        }
+
+        Ok(MLXFFITensor::from_raw(weight_ptr as *mut std::ffi::c_void))
+    }
 }
 
 impl Drop for MLXFFIModel {
@@ -1425,6 +1462,10 @@ extern "C" {
         out_name_len: i32,
     ) -> i32;
     pub fn mlx_model_get_hidden_state_count(model: *mut mlx_model_t) -> i32;
+    pub fn mlx_model_get_weight(
+        model: *mut mlx_model_t,
+        weight_name: *const std::os::raw::c_char,
+    ) -> *mut mlx_array_t;
 
     // Array operations
     fn mlx_array_from_data(data: *const f32, size: i32) -> *mut mlx_array_t;

@@ -122,6 +122,13 @@ int mlx_model_get_hidden_state_name(mlx_model_t* model, int index, char* out_nam
 // Returns: number of hidden states, or 0 if model is NULL
 int mlx_model_get_hidden_state_count(mlx_model_t* model);
 
+// Get a specific weight tensor from the model by name
+// Parameters:
+//   model: loaded model handle
+//   weight_name: name of the weight to retrieve (e.g., "lm_head.weight")
+// Returns: weight tensor (caller must free), or NULL if not found
+mlx_array_t* mlx_model_get_weight(mlx_model_t* model, const char* weight_name);
+
 // Core operations
 mlx_array_t* mlx_add(mlx_array_t* a, mlx_array_t* b);
 mlx_array_t* mlx_subtract(mlx_array_t* a, mlx_array_t* b);
@@ -414,6 +421,183 @@ size_t mlx_lora_cache_size(void);
 
 // Set maximum number of cached adapters (default: 32)
 void mlx_lora_set_cache_limit(size_t max_entries);
+
+// ============================================================================
+// Training Operations - Loss Functions
+// ============================================================================
+
+// Compute cross-entropy loss on GPU
+// Parameters:
+//   logits: model output logits [batch, seq_len, vocab_size] or [seq_len, vocab_size]
+//   targets: target token IDs [batch, seq_len] or [seq_len] (int32)
+//   ignore_index: token ID to ignore in loss computation (e.g., padding token, -1 to disable)
+// Returns: scalar loss array (single float32), NULL on error
+mlx_array_t* mlx_cross_entropy_loss(
+    mlx_array_t* logits,
+    mlx_array_t* targets,
+    int ignore_index
+);
+
+// Compute MSE loss on GPU
+// Parameters:
+//   predictions: model predictions [batch, hidden_dim] or any shape
+//   targets: target values (same shape as predictions)
+// Returns: scalar loss array (single float32), NULL on error
+mlx_array_t* mlx_mse_loss(
+    mlx_array_t* predictions,
+    mlx_array_t* targets
+);
+
+// ============================================================================
+// Training Operations - Gradient Computation
+// ============================================================================
+
+// Compute LoRA backward pass with gradients on GPU using MLX autograd
+// Combines forward pass, loss computation, and gradient calculation in one call
+// Parameters:
+//   hidden: input hidden states [batch, seq_len, hidden_dim] or [seq_len, hidden_dim]
+//   targets: target values for loss computation (same shape as hidden)
+//   lora_a: LoRA A matrix (down-projection) [rank, hidden_dim]
+//   lora_b: LoRA B matrix (up-projection) [hidden_dim, rank]
+//   alpha: LoRA scaling factor
+//   rank: LoRA rank dimension
+//   out_loss: output pointer for scalar loss value
+//   out_grad_a: output pointer for gradient of LoRA A (caller must free)
+//   out_grad_b: output pointer for gradient of LoRA B (caller must free)
+// Returns: 0 on success, -1 on error (check mlx_get_last_error())
+int mlx_lora_backward(
+    mlx_array_t* hidden,
+    mlx_array_t* targets,
+    mlx_array_t* lora_a,
+    mlx_array_t* lora_b,
+    float alpha,
+    int rank,
+    float* out_loss,
+    mlx_array_t** out_grad_a,
+    mlx_array_t** out_grad_b
+);
+
+// Compute LoRA backward pass with cross-entropy loss for language model training
+// Includes output projection to vocabulary space for proper LM loss computation
+// Parameters:
+//   hidden: input hidden states [batch, seq_len, hidden_dim] or [seq_len, hidden_dim]
+//   output_proj: output projection matrix [vocab_size, hidden_dim] (lm_head weights)
+//   targets: target token IDs [batch, seq_len] or [seq_len]
+//   lora_a: LoRA A matrix (down-projection) [rank, hidden_dim]
+//   lora_b: LoRA B matrix (up-projection) [hidden_dim, rank]
+//   alpha: LoRA scaling factor
+//   rank: LoRA rank dimension
+//   ignore_index: token ID to ignore in loss (e.g., padding), use -1 to disable
+//   out_loss: output pointer for scalar loss value
+//   out_grad_a: output pointer for gradient of LoRA A (caller must free)
+//   out_grad_b: output pointer for gradient of LoRA B (caller must free)
+// Returns: 0 on success, -1 on error (check mlx_get_last_error())
+int mlx_lora_backward_ce(
+    mlx_array_t* hidden,
+    mlx_array_t* output_proj,
+    mlx_array_t* targets,
+    mlx_array_t* lora_a,
+    mlx_array_t* lora_b,
+    float alpha,
+    int rank,
+    int ignore_index,
+    float* out_loss,
+    mlx_array_t** out_grad_a,
+    mlx_array_t** out_grad_b
+);
+
+// ============================================================================
+// Training Operations - Optimizers
+// ============================================================================
+
+// Optimizer type enumeration
+typedef enum {
+    MLX_OPTIM_SGD = 0,      // Stochastic Gradient Descent with optional momentum
+    MLX_OPTIM_ADAM = 1,     // Adam optimizer with bias correction
+    MLX_OPTIM_ADAMW = 2     // AdamW (Adam with decoupled weight decay)
+} mlx_optimizer_type_t;
+
+// Opaque optimizer handle
+typedef struct mlx_optimizer mlx_optimizer_t;
+
+// Create SGD optimizer
+// Parameters:
+//   learning_rate: initial learning rate
+//   momentum: momentum factor (0.0 for vanilla SGD)
+//   weight_decay: L2 regularization factor (0.0 to disable)
+// Returns: optimizer handle (must be freed with mlx_optimizer_free)
+mlx_optimizer_t* mlx_optimizer_sgd(
+    float learning_rate,
+    float momentum,
+    float weight_decay
+);
+
+// Create Adam optimizer
+// Parameters:
+//   learning_rate: initial learning rate
+//   beta1: first moment decay (typically 0.9)
+//   beta2: second moment decay (typically 0.999)
+//   eps: numerical stability constant (typically 1e-8)
+//   weight_decay: L2 regularization factor (0.0 to disable)
+// Returns: optimizer handle (must be freed with mlx_optimizer_free)
+mlx_optimizer_t* mlx_optimizer_adam(
+    float learning_rate,
+    float beta1,
+    float beta2,
+    float eps,
+    float weight_decay
+);
+
+// Apply optimizer step to parameters
+// Updates parameters in-place based on gradients
+// Parameters:
+//   optimizer: optimizer handle
+//   params: array of parameter array pointers (modified in-place)
+//   grads: array of gradient array pointers (same order as params)
+//   num_params: number of parameter/gradient pairs
+// Returns: 0 on success, -1 on error
+int mlx_optimizer_step(
+    mlx_optimizer_t* optimizer,
+    mlx_array_t** params,
+    mlx_array_t** grads,
+    int num_params
+);
+
+// Update learning rate
+void mlx_optimizer_set_lr(mlx_optimizer_t* optimizer, float lr);
+
+// Get current learning rate
+float mlx_optimizer_get_lr(mlx_optimizer_t* optimizer);
+
+// Reset optimizer state (momentum/moment estimates)
+void mlx_optimizer_reset(mlx_optimizer_t* optimizer);
+
+// Free optimizer and its state
+void mlx_optimizer_free(mlx_optimizer_t* optimizer);
+
+// ============================================================================
+// Training Operations - Gradient Utilities
+// ============================================================================
+
+// Clip gradient norm (in-place modification)
+// Scales all gradients if total norm exceeds max_norm
+// Parameters:
+//   grads: array of gradient array pointers (modified in-place)
+//   num_grads: number of gradients
+//   max_norm: maximum allowed gradient norm
+// Returns: actual gradient norm before clipping (0.0 on error)
+float mlx_clip_grad_norm(
+    mlx_array_t** grads,
+    int num_grads,
+    float max_norm
+);
+
+// Zero out gradients (in-place)
+// Useful for gradient accumulation reset
+void mlx_zero_grad(
+    mlx_array_t** grads,
+    int num_grads
+);
 
 #ifdef __cplusplus
 }
