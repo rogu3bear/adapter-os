@@ -20,6 +20,7 @@ pub mod learning_rate_schedule;
 pub mod loader;
 pub mod metrics;
 pub mod packager;
+pub mod perplexity;
 pub mod quantizer;
 pub mod trainer;
 pub mod trainer_metrics_ext;
@@ -39,6 +40,7 @@ pub use json_loader::{load_json_dataset_with_tokenizer, JsonLoaderConfig};
 pub use learning_rate_schedule::{LRScheduleType, LRScheduler, LRSchedulerConfig};
 pub use loader::{load_examples_from_manifest, load_examples_with_encoder, DatasetManifest};
 pub use metrics::{MetricsConfig, MetricsSnapshot, TrainingMetrics, TrainingReport};
+pub use perplexity::{compute_perplexity, loss_to_perplexity_curve, PerplexityImprovement};
 pub use packager::{
     AdapterManifest, AdapterPackager, BranchMetadata, PackagedAdapter, ScanRootMetadata,
 };
