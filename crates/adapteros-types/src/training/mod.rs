@@ -21,6 +21,28 @@ use crate::coreml::CoreMLPlacementSpec;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
+pub mod example;
+pub use example::{
+    metadata_from_pairs, provenance_from_map, provenance_from_pairs, weight_from_metadata,
+    weight_from_provenance,
+    validate_training_contract_config, validate_training_example, validate_training_examples,
+    ExampleMetadataV1, TrainingDataContractConfig, TrainingExampleBatchSummary,
+    TrainingExampleValidationError, TrainingExampleV1, TrainingTokenLocation,
+    TRAINING_DATA_CONTRACT_VERSION,
+};
+pub mod preprocessed_example;
+pub use preprocessed_example::{
+    PreprocessedExampleV1, PREPROCESSED_EXAMPLE_SCHEMA_VERSION, PREPROCESSED_FEATURE_DTYPE_F32,
+    PREPROCESSED_FEATURE_BACKEND_COREML,
+};
+
+/// Training report schema version.
+pub const TRAINING_REPORT_VERSION: u32 = 1;
+
+fn default_training_report_version() -> u32 {
+    TRAINING_REPORT_VERSION
+}
+
 fn default_dataset_weight() -> f32 {
     1.0
 }
@@ -249,7 +271,7 @@ impl std::fmt::Display for TrainingJobStatus {
 /// previous definitions from adapteros-core and adapteros-orchestrator.
 ///
 /// All timestamps are in RFC3339 format (ISO 8601).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TrainingJob {
     /// Unique training job identifier
     #[serde(rename = "id")]
@@ -946,11 +968,105 @@ impl TrainingJob {
     }
 }
 
+/// Optional compression choices for cached preprocessing tensors.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "server", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum PreprocessCompression {
+    /// No compression (store f32 tensors).
+    None,
+    /// Q15 fixed-point compression (i16 + scale).
+    Q15,
+}
+
+impl PreprocessCompression {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            PreprocessCompression::None => "none",
+            PreprocessCompression::Q15 => "q15",
+        }
+    }
+}
+
+/// Output feature selection for preprocessing.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "server", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum PreprocessOutputFeature {
+    /// Emit per-token embedding features.
+    Embedding,
+    /// Emit the last hidden state token.
+    HiddenStateLast,
+    /// Emit a pooled (mean) hidden state.
+    Pooled,
+}
+
+impl Default for PreprocessOutputFeature {
+    fn default() -> Self {
+        PreprocessOutputFeature::Pooled
+    }
+}
+
+impl PreprocessOutputFeature {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            PreprocessOutputFeature::Embedding => "embedding",
+            PreprocessOutputFeature::HiddenStateLast => "hidden_state_last",
+            PreprocessOutputFeature::Pooled => "pooled",
+        }
+    }
+}
+
+/// Optional preprocessing stage for tokenized inputs.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "server", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct PreprocessingConfigV1 {
+    /// Explicitly enable preprocessing when set to true.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Optional CoreML model identifier (resolved via model cache).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coreml_model_id: Option<String>,
+    /// Optional CoreML model path for preprocessing (mlpackage or mlmodelc).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "utoipa", schema(value_type = Option<String>))]
+    pub coreml_model_path: Option<std::path::PathBuf>,
+    /// Output feature selection (embedding/hidden_state_last/pooled).
+    #[serde(default)]
+    pub output_feature: PreprocessOutputFeature,
+    /// Layer key aligned to hidden_state_layer naming (optional override).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layer_key: Option<String>,
+    /// Maximum sequence length for preprocessing (0 = use input length).
+    #[serde(default)]
+    pub max_seq_len: u32,
+    /// Batch size hint for preprocessing (0 = no batching).
+    #[serde(default)]
+    pub batch_size: u32,
+    /// Optional feature compression to apply to cached tensors.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compression: Option<PreprocessCompression>,
+    /// Optional cache directory override (defaults to dataset artifacts root).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "utoipa", schema(value_type = Option<String>))]
+    pub cache_dir: Option<std::path::PathBuf>,
+    /// Optional seed to pin preprocessing determinism.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed: Option<u64>,
+}
+
+/// Current preprocessing config type alias (v1).
+pub type PreprocessingConfig = PreprocessingConfigV1;
+
 /// Training hyperparameters and configuration
 ///
 /// Defines LoRA training configuration including rank, alpha scaling,
 /// target modules, optimization parameters, and advanced options.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TrainingConfig {
     /// LoRA rank dimension (typically 4, 8, 16, 32)
     #[serde(rename = "rank")]
@@ -963,6 +1079,18 @@ pub struct TrainingConfig {
     /// Target linear layer names to apply LoRA
     #[serde(rename = "targets")]
     pub targets: Vec<String>,
+
+    /// Training data contract version.
+    #[serde(rename = "training_contract_version")]
+    pub training_contract_version: String,
+
+    /// Explicit pad token ID.
+    #[serde(rename = "pad_token_id")]
+    pub pad_token_id: u32,
+
+    /// Explicit ignore index for loss masking (-1 disables masking).
+    #[serde(rename = "ignore_index")]
+    pub ignore_index: i32,
 
     /// Optional CoreML placement spec to align training/inference
     #[serde(rename = "coreml_placement", skip_serializing_if = "Option::is_none")]
@@ -1095,6 +1223,12 @@ pub struct TrainingConfig {
     /// Fraction of dataset to use for validation (0.0-0.5, default 0.0 = no validation)
     #[serde(rename = "validation_split", skip_serializing_if = "Option::is_none")]
     pub validation_split: Option<f32>,
+    /// Optional CoreML preprocessing stage for tokenized inputs (disabled by default).
+    #[serde(rename = "preprocessing", skip_serializing_if = "Option::is_none")]
+    pub preprocessing: Option<PreprocessingConfig>,
+    /// Force resume even when pipeline/checkpoint compatibility checks fail.
+    #[serde(rename = "force_resume", default)]
+    pub force_resume: bool,
 }
 
 impl TrainingConfig {
@@ -1112,6 +1246,9 @@ impl TrainingConfig {
                 "up_proj".to_string(),
                 "down_proj".to_string(),
             ],
+            training_contract_version: TRAINING_DATA_CONTRACT_VERSION.to_string(),
+            pad_token_id: 0,
+            ignore_index: 0,
             coreml_placement: None,
             epochs: 3,
             learning_rate: 0.001,
@@ -1136,6 +1273,8 @@ impl TrainingConfig {
             base_model_path: None,
             hidden_state_layer: None,
             validation_split: None,
+            preprocessing: None,
+            force_resume: false,
         }
     }
 
@@ -1150,6 +1289,9 @@ impl TrainingConfig {
                 "v_proj".to_string(),
                 "o_proj".to_string(),
             ],
+            training_contract_version: TRAINING_DATA_CONTRACT_VERSION.to_string(),
+            pad_token_id: 0,
+            ignore_index: 0,
             coreml_placement: None,
             epochs: 1,
             learning_rate: 0.002,
@@ -1174,6 +1316,8 @@ impl TrainingConfig {
             base_model_path: None,
             hidden_state_layer: None,
             validation_split: None,
+            preprocessing: None,
+            force_resume: false,
         }
     }
 
@@ -1193,6 +1337,9 @@ impl TrainingConfig {
                 "mlp.dense_h_to_4h".to_string(),
                 "mlp.dense_4h_to_h".to_string(),
             ],
+            training_contract_version: TRAINING_DATA_CONTRACT_VERSION.to_string(),
+            pad_token_id: 0,
+            ignore_index: 0,
             coreml_placement: None,
             epochs: 5,
             learning_rate: 0.0005,
@@ -1217,6 +1364,8 @@ impl TrainingConfig {
             base_model_path: None,
             hidden_state_layer: None,
             validation_split: None,
+            preprocessing: None,
+            force_resume: false,
         }
     }
 }
@@ -1270,6 +1419,85 @@ impl TrainingTemplate {
             config,
         }
     }
+}
+
+/// Optimizer configuration summary for reports.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct OptimizerConfigSummary {
+    /// Optimizer type (adam, adamw, sgd).
+    pub optimizer_type: String,
+    /// First moment decay (Adam/AdamW).
+    pub beta1: f32,
+    /// Second moment decay (Adam/AdamW).
+    pub beta2: f32,
+    /// Numerical stability epsilon.
+    pub epsilon: f32,
+    /// Weight decay factor.
+    pub weight_decay: f32,
+    /// Momentum factor (SGD).
+    pub momentum: f32,
+}
+
+/// Curve metrics captured in a training report.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct TrainingReportCurves {
+    pub train_loss: Vec<f32>,
+    pub train_ppl: Vec<f32>,
+    pub val_loss: Vec<f32>,
+    pub val_ppl: Vec<f32>,
+}
+
+/// Summary metrics captured in a training report.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct TrainingReportSummary {
+    pub best_epoch: u32,
+    pub final_epoch: u32,
+    pub early_stopped: bool,
+    pub total_steps: u64,
+    pub total_tokens: u64,
+}
+
+/// Metric definitions to avoid "mystery numbers" in reports.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct TrainingReportMetricDefinitions {
+    pub train_loss: String,
+    pub train_ppl: String,
+    pub val_loss: String,
+    pub val_ppl: String,
+    pub best_epoch: String,
+    pub final_epoch: String,
+    pub early_stopped: String,
+    pub total_steps: String,
+    pub total_tokens: String,
+}
+
+/// Training report artifact (v1).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct TrainingReportV1 {
+    #[serde(default = "default_training_report_version")]
+    pub report_version: u32,
+    pub pipeline_id: String,
+    pub dataset_id: String,
+    pub dataset_content_hash: String,
+    pub split_hash: String,
+    pub base_model_id: String,
+    pub base_model_hash: String,
+    pub optimizer: OptimizerConfigSummary,
+    pub training_config_hash: String,
+    pub curves: TrainingReportCurves,
+    pub summary: TrainingReportSummary,
+    pub metric_definitions: TrainingReportMetricDefinitions,
+    pub generated_at_unix_ms: u64,
 }
 
 #[cfg(test)]
