@@ -2,16 +2,19 @@
 use adapteros_api_types::training::{
     DatasetVersionSelection, StartTrainingRequest, TrainingConfigRequest,
 };
+use adapteros_api_types::workers::WorkerCapabilities;
 use adapteros_db::adapter_repositories::CreateRepositoryParams;
 use adapteros_orchestrator::training::compute_combined_data_spec_hash;
 use adapteros_server_api::handlers::training::start_training;
 use adapteros_server_api::types::ErrorResponse;
 use axum::{extract::State, http::StatusCode, Extension, Json};
+use std::path::PathBuf;
+use tempfile::TempDir;
 use tokio::time::Duration;
 
 mod common;
 
-use common::{setup_state, test_admin_claims};
+use common::{register_test_model, register_test_worker, setup_state, test_admin_claims};
 
 const METRIC_LINEAGE_REQUIRED: &str = "training_jobs_rejected_lineage_required";
 const METRIC_TRUST_BLOCKED: &str = "training_jobs_rejected_trust_blocked";
@@ -20,13 +23,14 @@ const METRIC_TRUST_NEEDS_APPROVAL: &str = "training_jobs_rejected_trust_needs_ap
 async fn create_test_repo(
     state: &adapteros_server_api::state::AppState,
     claims: &adapteros_server_api::auth::Claims,
+    base_model_id: &str,
 ) -> String {
     state
         .db
         .create_adapter_repository(CreateRepositoryParams {
             tenant_id: &claims.tenant_id,
             name: "test-repo",
-            base_model_id: None,
+            base_model_id: Some(base_model_id),
             default_branch: Some("main"),
             created_by: Some(&claims.sub),
             description: None,
@@ -46,6 +50,7 @@ fn base_config() -> TrainingConfigRequest {
         warmup_steps: None,
         max_seq_length: None,
         gradient_accumulation_steps: None,
+        validation_split: None,
         preferred_backend: None,
         backend_policy: None,
         coreml_training_fallback: None,
@@ -53,10 +58,11 @@ fn base_config() -> TrainingConfigRequest {
         enable_coreml_export: None,
         require_gpu: None,
         max_gpu_memory_mb: None,
+        base_model_path: None,
     }
 }
 
-fn base_request(repo_id: String) -> StartTrainingRequest {
+fn base_request(repo_id: String, base_model_id: &str) -> StartTrainingRequest {
     StartTrainingRequest {
         adapter_name: "adapter-test".to_string(),
         config: base_config(),
@@ -73,7 +79,7 @@ fn base_request(repo_id: String) -> StartTrainingRequest {
         dataset_version_ids: None,
         synthetic_mode: false,
         data_lineage_mode: None,
-        base_model_id: None,
+        base_model_id: base_model_id.to_string(),
         collection_id: None,
         lora_tier: None,
         scope: None,
@@ -89,6 +95,39 @@ fn base_request(repo_id: String) -> StartTrainingRequest {
         exclude_patterns: None,
         post_actions: None,
     }
+}
+
+async fn seed_base_model(
+    state: &adapteros_server_api::state::AppState,
+) -> (String, TempDir) {
+    let tmp_root = PathBuf::from("var").join("tmp");
+    std::fs::create_dir_all(&tmp_root).expect("create var/tmp");
+    let temp_dir = tempfile::tempdir_in(&tmp_root).expect("tempdir");
+    let model_path = temp_dir.path().join("model.safetensors");
+    std::fs::write(&model_path, b"stub").expect("write model stub");
+    let model_id = register_test_model(state, &model_path)
+        .await
+        .expect("register model");
+    (model_id, temp_dir)
+}
+
+async fn register_training_worker(
+    state: &adapteros_server_api::state::AppState,
+    tenant_id: &str,
+) {
+    let caps = WorkerCapabilities {
+        backend_kind: "mlx".to_string(),
+        implementation: None,
+        supports_step: true,
+        supports_bulk: false,
+        supports_logits: true,
+        supports_streaming: true,
+        gpu_backward: true,
+        multi_backend: true,
+    };
+    register_test_worker(state, tenant_id, caps)
+        .await
+        .expect("register worker");
 }
 
 async fn seed_dataset_version(
@@ -161,9 +200,11 @@ async fn extract_error(
 async fn synthetic_with_datasets_is_rejected_and_counts_metric() {
     let state = setup_state(None).await.unwrap();
     let claims = test_admin_claims();
-    let repo_id = create_test_repo(&state, &claims).await;
+    register_training_worker(&state, &claims.tenant_id).await;
+    let (base_model_id, _model_dir) = seed_base_model(&state).await;
+    let repo_id = create_test_repo(&state, &claims, &base_model_id).await;
 
-    let mut req = base_request(repo_id);
+    let mut req = base_request(repo_id, &base_model_id);
     req.synthetic_mode = true;
     req.dataset_version_ids = Some(vec![DatasetVersionSelection {
         dataset_version_id: "dsv-synth".to_string(),
@@ -192,9 +233,11 @@ async fn synthetic_with_datasets_is_rejected_and_counts_metric() {
 async fn non_synthetic_without_datasets_is_rejected_and_counts_metric() {
     let state = setup_state(None).await.unwrap();
     let claims = test_admin_claims();
-    let repo_id = create_test_repo(&state, &claims).await;
+    register_training_worker(&state, &claims.tenant_id).await;
+    let (base_model_id, _model_dir) = seed_base_model(&state).await;
+    let repo_id = create_test_repo(&state, &claims, &base_model_id).await;
 
-    let req = base_request(repo_id);
+    let req = base_request(repo_id, &base_model_id);
     let (status, body) =
         extract_error(start_training(State(state.clone()), Extension(claims), Json(req)).await)
             .await;
@@ -217,7 +260,9 @@ async fn non_synthetic_without_datasets_is_rejected_and_counts_metric() {
 async fn trust_blocked_dataset_rejected_with_metric() {
     let state = setup_state(None).await.unwrap();
     let claims = test_admin_claims();
-    let repo_id = create_test_repo(&state, &claims).await;
+    register_training_worker(&state, &claims.tenant_id).await;
+    let (base_model_id, _model_dir) = seed_base_model(&state).await;
+    let repo_id = create_test_repo(&state, &claims, &base_model_id).await;
 
     seed_dataset_version(
         &state,
@@ -229,7 +274,7 @@ async fn trust_blocked_dataset_rejected_with_metric() {
     )
     .await;
 
-    let mut req = base_request(repo_id);
+    let mut req = base_request(repo_id, &base_model_id);
     req.dataset_version_ids = Some(vec![DatasetVersionSelection {
         dataset_version_id: "dsv-blocked".to_string(),
         weight: 1.0,
@@ -258,7 +303,9 @@ async fn trust_blocked_dataset_rejected_with_metric() {
 async fn trust_unknown_is_rejected_as_needs_approval_and_counts_metric() {
     let state = setup_state(None).await.unwrap();
     let claims = test_admin_claims();
-    let repo_id = create_test_repo(&state, &claims).await;
+    register_training_worker(&state, &claims.tenant_id).await;
+    let (base_model_id, _model_dir) = seed_base_model(&state).await;
+    let repo_id = create_test_repo(&state, &claims, &base_model_id).await;
 
     seed_dataset_version(
         &state,
@@ -270,7 +317,7 @@ async fn trust_unknown_is_rejected_as_needs_approval_and_counts_metric() {
     )
     .await;
 
-    let mut req = base_request(repo_id);
+    let mut req = base_request(repo_id, &base_model_id);
     req.dataset_version_ids = Some(vec![DatasetVersionSelection {
         dataset_version_id: "dsv-unknown".to_string(),
         weight: 1.0,
@@ -299,7 +346,9 @@ async fn trust_unknown_is_rejected_as_needs_approval_and_counts_metric() {
 async fn data_spec_hash_mismatch_rejected() {
     let state = setup_state(None).await.unwrap();
     let claims = test_admin_claims();
-    let repo_id = create_test_repo(&state, &claims).await;
+    register_training_worker(&state, &claims.tenant_id).await;
+    let (base_model_id, _model_dir) = seed_base_model(&state).await;
+    let repo_id = create_test_repo(&state, &claims, &base_model_id).await;
 
     seed_dataset_version(
         &state,
@@ -311,7 +360,7 @@ async fn data_spec_hash_mismatch_rejected() {
     )
     .await;
 
-    let mut req = base_request(repo_id);
+    let mut req = base_request(repo_id, &base_model_id);
     req.dataset_version_ids = Some(vec![DatasetVersionSelection {
         dataset_version_id: "dsv-mismatch".to_string(),
         weight: 1.0,
@@ -330,7 +379,9 @@ async fn data_spec_hash_mismatch_rejected() {
 async fn allowed_with_warning_trust_passes_and_preserves_canonical_tokens() {
     let state = setup_state(None).await.unwrap();
     let claims = test_admin_claims();
-    let repo_id = create_test_repo(&state, &claims).await;
+    register_training_worker(&state, &claims.tenant_id).await;
+    let (base_model_id, _model_dir) = seed_base_model(&state).await;
+    let repo_id = create_test_repo(&state, &claims, &base_model_id).await;
 
     seed_dataset_version(
         &state,
@@ -345,7 +396,7 @@ async fn allowed_with_warning_trust_passes_and_preserves_canonical_tokens() {
     let combined_hash =
         compute_combined_data_spec_hash(&[("dsv-warn".to_string(), "hash-warn".to_string(), 1.0)]);
 
-    let mut req = base_request(repo_id);
+    let mut req = base_request(repo_id, &base_model_id);
     req.dataset_version_ids = Some(vec![DatasetVersionSelection {
         dataset_version_id: "dsv-warn".to_string(),
         weight: 1.0,

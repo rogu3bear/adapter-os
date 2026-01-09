@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use adapteros_config::SelfHostingMode;
@@ -709,6 +710,38 @@ impl SelfHostingAgent {
             backend_decision.requested,
             TrainingBackendKind::CoreML | TrainingBackendKind::Metal | TrainingBackendKind::Mlx
         );
+        let base_model_id = adapter_repo.base_model_id.clone().ok_or_else(|| {
+            AosError::Config("base_model_id is required for self-hosted training".to_string())
+        })?;
+        let model = self
+            .state
+            .db
+            .get_model_for_tenant("system", &base_model_id)
+            .await
+            .map_err(|e| {
+                AosError::Database(format!("Failed to load base model {}: {}", base_model_id, e))
+            })?
+            .ok_or_else(|| AosError::NotFound(format!("Base model not found: {}", base_model_id)))?;
+        let model_path = model
+            .model_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|path| !path.is_empty())
+            .ok_or_else(|| {
+                AosError::Config(format!(
+                    "Base model '{}' does not have a configured path",
+                    base_model_id
+                ))
+            })?;
+        let model_path = PathBuf::from(model_path);
+        if !model_path.exists() {
+            return Err(AosError::Config(format!(
+                "Base model '{}' path does not exist: {}",
+                base_model_id,
+                model_path.display()
+            )));
+        }
+        training_config.base_model_path = Some(model_path);
 
         let job = self
             .state
@@ -727,7 +760,7 @@ impl SelfHostingAgent {
                 Some("system".to_string()),             // tenant_id
                 Some("self-hosting-agent".to_string()), // initiated_by
                 Some("system".to_string()),             // initiated_by_role
-                adapter_repo.base_model_id.clone(),
+                Some(base_model_id.clone()),
                 None,
                 Some("tenant".to_string()),
                 None,

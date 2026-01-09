@@ -201,6 +201,7 @@ async fn test_e2e_training_workflow() -> Result<()> {
         warmup_steps: None,
         max_seq_length: None,
         gradient_accumulation_steps: None,
+        validation_split: None,
         preferred_backend: None,
         backend_policy: None,
         coreml_training_fallback: None,
@@ -208,6 +209,7 @@ async fn test_e2e_training_workflow() -> Result<()> {
         enable_coreml_export: None,
         require_gpu: None,
         max_gpu_memory_mb: None,
+        base_model_path: None,
     };
     let training_config_json =
         serde_json::to_string(&training_config).expect("training config should serialize");

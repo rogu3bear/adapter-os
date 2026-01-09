@@ -50,9 +50,9 @@ pub struct TrainStartArgs {
     #[arg(long)]
     pub adapter_name: Option<String>,
 
-    /// Base model ID (defaults to repo default on server if omitted)
+    /// Base model ID for training
     #[arg(long)]
-    pub base_model_id: Option<String>,
+    pub base_model_id: String,
 
     /// Dataset version IDs (comma separated or repeated). Required unless --synthetic-mode.
     #[arg(long, value_delimiter = ',')]
@@ -180,6 +180,7 @@ async fn start(args: TrainStartArgs, output: &OutputWriter) -> Result<()> {
         warmup_steps: None,
         max_seq_length: None,
         gradient_accumulation_steps: None,
+        validation_split: None,
         preferred_backend: Some(preferred_backend),
         backend_policy: Some(policy),
         coreml_training_fallback: coreml_fallback,
@@ -187,6 +188,7 @@ async fn start(args: TrainStartArgs, output: &OutputWriter) -> Result<()> {
         enable_coreml_export: None,
         require_gpu: None,
         max_gpu_memory_mb: None,
+        base_model_path: None,
     };
 
     let adapter_name = args
@@ -531,7 +533,7 @@ mod tests {
             repo_id: "repo".into(),
             branch: "main".into(),
             adapter_name: None,
-            base_model_id: None,
+            base_model_id: "model-1".into(),
             dataset_version_ids: Vec::new(),
             data_spec_hash: None,
             synthetic_mode: false,

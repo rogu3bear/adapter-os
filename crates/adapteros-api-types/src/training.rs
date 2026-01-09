@@ -295,6 +295,9 @@ pub struct TrainingConfigRequest {
     pub warmup_steps: Option<u32>,
     pub max_seq_length: Option<u32>,
     pub gradient_accumulation_steps: Option<u32>,
+    /// Fraction of dataset to use for validation (0.0-0.5).
+    #[serde(default)]
+    pub validation_split: Option<f32>,
     /// Optional GPU backend preference (coreml, mlx, metal, cpu)
     #[serde(default)]
     #[schema(value_type = String)]
@@ -320,6 +323,30 @@ pub struct TrainingConfigRequest {
     /// Maximum GPU memory in MB (best-effort, 0/unset = unlimited)
     #[serde(default)]
     pub max_gpu_memory_mb: Option<u64>,
+    /// Path to base model for training. Required for correct adapter generation.
+    #[serde(default)]
+    #[schema(value_type = Option<String>)]
+    pub base_model_path: Option<std::path::PathBuf>,
+}
+
+#[cfg(feature = "server")]
+impl TrainingConfigRequest {
+    pub fn validate(&self) -> Result<(), Vec<String>> {
+        let mut errors = Vec::new();
+
+        if self.rank == 0 {
+            errors.push("rank must be > 0".to_string());
+        }
+        if self.learning_rate <= 0.0 {
+            errors.push("learning_rate must be > 0".to_string());
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
+    }
 }
 
 /// Start training request
@@ -357,7 +384,7 @@ pub struct StartTrainingRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data_lineage_mode: Option<DataLineageMode>,
     /// Base model ID for provenance tracking
-    pub base_model_id: Option<String>,
+    pub base_model_id: String,
     /// Document collection ID for provenance tracking
     pub collection_id: Option<String>,
     /// Marketing/operational tier for routing and UI badges (micro/standard/max)
@@ -1016,9 +1043,9 @@ impl From<TrainingConfigRequest> for TrainingConfig {
             enable_coreml_export: req.enable_coreml_export,
             require_gpu: req.require_gpu.unwrap_or(false),
             max_gpu_memory_mb: req.max_gpu_memory_mb,
-            base_model_path: None,
+            base_model_path: req.base_model_path.clone(),
             hidden_state_layer: None,
-            validation_split: Some(0.0),
+            validation_split: req.validation_split,
         }
     }
 }

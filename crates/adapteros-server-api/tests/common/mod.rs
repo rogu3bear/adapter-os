@@ -4,10 +4,12 @@ pub mod test_failure_bundle;
 pub use test_failure_bundle::*;
 
 use std::sync::{Arc, RwLock};
-use std::{env, path::PathBuf};
+use std::{env, path::Path, path::PathBuf};
 
 use adapteros_core::{BackendKind, SeedMode};
+use adapteros_db::models::ModelRegistrationBuilder;
 use adapteros_db::Db;
+use adapteros_db::workers::WorkerRegistrationParams;
 use adapteros_lora_worker::memory::UmaPressureMonitor;
 use adapteros_metrics_exporter::MetricsExporter;
 use adapteros_server_api::auth::{AuthMode, Claims, PrincipalType};
@@ -17,6 +19,7 @@ use adapteros_server_api::telemetry::MetricsRegistry;
 use adapteros_telemetry::MetricsCollector;
 use once_cell::sync::Lazy;
 use tokio::sync::{Mutex, MutexGuard};
+use adapteros_api_types::{workers::WorkerCapabilities, API_SCHEMA_VERSION};
 
 /// Global lock to serialize environment mutations across tests.
 pub static ENV_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
@@ -205,6 +208,88 @@ pub async fn setup_state(_uds_path: Option<&PathBuf>) -> anyhow::Result<AppState
         metrics_registry,
         uma_monitor,
     ))
+}
+
+pub async fn register_test_model(state: &AppState, model_path: &Path) -> anyhow::Result<String> {
+    let model_name = format!("test-model-{}", uuid::Uuid::new_v4());
+    let params = ModelRegistrationBuilder::new()
+        .name(model_name)
+        .hash_b3("hash")
+        .config_hash_b3("config-hash")
+        .tokenizer_hash_b3("tok-hash")
+        .tokenizer_cfg_hash_b3("tok-cfg-hash")
+        .build()?;
+    let model_id = state.db.register_model(params).await?;
+    state
+        .db
+        .update_model_path(&model_id, model_path.to_str().unwrap_or_default())
+        .await?;
+    Ok(model_id)
+}
+
+pub async fn register_test_worker(
+    state: &AppState,
+    tenant_id: &str,
+    caps: WorkerCapabilities,
+) -> anyhow::Result<String> {
+    let worker_id = format!("worker-{}", uuid::Uuid::new_v4());
+    let node_id = format!("node-{}", worker_id);
+    let plan_id = format!("plan-{}", worker_id);
+    let manifest_hash = format!("manifest-{}", worker_id);
+
+    adapteros_db::sqlx::query(
+        "INSERT OR IGNORE INTO nodes (id, hostname, agent_endpoint, status) VALUES (?, ?, ?, 'active')",
+    )
+    .bind(&node_id)
+    .bind("test-node")
+    .bind("http://localhost:0")
+    .execute(state.db.pool())
+    .await?;
+
+    adapteros_db::sqlx::query(
+        "INSERT OR IGNORE INTO manifests (id, tenant_id, hash_b3, body_json) VALUES (?, ?, ?, ?)",
+    )
+    .bind(&manifest_hash)
+    .bind(tenant_id)
+    .bind(&manifest_hash)
+    .bind("{}")
+    .execute(state.db.pool())
+    .await?;
+
+    adapteros_db::sqlx::query(
+        "INSERT OR IGNORE INTO plans (id, tenant_id, plan_id_b3, manifest_hash_b3, kernel_hashes_json, layout_hash_b3) VALUES (?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&plan_id)
+    .bind(tenant_id)
+    .bind(format!("plan-b3:{}", worker_id))
+    .bind(&manifest_hash)
+    .bind("[]")
+    .bind("layout-b3:test")
+    .execute(state.db.pool())
+    .await?;
+
+    let params = WorkerRegistrationParams {
+        worker_id: worker_id.clone(),
+        tenant_id: tenant_id.to_string(),
+        node_id: node_id.clone(),
+        plan_id: plan_id.clone(),
+        uds_path: format!("var/run/{}/worker.sock", worker_id),
+        pid: 1234,
+        manifest_hash,
+        backend: Some(caps.backend_kind.clone()),
+        model_hash_b3: None,
+        capabilities_json: Some(serde_json::to_string(&caps)?),
+        schema_version: API_SCHEMA_VERSION.to_string(),
+        api_version: API_SCHEMA_VERSION.to_string(),
+    };
+
+    state.db.register_worker(params).await?;
+    state
+        .db
+        .transition_worker_status(&worker_id, "healthy", "test", None)
+        .await?;
+
+    Ok(worker_id)
 }
 
 /// Standard admin claims for tests
