@@ -10,16 +10,26 @@
 
 #![allow(clippy::field_reassign_with_default)]
 
-use std::collections::HashMap;
+use adapteros_types::training::ExampleMetadataV1;
 
 /// Helper function to create training examples
 fn create_examples(count: usize) -> Vec<adapteros_lora_worker::training::TrainingExample> {
     (0..count)
-        .map(|i| adapteros_lora_worker::training::TrainingExample {
-            input: vec![(i % 100) as u32; 5],
-            target: vec![((i + 1) % 100) as u32; 5],
-            metadata: HashMap::new(),
-            weight: 1.0,
+        .map(|i| {
+            let input_tokens = vec![(i % 100) as u32; 5];
+            let target_tokens = vec![((i + 1) % 100) as u32; 5];
+            let attention_mask =
+                adapteros_lora_worker::training::TrainingExample::attention_mask_from_tokens(
+                    &input_tokens,
+                    0,
+                );
+            let metadata = ExampleMetadataV1::new("test", i as u64, "{}", 0);
+            adapteros_lora_worker::training::TrainingExample::new(
+                input_tokens,
+                target_tokens,
+                attention_mask,
+                metadata,
+            )
         })
         .collect()
 }
@@ -328,7 +338,7 @@ async fn test_tokens_and_throughput_metrics_tracked() {
 
     let tokens_per_epoch: u64 = examples
         .iter()
-        .map(|ex| (ex.input.len() + ex.target.len()) as u64)
+        .map(|ex| (ex.input_tokens.len() + ex.target_tokens.len()) as u64)
         .sum();
     let completed_epochs = result.stopped_at_epoch.unwrap_or(requested_epochs as u32) as u64;
     let expected_tokens = tokens_per_epoch * completed_epochs;

@@ -128,12 +128,13 @@ fn create_examples_from_text(text: &str) -> Vec<TrainingExample> {
                 .collect();
 
             if !input_tokens.is_empty() && !target_tokens.is_empty() {
-                examples.push(TrainingExample {
-                    input: input_tokens,
-                    target: target_tokens,
-                    metadata: HashMap::new(),
-                    weight: 1.0,
-                });
+                examples.push(TrainingExample::with_metadata(
+                    input_tokens,
+                    target_tokens,
+                    None,
+                    HashMap::new(),
+                    1.0,
+                ));
             }
         }
     }

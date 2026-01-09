@@ -11,6 +11,7 @@ repository.workspace = true
 adapteros-core = { path = "../adapteros-core" }
 adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
+adapteros-secure-fs = { path = "../adapteros-secure-fs" }
 anyhow.workspace = true
 thiserror.workspace = true
 serde.workspace = true

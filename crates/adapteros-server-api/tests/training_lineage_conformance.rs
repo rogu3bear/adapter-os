@@ -59,6 +59,8 @@ fn base_config() -> TrainingConfigRequest {
         require_gpu: None,
         max_gpu_memory_mb: None,
         base_model_path: None,
+        preprocessing: None,
+        force_resume: None,
     }
 }
 

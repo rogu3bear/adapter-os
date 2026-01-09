@@ -24,6 +24,7 @@ clap = { workspace = true, features = ["derive"] }
 # Internal crates
 adapteros-config = { path = "../adapteros-config" }
 adapteros-core = { path = "../adapteros-core" }
+adapteros-secure-fs = { path = "../adapteros-secure-fs" }
 adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-sbom = { path = "../adapteros-sbom" }
 adapteros-manifest = { path = "../adapteros-manifest" }

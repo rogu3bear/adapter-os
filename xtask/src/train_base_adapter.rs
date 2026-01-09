@@ -9,13 +9,15 @@ use adapteros_single_file_adapter::format::{
     AdapterWeights, LineageInfo, SingleFileAdapter, WeightGroup, WeightGroupType, WeightMetadata,
 };
 use adapteros_single_file_adapter::SingleFileAdapterPackager;
+use adapteros_types::training::{provenance_from_map, ExampleMetadataV1};
 use anyhow::{bail, Context, Result};
 use clap::Parser;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{info, warn};
 
 #[derive(Debug, Parser, Clone)]
@@ -187,6 +189,10 @@ pub async fn run(args: TrainBaseAdapterArgs) -> Result<()> {
         early_stopping: None,
         patience: None,
         min_delta: None,
+        preprocessing: None,
+        training_contract_version: adapteros_types::training::TRAINING_DATA_CONTRACT_VERSION.to_string(),
+        pad_token_id: 0,
+        ignore_index: -1,
     };
 
     // Train positive adapter
@@ -379,19 +385,31 @@ fn load_and_tokenize_examples(
                 line_num + 1
             ))?;
 
-            // Convert metadata to string map
-            let metadata: HashMap<String, String> = jsonl_example
-                .metadata
-                .iter()
-                .map(|(k, v)| (k.clone(), v.to_string()))
-                .collect();
+            // Build provenance metadata
+            let mut prov = BTreeMap::new();
+            for (k, v) in &jsonl_example.metadata {
+                prov.insert(k.clone(), serde_json::Value::String(v.to_string()));
+            }
+            let combined_weight = jsonl_example.weight * entry.weight;
+            if let Some(num) = serde_json::Number::from_f64(combined_weight as f64) {
+                prov.insert("weight".to_string(), serde_json::Value::Number(num));
+            }
+            prov.insert("entry_role".to_string(), serde_json::Value::String(entry.role.clone()));
 
-            let example = TrainingExample {
-                input: input_ids,
-                target: target_ids,
+            let created_at = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+            let metadata = ExampleMetadataV1::new(
+                entry_path.to_string_lossy().to_string(),
+                line_num as u64,
+                provenance_from_map(&prov).unwrap_or_default(),
+                created_at,
+            );
+            let attention_mask = vec![1u8; input_ids.len()];
+            let example = TrainingExample::new(
+                input_ids,
+                target_ids,
+                attention_mask,
                 metadata,
-                weight: jsonl_example.weight * entry.weight,
-            };
+            );
 
             match entry.role.as_str() {
                 "positive" => positive_examples.push(example),

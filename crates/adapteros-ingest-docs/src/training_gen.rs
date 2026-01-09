@@ -6,22 +6,35 @@
 
 use crate::types::{DocumentChunk, IngestedDocument};
 use adapteros_core::{AosError, Result};
+pub use adapteros_types::training::TrainingExampleV1 as TrainingExample;
+use adapteros_types::training::{provenance_from_map, ExampleMetadataV1};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokenizers::Tokenizer;
 use tracing::{debug, info, warn};
 
-/// Training example in the format expected by AdapterOS
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TrainingExample {
-    /// Input token IDs
-    pub input: Vec<u32>,
-    /// Target token IDs
-    pub target: Vec<u32>,
-    /// Example metadata
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<HashMap<String, String>>,
+fn current_unix_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn resolve_pad_token_id(tokenizer: &Tokenizer) -> Result<u32> {
+    if let Some(id) = tokenizer.token_to_id("<|pad|>") {
+        return Ok(id);
+    }
+    if let Some(id) = tokenizer.token_to_id("<pad>") {
+        return Ok(id);
+    }
+    if let Some(id) = tokenizer.token_to_id("[PAD]") {
+        return Ok(id);
+    }
+    Err(AosError::Validation(
+        "Tokenizer missing pad token id; configure a pad token".to_string(),
+    ))
 }
 
 /// Wrapper for batch of training examples (JSONL format)
@@ -79,6 +92,7 @@ fn generate_identity_example(
     tokenizer: &Arc<Tokenizer>,
     config: &TrainingGenConfig,
 ) -> Result<Vec<TrainingExample>> {
+    let pad_token_id = resolve_pad_token_id(tokenizer)?;
     let encoding = tokenizer
         .encode(chunk.text.as_str(), config.add_special_tokens)
         .map_err(|e| AosError::Validation(format!("Failed to tokenize chunk: {e}")))?;
@@ -94,22 +108,42 @@ fn generate_identity_example(
         );
     }
 
-    let mut metadata = HashMap::new();
-    metadata.insert("source".to_string(), document.source_name.clone());
-    metadata.insert("chunk_index".to_string(), chunk.chunk_index.to_string());
-    metadata.insert(
+    let mut provenance = BTreeMap::new();
+    provenance.insert(
+        "source".to_string(),
+        serde_json::Value::String(document.source_name.clone()),
+    );
+    provenance.insert(
+        "chunk_index".to_string(),
+        serde_json::Value::String(chunk.chunk_index.to_string()),
+    );
+    provenance.insert(
         "source_type".to_string(),
-        document.source.as_str().to_string(),
+        serde_json::Value::String(document.source.as_str().to_string()),
     );
     if let Some(page) = chunk.page_number {
-        metadata.insert("page".to_string(), page.to_string());
+        provenance.insert(
+            "page".to_string(),
+            serde_json::Value::String(page.to_string()),
+        );
     }
 
-    Ok(vec![TrainingExample {
-        input: token_ids.clone(),
-        target: token_ids,
-        metadata: Some(metadata),
-    }])
+    let metadata = ExampleMetadataV1::new(
+        document.source_name.clone(),
+        chunk.chunk_index as u64,
+        provenance_from_map(&provenance)
+            .map_err(|e| AosError::Validation(format!("Metadata error: {e}")))?,
+        current_unix_ms(),
+    );
+    let attention_mask =
+        TrainingExample::attention_mask_from_tokens(&token_ids, pad_token_id);
+
+    Ok(vec![TrainingExample::new(
+        token_ids.clone(),
+        token_ids,
+        attention_mask,
+        metadata,
+    )])
 }
 
 /// Generate question-answer pairs (basic implementation)
@@ -141,6 +175,8 @@ fn generate_qa_examples(
     let mut examples = Vec::new();
 
     // For each sentence, create a simple Q&A pair
+    let pad_token_id = resolve_pad_token_id(tokenizer)?;
+    let created_at_unix_ms = current_unix_ms();
     for (idx, sentence) in sentences.iter().take(3).enumerate() {
         let sentence = sentence.trim();
         if sentence.is_empty() {
@@ -169,19 +205,47 @@ fn generate_qa_examples(
             target_ids.truncate(config.max_seq_length);
         }
 
-        let mut metadata = HashMap::new();
-        metadata.insert("source".to_string(), document.source_name.clone());
-        metadata.insert("chunk_index".to_string(), chunk.chunk_index.to_string());
-        metadata.insert("qa_index".to_string(), idx.to_string());
-        metadata.insert("strategy".to_string(), "qa".to_string());
-        metadata.insert("qa_question_text".to_string(), question.clone());
-        metadata.insert("qa_answer_text".to_string(), sentence.to_string());
+        let mut provenance_map = BTreeMap::new();
+        provenance_map.insert(
+            "source".to_string(),
+            serde_json::Value::String(document.source_name.clone()),
+        );
+        provenance_map.insert(
+            "chunk_index".to_string(),
+            serde_json::Value::String(chunk.chunk_index.to_string()),
+        );
+        provenance_map.insert(
+            "qa_index".to_string(),
+            serde_json::Value::String(idx.to_string()),
+        );
+        provenance_map.insert(
+            "strategy".to_string(),
+            serde_json::Value::String("qa".to_string()),
+        );
+        provenance_map.insert(
+            "qa_question_text".to_string(),
+            serde_json::Value::String(question.clone()),
+        );
+        provenance_map.insert(
+            "qa_answer_text".to_string(),
+            serde_json::Value::String(sentence.to_string()),
+        );
 
-        examples.push(TrainingExample {
-            input: input_ids,
-            target: target_ids,
-            metadata: Some(metadata),
-        });
+        let metadata = ExampleMetadataV1::new(
+            document.source_name.clone(),
+            (chunk.chunk_index as u64) * 1000 + idx as u64,
+            provenance_from_map(&provenance_map)
+                .map_err(|e| AosError::Validation(format!("Metadata error: {e}")))?,
+            created_at_unix_ms,
+        );
+        let attention_mask = TrainingExample::attention_mask_from_tokens(&input_ids, pad_token_id);
+
+        examples.push(TrainingExample::new(
+            input_ids,
+            target_ids,
+            attention_mask,
+            metadata,
+        ));
     }
 
     debug!(
@@ -285,12 +349,18 @@ mod tests {
             .expect("Failed to generate examples");
 
         assert_eq!(examples.len(), 1);
-        assert_eq!(examples[0].input, examples[0].target);
-        assert!(!examples[0].input.is_empty());
+        assert_eq!(examples[0].input_tokens, examples[0].target_tokens);
+        assert!(!examples[0].input_tokens.is_empty());
 
-        let metadata = examples[0].metadata.as_ref().unwrap();
-        assert_eq!(metadata.get("source").unwrap(), "test.pdf");
-        assert_eq!(metadata.get("chunk_index").unwrap(), "0");
+        let metadata = &examples[0].metadata;
+        assert_eq!(metadata.source_id, "test.pdf");
+        let provenance: serde_json::Value =
+            serde_json::from_str(&metadata.provenance).expect("provenance json");
+        assert_eq!(provenance.get("source").and_then(|v| v.as_str()), Some("test.pdf"));
+        assert_eq!(
+            provenance.get("chunk_index").and_then(|v| v.as_str()),
+            Some("0")
+        );
     }
 
     #[test]
@@ -330,20 +400,24 @@ mod tests {
         );
 
         for example in &examples {
-            assert!(!example.input.is_empty());
-            assert!(!example.target.is_empty());
-            let metadata = example.metadata.as_ref().unwrap();
-            assert_eq!(metadata.get("strategy").unwrap(), "qa");
+            assert!(!example.input_tokens.is_empty());
+            assert!(!example.target_tokens.is_empty());
+            let metadata = &example.metadata;
+            let provenance: serde_json::Value =
+                serde_json::from_str(&metadata.provenance).expect("provenance json");
+            assert_eq!(provenance.get("strategy").and_then(|v| v.as_str()), Some("qa"));
             assert!(
-                metadata
+                provenance
                     .get("qa_question_text")
+                    .and_then(|q| q.as_str())
                     .map(|q| !q.is_empty())
                     .unwrap_or(false),
                 "Question metadata should be populated"
             );
             assert!(
-                metadata
+                provenance
                     .get("qa_answer_text")
+                    .and_then(|a| a.as_str())
                     .map(|a| !a.is_empty())
                     .unwrap_or(false),
                 "Answer metadata should be populated"

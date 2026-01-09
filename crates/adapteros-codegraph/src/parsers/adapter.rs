@@ -119,7 +119,8 @@ mod tests {
         format::{AdapterWeights, WeightGroup, WeightGroupType, WeightMetadata},
         LineageInfo, SingleFileAdapter, SingleFileAdapterPackager, TrainingConfig, TrainingExample,
     };
-    use std::collections::{HashMap, HashSet};
+    use adapteros_types::training::ExampleMetadataV1;
+    use std::collections::HashSet;
     use std::path::PathBuf;
     use tempfile::TempDir;
 
@@ -148,12 +149,14 @@ mod tests {
             combined: None,
         };
 
-        let training_data = vec![TrainingExample {
-            input: vec![1, 2, 3],
-            target: vec![4, 5, 6],
-            metadata: HashMap::new(),
-            weight: 1.0,
-        }];
+        let metadata = ExampleMetadataV1::new("test", 1, "{}", 0);
+        let attention_mask = TrainingExample::attention_mask_from_tokens(&[1, 2, 3], 0);
+        let training_data = vec![TrainingExample::new(
+            vec![1, 2, 3],
+            vec![4, 5, 6],
+            attention_mask,
+            metadata,
+        )];
 
         let config = TrainingConfig::default();
         let lineage = LineageInfo {

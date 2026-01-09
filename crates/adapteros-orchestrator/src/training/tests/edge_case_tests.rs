@@ -7,6 +7,7 @@
 #![allow(unused_imports)]
 
 use adapteros_lora_worker::training::TrainingExample as WorkerTrainingExample;
+use adapteros_types::training::ExampleMetadataV1;
 
 use crate::training::dataset::weighted_round_robin_merge;
 use crate::training::job::{DataLineageMode, DatasetVersionSelection, TrainingConfig};
@@ -15,6 +16,13 @@ use crate::training::service::TrainingService;
 // ============================================================================
 // Zero/Empty Dataset Tests
 // ============================================================================
+
+fn make_example(input_tokens: Vec<u32>, target_tokens: Vec<u32>, row_id: u64) -> WorkerTrainingExample {
+    let metadata = ExampleMetadataV1::new("test", row_id, "{}", 0);
+    let attention_mask =
+        WorkerTrainingExample::attention_mask_from_tokens(&input_tokens, 0);
+    WorkerTrainingExample::new(input_tokens, target_tokens, attention_mask, metadata)
+}
 
 /// Test that weighted_round_robin_merge returns empty for empty input.
 #[test]
@@ -42,36 +50,21 @@ fn test_weighted_round_robin_all_empty_queues() {
 #[test]
 fn test_weighted_round_robin_single_dataset() {
     let examples = vec![
-        WorkerTrainingExample {
-            input: vec![1],
-            target: vec![2],
-            metadata: Default::default(),
-            weight: 1.0,
-        },
-        WorkerTrainingExample {
-            input: vec![3],
-            target: vec![4],
-            metadata: Default::default(),
-            weight: 1.0,
-        },
+        make_example(vec![1], vec![2], 1),
+        make_example(vec![3], vec![4], 2),
     ];
     let datasets = vec![(examples.clone(), 1.0)];
     let merged = weighted_round_robin_merge(datasets);
 
     assert_eq!(merged.len(), 2);
-    assert_eq!(merged[0].input, vec![1]);
-    assert_eq!(merged[1].input, vec![3]);
+    assert_eq!(merged[0].input_tokens, vec![1]);
+    assert_eq!(merged[1].input_tokens, vec![3]);
 }
 
 /// Test that zero weight is treated as 1 slot (minimum).
 #[test]
 fn test_weighted_round_robin_zero_weight() {
-    let ds1 = vec![WorkerTrainingExample {
-        input: vec![1],
-        target: vec![2],
-        metadata: Default::default(),
-        weight: 1.0,
-    }];
+    let ds1 = vec![make_example(vec![1], vec![2], 1)];
 
     // Zero weight should still get 1 slot
     let datasets = vec![(ds1, 0.0)];
@@ -83,12 +76,7 @@ fn test_weighted_round_robin_zero_weight() {
 /// Test that negative weight is clamped to 0, then to 1 slot.
 #[test]
 fn test_weighted_round_robin_negative_weight() {
-    let ds1 = vec![WorkerTrainingExample {
-        input: vec![1],
-        target: vec![2],
-        metadata: Default::default(),
-        weight: 1.0,
-    }];
+    let ds1 = vec![make_example(vec![1], vec![2], 1)];
 
     // Negative weight should be clamped to 0, then treated as 1 slot
     let datasets = vec![(ds1, -5.0)];
@@ -105,25 +93,10 @@ fn test_weighted_round_robin_negative_weight() {
 #[test]
 fn test_weighted_round_robin_extreme_ratio() {
     let ds1 = vec![
-        WorkerTrainingExample {
-            input: vec![1],
-            target: vec![2],
-            metadata: Default::default(),
-            weight: 1.0,
-        },
-        WorkerTrainingExample {
-            input: vec![3],
-            target: vec![4],
-            metadata: Default::default(),
-            weight: 1.0,
-        },
+        make_example(vec![1], vec![2], 1),
+        make_example(vec![3], vec![4], 2),
     ];
-    let ds2 = vec![WorkerTrainingExample {
-        input: vec![100],
-        target: vec![200],
-        metadata: Default::default(),
-        weight: 1.0,
-    }];
+    let ds2 = vec![make_example(vec![100], vec![200], 1)];
 
     // Weight 100:1 - ds1 should get 100 slots per cycle
     let datasets = vec![(ds1, 100.0), (ds2, 1.0)];

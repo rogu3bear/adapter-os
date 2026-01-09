@@ -1,9 +1,11 @@
 use crate::{BaseLLM, BaseLLMMetadata, ModelState};
-use adapteros_config::get_model_path_with_fallback;
+use adapteros_config::{get_model_path_with_fallback, reject_tmp_persistent_path, resolve_base_model_location};
 use adapteros_core::{AosError, Result};
 use adapteros_deterministic_exec::DeterministicExecutor;
 use adapteros_lora_mlx_ffi::MLXFFIModel;
+use adapteros_secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
 use adapteros_trace::Event;
+use std::path::{Path, PathBuf};
 
 /// Qwen backend implemented via MLX C++ FFI (no Python)
 pub struct QwenMlxFfi {
@@ -24,12 +26,34 @@ impl QwenMlxFfi {
     }
 }
 
+fn model_allowed_roots() -> Result<Vec<PathBuf>> {
+    let location = resolve_base_model_location(None, None, false)?;
+    if !location.cache_root.exists() {
+        std::fs::create_dir_all(&location.cache_root).map_err(|e| {
+            AosError::Config(format!(
+                "Failed to create model cache root {}: {}",
+                location.cache_root.display(),
+                e
+            ))
+        })?;
+    }
+    Ok(vec![location.cache_root])
+}
+
+fn canonicalize_model_path(model_path: &Path) -> Result<PathBuf> {
+    let allowed_roots = model_allowed_roots()?;
+    let canonical = canonicalize_strict_in_allowed_roots(model_path, &allowed_roots)
+        .map_err(|e| AosError::Config(format!("Model path rejected: {}", e)))?;
+    reject_tmp_persistent_path(&canonical, "model-path")?;
+    Ok(canonical)
+}
+
 impl BaseLLM for QwenMlxFfi {
     fn load(&mut self, _executor: &mut DeterministicExecutor) -> Result<()> {
         // Use unified model path helper with automatic legacy fallback
         let model_path = get_model_path_with_fallback()?;
-
-        let model = MLXFFIModel::load(model_path.to_string_lossy().as_ref())?;
+        let canonical_path = canonicalize_model_path(&model_path)?;
+        let model = MLXFFIModel::load(&canonical_path)?;
         self.model = Some(model);
         Ok(())
     }
