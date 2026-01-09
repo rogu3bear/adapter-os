@@ -29,10 +29,13 @@ pub use model_io::load_model_bytes_verified;
 
 use crate::model_handle_cache::{ModelHandle, ModelHandleCache};
 use crate::model_key::ModelKey;
-use adapteros_config::{model, reject_tmp_persistent_path, BackendPreference, ModelConfig};
+use adapteros_config::{
+    model, reject_tmp_persistent_path, resolve_base_model_location, BackendPreference, ModelConfig,
+};
 use adapteros_core::{constants::BYTES_PER_MB, AosError, B3Hash, Result};
 use adapteros_lora_kernel_api::attestation::BackendType;
 use adapteros_lora_kernel_api::FusedKernels;
+use adapteros_secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
 #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
 use model_io::estimate_coreml_model_size_bytes;
 #[cfg(target_os = "macos")]
@@ -804,16 +807,10 @@ fn create_mlx_bridge_backend(
         "Creating MLX subprocess bridge backend"
     );
 
-    // Validate model path exists
-    if !model_path.exists() {
-        return Err(AosError::Config(format!(
-            "Model path does not exist: {}",
-            model_path.display()
-        )));
-    }
+    let model_path = validate_mlx_model_dir(model_path)?;
 
     // Load config to get vocab_size
-    let config = load_and_validate_model_config(model_path)?;
+    let config = load_and_validate_model_config(&model_path)?;
     let vocab_size = config.map(|c| c.vocab_size).unwrap_or(152064); // Default for Qwen2.5
 
     // Create bridge configuration
@@ -862,6 +859,7 @@ fn create_metal_backend(
                 .to_string(),
         )
     })?;
+    let model_path = canonicalize_model_path(model_path)?;
     info!(
         model_path = %model_path.display(),
         has_manifest_hash = true,
@@ -870,7 +868,7 @@ fn create_metal_backend(
     );
 
     // Load model configuration from config.json if available (with validation)
-    let model_config = load_and_validate_model_config(model_path)?;
+    let model_config = load_and_validate_model_config(&model_path)?;
     let model_config = model_config.ok_or_else(|| {
         AosError::Config(format!(
             "Metal backend requires config.json with model dimensions for deterministic GQA setup (path: {})",
@@ -890,14 +888,14 @@ fn create_metal_backend(
     let cache_key = ModelKey::new(
         BackendType::Metal,
         *manifest_hash,
-        build_model_cache_identity(BackendType::Metal, model_path),
+        build_model_cache_identity(BackendType::Metal, &model_path),
     );
     let cache = get_model_cache()?;
     cache.set_base_model_key(&cache_key);
 
     let pin_enabled = cache.base_model_pin_enabled();
     if pin_enabled {
-        let estimated_bytes = estimate_model_size_bytes(model_path)?;
+        let estimated_bytes = estimate_model_size_bytes(&model_path)?;
         validate_base_model_pin_budget(cache, estimated_bytes, BackendType::Metal)?;
     }
 
@@ -905,7 +903,7 @@ fn create_metal_backend(
         cache.get_or_load_base_model(&cache_key, || {
             // Load and verify atomically to eliminate TOCTOU gap
             let (bytes, computed_hash) =
-                load_model_bytes_atomic_verified(model_path, model_weights_hash)?;
+                load_model_bytes_atomic_verified(&model_path, model_weights_hash)?;
             let memory_bytes = bytes.len() as u64;
             info!(
                 model_size_mb = memory_bytes / BYTES_PER_MB,
@@ -919,7 +917,7 @@ fn create_metal_backend(
         cache.get_or_load(&cache_key, || {
             // Load and verify atomically to eliminate TOCTOU gap
             let (bytes, computed_hash) =
-                load_model_bytes_atomic_verified(model_path, model_weights_hash)?;
+                load_model_bytes_atomic_verified(&model_path, model_weights_hash)?;
             let memory_bytes = bytes.len() as u64;
             info!(
                 model_size_mb = memory_bytes / BYTES_PER_MB,
@@ -1002,6 +1000,7 @@ fn create_coreml_backend(
                 .to_string(),
         )
     })?;
+    let model_path = canonicalize_model_path(model_path)?;
 
     // Initialize CoreML runtime
     init_coreml()?;
@@ -1127,32 +1126,38 @@ fn create_coreml_backend(
     ))
 }
 
-fn validate_mlx_model_dir(model_path: &Path) -> Result<PathBuf> {
-    if !model_path.exists() {
-        return Err(AosError::Config(format!(
-            "MLX model path '{}' does not exist. Set AOS_MODEL_PATH to a directory containing MLX config.json and weights.",
-            model_path.display()
-        )));
+pub(crate) fn model_allowed_roots() -> Result<Vec<PathBuf>> {
+    let location = resolve_base_model_location(None, None, false)?;
+    if !location.cache_root.exists() {
+        std::fs::create_dir_all(&location.cache_root).map_err(|e| {
+            AosError::Config(format!(
+                "Failed to create model cache root {}: {}",
+                location.cache_root.display(),
+                e
+            ))
+        })?;
     }
+    Ok(vec![location.cache_root])
+}
 
-    if !model_path.is_dir() {
+pub(crate) fn canonicalize_model_path(model_path: &Path) -> Result<PathBuf> {
+    let allowed_roots = model_allowed_roots()?;
+    let canonical = canonicalize_strict_in_allowed_roots(model_path, &allowed_roots)
+        .map_err(|e| AosError::Config(format!("Model path rejected: {}", e)))?;
+    reject_tmp_persistent_path(&canonical, "model-path")?;
+    Ok(canonical)
+}
+
+fn validate_mlx_model_dir(model_path: &Path) -> Result<PathBuf> {
+    // SECURITY: Canonicalize path to resolve symlinks and validate location
+    let canonical_path = canonicalize_model_path(model_path)?;
+
+    if !canonical_path.is_dir() {
         return Err(AosError::Config(format!(
             "MLX model path '{}' is not a directory. Set AOS_MODEL_PATH to the MLX model directory.",
-            model_path.display()
+            canonical_path.display()
         )));
     }
-
-    // SECURITY: Canonicalize path to resolve symlinks and validate location
-    let canonical_path = model_path.canonicalize().map_err(|e| {
-        AosError::Config(format!(
-            "Failed to canonicalize model path '{}': {}",
-            model_path.display(),
-            e
-        ))
-    })?;
-
-    // SECURITY: Reject /tmp paths for model storage (data persistence requirement)
-    reject_tmp_persistent_path(&canonical_path, "model-path")?;
 
     let config_path = canonical_path.join("config.json");
     if !config_path.exists() {

@@ -6,6 +6,7 @@
 
 use super::trainer::{LoRAWeights, TrainingConfig};
 use adapteros_core::{AosError, Result};
+use adapteros_types::training::TRAINING_DATA_CONTRACT_VERSION;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tracing::{debug, info};
@@ -21,6 +22,8 @@ pub struct TrainingCheckpoint {
     pub loss: f32,
     /// Learning rate at this checkpoint
     pub learning_rate: f32,
+    /// Training data contract version.
+    pub training_contract_version: String,
     /// Training configuration
     pub config: TrainingConfig,
     /// LoRA weights at this checkpoint
@@ -50,6 +53,7 @@ impl TrainingCheckpoint {
             step,
             loss,
             learning_rate,
+            training_contract_version: config.training_contract_version.clone(),
             config,
             weights,
             best_loss: loss,
@@ -149,6 +153,17 @@ impl TrainingCheckpoint {
                 "Invalid checkpoint: loss {} is not finite (possible corruption)",
                 checkpoint.loss
             )));
+        }
+        if checkpoint.training_contract_version != TRAINING_DATA_CONTRACT_VERSION {
+            return Err(AosError::Training(format!(
+                "Checkpoint training contract version mismatch: expected {}, got {}",
+                TRAINING_DATA_CONTRACT_VERSION, checkpoint.training_contract_version
+            )));
+        }
+        if checkpoint.training_contract_version != checkpoint.config.training_contract_version {
+            return Err(AosError::Training(
+                "Checkpoint training contract version differs from config".to_string(),
+            ));
         }
 
         info!(
@@ -402,6 +417,11 @@ mod tests {
             base_model_path: None,
             hidden_state_layer: None,
             validation_split: 0.0,
+            preprocessing: None,
+            training_contract_version: adapteros_types::training::TRAINING_DATA_CONTRACT_VERSION
+                .to_string(),
+            pad_token_id: 0,
+            ignore_index: -1,
         };
 
         let weights = LoRAWeights {

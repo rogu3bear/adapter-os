@@ -95,6 +95,11 @@ impl QwenTokenizer {
         self.special_tokens.eos_token_id
     }
 
+    /// Get pad token ID (if configured).
+    pub fn pad_token_id(&self) -> Option<u32> {
+        self.special_tokens.pad_token_id
+    }
+
     /// Get the full special token map
     pub fn special_tokens(&self) -> &SpecialTokenMap {
         &self.special_tokens

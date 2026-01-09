@@ -6,9 +6,9 @@ use adapteros_platform::common::PlatformUtils;
 use blake3;
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
+use adapteros_types::training::ExampleMetadataV1;
 
 fn new_test_tempdir() -> TempDir {
     let root = PlatformUtils::temp_dir();
@@ -17,7 +17,11 @@ fn new_test_tempdir() -> TempDir {
 }
 
 fn make_prepared(example: &TrainingExample, hidden_dim: usize) -> coreml_pipeline::PreparedExample {
-    let mut scaled_input: Vec<f32> = example.input.iter().map(|t| *t as f32).collect();
+    let mut scaled_input: Vec<f32> = example
+        .input_tokens
+        .iter()
+        .map(|t| *t as f32)
+        .collect();
     if scaled_input.len() < hidden_dim {
         scaled_input.resize(hidden_dim, 0.0);
     } else {
@@ -25,19 +29,27 @@ fn make_prepared(example: &TrainingExample, hidden_dim: usize) -> coreml_pipelin
     }
 
     coreml_pipeline::PreparedExample {
-        input_tokens: example.input.clone(),
-        target_tokens: example.target.clone(),
-        padded_input: example.input.clone(),
-        padded_target: example.target.clone(),
+        input_tokens: example.input_tokens.clone(),
+        target_tokens: example.target_tokens.clone(),
+        padded_input: example.input_tokens.clone(),
+        padded_target: example.target_tokens.clone(),
         scaled_input,
-        input_mask: vec![1; example.input.len()],
-        target_mask: vec![1; example.target.len()],
-        input_len: example.input.len(),
-        target_len: example.target.len(),
+        preprocessed: None,
+        input_mask: example.attention_mask.clone(),
+        target_mask: vec![1; example.target_tokens.len()],
+        input_len: example.input_tokens.len(),
+        target_len: example.target_tokens.len(),
         metadata: example.metadata.clone(),
-        weight: example.weight,
     }
 }
+
+fn example(input_tokens: Vec<u32>, target_tokens: Vec<u32>) -> TrainingExample {
+    let metadata = ExampleMetadataV1::new("test", 0, "{}", 0);
+    let attention_mask =
+        TrainingExample::attention_mask_from_tokens(&input_tokens, 0);
+    TrainingExample::new(input_tokens, target_tokens, attention_mask, metadata)
+}
+
 
 fn find_model_dir(path: &Path) -> Option<PathBuf> {
     if path.is_dir() && path.join("config.json").is_file() {
@@ -370,12 +382,7 @@ fn test_training_updates_only_lora_weights() {
 
     let base_snapshot = vec![1.0f32, 2.0, 3.0, 4.0];
 
-    let examples = vec![TrainingExample {
-        input: vec![1, 2, 3, 4],
-        target: vec![4, 3, 2, 1],
-        metadata: HashMap::new(),
-        weight: 1.0,
-    }];
+    let examples = vec![example(vec![1, 2, 3, 4], vec![4, 3, 2, 1])];
 
     let dataset = trainer
         .prepare_dataset_for_training(&examples)
@@ -444,12 +451,7 @@ fn test_forward_pass() {
     let mut trainer = MicroLoRATrainer::new_for_test(config).unwrap();
     let weights = trainer.initialize_weights_deterministic().unwrap();
 
-    let examples = vec![TrainingExample {
-        input: vec![1, 2, 3, 4, 5],
-        target: vec![1, 2, 3, 4, 5],
-        metadata: HashMap::new(),
-        weight: 1.0,
-    }];
+    let examples = vec![example(vec![1, 2, 3, 4, 5], vec![1, 2, 3, 4, 5])];
     let dataset = trainer
         .prepare_dataset_for_training(&examples)
         .expect("prepare dataset");
@@ -483,18 +485,8 @@ async fn test_train_small() {
     let mut trainer = MicroLoRATrainer::new_for_test(config).unwrap();
 
     let examples = vec![
-        TrainingExample {
-            input: vec![1, 2, 3],
-            target: vec![4, 5, 6],
-            metadata: HashMap::new(),
-            weight: 1.0,
-        },
-        TrainingExample {
-            input: vec![7, 8, 9],
-            target: vec![10, 11, 12],
-            metadata: HashMap::new(),
-            weight: 1.0,
-        },
+        example(vec![1, 2, 3], vec![4, 5, 6]),
+        example(vec![7, 8, 9], vec![10, 11, 12]),
     ];
 
     let result = trainer.train(&examples).await.unwrap();
@@ -526,15 +518,10 @@ fn test_backward_only_updates_lora_weights() {
     let mut weights = trainer.initialize_weights_deterministic().unwrap();
     let original_weights = weights.clone();
 
-    let example = TrainingExample {
-        input: vec![1, 2],
-        target: vec![1, 2, 3, 4],
-        metadata: HashMap::new(),
-        weight: 1.0,
-    };
+    let example = example(vec![1, 2], vec![1, 2, 3, 4]);
     let prepared = make_prepared(&example, trainer.config.hidden_dim);
     let (output, hidden) = trainer.forward(&weights, &prepared).unwrap();
-    let target = example.target.clone();
+    let target = example.target_tokens.clone();
 
     let mut rng = ChaCha20Rng::from_seed(derive_seed(
         &B3Hash::hash(b"test_backward_only_updates_lora_weights"),
@@ -568,12 +555,7 @@ async fn test_train_with_cpu_backend_optional() {
     };
     let mut trainer = MicroLoRATrainer::new_for_test(config).unwrap();
 
-    let examples = vec![TrainingExample {
-        input: vec![1, 2],
-        target: vec![3, 4],
-        metadata: HashMap::new(),
-        weight: 1.0,
-    }];
+    let examples = vec![example(vec![1, 2], vec![3, 4])];
 
     // init_kernels should complete successfully (CPU path)
     trainer
@@ -678,12 +660,7 @@ async fn test_train_with_checkpointing() {
     let temp_dir = new_test_tempdir();
     trainer.enable_checkpointing(temp_dir.path(), "test-adapter", 3);
 
-    let examples = vec![TrainingExample {
-        input: vec![1, 2],
-        target: vec![3, 4],
-        metadata: HashMap::new(),
-        weight: 1.0,
-    }];
+    let examples = vec![example(vec![1, 2], vec![3, 4])];
 
     // Train - checkpoints should be saved each epoch
     let result = trainer.train(&examples).await;
@@ -853,12 +830,7 @@ async fn test_adapter_only_training_updates_lora_only() {
     };
     let mut trainer = MicroLoRATrainer::new_for_test(config).unwrap();
 
-    let examples = vec![TrainingExample {
-        input: vec![1, 2, 3, 4],
-        target: vec![5, 6, 7, 8],
-        metadata: HashMap::new(),
-        weight: 1.0,
-    }];
+    let examples = vec![example(vec![1, 2, 3, 4], vec![5, 6, 7, 8])];
 
     // Snapshot initial LoRA weights and base (input-derived) hidden state.
     let initial_weights = trainer.initialize_weights_deterministic().unwrap();
@@ -945,7 +917,7 @@ fn child_process_test_names() -> Vec<String> {
     let with_crate = CHILD_PROCESS_TEST_NAME.to_string();
     let crate_prefix = format!("{}::", env!("CARGO_PKG_NAME").replace('-', "_"));
     if let Some(stripped) = with_crate.strip_prefix(&crate_prefix) {
-        vec![with_crate, stripped.to_string()]
+        vec![with_crate.clone(), stripped.to_string()]
     } else {
         vec![with_crate]
     }
@@ -955,7 +927,7 @@ fn spawn_determinism_child(
     model_path: &std::path::Path,
     output_path: &std::path::Path,
     seed: u64,
-) -> Result<(), String> {
+) -> std::result::Result<(), String> {
     let exe = std::env::current_exe()
         .map_err(|e| format!("failed to find test binary path: {}", e))?;
     let mut last_error = None;
@@ -1046,18 +1018,11 @@ async fn test_gpu_backward_determinism() {
         eprintln!("Trainer created, has_base_model: {}", trainer.has_base_model());
 
         let examples = vec![
-            TrainingExample {
-                input: vec![1, 2, 3, 4, 5, 6, 7, 8],
-                target: vec![2, 3, 4, 5, 6, 7, 8, 9],
-                metadata: HashMap::new(),
-                weight: 1.0,
-            },
-            TrainingExample {
-                input: vec![10, 11, 12, 13, 14, 15, 16, 17],
-                target: vec![11, 12, 13, 14, 15, 16, 17, 18],
-                metadata: HashMap::new(),
-                weight: 1.0,
-            },
+            example(vec![1, 2, 3, 4, 5, 6, 7, 8], vec![2, 3, 4, 5, 6, 7, 8, 9]),
+            example(
+                vec![10, 11, 12, 13, 14, 15, 16, 17],
+                vec![11, 12, 13, 14, 15, 16, 17, 18],
+            ),
         ];
 
         let result = trainer.train(&examples).await.map_err(|e| format!("Training failed: {}", e))?;
@@ -1182,18 +1147,11 @@ async fn test_determinism_child_process() {
     let mut trainer = MicroLoRATrainer::new(config).expect("child trainer should initialize");
 
     let examples = vec![
-        TrainingExample {
-            input: vec![1, 2, 3, 4, 5, 6, 7, 8],
-            target: vec![2, 3, 4, 5, 6, 7, 8, 9],
-            metadata: HashMap::new(),
-            weight: 1.0,
-        },
-        TrainingExample {
-            input: vec![10, 11, 12, 13, 14, 15, 16, 17],
-            target: vec![11, 12, 13, 14, 15, 16, 17, 18],
-            metadata: HashMap::new(),
-            weight: 1.0,
-        },
+        example(vec![1, 2, 3, 4, 5, 6, 7, 8], vec![2, 3, 4, 5, 6, 7, 8, 9]),
+        example(
+            vec![10, 11, 12, 13, 14, 15, 16, 17],
+            vec![11, 12, 13, 14, 15, 16, 17, 18],
+        ),
     ];
 
     let result = trainer
@@ -1208,12 +1166,8 @@ async fn test_determinism_child_process() {
     std::fs::write(&output_path, serialized).expect("write weights to output file");
 }
 
-/// Test that GPU backward pass produces loss values equivalent to CPU backward pass.
-/// This verifies that the GPU implementation is mathematically correct by comparing
-/// against the reference CPU implementation.
-///
-/// Note: Due to floating-point non-associativity, bit-exact match may not be possible.
-/// This test allows a small tolerance (1e-5 relative error) for numerical differences.
+/// Test that the deprecated CPU backward path is rejected.
+/// This ensures there is no silent fallback from GPU cross-entropy to CPU MSE loss.
 ///
 /// Requirements:
 /// - MLX hardware (Apple Silicon)
@@ -1239,18 +1193,8 @@ async fn test_gpu_cpu_loss_equivalence() {
     };
 
     let examples = vec![
-        TrainingExample {
-            input: vec![1, 2, 3, 4],
-            target: vec![2, 3, 4, 5],
-            metadata: HashMap::new(),
-            weight: 1.0,
-        },
-        TrainingExample {
-            input: vec![10, 11, 12, 13],
-            target: vec![11, 12, 13, 14],
-            metadata: HashMap::new(),
-            weight: 1.0,
-        },
+        example(vec![1, 2, 3, 4], vec![2, 3, 4, 5]),
+        example(vec![10, 11, 12, 13], vec![11, 12, 13, 14]),
     ];
 
     // Train with GPU backward (uses real base model forward pass)
@@ -1270,10 +1214,12 @@ async fn test_gpu_cpu_loss_equivalence() {
         ..Default::default()
     };
     let mut gpu_trainer = MicroLoRATrainer::new(gpu_config).expect("GPU trainer should initialize");
-    let gpu_result = gpu_trainer.train(&examples).await.expect("GPU training should complete");
+    let _gpu_result = gpu_trainer
+        .train(&examples)
+        .await
+        .expect("GPU training should complete");
 
-    // Train with CPU backward (same determinism config)
-    // Both paths use real base model for forward pass; backward differs (GPU autograd vs CPU manual)
+    // Train with CPU backward (deprecated)
     let cpu_config = TrainingConfig {
         rank: 4,
         hidden_dim: 3584,
@@ -1290,64 +1236,9 @@ async fn test_gpu_cpu_loss_equivalence() {
     };
     // CPU backward path also needs base model for forward pass
     let mut cpu_trainer = MicroLoRATrainer::new(cpu_config).expect("CPU trainer should initialize");
-    let cpu_result = cpu_trainer.train(&examples).await.expect("CPU training should complete");
-
-    // Compare final losses with tolerance
-    let tolerance = 1e-5_f32;
-    let relative_error: f32 = if cpu_result.final_loss.abs() > 1e-10 {
-        (gpu_result.final_loss - cpu_result.final_loss).abs() / cpu_result.final_loss.abs()
-    } else {
-        (gpu_result.final_loss - cpu_result.final_loss).abs()
-    };
-
+    let cpu_result = cpu_trainer.train(&examples).await;
     assert!(
-        relative_error < tolerance,
-        "GPU and CPU final loss should be within {:.0e} relative error. \
-         GPU loss: {}, CPU loss: {}, relative error: {:.6e}",
-        tolerance,
-        gpu_result.final_loss,
-        cpu_result.final_loss,
-        relative_error
+        cpu_result.is_err(),
+        "CPU backward should be rejected to avoid deprecated loss usage"
     );
-
-    // Compare loss curves (if bit-exact determinism is achieved, these should match)
-    // If not bit-exact, at least verify they're in the same ballpark
-    assert_eq!(
-        gpu_result.loss_curve.len(),
-        cpu_result.loss_curve.len(),
-        "Loss curve lengths should match"
-    );
-
-    for (epoch, (gpu_loss, cpu_loss)) in gpu_result
-        .loss_curve
-        .iter()
-        .zip(cpu_result.loss_curve.iter())
-        .enumerate()
-    {
-        let epoch_rel_error: f32 = if cpu_loss.abs() > 1e-10 {
-            (gpu_loss - cpu_loss).abs() / cpu_loss.abs()
-        } else {
-            (gpu_loss - cpu_loss).abs()
-        };
-
-        // Allow slightly larger tolerance for intermediate epochs
-        let epoch_tolerance = tolerance * 10.0;
-        assert!(
-            epoch_rel_error < epoch_tolerance,
-            "Epoch {} loss mismatch: GPU={}, CPU={}, relative error={:.6e} (tolerance: {:.0e})",
-            epoch,
-            gpu_loss,
-            cpu_loss,
-            epoch_rel_error,
-            epoch_tolerance
-        );
-    }
-
-    // Log comparison for debugging (visible with --nocapture)
-    println!("GPU vs CPU Loss Comparison:");
-    println!("  GPU final loss: {}", gpu_result.final_loss);
-    println!("  CPU final loss: {}", cpu_result.final_loss);
-    println!("  Relative error: {:.6e}", relative_error);
-    println!("  Training backend (GPU): {:?}", gpu_result.backend);
-    println!("  Training backend (CPU): {:?}", cpu_result.backend);
 }

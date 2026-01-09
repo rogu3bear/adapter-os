@@ -3,11 +3,13 @@
 //! Supports structured JSON training data with positive/negative weight separation
 //! and flexible input/output formats for different training scenarios.
 
-use super::dataset::TrainingExample;
+use super::limits::DatasetSizeLimits;
+use adapteros_types::training::{provenance_from_map, ExampleMetadataV1, TrainingExampleV1};
 use adapteros_core::{AosError, Result};
+use adapteros_secure_fs::path_policy::canonicalize_strict;
 use serde::Deserialize;
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::Path;
 use tokenizers::Tokenizer;
@@ -91,6 +93,8 @@ pub struct JsonLoaderConfig {
     pub max_target_length: usize,
     /// Whether to separate positive/negative examples
     pub separate_weights: bool,
+    /// Explicit pad token ID
+    pub pad_token_id: u32,
 }
 
 impl Default for JsonLoaderConfig {
@@ -100,6 +104,7 @@ impl Default for JsonLoaderConfig {
             max_input_length: 2048,
             max_target_length: 512,
             separate_weights: true,
+            pad_token_id: 0,
         }
     }
 }
@@ -108,11 +113,11 @@ impl Default for JsonLoaderConfig {
 pub fn load_json_dataset<P: AsRef<Path>>(
     path: P,
     config: JsonLoaderConfig,
-) -> Result<Vec<TrainingExample>> {
-    let path = path.as_ref();
+) -> Result<Vec<TrainingExampleV1>> {
+    let path = canonicalize_strict(path.as_ref())?;
 
     // Read JSON file
-    let content = fs::read_to_string(path).map_err(|e| {
+    let content = fs::read_to_string(&path).map_err(|e| {
         AosError::Training(format!(
             "Failed to read JSON dataset {}: {}",
             path.display(),
@@ -128,6 +133,22 @@ pub fn load_json_dataset<P: AsRef<Path>>(
         ))
     })?;
 
+    let limits = DatasetSizeLimits::from_env();
+    if content.len() as u64 > limits.max_total_bytes {
+        return Err(AosError::Training(format!(
+            "JSON dataset exceeds size limit: {} > {} bytes",
+            content.len(),
+            limits.max_total_bytes
+        )));
+    }
+    if dataset.examples.len() > limits.max_samples {
+        return Err(AosError::Training(format!(
+            "JSON dataset exceeds sample limit: {} > {}",
+            dataset.examples.len(),
+            limits.max_samples
+        )));
+    }
+
     info!(
         "Loading JSON dataset: {} ({} examples)",
         dataset.name,
@@ -136,12 +157,23 @@ pub fn load_json_dataset<P: AsRef<Path>>(
 
     // Convert JSON examples to training examples
     let mut training_examples = Vec::new();
+    let created_at_unix_ms = chrono::Utc::now().timestamp_millis() as u64;
     let mut positive_count = 0;
     let mut negative_count = 0;
+    let mut total_tokens: u64 = 0;
 
     for (idx, example) in dataset.examples.iter().enumerate() {
         let input_tokens = encode_input(&example.input, &config)?;
         let target_tokens = encode_target(&example.target, &config)?;
+
+        total_tokens = total_tokens
+            .saturating_add((input_tokens.len() + target_tokens.len()) as u64);
+        if total_tokens > limits.max_tokens {
+            return Err(AosError::Training(format!(
+                "JSON dataset token count exceeds limit: {} > {}",
+                total_tokens, limits.max_tokens
+            )));
+        }
 
         // Validate lengths
         if input_tokens.len() > config.max_input_length {
@@ -164,36 +196,72 @@ pub fn load_json_dataset<P: AsRef<Path>>(
             continue;
         }
 
-        // Build metadata
-        let mut metadata = HashMap::new();
-        metadata.insert("dataset_name".to_string(), dataset.name.clone());
-        metadata.insert("example_index".to_string(), idx.to_string());
+        // Build metadata provenance
+        let mut provenance = BTreeMap::new();
+        provenance.insert(
+            "dataset_name".to_string(),
+            serde_json::Value::String(dataset.name.clone()),
+        );
+        provenance.insert(
+            "example_index".to_string(),
+            serde_json::Value::String(idx.to_string()),
+        );
 
         if let Some(ref id) = example.id {
-            metadata.insert("example_id".to_string(), id.clone());
+            provenance.insert(
+                "example_id".to_string(),
+                serde_json::Value::String(id.clone()),
+            );
         }
 
         if !example.tags.is_empty() {
-            metadata.insert("tags".to_string(), example.tags.join(","));
+            provenance.insert(
+                "tags".to_string(),
+                serde_json::Value::String(example.tags.join(",")),
+            );
         }
 
         if let Some(ref example_metadata) = example.metadata {
             for (key, value) in example_metadata {
-                metadata.insert(key.clone(), flatten_json_value(value));
+                provenance.insert(
+                    key.clone(),
+                    serde_json::Value::String(flatten_json_value(value)),
+                );
             }
         }
 
         // Add dataset metadata
         for (key, value) in &dataset.metadata {
-            metadata.insert(format!("dataset_{}", key), flatten_json_value(value));
+            provenance.insert(
+                format!("dataset_{}", key),
+                serde_json::Value::String(flatten_json_value(value)),
+            );
         }
 
-        let training_example = TrainingExample {
-            input: input_tokens,
-            target: target_tokens,
+        if let Some(num) = serde_json::Number::from_f64(example.weight as f64) {
+            provenance.insert("weight".to_string(), serde_json::Value::Number(num));
+        } else {
+            provenance.insert(
+                "weight".to_string(),
+                serde_json::Value::String(example.weight.to_string()),
+            );
+        }
+
+        let metadata = ExampleMetadataV1::new(
+            dataset.name.clone(),
+            idx as u64,
+            provenance_from_map(&provenance)
+                .map_err(|e| AosError::Training(format!("Metadata error: {}", e)))?,
+            created_at_unix_ms,
+        );
+        let attention_mask =
+            TrainingExampleV1::attention_mask_from_tokens(&input_tokens, config.pad_token_id);
+        let training_example = TrainingExampleV1::new(
+            input_tokens,
+            target_tokens,
+            attention_mask,
             metadata,
-            weight: example.weight,
-        };
+        );
 
         training_examples.push(training_example);
 
@@ -330,7 +398,7 @@ const fn default_example_weight() -> f32 {
 pub fn load_json_dataset_with_tokenizer<P: AsRef<Path>>(
     path: P,
     tokenizer: &Tokenizer,
-) -> Result<Vec<TrainingExample>> {
+) -> Result<Vec<TrainingExampleV1>> {
     let config = JsonLoaderConfig {
         tokenizer: Some(tokenizer.clone()),
         ..Default::default()
@@ -342,6 +410,7 @@ pub fn load_json_dataset_with_tokenizer<P: AsRef<Path>>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adapteros_types::training::weight_from_metadata;
     use std::fs::File;
     use std::io::Write;
     use tempfile::tempdir;
@@ -391,19 +460,27 @@ mod tests {
         let examples = load_json_dataset(&json_path, config).unwrap();
 
         assert_eq!(examples.len(), 2);
-        assert_eq!(examples[0].weight, 1.0);
-        assert_eq!(examples[1].weight, -1.0);
+        assert_eq!(weight_from_metadata(&examples[0].metadata), Some(1.0));
+        assert_eq!(weight_from_metadata(&examples[1].metadata), Some(-1.0));
 
         // Check metadata
+        let provenance: serde_json::Value =
+            serde_json::from_str(&examples[0].metadata.provenance).unwrap();
         assert_eq!(
-            examples[0].metadata.get("dataset_name").unwrap(),
-            "test_dataset"
+            provenance.get("dataset_name").and_then(|v| v.as_str()),
+            Some("test_dataset")
         );
-        assert_eq!(examples[0].metadata.get("example_id").unwrap(), "pos1");
-        assert_eq!(examples[0].metadata.get("tags").unwrap(), "greeting");
         assert_eq!(
-            examples[0].metadata.get("dataset_author").unwrap(),
-            "test_author"
+            provenance.get("example_id").and_then(|v| v.as_str()),
+            Some("pos1")
+        );
+        assert_eq!(
+            provenance.get("tags").and_then(|v| v.as_str()),
+            Some("greeting")
+        );
+        assert_eq!(
+            provenance.get("dataset_author").and_then(|v| v.as_str()),
+            Some("test_author")
         );
     }
 }
