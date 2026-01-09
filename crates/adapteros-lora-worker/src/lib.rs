@@ -339,6 +339,12 @@ pub use llm_backend::{create_llm_backend, LlmBackendType, LocalLlmBackend, Local
 pub use memory::UmaPressureMonitor as MemoryMonitor;
 #[cfg(feature = "mlx-bridge")]
 pub use mlx_subprocess_bridge::{GenerationResult, MLXSubprocessBridge, MlxBridgeConfig};
+// Re-export MLX runtime functions from mlx-ffi for server/cli usage
+#[cfg(feature = "multi-backend")]
+pub use adapteros_lora_mlx_ffi::{
+    mlx_runtime_init, mlx_runtime_shutdown, mlx_selected_implementation, mlx_version,
+    MlxImplementation,
+};
 pub use model_handle_cache::{
     CacheStats, CachedModelEntry, ModelHandle, ModelHandleCache, DEFAULT_MAX_PINNED_ENTRIES,
 };

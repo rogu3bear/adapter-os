@@ -6,7 +6,7 @@ edition = "2021"
 [features]
 default = []
 # multi-backend: Enable MLX FFI backend for research/training workloads
-multi-backend = []
+multi-backend = ["dep:adapteros-lora-mlx-ffi"]
 coreml-backend = []
 
 [dependencies]
@@ -21,6 +21,7 @@ adapteros-telemetry = { path = "../adapteros-telemetry" }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
 adapteros-lora-kernel-mtl = { path = "../adapteros-lora-kernel-mtl" }
+adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true }
 adapteros-memory = { path = "../adapteros-memory" }
 adapteros-types = { path = "../adapteros-types" }
 memmap2 = "0.9"

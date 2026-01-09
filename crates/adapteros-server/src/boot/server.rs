@@ -312,7 +312,7 @@ async fn serve_and_shutdown(
     // Final MLX cleanup after all other components
     #[cfg(feature = "multi-backend")]
     {
-        adapteros_lora_mlx_ffi::mlx_runtime_shutdown();
+        adapteros_lora_worker::mlx_runtime_shutdown();
         tracing::info!("MLX runtime shut down");
     }
 

@@ -521,6 +521,9 @@ pub async fn train_repository_adapter(
         enable_coreml_export: Some(false),
         require_gpu: false,
         max_gpu_memory_mb: None,
+        base_model_path: None,
+        hidden_state_layer: None,
+        validation_split: None,
     };
 
     let training_job = state

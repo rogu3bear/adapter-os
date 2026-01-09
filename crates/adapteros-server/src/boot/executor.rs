@@ -198,13 +198,13 @@ pub async fn initialize_executor(
     // Initialize MLX runtime (idempotent, safe to call multiple times)
     #[cfg(feature = "multi-backend")]
     {
-        if let Err(e) = adapteros_lora_mlx_ffi::mlx_runtime_init() {
+        if let Err(e) = adapteros_lora_worker::mlx_runtime_init() {
             tracing::warn!(
                 "MLX runtime initialization failed: {}. Continuing with Metal/CoreML fallback.",
                 e
             );
         } else {
-            let impl_name = adapteros_lora_mlx_ffi::mlx_selected_implementation()
+            let impl_name = adapteros_lora_worker::mlx_selected_implementation()
                 .map(|imp| imp.as_str())
                 .unwrap_or("unknown");
             tracing::info!(
