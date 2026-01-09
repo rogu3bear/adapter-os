@@ -92,6 +92,17 @@ inline mx::Shape make_shape(Dims... dims) {
     return mx::Shape{static_cast<int32_t>(dims)...};
 }
 
+// Debug helper to print array shape
+inline std::string shape_str(const mx::array& arr) {
+    std::string s = "[";
+    for (size_t i = 0; i < arr.ndim(); ++i) {
+        if (i > 0) s += ", ";
+        s += std::to_string(arr.shape(i));
+    }
+    s += "]";
+    return s;
+}
+
 // GELU activation function implementation
 inline mx::array mlx_gelu_approx(const mx::array& x) {
     // GELU(x) = x * 0.5 * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
@@ -460,17 +471,77 @@ struct MLXModelWrapper {
         return nullptr;
     }
 
+    // Get embedding weights with dequantization if quantized
+    mx::array get_embedding_weights() {
+        auto embed_weight_ptr = find_weight("model.embed_tokens.weight");
+        if (!embed_weight_ptr) {
+            throw std::runtime_error("Embedding weights not found");
+        }
+
+        // Check if embeddings are quantized (have companion scales)
+        auto scales_it = weights.find("model.embed_tokens.scales");
+        if (scales_it == weights.end()) {
+            // Not quantized, return raw weights
+            return *embed_weight_ptr;
+        }
+
+        // Dequantize embeddings
+        mx::array weight = *embed_weight_ptr;
+        mx::array scales = scales_it->second;
+        mx::array biases = mx::zeros({static_cast<int>(weight.shape(0))}, scales.dtype());
+        auto biases_it = weights.find("model.embed_tokens.biases");
+        if (biases_it != weights.end()) {
+            biases = biases_it->second;
+        }
+
+        int bits = moe.quant_bits > 0 ? moe.quant_bits : 4;
+        int group_size = moe.quant_group_size > 0 ? moe.quant_group_size : 64;
+        return mx::dequantize(weight, scales, biases, group_size, bits);
+    }
+
+    // Get LM head weights with dequantization if quantized
+    mx::array get_lm_head_weights() {
+        auto lm_head_ptr = find_weight("lm_head.weight");
+        if (!lm_head_ptr) {
+            throw std::runtime_error("LM head weights not found");
+        }
+
+        // Check if lm_head is quantized (has companion scales)
+        auto scales_it = weights.find("lm_head.scales");
+        if (scales_it == weights.end()) {
+            // Not quantized, return raw weights
+            return *lm_head_ptr;
+        }
+
+        // Dequantize lm_head
+        mx::array weight = *lm_head_ptr;
+        mx::array scales = scales_it->second;
+        mx::array biases = mx::zeros({static_cast<int>(weight.shape(0))}, scales.dtype());
+        auto biases_it = weights.find("lm_head.biases");
+        if (biases_it != weights.end()) {
+            biases = biases_it->second;
+        }
+
+        int bits = moe.quant_bits > 0 ? moe.quant_bits : 4;
+        int group_size = moe.quant_group_size > 0 ? moe.quant_group_size : 64;
+        return mx::dequantize(weight, scales, biases, group_size, bits);
+    }
+
     // Real transformer forward pass
     mx::array forward(const mx::array& input_ids) {
         try {
-            // Get embedding weights
-            auto embed_weight_ptr = find_weight("model.embed_tokens.weight");
-            if (!embed_weight_ptr) {
-                throw std::runtime_error("Embedding weights not found");
-            }
+            // Get embedding weights (dequantized if necessary)
+            mx::array embed_weights = get_embedding_weights();
 
-            // Embedding lookup: [batch_size, seq_len] -> [batch_size, seq_len, hidden_size]
-            mx::array hidden = mx::take(*embed_weight_ptr, input_ids, 0);
+            // Embedding lookup: [seq_len] -> [seq_len, hidden_size]
+            mx::array hidden = mx::take(embed_weights, input_ids, 0);
+
+            // Ensure hidden has batch dimension [batch, seq_len, hidden_dim]
+            // Input_ids may be [seq_len] resulting in hidden [seq_len, hidden_dim]
+            // We need [1, seq_len, hidden_dim] for transformer layers
+            if (hidden.ndim() == 2) {
+                hidden = mx::expand_dims(hidden, 0);  // Add batch dimension
+            }
 
             // Process through transformer layers (simplified single layer)
             hidden = process_transformer_layer(hidden, 0);
@@ -485,14 +556,11 @@ struct MLXModelWrapper {
                 hidden = mx::multiply(*ln_weight_ptr, mx::divide(mx::subtract(hidden, mean_val), mx::sqrt(mx::add(var_val, eps_const))));
             }
 
-            // Language modeling head
-            auto lm_head_ptr = find_weight("lm_head.weight");
-            if (!lm_head_ptr) {
-                throw std::runtime_error("LM head weights not found");
-            }
+            // Language modeling head (dequantized if necessary)
+            mx::array lm_head = get_lm_head_weights();
 
             // Project to vocabulary: [batch_size, seq_len, hidden_size] -> [batch_size, seq_len, vocab_size]
-            mx::array logits = mx::matmul(hidden, mx::transpose(*lm_head_ptr));
+            mx::array logits = mx::matmul(hidden, mx::transpose(lm_head));
 
             return logits;
         } catch (const std::exception& e) {
@@ -593,11 +661,21 @@ struct MLXModelWrapper {
         return self_attention_impl(hidden, prefix, true);
     }
 
-    // Linear projection helper
+    // Linear projection helper with dequantization support
     mx::array linear_projection(const mx::array& input, const std::string& weight_key) {
+        // Check if this weight exists
         auto weight_ptr = find_weight(weight_key + ".weight");
         if (!weight_ptr) return input;  // Fallback if weight not found
 
+        // Check if weight is quantized (has companion scales)
+        auto scales_it = weights.find(weight_key + ".scales");
+        if (scales_it != weights.end()) {
+            // Use dequantized weight for quantized models
+            mx::array weight = get_weight_with_dequant(weight_key);
+            return mx::matmul(input, mx::transpose(weight));
+        }
+
+        // Non-quantized weight, use directly
         return mx::matmul(input, mx::transpose(*weight_ptr));
     }
 
@@ -782,14 +860,19 @@ struct MLXModelWrapper {
         hidden_states_vec.clear();
 
         try {
-            // Get embedding weights
-            auto embed_weight_ptr = find_weight("model.embed_tokens.weight");
-            if (!embed_weight_ptr) {
-                throw std::runtime_error("Embedding weights not found");
-            }
+            // Get embedding weights (dequantized if necessary)
+            mx::array embed_weights = get_embedding_weights();
 
             // Embedding lookup
-            mx::array hidden = mx::take(*embed_weight_ptr, input_ids, 0);
+            mx::array hidden = mx::take(embed_weights, input_ids, 0);
+
+            // Ensure hidden has batch dimension [batch, seq_len, hidden_dim]
+            // Input_ids may be [seq_len] resulting in hidden [seq_len, hidden_dim]
+            // We need [1, seq_len, hidden_dim] for transformer layers
+            if (hidden.ndim() == 2) {
+                hidden = mx::expand_dims(hidden, 0);  // Add batch dimension
+            }
+
             mx::eval(hidden);
             hidden_states_vec.push_back({"embeddings", hidden});
 
@@ -851,6 +934,7 @@ struct MLXModelWrapper {
                 mx::array mlp_output = mlp_forward(
                     hidden, std::string("model.layers.") + std::to_string(layer_idx) + ".mlp",
                     layer_idx);
+
                 hidden = hidden + mlp_output;
 
                 // Capture post-MLP hidden state
@@ -864,13 +948,10 @@ struct MLXModelWrapper {
                 hidden = layer_norm(hidden, "model.norm");
             }
 
-            // Language modeling head
-            auto lm_head_ptr = find_weight("lm_head.weight");
-            if (!lm_head_ptr) {
-                throw std::runtime_error("LM head weights not found");
-            }
+            // Language modeling head (dequantized if necessary)
+            mx::array lm_head = get_lm_head_weights();
 
-            mx::array logits = mx::matmul(hidden, mx::transpose(*lm_head_ptr));
+            mx::array logits = mx::matmul(hidden, mx::transpose(lm_head));
             return logits;
         } catch (const std::exception& e) {
             g_last_error = std::string("Forward with hidden states failed: ") + e.what();
@@ -1136,30 +1217,27 @@ extern "C" void mlx_hidden_states_free(mlx_array_t* hidden_states, int num_hidde
     }
 }
 
-// Hidden state names for the 4 target modules
-static const char* g_hidden_state_names[] = {
-    "layer.0.self_attn.q_proj",
-    "layer.0.self_attn.k_proj",
-    "layer.0.self_attn.v_proj",
-    "layer.0.self_attn.o_proj"
-};
-static const int g_hidden_state_count = 4;
-
 // Get the name of a hidden state at the given index
+// Returns the actual names stored in the model's hidden_states_vec during forward pass
 extern "C" int mlx_model_get_hidden_state_name(
     mlx_model_t* model,
     int index,
     char* out_name,
     int out_name_len
 ) {
-    if (!model || index < 0 || index >= g_hidden_state_count) return 0;
+    if (!model || index < 0) return 0;
 
-    const char* name = g_hidden_state_names[index];
-    int name_len = static_cast<int>(std::strlen(name));
+    auto model_wrapper = reinterpret_cast<MLXModelWrapper*>(model);
+    const auto& hidden_states_vec = model_wrapper->hidden_states_vec;
+
+    if (static_cast<size_t>(index) >= hidden_states_vec.size()) return 0;
+
+    const std::string& name = hidden_states_vec[index].first;
+    int name_len = static_cast<int>(name.length());
 
     // If buffer provided and large enough, copy the name
     if (out_name && out_name_len > name_len) {
-        std::memcpy(out_name, name, name_len + 1); // Include null terminator
+        std::memcpy(out_name, name.c_str(), name_len + 1); // Include null terminator
     }
 
     return name_len;
@@ -1168,7 +1246,40 @@ extern "C" int mlx_model_get_hidden_state_name(
 // Get the number of hidden states stored in the model
 extern "C" int mlx_model_get_hidden_state_count(mlx_model_t* model) {
     if (!model) return 0;
-    return g_hidden_state_count;
+    auto model_wrapper = reinterpret_cast<MLXModelWrapper*>(model);
+    return static_cast<int>(model_wrapper->hidden_states_vec.size());
+}
+
+// Get a specific weight tensor from the model by name
+extern "C" mlx_array_t* mlx_model_get_weight(mlx_model_t* model, const char* weight_name) {
+    if (!model || !weight_name) {
+        g_last_error = "Model and weight_name are required";
+        return nullptr;
+    }
+
+    try {
+        auto model_w = reinterpret_cast<MLXModelWrapper*>(model);
+        std::string name(weight_name);
+
+        // Look up the weight in the model's weight map
+        auto it = model_w->weights.find(name);
+        if (it == model_w->weights.end()) {
+            // Try with "model." prefix (some models use this convention)
+            it = model_w->weights.find("model." + name);
+        }
+
+        if (it == model_w->weights.end()) {
+            g_last_error = "Weight not found: " + name;
+            return nullptr;
+        }
+
+        // Return a copy of the weight tensor
+        return reinterpret_cast<mlx_array_t*>(new MLXArrayWrapper(it->second));
+
+    } catch (const std::exception& e) {
+        g_last_error = std::string("Failed to get weight: ") + e.what();
+        return nullptr;
+    }
 }
 
 // RNG seeding for deterministic dropout/sampling
@@ -1681,6 +1792,568 @@ extern "C" mlx_array_t* mlx_matmul(mlx_array_t* a, mlx_array_t* b) {
     } catch (const std::exception& e) {
         g_last_error = e.what();
         return nullptr;
+    }
+}
+
+// ============================================================================
+// Training Operations - Loss Functions
+// ============================================================================
+
+extern "C" mlx_array_t* mlx_cross_entropy_loss(
+    mlx_array_t* logits,
+    mlx_array_t* targets,
+    int ignore_index
+) {
+    if (!logits || !targets) {
+        g_last_error = "logits and targets are required";
+        return nullptr;
+    }
+
+    try {
+        auto logits_w = reinterpret_cast<MLXArrayWrapper*>(logits);
+        auto targets_w = reinterpret_cast<MLXArrayWrapper*>(targets);
+
+        mx::array log_probs = logits_w->arr;
+        mx::array target_ids = targets_w->arr;
+
+        // Get shapes for reshaping
+        int vocab_size = static_cast<int>(log_probs.shape(-1));
+
+        // Flatten logits to [N, vocab_size] and targets to [N]
+        mx::array flat_logits = mx::reshape(log_probs, {-1, vocab_size});
+        mx::array flat_targets = mx::reshape(target_ids, {-1});
+        int num_tokens = static_cast<int>(flat_targets.size());
+
+        // Log softmax for numerical stability
+        mx::array log_softmax_result = mx::subtract(
+            flat_logits,
+            mx::expand_dims(mx::logsumexp(flat_logits, -1), -1)
+        );
+
+        // Compute negative log probs
+        mx::array neg_log_probs = mx::negative(log_softmax_result);
+
+        // Create mask for valid tokens (not ignore_index)
+        mx::array mask = mx::ones({num_tokens}, mx::float32);
+        if (ignore_index >= 0) {
+            mask = mx::astype(
+                mx::not_equal(flat_targets, mx::array(ignore_index)),
+                mx::float32
+            );
+        }
+
+        // Compute loss per token by gathering target log probs directly
+        // Instead of one-hot encoding, use take_along_axis for efficiency
+        // Reshape flat_targets to [seq_len, 1] for gathering
+        mx::array target_indices = mx::reshape(flat_targets, {static_cast<int>(flat_targets.size()), 1});
+        mx::array target_log_probs = mx::squeeze(
+            mx::take_along_axis(neg_log_probs, target_indices, 1),
+            1
+        );
+
+        // Apply mask and compute mean
+        mx::array masked_loss = mx::multiply(target_log_probs, mask);
+        mx::array valid_count = mx::maximum(mx::sum(mask), mx::array(1.0f));
+        mx::array loss = mx::divide(mx::sum(masked_loss), valid_count);
+
+        // Force computation (MLX lazy evaluation)
+        mx::synchronize();
+        return reinterpret_cast<mlx_array_t*>(new MLXArrayWrapper(loss));
+
+    } catch (const std::exception& e) {
+        g_last_error = std::string("Cross entropy loss failed: ") + e.what();
+        return nullptr;
+    }
+}
+
+extern "C" mlx_array_t* mlx_mse_loss(
+    mlx_array_t* predictions,
+    mlx_array_t* targets
+) {
+    if (!predictions || !targets) {
+        g_last_error = "predictions and targets are required";
+        return nullptr;
+    }
+
+    try {
+        auto pred_w = reinterpret_cast<MLXArrayWrapper*>(predictions);
+        auto targ_w = reinterpret_cast<MLXArrayWrapper*>(targets);
+
+        // MSE: mean((pred - targ)^2)
+        mx::array diff = mx::subtract(pred_w->arr, targ_w->arr);
+        mx::array squared = mx::multiply(diff, diff);
+        mx::array loss = mx::mean(squared);
+
+        // Force computation
+        mx::synchronize();
+        return reinterpret_cast<mlx_array_t*>(new MLXArrayWrapper(loss));
+
+    } catch (const std::exception& e) {
+        g_last_error = std::string("MSE loss failed: ") + e.what();
+        return nullptr;
+    }
+}
+
+// ============================================================================
+// Training Operations - Gradient Computation
+// ============================================================================
+
+extern "C" int mlx_lora_backward(
+    mlx_array_t* hidden,
+    mlx_array_t* targets,
+    mlx_array_t* lora_a,
+    mlx_array_t* lora_b,
+    float alpha,
+    int rank,
+    float* out_loss,
+    mlx_array_t** out_grad_a,
+    mlx_array_t** out_grad_b
+) {
+    if (!hidden || !targets || !lora_a || !lora_b || !out_loss || !out_grad_a || !out_grad_b) {
+        g_last_error = "All parameters are required for mlx_lora_backward";
+        return -1;
+    }
+
+    try {
+        auto hidden_w = reinterpret_cast<MLXArrayWrapper*>(hidden);
+        auto targets_w = reinterpret_cast<MLXArrayWrapper*>(targets);
+        auto lora_a_w = reinterpret_cast<MLXArrayWrapper*>(lora_a);
+        auto lora_b_w = reinterpret_cast<MLXArrayWrapper*>(lora_b);
+
+        // Capture arrays for closure
+        mx::array h = hidden_w->arr;
+        mx::array t = targets_w->arr;
+        float scale = alpha / static_cast<float>(rank);
+
+        // Define the loss function that takes LoRA params
+        auto loss_fn = [&h, &t, scale](const std::vector<mx::array>& params) -> mx::array {
+            const mx::array& a = params[0];  // LoRA A: [rank, hidden_dim]
+            const mx::array& b = params[1];  // LoRA B: [hidden_dim, rank]
+
+            // LoRA forward: output = hidden + (hidden @ A^T @ B^T) * scale
+            mx::array lora_out = mx::matmul(
+                mx::matmul(h, mx::transpose(a)),
+                mx::transpose(b)
+            );
+            lora_out = mx::multiply(lora_out, mx::array(scale));
+            mx::array output = mx::add(h, lora_out);
+
+            // MSE loss against targets
+            mx::array diff = mx::subtract(output, t);
+            return mx::mean(mx::multiply(diff, diff));
+        };
+
+        // Create parameter vector
+        std::vector<mx::array> params = {lora_a_w->arr, lora_b_w->arr};
+
+        // Use value_and_grad to compute loss and gradients
+        auto grad_fn = mx::value_and_grad(loss_fn);
+        auto [loss, grads] = grad_fn(params);
+
+        // Force computation and synchronization for determinism
+        // Use mx::synchronize() which waits for all pending computations
+        mx::synchronize();
+
+        // Extract scalar loss value
+        *out_loss = loss.item<float>();
+
+        // Wrap gradients
+        *out_grad_a = reinterpret_cast<mlx_array_t*>(new MLXArrayWrapper(grads[0]));
+        *out_grad_b = reinterpret_cast<mlx_array_t*>(new MLXArrayWrapper(grads[1]));
+
+        return 0;
+
+    } catch (const std::exception& e) {
+        g_last_error = std::string("LoRA backward failed: ") + e.what();
+        return -1;
+    }
+}
+
+// LoRA backward pass with cross-entropy loss for language model training
+// This variant projects hidden states to vocabulary logits before computing loss
+extern "C" int mlx_lora_backward_ce(
+    mlx_array_t* hidden,
+    mlx_array_t* output_proj,
+    mlx_array_t* targets,
+    mlx_array_t* lora_a,
+    mlx_array_t* lora_b,
+    float alpha,
+    int rank,
+    int ignore_index,
+    float* out_loss,
+    mlx_array_t** out_grad_a,
+    mlx_array_t** out_grad_b
+) {
+    if (!hidden || !output_proj || !targets || !lora_a || !lora_b || !out_loss || !out_grad_a || !out_grad_b) {
+        g_last_error = "All parameters are required for mlx_lora_backward_ce";
+        return -1;
+    }
+
+    try {
+        auto hidden_w = reinterpret_cast<MLXArrayWrapper*>(hidden);
+        auto output_proj_w = reinterpret_cast<MLXArrayWrapper*>(output_proj);
+        auto targets_w = reinterpret_cast<MLXArrayWrapper*>(targets);
+        auto lora_a_w = reinterpret_cast<MLXArrayWrapper*>(lora_a);
+        auto lora_b_w = reinterpret_cast<MLXArrayWrapper*>(lora_b);
+
+        // Capture arrays for closure
+        mx::array h = hidden_w->arr;           // [batch, seq_len, hidden_dim] or [seq_len, hidden_dim]
+        mx::array proj = output_proj_w->arr;   // [vocab_size, hidden_dim] - lm_head weights
+        mx::array t = targets_w->arr;          // [batch, seq_len] or [seq_len] - target token IDs
+        float scale = alpha / static_cast<float>(rank);
+        int ignore_idx = ignore_index;
+
+        // Get shapes for loss computation
+        int vocab_size = static_cast<int>(proj.shape(0));
+
+        // Define the loss function that takes LoRA params
+        auto loss_fn = [&h, &proj, &t, scale, vocab_size, ignore_idx](const std::vector<mx::array>& params) -> mx::array {
+            const mx::array& a = params[0];  // LoRA A: [rank, hidden_dim]
+            const mx::array& b = params[1];  // LoRA B: [hidden_dim, rank]
+
+            // LoRA forward: h' = hidden + (hidden @ A^T @ B^T) * scale
+            mx::array lora_out = mx::matmul(
+                mx::matmul(h, mx::transpose(a)),
+                mx::transpose(b)
+            );
+            lora_out = mx::multiply(lora_out, mx::array(scale));
+            mx::array h_prime = mx::add(h, lora_out);
+
+            // Project to vocabulary: logits = h' @ proj^T
+            // proj is [vocab_size, hidden_dim], so we need h' @ proj^T = [seq_len, vocab_size]
+            mx::array logits = mx::matmul(h_prime, mx::transpose(proj));
+
+            // Cross-entropy loss computation
+            // Flatten for loss computation
+            mx::array flat_logits = mx::reshape(logits, {-1, vocab_size});
+            mx::array flat_targets = mx::reshape(t, {-1});
+            int num_tokens = static_cast<int>(flat_targets.size());
+
+            // Log softmax for numerical stability
+            mx::array log_softmax_result = mx::subtract(
+                flat_logits,
+                mx::expand_dims(mx::logsumexp(flat_logits, -1), -1)
+            );
+
+            // Compute negative log probs
+            mx::array neg_log_probs = mx::negative(log_softmax_result);
+
+            // Create mask for valid tokens (not ignore_index)
+            mx::array mask = mx::ones({num_tokens}, mx::float32);
+            if (ignore_idx >= 0) {
+                mask = mx::astype(
+                    mx::not_equal(flat_targets, mx::array(ignore_idx)),
+                    mx::float32
+                );
+            }
+
+            // Gather target log probs using take_along_axis
+            mx::array target_indices = mx::reshape(flat_targets, {num_tokens, 1});
+            mx::array target_log_probs = mx::squeeze(
+                mx::take_along_axis(neg_log_probs, target_indices, 1),
+                1
+            );
+
+            // Apply mask and compute mean
+            mx::array masked_loss = mx::multiply(target_log_probs, mask);
+            mx::array valid_count = mx::maximum(mx::sum(mask), mx::array(1.0f));
+            return mx::divide(mx::sum(masked_loss), valid_count);
+        };
+
+        // Create parameter vector
+        std::vector<mx::array> params = {lora_a_w->arr, lora_b_w->arr};
+
+        // Use value_and_grad to compute loss and gradients
+        auto grad_fn = mx::value_and_grad(loss_fn);
+        auto [loss, grads] = grad_fn(params);
+
+        // Force computation and synchronization for determinism
+        mx::eval({loss, grads[0], grads[1]});
+        mx::synchronize();
+
+        // Extract scalar loss value
+        *out_loss = loss.item<float>();
+
+        // Wrap gradients
+        *out_grad_a = reinterpret_cast<mlx_array_t*>(new MLXArrayWrapper(grads[0]));
+        *out_grad_b = reinterpret_cast<mlx_array_t*>(new MLXArrayWrapper(grads[1]));
+
+        return 0;
+
+    } catch (const std::exception& e) {
+        g_last_error = std::string("LoRA backward (CE) failed: ") + e.what();
+        return -1;
+    }
+}
+
+// ============================================================================
+// Training Operations - Optimizer State
+// ============================================================================
+
+struct MLXOptimizerState {
+    mlx_optimizer_type_t type;
+    float learning_rate;
+    float momentum;
+    float weight_decay;
+    float beta1;
+    float beta2;
+    float eps;
+    int step_count;
+    std::vector<mx::array> m;  // First moment (Adam) or velocity (SGD)
+    std::vector<mx::array> v;  // Second moment (Adam only)
+    bool initialized;
+    size_t allocated_bytes;
+
+    MLXOptimizerState() : type(MLX_OPTIM_SGD), learning_rate(0.001f),
+                          momentum(0.0f), weight_decay(0.0f),
+                          beta1(0.9f), beta2(0.999f), eps(1e-8f),
+                          step_count(0), initialized(false), allocated_bytes(0) {
+        record_allocation(reinterpret_cast<uintptr_t>(this), sizeof(MLXOptimizerState));
+    }
+
+    ~MLXOptimizerState() {
+        unrecord_allocation(reinterpret_cast<uintptr_t>(this));
+    }
+};
+
+extern "C" mlx_optimizer_t* mlx_optimizer_sgd(
+    float learning_rate,
+    float momentum,
+    float weight_decay
+) {
+    try {
+        auto opt = new MLXOptimizerState();
+        opt->type = MLX_OPTIM_SGD;
+        opt->learning_rate = learning_rate;
+        opt->momentum = momentum;
+        opt->weight_decay = weight_decay;
+        return reinterpret_cast<mlx_optimizer_t*>(opt);
+    } catch (const std::exception& e) {
+        g_last_error = std::string("Failed to create SGD optimizer: ") + e.what();
+        return nullptr;
+    }
+}
+
+extern "C" mlx_optimizer_t* mlx_optimizer_adam(
+    float learning_rate,
+    float beta1,
+    float beta2,
+    float eps,
+    float weight_decay
+) {
+    try {
+        auto opt = new MLXOptimizerState();
+        opt->type = MLX_OPTIM_ADAM;
+        opt->learning_rate = learning_rate;
+        opt->beta1 = beta1;
+        opt->beta2 = beta2;
+        opt->eps = eps;
+        opt->weight_decay = weight_decay;
+        return reinterpret_cast<mlx_optimizer_t*>(opt);
+    } catch (const std::exception& e) {
+        g_last_error = std::string("Failed to create Adam optimizer: ") + e.what();
+        return nullptr;
+    }
+}
+
+extern "C" int mlx_optimizer_step(
+    mlx_optimizer_t* optimizer,
+    mlx_array_t** params,
+    mlx_array_t** grads,
+    int num_params
+) {
+    if (!optimizer || !params || !grads || num_params <= 0) {
+        g_last_error = "Invalid optimizer step arguments";
+        return -1;
+    }
+
+    try {
+        auto opt = reinterpret_cast<MLXOptimizerState*>(optimizer);
+        opt->step_count++;
+
+        // Initialize state vectors if needed
+        // Note: mx::array has no default constructor, so we initialize with scalar zeros
+        // and check size() == 1 to detect uninitialized state (will be replaced with zeros_like)
+        if (!opt->initialized) {
+            opt->m.clear();
+            opt->m.reserve(num_params);
+            for (int j = 0; j < num_params; ++j) {
+                opt->m.push_back(mx::array(0.0f));  // Scalar placeholder
+            }
+            if (opt->type == MLX_OPTIM_ADAM || opt->type == MLX_OPTIM_ADAMW) {
+                opt->v.clear();
+                opt->v.reserve(num_params);
+                for (int j = 0; j < num_params; ++j) {
+                    opt->v.push_back(mx::array(0.0f));  // Scalar placeholder
+                }
+            }
+            opt->initialized = true;
+        }
+
+        for (int i = 0; i < num_params; ++i) {
+            if (!params[i] || !grads[i]) continue;
+
+            auto param_w = reinterpret_cast<MLXArrayWrapper*>(params[i]);
+            auto grad_w = reinterpret_cast<MLXArrayWrapper*>(grads[i]);
+
+            mx::array& p = param_w->arr;
+            mx::array g = grad_w->arr;
+
+            // Apply weight decay (L2 regularization)
+            if (opt->weight_decay > 0.0f && opt->type != MLX_OPTIM_ADAMW) {
+                g = mx::add(g, mx::multiply(p, mx::array(opt->weight_decay)));
+            }
+
+            if (opt->type == MLX_OPTIM_SGD) {
+                if (opt->momentum > 0.0f) {
+                    // Check if state needs initialization (scalar placeholder has size 1)
+                    if (opt->m[i].size() <= 1) {
+                        opt->m[i] = mx::zeros_like(p);
+                    }
+                    opt->m[i] = mx::add(
+                        mx::multiply(opt->m[i], mx::array(opt->momentum)),
+                        g
+                    );
+                    p = mx::subtract(p, mx::multiply(opt->m[i], mx::array(opt->learning_rate)));
+                } else {
+                    p = mx::subtract(p, mx::multiply(g, mx::array(opt->learning_rate)));
+                }
+
+            } else if (opt->type == MLX_OPTIM_ADAM || opt->type == MLX_OPTIM_ADAMW) {
+                // Check if state needs initialization (scalar placeholder has size 1)
+                if (opt->m[i].size() <= 1) {
+                    opt->m[i] = mx::zeros_like(p);
+                    opt->v[i] = mx::zeros_like(p);
+                }
+
+                if (opt->type == MLX_OPTIM_ADAMW && opt->weight_decay > 0.0f) {
+                    p = mx::subtract(p, mx::multiply(p, mx::array(opt->learning_rate * opt->weight_decay)));
+                }
+
+                opt->m[i] = mx::add(
+                    mx::multiply(opt->m[i], mx::array(opt->beta1)),
+                    mx::multiply(g, mx::array(1.0f - opt->beta1))
+                );
+
+                opt->v[i] = mx::add(
+                    mx::multiply(opt->v[i], mx::array(opt->beta2)),
+                    mx::multiply(mx::multiply(g, g), mx::array(1.0f - opt->beta2))
+                );
+
+                float bc1 = 1.0f - std::pow(opt->beta1, static_cast<float>(opt->step_count));
+                float bc2 = 1.0f - std::pow(opt->beta2, static_cast<float>(opt->step_count));
+
+                mx::array m_hat = mx::divide(opt->m[i], mx::array(bc1));
+                mx::array v_hat = mx::divide(opt->v[i], mx::array(bc2));
+
+                mx::array update = mx::divide(
+                    m_hat,
+                    mx::add(mx::sqrt(v_hat), mx::array(opt->eps))
+                );
+                p = mx::subtract(p, mx::multiply(update, mx::array(opt->learning_rate)));
+            }
+        }
+
+        // Force computation for determinism
+        mx::synchronize();
+        return 0;
+
+    } catch (const std::exception& e) {
+        g_last_error = std::string("Optimizer step failed: ") + e.what();
+        return -1;
+    }
+}
+
+extern "C" void mlx_optimizer_set_lr(mlx_optimizer_t* optimizer, float lr) {
+    if (!optimizer) return;
+    auto opt = reinterpret_cast<MLXOptimizerState*>(optimizer);
+    opt->learning_rate = lr;
+}
+
+extern "C" float mlx_optimizer_get_lr(mlx_optimizer_t* optimizer) {
+    if (!optimizer) return 0.0f;
+    auto opt = reinterpret_cast<MLXOptimizerState*>(optimizer);
+    return opt->learning_rate;
+}
+
+extern "C" void mlx_optimizer_reset(mlx_optimizer_t* optimizer) {
+    if (!optimizer) return;
+    auto opt = reinterpret_cast<MLXOptimizerState*>(optimizer);
+    opt->step_count = 0;
+    opt->m.clear();
+    opt->v.clear();
+    opt->initialized = false;
+}
+
+extern "C" void mlx_optimizer_free(mlx_optimizer_t* optimizer) {
+    if (optimizer) {
+        delete reinterpret_cast<MLXOptimizerState*>(optimizer);
+    }
+}
+
+// ============================================================================
+// Training Operations - Gradient Utilities
+// ============================================================================
+
+extern "C" float mlx_clip_grad_norm(
+    mlx_array_t** grads,
+    int num_grads,
+    float max_norm
+) {
+    if (!grads || num_grads <= 0 || max_norm <= 0.0f) {
+        return 0.0f;
+    }
+
+    try {
+        mx::array total_norm_sq = mx::array(0.0f);
+
+        for (int i = 0; i < num_grads; ++i) {
+            if (!grads[i]) continue;
+            auto grad_w = reinterpret_cast<MLXArrayWrapper*>(grads[i]);
+            mx::array flat = mx::reshape(grad_w->arr, {-1});
+            total_norm_sq = mx::add(total_norm_sq, mx::sum(mx::multiply(flat, flat)));
+        }
+
+        mx::array total_norm = mx::sqrt(total_norm_sq);
+        mx::synchronize();
+
+        float norm_val = total_norm.item<float>();
+
+        if (norm_val > max_norm) {
+            float scale = max_norm / norm_val;
+
+            for (int i = 0; i < num_grads; ++i) {
+                if (!grads[i]) continue;
+                auto grad_w = reinterpret_cast<MLXArrayWrapper*>(grads[i]);
+                grad_w->arr = mx::multiply(grad_w->arr, mx::array(scale));
+            }
+            mx::synchronize();
+        }
+
+        return norm_val;
+
+    } catch (const std::exception& e) {
+        g_last_error = std::string("Gradient clipping failed: ") + e.what();
+        return 0.0f;
+    }
+}
+
+extern "C" void mlx_zero_grad(
+    mlx_array_t** grads,
+    int num_grads
+) {
+    if (!grads || num_grads <= 0) return;
+
+    try {
+        for (int i = 0; i < num_grads; ++i) {
+            if (!grads[i]) continue;
+            auto grad_w = reinterpret_cast<MLXArrayWrapper*>(grads[i]);
+            grad_w->arr = mx::zeros_like(grad_w->arr);
+        }
+        mx::synchronize();
+
+    } catch (const std::exception& e) {
+        g_last_error = std::string("Zero grad failed: ") + e.what();
     }
 }
 

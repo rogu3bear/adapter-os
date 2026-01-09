@@ -200,6 +200,22 @@ mod mlx_rs_impl {
         pub fn evaluate(&self) -> Result<()> {
             Ok(self.inner.evaluate()?)
         }
+
+        /// Get the raw pointer to the underlying MLX array.
+        ///
+        /// For mlx-rs backend, this returns a null pointer as there is no FFI.
+        /// Training operations are not supported with mlx-rs backend.
+        pub fn as_ptr(&self) -> *mut std::ffi::c_void {
+            std::ptr::null_mut()
+        }
+
+        /// Create a tensor from a raw MLX array pointer.
+        ///
+        /// For mlx-rs backend, this is not supported and will panic.
+        /// Training operations require the FFI backend.
+        pub fn from_raw(_ptr: *mut std::ffi::c_void) -> Self {
+            panic!("from_raw is not supported with mlx-rs backend; use FFI backend for training")
+        }
     }
 }
 
@@ -675,6 +691,41 @@ mod ffi_impl {
             let mlx_shape = self.get_mlx_shape(16)?;
             self.shape = mlx_shape;
             Ok(())
+        }
+
+        /// Get the raw pointer to the underlying MLX array.
+        ///
+        /// This is used for FFI calls that need the raw pointer.
+        /// The caller must not free the pointer.
+        pub fn as_ptr(&self) -> *mut mlx_array_t {
+            self.inner
+        }
+
+        /// Create a tensor from a raw MLX array pointer.
+        ///
+        /// # Safety
+        /// The pointer must be a valid MLX array pointer obtained from FFI.
+        /// This function takes ownership of the pointer and will free it on drop.
+        pub fn from_raw(ptr: *mut std::ffi::c_void) -> Self {
+            let inner = ptr as *mut mlx_array_t;
+            // Get shape from MLX
+            let mut shape = vec![0i32; 16];
+            let ndim = unsafe { mlx_array_shape(inner, shape.as_mut_ptr(), 16) };
+            let shape: Vec<usize> = shape[..ndim as usize]
+                .iter()
+                .map(|&x| x as usize)
+                .collect();
+
+            // Get dtype from MLX
+            let dtype_code = unsafe { mlx_array_dtype(inner) };
+            let dtype = match dtype_code {
+                0 => TensorDtype::Float32,
+                2 => TensorDtype::Int32,
+                3 => TensorDtype::UInt32,
+                _ => TensorDtype::Float32, // Default to Float32
+            };
+
+            Self { inner, shape, dtype }
         }
     }
 

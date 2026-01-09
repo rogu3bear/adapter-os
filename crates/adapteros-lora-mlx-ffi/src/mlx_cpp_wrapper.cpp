@@ -625,3 +625,127 @@ extern "C" void mlx_lora_evict_cached(const char*) {}
 extern "C" void mlx_lora_clear_cache() {}
 extern "C" size_t mlx_lora_cache_size(void) { return 0; }
 extern "C" void mlx_lora_set_cache_limit(size_t) {}
+
+// ============================================================================
+// Training Operations - Stub implementations
+// These return errors since training requires real MLX backend
+// ============================================================================
+
+// Loss functions - return nullptr with error
+extern "C" mlx_array_t* mlx_cross_entropy_loss(
+    mlx_array_t* /*logits*/,
+    mlx_array_t* /*targets*/,
+    int /*ignore_index*/) {
+    set_error("Training not supported without MLX backend");
+    return nullptr;
+}
+
+extern "C" mlx_array_t* mlx_mse_loss(
+    mlx_array_t* /*predictions*/,
+    mlx_array_t* /*targets*/) {
+    set_error("Training not supported without MLX backend");
+    return nullptr;
+}
+
+// Backward pass functions - return error code
+extern "C" int mlx_lora_backward(
+    mlx_array_t* /*hidden*/,
+    mlx_array_t* /*targets*/,
+    mlx_array_t* /*lora_a*/,
+    mlx_array_t* /*lora_b*/,
+    float /*alpha*/,
+    int /*rank*/,
+    float* out_loss,
+    mlx_array_t** out_grad_a,
+    mlx_array_t** out_grad_b) {
+    set_error("Training not supported without MLX backend");
+    if (out_loss) *out_loss = 0.0f;
+    if (out_grad_a) *out_grad_a = nullptr;
+    if (out_grad_b) *out_grad_b = nullptr;
+    return -1;
+}
+
+extern "C" int mlx_lora_backward_ce(
+    mlx_array_t* /*hidden*/,
+    mlx_array_t* /*output_proj*/,
+    mlx_array_t* /*targets*/,
+    mlx_array_t* /*lora_a*/,
+    mlx_array_t* /*lora_b*/,
+    float /*alpha*/,
+    int /*rank*/,
+    int /*ignore_index*/,
+    float* out_loss,
+    mlx_array_t** out_grad_a,
+    mlx_array_t** out_grad_b) {
+    set_error("Training not supported without MLX backend");
+    if (out_loss) *out_loss = 0.0f;
+    if (out_grad_a) *out_grad_a = nullptr;
+    if (out_grad_b) *out_grad_b = nullptr;
+    return -1;
+}
+
+// Optimizer functions - return nullptr/error
+extern "C" mlx_optimizer_t* mlx_optimizer_sgd(
+    float /*learning_rate*/,
+    float /*momentum*/,
+    float /*weight_decay*/) {
+    set_error("Training not supported without MLX backend");
+    return nullptr;
+}
+
+extern "C" mlx_optimizer_t* mlx_optimizer_adam(
+    float /*learning_rate*/,
+    float /*beta1*/,
+    float /*beta2*/,
+    float /*eps*/,
+    float /*weight_decay*/) {
+    set_error("Training not supported without MLX backend");
+    return nullptr;
+}
+
+extern "C" int mlx_optimizer_step(
+    mlx_optimizer_t* /*optimizer*/,
+    mlx_array_t** /*params*/,
+    mlx_array_t** /*grads*/,
+    int /*num_params*/) {
+    set_error("Training not supported without MLX backend");
+    return -1;
+}
+
+extern "C" void mlx_optimizer_set_lr(mlx_optimizer_t* /*optimizer*/, float /*lr*/) {
+    // No-op in stub
+}
+
+extern "C" float mlx_optimizer_get_lr(mlx_optimizer_t* /*optimizer*/) {
+    set_error("Training not supported without MLX backend");
+    return 0.0f;
+}
+
+extern "C" void mlx_optimizer_reset(mlx_optimizer_t* /*optimizer*/) {
+    // No-op in stub
+}
+
+extern "C" void mlx_optimizer_free(mlx_optimizer_t* /*optimizer*/) {
+    // No-op in stub - nothing to free since we never allocate
+}
+
+// Gradient utility functions
+extern "C" float mlx_clip_grad_norm(
+    mlx_array_t** /*grads*/,
+    int /*num_grads*/,
+    float /*max_norm*/) {
+    set_error("Training not supported without MLX backend");
+    return 0.0f;
+}
+
+extern "C" void mlx_zero_grad(
+    mlx_array_t** /*grads*/,
+    int /*num_grads*/) {
+    // No-op in stub
+}
+
+// Model weight access - return nullptr with error
+extern "C" mlx_array_t* mlx_model_get_weight(mlx_model_t* /*model*/, const char* /*name*/) {
+    set_error("Training not supported without MLX backend");
+    return nullptr;
+}
