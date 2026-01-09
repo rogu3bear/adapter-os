@@ -34,7 +34,7 @@ chrono = { version = "0.4", features = ["serde"] }
 tracing = "0.1"
 
 # LRU cache for jti replay defense
-lru = "0.12"
+lru = "0.16"
 
 # Base64 for JWT encoding
 base64 = "0.22"

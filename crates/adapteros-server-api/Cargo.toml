@@ -37,7 +37,7 @@ adapteros-diagnostics = { path = "../adapteros-diagnostics" }
 adapteros-types = { path = "../adapteros-types" }
 dashmap = "5.5"
 parking_lot = "0.12"
-lru = "0.12"
+lru = "0.16"
 scopeguard = "1.2"
 anyhow = "1.0"
 argon2 = "0.5"
