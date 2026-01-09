@@ -333,9 +333,7 @@ pub async fn run(
                     "MLX detected (impl: {}, version: {})",
                     selected, mlx_version
                 ));
-                adapteros_lora_worker::BackendChoice::Mlx {
-                    model_path: model_path.clone(),
-                }
+                adapteros_lora_worker::BackendChoice::Mlx
             }
         }
         BackendType::CoreML => {
@@ -363,6 +361,9 @@ pub async fn run(
                     alpha: adapter_spec.alpha,
                     target_modules: adapter_spec.target_modules.clone(),
                     dropout: 0.0,
+                    language_affinities: vec![],
+                    framework: None,
+                    tier: None,
                 };
 
                 output.verbose(format!(

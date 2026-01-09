@@ -177,6 +177,11 @@ impl TrainArgs {
                 max_tokens_per_batch: None,
                 device_policy: None,
                 moe_config: None,
+                use_gpu_backward: true,
+                optimizer_config: Default::default(),
+                base_model_path: None,
+                hidden_state_layer: None,
+                validation_split: 0.0,
             };
 
             info!("Using command-line training configuration");

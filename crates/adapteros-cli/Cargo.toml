@@ -104,7 +104,7 @@ adapteros-normalization = { path = "../adapteros-normalization" }
 default = ["replay", "trace", "scenarios", "orchestrator"]
 
 # multi-backend: Enable MLX backend support in CLI commands
-multi-backend = ["dep:adapteros-lora-mlx-ffi"]
+multi-backend = ["dep:adapteros-lora-mlx-ffi", "adapteros-lora-worker/multi-backend"]
 mlx-rs-backend = ["multi-backend", "adapteros-lora-mlx-ffi/mlx-rs-backend"]
 codegraph = ["dep:adapteros-codegraph"]
 secd-support = ["dep:adapteros-secd"]

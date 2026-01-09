@@ -50,6 +50,8 @@ pub struct DeterminismDriftConfig {
     pub device: Option<String>,
     #[serde(default)]
     pub assurance_tier: Option<String>,
+    /// Path to the base model for hidden state extraction during training.
+    pub base_model_path: PathBuf,
 }
 
 fn default_steps() -> usize {
@@ -142,6 +144,7 @@ pub async fn drift_check(args: DriftCheckArgs) -> Result<i32> {
             cfg.dataset_version_id.clone(),
             cfg.device.clone(),
             subsample.clone(),
+            cfg.base_model_path.clone(),
             &sliced,
         )
         .await?;
