@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
+use adapteros_types::training::TRAINING_DATA_CONTRACT_VERSION;
 
 fn default_split() -> String {
     "train".to_string()
@@ -8,6 +9,10 @@ fn default_split() -> String {
 
 fn default_weight() -> f32 {
     1.0
+}
+
+fn default_training_contract_version() -> String {
+    TRAINING_DATA_CONTRACT_VERSION.to_string()
 }
 
 /// Canonical row schema shared with training workers and dataset services.
@@ -31,6 +36,8 @@ pub struct CanonicalRow {
 pub struct DatasetManifest {
     pub dataset_id: String,
     pub dataset_version_id: String,
+    #[serde(default = "default_training_contract_version")]
+    pub training_contract_version: String,
     pub hash_b3: String,
     pub total_rows: usize,
     pub dropped_rows: usize,

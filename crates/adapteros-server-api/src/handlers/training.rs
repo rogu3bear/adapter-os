@@ -13,6 +13,7 @@ use crate::state::AppState;
 use crate::types::*;
 use crate::worker_capabilities::parse_worker_capabilities;
 use adapteros_config::resolve_worker_socket_for_cp;
+use adapteros_core::defaults::DEFAULT_TRAINING_REPORTS_SUBDIR;
 use adapteros_core::AosError;
 use adapteros_db::CreateDraftVersionParams as CreateDraftAdapterVersionParams;
 use adapteros_orchestrator::{
@@ -35,12 +36,14 @@ use chrono::Utc;
 use futures_util::stream::{self, Stream};
 use serde::Deserialize;
 use std::convert::Infallible;
+use std::io::ErrorKind;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{error, info, warn};
 use utoipa::IntoParams;
 use uuid::Uuid;
+use adapteros_secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
 
 const METRIC_LINEAGE_REQUIRED: &str = "training_jobs_rejected_lineage_required";
 const METRIC_TRUST_BLOCKED: &str = "training_jobs_rejected_trust_blocked";
@@ -3157,6 +3160,151 @@ pub async fn get_training_metrics(
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         job_id,
         metrics,
+    }))
+}
+
+/// Get training report artifact for a job.
+#[utoipa::path(
+    tag = "training",
+    get,
+    path = "/v1/training/jobs/{job_id}/report",
+    params(
+        ("job_id" = String, Path, description = "Training job ID")
+    ),
+    responses(
+        (status = 200, description = "Training report artifact", body = adapteros_api_types::TrainingReportResponse),
+        (status = 403, description = "Access denied", body = ErrorResponse),
+        (status = 404, description = "Training report not found", body = ErrorResponse)
+    )
+)]
+pub async fn get_training_report(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(job_id): Path<String>,
+) -> Result<Json<adapteros_api_types::TrainingReportResponse>, (StatusCode, Json<ErrorResponse>)>
+{
+    let job = state
+        .db
+        .get_training_job(&job_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to get training job")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("Training job not found").with_code("NOT_FOUND")),
+            )
+        })?;
+
+    if job.tenant_id.as_deref() != Some(&claims.tenant_id) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse::new("Access denied to training job").with_code("FORBIDDEN")),
+        ));
+    }
+
+    let artifacts_root = {
+        let cfg = state.config.read().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("config lock poisoned").with_code("CONFIG_UNAVAILABLE"),
+                ),
+            )
+        })?;
+        if cfg.paths.artifacts_root.is_empty() {
+            PathBuf::from("var/artifacts")
+        } else {
+            PathBuf::from(cfg.paths.artifacts_root.clone())
+        }
+    };
+
+    let report_path = artifacts_root
+        .join(DEFAULT_TRAINING_REPORTS_SUBDIR)
+        .join(&job_id)
+        .join("report.json");
+
+    let allowed_roots = [artifacts_root.clone()];
+    let report_path =
+        match canonicalize_strict_in_allowed_roots(&report_path, &allowed_roots) {
+            Ok(path) => path,
+            Err(AosError::NotFound(_)) => {
+                return Err((
+                    StatusCode::NOT_FOUND,
+                    Json(
+                        ErrorResponse::new("Training report not found")
+                            .with_code("NOT_FOUND"),
+                    ),
+                ));
+            }
+            Err(AosError::Validation(msg)) => {
+                return Err((
+                    StatusCode::FORBIDDEN,
+                    Json(
+                        ErrorResponse::new("Training report path rejected")
+                            .with_code("FORBIDDEN")
+                            .with_string_details(msg),
+                    ),
+                ));
+            }
+            Err(err) => {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("Failed to resolve training report path")
+                            .with_code("INTERNAL_ERROR")
+                            .with_string_details(err.to_string()),
+                    ),
+                ));
+            }
+        };
+
+    let report_contents = match tokio::fs::read_to_string(&report_path).await {
+        Ok(contents) => contents,
+        Err(err) if err.kind() == ErrorKind::NotFound => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new("Training report not found")
+                        .with_code("NOT_FOUND"),
+                ),
+            ));
+        }
+        Err(err) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to read training report")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(err.to_string()),
+                ),
+            ));
+        }
+    };
+
+    let report: adapteros_types::training::TrainingReportV1 =
+        serde_json::from_str(&report_contents).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to parse training report")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    Ok(Json(adapteros_api_types::TrainingReportResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+        report,
     }))
 }
 

@@ -20,7 +20,7 @@ use crate::api_error::ApiError;
 use crate::audit_helper::{actions, log_failure_or_warn, log_success_or_warn, resources};
 use crate::auth::Claims;
 use crate::citations::build_dataset_index;
-use crate::error_helpers::{bad_request, db_error, internal_error, not_found};
+use crate::error_helpers::{bad_request, db_error, forbidden, internal_error, not_found};
 use crate::handlers::chunked_upload::{ChunkWriter, FileValidator, UploadSessionManager};
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
@@ -28,6 +28,7 @@ use crate::storage_usage::compute_tenant_storage_usage;
 use crate::types::ErrorResponse;
 use adapteros_db::training_datasets::{build_codebase_rows_from_jsonl_bytes, CreateDatasetParams};
 use adapteros_deterministic_exec::spawn_deterministic;
+use adapteros_secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
 use adapteros_storage::{ByteStorage, FsByteStorage, StorageKey};
 use axum::{
     extract::{Path, Query, State},
@@ -159,6 +160,7 @@ pub async fn complete_chunked_upload(
 
     let dataset_root = resolve_dataset_root(&state).map_err(internal_error)?;
     let paths = DatasetPaths::new(dataset_root.clone());
+    let allowed_roots = [paths.root().to_path_buf()];
 
     // Get session
     let session = state
@@ -294,6 +296,9 @@ pub async fn complete_chunked_upload(
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| paths.dataset_dir(&storage_workspace, &dataset_id));
     ensure_dirs([dataset_path.as_path()]).await?;
+    canonicalize_strict_in_allowed_roots(&dataset_path, &allowed_roots).map_err(|e| {
+        forbidden(&format!("Dataset storage path rejected: {}", e))
+    })?;
 
     // Assemble chunks
     let (file_hash, total_bytes) = match assemble_chunks(&session, &output_path).await {
@@ -335,6 +340,12 @@ pub async fn complete_chunked_upload(
             return Err((status, Json(payload)));
         }
     };
+    if let Err(e) = canonicalize_strict_in_allowed_roots(&output_path, &allowed_roots) {
+        return Err(forbidden(&format!(
+            "Dataset output path escapes dataset root: {}",
+            e
+        )));
+    }
     if total_bytes != session.total_size {
         return Err((
             StatusCode::BAD_REQUEST,

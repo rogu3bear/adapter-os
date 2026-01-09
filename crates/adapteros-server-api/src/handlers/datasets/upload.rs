@@ -3,7 +3,9 @@
 use super::chunked::{expected_chunks, prepare_session_with_workspace};
 use super::fs_utils::ensure_dirs;
 use super::hashing::{hash_dataset_manifest, hash_file, normalize_filename, DatasetHashInput};
-use super::helpers::{dataset_quota_limits, quota_error, MAX_FILE_SIZE, MAX_TOTAL_SIZE};
+use super::helpers::{
+    dataset_quota_limits, quota_error, MAX_FILE_COUNT, MAX_FILE_SIZE, MAX_TOTAL_SIZE,
+};
 use super::paths::{resolve_dataset_root, DatasetPaths};
 use super::progress::emit_progress;
 use super::tenant::bind_dataset_to_tenant;
@@ -24,6 +26,7 @@ use crate::types::{ErrorResponse, UploadDatasetResponse};
 use adapteros_db::training_datasets::{
     validate_format, CreateDatasetParams, CreateTrainingDatasetRowParams, DatasetFile,
 };
+use adapteros_secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
 use adapteros_storage::{ByteStorage, DatasetCategory, FsByteStorage, StorageKey};
 use axum::{
     extract::{Multipart, State},
@@ -122,6 +125,7 @@ pub async fn upload_dataset(
     let dataset_id = Uuid::now_v7().to_string();
     let dataset_root = resolve_dataset_root(&state).map_err(internal_error)?;
     let paths = DatasetPaths::new(dataset_root.clone());
+    let allowed_roots = [paths.root().to_path_buf()];
     let adapters_root = {
         let cfg = state.config.read().map_err(|_| {
             tracing::error!("Config lock poisoned");
@@ -347,6 +351,12 @@ pub async fn upload_dataset(
                 let file_hash = hash_file(&data);
 
                 file_count += 1;
+                if file_count > MAX_FILE_COUNT {
+                    return Err(payload_too_large(&format!(
+                        "Upload exceeds maximum file count of {}",
+                        MAX_FILE_COUNT
+                    )));
+                }
 
                 pending_files.push(PendingFile {
                     file_name: file_name.clone(),
@@ -434,6 +444,9 @@ pub async fn upload_dataset(
         .layout()
         .canonical_dir_path_with_tenant(&dataset_category, &dataset_hash, Some(&claims.tenant_id))
         .map_err(|e| internal_error(format!("Failed to resolve canonical dataset path: {}", e)))?;
+    ensure_dirs([canonical_dir.as_path()]).await?;
+    let canonical_dir = canonicalize_strict_in_allowed_roots(&canonical_dir, &allowed_roots)
+        .map_err(|e| internal_error(format!("Dataset path rejected: {}", e)))?;
     let storage_path = canonical_dir.to_string_lossy().to_string();
 
     // Deduplicate by dataset hash within workspace (same tenant or admin only)
@@ -509,6 +522,18 @@ pub async fn upload_dataset(
             None,
             &pending.file_name,
         );
+        let candidate_path = storage.path_for(&key).map_err(|e| {
+            internal_error(format!("Failed to resolve storage path: {}", e))
+        })?;
+        let parent = candidate_path.parent().ok_or_else(|| {
+            internal_error(format!(
+                "Dataset storage path has no parent: {}",
+                candidate_path.display()
+            ))
+        })?;
+        canonicalize_strict_in_allowed_roots(parent, &allowed_roots).map_err(|e| {
+            forbidden(&format!("Dataset storage path rejected: {}", e))
+        })?;
         let location = storage
             .store_bytes(&key, &pending.data)
             .await
@@ -523,6 +548,13 @@ pub async fn upload_dataset(
                     internal_error(format!("Failed to store dataset file: {}", msg))
                 }
             })?;
+        if let Err(e) = canonicalize_strict_in_allowed_roots(&location.path, &allowed_roots) {
+            let _ = storage.delete(&key).await;
+            return Err(forbidden(&format!(
+                "Stored dataset path escapes dataset root: {}",
+                e
+            )));
+        }
 
         emit_progress(
             state.dataset_progress_tx.as_ref(),
@@ -536,7 +568,7 @@ pub async fn upload_dataset(
                 pending.data.len()
             ),
             None,
-            Some(total_files),
+            Some(total_files as i32),
         );
 
         uploaded_files.push(DatasetFile {

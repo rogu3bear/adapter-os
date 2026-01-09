@@ -8,9 +8,12 @@
 //! - Resume token generation and validation
 
 use anyhow::{anyhow, Context, Result};
+use adapteros_secure_fs::path_policy::{canonicalize_strict, canonicalize_strict_in_allowed_roots};
+use adapteros_secure_fs::traversal::check_path_traversal;
 use blake3::Hasher;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fs::{self as std_fs, File as StdFile, OpenOptions};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -536,132 +539,104 @@ pub struct CompressionHandler;
 impl CompressionHandler {
     /// Decompress gzip file to directory
     pub async fn decompress_gzip(input_path: &Path, output_dir: &Path) -> Result<Vec<PathBuf>> {
-        let input_file = std::fs::File::open(input_path).context("Failed to open gzip file")?;
+        let input_file = StdFile::open(input_path).context("Failed to open gzip file")?;
         let decoder = flate2::read::GzDecoder::new(input_file);
         let mut archive = tar::Archive::new(decoder);
 
-        archive
-            .unpack(output_dir)
-            .context("Failed to decompress gzip archive")?;
-
-        // List extracted files
-        let mut files = Vec::new();
-        for entry in walkdir::WalkDir::new(output_dir)
-            .into_iter()
-            .filter_map(|e| e.ok())
-        {
-            if entry.path().is_file() {
-                files.push(entry.path().to_path_buf());
-            }
-        }
-
-        Ok(files)
+        extract_tar_entries(&mut archive, output_dir).context("Failed to decompress gzip archive")
     }
 
     /// Decompress zip file to directory
     pub async fn decompress_zip(input_path: &Path, output_dir: &Path) -> Result<Vec<PathBuf>> {
-        let file = std::fs::File::open(input_path).context("Failed to open zip file")?;
+        std_fs::create_dir_all(output_dir).context("Failed to create output directory")?;
+        let canonical_output_dir =
+            canonicalize_strict(output_dir).context("Failed to canonicalize output directory")?;
+        let allowed_roots = [canonical_output_dir.clone()];
+
+        let file = StdFile::open(input_path).context("Failed to open zip file")?;
         let mut archive = ZipArchive::new(file).context("Failed to parse zip archive")?;
 
         let mut files = Vec::new();
+        let mut total_bytes: u64 = 0;
+        let mut file_count: usize = 0;
 
         for i in 0..archive.len() {
-            let mut file = archive
+            let mut entry = archive
                 .by_index(i)
                 .context(format!("Failed to read zip entry {}", i))?;
 
-            if !file.is_file() {
-                continue;
-            }
-
-            // Security: Validate entry name to prevent path traversal attacks
-            let entry_name = file.name();
-            if entry_name.contains("..") || Path::new(entry_name).is_absolute() {
+            if is_zip_symlink(&entry) {
                 return Err(anyhow!(
-                    "Zip entry contains invalid path (path traversal attempt): {}",
-                    entry_name
+                    "Zip entry is a symlink and was rejected: {}",
+                    entry.name()
                 ));
             }
 
-            let output_path = output_dir.join(entry_name);
+            let entry_path = entry.enclosed_name().map(|p| p.to_path_buf()).ok_or_else(|| {
+                let name = entry.name().to_string();
+                error!(
+                    original = %name,
+                    canonical = "<unavailable>",
+                    "Zip entry path rejected"
+                );
+                anyhow!("Zip entry contains invalid path: {}", name)
+            })?;
+            validate_archive_entry_path(&entry_path, entry.name())?;
 
-            // Security: Check if output_path is a symlink before canonicalize to prevent TOCTOU attacks
-            // An attacker could create a symlink race condition between exists() and canonicalize()
+            let output_path = canonical_output_dir.join(&entry_path);
+            if entry.is_dir() {
+                std_fs::create_dir_all(&output_path)
+                    .context("Failed to create output directory")?;
+                canonicalize_strict_in_allowed_roots(&output_path, &allowed_roots)
+                    .context("Zip entry path rejected")?;
+                continue;
+            }
+
+            file_count += 1;
+            if file_count > crate::handlers::datasets::MAX_FILE_COUNT {
+                return Err(anyhow!(
+                    "Zip archive exceeds maximum file count of {}",
+                    crate::handlers::datasets::MAX_FILE_COUNT
+                ));
+            }
+            total_bytes = total_bytes.saturating_add(entry.size());
+            if total_bytes > crate::handlers::datasets::MAX_TOTAL_SIZE as u64 {
+                return Err(anyhow!(
+                    "Zip archive exceeds maximum size of {} bytes",
+                    crate::handlers::datasets::MAX_TOTAL_SIZE
+                ));
+            }
+
+            if let Some(parent) = output_path.parent() {
+                std_fs::create_dir_all(parent).context("Failed to create output directory")?;
+                canonicalize_strict_in_allowed_roots(parent, &allowed_roots)
+                    .context("Zip entry path rejected")?;
+            }
+
             if output_path.exists() {
-                let metadata = std::fs::symlink_metadata(&output_path).context(format!(
+                let metadata = std_fs::symlink_metadata(&output_path).context(format!(
                     "Failed to get metadata for: {}",
                     output_path.display()
                 ))?;
                 if metadata.file_type().is_symlink() {
                     return Err(anyhow!(
-                        "Entry path is a symlink, rejecting for security: {}",
+                        "Zip entry path is a symlink, rejecting: {}",
                         output_path.display()
                     ));
                 }
             }
 
-            // Security: Verify resolved path stays within output directory
-            // Use lexical comparison since output_path may not exist yet
-            let canonical_output_dir = output_dir
-                .canonicalize()
-                .context("Failed to canonicalize output directory")?;
-            if let Ok(canonical_output) = output_path.canonicalize() {
-                if !canonical_output.starts_with(&canonical_output_dir) {
-                    return Err(anyhow!(
-                        "Zip entry would extract outside target directory: {}",
-                        entry_name
-                    ));
-                }
-            } else {
-                // File doesn't exist yet, check the parent directory
-                if let Some(parent) = output_path.parent() {
-                    if parent.exists() {
-                        // Also check if parent is a symlink
-                        let parent_metadata = std::fs::symlink_metadata(parent).context(
-                            format!("Failed to get metadata for parent: {}", parent.display()),
-                        )?;
-                        if parent_metadata.file_type().is_symlink() {
-                            return Err(anyhow!(
-                                "Parent path is a symlink, rejecting for security: {}",
-                                parent.display()
-                            ));
-                        }
-
-                        let canonical_parent = parent
-                            .canonicalize()
-                            .context("Failed to canonicalize parent directory")?;
-                        if !canonical_parent.starts_with(&canonical_output_dir) {
-                            return Err(anyhow!(
-                                "Zip entry would extract outside target directory: {}",
-                                entry_name
-                            ));
-                        }
-                    }
-                }
-            }
-
-            if let Some(parent) = output_path.parent() {
-                fs::create_dir_all(parent)
-                    .await
-                    .context("Failed to create output directory")?;
-            }
-
-            let mut output_file = File::create(&output_path)
-                .await
+            let mut output_file = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&output_path)
                 .context("Failed to create output file")?;
 
-            let mut buffer = vec![0; 8192];
-            loop {
-                let n = file.read(&mut buffer).context("Failed to read zip entry")?;
-                if n == 0 {
-                    break;
-                }
-                output_file
-                    .write_all(&buffer[..n])
-                    .await
-                    .context("Failed to write decompressed data")?;
-            }
+            std::io::copy(&mut entry, &mut output_file)
+                .context("Failed to write decompressed data")?;
 
+            canonicalize_strict_in_allowed_roots(&output_path, &allowed_roots)
+                .context("Zip entry path rejected")?;
             files.push(output_path);
         }
 
@@ -690,6 +665,126 @@ impl CompressionHandler {
             }
         }
     }
+}
+
+fn extract_tar_entries<R: Read>(
+    archive: &mut tar::Archive<R>,
+    output_dir: &Path,
+) -> Result<Vec<PathBuf>> {
+    std_fs::create_dir_all(output_dir).context("Failed to create output directory")?;
+    let canonical_output_dir =
+        canonicalize_strict(output_dir).context("Failed to canonicalize output directory")?;
+    let allowed_roots = [canonical_output_dir.clone()];
+
+    let mut files = Vec::new();
+    let mut total_bytes: u64 = 0;
+    let mut file_count: usize = 0;
+
+    for entry in archive.entries().context("Failed to read tar entries")? {
+        let mut entry = entry.context("Failed to read tar entry")?;
+        let entry_path = entry.path().context("Failed to read tar entry path")?;
+        validate_archive_entry_path(&entry_path, &entry_path.to_string_lossy())?;
+
+        let entry_type = entry.header().entry_type();
+        if entry_type.is_symlink() || entry_type.is_hard_link() {
+            return Err(anyhow!(
+                "Tar entry is a link and was rejected: {}",
+                entry_path.display()
+            ));
+        }
+
+        let output_path = canonical_output_dir.join(&entry_path);
+        if entry_type.is_dir() {
+            std_fs::create_dir_all(&output_path).context("Failed to create output directory")?;
+            canonicalize_strict_in_allowed_roots(&output_path, &allowed_roots)
+                .context("Tar entry path rejected")?;
+            continue;
+        }
+
+        if !entry_type.is_file() {
+            return Err(anyhow!(
+                "Unsupported tar entry type for {}",
+                entry_path.display()
+            ));
+        }
+
+        file_count += 1;
+        if file_count > crate::handlers::datasets::MAX_FILE_COUNT {
+            return Err(anyhow!(
+                "Tar archive exceeds maximum file count of {}",
+                crate::handlers::datasets::MAX_FILE_COUNT
+            ));
+        }
+        total_bytes = total_bytes.saturating_add(entry.size());
+        if total_bytes > crate::handlers::datasets::MAX_TOTAL_SIZE as u64 {
+            return Err(anyhow!(
+                "Tar archive exceeds maximum size of {} bytes",
+                crate::handlers::datasets::MAX_TOTAL_SIZE
+            ));
+        }
+
+        if let Some(parent) = output_path.parent() {
+            std_fs::create_dir_all(parent).context("Failed to create output directory")?;
+            canonicalize_strict_in_allowed_roots(parent, &allowed_roots)
+                .context("Tar entry path rejected")?;
+        }
+
+        if output_path.exists() {
+            let metadata = std_fs::symlink_metadata(&output_path).context(format!(
+                "Failed to get metadata for: {}",
+                output_path.display()
+            ))?;
+            if metadata.file_type().is_symlink() {
+                return Err(anyhow!(
+                    "Tar entry path is a symlink, rejecting: {}",
+                    output_path.display()
+                ));
+            }
+        }
+
+        let mut output_file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&output_path)
+            .context("Failed to create output file")?;
+
+        std::io::copy(&mut entry, &mut output_file).context("Failed to extract tar entry")?;
+        canonicalize_strict_in_allowed_roots(&output_path, &allowed_roots)
+            .context("Tar entry path rejected")?;
+        files.push(output_path);
+    }
+
+    Ok(files)
+}
+
+fn validate_archive_entry_path(entry_path: &Path, entry_name: &str) -> Result<()> {
+    if entry_path.is_absolute() {
+        error!(
+            original = %entry_name,
+            canonical = "<unavailable>",
+            "Archive entry path rejected (absolute)"
+        );
+        return Err(anyhow!("Archive entry path is absolute: {}", entry_name));
+    }
+
+    check_path_traversal(entry_path).map_err(|e| {
+        error!(
+            original = %entry_name,
+            canonical = "<unavailable>",
+            error = %e,
+            "Archive entry path rejected (traversal)"
+        );
+        anyhow!("Archive entry path rejected: {}", entry_name)
+    })?;
+
+    Ok(())
+}
+
+fn is_zip_symlink(entry: &zip::read::ZipFile<'_>) -> bool {
+    entry
+        .unix_mode()
+        .map(|mode| (mode & 0o170000) == 0o120000)
+        .unwrap_or(false)
 }
 
 /// Validates files before processing

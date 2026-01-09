@@ -16,6 +16,8 @@ use adapteros_config::{
 };
 use adapteros_db::users::Role;
 use adapteros_lora_worker::memory::UmaStats;
+use adapteros_secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
+use std::fs;
 use std::path::{Path as StdPath, PathBuf};
 use std::time::Duration;
 use tracing::{error, warn};
@@ -47,6 +49,107 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
+
+fn model_allowed_roots() -> Result<Vec<PathBuf>, String> {
+    let location = resolve_base_model_location(None, None, false).map_err(|e| e.to_string())?;
+    if !location.cache_root.exists() {
+        fs::create_dir_all(&location.cache_root).map_err(|e| {
+            format!(
+                "Failed to create model cache root {}: {}",
+                location.cache_root.display(),
+                e
+            )
+        })?;
+    }
+    Ok(vec![location.cache_root])
+}
+
+fn has_safetensors_files(dir: &StdPath) -> bool {
+    fs::read_dir(dir)
+        .ok()
+        .into_iter()
+        .flat_map(|entries| entries.filter_map(|entry| entry.ok()))
+        .any(|entry| {
+            entry
+                .path()
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .map(|ext| ext.eq_ignore_ascii_case("safetensors"))
+                .unwrap_or(false)
+        })
+}
+
+fn has_coreml_weights(dir: &StdPath) -> bool {
+    let candidates = [
+        dir.join("Data/com.apple.CoreML/weights/weight.bin"),
+        dir.join("Data/model/weights.bin"),
+        dir.join("Data/model/weight.bin"),
+    ];
+    candidates.iter().any(|path| path.exists())
+}
+
+fn validate_model_compatibility(
+    model_path: &StdPath,
+    format: Option<&str>,
+    backend: &str,
+) -> Result<(), String> {
+    let model_dir = if model_path.is_dir() {
+        model_path
+    } else {
+        model_path.parent().ok_or_else(|| {
+            format!(
+                "Model path has no parent directory: {}",
+                model_path.display()
+            )
+        })?
+    };
+
+    let config_path = model_dir.join("config.json");
+    if !config_path.exists() {
+        return Err(format!(
+            "config.json not found at '{}'",
+            config_path.display()
+        ));
+    }
+
+    let tokenizer_path = model_dir.join("tokenizer.json");
+    if !tokenizer_path.exists() {
+        return Err(format!(
+            "tokenizer.json not found at '{}'",
+            tokenizer_path.display()
+        ));
+    }
+
+    match backend {
+        "coreml" => {
+            if !has_coreml_weights(model_dir) {
+                return Err(format!(
+                    "CoreML weights not found under '{}'",
+                    model_dir.display()
+                ));
+            }
+        }
+        "metal" | "mlx" => {
+            if let Some(format) = format {
+                if !matches!(format, "mlx" | "safetensors") {
+                    return Err(format!(
+                        "Format '{}' is not compatible with backend '{}'",
+                        format, backend
+                    ));
+                }
+            }
+            if !has_safetensors_files(model_dir) {
+                return Err(format!(
+                    "No safetensors weights found under '{}'",
+                    model_dir.display()
+                ));
+            }
+        }
+        _ => {}
+    }
+
+    Ok(())
+}
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AllModelsStatusResponse {
@@ -380,6 +483,39 @@ pub async fn load_model(
             )
         })?;
 
+    let record_failure = |err_msg: String| {
+        let state = state.clone();
+        let model_id = model_id.clone();
+        let claims = claims.clone();
+        let op_id = op_id.clone();
+        let now = now.clone();
+        async move {
+            let _ = state
+                .db
+                .update_base_model_status(
+                    tenant_id,
+                    &model_id,
+                    ModelLoadStatus::Error.as_str(),
+                    Some(&err_msg),
+                    None,
+                )
+                .await;
+            let _ = state
+                .db
+                .update_model_operation(&op_id, "failed", Some(&err_msg), Some(&now), None)
+                .await;
+            log_failure_or_warn(
+                &state.db,
+                &claims,
+                ACTION_MODEL_LOAD,
+                RESOURCE_MODEL,
+                Some(&model_id),
+                &err_msg,
+            )
+            .await;
+        }
+    };
+
     // Get worker socket path - try from workers table first, then env var fallback
     let uds_path = get_worker_socket_path(&state, tenant_id)
         .await
@@ -408,44 +544,65 @@ pub async fn load_model(
                     .to_string()
             })
     });
+    let backend = model
+        .backend
+        .as_deref()
+        .map(normalize_backend_label)
+        .unwrap_or("mlx");
+    let format = model.format.as_deref();
+    let allowed_roots = match model_allowed_roots() {
+        Ok(roots) => roots,
+        Err(e) => {
+            let err_msg = format!("failed to resolve model roots: {}", e);
+            record_failure(err_msg.clone()).await;
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to resolve model roots")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(err_msg),
+                ),
+            ));
+        }
+    };
+    let canonical_path =
+        match canonicalize_strict_in_allowed_roots(StdPath::new(&model_path), &allowed_roots) {
+            Ok(path) => path,
+            Err(e) => {
+                let err_msg = format!("model path rejected: {}", e);
+                record_failure(err_msg.clone()).await;
+                let (status, code, message) = match e {
+                    adapteros_core::AosError::NotFound(_) => (
+                        StatusCode::NOT_FOUND,
+                        "MODEL_PATH_MISSING",
+                        "model path does not exist",
+                    ),
+                    _ => (
+                        StatusCode::FORBIDDEN,
+                        "MODEL_PATH_FORBIDDEN",
+                        "model path not permitted",
+                    ),
+                };
+                return Err((
+                    status,
+                    Json(
+                        ErrorResponse::new(message)
+                            .with_code(code)
+                            .with_string_details(err_msg),
+                    ),
+                ));
+            }
+        };
+    let model_path = canonical_path.to_string_lossy().to_string();
 
-    // Validate model path exists before invoking the worker
-    if !StdPath::new(&model_path).exists() {
-        let err_msg = format!(
-            "model path does not exist: {}. Configure AOS_MODEL_CACHE_DIR/AOS_BASE_MODEL_ID or set model.model_path.",
-            model_path
-        );
-
-        // Persist error status but do not fail hard if the DB update itself fails
-        let _ = state
-            .db
-            .update_base_model_status(
-                tenant_id,
-                &model_id,
-                ModelLoadStatus::Error.as_str(),
-                Some(&err_msg),
-                None,
-            )
-            .await;
-        let _ = state
-            .db
-            .update_model_operation(&op_id, "failed", Some(&err_msg), Some(&now), None)
-            .await;
-        log_failure_or_warn(
-            &state.db,
-            &claims,
-            ACTION_MODEL_LOAD,
-            RESOURCE_MODEL,
-            Some(&model_id),
-            &err_msg,
-        )
-        .await;
-
+    if let Err(e) = validate_model_compatibility(&canonical_path, format, backend) {
+        let err_msg = format!("model compatibility check failed: {}", e);
+        record_failure(err_msg.clone()).await;
         return Err((
-            StatusCode::NOT_FOUND,
+            StatusCode::BAD_REQUEST,
             Json(
-                ErrorResponse::new("model path does not exist")
-                    .with_code("MODEL_PATH_MISSING")
+                ErrorResponse::new("model compatibility check failed")
+                    .with_code("MODEL_COMPATIBILITY_FAILED")
                     .with_string_details(err_msg),
             ),
         ));
@@ -1333,15 +1490,6 @@ pub async fn import_model(
 
     let tenant_id = &claims.tenant_id;
 
-    // Validate path exists
-    if !StdPath::new(&req.model_path).exists() {
-        warn!("Model path does not exist: {}", req.model_path);
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new("model path does not exist").with_code("BAD_REQUEST")),
-        ));
-    }
-
     // Validate format
     let valid_formats = ["mlx", "safetensors", "pytorch", "gguf"];
     if !valid_formats.contains(&req.format.as_str()) {
@@ -1365,12 +1513,58 @@ pub async fn import_model(
         ));
     }
 
+    let allowed_roots = model_allowed_roots().map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to resolve model roots")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(e),
+            ),
+        )
+    })?;
+    let canonical_path =
+        canonicalize_strict_in_allowed_roots(StdPath::new(&req.model_path), &allowed_roots)
+            .map_err(|e| {
+                let (status, code, message) = match e {
+                    adapteros_core::AosError::NotFound(_) => (
+                        StatusCode::BAD_REQUEST,
+                        "BAD_REQUEST",
+                        "model path does not exist",
+                    ),
+                    _ => (
+                        StatusCode::FORBIDDEN,
+                        "MODEL_PATH_FORBIDDEN",
+                        "model path not permitted",
+                    ),
+                };
+                (
+                    status,
+                    Json(
+                        ErrorResponse::new(message)
+                            .with_code(code)
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
+    if let Err(e) = validate_model_compatibility(&canonical_path, Some(&req.format), &backend) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("model compatibility check failed")
+                    .with_code("BAD_REQUEST")
+                    .with_string_details(e),
+            ),
+        ));
+    }
+    let canonical_path_str = canonical_path.to_string_lossy().to_string();
+
     // Start import
     let model_id = match state
         .db
         .import_model_from_path(
             &req.model_name,
-            &req.model_path,
+            &canonical_path_str,
             &req.format,
             &backend,
             tenant_id,
@@ -1424,7 +1618,7 @@ pub async fn import_model(
     info!(
         model_id = %model_id,
         model_name = %req.model_name,
-        model_path = %req.model_path,
+        model_path = %canonical_path_str,
         format = %req.format,
         backend = %backend,
         tenant_id = %tenant_id,

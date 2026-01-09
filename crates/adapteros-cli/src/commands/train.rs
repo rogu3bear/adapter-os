@@ -7,9 +7,9 @@ use adapteros_core::{AosError, Result};
 use adapteros_lora_worker::training::{
     DeterminismConfig, MicroLoRATrainer, TrainingConfig, TrainingExample,
 };
+use adapteros_types::training::{ExampleMetadataV1, TRAINING_DATA_CONTRACT_VERSION};
 use clap::Args;
 use serde_json;
-use std::collections::HashMap;
 use std::path::PathBuf;
 use tracing::{info, warn};
 
@@ -60,14 +60,7 @@ pub struct TrainArgs {
 /// Training data format
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct TrainingData {
-    examples: Vec<TrainingExampleData>,
-}
-
-#[derive(serde::Deserialize, serde::Serialize)]
-pub struct TrainingExampleData {
-    input: Vec<u32>,
-    target: Vec<u32>,
-    metadata: Option<HashMap<String, serde_json::Value>>,
+    examples: Vec<TrainingExample>,
 }
 
 impl TrainArgs {
@@ -177,6 +170,9 @@ impl TrainArgs {
                 epochs: self.common.epochs,
                 hidden_dim: self.common.hidden_dim,
                 vocab_size: 50272,
+                training_contract_version: TRAINING_DATA_CONTRACT_VERSION.to_string(),
+                pad_token_id: 0,
+                ignore_index: 0,
                 max_gpu_memory_mb: 0,
                 preferred_backend: None,
                 require_gpu: false,
@@ -206,6 +202,7 @@ impl TrainArgs {
                 base_model_path: Some(self.base_model.clone()),
                 hidden_state_layer: None,
                 validation_split: 0.0,
+                preprocessing: None,
             };
 
             info!("Using command-line training configuration");
@@ -221,26 +218,7 @@ impl TrainArgs {
         let training_data: TrainingData = serde_json::from_str(&data_str)
             .map_err(|e| AosError::Parse(format!("Failed to parse training data: {}", e)))?;
 
-        let examples: Vec<TrainingExample> = training_data
-            .examples
-            .into_iter()
-            .map(|ex| TrainingExample {
-                input: ex.input,
-                target: ex.target,
-                metadata: ex
-                    .metadata
-                    .unwrap_or_default()
-                    .into_iter()
-                    // Preserve metadata deterministically:
-                    // - if JSON string => use raw string (no quotes)
-                    // - else => stringify JSON value (numbers/bools/null/objects/arrays)
-                    .map(|(k, v)| (k, stringify_metadata_value(v)))
-                    .collect(),
-                weight: 1.0,
-            })
-            .collect();
-
-        Ok(examples)
+        Ok(training_data.examples)
     }
 
     /// Save trained adapter
@@ -278,13 +256,6 @@ impl TrainArgs {
         info!("  Weights: {}", weights_path.display());
 
         Ok(())
-    }
-}
-
-fn stringify_metadata_value(v: serde_json::Value) -> String {
-    match v {
-        serde_json::Value::String(s) => s,
-        other => other.to_string(),
     }
 }
 
@@ -347,23 +318,22 @@ mod tests {
         let temp_dir = new_test_tempdir();
         let data_path = temp_dir.path().join("data.json");
 
-        let mut metadata = HashMap::new();
-        metadata.insert("str".to_string(), serde_json::json!("hello"));
-        metadata.insert("num".to_string(), serde_json::json!(123));
-        metadata.insert("bool".to_string(), serde_json::json!(true));
-
+        let provenance =
+            serde_json::json!({"str": "hello", "num": "123", "bool": "true"}).to_string();
         let training_data = TrainingData {
             examples: vec![
-                TrainingExampleData {
-                    input: vec![1, 2, 3],
-                    target: vec![4, 5, 6],
-                    metadata: None,
-                },
-                TrainingExampleData {
-                    input: vec![7, 8, 9],
-                    target: vec![10, 11, 12],
-                    metadata: Some(metadata),
-                },
+                TrainingExample::new(
+                    vec![1, 2, 3],
+                    vec![4, 5, 6],
+                    TrainingExample::attention_mask_from_tokens(&[1, 2, 3], 0),
+                    ExampleMetadataV1::new("test", 1, "{}", 0),
+                ),
+                TrainingExample::new(
+                    vec![7, 8, 9],
+                    vec![10, 11, 12],
+                    TrainingExample::attention_mask_from_tokens(&[7, 8, 9], 0),
+                    ExampleMetadataV1::new("test", 2, provenance, 0),
+                ),
             ],
         };
 
@@ -391,8 +361,8 @@ mod tests {
 
         let examples = args.load_training_data().unwrap();
         assert_eq!(examples.len(), 2);
-        assert_eq!(examples[0].input, vec![1, 2, 3]);
-        assert_eq!(examples[0].target, vec![4, 5, 6]);
+        assert_eq!(examples[0].input_tokens, vec![1, 2, 3]);
+        assert_eq!(examples[0].target_tokens, vec![4, 5, 6]);
 
         // Non-string metadata must not be silently coerced to empty string.
         assert_eq!(examples[1].metadata.get("str").unwrap(), "hello");

@@ -13,6 +13,9 @@ use adapteros_api_types::training::{
 use adapteros_core::{AosError, Result};
 use adapteros_db::training_datasets::TrainingDatasetVersion;
 use adapteros_db::Db;
+use adapteros_lora_worker::training::{
+    ColumnMapping, DatasetBuilder, DatasetFormat, DatasetSource, GitAuth, TextStrategy,
+};
 use clap::{Args, Subcommand};
 use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL};
 use reqwest::{multipart, Client};
@@ -82,6 +85,28 @@ pub enum DatasetSubcommand {
   aosctl dataset validate --dataset-version-id dsv-abc123
 "#)]
     Validate(ValidateArgs),
+
+    /// Build a canonical dataset from raw sources (local operation)
+    #[command(after_help = r#"Examples:
+  # Build from JSONL
+  aosctl dataset build ./data/train.jsonl --tokenizer ./models/Qwen/tokenizer.json
+
+  # Build from CSV with column mapping
+  aosctl dataset build ./data.csv --format csv --input-col question --target-col answer
+
+  # Build from git repo (public)
+  aosctl dataset build --git https://github.com/user/data.git --path data/
+
+  # Build from git repo (private with token)
+  aosctl dataset build --git https://github.com/user/private.git --git-auth token
+
+  # Build from archive
+  aosctl dataset build ./data.tar.gz --output ./dataset-out
+
+  # Dry run (validate without writing)
+  aosctl dataset build ./data.jsonl --tokenizer ./tokenizer.json --dry-run
+"#)]
+    Build(BuildArgs),
 }
 
 #[derive(Debug, Args, Clone)]
@@ -169,6 +194,69 @@ pub struct ValidateArgs {
     pub dataset_version_id: Option<String>,
 }
 
+#[derive(Debug, Args, Clone)]
+pub struct BuildArgs {
+    /// Source path (file, directory, or archive)
+    #[arg(required_unless_present = "git")]
+    pub source: Option<PathBuf>,
+
+    /// Git repository URL
+    #[arg(long)]
+    pub git: Option<String>,
+
+    /// Path within git repo
+    #[arg(long)]
+    pub path: Option<String>,
+
+    /// Git branch/tag
+    #[arg(long)]
+    pub branch: Option<String>,
+
+    /// Git auth: none, ssh, token, credential-helper
+    #[arg(long, default_value = "none")]
+    pub git_auth: String,
+
+    /// Git auth token (for --git-auth token), can also use AOS_GIT_TOKEN env var
+    #[arg(long, env = "AOS_GIT_TOKEN")]
+    pub git_token: Option<String>,
+
+    /// SSH key path (for --git-auth ssh)
+    #[arg(long)]
+    pub ssh_key: Option<PathBuf>,
+
+    /// Output directory
+    #[arg(long, short, default_value = "./dataset-build")]
+    pub output: PathBuf,
+
+    /// Tokenizer path (required)
+    #[arg(long, env = "AOS_TOKENIZER_PATH")]
+    pub tokenizer: PathBuf,
+
+    /// Format hint (jsonl, csv, text, markdown)
+    #[arg(long)]
+    pub format: Option<String>,
+
+    /// Text parsing strategy (paragraph-pairs, heading-content)
+    #[arg(long, default_value = "paragraph-pairs")]
+    pub text_strategy: String,
+
+    /// Input column name (for CSV)
+    #[arg(long)]
+    pub input_col: Option<String>,
+
+    /// Target column name (for CSV)
+    #[arg(long)]
+    pub target_col: Option<String>,
+
+    /// Dataset name
+    #[arg(long)]
+    pub name: Option<String>,
+
+    /// Dry run (validate without writing)
+    #[arg(long)]
+    pub dry_run: bool,
+}
+
 #[derive(Debug, Serialize)]
 struct IngestResult {
     dataset_id: String,
@@ -221,6 +309,7 @@ pub async fn run(cmd: DatasetCommand, output: &OutputWriter) -> Result<()> {
         DatasetSubcommand::Versions(args) => list_versions(args, output).await,
         DatasetSubcommand::Show(args) => show_version(args, output).await,
         DatasetSubcommand::Validate(args) => validate_dataset(args, output).await,
+        DatasetSubcommand::Build(args) => build_dataset(args, output).await,
     }
 }
 
@@ -685,6 +774,131 @@ async fn validate_dataset(args: ValidateArgs, output: &OutputWriter) -> Result<(
     Ok(())
 }
 
+async fn build_dataset(args: BuildArgs, output: &OutputWriter) -> Result<()> {
+    // Validate tokenizer path exists
+    if !args.tokenizer.exists() {
+        return Err(AosError::Io(format!(
+            "Tokenizer not found: {}",
+            args.tokenizer.display()
+        )));
+    }
+
+    // Parse format if provided
+    let format = if let Some(ref fmt) = args.format {
+        Some(fmt.parse::<DatasetFormat>()?)
+    } else {
+        None
+    };
+
+    // Parse text strategy
+    let text_strategy: TextStrategy = args.text_strategy.parse()?;
+
+    // Build column mapping for CSV
+    let column_mapping = if args.input_col.is_some() || args.target_col.is_some() {
+        Some(ColumnMapping {
+            input_col: args.input_col.clone().unwrap_or_else(|| "input".to_string()),
+            target_col: args.target_col.clone().unwrap_or_else(|| "target".to_string()),
+            weight_col: None,
+        })
+    } else {
+        None
+    };
+
+    // Build git auth
+    let git_auth = match args.git_auth.to_lowercase().as_str() {
+        "none" => GitAuth::None,
+        "ssh" => GitAuth::SshKey(args.ssh_key.clone()),
+        "token" => {
+            let token = args.git_token.clone().ok_or_else(|| {
+                AosError::Validation(
+                    "Git token required for --git-auth token. Use --git-token or AOS_GIT_TOKEN env var".into()
+                )
+            })?;
+            GitAuth::HttpsToken(token)
+        }
+        "credential-helper" => GitAuth::CredentialHelper,
+        other => {
+            return Err(AosError::Validation(format!(
+                "Unknown git auth type: {}. Use: none, ssh, token, credential-helper",
+                other
+            )))
+        }
+    };
+
+    // Determine source
+    let source = if let Some(ref url) = args.git {
+        DatasetSource::Git {
+            url: url.clone(),
+            branch: args.branch.clone(),
+            path: args.path.clone(),
+            auth: git_auth,
+        }
+    } else if let Some(ref path) = args.source {
+        // Check if it's an archive
+        let path_str = path.display().to_string().to_lowercase();
+        if path_str.ends_with(".zip")
+            || path_str.ends_with(".tar.gz")
+            || path_str.ends_with(".tgz")
+            || path_str.ends_with(".tar")
+        {
+            DatasetSource::Archive(path.clone())
+        } else {
+            DatasetSource::Filesystem(path.clone())
+        }
+    } else {
+        return Err(AosError::Validation(
+            "Either source path or --git URL required".into()
+        ));
+    };
+
+    // Build the dataset builder
+    let mut builder = DatasetBuilder::new(args.tokenizer.clone(), args.output.clone())
+        .with_text_strategy(text_strategy);
+
+    if let Some(fmt) = format {
+        builder = builder.with_format(fmt);
+    }
+    if let Some(mapping) = column_mapping {
+        builder = builder.with_column_mapping(mapping);
+    }
+    if let Some(ref name) = args.name {
+        builder = builder.with_name(name.clone());
+    }
+
+    // Dry run or actual build
+    if args.dry_run {
+        output.section("Dry run validation");
+        let count = builder.validate(&source)?;
+        output.kv("Sample count", &count.to_string());
+        output.kv("Status", "Valid");
+        if output.is_json() {
+            output.json(&serde_json::json!({
+                "sample_count": count,
+                "valid": true,
+                "dry_run": true,
+            }))?;
+        }
+    } else {
+        let result = builder.build(&source)?;
+        if output.is_json() {
+            output.json(&serde_json::json!({
+                "manifest_path": result.manifest_path.display().to_string(),
+                "examples_path": result.examples_path.display().to_string(),
+                "example_count": result.example_count,
+                "tokenizer_hash": result.tokenizer_hash,
+            }))?;
+        } else {
+            output.section("Dataset built");
+            output.kv("Manifest", &result.manifest_path.display().to_string());
+            output.kv("Examples", &result.examples_path.display().to_string());
+            output.kv("Count", &result.example_count.to_string());
+            output.kv("Tokenizer hash", &result.tokenizer_hash);
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -700,5 +914,28 @@ mod tests {
         };
         assert_eq!(args.files.len(), 2);
         assert_eq!(args.format.as_deref(), Some("jsonl"));
+    }
+
+    #[test]
+    fn build_args_defaults() {
+        let args = BuildArgs {
+            source: Some(PathBuf::from("data.jsonl")),
+            git: None,
+            path: None,
+            branch: None,
+            git_auth: "none".to_string(),
+            git_token: None,
+            ssh_key: None,
+            output: PathBuf::from("./dataset-build"),
+            tokenizer: PathBuf::from("./tokenizer.json"),
+            format: None,
+            text_strategy: "paragraph-pairs".to_string(),
+            input_col: None,
+            target_col: None,
+            name: None,
+            dry_run: false,
+        };
+        assert_eq!(args.text_strategy, "paragraph-pairs");
+        assert!(!args.dry_run);
     }
 }

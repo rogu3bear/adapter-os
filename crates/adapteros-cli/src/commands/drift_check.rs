@@ -60,15 +60,7 @@ fn default_steps() -> usize {
 
 #[derive(Deserialize)]
 struct TrainingData {
-    examples: Vec<TrainingExampleData>,
-}
-
-#[derive(Deserialize)]
-struct TrainingExampleData {
-    input: Vec<u32>,
-    target: Vec<u32>,
-    #[serde(default)]
-    metadata: Option<HashMap<String, serde_json::Value>>,
+    examples: Vec<TrainingExample>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -266,32 +258,7 @@ fn load_dataset(path: &Path) -> Result<Vec<TrainingExample>> {
         .map_err(|e| AosError::Io(format!("Failed to read dataset: {}", e)))?;
     let data: TrainingData = serde_json::from_str(&content)
         .map_err(|e| AosError::Parse(format!("Dataset parse error: {}", e)))?;
-    let examples = data
-        .examples
-        .into_iter()
-        .map(|ex| TrainingExample {
-            input: ex.input,
-            target: ex.target,
-            metadata: ex
-                .metadata
-                .unwrap_or_default()
-                .into_iter()
-                // Preserve metadata deterministically:
-                // - if JSON string => use raw string (no quotes)
-                // - else => stringify JSON value (numbers/bools/null/objects/arrays)
-                .map(|(k, v)| (k, stringify_metadata_value(v)))
-                .collect(),
-            weight: 1.0,
-        })
-        .collect();
-    Ok(examples)
-}
-
-fn stringify_metadata_value(v: serde_json::Value) -> String {
-    match v {
-        serde_json::Value::String(s) => s,
-        other => other.to_string(),
-    }
+    Ok(data.examples)
 }
 
 fn persist_manifest(
@@ -436,29 +403,27 @@ fn merge_decision(left: DriftDecision, right: DriftDecision) -> DriftDecision {
 mod tests {
     use super::*;
     use adapteros_lora_worker::training::{LoRAWeights, TrainingResult};
+    use adapteros_types::training::ExampleMetadataV1;
+
+    fn make_example(input_tokens: Vec<u32>, target_tokens: Vec<u32>, row_id: u64) -> TrainingExample {
+        let metadata = ExampleMetadataV1::new("test", row_id, "{}", 0);
+        let attention_mask =
+            TrainingExample::attention_mask_from_tokens(&input_tokens, 0);
+        TrainingExample::new(input_tokens, target_tokens, attention_mask, metadata)
+    }
 
     #[test]
     fn test_deterministic_slice_stable() {
         let examples = vec![
-            TrainingExample {
-                input: vec![1, 2],
-                target: vec![3],
-                metadata: HashMap::new(),
-                weight: 1.0,
-            },
-            TrainingExample {
-                input: vec![2, 3],
-                target: vec![4],
-                metadata: HashMap::new(),
-                weight: 1.0,
-            },
+            make_example(vec![1, 2], vec![3], 1),
+            make_example(vec![2, 3], vec![4], 2),
         ];
 
         let first = deterministic_slice(examples.clone(), 42, Some(2), None);
         let second = deterministic_slice(examples, 42, Some(2), None);
         assert_eq!(first.len(), 2);
-        assert_eq!(first[0].input, second[0].input);
-        assert_eq!(first[1].target, second[1].target);
+        assert_eq!(first[0].input_tokens, second[0].input_tokens);
+        assert_eq!(first[1].target_tokens, second[1].target_tokens);
     }
 
     #[test]
@@ -496,6 +461,16 @@ mod tests {
             determinism_backend: Some("cpu".into()),
             determinism_device: None,
             dataset_version_id: None,
+            validation_loss_curve: Vec::new(),
+            train_perplexity_curve: Vec::new(),
+            validation_perplexity_curve: Vec::new(),
+            split_hash_b3: None,
+            train_example_count: 0,
+            validation_example_count: 0,
+            train_token_count: 0,
+            validation_token_count: 0,
+            best_validation: None,
+            final_validation_loss: None,
         };
         let candidate = TrainingResult {
             adapter_id: "cand".into(),
@@ -517,6 +492,16 @@ mod tests {
             determinism_backend: Some("coreml".into()),
             determinism_device: None,
             dataset_version_id: None,
+            validation_loss_curve: Vec::new(),
+            train_perplexity_curve: Vec::new(),
+            validation_perplexity_curve: Vec::new(),
+            split_hash_b3: None,
+            train_example_count: 0,
+            validation_example_count: 0,
+            train_token_count: 0,
+            validation_token_count: 0,
+            best_validation: None,
+            final_validation_loss: None,
         };
 
         let metrics = compute_drift(&reference, &candidate);
