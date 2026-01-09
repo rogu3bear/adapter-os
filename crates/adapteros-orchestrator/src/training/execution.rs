@@ -5,14 +5,27 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use adapteros_core::{B3Hash, GuardLogLevel, SeedMode, SeedScopeGuard};
+use adapteros_core::{AosError, B3Hash, GuardLogLevel, SeedMode, SeedScopeGuard};
 use adapteros_deterministic_exec::spawn_deterministic;
-use adapteros_lora_worker::training::trainer::EpochMetrics as WorkerEpochMetrics;
+use adapteros_lora_worker::training::trainer::{
+    EpochMetrics as WorkerEpochMetrics, OptimizerType,
+};
 use adapteros_lora_worker::training::{
-    MicroLoRATrainer as WorkerTrainer, TrainingConfig as WorkerTrainingConfig,
+    preprocessing::preprocess_examples, split_examples_for_validation,
+    MicroLoRATrainer as WorkerTrainer, PreprocessCompression as WorkerPreprocessCompression,
+    PreprocessingConfig as WorkerPreprocessingConfig, TrainingConfig as WorkerTrainingConfig,
     TrainingExample as WorkerTrainingExample,
 };
+use adapteros_types::training::{
+    ExampleMetadataV1,
+    OptimizerConfigSummary,
+    PreprocessCompression as ApiPreprocessCompression,
+    PreprocessingConfig as ApiPreprocessingConfig,
+    TrainingDataContractConfig,
+    TRAINING_DATA_CONTRACT_VERSION,
+};
 use anyhow::Result;
+use blake3::Hasher;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 
@@ -21,6 +34,8 @@ use crate::training::dataset::weighted_round_robin_merge;
 use crate::training::job::{DataLineageMode, TrainingConfig, TrainingJob, TrainingJobStatus};
 use crate::training::metrics::persist_final_metrics;
 use crate::training::packaging::{load_plan_bytes_for_training, package_and_register_adapter};
+use crate::training::pipeline::{PhaseStatus, PipelineConfigSnapshot, PipelinePhase, TrainingPipeline};
+use crate::training::report::write_training_report;
 use crate::training::versioning::VersioningSnapshot;
 
 /// Background runner for a single training job. Converts orchestrator config into worker trainer
@@ -42,6 +57,7 @@ pub(crate) async fn run_training_job(
     tenant_id: Option<String>,
     db: Option<adapteros_db::Db>,
     storage_root: Option<PathBuf>,
+    artifacts_root: Option<PathBuf>,
     category: Option<String>,
     post_actions_json: Option<String>,
     base_model_id: Option<String>,
@@ -165,15 +181,6 @@ pub(crate) async fn run_training_job(
         };
         let tenant = tenant_id.as_deref().unwrap_or("default");
 
-        // Transition to running
-        {
-            let mut jobs = jobs_ref.write().await;
-            if let Some(job) = jobs.get_mut(&job_id) {
-                job.status = TrainingJobStatus::Running;
-                job.started_at = Some(chrono::Utc::now().to_rfc3339());
-            }
-        }
-
         // Map orchestrator config to worker trainer config
         let preferred_backend = map_preferred_backend(
             orchestrator_cfg.preferred_backend,
@@ -187,6 +194,9 @@ pub(crate) async fn run_training_job(
             epochs: orchestrator_cfg.epochs as usize,
             hidden_dim: 768,
             vocab_size: 32000,
+            training_contract_version: orchestrator_cfg.training_contract_version.clone(),
+            pad_token_id: orchestrator_cfg.pad_token_id,
+            ignore_index: orchestrator_cfg.ignore_index,
             coreml_placement: orchestrator_cfg.coreml_placement.clone(),
             preferred_backend: preferred_backend.preferred,
             backend_policy: orchestrator_cfg.backend_policy,
@@ -209,6 +219,7 @@ pub(crate) async fn run_training_job(
             base_model_path: orchestrator_cfg.base_model_path.clone(),
             hidden_state_layer: orchestrator_cfg.hidden_state_layer.clone(),
             validation_split: orchestrator_cfg.validation_split.unwrap_or(0.0),
+            preprocessing: map_preprocessing_config_opt(orchestrator_cfg.preprocessing.clone()),
         };
 
         // If a CoreML placement is provided, align hidden_dim to the placement shapes for training.
@@ -226,6 +237,9 @@ pub(crate) async fn run_training_job(
             }
         }
 
+        let pipeline_training_config_hash = compute_pipeline_training_config_hash(&worker_cfg)?;
+        let base_model_hash = compute_pipeline_base_model_hash(worker_cfg.base_model_path.as_ref())?;
+
         let db_for_packaging = db.clone();
 
         let dataset_version_ids_for_training = versioning_snapshot
@@ -234,6 +248,66 @@ pub(crate) async fn run_training_job(
         let data_spec_hash_for_training = versioning_snapshot
             .as_ref()
             .and_then(|v| v.data_spec_hash.clone());
+        let config_snapshot = PipelineConfigSnapshot {
+            training_config: orchestrator_cfg.clone(),
+            dataset_id: dataset_id.clone(),
+            dataset_version_ids: dataset_version_ids_for_training.clone(),
+            data_spec_hash: data_spec_hash_for_training.clone(),
+            synthetic_mode,
+            data_lineage_mode,
+            base_model_id: base_model_id.clone(),
+        };
+        let mut pipeline =
+            TrainingPipeline::load_or_init(&job_id, config_snapshot, storage_root.as_deref())
+                .await?;
+        pipeline
+            .seed_receipt(
+                &pipeline_training_config_hash,
+                &base_model_hash,
+                dataset_id.as_deref(),
+                TRAINING_DATA_CONTRACT_VERSION,
+            )
+            .await?;
+
+        if pipeline.is_complete() {
+            info!(job_id = %job_id, "Training pipeline already complete; skipping execution");
+            let mut mark_completed = false;
+            {
+                let mut jobs = jobs_ref.write().await;
+                if let Some(job) = jobs.get_mut(&job_id) {
+                    if matches!(job.status, TrainingJobStatus::Pending | TrainingJobStatus::Running)
+                    {
+                        job.status = TrainingJobStatus::Completed;
+                        job.progress_pct = 100.0;
+                        if job.completed_at.is_none() {
+                            job.completed_at = Some(chrono::Utc::now().to_rfc3339());
+                        }
+                        mark_completed = true;
+                    }
+                }
+            }
+            if mark_completed {
+                if let Some(database) = &db {
+                    if let Err(e) = database.update_training_status(&job_id, "completed").await {
+                        warn!(
+                            job_id = %job_id,
+                            error = %e,
+                            "Failed to persist training completion status to DB (non-fatal)"
+                        );
+                    }
+                }
+            }
+            return Ok(());
+        }
+
+        // Transition to running
+        {
+            let mut jobs = jobs_ref.write().await;
+            if let Some(job) = jobs.get_mut(&job_id) {
+                job.status = TrainingJobStatus::Running;
+                job.started_at = Some(chrono::Utc::now().to_rfc3339());
+            }
+        }
         let tokenizer_path = worker_cfg
             .base_model_path
             .as_ref()
@@ -241,6 +315,13 @@ pub(crate) async fn run_training_job(
             .filter(|path| path.exists());
 
         // Load training examples from dataset versions (if provided) or dataset_id, otherwise synthetic
+        let dataset_phase_active = pipeline.current_phase() == PipelinePhase::DatasetBuild;
+        if dataset_phase_active {
+            pipeline.enter_phase(PipelinePhase::DatasetBuild).await?;
+        }
+        let mut dataset_source = "synthetic";
+        let mut dataset_ids_for_receipt: Vec<String> = Vec::new();
+        let mut dataset_version_hashes: Vec<String> = Vec::new();
         let examples: Vec<WorkerTrainingExample> = match (
             dataset_version_ids_for_training.clone(),
             dataset_id.clone(),
@@ -251,6 +332,7 @@ pub(crate) async fn run_training_job(
                 use crate::training_dataset_integration::TrainingDatasetManager;
                 let dataset_manager =
                     TrainingDatasetManager::new(database, storage, tokenizer_path.clone());
+                dataset_source = "dataset_versions";
 
                 if version_selections.is_empty() {
                     return Err(anyhow::anyhow!(
@@ -261,7 +343,7 @@ pub(crate) async fn run_training_job(
 
                 let mut per_version: Vec<(Vec<WorkerTrainingExample>, f32)> = Vec::new();
                 for sel in version_selections.iter() {
-                    let (examples, hash_b3, _dataset_id_for_ver) = dataset_manager
+                    let (examples, hash_b3, dataset_id_for_ver) = dataset_manager
                         .load_dataset_version_examples(&sel.dataset_version_id)
                         .await
                         .map_err(|e| {
@@ -271,6 +353,8 @@ pub(crate) async fn run_training_job(
                                 e
                             )
                         })?;
+                    dataset_version_hashes.push(hash_b3.clone());
+                    dataset_ids_for_receipt.push(dataset_id_for_ver);
 
                     if let Some(ref expected_hash) = data_spec_hash_for_training {
                         if expected_hash != &hash_b3 {
@@ -297,6 +381,8 @@ pub(crate) async fn run_training_job(
                 use crate::training_dataset_integration::TrainingDatasetManager;
                 let dataset_manager =
                     TrainingDatasetManager::new(database, storage, tokenizer_path.clone());
+                dataset_source = "dataset_id";
+                dataset_ids_for_receipt.push(ds_id.clone());
                 dataset_manager
                     .load_dataset_examples(&ds_id)
                     .await
@@ -309,23 +395,262 @@ pub(crate) async fn run_training_job(
                     job_id
                 );
                 vec![
-                    WorkerTrainingExample {
-                        input: vec![1, 2, 3],
-                        target: vec![4, 5, 6],
-                        metadata: Default::default(),
-                        weight: 1.0,
-                    },
-                    WorkerTrainingExample {
-                        input: vec![7, 8, 9],
-                        target: vec![10, 11, 12],
-                        metadata: Default::default(),
-                        weight: 1.0,
-                    },
+                    WorkerTrainingExample::new(
+                        vec![1, 2, 3],
+                        vec![4, 5, 6],
+                        vec![1, 1, 1],
+                        ExampleMetadataV1::new("synthetic", 0, "{}", 0),
+                    ),
+                    WorkerTrainingExample::new(
+                        vec![7, 8, 9],
+                        vec![10, 11, 12],
+                        vec![1, 1, 1],
+                        ExampleMetadataV1::new("synthetic", 1, "{}", 0),
+                    ),
                 ]
             }
         };
+        let dataset_hash_b3 = hash_examples_for_receipt(&examples);
+        let dataset_ids_receipt = if dataset_ids_for_receipt.is_empty() {
+            None
+        } else {
+            Some(dataset_ids_for_receipt.clone())
+        };
+        let dataset_version_hashes_receipt = if dataset_version_hashes.is_empty() {
+            None
+        } else {
+            Some(dataset_version_hashes)
+        };
+        let dataset_id_label =
+            resolve_dataset_id_for_report(dataset_id.as_deref(), &dataset_ids_for_receipt);
+        if dataset_phase_active {
+            let mut inputs = HashMap::new();
+            inputs.insert("dataset_id".to_string(), dataset_id_label.clone());
+            inputs.insert("dataset_source".to_string(), dataset_source.to_string());
+            if let Some(ref data_spec_hash) = data_spec_hash_for_training {
+                inputs.insert("data_spec_hash".to_string(), data_spec_hash.clone());
+            }
+            if let Some(ref selections) = dataset_version_ids_for_training {
+                let joined = selections
+                    .iter()
+                    .map(|sel| sel.dataset_version_id.as_str())
+                    .collect::<Vec<_>>()
+                    .join(",");
+                inputs.insert("dataset_version_ids".to_string(), joined);
+            }
+
+            let mut outputs = HashMap::new();
+            outputs.insert("dataset_content_hash".to_string(), dataset_hash_b3.clone());
+            outputs.insert("examples".to_string(), examples.len().to_string());
+
+            pipeline
+                .complete_phase(
+                    PipelinePhase::DatasetBuild,
+                    PhaseStatus::Completed,
+                    inputs,
+                    outputs,
+                    serde_json::json!({
+                        "source": dataset_source,
+                        "dataset_id": dataset_id.clone(),
+                        "dataset_ids": dataset_ids_receipt,
+                        "dataset_version_selections": dataset_version_ids_for_training.clone(),
+                        "dataset_version_hashes_b3": dataset_version_hashes_receipt,
+                        "data_spec_hash": data_spec_hash_for_training.clone(),
+                        "examples": examples.len(),
+                        "dataset_hash_b3": dataset_hash_b3,
+                        "tokenizer_path": tokenizer_path.as_ref().map(|path| path.display().to_string()),
+                    }),
+                )
+                .await?;
+        } else {
+            verify_phase_hash(
+                &pipeline,
+                PipelinePhase::DatasetBuild,
+                "dataset_content_hash",
+                &dataset_hash_b3,
+            )?;
+        }
 
         let mut trainer = WorkerTrainer::new(worker_cfg.clone())?;
+        trainer.set_force_resume(orchestrator_cfg.force_resume);
+        let mut preprocessed_ready = false;
+
+        if pipeline.current_phase() == PipelinePhase::Preprocess {
+            pipeline.enter_phase(PipelinePhase::Preprocess).await?;
+            let mut inputs = HashMap::new();
+            inputs.insert("dataset_content_hash".to_string(), dataset_hash_b3.clone());
+            inputs.insert("examples".to_string(), examples.len().to_string());
+            let mut outputs = HashMap::new();
+
+            let (status, metadata) = match worker_cfg.preprocessing.as_ref() {
+                Some(cfg) if cfg.enabled => {
+                    let base_model_path = worker_cfg.base_model_path.as_ref().ok_or_else(|| {
+                        anyhow::anyhow!("preprocessing requires base_model_path")
+                    })?;
+                    let config_hash = hash_preprocess_config(cfg)?;
+                    inputs.insert("preprocess_config_hash".to_string(), config_hash);
+                    let contract = TrainingDataContractConfig {
+                        contract_version: worker_cfg.training_contract_version.clone(),
+                        pad_token_id: worker_cfg.pad_token_id,
+                        ignore_index: worker_cfg.ignore_index,
+                    };
+
+                    let result = preprocess_examples(
+                        &examples,
+                        &contract,
+                        cfg,
+                        worker_cfg.hidden_dim,
+                        worker_cfg.vocab_size,
+                        base_model_path,
+                        Some(dataset_id_label.as_str()),
+                        artifacts_root.as_deref(),
+                        None,
+                        trainer.training_seed(),
+                    )
+                    .map_err(|err| {
+                        pipeline
+                            .event_context()
+                            .emit_phase_error(PipelinePhase::Preprocess, &err.to_string());
+                        err
+                    })?;
+                    let adapteros_lora_worker::training::preprocessing::PreprocessResult {
+                        examples: preprocessed_examples,
+                        stats,
+                    } = result;
+                    trainer.set_preprocessed_examples(preprocessed_examples).map_err(|err| {
+                        pipeline
+                            .event_context()
+                            .emit_phase_error(PipelinePhase::Preprocess, &err.to_string());
+                        err
+                    })?;
+                    preprocessed_ready = true;
+                    outputs.insert("preprocess_hash".to_string(), stats.cache_key.clone());
+
+                    let compression = cfg.compression.map(|value| value.as_str());
+                    let coreml_model_path = cfg
+                        .coreml_model_path
+                        .as_ref()
+                        .map(|path| path.display().to_string());
+                    let coreml_model_id = cfg.coreml_model_id.as_deref();
+                    let output_feature = cfg.output_feature.as_str();
+                    let layer_key = cfg.layer_key.as_deref();
+                    (
+                        PhaseStatus::Completed,
+                        serde_json::json!({
+                            "strategy": "worker_preprocess",
+                            "enabled": true,
+                            "examples_in": examples.len(),
+                            "examples_out": examples.len(),
+                            "dataset_hash_b3": dataset_hash_b3,
+                            "output_feature": output_feature,
+                            "layer_key": layer_key,
+                            "max_seq_len": cfg.max_seq_len,
+                            "batch_size": cfg.batch_size,
+                            "compression": compression,
+                            "coreml_model_id": coreml_model_id,
+                            "coreml_model_path": coreml_model_path,
+                            "cache_dir": stats.cache_dir,
+                            "cache_hit": stats.cache_hit,
+                            "cached_examples": stats.cached_examples,
+                            "processed_examples": stats.processed_examples,
+                            "elapsed_ms": stats.elapsed_ms,
+                            "preprocess_id": stats.preprocess_id,
+                            "cache_key": stats.cache_key,
+                            "coreml_model_hash": stats.coreml_model_hash,
+                            "produced_at_unix_ms": stats.produced_at_unix_ms,
+                            "seed": cfg.seed,
+                            "changed": false
+                        }),
+                    )
+                }
+                Some(cfg) => {
+                    let config_hash = hash_preprocess_config(cfg)?;
+                    inputs.insert("preprocess_config_hash".to_string(), config_hash);
+                    (
+                        PhaseStatus::Skipped,
+                        serde_json::json!({
+                            "strategy": "noop",
+                            "reason": "preprocessing_disabled",
+                            "enabled": false,
+                            "examples_in": examples.len(),
+                            "examples_out": examples.len(),
+                            "dataset_hash_b3": dataset_hash_b3,
+                            "changed": false
+                        }),
+                    )
+                }
+                None => (
+                    PhaseStatus::Skipped,
+                    serde_json::json!({
+                        "strategy": "noop",
+                        "reason": "no_preprocessing_configured",
+                        "enabled": false,
+                        "examples_in": examples.len(),
+                        "examples_out": examples.len(),
+                        "dataset_hash_b3": dataset_hash_b3,
+                        "changed": false
+                    }),
+                ),
+            };
+            pipeline
+                .complete_phase(
+                    PipelinePhase::Preprocess,
+                    status,
+                    inputs,
+                    outputs,
+                    metadata,
+                )
+                .await?;
+        }
+
+        if !preprocessed_ready {
+            if let Some(cfg) = worker_cfg.preprocessing.as_ref().filter(|cfg| cfg.enabled) {
+                let base_model_path = worker_cfg.base_model_path.as_ref().ok_or_else(|| {
+                    anyhow::anyhow!("preprocessing requires base_model_path")
+                })?;
+                let contract = TrainingDataContractConfig {
+                    contract_version: worker_cfg.training_contract_version.clone(),
+                    pad_token_id: worker_cfg.pad_token_id,
+                    ignore_index: worker_cfg.ignore_index,
+                };
+                let result = preprocess_examples(
+                    &examples,
+                    &contract,
+                    cfg,
+                    worker_cfg.hidden_dim,
+                    worker_cfg.vocab_size,
+                    base_model_path,
+                    Some(dataset_id_label.as_str()),
+                    artifacts_root.as_deref(),
+                    None,
+                    trainer.training_seed(),
+                )
+                .map_err(|err| {
+                    pipeline
+                        .event_context()
+                        .emit_phase_error(PipelinePhase::Preprocess, &err.to_string());
+                    err
+                })?;
+                trainer.set_preprocessed_examples(result.examples).map_err(|err| {
+                    pipeline
+                        .event_context()
+                        .emit_phase_error(PipelinePhase::Preprocess, &err.to_string());
+                    err
+                })?;
+                preprocessed_ready = true;
+
+                if let Some(receipt) = pipeline.receipt(PipelinePhase::Preprocess) {
+                    if matches!(receipt.status, PhaseStatus::Completed) {
+                        verify_phase_hash(
+                            &pipeline,
+                            PipelinePhase::Preprocess,
+                            "preprocess_hash",
+                            &result.stats.cache_key,
+                        )?;
+                    }
+                }
+            }
+        }
 
         // Record determinism/backends expectations on job snapshot
         {
@@ -411,114 +736,421 @@ pub(crate) async fn run_training_job(
             }
         }
 
-        // Run with per-epoch callback to update progress (with checkpoint resume support)
-        let job_id_clone = job_id.clone();
-        let jobs_ref_clone = jobs_ref.clone();
-        let require_gpu = worker_cfg.require_gpu;
-        let result = async {
-            let plan_bytes = load_plan_bytes_for_training(require_gpu, &job_id)?;
-            if plan_bytes.is_empty() && !require_gpu {
-                info!(
-                    job_id = %job_id,
-                    "Proceeding without plan bytes; GPU init will be skipped and CPU will be used"
-                );
-            }
+        let (train_examples, validation_examples, split_summary) = split_examples_for_validation(
+            &examples,
+            worker_cfg.validation_split,
+            trainer.training_seed(),
+        );
+        let mut split_inputs = HashMap::new();
+        split_inputs.insert("dataset_content_hash".to_string(), dataset_hash_b3.clone());
+        split_inputs.insert(
+            "validation_split".to_string(),
+            split_summary.split_ratio.to_string(),
+        );
+        split_inputs.insert(
+            "training_seed".to_string(),
+            trainer.training_seed().to_string(),
+        );
+        let mut split_outputs = HashMap::new();
+        split_outputs.insert("split_hash".to_string(), split_summary.split_hash_b3.clone());
+        split_outputs.insert("train_count".to_string(), split_summary.train_count.to_string());
+        split_outputs.insert(
+            "validation_count".to_string(),
+            split_summary.validation_count.to_string(),
+        );
+        if pipeline.current_phase() == PipelinePhase::Split {
+            pipeline.enter_phase(PipelinePhase::Split).await?;
+            // Check resume compatibility
+            pipeline
+                .assert_resume_compatible(
+                    &dataset_hash_b3,
+                    &split_summary.split_hash_b3,
+                    &base_model_hash,
+                    &pipeline_training_config_hash,
+                    &orchestrator_cfg.training_contract_version,
+                    orchestrator_cfg.force_resume,
+                )
+                .map_err(|err| {
+                    pipeline
+                        .event_context()
+                        .emit_phase_error(PipelinePhase::Split, &err.to_string());
+                    err
+                })?;
+            pipeline
+                .complete_phase(
+                    PipelinePhase::Split,
+                    PhaseStatus::Completed,
+                    split_inputs,
+                    split_outputs,
+                    serde_json::json!({
+                        "split_ratio": split_summary.split_ratio,
+                        "total_examples": split_summary.total_examples,
+                        "train_count": split_summary.train_count,
+                        "validation_count": split_summary.validation_count,
+                        "split_hash_b3": split_summary.split_hash_b3,
+                        "training_seed": trainer.training_seed(),
+                    }),
+                )
+                .await?;
+        } else {
+            verify_phase_hash(
+                &pipeline,
+                PipelinePhase::Split,
+                "split_hash",
+                &split_summary.split_hash_b3,
+            )?;
+        }
+        drop(examples);
 
-            trainer.init_kernels(&plan_bytes)?;
+        let mut training_loop_executed = false;
+        let mut training_result_hash: Option<String> = None;
+        let mut resume_epoch: Option<u32> = None;
+        let target_epochs = trainer.target_epochs();
 
-            trainer
-                .train_with_resume(&examples, move |metrics: WorkerEpochMetrics| {
-                    // Emit per-epoch timing telemetry
-                    let duration_ms = metrics.duration_us / 1000;
-                    tracing::event!(
-                        tracing::Level::INFO,
-                        name = "epoch_completed",
-                        job_id = %job_id_clone,
-                        epoch = metrics.epoch,
-                        duration_ms = duration_ms,
-                        loss = metrics.loss,
-                        tokens_per_sec = metrics.tokens_per_sec,
-                        examples_per_sec = metrics.examples_per_sec,
-                        tokens_in_epoch = metrics.tokens_in_epoch,
-                        examples_in_epoch = metrics.examples_in_epoch,
-                        total_tokens_processed = metrics.total_tokens_processed,
-                        total_examples_processed = metrics.total_examples_processed,
-                        "Training epoch completed"
-                    );
+        let result = match pipeline.current_phase() {
+            PipelinePhase::TrainingLoop => {
+                training_loop_executed = true;
+                pipeline.enter_phase(PipelinePhase::TrainingLoop).await?;
+                let resume_state = trainer.try_resume_from_checkpoint().await?;
+                resume_epoch = resume_state.as_ref().map(|state| state.epoch);
+                let pipeline_events = pipeline.event_context();
 
-                    let jobs_ref_inner = jobs_ref_clone.clone();
-                    let job_id_inner = job_id_clone.clone();
-                    let jobs_ref_for_det = jobs_ref_inner.clone();
-                    let job_id_for_det = job_id_inner.clone();
-                    let jobs_ref_for_fallback = jobs_ref_inner.clone();
-                    let job_id_for_fallback = job_id_inner.clone();
+                // Run with per-epoch callback to update progress (with checkpoint resume support)
+                let job_id_clone = job_id.clone();
+                let jobs_ref_clone = jobs_ref.clone();
+                let require_gpu = worker_cfg.require_gpu;
+                let result = async {
+                    let plan_bytes = load_plan_bytes_for_training(require_gpu, &job_id)?;
+                    if plan_bytes.is_empty() && !require_gpu {
+                        info!(
+                            job_id = %job_id,
+                            "Proceeding without plan bytes; GPU init will be skipped and CPU will be used"
+                        );
+                    }
 
-                    // Add atomic flag to prevent dual execution of progress updates
-                    use std::sync::atomic::Ordering;
-                    let executed = Arc::new(AtomicBool::new(false));
-                    let executed_clone = executed.clone();
+                    trainer.init_kernels(&plan_bytes)?;
 
-                    if let Err(e) = spawn_deterministic(
-                        format!(
-                            "training-progress:{}:epoch-{}",
-                            job_id_for_det, metrics.epoch
-                        ),
-                        async move {
-                            // Only execute if not already executed by fallback
-                            if executed_clone
-                                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-                                .is_ok()
-                            {
-                                let mut jobs = jobs_ref_for_det.write().await;
-                                if let Some(job) = jobs.get_mut(&job_id_for_det) {
-                                    job.current_epoch = metrics.epoch;
-                                    job.current_loss = metrics.loss;
-                                    job.tokens_per_second = metrics.tokens_per_sec;
-                                    job.examples_processed = Some(metrics.total_examples_processed);
-                                    job.tokens_processed = Some(metrics.total_tokens_processed);
-                                    job.throughput_examples_per_sec = Some(metrics.examples_per_sec);
-                                    if job.total_epochs > 0 {
-                                        job.progress_pct =
-                                            (metrics.epoch as f32 / job.total_epochs as f32) * 100.0;
+                    trainer
+                        .train_with_resume_split_state(
+                            &train_examples,
+                            &validation_examples,
+                            move |metrics: WorkerEpochMetrics| {
+                            // Emit per-epoch timing telemetry
+                            let duration_ms = metrics.duration_us / 1000;
+                            tracing::event!(
+                                tracing::Level::INFO,
+                                name = "epoch_completed",
+                                job_id = %job_id_clone,
+                                epoch = metrics.epoch,
+                                duration_ms = duration_ms,
+                                loss = metrics.loss,
+                                tokens_per_sec = metrics.tokens_per_sec,
+                                examples_per_sec = metrics.examples_per_sec,
+                                tokens_in_epoch = metrics.tokens_in_epoch,
+                                examples_in_epoch = metrics.examples_in_epoch,
+                                total_tokens_processed = metrics.total_tokens_processed,
+                                total_examples_processed = metrics.total_examples_processed,
+                                "Training epoch completed"
+                            );
+
+                            let jobs_ref_inner = jobs_ref_clone.clone();
+                            let job_id_inner = job_id_clone.clone();
+                            let jobs_ref_for_det = jobs_ref_inner.clone();
+                            let job_id_for_det = job_id_inner.clone();
+                            let jobs_ref_for_fallback = jobs_ref_inner.clone();
+                            let job_id_for_fallback = job_id_inner.clone();
+                            let pipeline_events_base = pipeline_events.clone();
+                            let pipeline_events_for_det = pipeline_events_base.clone();
+                            let pipeline_events_for_fallback = pipeline_events_base.clone();
+                            let target_epochs = target_epochs;
+
+                            // Add atomic flag to prevent dual execution of progress updates
+                            use std::sync::atomic::Ordering;
+                            let executed = Arc::new(AtomicBool::new(false));
+                            let executed_clone = executed.clone();
+
+                            if let Err(e) = spawn_deterministic(
+                                format!(
+                                    "training-progress:{}:epoch-{}",
+                                    job_id_for_det, metrics.epoch
+                                ),
+                                async move {
+                                    // Only execute if not already executed by fallback
+                                    if executed_clone
+                                        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                                        .is_ok()
+                                    {
+                                        let mut jobs = jobs_ref_for_det.write().await;
+                                        if let Some(job) = jobs.get_mut(&job_id_for_det) {
+                                            job.current_epoch = metrics.epoch;
+                                            job.current_loss = metrics.loss;
+                                            job.tokens_per_second = metrics.tokens_per_sec;
+                                            job.examples_processed = Some(metrics.total_examples_processed);
+                                            job.tokens_processed = Some(metrics.total_tokens_processed);
+                                            job.throughput_examples_per_sec = Some(metrics.examples_per_sec);
+                                            if job.total_epochs > 0 {
+                                                job.progress_pct =
+                                                    (metrics.epoch as f32 / job.total_epochs as f32) * 100.0;
+                                            }
+                                        }
+                                        if target_epochs > 0 {
+                                            let progress_pct =
+                                                (metrics.epoch as f32 / target_epochs as f32) * 100.0;
+                                            pipeline_events_for_det.emit_phase_progress(
+                                                PipelinePhase::TrainingLoop,
+                                                progress_pct,
+                                                Some(serde_json::json!({
+                                                    "epoch": metrics.epoch,
+                                                    "target_epochs": target_epochs
+                                                })),
+                                            );
+                                        }
                                     }
+                                },
+                            ) {
+                                tracing::warn!("Failed to spawn deterministic progress update: {}", e);
+                                // Only run fallback if deterministic didn't execute
+                                if executed
+                                    .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                                    .is_ok()
+                                {
+                                    tokio::spawn(async move {
+                                        let mut jobs = jobs_ref_for_fallback.write().await;
+                                        if let Some(job) = jobs.get_mut(&job_id_for_fallback) {
+                                            job.current_epoch = metrics.epoch;
+                                            job.current_loss = metrics.loss;
+                                            job.tokens_per_second = metrics.tokens_per_sec;
+                                            job.examples_processed = Some(metrics.total_examples_processed);
+                                            job.tokens_processed = Some(metrics.total_tokens_processed);
+                                            job.throughput_examples_per_sec = Some(metrics.examples_per_sec);
+                                            if job.total_epochs > 0 {
+                                                job.progress_pct =
+                                                    (metrics.epoch as f32 / job.total_epochs as f32) * 100.0;
+                                            }
+                                        }
+                                        if target_epochs > 0 {
+                                            let progress_pct =
+                                                (metrics.epoch as f32 / target_epochs as f32) * 100.0;
+                                            pipeline_events_for_fallback.emit_phase_progress(
+                                                PipelinePhase::TrainingLoop,
+                                                progress_pct,
+                                                Some(serde_json::json!({
+                                                    "epoch": metrics.epoch,
+                                                    "target_epochs": target_epochs,
+                                                    "fallback": true
+                                                })),
+                                            );
+                                        }
+                                    });
                                 }
                             }
                         },
-                    ) {
-                        tracing::warn!("Failed to spawn deterministic progress update: {}", e);
-                        // Only run fallback if deterministic didn't execute
-                        if executed
-                            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-                            .is_ok()
-                        {
-                            tokio::spawn(async move {
-                                let mut jobs = jobs_ref_for_fallback.write().await;
-                                if let Some(job) = jobs.get_mut(&job_id_for_fallback) {
-                                    job.current_epoch = metrics.epoch;
-                                    job.current_loss = metrics.loss;
-                                    job.tokens_per_second = metrics.tokens_per_sec;
-                                    job.examples_processed = Some(metrics.total_examples_processed);
-                                    job.tokens_processed = Some(metrics.total_tokens_processed);
-                                    job.throughput_examples_per_sec = Some(metrics.examples_per_sec);
-                                    if job.total_epochs > 0 {
-                                        job.progress_pct =
-                                            (metrics.epoch as f32 / job.total_epochs as f32) * 100.0;
-                                    }
-                                }
-                            });
-                        }
+                            resume_state,
+                        )
+                        .await
+                }
+                .await;
+
+                match result {
+                    Ok(training_result) => {
+                        let hash = pipeline
+                            .persist_training_result(&training_result)
+                            .await
+                            .map_err(|err| {
+                                pipeline
+                                    .event_context()
+                                    .emit_phase_error(PipelinePhase::TrainingLoop, &err.to_string());
+                                err
+                            })?;
+                        training_result_hash = Some(hash);
+                        Ok(training_result)
                     }
-                })
-                .await
-        }
-        .await;
+                    Err(e) => Err(e),
+                }
+            }
+            PipelinePhase::ValidationEarlyStopping
+            | PipelinePhase::Packaging
+            | PipelinePhase::Complete => {
+                let training_result = pipeline
+                    .load_training_result()
+                    .await
+                    .map_err(|err| {
+                        pipeline
+                            .event_context()
+                            .emit_phase_error(pipeline.current_phase(), &err.to_string());
+                        err
+                    })?
+                    .ok_or_else(|| {
+                        let err = anyhow::anyhow!(format!(
+                            "Missing training result; cannot resume from {}",
+                            pipeline.current_phase().as_str()
+                        ));
+                        pipeline
+                            .event_context()
+                            .emit_phase_error(pipeline.current_phase(), &err.to_string());
+                        err
+                    })?;
+                let hash = hash_training_result_for_receipt(&training_result)?;
+                training_result_hash = Some(hash.clone());
+                if pipeline
+                    .receipt(PipelinePhase::TrainingLoop)
+                    .and_then(|receipt| receipt.outputs.get("training_result_hash"))
+                    .is_some()
+                {
+                    verify_phase_hash(
+                        &pipeline,
+                        PipelinePhase::TrainingLoop,
+                        "training_result_hash",
+                        &hash,
+                    )?;
+                }
+                Ok(training_result)
+            }
+            _ => {
+                let err_msg = format!(
+                    "Cannot resume training: pipeline phase is {}, expected training_loop or later",
+                    pipeline.current_phase().as_str()
+                );
+                pipeline
+                    .event_context()
+                    .emit_phase_error(pipeline.current_phase(), &err_msg);
+                Err(AosError::Training(err_msg))
+            }
+        };
 
         match result {
             Ok(training_result) => {
+                let training_time_ms = training_result.training_time_ms();
+                if training_loop_executed {
+                    let training_result_hash = training_result_hash.clone().ok_or_else(|| {
+                        anyhow::anyhow!("Missing training result hash after training loop")
+                    })?;
+                    let mut training_inputs = HashMap::new();
+                    training_inputs.insert("split_hash".to_string(), split_summary.split_hash_b3.clone());
+                    training_inputs.insert("target_epochs".to_string(), target_epochs.to_string());
+                    training_inputs.insert(
+                        "resume_epoch".to_string(),
+                        resume_epoch.unwrap_or_default().to_string(),
+                    );
+
+                    let mut training_outputs = HashMap::new();
+                    training_outputs.insert(
+                        "final_loss".to_string(),
+                        training_result.final_loss.to_string(),
+                    );
+                    training_outputs.insert(
+                        "stopped_at_epoch".to_string(),
+                        training_result.stopped_at_epoch.unwrap_or_default().to_string(),
+                    );
+                    training_outputs.insert(
+                        "cancelled".to_string(),
+                        training_result.cancelled.to_string(),
+                    );
+                    training_outputs.insert(
+                        "training_result_hash".to_string(),
+                        training_result_hash,
+                    );
+                    if let Some(ref backend) = training_result.backend {
+                        training_outputs.insert("backend".to_string(), backend.clone());
+                    }
+                    pipeline
+                        .complete_phase(
+                            PipelinePhase::TrainingLoop,
+                            PhaseStatus::Completed,
+                            training_inputs,
+                            training_outputs,
+                            serde_json::json!({
+                                "resumed": resume_epoch.is_some(),
+                                "resume_epoch": resume_epoch,
+                                "target_epochs": target_epochs,
+                                "stopped_at_epoch": training_result.stopped_at_epoch,
+                                "final_loss": training_result.final_loss,
+                                "training_time_ms": training_time_ms,
+                                "examples_processed": training_result.examples_processed,
+                                "tokens_processed": training_result.tokens_processed,
+                                "cancelled": training_result.cancelled,
+                                "backend": training_result.backend.clone(),
+                                "backend_device": training_result.backend_device.clone()
+                            }),
+                        )
+                        .await?;
+                }
+
+                if pipeline.current_phase() == PipelinePhase::ValidationEarlyStopping {
+                    pipeline.enter_phase(PipelinePhase::ValidationEarlyStopping).await?;
+                    if training_result.cancelled {
+                        let mut inputs = HashMap::new();
+                        inputs.insert("split_hash".to_string(), split_summary.split_hash_b3.clone());
+                        inputs.insert("validation_enabled".to_string(), "true".to_string());
+                        let mut outputs = HashMap::new();
+                        outputs.insert("skipped".to_string(), "true".to_string());
+                        pipeline
+                            .complete_phase(
+                                PipelinePhase::ValidationEarlyStopping,
+                                PhaseStatus::Skipped,
+                                inputs,
+                                outputs,
+                                serde_json::json!({
+                                    "validation_enabled": !validation_examples.is_empty(),
+                                    "reason": "training_cancelled",
+                                }),
+                            )
+                            .await?;
+                    } else if validation_examples.is_empty() {
+                        let mut inputs = HashMap::new();
+                        inputs.insert("split_hash".to_string(), split_summary.split_hash_b3.clone());
+                        inputs.insert("validation_enabled".to_string(), "false".to_string());
+                        let mut outputs = HashMap::new();
+                        outputs.insert("skipped".to_string(), "true".to_string());
+                        pipeline
+                            .complete_phase(
+                                PipelinePhase::ValidationEarlyStopping,
+                                PhaseStatus::Skipped,
+                                inputs,
+                                outputs,
+                                serde_json::json!({
+                                    "validation_enabled": false,
+                                    "reason": "validation_split_disabled"
+                                }),
+                            )
+                            .await?;
+                    } else {
+                        let mut inputs = HashMap::new();
+                        inputs.insert("split_hash".to_string(), split_summary.split_hash_b3.clone());
+                        inputs.insert("validation_enabled".to_string(), "true".to_string());
+                        let mut outputs = HashMap::new();
+                        outputs.insert(
+                            "final_validation_loss".to_string(),
+                            training_result.final_validation_loss.unwrap_or_default().to_string(),
+                        );
+                        if let Some(best) = training_result.best_validation {
+                            outputs.insert("best_validation_epoch".to_string(), best.1.to_string());
+                            outputs.insert("best_validation_loss".to_string(), best.0.to_string());
+                        }
+                        pipeline
+                            .complete_phase(
+                                PipelinePhase::ValidationEarlyStopping,
+                                PhaseStatus::Completed,
+                                inputs,
+                                outputs,
+                                serde_json::json!({
+                                    "validation_enabled": true,
+                                    "validation_loss_curve_len": training_result.validation_loss_curve.len(),
+                                    "validation_perplexity_curve_len": training_result.validation_perplexity_curve.len(),
+                                    "final_validation_loss": training_result.final_validation_loss,
+                                    "best_validation": training_result.best_validation,
+                                    "early_stopping_enabled": worker_cfg.early_stopping.unwrap_or(false),
+                                    "patience": worker_cfg.patience,
+                                    "min_delta": worker_cfg.min_delta
+                                }),
+                            )
+                            .await?;
+                    }
+                }
+
                 // Capture backend selection and performance metrics after training
                 let backend_selected = trainer.backend_info().map(|b| b.to_string());
                 let perf = trainer.get_performance_metrics();
-                let training_time_ms = training_result.training_time_ms();
                 let examples_processed = training_result.examples_processed.unwrap_or(0);
                 let tokens_processed = training_result.tokens_processed.unwrap_or(0);
                 let tokens_per_second = training_result.tokens_per_sec;
@@ -624,7 +1256,87 @@ pub(crate) async fn run_training_job(
                         }
                     }
 
+                    if pipeline.current_phase() == PipelinePhase::Packaging {
+                        pipeline.enter_phase(PipelinePhase::Packaging).await?;
+                        let mut inputs = HashMap::new();
+                        inputs.insert("package_enabled".to_string(), "true".to_string());
+                        let mut outputs = HashMap::new();
+                        outputs.insert("skipped".to_string(), "true".to_string());
+                        pipeline
+                            .complete_phase(
+                                PipelinePhase::Packaging,
+                                PhaseStatus::Skipped,
+                                inputs,
+                                outputs,
+                                serde_json::json!({
+                                    "reason": "training_cancelled"
+                                }),
+                            )
+                            .await?;
+                    }
+
                     return Ok(());
+                }
+
+                let report_dataset_id = resolve_dataset_id_for_report(
+                    dataset_id.as_deref(),
+                    &dataset_ids_for_receipt,
+                );
+                let base_model_id_for_report = base_model_id
+                    .clone()
+                    .unwrap_or_else(|| "unknown".to_string());
+                let base_model_hash_for_report = resolve_base_model_hash(
+                    db.as_ref(),
+                    tenant_id.as_deref(),
+                    base_model_id.as_deref(),
+                )
+                .await;
+                let training_config_hash =
+                    resolve_training_config_hash(&jobs_ref, &job_id, &orchestrator_cfg).await;
+                let optimizer_summary = OptimizerConfigSummary {
+                    optimizer_type: match worker_cfg.optimizer_config.optimizer_type {
+                        OptimizerType::Sgd => "sgd",
+                        OptimizerType::Adam => "adam",
+                        OptimizerType::AdamW => "adamw",
+                    }
+                    .to_string(),
+                    beta1: worker_cfg.optimizer_config.beta1,
+                    beta2: worker_cfg.optimizer_config.beta2,
+                    epsilon: worker_cfg.optimizer_config.epsilon,
+                    weight_decay: worker_cfg.optimizer_config.weight_decay,
+                    momentum: worker_cfg.optimizer_config.momentum,
+                };
+
+                let report_root =
+                    artifacts_root.unwrap_or_else(|| PathBuf::from("var/artifacts"));
+                match write_training_report(
+                    &report_root,
+                    &job_id,
+                    &report_dataset_id,
+                    &dataset_hash_b3,
+                    &split_summary.split_hash_b3,
+                    &base_model_id_for_report,
+                    &base_model_hash_for_report,
+                    optimizer_summary,
+                    &training_config_hash,
+                    orchestrator_cfg.epochs,
+                    adapteros_core::time::unix_timestamp_millis(),
+                    &training_result,
+                ) {
+                    Ok(report_path) => {
+                        info!(
+                            job_id = %job_id,
+                            report_path = %report_path.display(),
+                            "Training report generated"
+                        );
+                    }
+                    Err(e) => {
+                        warn!(
+                            job_id = %job_id,
+                            error = %e,
+                            "Failed to generate training report (non-fatal)"
+                        );
+                    }
                 }
 
                 info!(
@@ -634,8 +1346,31 @@ pub(crate) async fn run_training_job(
                     "Training completed, packaging adapter"
                 );
 
+                if pipeline.current_phase() == PipelinePhase::Packaging {
+                    pipeline.enter_phase(PipelinePhase::Packaging).await?;
+                }
+
                 // Check if packaging is disabled
                 if !post_actions.package {
+                    if pipeline.current_phase() == PipelinePhase::Packaging {
+                        let mut inputs = HashMap::new();
+                        inputs.insert("package_enabled".to_string(), "false".to_string());
+                        inputs.insert("adapter_name".to_string(), adapter_name.clone());
+                        let mut outputs = HashMap::new();
+                        outputs.insert("skipped".to_string(), "true".to_string());
+                        pipeline
+                            .complete_phase(
+                                PipelinePhase::Packaging,
+                                PhaseStatus::Skipped,
+                                inputs,
+                                outputs,
+                                serde_json::json!({
+                                    "reason": "packaging_disabled"
+                                }),
+                            )
+                            .await?;
+                    }
+
                     info!(
                         job_id = %job_id,
                         adapter_name = %adapter_name,
@@ -662,7 +1397,7 @@ pub(crate) async fn run_training_job(
                 }
 
                 // Package and register adapter
-                package_and_register_adapter(
+                if let Err(err) = package_and_register_adapter(
                     jobs_ref.clone(),
                     &job_id,
                     &adapter_name,
@@ -684,12 +1419,44 @@ pub(crate) async fn run_training_job(
                     trainer.training_seed(),
                     db_for_packaging.as_ref(),
                 )
-                .await?;
+                .await
+                {
+                    pipeline
+                        .event_context()
+                        .emit_phase_error(PipelinePhase::Packaging, &err.to_string());
+                    return Err(err);
+                }
+
+                if pipeline.current_phase() == PipelinePhase::Packaging {
+                    let mut inputs = HashMap::new();
+                    inputs.insert("package_enabled".to_string(), "true".to_string());
+                    inputs.insert("adapter_name".to_string(), adapter_name.clone());
+                    inputs.insert("adapter_id".to_string(), training_result.adapter_id.clone());
+                    let mut outputs = HashMap::new();
+                    outputs.insert("packaged".to_string(), "true".to_string());
+                    pipeline
+                        .complete_phase(
+                            PipelinePhase::Packaging,
+                            PhaseStatus::Completed,
+                            inputs,
+                            outputs,
+                            serde_json::json!({
+                                "registered": post_actions.register,
+                                "create_stack": post_actions.create_stack,
+                                "activate_stack": post_actions.activate_stack,
+                                "tier": post_actions.tier,
+                            }),
+                        )
+                        .await?;
+                }
 
                 Ok(())
             }
             Err(e) => {
                 let error_str = e.to_string();
+                pipeline
+                    .event_context()
+                    .emit_phase_error(pipeline.current_phase(), &error_str);
 
                 // Determine if error is retryable based on error type
                 let is_retryable = {
@@ -778,4 +1545,208 @@ pub(crate) async fn run_training_job(
     }
 
     outcome
+}
+
+fn hash_examples_for_receipt(examples: &[WorkerTrainingExample]) -> String {
+    let mut hasher = Hasher::new();
+    for example in examples {
+        for token in &example.input_tokens {
+            hasher.update(&token.to_le_bytes());
+        }
+        for token in &example.target_tokens {
+            hasher.update(&token.to_le_bytes());
+        }
+        hasher.update(&example.attention_mask);
+    }
+    hasher.finalize().to_hex().to_string()
+}
+
+fn hash_training_result_for_receipt(
+    training_result: &adapteros_lora_worker::training::trainer::TrainingResult,
+) -> Result<String> {
+    let bytes = serde_json::to_vec(training_result).map_err(|e| {
+        anyhow::anyhow!("Failed to serialize training result for hashing: {}", e)
+    })?;
+    Ok(B3Hash::hash(&bytes).to_hex().to_string())
+}
+
+fn resolve_dataset_id_for_report(dataset_id: Option<&str>, dataset_ids: &[String]) -> String {
+    if let Some(id) = dataset_id {
+        return id.to_string();
+    }
+    let mut ids = dataset_ids.to_vec();
+    ids.sort();
+    ids.dedup();
+    if ids.is_empty() {
+        return "synthetic".to_string();
+    }
+    if ids.len() == 1 {
+        return ids[0].clone();
+    }
+    let mut hasher = Hasher::new();
+    for id in &ids {
+        hasher.update(id.as_bytes());
+    }
+    format!("multi:{}", hasher.finalize().to_hex())
+}
+
+async fn resolve_base_model_hash(
+    db: Option<&adapteros_db::Db>,
+    tenant_id: Option<&str>,
+    base_model_id: Option<&str>,
+) -> String {
+    let (Some(database), Some(tenant), Some(model_id)) = (db, tenant_id, base_model_id) else {
+        return "unknown".to_string();
+    };
+
+    match database.get_model_for_tenant(tenant, model_id).await {
+        Ok(Some(model)) => model.hash_b3,
+        Ok(None) => {
+            warn!(
+                tenant_id = %tenant,
+                model_id = %model_id,
+                "Base model not found while generating training report"
+            );
+            "unknown".to_string()
+        }
+        Err(e) => {
+            warn!(
+                tenant_id = %tenant,
+                model_id = %model_id,
+                error = %e,
+                "Failed to resolve base model hash while generating training report"
+            );
+            "unknown".to_string()
+        }
+    }
+}
+
+async fn resolve_training_config_hash(
+    jobs_ref: &Arc<RwLock<HashMap<String, TrainingJob>>>,
+    job_id: &str,
+    orchestrator_cfg: &TrainingConfig,
+) -> String {
+    let from_job = {
+        let jobs = jobs_ref.read().await;
+        jobs.get(job_id)
+            .and_then(|job| job.config_hash_b3.clone())
+    };
+    if let Some(hash) = from_job {
+        return hash;
+    }
+
+    let params = adapteros_db::training_jobs::TrainingConfigParams {
+        rank: orchestrator_cfg.rank as usize,
+        alpha: orchestrator_cfg.alpha as f32,
+        learning_rate: orchestrator_cfg.learning_rate,
+        batch_size: orchestrator_cfg.batch_size as usize,
+        epochs: orchestrator_cfg.epochs as usize,
+        hidden_dim: 768,
+    };
+    adapteros_db::training_jobs::compute_config_hash(&params)
+        .unwrap_or_else(|_| "unknown".to_string())
+}
+
+fn compute_pipeline_training_config_hash(
+    worker_cfg: &WorkerTrainingConfig,
+) -> Result<String> {
+    let mut snapshot = worker_cfg.clone();
+    snapshot.base_model_path = None;
+    let bytes = serde_json::to_vec(&snapshot).map_err(|e| {
+        anyhow::anyhow!("Failed to serialize pipeline training config: {}", e)
+    })?;
+    Ok(B3Hash::hash(&bytes).to_hex().to_string())
+}
+
+fn compute_pipeline_base_model_hash(
+    base_model_path: Option<&PathBuf>,
+) -> Result<String> {
+    let Some(model_path) = base_model_path else {
+        return Ok("unknown".to_string());
+    };
+    let config_path = model_path.join("config.json");
+    let hash = if config_path.exists() {
+        B3Hash::hash_file(&config_path).map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to hash base model config {}: {}",
+                config_path.display(),
+                e
+            )
+        })?
+    } else {
+        B3Hash::hash(model_path.to_string_lossy().as_bytes())
+    };
+    Ok(hash.to_hex().to_string())
+}
+
+fn hash_preprocess_config(config: &WorkerPreprocessingConfig) -> Result<String> {
+    let bytes = serde_json::to_vec(config).map_err(|e| {
+        anyhow::anyhow!("Failed to serialize preprocessing config: {}", e)
+    })?;
+    Ok(B3Hash::hash(&bytes).to_hex().to_string())
+}
+
+fn verify_phase_hash(
+    pipeline: &TrainingPipeline,
+    phase: PipelinePhase,
+    key: &str,
+    expected: &str,
+) -> Result<()> {
+    let receipt = pipeline
+        .receipt(phase)
+        .ok_or_else(|| anyhow::anyhow!("Missing pipeline receipt for {}", phase.as_str()))?;
+    let actual = receipt
+        .outputs
+        .get(key)
+        .map(|value| value.as_str())
+        .or_else(|| receipt.metadata.get(key).and_then(|value| value.as_str()))
+        .ok_or_else(|| {
+            anyhow::anyhow!("Missing {} in pipeline receipt for {}", key, phase.as_str())
+        })?;
+    if actual != expected {
+        return Err(anyhow::anyhow!(
+            "Pipeline receipt mismatch for {} ({}): expected {}, got {}",
+            phase.as_str(),
+            key,
+            expected,
+            actual
+        ));
+    }
+    Ok(())
+}
+
+fn map_preprocess_compression(
+    compression: ApiPreprocessCompression,
+) -> WorkerPreprocessCompression {
+    match compression {
+        ApiPreprocessCompression::None => WorkerPreprocessCompression::None,
+        ApiPreprocessCompression::Q15 => WorkerPreprocessCompression::Q15,
+    }
+}
+
+fn map_preprocessing_config(config: ApiPreprocessingConfig) -> WorkerPreprocessingConfig {
+    use adapteros_lora_worker::training::PreprocessOutputFeature as WorkerOutputFeature;
+    let output_feature = match config.output_feature {
+        adapteros_types::training::PreprocessOutputFeature::Embedding => WorkerOutputFeature::Embedding,
+        adapteros_types::training::PreprocessOutputFeature::HiddenStateLast => WorkerOutputFeature::HiddenStateLast,
+        adapteros_types::training::PreprocessOutputFeature::Pooled => WorkerOutputFeature::Pooled,
+    };
+    WorkerPreprocessingConfig {
+        enabled: config.enabled,
+        coreml_model_id: config.coreml_model_id,
+        coreml_model_path: config.coreml_model_path,
+        output_feature,
+        layer_key: config.layer_key,
+        max_seq_len: config.max_seq_len,
+        batch_size: config.batch_size,
+        compression: config.compression.map(map_preprocess_compression),
+        cache_dir: config.cache_dir,
+        seed: config.seed,
+    }
+}
+
+fn map_preprocessing_config_opt(
+    config: Option<ApiPreprocessingConfig>,
+) -> Option<WorkerPreprocessingConfig> {
+    config.map(map_preprocessing_config)
 }
