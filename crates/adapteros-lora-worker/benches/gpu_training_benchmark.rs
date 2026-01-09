@@ -11,20 +11,26 @@
 #![allow(clippy::field_reassign_with_default)]
 #![allow(clippy::len_zero)]
 
-use std::collections::HashMap;
 use std::time::Instant;
+use adapteros_types::training::ExampleMetadataV1;
 
 fn create_training_examples(count: usize) -> Vec<adapteros_lora_worker::training::TrainingExample> {
     (0..count)
         .map(|i| {
             let input: Vec<u32> = (0..10).map(|j| ((i + j) % 1000) as u32).collect();
             let target: Vec<u32> = (0..10).map(|j| ((i * 2 + j) % 1000) as u32).collect();
-            adapteros_lora_worker::training::TrainingExample {
+            let attention_mask =
+                adapteros_lora_worker::training::TrainingExample::attention_mask_from_tokens(
+                    &input,
+                    0,
+                );
+            let metadata = ExampleMetadataV1::new("bench", i as u64, "{}", 0);
+            adapteros_lora_worker::training::TrainingExample::new(
                 input,
                 target,
-                metadata: HashMap::new(),
-                weight: 1.0,
-            }
+                attention_mask,
+                metadata,
+            )
         })
         .collect()
 }
@@ -138,7 +144,7 @@ mod tests {
     fn test_benchmark_creates_examples() {
         let examples = create_training_examples(5);
         assert_eq!(examples.len(), 5);
-        assert!(examples[0].input.len() > 0);
+        assert!(examples[0].input_tokens.len() > 0);
     }
 
     #[tokio::test]

@@ -23,6 +23,7 @@ use adapteros_lora_worker::tokenizer::QwenTokenizer;
 use adapteros_lora_worker::training::{
     AdapterPackager, LoRAQuantizer, MicroLoRATrainer, TrainingConfig, TrainingExample,
 };
+use adapteros_types::training::{provenance_from_map, weight_from_metadata, ExampleMetadataV1};
 pub use adapteros_normalization::{
     normalize_path_segments, normalize_repo_id, normalize_repo_slug,
 };
@@ -1650,7 +1651,8 @@ impl SampleStats {
             negative: 0,
         };
         for example in examples {
-            if example.weight.is_sign_negative() {
+            let weight = weight_from_metadata(&example.metadata).unwrap_or(1.0);
+            if weight.is_sign_negative() {
                 stats.negative += 1;
             } else {
                 stats.positive += 1;
@@ -1909,27 +1911,45 @@ fn encode_samples(
     samples: &[SymbolSample],
 ) -> Result<Vec<TrainingExample>> {
     let mut encoded = Vec::with_capacity(samples.len());
-    for sample in samples {
+    let pad_token_id = tokenizer.pad_token_id().ok_or_else(|| {
+        AosError::Training("Tokenizer missing pad_token_id for code ingestion".to_string())
+    })?;
+    let created_at_unix_ms = Utc::now().timestamp_millis() as u64;
+    for (index, sample) in samples.iter().enumerate() {
         let input = tokenizer.encode(&sample.prompt)?;
         let target = tokenizer.encode(&sample.response)?;
         if input.is_empty() || target.is_empty() {
             continue;
         }
-        // DETERMINISM: Convert BTreeMap to HashMap while preserving key order during iteration.
-        // Although HashMap itself has non-deterministic iteration, the insertion order from
-        // the sorted BTreeMap ensures consistent serialization when keys are processed in
-        // sorted order (e.g., by serde or manual iteration over sorted keys).
-        let metadata: HashMap<String, String> = sample
-            .metadata
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect();
-        encoded.push(TrainingExample {
+        let mut provenance = BTreeMap::new();
+        for (key, value) in sample.metadata.iter() {
+            provenance.insert(key.clone(), serde_json::Value::String(value.clone()));
+        }
+        if let Some(num) = serde_json::Number::from_f64(sample.weight as f64) {
+            provenance.insert("weight".to_string(), serde_json::Value::Number(num));
+        } else {
+            provenance.insert(
+                "weight".to_string(),
+                serde_json::Value::String(sample.weight.to_string()),
+            );
+        }
+        let provenance = provenance_from_map(&provenance).map_err(|e| {
+            AosError::Training(format!("Failed to serialize provenance: {}", e))
+        })?;
+        let source_id = if sample.file_path.is_empty() {
+            sample.qualified_name.clone()
+        } else {
+            sample.file_path.clone()
+        };
+        let metadata = ExampleMetadataV1::new(source_id, index as u64, provenance, created_at_unix_ms);
+        let attention_mask =
+            TrainingExample::attention_mask_from_tokens(&input, pad_token_id);
+        encoded.push(TrainingExample::new(
             input,
             target,
+            attention_mask,
             metadata,
-            weight: sample.weight,
-        });
+        ));
     }
     if encoded.is_empty() {
         return Err(AosError::Training(
@@ -2154,6 +2174,14 @@ fn compute_training_config_hash(config: &TrainingConfig) -> String {
     } else {
         hasher.update(&[0]);
     }
+    if let Some(ref preprocessing) = config.preprocessing {
+        hasher.update(&[1]);
+        if let Ok(json) = serde_json::to_string(preprocessing) {
+            hasher.update(json.as_bytes());
+        }
+    } else {
+        hasher.update(&[0]);
+    }
 
     hasher.finalize().to_hex().to_string()
 }
@@ -2180,6 +2208,10 @@ fn build_training_config_hash_inputs(config: &TrainingConfig) -> Result<serde_js
         Some(moe) => Some(serde_json::to_value(moe).map_err(AosError::Serialization)?),
         None => None,
     };
+    let preprocessing = match &config.preprocessing {
+        Some(cfg) => Some(serde_json::to_value(cfg).map_err(AosError::Serialization)?),
+        None => None,
+    };
 
     Ok(serde_json::json!({
         "rank": config.rank,
@@ -2202,6 +2234,7 @@ fn build_training_config_hash_inputs(config: &TrainingConfig) -> Result<serde_js
         "device_policy": device_policy,
         "coreml_placement": coreml_placement,
         "moe_config": moe_config,
+        "preprocessing": preprocessing,
     }))
 }
 

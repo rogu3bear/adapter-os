@@ -12,6 +12,7 @@
 #![allow(clippy::too_many_arguments)]
 
 use adapteros_core::{AosError, B3Hash, Result};
+use adapteros_secure_fs::path_policy::canonicalize_strict;
 use std::path::{Path, PathBuf};
 
 // Pure Rust mlx-rs array abstraction (experimental fallback)
@@ -743,7 +744,7 @@ impl MLXFFIModel {
         // Canonicalize path to prevent directory traversal and resolve symlinks.
         // This normalizes ../.. sequences and converts relative paths to absolute.
         // Fails if path doesn't exist (defense in depth).
-        let model_path = model_path.canonicalize().map_err(|e| {
+        let model_path = canonicalize_strict(model_path).map_err(|e| {
             AosError::Config(format!(
                 "Failed to canonicalize model path '{}': {}. \
                  Ensure the path exists and is accessible.",
@@ -752,13 +753,6 @@ impl MLXFFIModel {
             ))
         })?;
         let model_path = model_path.as_path();
-
-        if !model_path.exists() {
-            return Err(AosError::Config(format!(
-                "MLX model path '{}' does not exist. Set AOS_MODEL_PATH to a valid MLX model directory.",
-                model_path.display()
-            )));
-        }
 
         if !model_path.is_dir() {
             return Err(AosError::Config(format!(

@@ -11,17 +11,11 @@ use adapteros_single_file_adapter::{
     LineageInfo, LoadOptions, PackageOptions, SingleFileAdapter, SingleFileAdapterLoader,
     SingleFileAdapterPackager, WeightGroupConfig, AOS_FORMAT_VERSION,
 };
-use std::collections::HashMap;
 use tempfile::TempDir;
 
 fn create_test_adapter(adapter_id: &str) -> SingleFileAdapter {
     let weights = vec![1u8; 1024]; // 1KB test weights
-    let training_data = vec![TrainingExample {
-        input: vec![1, 2, 3],
-        target: vec![4, 5, 6],
-        metadata: HashMap::new(),
-        weight: 1.0,
-    }];
+    let training_data = vec![TrainingExample::new(vec![1, 2, 3], vec![4, 5, 6])];
     let config = TrainingConfig {
         rank: 16,
         alpha: 32.0,

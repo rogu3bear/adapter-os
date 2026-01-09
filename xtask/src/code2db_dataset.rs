@@ -1,11 +1,14 @@
 //! Build JSON training dataset for code→DB tasks
 
+use adapteros_types::training::{provenance_from_map, ExampleMetadataV1};
 use anyhow::{Context, Result};
 use clap::Parser;
 use regex::Regex;
 use serde::Serialize;
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Parser, Clone)]
 pub struct Code2DbDatasetArgs {
@@ -108,15 +111,23 @@ pub async fn run(args: Code2DbDatasetArgs) -> Result<()> {
             );
             let input_ids = tokenizer.encode(&prompt)?;
             let target_ids = tokenizer.encode(&content)?;
-            let mut meta = std::collections::HashMap::new();
-            meta.insert("file_path".into(), path.to_string_lossy().to_string());
-            meta.insert("kind".into(), "migration".into());
-            examples.push(adapteros_lora_worker::training::TrainingExample {
-                input: input_ids,
-                target: target_ids,
-                metadata: meta,
-                weight: 1.0,
-            });
+            let mut prov = BTreeMap::new();
+            prov.insert("file_path".to_string(), serde_json::Value::String(path.to_string_lossy().to_string()));
+            prov.insert("kind".to_string(), serde_json::Value::String("migration".to_string()));
+            let created_at = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+            let metadata = ExampleMetadataV1::new(
+                path.to_string_lossy().to_string(),
+                examples.len() as u64,
+                provenance_from_map(&prov).unwrap_or_default(),
+                created_at,
+            );
+            let attention_mask = vec![1u8; input_ids.len()];
+            examples.push(adapteros_lora_worker::training::TrainingExample::new(
+                input_ids,
+                target_ids,
+                attention_mask,
+                metadata,
+            ));
             continue;
         }
 
@@ -143,15 +154,23 @@ pub async fn run(args: Code2DbDatasetArgs) -> Result<()> {
                     .collect::<Vec<_>>()
                     .join("\n");
                 let target_ids = tokenizer.encode(&tail)?;
-                let mut meta = std::collections::HashMap::new();
-                meta.insert("file_path".into(), path.to_string_lossy().to_string());
-                meta.insert("kind".into(), "rust".into());
-                examples.push(adapteros_lora_worker::training::TrainingExample {
-                    input: input_ids,
-                    target: target_ids,
-                    metadata: meta,
-                    weight: 1.0,
-                });
+                let mut prov = BTreeMap::new();
+                prov.insert("file_path".to_string(), serde_json::Value::String(path.to_string_lossy().to_string()));
+                prov.insert("kind".to_string(), serde_json::Value::String("rust".to_string()));
+                let created_at = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+                let metadata = ExampleMetadataV1::new(
+                    path.to_string_lossy().to_string(),
+                    examples.len() as u64,
+                    provenance_from_map(&prov).unwrap_or_default(),
+                    created_at,
+                );
+                let attention_mask = vec![1u8; input_ids.len()];
+                examples.push(adapteros_lora_worker::training::TrainingExample::new(
+                    input_ids,
+                    target_ids,
+                    attention_mask,
+                    metadata,
+                ));
             }
         }
     }
@@ -175,10 +194,17 @@ pub async fn run(args: Code2DbDatasetArgs) -> Result<()> {
     }
     let examples_out: Vec<TrainingExampleOut> = examples
         .into_iter()
-        .map(|e| TrainingExampleOut {
-            input: e.input,
-            target: e.target,
-            metadata: Some(e.metadata),
+        .map(|e| {
+            let mut map = std::collections::HashMap::new();
+            map.insert("source_id".to_string(), e.metadata.source_id);
+            map.insert("row_id".to_string(), e.metadata.row_id.to_string());
+            map.insert("provenance".to_string(), e.metadata.provenance);
+            map.insert("created_at_unix_ms".to_string(), e.metadata.created_at_unix_ms.to_string());
+            TrainingExampleOut {
+                input: e.input_tokens,
+                target: e.target_tokens,
+                metadata: Some(map),
+            }
         })
         .collect();
     let td = TrainingDataOut {

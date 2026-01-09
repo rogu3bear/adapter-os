@@ -191,7 +191,7 @@ impl CoreMLPlacementBinding {
 }
 
 /// CoreML placement specification for an entire model.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[cfg_attr(feature = "server", derive(schemars::JsonSchema))]
 pub struct CoreMLPlacementSpec {
     /// Versioned schema for forward compatibility.

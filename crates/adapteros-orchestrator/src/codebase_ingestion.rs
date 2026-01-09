@@ -20,6 +20,7 @@ use adapteros_lora_worker::training::{
     AdapterPackager, LoRAQuantizer, MicroLoRATrainer, ScanRootMetadata, TrainingConfig,
     TrainingExample,
 };
+use adapteros_types::training::{provenance_from_map, ExampleMetadataV1};
 use adapteros_platform::common::PlatformUtils;
 use blake3::Hasher;
 use serde::{Deserialize, Serialize};
@@ -694,6 +695,14 @@ fn compute_training_config_hash(config: &TrainingConfig) -> String {
     } else {
         hasher.update(&[0]);
     }
+    if let Some(ref preprocessing) = config.preprocessing {
+        hasher.update(&[1]);
+        if let Ok(json) = serde_json::to_string(preprocessing) {
+            hasher.update(json.as_bytes());
+        }
+    } else {
+        hasher.update(&[0]);
+    }
 
     hasher.finalize().to_hex().to_string()
 }
@@ -723,23 +732,44 @@ fn encode_qa_samples(
     samples: &[QAPair],
 ) -> Result<Vec<TrainingExample>> {
     let mut examples = Vec::with_capacity(samples.len());
-    for sample in samples {
+    let pad_token_id = tokenizer.pad_token_id().ok_or_else(|| {
+        AosError::Training("Tokenizer missing pad_token_id for codebase ingestion".to_string())
+    })?;
+    let created_at_unix_ms = chrono::Utc::now().timestamp_millis() as u64;
+    for (index, sample) in samples.iter().enumerate() {
         let input = tokenizer.encode(&sample.question)?;
         let target = tokenizer.encode(&sample.answer)?;
         if input.is_empty() || target.is_empty() {
             continue;
         }
-        let metadata: HashMap<String, String> = sample
+        let mut provenance = BTreeMap::new();
+        for (key, value) in sample.metadata.iter() {
+            provenance.insert(key.clone(), serde_json::Value::String(value.clone()));
+        }
+        if let Some(num) = serde_json::Number::from_f64(sample.weight as f64) {
+            provenance.insert("weight".to_string(), serde_json::Value::Number(num));
+        } else {
+            provenance.insert(
+                "weight".to_string(),
+                serde_json::Value::String(sample.weight.to_string()),
+            );
+        }
+        let provenance = provenance_from_map(&provenance)
+            .map_err(|e| AosError::Training(format!("Failed to serialize provenance: {}", e)))?;
+        let source_id = sample
             .metadata
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect();
-        examples.push(TrainingExample {
+            .get("file_path")
+            .cloned()
+            .unwrap_or_else(|| "codebase_ingestion".to_string());
+        let metadata = ExampleMetadataV1::new(source_id, index as u64, provenance, created_at_unix_ms);
+        let attention_mask =
+            TrainingExample::attention_mask_from_tokens(&input, pad_token_id);
+        examples.push(TrainingExample::new(
             input,
             target,
+            attention_mask,
             metadata,
-            weight: sample.weight,
-        });
+        ));
     }
     if examples.is_empty() {
         return Err(AosError::Training(

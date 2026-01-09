@@ -6,8 +6,16 @@ use adapteros_core::Result;
 use adapteros_lora_worker::training::{
     AdapterPackager, LoRAQuantizer, MicroLoRATrainer, TrainingConfig, TrainingExample,
 };
+use adapteros_types::training::ExampleMetadataV1;
 use std::collections::HashMap;
 use std::path::PathBuf;
+
+fn make_example(input_tokens: Vec<u32>, target_tokens: Vec<u32>, row_id: u64) -> TrainingExample {
+    let metadata = ExampleMetadataV1::new("test", row_id, "{}", 0);
+    let attention_mask =
+        TrainingExample::attention_mask_from_tokens(&input_tokens, 0);
+    TrainingExample::new(input_tokens, target_tokens, attention_mask, metadata)
+}
 
 #[tokio::test]
 async fn create_test_adapter_fixtures() -> Result<()> {
@@ -21,30 +29,10 @@ async fn create_test_adapter_fixtures() -> Result<()> {
 
     // Step 1: Create minimal training data
     let examples = vec![
-        TrainingExample {
-            input: vec![1, 2, 3, 4, 5],
-            target: vec![6, 7, 8, 9, 10],
-            metadata: Default::default(),
-            weight: 1.0,
-        },
-        TrainingExample {
-            input: vec![11, 12, 13, 14, 15],
-            target: vec![16, 17, 18, 19, 20],
-            metadata: Default::default(),
-            weight: 1.0,
-        },
-        TrainingExample {
-            input: vec![21, 22, 23, 24, 25],
-            target: vec![26, 27, 28, 29, 30],
-            metadata: Default::default(),
-            weight: 1.0,
-        },
-        TrainingExample {
-            input: vec![31, 32, 33, 34, 35],
-            target: vec![36, 37, 38, 39, 40],
-            metadata: Default::default(),
-            weight: 1.0,
-        },
+        make_example(vec![1, 2, 3, 4, 5], vec![6, 7, 8, 9, 10], 1),
+        make_example(vec![11, 12, 13, 14, 15], vec![16, 17, 18, 19, 20], 2),
+        make_example(vec![21, 22, 23, 24, 25], vec![26, 27, 28, 29, 30], 3),
+        make_example(vec![31, 32, 33, 34, 35], vec![36, 37, 38, 39, 40], 4),
     ];
     println!("✓ Created {} training examples", examples.len());
 

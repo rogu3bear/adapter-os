@@ -5,25 +5,9 @@
 
 use super::format::WeightGroupConfig;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
-/// Single training example
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct TrainingExample {
-    /// Input token IDs
-    pub input: Vec<u32>,
-    /// Target token IDs
-    pub target: Vec<u32>,
-    /// Example metadata
-    pub metadata: HashMap<String, String>,
-    /// Sample weight (positive reinforces, negative penalizes)
-    #[serde(default = "default_sample_weight")]
-    pub weight: f32,
-}
-
-fn default_sample_weight() -> f32 {
-    1.0
-}
+/// Single training example (shared contract).
+pub type TrainingExample = adapteros_types::training::TrainingExampleV1;
 
 /// Training configuration
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

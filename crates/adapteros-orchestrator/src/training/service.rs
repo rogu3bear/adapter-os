@@ -41,6 +41,8 @@ pub struct TrainingService {
     db: Option<adapteros_db::Db>,
     /// Storage root for dataset files
     storage_root: Option<PathBuf>,
+    /// Artifacts root for training reports and outputs
+    artifacts_root: Option<PathBuf>,
     /// Cancel tokens for active training jobs (job_id -> token)
     /// Set token to true to request cancellation; trainer checks at epoch boundaries
     cancel_tokens: Arc<RwLock<HashMap<String, Arc<AtomicBool>>>>,
@@ -141,6 +143,7 @@ impl TrainingService {
             templates: Arc::new(RwLock::new(templates)),
             db: None,
             storage_root: None,
+            artifacts_root: None,
             cancel_tokens: Arc::new(RwLock::new(HashMap::new())),
         }
     }
@@ -167,6 +170,11 @@ impl TrainingService {
     /// Set storage root
     pub fn set_storage_root(&mut self, path: PathBuf) {
         self.storage_root = Some(path);
+    }
+
+    /// Set artifacts root
+    pub fn set_artifacts_root(&mut self, path: PathBuf) {
+        self.artifacts_root = Some(path);
     }
 
     /// List all training jobs
@@ -544,6 +552,7 @@ impl TrainingService {
         let tenant_id_for_run = tenant_id;
         let db_for_run = self.db.clone();
         let storage_for_run = self.storage_root.clone();
+        let artifacts_for_run = self.artifacts_root.clone();
         let category_for_run = category;
         let post_actions_for_run = post_actions_json;
         let base_model_id_for_run = job.base_model_id.clone();
@@ -556,12 +565,14 @@ impl TrainingService {
         let tenant_id_for_det = tenant_id_for_run.clone();
         let db_for_det = db_for_run.clone();
         let storage_for_det = storage_for_run.clone();
+        let artifacts_for_det = artifacts_for_run.clone();
         let category_for_det = category_for_run.clone();
         let post_actions_for_det = post_actions_for_run.clone();
         let dataset_id_for_fallback = dataset_id_for_run.clone();
         let tenant_id_for_fallback = tenant_id_for_run.clone();
         let db_for_fallback = db_for_run.clone();
         let storage_for_fallback = storage_for_run.clone();
+        let artifacts_for_fallback = artifacts_for_run.clone();
         let category_for_fallback = category_for_run.clone();
         let post_actions_for_fallback = post_actions_for_run.clone();
         let base_model_id_for_fallback = base_model_id_for_run.clone();
@@ -586,6 +597,7 @@ impl TrainingService {
                     tenant_id_for_det,
                     db_for_det,
                     storage_for_det,
+                    artifacts_for_det,
                     category_for_det,
                     post_actions_for_det,
                     base_model_id_for_det,
@@ -623,6 +635,7 @@ impl TrainingService {
                         tenant_id_for_fallback,
                         db_for_fallback,
                         storage_for_fallback,
+                        artifacts_for_fallback,
                         category_for_fallback,
                         post_actions_for_fallback,
                         base_model_id_for_fallback,

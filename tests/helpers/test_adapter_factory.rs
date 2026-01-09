@@ -29,18 +29,8 @@ pub async fn create_minimal_test_adapter(rank: usize, alpha: f32) -> Result<Vec<
 
     // Create minimal training examples
     let examples = vec![
-        TrainingExample {
-            input: vec![1, 2, 3, 4, 5],
-            target: vec![6, 7, 8, 9, 10],
-            metadata: HashMap::new(),
-            weight: 1.0,
-        },
-        TrainingExample {
-            input: vec![11, 12, 13, 14, 15],
-            target: vec![16, 17, 18, 19, 20],
-            metadata: HashMap::new(),
-            weight: 1.0,
-        },
+        TrainingExample::new(vec![1, 2, 3, 4, 5], vec![6, 7, 8, 9, 10]),
+        TrainingExample::new(vec![11, 12, 13, 14, 15], vec![16, 17, 18, 19, 20]),
     ];
 
     // Configure tiny training run

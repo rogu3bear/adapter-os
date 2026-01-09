@@ -210,6 +210,8 @@ async fn test_e2e_training_workflow() -> Result<()> {
         require_gpu: None,
         max_gpu_memory_mb: None,
         base_model_path: None,
+        preprocessing: None,
+        force_resume: None,
     };
     let training_config_json =
         serde_json::to_string(&training_config).expect("training config should serialize");

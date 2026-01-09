@@ -26,7 +26,6 @@ use adapteros_single_file_adapter::{
     LineageInfo, SingleFileAdapter, SingleFileAdapterLoader, SingleFileAdapterPackager,
     SingleFileAdapterValidator,
 };
-use std::collections::HashMap;
 use tempfile::TempDir;
 
 fn new_test_tempdir() -> TempDir {
@@ -38,18 +37,8 @@ fn new_test_tempdir() -> TempDir {
 fn create_test_adapter() -> SingleFileAdapter {
     let weights = vec![1, 2, 3, 4, 5]; // Dummy weights
     let training_data = vec![
-        TrainingExample {
-            input: vec![1, 2, 3],
-            target: vec![4, 5, 6],
-            metadata: HashMap::new(),
-            weight: 1.0,
-        },
-        TrainingExample {
-            input: vec![7, 8, 9],
-            target: vec![10, 11, 12],
-            metadata: HashMap::new(),
-            weight: 1.0,
-        },
+        TrainingExample::new(vec![1, 2, 3], vec![4, 5, 6]),
+        TrainingExample::new(vec![7, 8, 9], vec![10, 11, 12]),
     ];
     let config = TrainingConfig {
         rank: 16,
