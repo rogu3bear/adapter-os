@@ -478,36 +478,40 @@ fn create_mlx_backend(
     // FAIL-FAST: Ensure at least one MLX implementation is compiled in.
     #[cfg(all(not(feature = "mlx"), not(feature = "mlx-rs-backend")))]
     {
+        let _ = (model_path, manifest_hash, model_weights_hash);
         return Err(AosError::Config(
             "MLX backend selected but no MLX implementation is enabled. Rebuild with --features mlx or --features mlx-rs-backend"
                 .to_string(),
         ));
     }
 
-    let selected_impl = adapteros_lora_mlx_ffi::select_mlx_implementation()
-        .map_err(|e| AosError::Config(format!("MLX backend selection failed: {}", e)))?;
+    #[cfg(any(feature = "mlx", feature = "mlx-rs-backend"))]
+    {
+        let selected_impl = adapteros_lora_mlx_ffi::select_mlx_implementation()
+            .map_err(|e| AosError::Config(format!("MLX backend selection failed: {}", e)))?;
 
-    info!(
-        implementation = selected_impl.as_str(),
-        "Selected MLX implementation"
-    );
+        info!(
+            implementation = selected_impl.as_str(),
+            "Selected MLX implementation"
+        );
 
-    match selected_impl {
-        adapteros_lora_mlx_ffi::MlxImplementation::Ffi => {
-            create_mlx_ffi_backend(model_path, manifest_hash, model_weights_hash)
-        }
-        adapteros_lora_mlx_ffi::MlxImplementation::Rs => {
-            let allow_rs = std::env::var("AOS_ALLOW_MLX_RS")
-                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-                .unwrap_or(false);
-            if !allow_rs {
-                return Err(AosError::Config(
-                    "mlx-rs backend is experimental (no LoRA fusion/cache). Set AOS_ALLOW_MLX_RS=1 to opt in."
-                        .to_string(),
-                ));
+        match selected_impl {
+            adapteros_lora_mlx_ffi::MlxImplementation::Ffi => {
+                create_mlx_ffi_backend(model_path, manifest_hash, model_weights_hash)
             }
+            adapteros_lora_mlx_ffi::MlxImplementation::Rs => {
+                let allow_rs = std::env::var("AOS_ALLOW_MLX_RS")
+                    .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                    .unwrap_or(false);
+                if !allow_rs {
+                    return Err(AosError::Config(
+                        "mlx-rs backend is experimental (no LoRA fusion/cache). Set AOS_ALLOW_MLX_RS=1 to opt in."
+                            .to_string(),
+                    ));
+                }
 
-            create_mlx_rs_backend(model_path, manifest_hash, model_weights_hash)
+                create_mlx_rs_backend(model_path, manifest_hash, model_weights_hash)
+            }
         }
     }
 }
@@ -520,123 +524,129 @@ fn create_mlx_ffi_backend(
 ) -> Result<KernelBox> {
     #[cfg(not(feature = "mlx"))]
     {
+        let _ = (model_path, manifest_hash, model_weights_hash);
         return Err(AosError::Config(
             "MLX FFI backend selected but 'mlx' feature not enabled. Rebuild with --features mlx"
                 .to_string(),
         ));
     }
 
-    let model_path = validate_mlx_model_dir(model_path)?;
-    let model_path_str = model_path.to_string_lossy();
-
-    use adapteros_lora_mlx_ffi::{
-        mlx_get_backend_capabilities, mlx_runtime_init_with_device, mlx_runtime_is_initialized,
-        mlx_runtime_shutdown, MLXFFIBackend, MLXFFIModel, MlxDeviceType,
-    };
-
-    info!(
-        model_path = %model_path_str,
-        has_manifest_hash = manifest_hash.is_some(),
-        has_model_weights_hash = model_weights_hash.is_some(),
-        "Creating MLX FFI kernel backend"
-    );
-
-    let manifest_hash = manifest_hash.ok_or_else(|| {
-        AosError::Config(
-            "Manifest hash is required for MLX backend identity; pass manifest hash to backend factory"
-                .to_string(),
-        )
-    })?;
-
-    // Verify model integrity before loading (using model weights hash, not manifest hash)
-    verify_model_integrity(&model_path, model_weights_hash, "MLX")?;
-
-    let mut wants_cpu = match mlx_get_backend_capabilities() {
-        Ok(caps) => !caps.gpu_available,
-        Err(_) => false,
-    };
-    #[cfg(target_os = "macos")]
+    #[cfg(feature = "mlx")]
     {
-        if metal::Device::system_default().is_none() {
-            wants_cpu = true;
-            warn!("Metal device unavailable; forcing MLX CPU runtime");
-        }
-    }
-    if wants_cpu {
-        info!("MLX GPU unavailable; initializing MLX runtime on CPU");
-    }
+        let model_path = validate_mlx_model_dir(model_path)?;
+        let model_path_str = model_path.to_string_lossy();
 
-    // Ensure MLX runtime is initialized
-    if !mlx_runtime_is_initialized() {
-        if wants_cpu {
-            mlx_runtime_init_with_device(MlxDeviceType::Cpu).map_err(|e| {
-                AosError::Config(format!("Failed to initialize MLX CPU runtime: {}", e))
-            })?;
-        } else {
-            mlx_runtime_init_with_device(MlxDeviceType::Auto).map_err(|e| {
-                AosError::Config(format!("Failed to initialize MLX runtime: {}", e))
-            })?;
-        }
-    } else if wants_cpu {
-        mlx_runtime_shutdown();
-        mlx_runtime_init_with_device(MlxDeviceType::Cpu).map_err(|e| {
-            AosError::Config(format!("Failed to reinitialize MLX CPU runtime: {}", e))
+        use adapteros_lora_mlx_ffi::{
+            mlx_get_backend_capabilities, mlx_runtime_init_with_device, mlx_runtime_is_initialized,
+            mlx_runtime_shutdown, MLXFFIBackend, MLXFFIModel, MlxDeviceType,
+        };
+
+        info!(
+            model_path = %model_path_str,
+            has_manifest_hash = manifest_hash.is_some(),
+            has_model_weights_hash = model_weights_hash.is_some(),
+            "Creating MLX FFI kernel backend"
+        );
+
+        let manifest_hash = manifest_hash.ok_or_else(|| {
+            AosError::Config(
+                "Manifest hash is required for MLX backend identity; pass manifest hash to backend factory"
+                    .to_string(),
+            )
         })?;
-    }
 
-    // Create cache key - prefer manifest hash when available for canonical identity
-    let cache_key = ModelKey::new(
-        BackendType::MLX,
-        *manifest_hash,
-        build_model_cache_identity(BackendType::MLX, &model_path),
-    );
-    let cache = get_model_cache()?;
-    cache.set_base_model_key(&cache_key);
+        // Verify model integrity before loading (using model weights hash, not manifest hash)
+        verify_model_integrity(&model_path, model_weights_hash, "MLX")?;
 
-    let pin_enabled = cache.base_model_pin_enabled();
-    let memory_estimate = estimate_mlx_model_memory(&model_path)?;
-    if pin_enabled {
-        validate_base_model_pin_budget(cache, memory_estimate, BackendType::MLX)?;
-    }
+        let mut wants_cpu = match mlx_get_backend_capabilities() {
+            Ok(caps) => !caps.gpu_available,
+            Err(_) => false,
+        };
+        #[cfg(target_os = "macos")]
+        {
+            if metal::Device::system_default().is_none() {
+                wants_cpu = true;
+                warn!("Metal device unavailable; forcing MLX CPU runtime");
+            }
+        }
+        if wants_cpu {
+            info!("MLX GPU unavailable; initializing MLX runtime on CPU");
+        }
 
-    let model_handle = if pin_enabled {
-        cache.get_or_load_base_model(&cache_key, || {
-            let model = MLXFFIModel::load(&model_path).map_err(|e| {
-                AosError::Config(format!(
-                    "Failed to load MLX model from '{}': {}",
-                    model_path_str, e
-                ))
+        // Ensure MLX runtime is initialized
+        if !mlx_runtime_is_initialized() {
+            if wants_cpu {
+                mlx_runtime_init_with_device(MlxDeviceType::Cpu).map_err(|e| {
+                    AosError::Config(format!("Failed to initialize MLX CPU runtime: {}", e))
+                })?;
+            } else {
+                mlx_runtime_init_with_device(MlxDeviceType::Auto).map_err(|e| {
+                    AosError::Config(format!("Failed to initialize MLX runtime: {}", e))
+                })?;
+            }
+        } else if wants_cpu {
+            mlx_runtime_shutdown();
+            mlx_runtime_init_with_device(MlxDeviceType::Cpu).map_err(|e| {
+                AosError::Config(format!("Failed to reinitialize MLX CPU runtime: {}", e))
             })?;
-            Ok((ModelHandle::Mlx(Arc::new(model)), memory_estimate))
-        })?
-    } else {
-        cache.get_or_load(&cache_key, || {
-            let model = MLXFFIModel::load(&model_path).map_err(|e| {
-                AosError::Config(format!(
-                    "Failed to load MLX model from '{}': {}",
-                    model_path_str, e
-                ))
-            })?;
-            Ok((ModelHandle::Mlx(Arc::new(model)), memory_estimate))
-        })?
-    };
-    if pin_enabled {
-        ensure_base_model_pinned(cache, &cache_key, BackendType::MLX)?;
+        }
+
+        // Create cache key - prefer manifest hash when available for canonical identity
+        let cache_key = ModelKey::new(
+            BackendType::MLX,
+            *manifest_hash,
+            build_model_cache_identity(BackendType::MLX, &model_path),
+        );
+        let cache = get_model_cache()?;
+        cache.set_base_model_key(&cache_key);
+
+        let pin_enabled = cache.base_model_pin_enabled();
+        let memory_estimate = estimate_mlx_model_memory(&model_path)?;
+        if pin_enabled {
+            validate_base_model_pin_budget(cache, memory_estimate, BackendType::MLX)?;
+        }
+
+        let model_handle = if pin_enabled {
+            cache.get_or_load_base_model(&cache_key, || {
+                let model = MLXFFIModel::load(&model_path).map_err(|e| {
+                    AosError::Config(format!(
+                        "Failed to load MLX model from '{}': {}",
+                        model_path_str, e
+                    ))
+                })?;
+                Ok((ModelHandle::Mlx(Arc::new(model)), memory_estimate))
+            })?
+        } else {
+            cache.get_or_load(&cache_key, || {
+                let model = MLXFFIModel::load(&model_path).map_err(|e| {
+                    AosError::Config(format!(
+                        "Failed to load MLX model from '{}': {}",
+                        model_path_str, e
+                    ))
+                })?;
+                Ok((ModelHandle::Mlx(Arc::new(model)), memory_estimate))
+            })?
+        };
+        if pin_enabled {
+            ensure_base_model_pinned(cache, &cache_key, BackendType::MLX)?;
+        }
+        let model_arc = model_handle.as_mlx_model()?;
+
+        // Create backend with or without manifest hash for deterministic seeding
+        info!("Creating MLX backend with HKDF-seeded determinism from manifest hash");
+        let backend: KernelBox = Box::new(
+            MLXFFIBackend::with_manifest_hash_arc(model_arc, manifest_hash.clone()).map_err(
+                |e| {
+                    AosError::Config(format!(
+                        "Failed to create MLX backend with manifest hash: {}",
+                        e
+                    ))
+                },
+            )?,
+        );
+
+        Ok(backend)
     }
-    let model_arc = model_handle.as_mlx_model()?;
-
-    // Create backend with or without manifest hash for deterministic seeding
-    info!("Creating MLX backend with HKDF-seeded determinism from manifest hash");
-    let backend: KernelBox = Box::new(
-        MLXFFIBackend::with_manifest_hash_arc(model_arc, manifest_hash.clone()).map_err(|e| {
-            AosError::Config(format!(
-                "Failed to create MLX backend with manifest hash: {}",
-                e
-            ))
-        })?,
-    );
-
-    Ok(backend)
 }
 
 #[cfg(feature = "multi-backend")]
@@ -1339,7 +1349,7 @@ mod tests {
     }
 
     #[test]
-    fn auto_select_prefers_coreml_when_available() {
+    fn auto_select_respects_priority_when_multiple_available() {
         let capabilities = BackendCapabilities {
             has_metal: true,
             metal_device_name: Some("Test Metal".to_string()),
@@ -1350,8 +1360,12 @@ mod tests {
             gpu_memory_bytes: None,
         };
 
-        let selected = auto_select_backend(&capabilities).expect("coreml should be selected");
-        assert_eq!(selected, BackendChoice::CoreML);
+        let selected = auto_select_backend(&capabilities).expect("backend should be selected");
+        if cfg!(feature = "multi-backend") {
+            assert_eq!(selected, BackendChoice::Mlx);
+        } else {
+            assert_eq!(selected, BackendChoice::CoreML);
+        }
     }
 
     #[test]
@@ -1447,7 +1461,11 @@ mod tests {
         };
         let ctx = SelectionContext::new(base_profile.clone(), full_caps);
         let selection = select_backend_from_execution_profile(&ctx).expect("auto resolves");
-        assert_eq!(selection.selected, BackendChoice::CoreML);
+        if cfg!(feature = "multi-backend") {
+            assert_eq!(selection.selected, BackendChoice::Mlx);
+        } else {
+            assert_eq!(selection.selected, BackendChoice::CoreML);
+        }
 
         let no_coreml_caps = BackendCapabilities {
             has_metal: true,

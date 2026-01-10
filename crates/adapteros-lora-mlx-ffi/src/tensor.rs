@@ -711,10 +711,7 @@ mod ffi_impl {
             // Get shape from MLX
             let mut shape = vec![0i32; 16];
             let ndim = unsafe { mlx_array_shape(inner, shape.as_mut_ptr(), 16) };
-            let shape: Vec<usize> = shape[..ndim as usize]
-                .iter()
-                .map(|&x| x as usize)
-                .collect();
+            let shape: Vec<usize> = shape[..ndim as usize].iter().map(|&x| x as usize).collect();
 
             // Get dtype from MLX
             let dtype_code = unsafe { mlx_array_dtype(inner) };
@@ -725,7 +722,11 @@ mod ffi_impl {
                 _ => TensorDtype::Float32, // Default to Float32
             };
 
-            Self { inner, shape, dtype }
+            Self {
+                inner,
+                shape,
+                dtype,
+            }
         }
     }
 

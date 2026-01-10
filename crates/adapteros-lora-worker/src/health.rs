@@ -2,16 +2,142 @@
 //!
 //! Implements health checks and process monitoring to prevent runaway processes.
 //! Aligns with Isolation Ruleset #8 and Memory Ruleset #12 from policy enforcement.
+//!
+//! ## Health Monitor Adaptive Baseline (ANCHOR, AUDIT, RECTIFY)
+//!
+//! - **ANCHOR**: `AdaptiveBaseline` tracks rolling window of memory samples
+//! - **AUDIT**: `baseline_anomalies` counter tracks detected anomalies
+//! - **RECTIFY**: Anomalous growth triggers warning status for investigation
 #![allow(clippy::field_reassign_with_default)]
 
 use crate::resource_monitor::{ResourceMonitor, ResourceThresholds};
 use adapteros_core::{identity::IdentityEnvelope, AosError, Result};
 use adapteros_telemetry::{make_health_payload, HealthEventKind, TelemetryWriter};
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 use tokio::time::interval;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
+
+/// AUDIT: Global counter for baseline anomalies detected
+static BASELINE_ANOMALIES: AtomicU64 = AtomicU64::new(0);
+
+/// Get count of baseline anomalies detected
+pub fn baseline_anomalies() -> u64 {
+    BASELINE_ANOMALIES.load(Ordering::Relaxed)
+}
+
+/// Adaptive baseline for memory growth tracking.
+///
+/// Maintains a sliding window of memory samples to establish normal growth patterns.
+/// Detects anomalous growth using statistical analysis (mean + N*stddev threshold).
+#[derive(Debug)]
+pub struct AdaptiveBaseline {
+    /// Sliding window of memory samples (bytes)
+    samples: VecDeque<u64>,
+    /// Maximum window size
+    window_size: usize,
+    /// Number of standard deviations for anomaly threshold
+    anomaly_threshold_stddev: f64,
+    /// Minimum samples required before anomaly detection activates
+    min_samples: usize,
+}
+
+impl Default for AdaptiveBaseline {
+    fn default() -> Self {
+        Self {
+            samples: VecDeque::with_capacity(60),
+            window_size: 60,               // 30 min at 30s intervals
+            anomaly_threshold_stddev: 2.5, // 2.5 sigma
+            min_samples: 10,               // Need 10 samples before detecting
+        }
+    }
+}
+
+impl AdaptiveBaseline {
+    /// Create a new adaptive baseline with custom parameters
+    pub fn new(window_size: usize, anomaly_threshold_stddev: f64, min_samples: usize) -> Self {
+        Self {
+            samples: VecDeque::with_capacity(window_size),
+            window_size,
+            anomaly_threshold_stddev,
+            min_samples,
+        }
+    }
+
+    /// Add a memory sample and check for anomalous growth
+    ///
+    /// Returns Some(message) if anomaly detected, None if normal
+    pub fn add_sample(&mut self, memory_bytes: u64) -> Option<String> {
+        // Add to window
+        if self.samples.len() >= self.window_size {
+            self.samples.pop_front();
+        }
+        self.samples.push_back(memory_bytes);
+
+        // Need minimum samples for detection
+        if self.samples.len() < self.min_samples {
+            return None;
+        }
+
+        // Calculate mean and stddev
+        let (mean, stddev) = self.calculate_stats();
+
+        // Check if current sample is anomalous
+        let threshold = mean + (self.anomaly_threshold_stddev * stddev);
+        if memory_bytes as f64 > threshold {
+            BASELINE_ANOMALIES.fetch_add(1, Ordering::Relaxed);
+            let growth_pct = ((memory_bytes as f64 - mean) / mean * 100.0) as i32;
+            Some(format!(
+                "Memory anomaly: {}MB ({}% above baseline {}MB, threshold {}MB)",
+                memory_bytes / (1024 * 1024),
+                growth_pct,
+                mean as u64 / (1024 * 1024),
+                threshold as u64 / (1024 * 1024)
+            ))
+        } else {
+            None
+        }
+    }
+
+    /// Calculate mean and standard deviation of samples
+    fn calculate_stats(&self) -> (f64, f64) {
+        if self.samples.is_empty() {
+            return (0.0, 0.0);
+        }
+
+        let n = self.samples.len() as f64;
+        let mean: f64 = self.samples.iter().map(|&x| x as f64).sum::<f64>() / n;
+
+        if self.samples.len() < 2 {
+            return (mean, 0.0);
+        }
+
+        let variance: f64 = self
+            .samples
+            .iter()
+            .map(|&x| {
+                let diff = x as f64 - mean;
+                diff * diff
+            })
+            .sum::<f64>()
+            / (n - 1.0);
+
+        (mean, variance.sqrt())
+    }
+
+    /// Get current baseline mean in bytes
+    pub fn mean(&self) -> u64 {
+        let (mean, _) = self.calculate_stats();
+        mean as u64
+    }
+
+    /// Get current sample count
+    pub fn sample_count(&self) -> usize {
+        self.samples.len()
+    }
+}
 
 /// Health check configuration
 #[derive(Debug, Clone)]
@@ -84,6 +210,8 @@ pub struct HealthMonitor {
     last_status: Mutex<Option<String>>,
     /// Resource monitor for CPU, memory, FD, thread pool, and GPU exhaustion
     resource_monitor: Option<Arc<ResourceMonitor>>,
+    /// Adaptive baseline for memory anomaly detection
+    adaptive_baseline: RwLock<AdaptiveBaseline>,
 }
 
 impl HealthMonitor {
@@ -104,7 +232,18 @@ impl HealthMonitor {
             worker_id: "unknown".to_string(),
             last_status: Mutex::new(None),
             resource_monitor: None,
+            adaptive_baseline: RwLock::new(AdaptiveBaseline::default()),
         })
+    }
+
+    /// Get current baseline anomaly count
+    pub fn baseline_anomaly_count(&self) -> u64 {
+        baseline_anomalies()
+    }
+
+    /// Get current adaptive baseline mean memory
+    pub fn baseline_mean_memory(&self) -> u64 {
+        self.adaptive_baseline.read().map(|b| b.mean()).unwrap_or(0)
     }
 
     /// Attach a resource monitor for comprehensive resource exhaustion checking
@@ -305,6 +444,20 @@ impl HealthMonitor {
                 "Memory growth {} bytes exceeds limit {} bytes",
                 memory_growth, self.config.max_memory_growth
             )));
+        }
+
+        // RECTIFY: Check adaptive baseline for anomalous memory growth
+        // This catches slow leaks that don't trigger the absolute threshold
+        if let Ok(mut baseline) = self.adaptive_baseline.write() {
+            if let Some(anomaly_msg) = baseline.add_sample(current_memory) {
+                debug!(
+                    current_memory_mb = current_memory / (1024 * 1024),
+                    baseline_mean_mb = baseline.mean() / (1024 * 1024),
+                    samples = baseline.sample_count(),
+                    "Adaptive baseline detected anomalous memory growth"
+                );
+                return Ok(ProcessHealthStatus::Warning(anomaly_msg));
+            }
         }
 
         // Check CPU time
@@ -564,7 +717,19 @@ mod tests {
         let Some(mut monitor) = new_monitor_or_skip(config) else {
             return;
         };
-        monitor.baseline_memory = 0; // force growth on next check
+        let current_memory = match get_process_memory() {
+            Ok(value) if value > 0 => value,
+            Ok(_) => {
+                eprintln!("skipping: unable to read process memory");
+                return;
+            }
+            Err(err) if should_skip_memory_error(&err) => {
+                eprintln!("skipping: {}", err);
+                return;
+            }
+            Err(err) => panic!("Failed to read process memory: {}", err),
+        };
+        monitor.baseline_memory = current_memory.saturating_sub(1);
 
         let shutdown_seen = Arc::new(AtomicBool::new(false));
         let flag = shutdown_seen.clone();
