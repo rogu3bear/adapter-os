@@ -23,12 +23,12 @@ use adapteros_lora_worker::tokenizer::QwenTokenizer;
 use adapteros_lora_worker::training::{
     AdapterPackager, LoRAQuantizer, MicroLoRATrainer, TrainingConfig, TrainingExample,
 };
-use adapteros_types::training::{provenance_from_map, weight_from_metadata, ExampleMetadataV1};
 pub use adapteros_normalization::{
     normalize_path_segments, normalize_repo_id, normalize_repo_slug,
 };
 use adapteros_platform::common::PlatformUtils;
 use adapteros_storage::byte_store::{DatasetCategory, FsByteStorage};
+use adapteros_types::training::{provenance_from_map, weight_from_metadata, ExampleMetadataV1};
 use blake3::Hasher;
 use chrono::{TimeZone, Utc};
 use git2::Repository;
@@ -1933,17 +1933,16 @@ fn encode_samples(
                 serde_json::Value::String(sample.weight.to_string()),
             );
         }
-        let provenance = provenance_from_map(&provenance).map_err(|e| {
-            AosError::Training(format!("Failed to serialize provenance: {}", e))
-        })?;
+        let provenance = provenance_from_map(&provenance)
+            .map_err(|e| AosError::Training(format!("Failed to serialize provenance: {}", e)))?;
         let source_id = if sample.file_path.is_empty() {
             sample.qualified_name.clone()
         } else {
             sample.file_path.clone()
         };
-        let metadata = ExampleMetadataV1::new(source_id, index as u64, provenance, created_at_unix_ms);
-        let attention_mask =
-            TrainingExample::attention_mask_from_tokens(&input, pad_token_id);
+        let metadata =
+            ExampleMetadataV1::new(source_id, index as u64, provenance, created_at_unix_ms);
+        let attention_mask = TrainingExample::attention_mask_from_tokens(&input, pad_token_id);
         encoded.push(TrainingExample::new(
             input,
             target,

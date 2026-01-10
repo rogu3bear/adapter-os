@@ -40,3 +40,32 @@ pub fn format_duration(ms: u64) -> String {
         format!("{}s", secs)
     }
 }
+
+/// Human-friendly label for preprocessing cache state.
+#[allow(dead_code)] // Used by training preprocessing cache UI; keep for upcoming panels.
+pub fn preprocess_state_label(cache_hit: bool, needs_reprocess: bool) -> &'static str {
+    if needs_reprocess {
+        "needs reprocess"
+    } else if cache_hit {
+        "cache hit"
+    } else {
+        "cache pending"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preprocess_label_reports_reprocess_first() {
+        assert_eq!(preprocess_state_label(false, true), "needs reprocess");
+        assert_eq!(preprocess_state_label(true, true), "needs reprocess");
+    }
+
+    #[test]
+    fn preprocess_label_reports_cache_hit() {
+        assert_eq!(preprocess_state_label(true, false), "cache hit");
+        assert_eq!(preprocess_state_label(false, false), "cache pending");
+    }
+}

@@ -11,7 +11,8 @@ use adapteros_api_types::TrainingJobResponse;
 use leptos::prelude::*;
 use std::sync::Arc;
 
-use super::components::{JobStatusBadge, ProgressBar};
+use super::components::{CoremlBadges, JobStatusBadge, ProgressBar};
+use super::state::CoremlState;
 use super::utils::{format_date, format_duration, format_number};
 
 /// Training job detail panel
@@ -145,6 +146,10 @@ pub fn JobDetailContent(
     let status_for_progress = job.status.clone();
     let job_id = job.id.clone();
     let job_id_for_logs = job.id.clone();
+    let coreml_state_for_warning = CoremlState::from_job(&job);
+    let coreml_state_for_export = coreml_state_for_warning.clone();
+    let coreml_state_for_badges = coreml_state_for_warning.clone();
+    let coreml_export_requested = job.coreml_export_requested.unwrap_or(false);
 
     let is_running = status == "running";
     let is_pending = status == "pending";
@@ -222,22 +227,90 @@ pub fn JobDetailContent(
         </Card>
 
         // Backend information
-        {job.backend.clone().map(|backend| view! {
-            <Card title="Backend".to_string() class="mt-4".to_string()>
-                <div class="grid gap-3 text-sm">
-                    <DetailRow label="Backend" value=backend/>
-                    {job.backend_device.clone().map(|device| view! {
-                        <DetailRow label="Device" value=device/>
-                    })}
-                    {job.determinism_mode.clone().map(|mode| view! {
-                        <DetailRow label="Determinism" value=mode/>
-                    })}
-                    {job.training_seed.map(|seed| view! {
-                        <DetailRow label="Seed" value=seed.to_string()/>
+        <Card title="Backend".to_string() class="mt-4".to_string()>
+            <div class="grid gap-3 text-sm">
+                <DetailRow
+                    label="Requested Backend"
+                    value=job
+                        .requested_backend
+                        .clone()
+                        .unwrap_or_else(|| "Not specified".to_string())
+                />
+                <DetailRow
+                    label="Selected Backend"
+                    value=job.backend.clone().unwrap_or_else(|| "Pending".to_string())
+                />
+                {job.backend_reason.clone().map(|reason| view! {
+                    <DetailRow label="Backend Reason" value=reason/>
+                })}
+                {job.coreml_training_fallback.clone().map(|reason| view! {
+                    <DetailRow label="CoreML Fallback" value=reason/>
+                })}
+                {job.backend_device.clone().map(|device| view! {
+                    <DetailRow label="Device" value=device/>
+                })}
+                {job.determinism_mode.clone().map(|mode| view! {
+                    <DetailRow label="Determinism" value=mode/>
+                })}
+                {job.training_seed.map(|seed| view! {
+                    <DetailRow label="Seed" value=seed.to_string()/>
+                })}
+            </div>
+
+            {coreml_state_for_warning.coreml_fallback.then(|| view! {
+                <div class="mt-3 rounded-lg border border-destructive bg-destructive/10 p-3">
+                    <p class="text-sm text-destructive">
+                        {"CoreML was requested, but the job ran on "}
+                        {job.backend.clone().unwrap_or_else(|| "a different backend".to_string())}
+                        {"."}
+                    </p>
+                    {coreml_state_for_warning.fallback_reason.clone().map(|reason| view! {
+                        <p class="text-xs text-destructive mt-1">{"Reason: "}{reason}</p>
                     })}
                 </div>
-            </Card>
-        })}
+            })}
+        </Card>
+
+        // CoreML export details
+        <Card title="CoreML Export".to_string() class="mt-4".to_string()>
+            <div class="grid gap-3 text-sm">
+                <CoremlBadges state=coreml_state_for_badges/>
+                <DetailRow
+                    label="Export Requested"
+                    value=if coreml_export_requested { "Yes".to_string() } else { "No".to_string() }
+                />
+                {coreml_state_for_export.export_status.clone().map(|status| view! {
+                    <DetailRow label="Export Status" value=status/>
+                })}
+                {coreml_state_for_export.export_reason.clone().map(|reason| view! {
+                    <DetailRow label="Export Reason" value=reason/>
+                })}
+                {coreml_state_for_export.fused_package_hash.clone().map(|hash| view! {
+                    <div>
+                        <span class="text-muted-foreground">"Fused Package Hash: "</span>
+                        <span class="font-mono text-xs break-all">{hash}</span>
+                    </div>
+                })}
+                {coreml_state_for_export.package_path.clone().map(|path| view! {
+                    <DetailRow label="Package Path" value=path/>
+                })}
+                {coreml_state_for_export.metadata_path.clone().map(|path| view! {
+                    <DetailRow label="Metadata Path" value=path/>
+                })}
+                {job.coreml_base_manifest_hash.clone().map(|hash| view! {
+                    <DetailRow label="Base Manifest Hash" value=hash/>
+                })}
+                {job.coreml_adapter_hash_b3.clone().map(|hash| view! {
+                    <DetailRow label="Adapter Hash" value=hash/>
+                })}
+                {job.coreml_fusion_verified.map(|verified| view! {
+                    <DetailRow
+                        label="Fusion Verified"
+                        value=if verified { "Yes".to_string() } else { "No".to_string() }
+                    />
+                })}
+            </div>
+        </Card>
 
         // Metrics (for completed jobs)
         {is_completed.then(|| view! {

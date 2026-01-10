@@ -19,8 +19,8 @@ use adapteros_server::boot::{
     bind_and_serve, bind_error_exit_code, build_app_state, enforce_invariants, finalize_boot,
     initialize_config, initialize_database, initialize_executor, initialize_federation,
     initialize_metrics, initialize_security, log_effective_config, run_preflight_checks,
-    validate_boot_invariants, validate_post_db_invariants, validate_production_security_env,
-    write_boot_report, BindMode, ServerBindConfig,
+    run_startup_recovery, validate_boot_invariants, validate_post_db_invariants,
+    validate_production_security_env, write_boot_report, BindMode, ServerBindConfig,
 };
 use adapteros_server::cli::Cli;
 use adapteros_server_api::boot_state::failure_codes;
@@ -196,7 +196,23 @@ async fn main() -> Result<()> {
         boot_state.finish_phase_ok("post_db_invariants");
 
         // =====================================================================
-        // Phases 7-8: Policy & Backend (already extracted to separate crates)
+        // Phase 7: Startup Recovery
+        // =====================================================================
+        // Recover orphaned resources from previous server crashes/restarts
+        // ANCHOR: This phase is mandatory and runs before accepting requests
+        boot_state.start_phase("startup_recovery");
+        let _recovery_report = run_startup_recovery(&db_ctx.db)
+            .await
+            .map_err(|e| {
+                // Log but don't fail boot - recovery is best-effort
+                warn!(error = %e, "Startup recovery encountered errors (non-fatal)");
+                e
+            })
+            .ok(); // Convert to Option - don't propagate error
+        boot_state.finish_phase_ok("startup_recovery");
+
+        // =====================================================================
+        // Phases 8: Policy & Backend (already extracted to separate crates)
         // =====================================================================
 
         // =====================================================================

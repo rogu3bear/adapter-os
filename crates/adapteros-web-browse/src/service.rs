@@ -822,10 +822,7 @@ fn brave_image_api_url(base: &str) -> String {
     format!("{}/images/search", base.trim_end_matches('/'))
 }
 
-fn parse_brave_image_results(
-    body: &serde_json::Value,
-    max_results: u32,
-) -> Vec<ImageSearchResult> {
+fn parse_brave_image_results(body: &serde_json::Value, max_results: u32) -> Vec<ImageSearchResult> {
     let items = body
         .pointer("/images/results")
         .and_then(|v| v.as_array())
@@ -842,7 +839,11 @@ fn parse_brave_image_results(
             .get("url")
             .and_then(|v| v.as_str())
             .or_else(|| item.get("image").and_then(|v| v.as_str()))
-            .or_else(|| item.get("image").and_then(|v| v.get("url")).and_then(|v| v.as_str()))
+            .or_else(|| {
+                item.get("image")
+                    .and_then(|v| v.get("url"))
+                    .and_then(|v| v.as_str())
+            })
             .or_else(|| item.get("link").and_then(|v| v.as_str()));
         let Some(image_url) = image_url else {
             continue;
@@ -853,7 +854,11 @@ fn parse_brave_image_results(
             .and_then(|v| v.as_str())
             .or_else(|| item.get("page_url").and_then(|v| v.as_str()))
             .or_else(|| item.get("source").and_then(|v| v.as_str()))
-            .or_else(|| item.get("source").and_then(|v| v.get("url")).and_then(|v| v.as_str()))
+            .or_else(|| {
+                item.get("source")
+                    .and_then(|v| v.get("url"))
+                    .and_then(|v| v.as_str())
+            })
             .unwrap_or(image_url);
 
         let title = item
@@ -867,8 +872,16 @@ fn parse_brave_image_results(
         let thumbnail_url = item
             .get("thumbnail_url")
             .and_then(|v| v.as_str())
-            .or_else(|| item.get("thumbnail").and_then(|v| v.get("src")).and_then(|v| v.as_str()))
-            .or_else(|| item.get("thumbnail").and_then(|v| v.get("url")).and_then(|v| v.as_str()))
+            .or_else(|| {
+                item.get("thumbnail")
+                    .and_then(|v| v.get("src"))
+                    .and_then(|v| v.as_str())
+            })
+            .or_else(|| {
+                item.get("thumbnail")
+                    .and_then(|v| v.get("url"))
+                    .and_then(|v| v.as_str())
+            })
             .or_else(|| item.get("thumbnail").and_then(|v| v.as_str()))
             .map(|s| s.to_string());
 

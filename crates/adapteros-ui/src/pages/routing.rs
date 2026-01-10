@@ -726,18 +726,25 @@ fn DebugResult(response: RoutingDebugResponse) -> impl IntoView {
     let lang_badge = response.detected_features.language.clone();
     let domain_badge = response.detected_features.domain.clone();
     let verb_badge = response.detected_features.verb.clone();
-    let frameworks: Vec<_> = response.detected_features.frameworks.clone()
+    let frameworks: Vec<_> = response
+        .detected_features
+        .frameworks
+        .clone()
         .unwrap_or_default()
         .into_iter()
         .map(|fw| view! { <Badge variant=BadgeVariant::Outline>{fw}</Badge> })
         .collect();
-    let selected_badges: Vec<_> = response.selected_adapters.iter()
+    let selected_badges: Vec<_> = response
+        .selected_adapters
+        .iter()
         .map(|a| {
             let truncated = truncate(a, 16);
             view! { <Badge variant=BadgeVariant::Success>{truncated}</Badge> }
         })
         .collect();
-    let score_rows: Vec<_> = response.adapter_scores.iter()
+    let score_rows: Vec<_> = response
+        .adapter_scores
+        .iter()
         .map(|s| view! { <AdapterScoreRow score=s.clone()/> })
         .collect();
     let explanation = response.explanation.clone();

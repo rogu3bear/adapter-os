@@ -5,7 +5,9 @@
 use crate::api::{
     ApiClient, ProcessAlertResponse, ProcessAnomalyResponse, ProcessHealthMetricResponse,
 };
-use crate::components::{Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ErrorDisplay, Spinner};
+use crate::components::{
+    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ErrorDisplay, Spinner,
+};
 use crate::hooks::{use_api_resource, use_polling, LoadingState};
 use leptos::prelude::*;
 use std::sync::Arc;

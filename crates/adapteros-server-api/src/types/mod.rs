@@ -7,9 +7,9 @@
 pub mod auth;
 pub mod code_policy;
 pub mod context;
-pub mod event_applier;
 pub mod conversion;
 pub mod error;
+pub mod event_applier;
 pub mod replay;
 pub mod request;
 pub mod response;
@@ -24,9 +24,9 @@ pub use run_envelope::{new_run_envelope, set_policy_mask, set_router_seed, set_w
 // Re-export everything from submodules FIRST - these are our local definitions
 // Note: auth and conversion modules contain only comments/impls, nothing to re-export
 pub use code_policy::*;
-pub use event_applier::*;
 pub use context::*;
 pub use error::*;
+pub use event_applier::*;
 pub use replay::*;
 pub use request::*;
 pub use response::*;

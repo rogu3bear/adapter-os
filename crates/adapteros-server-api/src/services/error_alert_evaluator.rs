@@ -59,7 +59,10 @@ impl ErrorAlertEvaluator {
             }
 
             // Check cooldown
-            if self.is_in_cooldown(&rule.id, rule.cooldown_minutes, now).await {
+            if self
+                .is_in_cooldown(&rule.id, rule.cooldown_minutes, now)
+                .await
+            {
                 debug!(
                     rule_id = %rule.id,
                     rule_name = %rule.name,
@@ -171,7 +174,7 @@ impl ErrorAlertEvaluator {
         if let Some(ref pattern) = rule.page_pattern {
             if !pattern.is_empty() {
                 if let Some(ref page) = error.page {
-                    if !self.glob_match(page, pattern) {
+                    if !Self::glob_match(page, pattern) {
                         return false;
                     }
                 } else {
@@ -185,7 +188,7 @@ impl ErrorAlertEvaluator {
     }
 
     /// Simple glob matching (* matches any sequence, ? matches single char)
-    fn glob_match(&self, text: &str, pattern: &str) -> bool {
+    fn glob_match(text: &str, pattern: &str) -> bool {
         let regex_pattern = pattern
             .replace('.', "\\.")
             .replace('*', ".*")
@@ -260,19 +263,14 @@ mod tests {
 
     #[test]
     fn test_glob_match() {
-        let evaluator = ErrorAlertEvaluator {
-            db: Arc::new(unsafe { std::mem::zeroed() }), // Mock - not used in this test
-            cooldowns: Arc::new(RwLock::new(HashMap::new())),
-        };
-
         // Basic patterns
-        assert!(evaluator.glob_match("/api/users", "/api/*"));
-        assert!(evaluator.glob_match("/api/users/123", "/api/**"));
-        assert!(evaluator.glob_match("/chat", "/chat"));
-        assert!(!evaluator.glob_match("/api/users", "/chat/*"));
+        assert!(ErrorAlertEvaluator::glob_match("/api/users", "/api/*"));
+        assert!(ErrorAlertEvaluator::glob_match("/api/users/123", "/api/**"));
+        assert!(ErrorAlertEvaluator::glob_match("/chat", "/chat"));
+        assert!(!ErrorAlertEvaluator::glob_match("/api/users", "/chat/*"));
 
         // Question mark
-        assert!(evaluator.glob_match("/api/v1", "/api/v?"));
-        assert!(!evaluator.glob_match("/api/v12", "/api/v?"));
+        assert!(ErrorAlertEvaluator::glob_match("/api/v1", "/api/v?"));
+        assert!(!ErrorAlertEvaluator::glob_match("/api/v12", "/api/v?"));
     }
 }

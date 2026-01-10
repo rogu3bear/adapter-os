@@ -360,7 +360,10 @@ impl ResourceMonitor {
 
     /// Get a snapshot of current resource state
     pub async fn get_state(&self) -> ResourceState {
-        self.state.read().await.clone()
+        let mut state = self.state.read().await.clone();
+        state.thread_queued = self.queued_tasks.load(Ordering::Relaxed);
+        state.thread_active = self.active_tasks.load(Ordering::Relaxed);
+        state
     }
 }
 

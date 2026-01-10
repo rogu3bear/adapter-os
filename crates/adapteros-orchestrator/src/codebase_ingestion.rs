@@ -20,8 +20,8 @@ use adapteros_lora_worker::training::{
     AdapterPackager, LoRAQuantizer, MicroLoRATrainer, ScanRootMetadata, TrainingConfig,
     TrainingExample,
 };
-use adapteros_types::training::{provenance_from_map, ExampleMetadataV1};
 use adapteros_platform::common::PlatformUtils;
+use adapteros_types::training::{provenance_from_map, ExampleMetadataV1};
 use blake3::Hasher;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
@@ -761,9 +761,9 @@ fn encode_qa_samples(
             .get("file_path")
             .cloned()
             .unwrap_or_else(|| "codebase_ingestion".to_string());
-        let metadata = ExampleMetadataV1::new(source_id, index as u64, provenance, created_at_unix_ms);
-        let attention_mask =
-            TrainingExample::attention_mask_from_tokens(&input, pad_token_id);
+        let metadata =
+            ExampleMetadataV1::new(source_id, index as u64, provenance, created_at_unix_ms);
+        let attention_mask = TrainingExample::attention_mask_from_tokens(&input, pad_token_id);
         examples.push(TrainingExample::new(
             input,
             target,

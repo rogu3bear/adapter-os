@@ -4,9 +4,9 @@
 //! and flexible input/output formats for different training scenarios.
 
 use super::limits::DatasetSizeLimits;
-use adapteros_types::training::{provenance_from_map, ExampleMetadataV1, TrainingExampleV1};
 use adapteros_core::{AosError, Result};
 use adapteros_secure_fs::path_policy::canonicalize_strict;
+use adapteros_types::training::{provenance_from_map, ExampleMetadataV1, TrainingExampleV1};
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
@@ -166,8 +166,8 @@ pub fn load_json_dataset<P: AsRef<Path>>(
         let input_tokens = encode_input(&example.input, &config)?;
         let target_tokens = encode_target(&example.target, &config)?;
 
-        total_tokens = total_tokens
-            .saturating_add((input_tokens.len() + target_tokens.len()) as u64);
+        total_tokens =
+            total_tokens.saturating_add((input_tokens.len() + target_tokens.len()) as u64);
         if total_tokens > limits.max_tokens {
             return Err(AosError::Training(format!(
                 "JSON dataset token count exceeds limit: {} > {}",
@@ -256,12 +256,8 @@ pub fn load_json_dataset<P: AsRef<Path>>(
         );
         let attention_mask =
             TrainingExampleV1::attention_mask_from_tokens(&input_tokens, config.pad_token_id);
-        let training_example = TrainingExampleV1::new(
-            input_tokens,
-            target_tokens,
-            attention_mask,
-            metadata,
-        );
+        let training_example =
+            TrainingExampleV1::new(input_tokens, target_tokens, attention_mask, metadata);
 
         training_examples.push(training_example);
 

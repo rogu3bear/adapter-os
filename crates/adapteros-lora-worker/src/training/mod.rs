@@ -19,8 +19,8 @@ pub mod determinism_harness;
 pub mod early_stopping;
 pub mod formats;
 pub mod json_loader;
-mod limits;
 pub mod learning_rate_schedule;
+mod limits;
 pub mod loader;
 pub mod loss;
 pub mod metrics;
@@ -36,30 +36,30 @@ pub mod visualization;
 // Re-export separated trainer for backward compatibility
 pub mod separated_trainer;
 
+pub use adapteros_types::training::TrainingExampleV1;
 pub use builder::{
     BuildConfig, BuildResult, BuiltDatasetManifest, DatasetBuilder, DatasetSource, GitAuth,
     SourceFileInfo,
 };
 pub use checkpoint::{CheckpointManager, TrainingCheckpoint};
 pub use dataset::{split_examples_for_validation, DatasetGenerator, ValidationSplitSummary};
-pub use adapteros_types::training::TrainingExampleV1;
 pub type TrainingExample = TrainingExampleV1;
-pub use formats::{ColumnMapping, DatasetFormat, ParserConfig, RawSample, TextStrategy};
-pub use normalize::{normalize_text, NormalizationConfig, NORMALIZATION_SCHEME};
 pub use determinism_harness::{
     build_harness_training_config, compute_drift, deterministic_slice, run_backend_with_examples,
     BackendRun, DriftMetrics, HarnessHyperparams,
 };
 pub use early_stopping::{EarlyStopping, EarlyStoppingConfig};
+pub use formats::{ColumnMapping, DatasetFormat, ParserConfig, RawSample, TextStrategy};
 pub use json_loader::{load_json_dataset_with_tokenizer, JsonLoaderConfig};
-pub use limits::DatasetSizeLimits;
 pub use learning_rate_schedule::{LRScheduleType, LRScheduler, LRSchedulerConfig};
+pub use limits::DatasetSizeLimits;
 pub use loader::{load_examples_from_manifest, load_examples_with_encoder, DatasetManifest};
 pub use metrics::{MetricsConfig, MetricsSnapshot, TrainingMetrics, TrainingReport};
-pub use perplexity::{compute_perplexity, loss_to_perplexity_curve, PerplexityImprovement};
+pub use normalize::{normalize_text, NormalizationConfig, NORMALIZATION_SCHEME};
 pub use packager::{
     AdapterManifest, AdapterPackager, BranchMetadata, PackagedAdapter, ScanRootMetadata,
 };
+pub use perplexity::{compute_perplexity, loss_to_perplexity_curve, PerplexityImprovement};
 pub use quantizer::{LoRAQuantizer, QuantizedLoRAWeights};
 pub use trainer::{
     DatasetSubsample, DeterminismConfig, LoRAWeights, MicroLoRATrainer, PreprocessCompression,

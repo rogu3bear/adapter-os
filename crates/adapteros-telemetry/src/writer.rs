@@ -124,6 +124,7 @@ mod tests {
             stack_version: None,
             model_type: adapteros_types::routing::RouterModelType::Dense,
             active_experts: None,
+            backend_type: None,
         }
     }
 

@@ -3655,7 +3655,9 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             let backend_matches = if expected == "cpu" {
                 backend_used_normalized == expected || backend_used_normalized.contains("mock")
             } else {
-                backend_used_normalized == expected
+                // Allow match if backend name equals or starts with expected profile
+                // (e.g., "mlx ffi (apple silicon)" matches "mlx")
+                backend_used_normalized == expected || backend_used_normalized.starts_with(expected)
             };
             if !backend_matches {
                 emit_observability_event(&determinism_violation_event(

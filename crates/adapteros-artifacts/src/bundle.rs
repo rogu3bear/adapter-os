@@ -66,9 +66,10 @@ fn extract_tar_entries<R: Read>(archive: &mut Archive<R>, output_dir: &Path) -> 
         .map_err(|e| AosError::Artifact(format!("Failed to canonicalize output dir: {}", e)))?;
     let allowed_roots = [canonical_output_dir.clone()];
 
-    for entry in archive.entries().map_err(|e| {
-        AosError::Artifact(format!("Failed to read bundle entries: {}", e))
-    })? {
+    for entry in archive
+        .entries()
+        .map_err(|e| AosError::Artifact(format!("Failed to read bundle entries: {}", e)))?
+    {
         let mut entry = entry.map_err(|e| AosError::Artifact(format!("Entry error: {}", e)))?;
         let entry_path = entry
             .path()
@@ -92,9 +93,8 @@ fn extract_tar_entries<R: Read>(archive: &mut Archive<R>, output_dir: &Path) -> 
                     e
                 ))
             })?;
-            canonicalize_strict_in_allowed_roots(&output_path, &allowed_roots).map_err(|e| {
-                AosError::Artifact(format!("Bundle path rejected: {}", e))
-            })?;
+            canonicalize_strict_in_allowed_roots(&output_path, &allowed_roots)
+                .map_err(|e| AosError::Artifact(format!("Bundle path rejected: {}", e)))?;
             continue;
         }
 
@@ -113,9 +113,8 @@ fn extract_tar_entries<R: Read>(archive: &mut Archive<R>, output_dir: &Path) -> 
                     e
                 ))
             })?;
-            canonicalize_strict_in_allowed_roots(parent, &allowed_roots).map_err(|e| {
-                AosError::Artifact(format!("Bundle path rejected: {}", e))
-            })?;
+            canonicalize_strict_in_allowed_roots(parent, &allowed_roots)
+                .map_err(|e| AosError::Artifact(format!("Bundle path rejected: {}", e)))?;
         }
 
         if output_path.exists() {

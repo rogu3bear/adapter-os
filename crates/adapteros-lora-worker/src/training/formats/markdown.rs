@@ -54,7 +54,9 @@ fn parse_heading_content(content: &str, path: &str) -> Result<Vec<RawSample>> {
         if let Some((level, heading_text)) = parse_atx_heading(trimmed) {
             // Save previous section if we have content
             if let Some((heading, _)) = current_heading.take() {
-                let target = strip_markdown(&current_content.join("\n")).trim().to_string();
+                let target = strip_markdown(&current_content.join("\n"))
+                    .trim()
+                    .to_string();
                 if !target.is_empty() {
                     heading_count += 1;
                     let context = format!("{}:heading_{}", path, heading_count);
@@ -87,7 +89,9 @@ fn parse_heading_content(content: &str, path: &str) -> Result<Vec<RawSample>> {
 
     // Don't forget the last section
     if let Some((heading, _)) = current_heading {
-        let target = strip_markdown(&current_content.join("\n")).trim().to_string();
+        let target = strip_markdown(&current_content.join("\n"))
+            .trim()
+            .to_string();
         if !target.is_empty() {
             heading_count += 1;
             let context = format!("{}:heading_{}", path, heading_count);
@@ -288,11 +292,10 @@ fn strip_links(text: &str) -> String {
                     result.push_str(&link_text);
 
                     // Skip to end of URL
-                    if let Some(close_paren) = chars[close_bracket + 1..]
-                        .iter()
-                        .position(|&c| c == ')')
+                    if let Some(close_paren) =
+                        chars[close_bracket + 1..].iter().position(|&c| c == ')')
                     {
-                        i = close_bracket + 2 + close_paren + 1;
+                        i = close_bracket + 2 + close_paren;
                         continue;
                     }
                 }
@@ -317,9 +320,8 @@ fn strip_images(text: &str) -> String {
             if let Some(close_bracket) = find_matching_bracket(&chars, i + 1) {
                 if close_bracket + 1 < chars.len() && chars[close_bracket + 1] == '(' {
                     // Found an image, skip it entirely
-                    if let Some(close_paren) = chars[close_bracket + 1..]
-                        .iter()
-                        .position(|&c| c == ')')
+                    if let Some(close_paren) =
+                        chars[close_bracket + 1..].iter().position(|&c| c == ')')
                     {
                         i = close_bracket + 2 + close_paren + 1;
                         continue;
@@ -361,7 +363,8 @@ fn strip_list_marker(line: &str) -> String {
     let trimmed = line.trim_start();
 
     // Unordered lists: -, *, +
-    if let Some(rest) = trimmed.strip_prefix("- ")
+    if let Some(rest) = trimmed
+        .strip_prefix("- ")
         .or_else(|| trimmed.strip_prefix("* "))
         .or_else(|| trimmed.strip_prefix("+ "))
     {
@@ -468,6 +471,9 @@ mod tests {
     fn test_metadata_contains_format() {
         let file = write_temp_md("# Q\nA");
         let samples = parse_markdown_file(file.path(), TextStrategy::HeadingContent).unwrap();
-        assert_eq!(samples[0].metadata.get("format"), Some(&"markdown".to_string()));
+        assert_eq!(
+            samples[0].metadata.get("format"),
+            Some(&"markdown".to_string())
+        );
     }
 }

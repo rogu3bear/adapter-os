@@ -142,6 +142,7 @@ pub fn extract_error_code(error: &crate::types::InferenceError) -> &'static str 
         InferenceError::CacheBudgetExceeded { .. } => "E9001",
         InferenceError::WorkerIdUnavailable { .. } => "E9002",
         InferenceError::InternalError(_) => "E9999",
+        InferenceError::DuplicateRequest { .. } => "E1004",
     }
 }
 
@@ -172,6 +173,7 @@ pub fn suggest_recovery(error: &crate::types::InferenceError) -> Option<&'static
         }
         InferenceError::WorkerIdUnavailable { .. } => Some("Ensure worker is registered"),
         InferenceError::InternalError(_) => Some("Contact support with request_id"),
+        InferenceError::DuplicateRequest { .. } => Some("Wait for in-flight request to complete"),
     }
 }
 

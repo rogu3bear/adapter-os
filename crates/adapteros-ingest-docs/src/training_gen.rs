@@ -22,7 +22,7 @@ fn current_unix_ms() -> u64 {
         .unwrap_or(0)
 }
 
-fn resolve_pad_token_id(tokenizer: &Tokenizer) -> Result<u32> {
+pub fn resolve_pad_token_id(tokenizer: &Tokenizer) -> Result<u32> {
     if let Some(id) = tokenizer.token_to_id("<|pad|>") {
         return Ok(id);
     }
@@ -135,8 +135,7 @@ fn generate_identity_example(
             .map_err(|e| AosError::Validation(format!("Metadata error: {e}")))?,
         current_unix_ms(),
     );
-    let attention_mask =
-        TrainingExample::attention_mask_from_tokens(&token_ids, pad_token_id);
+    let attention_mask = TrainingExample::attention_mask_from_tokens(&token_ids, pad_token_id);
 
     Ok(vec![TrainingExample::new(
         token_ids.clone(),
@@ -356,7 +355,10 @@ mod tests {
         assert_eq!(metadata.source_id, "test.pdf");
         let provenance: serde_json::Value =
             serde_json::from_str(&metadata.provenance).expect("provenance json");
-        assert_eq!(provenance.get("source").and_then(|v| v.as_str()), Some("test.pdf"));
+        assert_eq!(
+            provenance.get("source").and_then(|v| v.as_str()),
+            Some("test.pdf")
+        );
         assert_eq!(
             provenance.get("chunk_index").and_then(|v| v.as_str()),
             Some("0")
@@ -405,7 +407,10 @@ mod tests {
             let metadata = &example.metadata;
             let provenance: serde_json::Value =
                 serde_json::from_str(&metadata.provenance).expect("provenance json");
-            assert_eq!(provenance.get("strategy").and_then(|v| v.as_str()), Some("qa"));
+            assert_eq!(
+                provenance.get("strategy").and_then(|v| v.as_str()),
+                Some("qa")
+            );
             assert!(
                 provenance
                     .get("qa_question_text")

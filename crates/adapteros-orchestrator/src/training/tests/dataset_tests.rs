@@ -7,10 +7,13 @@ use crate::training::dataset::weighted_round_robin_merge;
 use crate::training::job::{DataLineageMode, TrainingConfig};
 use crate::training::service::TrainingService;
 
-fn make_example(input_tokens: Vec<u32>, target_tokens: Vec<u32>, row_id: u64) -> WorkerTrainingExample {
+fn make_example(
+    input_tokens: Vec<u32>,
+    target_tokens: Vec<u32>,
+    row_id: u64,
+) -> WorkerTrainingExample {
     let metadata = ExampleMetadataV1::new("test", row_id, "{}", 0);
-    let attention_mask =
-        WorkerTrainingExample::attention_mask_from_tokens(&input_tokens, 0);
+    let attention_mask = WorkerTrainingExample::attention_mask_from_tokens(&input_tokens, 0);
     WorkerTrainingExample::new(input_tokens, target_tokens, attention_mask, metadata)
 }
 
@@ -32,7 +35,10 @@ fn weighted_round_robin_is_deterministic() {
     let merged_again = weighted_round_robin_merge(vec![(ds1, 2.0), (ds2, 1.0)]);
     assert_eq!(
         merged.iter().map(|e| &e.input_tokens).collect::<Vec<_>>(),
-        merged_again.iter().map(|e| &e.input_tokens).collect::<Vec<_>>()
+        merged_again
+            .iter()
+            .map(|e| &e.input_tokens)
+            .collect::<Vec<_>>()
     );
 }
 

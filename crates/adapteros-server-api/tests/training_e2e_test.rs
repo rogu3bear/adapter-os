@@ -19,6 +19,7 @@ use adapteros_core::Result;
 use adapteros_db::adapters::AdapterRegistrationBuilder;
 use adapteros_db::Db;
 use adapteros_server_api::types::TrainingConfigRequest;
+use adapteros_types::training::TRAINING_DATA_CONTRACT_VERSION;
 use serde_json::json;
 use std::sync::Arc;
 use tracing::info;
@@ -37,25 +38,47 @@ async fn create_test_tenant(db: &Db, tenant_id: &str) -> Result<()> {
     Ok(())
 }
 
+async fn table_has_column(db: &Db, table: &str, column: &str) -> Result<bool> {
+    let query = format!(
+        "SELECT 1 FROM pragma_table_info('{}') WHERE name = ? LIMIT 1",
+        table
+    );
+    let exists: Option<i64> = sqlx::query_scalar(&query)
+        .bind(column)
+        .fetch_optional(db.pool())
+        .await
+        .map_err(|e| adapteros_core::AosError::Database(format!("Schema probe failed: {}", e)))?;
+    Ok(exists.is_some())
+}
+
 /// Test helper to create a git repository (required FK for training jobs)
 async fn create_test_repo(db: &Db, repo_id: &str, tenant_id: &str) -> Result<()> {
-    sqlx::query(
+    let has_tenant_id = table_has_column(db, "git_repositories", "tenant_id").await?;
+    let sql = if has_tenant_id {
         "INSERT INTO git_repositories (id, repo_id, path, branch, analysis_json, evidence_json, security_scan_json, status, created_by, tenant_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    )
-    .bind(format!("id-{}", repo_id))
-    .bind(repo_id)
-    .bind(format!("var/repos/{}", repo_id))
-    .bind("main")
-    .bind("{}")
-    .bind("{}")
-    .bind("{}")
-    .bind("analyzed")
-    .bind("test-user")
-    .bind(tenant_id)
-    .execute(db.pool())
-    .await
-    .map_err(|e| adapteros_core::AosError::Database(format!("Failed to create repo: {}", e)))?;
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    } else {
+        "INSERT INTO git_repositories (id, repo_id, path, branch, analysis_json, evidence_json, security_scan_json, status, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    };
+
+    let mut query = sqlx::query(sql)
+        .bind(format!("id-{}", repo_id))
+        .bind(repo_id)
+        .bind(format!("var/repos/{}", repo_id))
+        .bind("main")
+        .bind("{}")
+        .bind("{}")
+        .bind("{}")
+        .bind("analyzed")
+        .bind("test-user");
+    if has_tenant_id {
+        query = query.bind(tenant_id);
+    }
+    query
+        .execute(db.pool())
+        .await
+        .map_err(|e| adapteros_core::AosError::Database(format!("Failed to create repo: {}", e)))?;
     Ok(())
 }
 
@@ -73,8 +96,8 @@ async fn create_test_training_dataset(db: &Db, dataset_id: &str, tenant_id: &str
 
     // Insert dataset record
     sqlx::query(
-        "INSERT INTO training_datasets (id, hash_b3, name, format, storage_path, validation_status, tenant_id, created_at, sample_count, total_tokens)
-         VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?)",
+        "INSERT INTO training_datasets (id, hash_b3, name, format, storage_path, validation_status, tenant_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))",
     )
     .bind(dataset_id)
     .bind(&hash)
@@ -83,13 +106,33 @@ async fn create_test_training_dataset(db: &Db, dataset_id: &str, tenant_id: &str
     .bind(format!("var/datasets/{}.jsonl", dataset_id))
     .bind("valid")
     .bind(tenant_id)
-    .bind(3)
-    .bind(150)
     .execute(db.pool())
     .await
     .map_err(|e| {
         adapteros_core::AosError::Database(format!("Failed to create dataset: {}", e))
     })?;
+
+    if table_has_column(db, "training_datasets", "sample_count").await? {
+        sqlx::query("UPDATE training_datasets SET sample_count = ? WHERE id = ?")
+            .bind(3)
+            .bind(dataset_id)
+            .execute(db.pool())
+            .await
+            .map_err(|e| {
+                adapteros_core::AosError::Database(format!("Failed to update sample_count: {}", e))
+            })?;
+    }
+
+    if table_has_column(db, "training_datasets", "total_tokens").await? {
+        sqlx::query("UPDATE training_datasets SET total_tokens = ? WHERE id = ?")
+            .bind(150)
+            .bind(dataset_id)
+            .execute(db.pool())
+            .await
+            .map_err(|e| {
+                adapteros_core::AosError::Database(format!("Failed to update total_tokens: {}", e))
+            })?;
+    }
 
     // Create dataset file on disk
     let dataset_path = format!("var/datasets/{}.jsonl", dataset_id);
@@ -195,6 +238,9 @@ async fn test_e2e_training_workflow() -> Result<()> {
         rank: 8,
         alpha: 16,
         targets: vec!["q_proj".to_string(), "v_proj".to_string()],
+        training_contract_version: TRAINING_DATA_CONTRACT_VERSION.to_string(),
+        pad_token_id: 0,
+        ignore_index: 0,
         epochs: 1,
         learning_rate: 0.0001,
         batch_size: 2,
@@ -294,6 +340,7 @@ async fn test_e2e_training_workflow() -> Result<()> {
     // Step 8: Simulate training completion with adapter creation
     let adapter_id = format!("{}-adapter", adapter_name);
     let stack_id = format!("{}-stack", adapter_name);
+    let stack_name = format!("stack.e2e.{}", Uuid::new_v4().simple());
 
     // Create adapter record
     let adapter_params = AdapterRegistrationBuilder::new()
@@ -320,7 +367,7 @@ async fn test_e2e_training_workflow() -> Result<()> {
     )
     .bind(&stack_id)
     .bind(tenant_id)
-    .bind(format!("{} Stack", adapter_name))
+    .bind(&stack_name)
     .bind("E2E test stack")
     .bind(json!([adapter_id]).to_string())
     .execute(state.db.pool())
@@ -386,7 +433,11 @@ async fn test_e2e_training_workflow() -> Result<()> {
         Err(e) => panic!("Failed to get adapter: {}", e),
     };
 
-    assert_eq!(adapter.id, adapter_id, "Adapter ID should match");
+    assert_eq!(
+        adapter.adapter_id.as_deref(),
+        Some(adapter_id.as_str()),
+        "Adapter ID should match"
+    );
     assert_eq!(adapter.rank, 8, "Adapter rank should match config");
 
     // Step 11: Verify stack is accessible
@@ -450,8 +501,12 @@ async fn test_training_progress_monitoring() {
     let repo_id = format!("progress-repo-{}", Uuid::new_v4().simple());
 
     // Setup
-    create_test_tenant(&state.db, tenant_id).await.ok();
-    create_test_repo(&state.db, &repo_id, tenant_id).await.ok();
+    create_test_tenant(&state.db, tenant_id)
+        .await
+        .expect("Should create tenant");
+    create_test_repo(&state.db, &repo_id, tenant_id)
+        .await
+        .expect("Should create repo");
 
     // Create job
     sqlx::query(
@@ -553,8 +608,12 @@ async fn test_training_tenant_isolation() {
     let tenant_b = "isolation-tenant-b";
 
     // Create both tenants
-    create_test_tenant(&state.db, tenant_a).await.ok();
-    create_test_tenant(&state.db, tenant_b).await.ok();
+    create_test_tenant(&state.db, tenant_a)
+        .await
+        .expect("Should create tenant A");
+    create_test_tenant(&state.db, tenant_b)
+        .await
+        .expect("Should create tenant B");
 
     // Create datasets for each tenant
     let dataset_a = format!("dataset-a-{}", Uuid::new_v4().simple());
@@ -562,17 +621,21 @@ async fn test_training_tenant_isolation() {
 
     create_test_training_dataset(&state.db, &dataset_a, tenant_a)
         .await
-        .ok();
+        .expect("Should create dataset A");
     create_test_training_dataset(&state.db, &dataset_b, tenant_b)
         .await
-        .ok();
+        .expect("Should create dataset B");
 
     // Create repos
     let repo_a = format!("repo-a-{}", Uuid::new_v4().simple());
     let repo_b = format!("repo-b-{}", Uuid::new_v4().simple());
 
-    create_test_repo(&state.db, &repo_a, tenant_a).await.ok();
-    create_test_repo(&state.db, &repo_b, tenant_b).await.ok();
+    create_test_repo(&state.db, &repo_a, tenant_a)
+        .await
+        .expect("Should create repo A");
+    create_test_repo(&state.db, &repo_b, tenant_b)
+        .await
+        .expect("Should create repo B");
 
     // Create training jobs for each tenant
     let job_a = format!("job-a-{}", Uuid::new_v4().simple());

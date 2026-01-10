@@ -167,3 +167,49 @@ fn test_api_error_display() {
     let display = error.to_string();
     assert!(display.contains("timeout"));
 }
+
+// ============================================================================
+// Dataset wizard validation helpers
+// ============================================================================
+
+use adapteros_ui::pages::training::dataset_wizard::{
+    parse_csv_rows, parse_jsonl_rows, parse_text_rows, CsvMapping, TextStrategy,
+};
+
+#[wasm_bindgen_test]
+fn dataset_jsonl_requires_prompt_and_response() {
+    let content = r#"
+{"prompt":"Hi","response":"There","weight":1.2}
+{"prompt":"Missing target"}
+"#;
+    let result = parse_jsonl_rows(content, "sample.jsonl");
+    assert!(result.is_err());
+    let errors = result.unwrap_err();
+    assert!(errors.iter().any(|e| e.contains("target/response")));
+}
+
+#[wasm_bindgen_test]
+fn dataset_csv_weight_must_be_positive() {
+    let mapping = CsvMapping {
+        input_col: "input".to_string(),
+        target_col: "target".to_string(),
+        weight_col: Some("weight".to_string()),
+    };
+    let csv = "input,target,weight\nhello,world,0\n";
+    let result = parse_csv_rows(csv, &mapping, "rows.csv");
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .iter()
+        .any(|e| e.contains("weight must be > 0")));
+}
+
+#[wasm_bindgen_test]
+fn dataset_text_pairing_produces_pairs() {
+    let text = "Question one?\n\nAnswer one.\n\nQuestion two?\n\nAnswer two.";
+    let rows =
+        parse_text_rows(text, TextStrategy::PairAdjacent, "notes.md").expect("pairs should parse");
+    assert_eq!(rows.len(), 2);
+    assert!(rows[0].prompt.contains("Question one"));
+    assert!(rows[0].response.contains("Answer one"));
+}

@@ -7,7 +7,9 @@ mod tabs;
 
 use crate::api::{ApiClient, AuditLogsQuery};
 use crate::components::{Button, ButtonVariant};
-use crate::hooks::{use_api_resource, LoadingState};
+use crate::hooks::use_api_resource;
+#[cfg(debug_assertions)]
+use crate::hooks::LoadingState;
 use leptos::prelude::*;
 use std::sync::Arc;
 

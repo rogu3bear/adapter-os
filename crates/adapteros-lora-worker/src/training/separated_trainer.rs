@@ -3,7 +3,6 @@
 //! Trains separate LoRA weight sets for positive and negative examples,
 //! enabling better control over reinforcement learning and adversarial training.
 
-use adapteros_types::training::{weight_from_metadata, TrainingExampleV1 as TrainingExample};
 use super::trainer::{LoRAWeights, TrainingConfig};
 use adapteros_config::resolve_telemetry_dir;
 use adapteros_core::{derive_seed, AosError, B3Hash, Result};
@@ -12,6 +11,7 @@ use adapteros_single_file_adapter::{
     weights::combine_weight_groups,
 };
 use adapteros_telemetry::TelemetryWriter;
+use adapteros_types::training::{weight_from_metadata, TrainingExampleV1 as TrainingExample};
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
 use tracing::{debug, info};

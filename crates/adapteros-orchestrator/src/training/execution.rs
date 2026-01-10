@@ -6,10 +6,9 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use adapteros_core::{AosError, B3Hash, GuardLogLevel, SeedMode, SeedScopeGuard};
+use adapteros_db::ProtectedDb;
 use adapteros_deterministic_exec::spawn_deterministic;
-use adapteros_lora_worker::training::trainer::{
-    EpochMetrics as WorkerEpochMetrics, OptimizerType,
-};
+use adapteros_lora_worker::training::trainer::{EpochMetrics as WorkerEpochMetrics, OptimizerType};
 use adapteros_lora_worker::training::{
     preprocessing::preprocess_examples, split_examples_for_validation,
     MicroLoRATrainer as WorkerTrainer, PreprocessCompression as WorkerPreprocessCompression,
@@ -17,12 +16,8 @@ use adapteros_lora_worker::training::{
     TrainingExample as WorkerTrainingExample,
 };
 use adapteros_types::training::{
-    ExampleMetadataV1,
-    OptimizerConfigSummary,
-    PreprocessCompression as ApiPreprocessCompression,
-    PreprocessingConfig as ApiPreprocessingConfig,
-    TrainingDataContractConfig,
-    TRAINING_DATA_CONTRACT_VERSION,
+    ExampleMetadataV1, OptimizerConfigSummary, PreprocessCompression as ApiPreprocessCompression,
+    PreprocessingConfig as ApiPreprocessingConfig, TrainingDataContractConfig,
 };
 use anyhow::Result;
 use blake3::Hasher;
@@ -34,7 +29,9 @@ use crate::training::dataset::weighted_round_robin_merge;
 use crate::training::job::{DataLineageMode, TrainingConfig, TrainingJob, TrainingJobStatus};
 use crate::training::metrics::persist_final_metrics;
 use crate::training::packaging::{load_plan_bytes_for_training, package_and_register_adapter};
-use crate::training::pipeline::{PhaseStatus, PipelineConfigSnapshot, PipelinePhase, TrainingPipeline};
+use crate::training::pipeline::{
+    PhaseStatus, PipelineConfigSnapshot, PipelinePhase, TrainingPipeline,
+};
 use crate::training::report::write_training_report;
 use crate::training::versioning::VersioningSnapshot;
 
@@ -265,7 +262,7 @@ pub(crate) async fn run_training_job(
                 &pipeline_training_config_hash,
                 &base_model_hash,
                 dataset_id.as_deref(),
-                TRAINING_DATA_CONTRACT_VERSION,
+                orchestrator_cfg.training_contract_version.as_str(),
             )
             .await?;
 
@@ -330,8 +327,11 @@ pub(crate) async fn run_training_job(
         ) {
             (Some(version_selections), _, Some(database), Some(storage)) => {
                 use crate::training_dataset_integration::TrainingDatasetManager;
-                let dataset_manager =
-                    TrainingDatasetManager::new(database, storage, tokenizer_path.clone());
+                let dataset_manager = TrainingDatasetManager::new(
+                    ProtectedDb::new(database),
+                    storage,
+                    tokenizer_path.clone(),
+                );
                 dataset_source = "dataset_versions";
 
                 if version_selections.is_empty() {
@@ -379,8 +379,11 @@ pub(crate) async fn run_training_job(
             }
             (_, Some(ds_id), Some(database), Some(storage)) => {
                 use crate::training_dataset_integration::TrainingDatasetManager;
-                let dataset_manager =
-                    TrainingDatasetManager::new(database, storage, tokenizer_path.clone());
+                let dataset_manager = TrainingDatasetManager::new(
+                    ProtectedDb::new(database),
+                    storage,
+                    tokenizer_path.clone(),
+                );
                 dataset_source = "dataset_id";
                 dataset_ids_for_receipt.push(ds_id.clone());
                 dataset_manager
@@ -1564,9 +1567,8 @@ fn hash_examples_for_receipt(examples: &[WorkerTrainingExample]) -> String {
 fn hash_training_result_for_receipt(
     training_result: &adapteros_lora_worker::training::trainer::TrainingResult,
 ) -> Result<String> {
-    let bytes = serde_json::to_vec(training_result).map_err(|e| {
-        anyhow::anyhow!("Failed to serialize training result for hashing: {}", e)
-    })?;
+    let bytes = serde_json::to_vec(training_result)
+        .map_err(|e| anyhow::anyhow!("Failed to serialize training result for hashing: {}", e))?;
     Ok(B3Hash::hash(&bytes).to_hex().to_string())
 }
 
@@ -1628,8 +1630,7 @@ async fn resolve_training_config_hash(
 ) -> String {
     let from_job = {
         let jobs = jobs_ref.read().await;
-        jobs.get(job_id)
-            .and_then(|job| job.config_hash_b3.clone())
+        jobs.get(job_id).and_then(|job| job.config_hash_b3.clone())
     };
     if let Some(hash) = from_job {
         return hash;
@@ -1647,20 +1648,15 @@ async fn resolve_training_config_hash(
         .unwrap_or_else(|_| "unknown".to_string())
 }
 
-fn compute_pipeline_training_config_hash(
-    worker_cfg: &WorkerTrainingConfig,
-) -> Result<String> {
+fn compute_pipeline_training_config_hash(worker_cfg: &WorkerTrainingConfig) -> Result<String> {
     let mut snapshot = worker_cfg.clone();
     snapshot.base_model_path = None;
-    let bytes = serde_json::to_vec(&snapshot).map_err(|e| {
-        anyhow::anyhow!("Failed to serialize pipeline training config: {}", e)
-    })?;
+    let bytes = serde_json::to_vec(&snapshot)
+        .map_err(|e| anyhow::anyhow!("Failed to serialize pipeline training config: {}", e))?;
     Ok(B3Hash::hash(&bytes).to_hex().to_string())
 }
 
-fn compute_pipeline_base_model_hash(
-    base_model_path: Option<&PathBuf>,
-) -> Result<String> {
+fn compute_pipeline_base_model_hash(base_model_path: Option<&PathBuf>) -> Result<String> {
     let Some(model_path) = base_model_path else {
         return Ok("unknown".to_string());
     };
@@ -1680,9 +1676,8 @@ fn compute_pipeline_base_model_hash(
 }
 
 fn hash_preprocess_config(config: &WorkerPreprocessingConfig) -> Result<String> {
-    let bytes = serde_json::to_vec(config).map_err(|e| {
-        anyhow::anyhow!("Failed to serialize preprocessing config: {}", e)
-    })?;
+    let bytes = serde_json::to_vec(config)
+        .map_err(|e| anyhow::anyhow!("Failed to serialize preprocessing config: {}", e))?;
     Ok(B3Hash::hash(&bytes).to_hex().to_string())
 }
 
@@ -1727,8 +1722,12 @@ fn map_preprocess_compression(
 fn map_preprocessing_config(config: ApiPreprocessingConfig) -> WorkerPreprocessingConfig {
     use adapteros_lora_worker::training::PreprocessOutputFeature as WorkerOutputFeature;
     let output_feature = match config.output_feature {
-        adapteros_types::training::PreprocessOutputFeature::Embedding => WorkerOutputFeature::Embedding,
-        adapteros_types::training::PreprocessOutputFeature::HiddenStateLast => WorkerOutputFeature::HiddenStateLast,
+        adapteros_types::training::PreprocessOutputFeature::Embedding => {
+            WorkerOutputFeature::Embedding
+        }
+        adapteros_types::training::PreprocessOutputFeature::HiddenStateLast => {
+            WorkerOutputFeature::HiddenStateLast
+        }
         adapteros_types::training::PreprocessOutputFeature::Pooled => WorkerOutputFeature::Pooled,
     };
     WorkerPreprocessingConfig {

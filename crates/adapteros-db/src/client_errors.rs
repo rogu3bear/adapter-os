@@ -379,7 +379,9 @@ impl Db {
         }
         if http_status_pattern.is_some() {
             // Handle patterns like '4xx', '5xx', or specific codes
-            sql.push_str(" AND (CAST(http_status AS TEXT) LIKE ? OR http_status = CAST(? AS INTEGER))");
+            sql.push_str(
+                " AND (CAST(http_status AS TEXT) LIKE ? OR http_status = CAST(? AS INTEGER))",
+            );
         }
         if page_pattern.is_some() {
             sql.push_str(" AND page LIKE ?");
@@ -394,9 +396,7 @@ impl Db {
         }
         if let Some(status_pattern) = http_status_pattern {
             // Convert '4xx' to '4%', '5xx' to '5%' for LIKE matching
-            let like_pattern = status_pattern
-                .replace("xx", "%")
-                .replace("XX", "%");
+            let like_pattern = status_pattern.replace("xx", "%").replace("XX", "%");
             q = q.bind(like_pattern).bind(status_pattern.to_string());
         }
         if let Some(page) = page_pattern {
@@ -636,7 +636,9 @@ impl Db {
         sample_error_ids: Option<&[String]>,
     ) -> Result<String> {
         let id = Uuid::now_v7().to_string();
-        let sample_ids_json = sample_error_ids.map(|ids| serde_json::to_string(ids).ok()).flatten();
+        let sample_ids_json = sample_error_ids
+            .map(|ids| serde_json::to_string(ids).ok())
+            .flatten();
 
         sqlx::query(
             r#"

@@ -796,8 +796,14 @@ async fn build_dataset(args: BuildArgs, output: &OutputWriter) -> Result<()> {
     // Build column mapping for CSV
     let column_mapping = if args.input_col.is_some() || args.target_col.is_some() {
         Some(ColumnMapping {
-            input_col: args.input_col.clone().unwrap_or_else(|| "input".to_string()),
-            target_col: args.target_col.clone().unwrap_or_else(|| "target".to_string()),
+            input_col: args
+                .input_col
+                .clone()
+                .unwrap_or_else(|| "input".to_string()),
+            target_col: args
+                .target_col
+                .clone()
+                .unwrap_or_else(|| "target".to_string()),
             weight_col: None,
         })
     } else {
@@ -847,7 +853,7 @@ async fn build_dataset(args: BuildArgs, output: &OutputWriter) -> Result<()> {
         }
     } else {
         return Err(AosError::Validation(
-            "Either source path or --git URL required".into()
+            "Either source path or --git URL required".into(),
         ));
     };
 

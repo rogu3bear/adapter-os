@@ -408,6 +408,8 @@
 
 /* Scrollable dialog variant with max-height constraint */
 .dialog-scrollable {
+    top: 5vh;
+    transform: translateX(-50%);
     max-height: 90vh;
     overflow-y: auto;
 }

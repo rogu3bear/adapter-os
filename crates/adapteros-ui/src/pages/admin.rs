@@ -308,9 +308,8 @@ fn RolesSection() -> impl IntoView {
 #[component]
 fn ApiKeysSection() -> impl IntoView {
     // Fetch API keys from API
-    let (keys, refetch) = use_api_resource(move |client: Arc<ApiClient>| async move {
-        client.list_api_keys().await
-    });
+    let (keys, refetch) =
+        use_api_resource(move |client: Arc<ApiClient>| async move { client.list_api_keys().await });
 
     let refetch_signal = StoredValue::new(refetch);
 
@@ -745,10 +744,11 @@ async fn copy_to_clipboard(text: &str) -> bool {
     };
 
     // Call writeText method
-    let write_text_fn = match js_sys::Reflect::get(&clipboard, &wasm_bindgen::JsValue::from_str("writeText")) {
-        Ok(f) => f,
-        Err(_) => return false,
-    };
+    let write_text_fn =
+        match js_sys::Reflect::get(&clipboard, &wasm_bindgen::JsValue::from_str("writeText")) {
+            Ok(f) => f,
+            Err(_) => return false,
+        };
 
     let write_text_fn = match write_text_fn.dyn_ref::<js_sys::Function>() {
         Some(f) => f,

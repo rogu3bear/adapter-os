@@ -9,7 +9,7 @@
 
 use adapteros_config::resolve_tokenizer_path;
 use adapteros_core::{AosError, Result};
-use adapteros_db::Db;
+use adapteros_db::{Db, ProtectedDb};
 use adapteros_ingest_docs::{
     default_ingest_options, generate_training_data, load_tokenizer, DocumentIngestor,
     TrainingExample as IngestTrainingExample, TrainingGenConfig, TrainingStrategy,
@@ -20,7 +20,7 @@ use adapteros_types::training::{provenance_from_map, ExampleMetadataV1};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::fs::File;
@@ -29,7 +29,7 @@ use tracing::{debug, info};
 
 /// Training dataset manager for creating and managing training datasets
 pub struct TrainingDatasetManager {
-    db: Db,
+    db: ProtectedDb,
     storage_root: PathBuf,
     tokenizer_path: Option<PathBuf>,
 }
@@ -102,7 +102,7 @@ pub struct DatasetCreationResult {
 
 impl TrainingDatasetManager {
     /// Create a new training dataset manager
-    pub fn new(db: Db, storage_root: PathBuf, tokenizer_path: Option<PathBuf>) -> Self {
+    pub fn new(db: ProtectedDb, storage_root: PathBuf, tokenizer_path: Option<PathBuf>) -> Self {
         Self {
             db,
             storage_root,
@@ -241,10 +241,16 @@ impl TrainingDatasetManager {
             .map(|ex| ex.input_tokens.len() + ex.target_tokens.len())
             .sum();
 
-        let avg_input_length = all_examples.iter().map(|ex| ex.input_tokens.len()).sum::<usize>() as f64
+        let avg_input_length = all_examples
+            .iter()
+            .map(|ex| ex.input_tokens.len())
+            .sum::<usize>() as f64
             / all_examples.len() as f64;
 
-        let avg_target_length = all_examples.iter().map(|ex| ex.target_tokens.len()).sum::<usize>() as f64
+        let avg_target_length = all_examples
+            .iter()
+            .map(|ex| ex.target_tokens.len())
+            .sum::<usize>() as f64
             / all_examples.len() as f64;
 
         // Create storage directory if it doesn't exist
@@ -450,15 +456,15 @@ impl TrainingDatasetManager {
             if tokenizer.is_none() {
                 tokenizer = Some(self.load_text_tokenizer()?);
             }
-            let tokenizer_ref = tokenizer.as_ref().ok_or_else(|| {
-                AosError::Internal("Failed to initialize tokenizer".to_string())
-            })?;
+            let tokenizer_ref = tokenizer
+                .as_ref()
+                .ok_or_else(|| AosError::Internal("Failed to initialize tokenizer".to_string()))?;
 
             let input = tokenizer_ref.encode(prompt)?;
             let target = tokenizer_ref.encode(response)?;
-            let pad_token_id = tokenizer_ref.pad_token_id().ok_or_else(|| {
-                AosError::Internal("Tokenizer missing pad_token_id".to_string())
-            })?;
+            let pad_token_id = tokenizer_ref
+                .pad_token_id()
+                .ok_or_else(|| AosError::Internal("Tokenizer missing pad_token_id".to_string()))?;
 
             if input.is_empty() || target.is_empty() {
                 return Err(AosError::Internal(format!(
@@ -492,16 +498,12 @@ impl TrainingDatasetManager {
                 for (key, value) in metadata_obj {
                     let flat_value = flatten_metadata_value(value);
                     if !flat_value.is_empty() {
-                        provenance.insert(
-                            key.clone(),
-                            serde_json::Value::String(flat_value),
-                        );
+                        provenance.insert(key.clone(), serde_json::Value::String(flat_value));
                     }
                 }
             }
-            let provenance = provenance_from_map(&provenance).map_err(|e| {
-                AosError::Internal(format!("Failed to serialize metadata: {}", e))
-            })?;
+            let provenance = provenance_from_map(&provenance)
+                .map_err(|e| AosError::Internal(format!("Failed to serialize metadata: {}", e)))?;
             let created_at = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map(|d| d.as_millis() as u64)
@@ -569,10 +571,13 @@ mod tests {
         TempDir::new_in(&root).expect("tempdir")
     }
 
-    fn make_example(input_tokens: Vec<u32>, target_tokens: Vec<u32>, row_id: u64) -> WorkerTrainingExample {
+    fn make_example(
+        input_tokens: Vec<u32>,
+        target_tokens: Vec<u32>,
+        row_id: u64,
+    ) -> WorkerTrainingExample {
         let metadata = ExampleMetadataV1::new("test", row_id, "{}", 0);
-        let attention_mask =
-            WorkerTrainingExample::attention_mask_from_tokens(&input_tokens, 0);
+        let attention_mask = WorkerTrainingExample::attention_mask_from_tokens(&input_tokens, 0);
         WorkerTrainingExample::new(input_tokens, target_tokens, attention_mask, metadata)
     }
 
@@ -640,7 +645,8 @@ mod tests {
         let db_path = temp_dir.path().join("test.db");
         let db = Db::connect(db_path.to_str().unwrap()).await.unwrap();
 
-        let manager = TrainingDatasetManager::new(db, temp_dir.path().to_path_buf(), None);
+        let manager =
+            TrainingDatasetManager::new(ProtectedDb::new(db), temp_dir.path().to_path_buf(), None);
 
         // Create test examples
         let examples = vec![
@@ -673,15 +679,18 @@ mod tests {
         let dataset_path = temp_dir.path().join("dataset.jsonl");
 
         // Prepare on-disk dataset file with a single training example
-        let example_json =
-            serde_json::to_string(&make_example(vec![1, 2], vec![3, 4], 1)).unwrap();
+        let example_json = serde_json::to_string(&make_example(vec![1, 2], vec![3, 4], 1)).unwrap();
         tokio::fs::write(&dataset_path, format!("{}\n", example_json))
             .await
             .unwrap();
 
         // Create in-memory DB with minimal schema (skip global migrations)
         let db = minimal_dataset_db().await;
-        let manager = TrainingDatasetManager::new(db.clone(), temp_dir.path().to_path_buf(), None);
+        let manager = TrainingDatasetManager::new(
+            ProtectedDb::new(db.clone()),
+            temp_dir.path().to_path_buf(),
+            None,
+        );
         let hash = manager.compute_file_hash(&dataset_path).await.unwrap();
 
         sqlx::query(
@@ -731,7 +740,11 @@ mod tests {
             .unwrap();
 
         let db = minimal_dataset_db().await;
-        let manager = TrainingDatasetManager::new(db.clone(), temp_dir.path().to_path_buf(), None);
+        let manager = TrainingDatasetManager::new(
+            ProtectedDb::new(db.clone()),
+            temp_dir.path().to_path_buf(),
+            None,
+        );
         let hash = manager.compute_file_hash(&dataset_path).await.unwrap();
 
         sqlx::query(

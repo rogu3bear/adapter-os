@@ -73,10 +73,9 @@ async fn pipeline_persists_and_resumes() {
     let temp = TempDir::new().expect("temp dir");
     let snapshot = snapshot_with_dataset(Some("dataset-1"));
 
-    let mut pipeline =
-        TrainingPipeline::load_or_init("job-1", snapshot.clone(), Some(temp.path()))
-            .await
-            .expect("pipeline init");
+    let mut pipeline = TrainingPipeline::load_or_init("job-1", snapshot.clone(), Some(temp.path()))
+        .await
+        .expect("pipeline init");
     pipeline
         .seed_receipt(
             "cfg-hash",
@@ -143,10 +142,9 @@ async fn pipeline_persists_and_resumes() {
 
     drop(pipeline);
 
-    let pipeline =
-        TrainingPipeline::load_or_init("job-1", snapshot.clone(), Some(temp.path()))
-            .await
-            .expect("pipeline reload");
+    let pipeline = TrainingPipeline::load_or_init("job-1", snapshot.clone(), Some(temp.path()))
+        .await
+        .expect("pipeline reload");
     assert_eq!(pipeline.current_phase(), PipelinePhase::TrainingLoop);
     assert!(pipeline.receipt(PipelinePhase::DatasetBuild).is_some());
 }
@@ -156,12 +154,11 @@ async fn pipeline_resumes_in_progress_phase() {
     let temp = TempDir::new().expect("temp dir");
     let snapshot = snapshot_with_dataset(Some("dataset-1"));
 
-    let mut pipeline =
-        TrainingPipeline::load_or_init("job-1", snapshot.clone(), Some(temp.path()))
-            .await
-            .expect("pipeline init");
+    let mut pipeline = TrainingPipeline::load_or_init("job-1", snapshot.clone(), Some(temp.path()))
+        .await
+        .expect("pipeline init");
     pipeline
-        .seed_receipt("cfg-hash", "base-hash", Some("dataset-1"))
+        .seed_receipt("cfg-hash", "base-hash", Some("dataset-1"), "1.0")
         .await
         .unwrap();
     pipeline
@@ -170,10 +167,9 @@ async fn pipeline_resumes_in_progress_phase() {
         .unwrap();
     drop(pipeline);
 
-    let mut pipeline =
-        TrainingPipeline::load_or_init("job-1", snapshot, Some(temp.path()))
-            .await
-            .expect("pipeline reload");
+    let mut pipeline = TrainingPipeline::load_or_init("job-1", snapshot, Some(temp.path()))
+        .await
+        .expect("pipeline reload");
     pipeline
         .enter_phase(PipelinePhase::DatasetBuild)
         .await
@@ -201,10 +197,9 @@ async fn pipeline_resume_guard_rejects_mismatch() {
     let temp = TempDir::new().expect("temp dir");
     let snapshot = snapshot_with_dataset(Some("dataset-1"));
 
-    let mut pipeline =
-        TrainingPipeline::load_or_init("job-1", snapshot.clone(), Some(temp.path()))
-            .await
-            .expect("pipeline init");
+    let mut pipeline = TrainingPipeline::load_or_init("job-1", snapshot.clone(), Some(temp.path()))
+        .await
+        .expect("pipeline init");
     pipeline
         .seed_receipt(
             "cfg-hash",
@@ -363,12 +358,11 @@ async fn pipeline_persists_training_result() {
     let temp = TempDir::new().expect("temp dir");
     let snapshot = snapshot_with_dataset(Some("dataset-1"));
 
-    let mut pipeline =
-        TrainingPipeline::load_or_init("job-1", snapshot, Some(temp.path()))
-            .await
-            .expect("pipeline init");
+    let mut pipeline = TrainingPipeline::load_or_init("job-1", snapshot, Some(temp.path()))
+        .await
+        .expect("pipeline init");
     pipeline
-        .seed_receipt("cfg-hash", "base-hash", Some("dataset-1"))
+        .seed_receipt("cfg-hash", "base-hash", Some("dataset-1"), "1.0")
         .await
         .unwrap();
 

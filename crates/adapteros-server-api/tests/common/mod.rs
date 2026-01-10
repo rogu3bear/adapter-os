@@ -6,10 +6,11 @@ pub use test_failure_bundle::*;
 use std::sync::{Arc, RwLock};
 use std::{env, path::Path, path::PathBuf};
 
+use adapteros_api_types::{workers::WorkerCapabilities, API_SCHEMA_VERSION};
 use adapteros_core::{BackendKind, SeedMode};
 use adapteros_db::models::ModelRegistrationBuilder;
-use adapteros_db::Db;
 use adapteros_db::workers::WorkerRegistrationParams;
+use adapteros_db::Db;
 use adapteros_lora_worker::memory::UmaPressureMonitor;
 use adapteros_metrics_exporter::MetricsExporter;
 use adapteros_server_api::auth::{AuthMode, Claims, PrincipalType};
@@ -19,7 +20,6 @@ use adapteros_server_api::telemetry::MetricsRegistry;
 use adapteros_telemetry::MetricsCollector;
 use once_cell::sync::Lazy;
 use tokio::sync::{Mutex, MutexGuard};
-use adapteros_api_types::{workers::WorkerCapabilities, API_SCHEMA_VERSION};
 
 /// Global lock to serialize environment mutations across tests.
 pub static ENV_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
