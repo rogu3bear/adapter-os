@@ -9,7 +9,7 @@ mod components;
 mod icons;
 mod utils;
 
-use crate::api::{use_sse_json, ApiClient, SseState};
+use crate::api::{use_sse_json_events, ApiClient, SseState};
 use crate::components::{ErrorDisplay, Spinner};
 use crate::hooks::{use_api_resource, use_polling, use_sse_notifications, LoadingState};
 use crate::pages::workers::dialogs::{PlanOption, SpawnWorkerDialog};
@@ -77,8 +77,10 @@ pub fn System() -> impl IntoView {
     let last_sse_update = RwSignal::new(Option::<String>::None);
 
     // SSE connection for worker status stream
-    let (sse_status, _reconnect) =
-        use_sse_json::<WorkerStreamEvent, _>("/v1/stream/workers", move |event| {
+    let (sse_status, _reconnect) = use_sse_json_events::<WorkerStreamEvent, _>(
+        "/v1/stream/workers",
+        &["workers"],
+        move |event| {
             match event {
                 WorkerStreamEvent::FullList { workers: _ } => {
                     // When we receive a full list, clear overrides and trigger refetch
@@ -100,7 +102,8 @@ pub fn System() -> impl IntoView {
                     // Heartbeat received, connection is healthy
                 }
             }
-        });
+        },
+    );
 
     // Bridge SSE connection state to user notifications
     use_sse_notifications(sse_status.read_only());

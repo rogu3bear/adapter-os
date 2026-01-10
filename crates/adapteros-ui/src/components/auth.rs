@@ -15,7 +15,13 @@ use leptos::prelude::*;
 pub fn ProtectedRoute(children: Children) -> impl IntoView {
     web_sys::console::log_1(&"[ProtectedRoute] Rendering...".into());
     let (auth_state, auth_action) = use_auth();
-    web_sys::console::log_1(&format!("[ProtectedRoute] Auth state: {:?}", auth_state.get()).into());
+    web_sys::console::log_1(
+        &format!(
+            "[ProtectedRoute] Auth state: {:?}",
+            auth_state.get_untracked()
+        )
+        .into(),
+    );
 
     // Render children once - they'll be shown/hidden based on auth state
     let rendered_children = children();

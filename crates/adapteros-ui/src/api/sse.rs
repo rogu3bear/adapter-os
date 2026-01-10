@@ -215,11 +215,7 @@ impl SseConnection {
             {
                 Ok(()) => true,
                 Err(e) => {
-                    tracing::warn!(
-                        "Failed to add event listener for '{}': {:?}",
-                        event_type,
-                        e
-                    );
+                    tracing::warn!("Failed to add event listener for '{}': {:?}", event_type, e);
                     false
                 }
             }

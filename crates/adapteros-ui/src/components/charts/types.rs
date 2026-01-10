@@ -122,50 +122,69 @@ impl TimeSeriesData {
 
     /// Calculate the actual X range from data.
     pub fn calc_x_range(&self) -> (u64, u64) {
-        let mut min = u64::MAX;
-        let mut max = 0u64;
+        let mut data_min: Option<u64> = None;
+        let mut data_max: Option<u64> = None;
 
         for series in &self.series {
             for point in &series.points {
-                min = min.min(point.timestamp);
-                max = max.max(point.timestamp);
+                data_min = Some(match data_min {
+                    Some(min) => min.min(point.timestamp),
+                    None => point.timestamp,
+                });
+                data_max = Some(match data_max {
+                    Some(max) => max.max(point.timestamp),
+                    None => point.timestamp,
+                });
             }
         }
 
-        let x_min = self.x_min.unwrap_or(min);
-        let x_max = self.x_max.unwrap_or(max);
+        let x_min = self.x_min.or(data_min).unwrap_or(0);
+        let mut x_max = self.x_max.or(data_max).unwrap_or(x_min);
 
         // Ensure non-zero range
         if x_max <= x_min {
-            (x_min, x_min + 1)
-        } else {
-            (x_min, x_max)
+            if let Some(next) = x_min.checked_add(1) {
+                x_max = next;
+            } else {
+                let prev = x_min.saturating_sub(1);
+                return (prev, x_min);
+            }
         }
+
+        (x_min, x_max)
     }
 
     /// Calculate the actual Y range from data.
     pub fn calc_y_range(&self) -> (f64, f64) {
-        let mut min = f64::MAX;
-        let mut max = f64::MIN;
+        let mut data_min: Option<f64> = None;
+        let mut data_max: Option<f64> = None;
 
         for series in &self.series {
             for point in &series.points {
                 if point.value.is_finite() {
-                    min = min.min(point.value);
-                    max = max.max(point.value);
+                    data_min = Some(match data_min {
+                        Some(min) => min.min(point.value),
+                        None => point.value,
+                    });
+                    data_max = Some(match data_max {
+                        Some(max) => max.max(point.value),
+                        None => point.value,
+                    });
                 }
             }
         }
 
-        let y_min = self.y_min.unwrap_or(min);
-        let y_max = self.y_max.unwrap_or(max);
+        let y_min = self.y_min.or(data_min).unwrap_or(0.0);
+        let mut y_max = self.y_max.or(data_max).unwrap_or(y_min);
 
         // Ensure non-zero range with 10% headroom
-        if (y_max - y_min).abs() < f64::EPSILON {
-            (y_min, y_min + 1.0)
+        if y_max <= y_min || (y_max - y_min).abs() < f64::EPSILON {
+            y_max = y_min + 1.0;
         } else {
-            (y_min, y_max * 1.1)
+            y_max *= 1.1;
         }
+
+        (y_min, y_max)
     }
 
     /// Check if there's any data to display.
@@ -410,6 +429,17 @@ mod tests {
         let (y_min, y_max) = data.calc_y_range();
         assert_eq!(y_min, 10.0);
         assert!((y_max - 55.0).abs() < 0.01); // 50 * 1.1
+    }
+
+    #[test]
+    fn test_time_series_empty_range() {
+        let data = TimeSeriesData::new();
+        let (x_min, x_max) = data.calc_x_range();
+        assert_eq!(x_min, 0);
+        assert_eq!(x_max, 1);
+        let (y_min, y_max) = data.calc_y_range();
+        assert_eq!(y_min, 0.0);
+        assert_eq!(y_max, 1.0);
     }
 
     #[test]
