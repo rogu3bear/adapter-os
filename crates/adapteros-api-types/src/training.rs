@@ -1842,3 +1842,108 @@ pub struct TrainingQueueJobSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tenant_id: Option<String>,
 }
+
+// ============================================================================
+// Dataset Generation Types
+// ============================================================================
+
+/// Strategy for generating training samples from raw text
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum GenerationStrategy {
+    /// Generate question-answer pairs from content
+    #[default]
+    Qa,
+    /// Generate summary instruction-response pairs
+    Summary,
+}
+
+impl GenerationStrategy {
+    /// Returns the strategy as a string
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            GenerationStrategy::Qa => "qa",
+            GenerationStrategy::Summary => "summary",
+        }
+    }
+}
+
+impl std::fmt::Display for GenerationStrategy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+fn default_chunk_size() -> usize {
+    2000
+}
+
+fn default_gen_max_tokens() -> u32 {
+    512
+}
+
+/// Request to generate a dataset from uploaded file content.
+///
+/// This is used with multipart form data - the file is uploaded separately
+/// and these parameters are sent as form fields.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct GenerateDatasetRequest {
+    /// Name for the generated dataset (auto-generated from filename if empty)
+    #[serde(default)]
+    pub name: String,
+    /// Generation strategy (qa or summary)
+    #[serde(default)]
+    pub strategy: GenerationStrategy,
+    /// Target chunk size in characters (default: 2000)
+    #[serde(default = "default_chunk_size")]
+    pub chunk_size: usize,
+    /// Max tokens per inference call (default: 512)
+    #[serde(default = "default_gen_max_tokens")]
+    pub max_tokens: u32,
+    /// Optional description for the dataset
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// A single generated sample for preview
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct GeneratedSample {
+    /// The instruction/prompt part of the training pair
+    pub instruction: String,
+    /// The response/answer part of the training pair
+    pub response: String,
+    /// Index of the source chunk this was generated from
+    pub source_chunk_index: usize,
+}
+
+/// Response after generating a dataset from file content
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct GenerateDatasetResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
+    /// ID of the created dataset
+    pub dataset_id: String,
+    /// Dataset version ID
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dataset_version_id: Option<String>,
+    /// Name of the dataset
+    pub name: String,
+    /// Number of samples generated
+    pub sample_count: usize,
+    /// Total tokens used during generation
+    pub total_tokens_used: u64,
+    /// Preview of first N samples (up to 25)
+    pub preview: Vec<GeneratedSample>,
+    /// Number of chunks that failed generation
+    pub failed_chunks: usize,
+    /// BLAKE3 hash of the dataset
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dataset_hash_b3: Option<String>,
+}
