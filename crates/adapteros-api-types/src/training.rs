@@ -41,20 +41,24 @@
 
 #[cfg(feature = "server")]
 use adapteros_core::B3Hash;
+use adapteros_types::training::TrainingReportV1;
 #[cfg(feature = "server")]
 use adapteros_types::{
     coreml::CoreMLPlacementSpec,
     training::{
         BranchClassification, DataLineageMode,
-        DatasetVersionSelection as CoreDatasetVersionSelection, LoraTier, TrainingBackendKind,
-        PreprocessingConfig, TrainingBackendPolicy, TrainingConfig, TrainingJob, TrainingTemplate,
-        TRAINING_DATA_CONTRACT_VERSION,
+        DatasetVersionSelection as CoreDatasetVersionSelection, LoraTier, TrainingConfig,
+        TrainingJob, TrainingTemplate,
     },
 };
-use adapteros_types::training::TrainingReportV1;
 use serde::{Deserialize, Serialize};
 
-use crate::schema_version;
+use crate::{model_status::ModelLoadStatus, schema_version};
+
+/// Current training data contract version and backend enums (re-exported for clients).
+pub use adapteros_types::training::{
+    TrainingBackendKind, TrainingBackendPolicy, TRAINING_DATA_CONTRACT_VERSION,
+};
 
 // ===== Deprecation Constants =====
 
@@ -63,6 +67,99 @@ use crate::schema_version;
 /// Fields marked with this constant will be removed in the specified version.
 /// Used for consistent deprecation messaging across the crate.
 pub const DEPRECATED_FIELD_SUNSET_VERSION: &str = "2.0.0";
+
+/// Backend readiness response for training flows.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct TrainingBackendReadinessResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
+    /// Caller-requested backend (coreml/metal/mlx/cpu/auto).
+    #[cfg_attr(feature = "server", schema(value_type = String))]
+    pub requested_backend: TrainingBackendKind,
+    /// Backend policy controlling fallback semantics.
+    #[cfg_attr(feature = "server", schema(value_type = String))]
+    pub backend_policy: TrainingBackendPolicy,
+    /// Backend the system will actually use based on availability/policy.
+    #[cfg_attr(feature = "server", schema(value_type = String))]
+    pub resolved_backend: TrainingBackendKind,
+    /// Explicit fallback when CoreML is unavailable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "server", schema(value_type = Option<String>))]
+    pub fallback_backend: Option<TrainingBackendKind>,
+    /// Reason for falling back (e.g., coreml_unavailable, policy_fallback).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fallback_reason: Option<String>,
+    /// Whether training can start with the resolved backend.
+    pub ready: bool,
+    /// Non-fatal warnings (e.g., silent fallback, missing ANE/GPU).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
+    /// Hardware/backend capability snapshot.
+    pub capabilities: TrainingBackendCapabilities,
+    /// CoreML-specific readiness details (empty when CoreML unsupported).
+    pub coreml: TrainingCoremlReadiness,
+    /// Latest base model lifecycle state for the tenant (if available).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_model: Option<TrainingBaseModelReadiness>,
+}
+
+/// Hardware/backend capabilities relevant to training backend selection.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct TrainingBackendCapabilities {
+    pub has_coreml: bool,
+    pub has_ane: bool,
+    pub has_metal: bool,
+    pub has_mlx: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub has_mlx_bridge: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metal_device_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gpu_memory_bytes: Option<u64>,
+}
+
+/// CoreML readiness state, including compute units chosen after fallback.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct TrainingCoremlReadiness {
+    pub available: bool,
+    pub gpu_available: bool,
+    pub ane_available: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compute_units_preference: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compute_units_effective: Option<String>,
+    pub gpu_used: bool,
+    pub ane_used: bool,
+    pub production_mode: bool,
+}
+
+/// Base model lifecycle/retry hints derived from BaseModelState persistence.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct TrainingBaseModelReadiness {
+    /// Model load status (loading/ready/error/unloaded).
+    pub status: ModelLoadStatus,
+    /// Model identifier if a base model is registered.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    /// Human-readable model name when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_name: Option<String>,
+    /// Error surfaced by the worker for the latest lifecycle transition.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
+    /// Whether automatic retries have been exhausted.
+    pub retry_exhausted: bool,
+    /// Maximum retries allowed by BaseModelState.
+    pub max_retries: u32,
+}
 
 // ===== Core Enums =====
 
@@ -334,7 +431,7 @@ pub struct TrainingConfigRequest {
     pub base_model_path: Option<std::path::PathBuf>,
     /// Optional CoreML preprocessing stage configuration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub preprocessing: Option<PreprocessingConfig>,
+    pub preprocessing: Option<adapteros_types::training::PreprocessingConfig>,
     /// Force resume even when pipeline/checkpoint compatibility checks fail.
     #[serde(default)]
     pub force_resume: Option<bool>,
@@ -441,6 +538,47 @@ pub struct StartTrainingRequest {
     // Post-training actions
     /// Actions to perform after training completes
     pub post_actions: Option<PostActionsRequest>,
+}
+
+/// Request cache status for CoreML preprocessing.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct PreprocessStatusRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dataset_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dataset_version_id: Option<String>,
+    pub base_model_id: String,
+    pub preprocessing: adapteros_types::training::PreprocessingConfig,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub training_seed: Option<u64>,
+}
+
+/// Preprocessing cache compatibility and manifest summary.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct PreprocessStatusResponse {
+    pub preprocess_id: String,
+    pub cache_key_b3: String,
+    pub cache_dir: String,
+    pub manifest_hash_b3: String,
+    pub produced_at_unix_ms: Option<u64>,
+    pub feature_dtype: String,
+    pub backend: String,
+    pub compression: String,
+    pub cache_hit: bool,
+    pub needs_reprocess: bool,
+    pub reasons: Vec<String>,
+    pub dataset_hash_b3: String,
+    pub tokenizer_hash_b3: String,
+    pub tokenizer_cfg_hash_b3: String,
+    pub preprocessing_config_hash_b3: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coreml_model_hash_b3: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_model_hash_b3: Option<String>,
 }
 
 /// Post-training actions configuration
@@ -714,7 +852,7 @@ impl From<TrainingJob> for TrainingJobResponse {
             batch_size: usize,
             epochs: usize,
             hidden_dim: usize,
-            preprocessing: Option<PreprocessingConfig>,
+            preprocessing: Option<adapteros_types::training::PreprocessingConfig>,
         }
 
         let adapter_version_id = job
@@ -962,7 +1100,7 @@ mod tests {
             batch_size: usize,
             epochs: usize,
             hidden_dim: usize,
-            preprocessing: Option<PreprocessingConfig>,
+            preprocessing: Option<adapteros_types::training::PreprocessingConfig>,
         }
 
         let mut job = TrainingJob::new(

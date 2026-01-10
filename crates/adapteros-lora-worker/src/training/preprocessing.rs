@@ -55,6 +55,28 @@ pub struct PreprocessResult {
     pub stats: PreprocessStats,
 }
 
+/// Summary of an on-disk preprocessing manifest and compatibility state.
+#[derive(Debug, Clone)]
+pub struct PreprocessCacheStatus {
+    pub preprocess_id: String,
+    pub cache_key_b3: String,
+    pub cache_dir: String,
+    pub manifest_hash_b3: String,
+    pub produced_at_unix_ms: Option<u64>,
+    pub feature_dtype: String,
+    pub backend: String,
+    pub compression: String,
+    pub cache_hit: bool,
+    pub needs_reprocess: bool,
+    pub reasons: Vec<String>,
+    pub dataset_hash_b3: String,
+    pub tokenizer_hash_b3: String,
+    pub tokenizer_cfg_hash_b3: String,
+    pub preprocessing_config_hash_b3: String,
+    pub coreml_model_hash_b3: Option<String>,
+    pub base_model_hash_b3: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PreprocessManifest {
     schema_version: String,
@@ -161,9 +183,7 @@ pub fn preprocess_examples(
     let (tokenizer_hash, tokenizer_cfg_hash) = compute_tokenizer_hashes(&base_model_path)?;
     let dataset_hash = compute_dataset_hash(examples);
     let seed = config.seed.unwrap_or(training_seed);
-    let compression = config
-        .compression
-        .unwrap_or(PreprocessCompression::None);
+    let compression = config.compression.unwrap_or(PreprocessCompression::None);
     let output_name = resolve_output_name(config);
     let coreml_model_path = resolve_coreml_model_path(config)?;
     let coreml_model_hash = Some(hash_coreml_model(&coreml_model_path)?);
@@ -178,8 +198,7 @@ pub fn preprocess_examples(
     );
     let preprocess_id = cache_key.to_hex();
 
-    let cache_root =
-        resolve_dataset_cache_root(config, artifacts_root, dataset_id, &dataset_hash)?;
+    let cache_root = resolve_dataset_cache_root(config, artifacts_root, dataset_id, &dataset_hash)?;
     let cache_root_str = normalize_path_for_sorting(&cache_root);
     let artifact_dir = cache_root.join(&preprocess_id);
     fs::create_dir_all(&artifact_dir).map_err(|e| {
@@ -225,8 +244,8 @@ pub fn preprocess_examples(
             dataset_hash_b3: dataset_hash.to_hex(),
             split_hash_b3: split_hash_b3.map(|s| s.to_string()),
             dataset_id: dataset_id.map(|id| id.to_string()),
-            base_model_hash_b3: base_model_hash.as_ref().map(B3Hash::to_hex),
-            coreml_model_hash_b3: coreml_model_hash.as_ref().map(B3Hash::to_hex),
+            base_model_hash_b3: base_model_hash.as_ref().map(|hash| hash.to_hex()),
+            coreml_model_hash_b3: coreml_model_hash.as_ref().map(|hash| hash.to_hex()),
             tokenizer_hash_b3: tokenizer_hash.to_hex(),
             tokenizer_cfg_hash_b3: tokenizer_cfg_hash.to_hex(),
             output_feature: config.output_feature.as_str().to_string(),
@@ -283,8 +302,7 @@ pub fn preprocess_examples(
     let mut preprocessed_examples = Vec::with_capacity(examples.len());
     if cached_examples > 0 {
         for (entry, example) in cached_entries.iter().zip(examples.iter()) {
-            let features =
-                read_features_from_blob(&data_blob, entry, compression, hidden_dim)?;
+            let features = read_features_from_blob(&data_blob, entry, compression, hidden_dim)?;
             let feature_hash = hash_features(&features);
             if feature_hash != entry.feature_hash {
                 return Err(AosError::Training(format!(
@@ -397,13 +415,180 @@ pub fn preprocess_examples(
         cache_dir: artifact_dir.display().to_string(),
         preprocess_id: preprocess_id.clone(),
         cache_key: cache_key.to_hex(),
-        coreml_model_hash: coreml_model_hash.as_ref().map(B3Hash::to_hex),
+        coreml_model_hash: coreml_model_hash.as_ref().map(|hash| hash.to_hex()),
         produced_at_unix_ms: manifest.produced_at_unix_ms,
     };
 
     Ok(PreprocessResult {
         examples: preprocessed_examples,
         stats,
+    })
+}
+
+/// Inspect preprocessing cache state without mutating or reprocessing data.
+///
+/// Returns a compatibility summary that can be used to decide whether
+/// preprocessing needs to run again for the given dataset/model/config tuple.
+pub fn inspect_preprocess_cache(
+    examples: &[TrainingExampleV1],
+    contract: &TrainingDataContractConfig,
+    config: &PreprocessingConfig,
+    hidden_dim: usize,
+    vocab_size: usize,
+    base_model_path: &Path,
+    dataset_id: Option<&str>,
+    artifacts_root: Option<&Path>,
+    split_hash_b3: Option<&str>,
+    training_seed: u64,
+) -> Result<PreprocessCacheStatus> {
+    if examples.is_empty() {
+        return Err(AosError::Training(
+            "preprocessing requested with empty dataset".to_string(),
+        ));
+    }
+    if hidden_dim == 0 {
+        return Err(AosError::Training(
+            "preprocessing hidden_dim must be greater than zero".to_string(),
+        ));
+    }
+    if !config.enabled {
+        return Err(AosError::Config(
+            "preprocessing requested but config.enabled=false".to_string(),
+        ));
+    }
+
+    validate_training_examples(examples, vocab_size, contract).map_err(|e| {
+        AosError::Training(format!(
+            "Training example contract validation failed before preprocessing: {}",
+            e
+        ))
+    })?;
+
+    let base_model_path = canonicalize_existing_path(base_model_path, "base_model_path")?;
+    let model_config = ModelConfig::from_config_json(&base_model_path)?;
+    if model_config.hidden_size != hidden_dim {
+        return Err(AosError::Training(format!(
+            "Preprocessing hidden_dim mismatch: model hidden_size={} config hidden_dim={}",
+            model_config.hidden_size, hidden_dim
+        )));
+    }
+
+    let (tokenizer_hash, tokenizer_cfg_hash) = compute_tokenizer_hashes(&base_model_path)?;
+    let dataset_hash = compute_dataset_hash(examples);
+    let seed = config.seed.unwrap_or(training_seed);
+    let compression = config.compression.unwrap_or(PreprocessCompression::None);
+    let output_name = resolve_output_name(config);
+    let coreml_model_path = resolve_coreml_model_path(config)?;
+    let coreml_model_hash = Some(hash_coreml_model(&coreml_model_path)?);
+    let base_model_hash = hash_optional_file(base_model_path.join("config.json"))?;
+    let config_hash = compute_preprocess_config_hash(config, &coreml_model_path, seed)?;
+    let cache_key = compute_cache_key(
+        &dataset_hash,
+        split_hash_b3,
+        &config_hash,
+        coreml_model_hash.as_ref().or(base_model_hash.as_ref()),
+    );
+    let preprocess_id = cache_key.to_hex();
+    let cache_root = resolve_dataset_cache_root(config, artifacts_root, dataset_id, &dataset_hash)?;
+    let manifest_path = cache_root
+        .join(&preprocess_id)
+        .join("preprocess_manifest.json");
+
+    if !manifest_path.exists() {
+        return Ok(PreprocessCacheStatus {
+            preprocess_id,
+            cache_key_b3: cache_key.to_hex(),
+            cache_dir: normalize_path_for_sorting(&cache_root),
+            manifest_hash_b3: B3Hash::zero().to_hex(),
+            produced_at_unix_ms: None,
+            feature_dtype: "unknown".to_string(),
+            backend: PREPROCESSED_FEATURE_BACKEND_COREML.to_string(),
+            compression: compression.as_str().to_string(),
+            cache_hit: false,
+            needs_reprocess: true,
+            reasons: vec!["cache_miss".to_string()],
+            dataset_hash_b3: dataset_hash.to_hex(),
+            tokenizer_hash_b3: tokenizer_hash.to_hex(),
+            tokenizer_cfg_hash_b3: tokenizer_cfg_hash.to_hex(),
+            preprocessing_config_hash_b3: config_hash.to_hex(),
+            coreml_model_hash_b3: coreml_model_hash.as_ref().map(|hash| hash.to_hex()),
+            base_model_hash_b3: base_model_hash.as_ref().map(|hash| hash.to_hex()),
+        });
+    }
+
+    let manifest = load_manifest(&manifest_path)?;
+    let manifest_hash = hash_json_value(&manifest)?;
+    let mut reasons = Vec::new();
+
+    if manifest.dataset_hash_b3 != dataset_hash.to_hex() {
+        reasons.push("dataset_hash_mismatch".to_string());
+    }
+    if manifest.tokenizer_hash_b3 != tokenizer_hash.to_hex() {
+        reasons.push("tokenizer_hash_mismatch".to_string());
+    }
+    if manifest.tokenizer_cfg_hash_b3 != tokenizer_cfg_hash.to_hex() {
+        reasons.push("tokenizer_cfg_hash_mismatch".to_string());
+    }
+    if manifest.preprocessing_config_hash_b3 != config_hash.to_hex() {
+        reasons.push("preprocess_config_mismatch".to_string());
+    }
+    if manifest.coreml_model_hash_b3 != coreml_model_hash.as_ref().map(|hash| hash.to_hex()) {
+        reasons.push("coreml_model_hash_mismatch".to_string());
+    }
+    if manifest.base_model_hash_b3 != base_model_hash.as_ref().map(|hash| hash.to_hex()) {
+        reasons.push("base_model_hash_mismatch".to_string());
+    }
+    if manifest.split_hash_b3.as_deref() != split_hash_b3 {
+        reasons.push("split_hash_mismatch".to_string());
+    }
+    if manifest.output_feature != output_name {
+        reasons.push("output_feature_mismatch".to_string());
+    }
+    if manifest.layer_key != config.layer_key {
+        reasons.push("layer_key_mismatch".to_string());
+    }
+    if manifest.max_seq_len != config.max_seq_len {
+        reasons.push("max_seq_len_mismatch".to_string());
+    }
+    if manifest.batch_size != config.batch_size {
+        reasons.push("batch_size_mismatch".to_string());
+    }
+    if manifest.compression != compression.as_str() {
+        reasons.push("compression_mismatch".to_string());
+    }
+    if manifest.pad_token_id != Some(contract.pad_token_id) {
+        reasons.push("pad_token_id_mismatch".to_string());
+    }
+    if manifest.ignore_index != Some(contract.ignore_index) {
+        reasons.push("ignore_index_mismatch".to_string());
+    }
+    if manifest.seed != seed {
+        reasons.push("seed_mismatch".to_string());
+    }
+    if manifest.processed_count < manifest.example_count {
+        reasons.push("cache_incomplete".to_string());
+    }
+
+    let cache_hit = reasons.is_empty();
+
+    Ok(PreprocessCacheStatus {
+        preprocess_id: manifest.preprocess_id,
+        cache_key_b3: manifest.cache_key_b3,
+        cache_dir: normalize_path_for_sorting(&cache_root),
+        manifest_hash_b3: manifest_hash.to_hex(),
+        produced_at_unix_ms: Some(manifest.produced_at_unix_ms),
+        feature_dtype: manifest.feature_dtype,
+        backend: manifest.backend,
+        compression: manifest.compression,
+        cache_hit,
+        needs_reprocess: !cache_hit,
+        reasons,
+        dataset_hash_b3: manifest.dataset_hash_b3,
+        tokenizer_hash_b3: manifest.tokenizer_hash_b3,
+        tokenizer_cfg_hash_b3: manifest.tokenizer_cfg_hash_b3,
+        preprocessing_config_hash_b3: manifest.preprocessing_config_hash_b3,
+        coreml_model_hash_b3: manifest.coreml_model_hash_b3,
+        base_model_hash_b3: manifest.base_model_hash_b3,
     })
 }
 
@@ -461,9 +646,8 @@ fn hash_optional_file(path: PathBuf) -> Result<Option<B3Hash>> {
     if !path.exists() {
         return Ok(None);
     }
-    let hash = B3Hash::hash_file(&path).map_err(|e| {
-        AosError::Io(format!("Failed to hash file {}: {}", path.display(), e))
-    })?;
+    let hash = B3Hash::hash_file(&path)
+        .map_err(|e| AosError::Io(format!("Failed to hash file {}: {}", path.display(), e)))?;
     Ok(Some(hash))
 }
 
@@ -528,6 +712,11 @@ fn compute_preprocess_config_hash(
         seed,
     };
     let bytes = serde_json::to_vec(&payload).map_err(AosError::Serialization)?;
+    Ok(B3Hash::hash(&bytes))
+}
+
+fn hash_json_value<T: Serialize>(value: &T) -> Result<B3Hash> {
+    let bytes = serde_json::to_vec(value).map_err(AosError::Serialization)?;
     Ok(B3Hash::hash(&bytes))
 }
 
@@ -616,7 +805,11 @@ fn current_unix_ms() -> u64 {
 
 fn load_manifest(path: &Path) -> Result<PreprocessManifest> {
     let data = fs::read(path).map_err(|e| {
-        AosError::Io(format!("Failed to read preprocessing manifest {}: {}", path.display(), e))
+        AosError::Io(format!(
+            "Failed to read preprocessing manifest {}: {}",
+            path.display(),
+            e
+        ))
     })?;
     serde_json::from_slice(&data).map_err(|e| {
         AosError::Training(format!(
@@ -698,12 +891,12 @@ fn validate_manifest(
             "Preprocessing cache tokenizer mismatch".to_string(),
         ));
     }
-    if manifest.coreml_model_hash_b3 != coreml_model_hash.map(B3Hash::to_hex) {
+    if manifest.coreml_model_hash_b3 != coreml_model_hash.as_ref().map(|hash| hash.to_hex()) {
         return Err(AosError::Training(
             "Preprocessing cache CoreML model hash mismatch".to_string(),
         ));
     }
-    if manifest.base_model_hash_b3 != base_model_hash.map(B3Hash::to_hex) {
+    if manifest.base_model_hash_b3 != base_model_hash.as_ref().map(|hash| hash.to_hex()) {
         return Err(AosError::Training(
             "Preprocessing cache base model hash mismatch".to_string(),
         ));
@@ -837,11 +1030,14 @@ fn rewrite_index_entries(path: &Path, entries: &[FeatureIndexEntry]) -> Result<(
 
 fn append_index_entry(writer: &mut dyn Write, entry: &FeatureIndexEntry) -> Result<()> {
     let line = serde_json::to_string(entry).map_err(AosError::Serialization)?;
-    writer.write_all(line.as_bytes()).map_err(|e| {
-        AosError::Io(format!("Failed to write preprocessing index entry: {}", e))
-    })?;
+    writer
+        .write_all(line.as_bytes())
+        .map_err(|e| AosError::Io(format!("Failed to write preprocessing index entry: {}", e)))?;
     writer.write_all(b"\n").map_err(|e| {
-        AosError::Io(format!("Failed to write preprocessing index newline: {}", e))
+        AosError::Io(format!(
+            "Failed to write preprocessing index newline: {}",
+            e
+        ))
     })?;
     Ok(())
 }
@@ -898,9 +1094,9 @@ fn read_features_from_blob(
 fn write_f32_tensor(writer: &mut dyn Write, values: &[f32]) -> Result<u64> {
     let mut bytes_written = 0u64;
     for value in values {
-        writer.write_all(&value.to_le_bytes()).map_err(|e| {
-            AosError::Io(format!("Failed to write preprocessing data: {}", e))
-        })?;
+        writer
+            .write_all(&value.to_le_bytes())
+            .map_err(|e| AosError::Io(format!("Failed to write preprocessing data: {}", e)))?;
         bytes_written += 4;
     }
     Ok(bytes_written)
@@ -909,9 +1105,9 @@ fn write_f32_tensor(writer: &mut dyn Write, values: &[f32]) -> Result<u64> {
 fn write_i16_tensor(writer: &mut dyn Write, values: &[i16]) -> Result<u64> {
     let mut bytes_written = 0u64;
     for value in values {
-        writer.write_all(&value.to_le_bytes()).map_err(|e| {
-            AosError::Io(format!("Failed to write preprocessing data: {}", e))
-        })?;
+        writer
+            .write_all(&value.to_le_bytes())
+            .map_err(|e| AosError::Io(format!("Failed to write preprocessing data: {}", e)))?;
         bytes_written += 2;
     }
     Ok(bytes_written)
@@ -1012,9 +1208,7 @@ fn quantize_q15(values: &[f32]) -> (Vec<i16>, f32) {
     let mut quantized = Vec::with_capacity(values.len());
     for value in values {
         let normalized = if scale > 0.0 { value / scale } else { 0.0 };
-        let q = (normalized * Q15_DENOM)
-            .round()
-            .clamp(Q15_MIN, Q15_MAX) as i16;
+        let q = (normalized * Q15_DENOM).round().clamp(Q15_MIN, Q15_MAX) as i16;
         quantized.push(q);
     }
     (quantized, scale)
@@ -1207,6 +1401,8 @@ impl Drop for CoreMLRunner {
 mod tests {
     use super::*;
     use adapteros_config::ModelConfig;
+    use adapteros_types::training::TRAINING_DATA_CONTRACT_VERSION;
+    use std::fs;
     use std::path::PathBuf;
 
     fn base_config() -> PreprocessingConfig {
@@ -1240,13 +1436,66 @@ mod tests {
         let config_hash = B3Hash::hash(b"config");
         let model_hash = B3Hash::hash(b"model");
         let key_a = compute_cache_key(&dataset_hash, None, &config_hash, Some(&model_hash));
-        let key_b = compute_cache_key(&dataset_hash, Some("split"), &config_hash, Some(&model_hash));
+        let key_b = compute_cache_key(
+            &dataset_hash,
+            Some("split"),
+            &config_hash,
+            Some(&model_hash),
+        );
 
         assert_ne!(key_a, key_b);
         assert_eq!(
             key_a,
             compute_cache_key(&dataset_hash, None, &config_hash, Some(&model_hash))
         );
+    }
+
+    #[test]
+    fn preprocessing_errors_on_hidden_dim_mismatch() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let base_model_path = temp.path().join("model");
+        fs::create_dir_all(&base_model_path).expect("create model dir");
+
+        let mut model_cfg = ModelConfig::dev_fixture();
+        model_cfg.path = base_model_path.clone();
+        model_cfg.hidden_size = 8;
+        model_cfg.vocab_size = 16;
+        let cfg_bytes = serde_json::to_vec_pretty(&model_cfg).expect("serialize config");
+        fs::write(base_model_path.join("config.json"), cfg_bytes).expect("write config");
+        fs::write(base_model_path.join("tokenizer.json"), b"{}").expect("write tokenizer");
+
+        // CoreML model placeholder
+        let coreml_path = base_model_path.join("preprocess.mlpackage");
+        fs::write(&coreml_path, b"coreml").expect("write coreml stub");
+
+        let mut cfg = PreprocessingConfig::default();
+        cfg.enabled = true;
+        cfg.coreml_model_path = Some(coreml_path);
+        cfg.cache_dir = Some(temp.path().to_path_buf());
+
+        let contract = TrainingDataContractConfig::new(0, -1);
+        let examples = vec![TrainingExampleV1::new(
+            vec![1, 2],
+            vec![3],
+            vec![1, 1],
+            ExampleMetadataV1::new("src", 0, "{}", 0),
+        )];
+
+        let result = preprocess_examples(
+            &examples,
+            &contract,
+            &cfg,
+            model_cfg.hidden_size + 1,
+            model_cfg.vocab_size,
+            &base_model_path,
+            Some("ds"),
+            None,
+            None,
+            0,
+        );
+        assert!(result.is_err());
+        let msg = format!("{}", result.unwrap_err());
+        assert!(msg.contains("hidden_dim mismatch"));
     }
 
     fn manifest_hash(manifest: &PreprocessManifest) -> B3Hash {
@@ -1258,7 +1507,7 @@ mod tests {
         PreprocessManifest {
             schema_version: PREPROCESS_MANIFEST_VERSION.to_string(),
             contract_version: PREPROCESSED_EXAMPLE_SCHEMA_VERSION.to_string(),
-            training_contract_version: Some("1.0".to_string()),
+            training_contract_version: Some(TRAINING_DATA_CONTRACT_VERSION.to_string()),
             pad_token_id: Some(0),
             ignore_index: Some(-1),
             preprocess_id: "preprocess".to_string(),

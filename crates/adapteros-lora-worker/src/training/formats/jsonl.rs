@@ -22,7 +22,11 @@ const TARGET_FIELDS: &[&str] = &["output", "response", "answer", "completion"];
 /// Parse a JSONL file into raw samples.
 pub fn parse_jsonl_file(path: &Path) -> Result<Vec<RawSample>> {
     let file = File::open(path).map_err(|e| {
-        AosError::Io(format!("Failed to open JSONL file {}: {}", path.display(), e))
+        AosError::Io(format!(
+            "Failed to open JSONL file {}: {}",
+            path.display(),
+            e
+        ))
     })?;
     let reader = BufReader::new(file);
     let path_str = path.display().to_string();
@@ -61,9 +65,8 @@ pub fn parse_jsonl_file(path: &Path) -> Result<Vec<RawSample>> {
 fn parse_jsonl_line(line: &str, path: &str, line_num: usize) -> Result<RawSample> {
     let context = format!("{}:{}", path, line_num);
 
-    let obj: Value = serde_json::from_str(line).map_err(|e| {
-        AosError::Validation(format!("Invalid JSON at {}: {}", context, e))
-    })?;
+    let obj: Value = serde_json::from_str(line)
+        .map_err(|e| AosError::Validation(format!("Invalid JSON at {}: {}", context, e)))?;
 
     let obj = obj.as_object().ok_or_else(|| {
         AosError::Validation(format!("Expected JSON object at {}, got {}", context, obj))
@@ -158,9 +161,7 @@ mod tests {
 
     #[test]
     fn test_parse_instruction_output() {
-        let file = write_temp_jsonl(&[
-            r#"{"instruction": "Hello", "output": "World"}"#,
-        ]);
+        let file = write_temp_jsonl(&[r#"{"instruction": "Hello", "output": "World"}"#]);
         let samples = parse_jsonl_file(file.path()).unwrap();
         assert_eq!(samples.len(), 1);
         assert_eq!(samples[0].input, "Hello");
@@ -169,9 +170,7 @@ mod tests {
 
     #[test]
     fn test_parse_prompt_response() {
-        let file = write_temp_jsonl(&[
-            r#"{"prompt": "Question?", "response": "Answer."}"#,
-        ]);
+        let file = write_temp_jsonl(&[r#"{"prompt": "Question?", "response": "Answer."}"#]);
         let samples = parse_jsonl_file(file.path()).unwrap();
         assert_eq!(samples.len(), 1);
         assert_eq!(samples[0].input, "Question?");
@@ -180,9 +179,7 @@ mod tests {
 
     #[test]
     fn test_parse_with_weight() {
-        let file = write_temp_jsonl(&[
-            r#"{"input": "a", "output": "b", "weight": 0.5}"#,
-        ]);
+        let file = write_temp_jsonl(&[r#"{"input": "a", "output": "b", "weight": 0.5}"#]);
         let samples = parse_jsonl_file(file.path()).unwrap();
         assert!((samples[0].weight - 0.5).abs() < f32::EPSILON);
     }
@@ -200,30 +197,29 @@ mod tests {
 
     #[test]
     fn test_missing_input_field() {
-        let file = write_temp_jsonl(&[
-            r#"{"output": "b"}"#,
-        ]);
+        let file = write_temp_jsonl(&[r#"{"output": "b"}"#]);
         let result = parse_jsonl_file(file.path());
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Missing input field"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Missing input field"));
     }
 
     #[test]
     fn test_empty_input_rejected() {
-        let file = write_temp_jsonl(&[
-            r#"{"input": "   ", "output": "b"}"#,
-        ]);
+        let file = write_temp_jsonl(&[r#"{"input": "   ", "output": "b"}"#]);
         let result = parse_jsonl_file(file.path());
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Empty or whitespace-only"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Empty or whitespace-only"));
     }
 
     #[test]
     fn test_invalid_json() {
-        let file = write_temp_jsonl(&[
-            r#"{"input": "a", "output": "b"}"#,
-            r#"not valid json"#,
-        ]);
+        let file = write_temp_jsonl(&[r#"{"input": "a", "output": "b"}"#, r#"not valid json"#]);
         let result = parse_jsonl_file(file.path());
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Invalid JSON"));

@@ -1,7 +1,7 @@
+use adapteros_types::training::TRAINING_DATA_CONTRACT_VERSION;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
-use adapteros_types::training::TRAINING_DATA_CONTRACT_VERSION;
 
 fn default_split() -> String {
     "train".to_string()

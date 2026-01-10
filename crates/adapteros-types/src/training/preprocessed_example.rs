@@ -50,4 +50,3 @@ pub struct PreprocessedExampleV1 {
     /// BLAKE3 hex hash of features (f32 LE bytes).
     pub feature_hash: String,
 }
-

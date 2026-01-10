@@ -184,11 +184,13 @@ pub fn validate_training_example(
         return Err(TrainingExampleValidationError::EmptyTarget { index });
     }
     if example.attention_mask.len() != example.input_tokens.len() {
-        return Err(TrainingExampleValidationError::AttentionMaskLengthMismatch {
-            index,
-            input_len: example.input_tokens.len(),
-            mask_len: example.attention_mask.len(),
-        });
+        return Err(
+            TrainingExampleValidationError::AttentionMaskLengthMismatch {
+                index,
+                input_len: example.input_tokens.len(),
+                mask_len: example.attention_mask.len(),
+            },
+        );
     }
     for (pos, &value) in example.attention_mask.iter().enumerate() {
         if value > 1 {
@@ -285,7 +287,9 @@ pub fn validate_training_contract_config(
 }
 
 /// Build canonical provenance JSON from a stable map.
-pub fn provenance_from_map(map: &BTreeMap<String, serde_json::Value>) -> Result<String, serde_json::Error> {
+pub fn provenance_from_map(
+    map: &BTreeMap<String, serde_json::Value>,
+) -> Result<String, serde_json::Error> {
     serde_json::to_string(map)
 }
 
@@ -361,9 +365,15 @@ pub enum TrainingExampleValidationError {
         value: u8,
     },
     #[error("Pad token id {pad_token_id} is out of vocab range (vocab size {vocab_size})")]
-    PadTokenOutOfVocab { pad_token_id: u32, vocab_size: usize },
+    PadTokenOutOfVocab {
+        pad_token_id: u32,
+        vocab_size: usize,
+    },
     #[error("Ignore index {ignore_index} is out of vocab range (vocab size {vocab_size})")]
-    IgnoreIndexOutOfVocab { ignore_index: i32, vocab_size: usize },
+    IgnoreIndexOutOfVocab {
+        ignore_index: i32,
+        vocab_size: usize,
+    },
     #[error("Example {index} attention_mask mismatch for pad token at position {position} (token {token}, pad {pad_token_id}, mask {mask_value})")]
     PadTokenMaskMismatch {
         index: usize,
@@ -469,7 +479,7 @@ mod tests {
 
     #[test]
     fn training_example_schema_matches_contract() {
-        let schema_str = include_str!("../../../docs/contracts/training-example.schema.json");
+        let schema_str = include_str!("../../../../docs/contracts/training-example.schema.json");
         let schema: serde_json::Value =
             serde_json::from_str(schema_str).expect("parse training example schema");
 
@@ -477,9 +487,13 @@ mod tests {
             .get("required")
             .and_then(|v| v.as_array())
             .expect("schema required array");
-        let required_fields: HashSet<&str> =
-            required.iter().filter_map(|v| v.as_str()).collect();
-        for field in ["input_tokens", "target_tokens", "attention_mask", "metadata"] {
+        let required_fields: HashSet<&str> = required.iter().filter_map(|v| v.as_str()).collect();
+        for field in [
+            "input_tokens",
+            "target_tokens",
+            "attention_mask",
+            "metadata",
+        ] {
             assert!(
                 required_fields.contains(field),
                 "missing required field {field}"
@@ -521,8 +535,7 @@ mod tests {
             .and_then(|v| v.get("required"))
             .and_then(|v| v.as_array())
             .expect("metadata required");
-        let metadata_fields: HashSet<&str> =
-            metadata.iter().filter_map(|v| v.as_str()).collect();
+        let metadata_fields: HashSet<&str> = metadata.iter().filter_map(|v| v.as_str()).collect();
         for field in ["source_id", "row_id", "provenance", "created_at_unix_ms"] {
             assert!(metadata_fields.contains(field));
         }

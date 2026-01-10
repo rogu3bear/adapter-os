@@ -11,9 +11,8 @@ use std::path::Path;
 
 /// Parse a CSV file into raw samples.
 pub fn parse_csv_file(path: &Path, mapping: &ColumnMapping) -> Result<Vec<RawSample>> {
-    let file = File::open(path).map_err(|e| {
-        AosError::Io(format!("Failed to open CSV file {}: {}", path.display(), e))
-    })?;
+    let file = File::open(path)
+        .map_err(|e| AosError::Io(format!("Failed to open CSV file {}: {}", path.display(), e)))?;
 
     let path_str = path.display().to_string();
     let mut reader = csv::ReaderBuilder::new()
@@ -24,7 +23,10 @@ pub fn parse_csv_file(path: &Path, mapping: &ColumnMapping) -> Result<Vec<RawSam
 
     // Get headers and resolve column indices
     let headers = reader.headers().map_err(|e| {
-        AosError::Validation(format!("Failed to read CSV headers from {}: {}", path_str, e))
+        AosError::Validation(format!(
+            "Failed to read CSV headers from {}: {}",
+            path_str, e
+        ))
     })?;
 
     let input_idx = resolve_column_index(headers, &mapping.input_col, "input", &path_str)?;
@@ -218,7 +220,10 @@ mod tests {
         let file = write_temp_csv("input,target,category,id\na,b,test,123\n");
         let mapping = ColumnMapping::default();
         let samples = parse_csv_file(file.path(), &mapping).unwrap();
-        assert_eq!(samples[0].metadata.get("category"), Some(&"test".to_string()));
+        assert_eq!(
+            samples[0].metadata.get("category"),
+            Some(&"test".to_string())
+        );
         assert_eq!(samples[0].metadata.get("id"), Some(&"123".to_string()));
     }
 
@@ -237,7 +242,10 @@ mod tests {
         let mapping = ColumnMapping::default();
         let result = parse_csv_file(file.path(), &mapping);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Empty or whitespace-only"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Empty or whitespace-only"));
     }
 
     #[test]

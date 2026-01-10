@@ -190,7 +190,11 @@ pub fn compute_validation_loss_with_output_proj(
         .copied()
         .ok_or_else(|| AosError::Training("Loss tensor is empty".to_string()))?;
 
-    Ok(build_loss_report(loss, validation_loss_spec(LOSS_IGNORE_INDEX), targets))
+    Ok(build_loss_report(
+        loss,
+        validation_loss_spec(LOSS_IGNORE_INDEX),
+        targets,
+    ))
 }
 
 #[cfg(not(feature = "multi-backend"))]
@@ -219,10 +223,7 @@ pub fn reference_cross_entropy_loss(
         if ignore_index >= 0 && target as i32 == ignore_index {
             continue;
         }
-        let max = row
-            .iter()
-            .copied()
-            .fold(f32::NEG_INFINITY, |a, b| a.max(b));
+        let max = row.iter().copied().fold(f32::NEG_INFINITY, |a, b| a.max(b));
         let mut sum_exp = 0.0f32;
         for &v in row {
             sum_exp += (v - max).exp();
