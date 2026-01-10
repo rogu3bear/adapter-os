@@ -1426,6 +1426,11 @@ pub fn build(state: AppState) -> Router {
             "/v1/training/datasets/from-upload",
             post(handlers::training_datasets::create_training_dataset_from_upload),
         )
+        // Generate dataset from file using local inference
+        .route(
+            "/v1/training/datasets/generate",
+            post(handlers::datasets::generate_dataset_from_file),
+        )
         .route(
             "/v1/training/dataset_versions/{dataset_version_id}/manifest",
             get(handlers::training_datasets::get_training_dataset_manifest),

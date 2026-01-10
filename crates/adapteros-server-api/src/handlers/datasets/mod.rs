@@ -23,6 +23,7 @@ mod chunked_handlers;
 mod crud;
 mod files;
 mod from_documents;
+mod generate;
 mod helpers;
 mod progress_sse;
 mod safety;
@@ -63,6 +64,7 @@ pub use files::{
     ValidateAllFilesResponse, ValidateFileRequest, ValidateFileResponse, WorkspaceFilesResponse,
 };
 pub use from_documents::create_dataset_from_documents;
+pub use generate::generate_dataset_from_file;
 pub use progress_sse::dataset_upload_progress;
 pub use safety::{
     apply_dataset_trust_override, apply_dataset_version_trust_override, check_dataset_safety,
@@ -126,6 +128,8 @@ pub use files::__path_validate_all_dataset_files;
 pub use files::__path_validate_dataset_file;
 #[doc(hidden)]
 pub use from_documents::__path_create_dataset_from_documents;
+#[doc(hidden)]
+pub use generate::__path_generate_dataset_from_file;
 #[doc(hidden)]
 pub use progress_sse::__path_dataset_upload_progress;
 #[doc(hidden)]
