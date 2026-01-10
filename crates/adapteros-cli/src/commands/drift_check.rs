@@ -405,10 +405,13 @@ mod tests {
     use adapteros_lora_worker::training::{LoRAWeights, TrainingResult};
     use adapteros_types::training::ExampleMetadataV1;
 
-    fn make_example(input_tokens: Vec<u32>, target_tokens: Vec<u32>, row_id: u64) -> TrainingExample {
+    fn make_example(
+        input_tokens: Vec<u32>,
+        target_tokens: Vec<u32>,
+        row_id: u64,
+    ) -> TrainingExample {
         let metadata = ExampleMetadataV1::new("test", row_id, "{}", 0);
-        let attention_mask =
-            TrainingExample::attention_mask_from_tokens(&input_tokens, 0);
+        let attention_mask = TrainingExample::attention_mask_from_tokens(&input_tokens, 0);
         TrainingExample::new(input_tokens, target_tokens, attention_mask, metadata)
     }
 

@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
-use std::str::FromStr;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::time::Duration;
 
 use adapteros_config::SelfHostingMode;
@@ -719,9 +719,14 @@ impl SelfHostingAgent {
             .get_model_for_tenant("system", &base_model_id)
             .await
             .map_err(|e| {
-                AosError::Database(format!("Failed to load base model {}: {}", base_model_id, e))
+                AosError::Database(format!(
+                    "Failed to load base model {}: {}",
+                    base_model_id, e
+                ))
             })?
-            .ok_or_else(|| AosError::NotFound(format!("Base model not found: {}", base_model_id)))?;
+            .ok_or_else(|| {
+                AosError::NotFound(format!("Base model not found: {}", base_model_id))
+            })?;
         let model_path = model
             .model_path
             .as_deref()

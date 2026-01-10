@@ -54,10 +54,12 @@ pub mod migrations;
 pub mod runtime;
 pub mod security;
 mod server;
+pub mod startup_recovery;
 mod tasks;
 mod timings;
 
 pub use app_state::build_app_state;
+pub use background_tasks::orphaned_training_job_cleaned_count;
 pub use config::{initialize_config, ConfigContext};
 pub use database::{initialize_database, DatabaseContext};
 pub use executor::{derive_executor_seed, initialize_executor, ExecutorContext};
@@ -76,5 +78,6 @@ pub use security::{
 pub use server::{
     bind_and_serve, bind_error_exit_code, precheck_tcp_port, BindError, BindMode, ServerBindConfig,
 };
+pub use startup_recovery::{run_startup_recovery, StartupRecoveryReport};
 pub use tasks::{BackgroundTaskSpawner, SpawnError, SpawnResult};
 pub use timings::BootTimings;

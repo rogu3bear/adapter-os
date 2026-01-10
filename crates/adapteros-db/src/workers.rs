@@ -1,7 +1,24 @@
+//! Worker lifecycle management with status transitions and health tracking.
+//!
+//! ## Worker Status Temporal Ordering (ANCHOR, AUDIT, RECTIFY)
+//!
+//! - **ANCHOR**: DB trigger (0278) + Rust validation ensures monotonic timestamps
+//! - **AUDIT**: Tracks `temporal_ordering_violations` counter for monitoring
+//! - **RECTIFY**: Invalid temporal ordering aborts insert with clear error message
+
 use crate::{models::Worker, Db};
 use adapteros_core::{AosError, Result, WorkerStatus};
 use std::str::FromStr;
-use tracing::{debug, warn};
+use std::sync::atomic::{AtomicU64, Ordering};
+use tracing::{debug, error, warn};
+
+/// AUDIT: Global counter for temporal ordering violations
+static TEMPORAL_ORDERING_VIOLATIONS: AtomicU64 = AtomicU64::new(0);
+
+/// Get count of temporal ordering violations
+pub fn temporal_ordering_violations() -> u64 {
+    TEMPORAL_ORDERING_VIOLATIONS.load(Ordering::Relaxed)
+}
 
 /// Valid worker incident types matching the database CHECK constraint.
 ///
@@ -1051,6 +1068,45 @@ impl Db {
         let to_status = WorkerStatus::from_str(new_status)
             .map_err(|e| AosError::Validation(format!("Invalid to status: {}", e)))?;
         let is_valid = from_status.can_transition_to(to_status);
+
+        // ANCHOR: Temporal ordering validation (belt-and-suspenders with DB trigger)
+        // Check that we're not inserting a record with a timestamp before existing entries
+        // This catches clock drift issues before they hit the DB trigger
+        let last_timestamp: Option<(String,)> = sqlx::query_as(
+            "SELECT created_at FROM worker_status_history
+             WHERE worker_id = ?
+             ORDER BY created_at DESC
+             LIMIT 1",
+        )
+        .bind(worker_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to check temporal ordering: {}", e)))?;
+
+        if let Some((last_ts,)) = last_timestamp {
+            // Get current time from DB to use same clock
+            let now_result: (String,) = sqlx::query_as("SELECT datetime('now')")
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to get current time: {}", e)))?;
+
+            if now_result.0 < last_ts {
+                // AUDIT: Track violation
+                TEMPORAL_ORDERING_VIOLATIONS.fetch_add(1, Ordering::Relaxed);
+                error!(
+                    worker_id = %worker_id,
+                    last_timestamp = %last_ts,
+                    current_time = %now_result.0,
+                    total_violations = TEMPORAL_ORDERING_VIOLATIONS.load(Ordering::Relaxed),
+                    "Temporal ordering violation detected - clock may be drifting"
+                );
+                return Err(AosError::Validation(format!(
+                    "Cannot insert status history: current time ({}) is before last entry ({}). \
+                     This may indicate clock drift.",
+                    now_result.0, last_ts
+                )));
+            }
+        }
 
         // Generate history record ID
         let history_id = uuid::Uuid::now_v7().to_string();

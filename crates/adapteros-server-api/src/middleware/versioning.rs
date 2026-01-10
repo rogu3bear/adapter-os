@@ -156,8 +156,16 @@ impl SchemaVersion {
         }
 
         let major = parts.first()?.parse().ok()?;
-        let minor = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
-        let patch = parts.get(2).and_then(|s| s.parse().ok()).unwrap_or(0);
+
+        // If a part exists, it must parse successfully (don't silently default to 0)
+        let minor = match parts.get(1) {
+            Some(s) => s.parse().ok()?,
+            None => 0,
+        };
+        let patch = match parts.get(2) {
+            Some(s) => s.parse().ok()?,
+            None => 0,
+        };
 
         Some(Self {
             major,

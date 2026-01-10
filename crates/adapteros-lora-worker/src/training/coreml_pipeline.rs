@@ -347,10 +347,13 @@ mod tests {
         }
     }
 
-    fn make_example(input_tokens: Vec<u32>, target_tokens: Vec<u32>, row_id: u64) -> TrainingExample {
+    fn make_example(
+        input_tokens: Vec<u32>,
+        target_tokens: Vec<u32>,
+        row_id: u64,
+    ) -> TrainingExample {
         let metadata = ExampleMetadataV1::new("test", row_id, "{}", 0);
-        let attention_mask =
-            TrainingExample::attention_mask_from_tokens(&input_tokens, 0);
+        let attention_mask = TrainingExample::attention_mask_from_tokens(&input_tokens, 0);
         TrainingExample::new(input_tokens, target_tokens, attention_mask, metadata)
     }
 
@@ -379,11 +382,7 @@ mod tests {
 
     #[test]
     fn reject_context_overflow() {
-        let examples = vec![make_example(
-            vec![1, 2, 3, 4, 5, 6, 7, 8, 9],
-            vec![1],
-            1,
-        )];
+        let examples = vec![make_example(vec![1, 2, 3, 4, 5, 6, 7, 8, 9], vec![1], 1)];
 
         let err = prepare_coreml_dataset(&examples, spec(), 1, None).unwrap_err();
         assert!(err.to_string().contains("context window"));

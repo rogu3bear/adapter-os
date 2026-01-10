@@ -2,16 +2,20 @@
 
 use adapteros_db::Db;
 use adapteros_model_hub::{ModelHubClient, ModelHubConfig};
+use adapteros_server_api::boot_state::BootStateManager;
 use anyhow::Result;
 use std::path::PathBuf;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 /// Downloads priority models from HuggingFace Hub during server startup.
 ///
 /// This function checks if the HF Hub integration is enabled via environment variables
 /// and downloads a configured list of priority models during server startup.
 /// Download failures are logged but do not block server startup.
-pub async fn download_priority_models() {
+///
+/// If a `BootStateManager` is provided, download progress will be tracked and
+/// exposed via the boot progress SSE endpoint.
+pub async fn download_priority_models(boot_state: Option<&BootStateManager>) {
     // Check if HF Hub is enabled
     let hf_enabled = std::env::var("AOS_HF_HUB_ENABLED")
         .map(|v| v == "true" || v == "1")
@@ -111,6 +115,35 @@ pub async fn download_priority_models() {
         }
     };
 
+    // Set up download progress tracking if boot_state is provided
+    let progress_handle = if let Some(bs) = boot_state {
+        let mut rx = client.subscribe_progress();
+        let bs = bs.clone();
+        Some(tokio::spawn(async move {
+            let mut last_downloaded: std::collections::HashMap<String, u64> =
+                std::collections::HashMap::new();
+            while let Ok(progress) = rx.recv().await {
+                // Track incremental bytes downloaded per file
+                let key = format!("{}:{}", progress.model_id, progress.filename);
+                let prev = last_downloaded.get(&key).copied().unwrap_or(0);
+                if progress.downloaded_bytes > prev {
+                    let delta = progress.downloaded_bytes - prev;
+                    bs.add_download_bytes(delta);
+                    debug!(
+                        model_id = %progress.model_id,
+                        filename = %progress.filename,
+                        delta_bytes = delta,
+                        total_bytes = progress.downloaded_bytes,
+                        "Download progress tracked"
+                    );
+                }
+                last_downloaded.insert(key, progress.downloaded_bytes);
+            }
+        }))
+    } else {
+        None
+    };
+
     // Download each priority model
     for model_id in priority_models {
         info!(model_id = %model_id, "Attempting to download priority model");
@@ -132,6 +165,11 @@ pub async fn download_priority_models() {
                 // Don't fail boot - continue with other models
             }
         }
+    }
+
+    // Clean up progress tracking task
+    if let Some(handle) = progress_handle {
+        handle.abort();
     }
 
     info!("Priority model downloads complete");

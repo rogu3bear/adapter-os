@@ -494,6 +494,13 @@ impl FusedKernels for KernelWrapper {
             },
         }
     }
+
+    fn memory_report(&self) -> Option<adapteros_lora_kernel_api::GpuMemoryReportData> {
+        match self {
+            KernelWrapper::Direct(k) => k.inner.memory_report(),
+            KernelWrapper::Coordinated(k) => k.primary.memory_report(),
+        }
+    }
 }
 
 impl LiquidKernel for KernelWrapper {

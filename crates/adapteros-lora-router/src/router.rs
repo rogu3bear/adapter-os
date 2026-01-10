@@ -1358,8 +1358,8 @@ impl Router {
         self.validate_router_inputs(features, priors)?;
 
         // Get current step index for diagnostic events
+        // Note: step_counter is incremented in emit_decision_event after telemetry is emitted
         let step_idx = self.step_counter as u32;
-        self.step_counter += 1;
 
         // Emit RoutingStart diagnostic event
         if let Some(ref diag) = self.router_diag {

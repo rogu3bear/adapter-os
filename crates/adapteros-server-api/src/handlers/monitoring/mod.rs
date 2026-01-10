@@ -224,28 +224,25 @@ pub async fn list_process_monitoring_rules(
     let rule_type_filter = params.get("rule_type").map(|value| value.to_lowercase());
     let is_active_filter = params.get("is_active").and_then(|s| s.parse::<bool>().ok());
 
-    let rules = match ProcessMonitoringRule::list(
-        state.db.pool(),
-        Some(&tenant_filter),
-        is_active_filter,
-    )
-    .await
-    {
-        Ok(rules) => rules,
-        Err(e) => {
-            if is_missing_db_table_error(&e, "process_monitoring_rules") {
-                return Ok(Json(Vec::new()));
+    let rules =
+        match ProcessMonitoringRule::list(state.db.pool(), Some(&tenant_filter), is_active_filter)
+            .await
+        {
+            Ok(rules) => rules,
+            Err(e) => {
+                if is_missing_db_table_error(&e, "process_monitoring_rules") {
+                    return Ok(Json(Vec::new()));
+                }
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("database error")
+                            .with_code("DATABASE_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                ));
             }
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            ));
-        }
-    };
+        };
 
     let filtered = rules.into_iter().filter(|rule| {
         if let Some(ref rule_type) = rule_type_filter {
@@ -570,9 +567,7 @@ pub async fn acknowledge_process_alert(
         if is_missing_db_table_error(&e, "process_alerts") {
             return (
                 StatusCode::SERVICE_UNAVAILABLE,
-                Json(
-                    ErrorResponse::new("process_alerts table missing").with_code("MISSING_TABLE"),
-                ),
+                Json(ErrorResponse::new("process_alerts table missing").with_code("MISSING_TABLE")),
             );
         }
         (

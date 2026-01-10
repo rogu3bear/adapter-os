@@ -139,8 +139,7 @@ pub async fn build_app_state(
             "Failed to ensure training storage root exists; training may fail"
         );
     }
-    let mut training_service =
-        TrainingService::with_db(db.clone(), training_storage_root.clone());
+    let mut training_service = TrainingService::with_db(db.clone(), training_storage_root.clone());
     if let Some(root) = training_artifacts_root {
         training_service.set_artifacts_root(root);
     }

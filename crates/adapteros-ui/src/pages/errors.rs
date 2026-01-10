@@ -250,21 +250,27 @@ fn HistorySection() -> impl IntoView {
     let (errors, refetch) = use_api_resource(move |client: Arc<ApiClient>| async move {
         let error_type = {
             let val = error_type_filter.get();
-            if val.is_empty() { None } else { Some(val) }
+            if val.is_empty() {
+                None
+            } else {
+                Some(val)
+            }
         };
         let http_status = {
             let val = http_status_filter.get();
             val.parse::<i32>().ok()
         };
-        client.list_client_errors(
-            error_type.as_deref(),
-            http_status,
-            None, // page_pattern
-            None, // since
-            None, // until
-            Some(100),
-            None,
-        ).await
+        client
+            .list_client_errors(
+                error_type.as_deref(),
+                http_status,
+                None, // page_pattern
+                None, // since
+                None, // until
+                Some(100),
+                None,
+            )
+            .await
     });
 
     let refetch_signal = StoredValue::new(refetch);

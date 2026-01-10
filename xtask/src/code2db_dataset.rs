@@ -112,9 +112,18 @@ pub async fn run(args: Code2DbDatasetArgs) -> Result<()> {
             let input_ids = tokenizer.encode(&prompt)?;
             let target_ids = tokenizer.encode(&content)?;
             let mut prov = BTreeMap::new();
-            prov.insert("file_path".to_string(), serde_json::Value::String(path.to_string_lossy().to_string()));
-            prov.insert("kind".to_string(), serde_json::Value::String("migration".to_string()));
-            let created_at = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+            prov.insert(
+                "file_path".to_string(),
+                serde_json::Value::String(path.to_string_lossy().to_string()),
+            );
+            prov.insert(
+                "kind".to_string(),
+                serde_json::Value::String("migration".to_string()),
+            );
+            let created_at = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
             let metadata = ExampleMetadataV1::new(
                 path.to_string_lossy().to_string(),
                 examples.len() as u64,
@@ -155,9 +164,18 @@ pub async fn run(args: Code2DbDatasetArgs) -> Result<()> {
                     .join("\n");
                 let target_ids = tokenizer.encode(&tail)?;
                 let mut prov = BTreeMap::new();
-                prov.insert("file_path".to_string(), serde_json::Value::String(path.to_string_lossy().to_string()));
-                prov.insert("kind".to_string(), serde_json::Value::String("rust".to_string()));
-                let created_at = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+                prov.insert(
+                    "file_path".to_string(),
+                    serde_json::Value::String(path.to_string_lossy().to_string()),
+                );
+                prov.insert(
+                    "kind".to_string(),
+                    serde_json::Value::String("rust".to_string()),
+                );
+                let created_at = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or(0);
                 let metadata = ExampleMetadataV1::new(
                     path.to_string_lossy().to_string(),
                     examples.len() as u64,
@@ -199,7 +217,10 @@ pub async fn run(args: Code2DbDatasetArgs) -> Result<()> {
             map.insert("source_id".to_string(), e.metadata.source_id);
             map.insert("row_id".to_string(), e.metadata.row_id.to_string());
             map.insert("provenance".to_string(), e.metadata.provenance);
-            map.insert("created_at_unix_ms".to_string(), e.metadata.created_at_unix_ms.to_string());
+            map.insert(
+                "created_at_unix_ms".to_string(),
+                e.metadata.created_at_unix_ms.to_string(),
+            );
             TrainingExampleOut {
                 input: e.input_tokens,
                 target: e.target_tokens,

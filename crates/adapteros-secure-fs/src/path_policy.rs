@@ -18,10 +18,7 @@ pub fn canonicalize_strict(path: impl AsRef<Path>) -> Result<PathBuf> {
             "Failed to canonicalize path"
         );
         if e.kind() == std::io::ErrorKind::NotFound {
-            AosError::NotFound(format!(
-                "Path does not exist: {}",
-                path.display()
-            ))
+            AosError::NotFound(format!("Path does not exist: {}", path.display()))
         } else {
             AosError::Io(format!(
                 "Failed to canonicalize path '{}': {}",

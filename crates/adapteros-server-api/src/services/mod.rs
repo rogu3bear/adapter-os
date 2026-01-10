@@ -31,6 +31,7 @@ pub use dataset_domain::{
     NormalizationNotes, RawDialect, RawFileDescriptor, RawIngestRequest, SamplingConfig,
     SplitStats,
 };
+pub use error_alert_evaluator::ErrorAlertEvaluator;
 pub use training_dataset::{
     DatasetFromCollectionParams, DatasetFromDocumentIdsParams, DatasetFromUploadParams,
     DatasetFromUploadedDocumentParams, DefaultTrainingDatasetService, TrainingDatasetService,
@@ -38,4 +39,3 @@ pub use training_dataset::{
 pub use training_service::{
     DefaultTrainingService, TrainingCapacityInfo, TrainingService, TrainingValidationResult,
 };
-pub use error_alert_evaluator::ErrorAlertEvaluator;

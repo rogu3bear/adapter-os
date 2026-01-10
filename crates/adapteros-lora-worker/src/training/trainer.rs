@@ -8,16 +8,16 @@ use super::checkpoint::{CheckpointManager, TrainingCheckpoint};
 use super::coreml_pipeline::{
     prepare_coreml_dataset, BatchPlan, CoreMLInputSpec, PreparedDataset, PreparedExample,
 };
-pub use adapteros_types::training::TrainingExampleV1 as TrainingExample;
+use super::dataset::example_hash_for_tokens;
 use super::loss::{self, LOSS_IGNORE_INDEX};
 use super::perplexity::compute_perplexity;
-use super::dataset::example_hash_for_tokens;
 use super::preprocessing::{preprocess_examples, PreprocessResult};
 use adapteros_core::{derive_seed, AosError, Result};
 use adapteros_db::{Db, TrainingMetricRow};
 use adapteros_lora_kernel_api::FusedKernels;
 use adapteros_lora_router::ROUTER_GATE_Q15_MAX;
 use adapteros_telemetry::TelemetryWriter;
+pub use adapteros_types::training::TrainingExampleV1 as TrainingExample;
 use adapteros_types::training::{
     validate_training_examples, PreprocessedExampleV1, TrainingBackendPolicy,
     TrainingDataContractConfig, TrainingExampleBatchSummary, PREPROCESSED_EXAMPLE_SCHEMA_VERSION,
@@ -810,9 +810,7 @@ impl MicroLoRATrainer {
         }
 
         let base_model_path = self.config.base_model_path.as_ref().ok_or_else(|| {
-            AosError::Config(
-                "preprocessing enabled but base_model_path is missing".to_string(),
-            )
+            AosError::Config("preprocessing enabled but base_model_path is missing".to_string())
         })?;
         let seed = cfg.seed.unwrap_or(self.training_seed);
         let contract = self.training_contract_config();
@@ -892,10 +890,7 @@ impl MicroLoRATrainer {
                 &example.attention_mask,
             );
             let preprocessed = map.get(&hash).ok_or_else(|| {
-                AosError::Training(format!(
-                    "Missing preprocessed example for index {}",
-                    idx
-                ))
+                AosError::Training(format!("Missing preprocessed example for index {}", idx))
             })?;
             if preprocessed.input_tokens != example.input_tokens
                 || preprocessed.target_tokens != example.target_tokens
@@ -922,13 +917,13 @@ impl MicroLoRATrainer {
         examples: &[TrainingExample],
     ) -> Result<PreparedDataset> {
         let contract = self.training_contract_config();
-        let summary =
-            validate_training_examples(examples, self.config.vocab_size, &contract).map_err(|e| {
-            AosError::Training(format!(
-                "Training example contract validation failed: {}",
-                e
-            ))
-        })?;
+        let summary = validate_training_examples(examples, self.config.vocab_size, &contract)
+            .map_err(|e| {
+                AosError::Training(format!(
+                    "Training example contract validation failed: {}",
+                    e
+                ))
+            })?;
         self.log_training_contract(&summary);
 
         let split = self.split_examples_for_validation(examples);
@@ -937,10 +932,8 @@ impl MicroLoRATrainer {
         if split.validation.is_empty() {
             self.validation_examples.clear();
         } else {
-            self.validation_examples = self.prepare_validation_examples(
-                &split.validation,
-                &prepared_dataset.batch_plan,
-            )?;
+            self.validation_examples =
+                self.prepare_validation_examples(&split.validation, &prepared_dataset.batch_plan)?;
         }
 
         self.split_hash_b3 = Some(split.split_hash_b3);
@@ -959,12 +952,14 @@ impl MicroLoRATrainer {
     ) -> Result<PreparedDataset> {
         let contract = self.training_contract_config();
         let train_summary =
-            validate_training_examples(train_examples, self.config.vocab_size, &contract).map_err(|e| {
-                AosError::Training(format!(
-                    "Training example contract validation failed: {}",
-                    e
-                ))
-            })?;
+            validate_training_examples(train_examples, self.config.vocab_size, &contract).map_err(
+                |e| {
+                    AosError::Training(format!(
+                        "Training example contract validation failed: {}",
+                        e
+                    ))
+                },
+            )?;
         let combined_summary = if validation_examples.is_empty() {
             train_summary.clone()
         } else {
@@ -1009,10 +1004,8 @@ impl MicroLoRATrainer {
         if validation_examples.is_empty() {
             self.validation_examples.clear();
         } else {
-            self.validation_examples = self.prepare_validation_examples(
-                validation_examples,
-                &prepared_dataset.batch_plan,
-            )?;
+            self.validation_examples = self
+                .prepare_validation_examples(validation_examples, &prepared_dataset.batch_plan)?;
         }
 
         let total_examples = train_examples.len() + validation_examples.len();
@@ -1552,12 +1545,11 @@ impl MicroLoRATrainer {
     /// the training configuration.
     #[cfg(feature = "multi-backend")]
     pub fn load_base_model(&mut self, model_path: &Path) -> Result<()> {
-        use adapteros_lora_mlx_ffi::MLXFFIModel;
         use crate::backend_factory::canonicalize_model_path;
+        use adapteros_lora_mlx_ffi::MLXFFIModel;
 
-        let canonical_path = canonicalize_model_path(model_path).map_err(|e| {
-            AosError::Training(format!("Model path rejected: {}", e))
-        })?;
+        let canonical_path = canonicalize_model_path(model_path)
+            .map_err(|e| AosError::Training(format!("Model path rejected: {}", e)))?;
         info!(
             model_path = %canonical_path.display(),
             "Loading base model for hidden state extraction during training"
@@ -1594,15 +1586,11 @@ impl MicroLoRATrainer {
         }
 
         // Determine which hidden state layer to extract
-        let hidden_state_key = self
-            .config
-            .hidden_state_layer
-            .clone()
-            .unwrap_or_else(|| {
-                // Default to the last transformer layer's output
-                let last_layer = model_config.num_hidden_layers.saturating_sub(1);
-                format!("layer_{}_output", last_layer)
-            });
+        let hidden_state_key = self.config.hidden_state_layer.clone().unwrap_or_else(|| {
+            // Default to the last transformer layer's output
+            let last_layer = model_config.num_hidden_layers.saturating_sub(1);
+            format!("layer_{}_output", last_layer)
+        });
 
         info!(
             num_layers = model_config.num_hidden_layers,
@@ -1881,7 +1869,8 @@ Use --force-resume to override (may produce incorrect results).",
             ));
         }
 
-        if (self.config.validation_split - checkpoint_config.validation_split).abs() > FLOAT_TOLERANCE
+        if (self.config.validation_split - checkpoint_config.validation_split).abs()
+            > FLOAT_TOLERANCE
         {
             mismatches.push(format!(
                 "validation_split: checkpoint={:.4} current={:.4}",
@@ -2679,8 +2668,7 @@ Use --force-resume to override (may produce incorrect results).",
                 {
                     let output_proj = validation_output_proj.as_ref().ok_or_else(|| {
                         AosError::Training(
-                            "Validation output projection missing for loss computation"
-                                .to_string(),
+                            "Validation output projection missing for loss computation".to_string(),
                         )
                     })?;
                     for example in &self.validation_examples {
@@ -2733,9 +2721,8 @@ Use --force-resume to override (may produce incorrect results).",
                                 should_stop_early = true;
                                 info!(
                                     epoch = epoch + 1,
-                                    best_validation_loss = best_validation
-                                        .map(|(loss, _)| loss)
-                                        .unwrap_or(val_loss),
+                                    best_validation_loss =
+                                        best_validation.map(|(loss, _)| loss).unwrap_or(val_loss),
                                     patience,
                                     min_delta,
                                     "Early stopping triggered: validation loss plateaued"
@@ -3588,10 +3575,8 @@ Use --force-resume to override (may produce incorrect results).",
 
         // Clip gradients
         use adapteros_lora_mlx_ffi::training::mlx_clip_grad_norm_gpu;
-        let grad_norm = mlx_clip_grad_norm_gpu(
-            &mut [grad_a.clone_tensor()?, grad_b.clone_tensor()?],
-            1.0,
-        );
+        let grad_norm =
+            mlx_clip_grad_norm_gpu(&mut [grad_a.clone_tensor()?, grad_b.clone_tensor()?], 1.0);
         if grad_norm > 1.0 {
             debug!("GPU clipped gradient norm from {:.4} to 1.0", grad_norm);
         }
@@ -3688,12 +3673,13 @@ Use --force-resume to override (may produce incorrect results).",
 
         // Clip gradients
         use adapteros_lora_mlx_ffi::training::mlx_clip_grad_norm_gpu;
-        let grad_norm = mlx_clip_grad_norm_gpu(
-            &mut [grad_a.clone_tensor()?, grad_b.clone_tensor()?],
-            1.0,
-        );
+        let grad_norm =
+            mlx_clip_grad_norm_gpu(&mut [grad_a.clone_tensor()?, grad_b.clone_tensor()?], 1.0);
         if grad_norm > 1.0 {
-            debug!("GPU (CE) clipped gradient norm from {:.4} to 1.0", grad_norm);
+            debug!(
+                "GPU (CE) clipped gradient norm from {:.4} to 1.0",
+                grad_norm
+            );
         }
 
         // Apply optimizer step

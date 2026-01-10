@@ -69,11 +69,12 @@ pub fn SpawnWorkerDialog(
     // Build node options
     let node_options: Vec<(String, String)> =
         std::iter::once(("".to_string(), "Select a node...".to_string()))
-            .chain(
-                nodes
-                    .iter()
-                    .map(|n| (n.id.clone(), format!("{} ({})", n.hostname, short_id(&n.id)))),
-            )
+            .chain(nodes.iter().map(|n| {
+                (
+                    n.id.clone(),
+                    format!("{} ({})", n.hostname, short_id(&n.id)),
+                )
+            }))
             .collect();
 
     // Build deployment config options with friendly labels

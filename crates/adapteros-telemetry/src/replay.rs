@@ -234,6 +234,7 @@ mod tests {
             stack_version: None,
             model_type: adapteros_types::routing::RouterModelType::Dense,
             active_experts: None,
+            backend_type: None,
         };
 
         let router_event_2 = RouterDecisionEvent {
@@ -252,6 +253,7 @@ mod tests {
             stack_version: None,
             model_type: adapteros_types::routing::RouterModelType::Dense,
             active_experts: None,
+            backend_type: None,
         };
 
         let events = vec![

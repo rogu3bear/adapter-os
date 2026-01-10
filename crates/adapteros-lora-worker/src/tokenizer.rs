@@ -100,6 +100,11 @@ impl QwenTokenizer {
         self.special_tokens.pad_token_id
     }
 
+    /// Get vocab size (optionally including added tokens).
+    pub fn vocab_size(&self, include_added_tokens: bool) -> usize {
+        self.tokenizer.get_vocab_size(include_added_tokens)
+    }
+
     /// Get the full special token map
     pub fn special_tokens(&self) -> &SpecialTokenMap {
         &self.special_tokens

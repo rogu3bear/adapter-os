@@ -110,7 +110,7 @@ pub use job::{
     TrainingBackendKind, TrainingBackendPolicy, TrainingConfig, TrainingJob, TrainingJobStatus,
     TrainingTemplate,
 };
-pub use service::TrainingService;
+pub use service::{OrphanedJobRecoveryReport, TrainingService};
 pub use versioning::{compute_combined_data_spec_hash, TrainingVersioningContext};
 
 // Internal but exposed for other internal modules

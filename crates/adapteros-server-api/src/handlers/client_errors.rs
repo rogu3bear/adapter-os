@@ -380,17 +380,13 @@ pub async fn list_client_errors(
         offset: params.offset,
     };
 
-    let errors = state
-        .db
-        .list_client_errors(&query)
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, "Failed to list client errors");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new("Failed to retrieve errors").with_code("DATABASE_ERROR")),
-            )
-        })?;
+    let errors = state.db.list_client_errors(&query).await.map_err(|e| {
+        tracing::error!(error = %e, "Failed to list client errors");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("Failed to retrieve errors").with_code("DATABASE_ERROR")),
+        )
+    })?;
 
     let total = errors.len();
     let items: Vec<ClientErrorItem> = errors.into_iter().map(|e| e.into()).collect();
@@ -455,17 +451,13 @@ pub async fn get_client_error(
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> Result<Json<ClientErrorItem>, (StatusCode, Json<ErrorResponse>)> {
-    let error = state
-        .db
-        .get_client_error(&id)
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, error_id = %id, "Failed to get client error");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new("Failed to retrieve error").with_code("DATABASE_ERROR")),
-            )
-        })?;
+    let error = state.db.get_client_error(&id).await.map_err(|e| {
+        tracing::error!(error = %e, error_id = %id, "Failed to get client error");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("Failed to retrieve error").with_code("DATABASE_ERROR")),
+        )
+    })?;
 
     match error {
         Some(e) if e.tenant_id == claims.tenant_id || e.tenant_id == ANONYMOUS_TENANT_ID => {
@@ -526,12 +518,10 @@ pub async fn stream_client_errors(
         // First iteration: send connection event
         if !state.sent_initial {
             state.sent_initial = true;
-            let event = Event::default()
-                .event("connected")
-                .data(format!(
-                    r#"{{"tenant_id":"{}","connected_at":"{}"}}"#,
-                    state.tenant_id, state.last_timestamp
-                ));
+            let event = Event::default().event("connected").data(format!(
+                r#"{{"tenant_id":"{}","connected_at":"{}"}}"#,
+                state.tenant_id, state.last_timestamp
+            ));
             return Some((Ok(event), state));
         }
 
@@ -621,8 +611,7 @@ fn validate_report(report: &ClientErrorReport) -> Result<(), (StatusCode, Json<E
         return Err((
             StatusCode::BAD_REQUEST,
             Json(
-                ErrorResponse::new("timestamp must be in ISO 8601 format")
-                    .with_code("BAD_REQUEST"),
+                ErrorResponse::new("timestamp must be in ISO 8601 format").with_code("BAD_REQUEST"),
             ),
         ));
     }

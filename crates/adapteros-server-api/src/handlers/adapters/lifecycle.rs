@@ -29,6 +29,50 @@ use tracing::{error, info};
 use utoipa::ToSchema;
 
 // ============================================================================
+// In-Flight Adapter Guard
+// ============================================================================
+
+/// Check if an adapter is currently being used for inference.
+///
+/// Returns an error response if the adapter is in-flight and should not be modified.
+/// This prevents race conditions where adapter lifecycle changes could affect
+/// running inference requests.
+///
+/// ## In-Flight Guard (ANCHOR, AUDIT, RECTIFY)
+///
+/// - **ANCHOR**: `is_adapter_in_flight()` enforces invariant before lifecycle transitions
+/// - **AUDIT**: Tracks `in_flight_guard_allows` and `in_flight_guard_blocks` counters
+/// - **RECTIFY**: Returns CONFLICT status with actionable error message for retry
+fn check_adapter_not_in_flight(
+    state: &AppState,
+    adapter_id: &str,
+) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    if let Some(ref tracker) = state.inference_state_tracker {
+        // Use is_adapter_in_flight() which updates AUDIT metrics
+        if tracker.is_adapter_in_flight(adapter_id) {
+            tracing::warn!(
+                adapter_id = %adapter_id,
+                total_blocks = tracker.in_flight_guard_blocks(),
+                "Lifecycle modification blocked: adapter is being used for inference"
+            );
+            return Err((
+                StatusCode::CONFLICT,
+                Json(
+                    ErrorResponse::new("Adapter is currently in use for inference")
+                        .with_code("ADAPTER_IN_FLIGHT")
+                        .with_string_details(format!(
+                            "Adapter '{}' cannot be modified while active inference requests are using it. \
+                             Wait for in-flight requests to complete or use a graceful drain period.",
+                            adapter_id
+                        )),
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
+// ============================================================================
 // Types
 // ============================================================================
 
@@ -377,6 +421,9 @@ pub async fn promote_adapter_lifecycle(
     // Require AdapterLoad permission (Operator and Admin roles have this)
     require_permission(&claims, Permission::AdapterLoad)?;
 
+    // Guard: prevent modification of in-flight adapters
+    check_adapter_not_in_flight(&state, &adapter_id)?;
+
     // Use the adapter service to promote lifecycle
     let service = DefaultAdapterService::new(Arc::new(state.clone()));
     let actor = claims.sub.clone();
@@ -482,6 +529,9 @@ pub async fn demote_adapter_lifecycle(
 ) -> Result<Json<LifecycleTransitionResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Require AdapterUnload permission (Operator and Admin roles have this)
     require_permission(&claims, Permission::AdapterUnload)?;
+
+    // Guard: prevent modification of in-flight adapters
+    check_adapter_not_in_flight(&state, &adapter_id)?;
 
     // Use the adapter service to demote lifecycle
     let service = DefaultAdapterService::new(Arc::new(state.clone()));

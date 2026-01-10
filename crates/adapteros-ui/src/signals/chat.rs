@@ -340,8 +340,9 @@ pub type ChatContext = (ReadSignal<ChatState>, ChatAction);
 /// Provide chat context to the application
 pub fn provide_chat_context() {
     web_sys::console::log_1(&"[ChatContext] Initializing...".into());
-    let base_url = format!("{}/api", api_base_url().trim_end_matches('/'));
-    let client = Arc::new(ApiClient::with_base_url(base_url));
+    // API routes are rooted at `/v1/...` (no `/api` prefix). Use the origin directly
+    // to avoid generating `/api/v1` paths that 404 on the server.
+    let client = Arc::new(ApiClient::with_base_url(api_base_url()));
     web_sys::console::log_1(&"[ChatContext] Client created".into());
     let state = RwSignal::new(ChatState::default());
     web_sys::console::log_1(&"[ChatContext] State created".into());

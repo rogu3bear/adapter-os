@@ -732,8 +732,7 @@ pub async fn compare_metrics(
                 ErrorResponse::new("code metrics compare uses time windows within one tenant")
                     .with_code("BAD_REQUEST")
                     .with_string_details(
-                        "code metrics are tenant-scoped; use the active tenant cpid"
-                            .to_string(),
+                        "code metrics are tenant-scoped; use the active tenant cpid".to_string(),
                     ),
             ),
         ));
@@ -746,9 +745,14 @@ pub async fn compare_metrics(
     let now = Utc::now();
     let previous_end = now - duration;
 
-    let metrics_old =
-        build_code_metrics_at(&state, &claims.tenant_id, &req.old_cpid, time_range, previous_end)
-            .await?;
+    let metrics_old = build_code_metrics_at(
+        &state,
+        &claims.tenant_id,
+        &req.old_cpid,
+        time_range,
+        previous_end,
+    )
+    .await?;
     let metrics_new =
         build_code_metrics_at(&state, &claims.tenant_id, &req.new_cpid, time_range, now).await?;
 

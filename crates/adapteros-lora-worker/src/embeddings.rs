@@ -90,7 +90,8 @@ impl EmbeddingModel {
                 base_path
             );
             return Err(AosError::Worker(
-                "Embedding model not found. RAG requires model.safetensors or sharded model files.".into(),
+                "Embedding model not found. RAG requires model.safetensors or sharded model files."
+                    .into(),
             ));
         };
 

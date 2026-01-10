@@ -55,7 +55,8 @@ pub(crate) fn write_training_report(
         })?;
     }
 
-    let json = serde_json::to_string_pretty(&report).context("Failed to serialize training report")?;
+    let json =
+        serde_json::to_string_pretty(&report).context("Failed to serialize training report")?;
     std::fs::write(&report_path, json).with_context(|| {
         format!(
             "Failed to write training report to {}",
@@ -94,9 +95,7 @@ fn build_training_report(
         training_result.validation_perplexity_curve.clone()
     };
 
-    let final_epoch = training_result
-        .stopped_at_epoch
-        .unwrap_or(target_epochs);
+    let final_epoch = training_result.stopped_at_epoch.unwrap_or(target_epochs);
     let early_stopped = !training_result.cancelled && final_epoch < target_epochs;
     let best_epoch = training_result
         .best_validation

@@ -1,6 +1,8 @@
 //! Dataset CRUD handlers (list, get, delete).
 
-use super::helpers::{ensure_dataset_file_within_root, map_validation_errors, map_validation_status};
+use super::helpers::{
+    ensure_dataset_file_within_root, map_validation_errors, map_validation_status,
+};
 use super::types::ListDatasetsQuery;
 use crate::auth::Claims;
 use crate::error_helpers::{db_error, forbidden, not_found};
@@ -268,7 +270,11 @@ pub async fn delete_dataset(
             tokio::fs::remove_dir_all(&safe_path)
                 .await
                 .map_err(|e| {
-                    error!("Failed to delete dataset files at {}: {}", safe_path.display(), e);
+                    error!(
+                        "Failed to delete dataset files at {}: {}",
+                        safe_path.display(),
+                        e
+                    );
                     // Don't fail the request if filesystem cleanup fails
                     e
                 })

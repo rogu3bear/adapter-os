@@ -533,7 +533,8 @@ pub async fn train_repository_adapter(
         validation_split: None,
         preprocessing: None,
         force_resume: false,
-        training_contract_version: adapteros_types::training::TRAINING_DATA_CONTRACT_VERSION.to_string(),
+        training_contract_version: adapteros_types::training::TRAINING_DATA_CONTRACT_VERSION
+            .to_string(),
         pad_token_id: 0,
         ignore_index: -1,
     };

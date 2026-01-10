@@ -18,7 +18,10 @@ use crate::types::*;
 use axum::{
     extract::{Path, Query, State},
     http::HeaderMap,
-    response::{sse::{Event, KeepAlive, KeepAliveStream, Sse}, IntoResponse},
+    response::{
+        sse::{Event, KeepAlive, KeepAliveStream, Sse},
+        IntoResponse,
+    },
     Extension,
 };
 use futures_util::stream::{self, Stream};
@@ -373,6 +376,149 @@ pub async fn adapter_state_stream(
 
             let event = mgr
                 .create_event(SseStreamType::AdapterState, "adapters", json)
+                .await;
+
+            Some((
+                Ok(SseEventManager::to_axum_event(&event)),
+                (state, tenant_id),
+            ))
+        },
+    );
+
+    sse_response(FuturesStreamExt::chain(replay_stream, live_stream))
+}
+
+/// SSE stream for worker status updates
+///
+/// Streams worker snapshots with replay support.
+#[utoipa::path(
+    tag = "system",
+    get,
+    path = "/v1/stream/workers",
+    params(
+        ("tenant" = Option<String>, Query, description = "Tenant ID for filtering events (defaults to caller tenant)")
+    ),
+    responses(
+        (status = 200, description = "SSE stream of worker status updates")
+    )
+)]
+pub async fn workers_stream(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(params): Query<StreamQuery>,
+    headers: HeaderMap,
+) -> SseResponse {
+    let has_permission = require_permission(&claims, Permission::WorkerView).is_ok();
+
+    if !has_permission {
+        tracing::warn!(
+            user_id = %claims.sub,
+            tenant_id = %claims.tenant_id,
+            "Permission denied for worker stream"
+        );
+        let event = Event::default()
+            .event("error")
+            .data("{\"error\": \"Permission denied - WorkerView required\"}");
+        return sse_response(stream::iter(vec![Ok(event)]));
+    }
+
+    let tenant_id = params
+        .tenant
+        .clone()
+        .unwrap_or_else(|| claims.tenant_id.clone());
+    if !check_tenant_access(&claims, &tenant_id) {
+        tracing::warn!(
+            user_id = %claims.sub,
+            user_tenant = %claims.tenant_id,
+            requested_tenant = %tenant_id,
+            "Worker stream tenant access denied"
+        );
+        let event = Event::default()
+            .event("error")
+            .data("{\"error\": \"Access denied for tenant worker stream\"}");
+        return sse_response(stream::iter(vec![Ok(event)]));
+    }
+
+    let sse_manager = state.sse_manager.clone();
+
+    // Parse Last-Event-ID for replay
+    let last_event_id = SseEventManager::parse_last_event_id(&headers);
+
+    // Get replay events if reconnecting
+    let replay_events = if let Some(last_id) = last_event_id {
+        sse_manager
+            .get_replay_events(SseStreamType::Workers, last_id)
+            .await
+    } else {
+        Vec::new()
+    };
+
+    // Create replay stream
+    let replay_stream = create_replay_stream(replay_events);
+
+    let live_stream = stream::unfold(
+        (state.clone(), tenant_id),
+        move |(state, tenant_id)| async move {
+            let mgr = state.sse_manager.clone();
+
+            tokio::time::sleep(Duration::from_secs(10)).await;
+
+            let workers = match state.db.list_workers_by_tenant(&tenant_id).await {
+                Ok(w) => w,
+                Err(e) => {
+                    tracing::warn!("Failed to fetch workers for SSE: {}", e);
+                    let event = mgr
+                        .create_error_event(SseStreamType::Workers, &e.to_string())
+                        .await;
+                    return Some((
+                        Ok(SseEventManager::to_axum_event(&event)),
+                        (state, tenant_id),
+                    ));
+                }
+            };
+
+            let response: Vec<WorkerResponse> = workers
+                .into_iter()
+                .map(|w| WorkerResponse {
+                    schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+                    id: w.id,
+                    tenant_id: w.tenant_id,
+                    node_id: w.node_id,
+                    plan_id: w.plan_id,
+                    uds_path: w.uds_path,
+                    pid: w.pid,
+                    status: w.status,
+                    started_at: w.started_at,
+                    last_seen_at: w.last_seen_at,
+                    capabilities: Vec::new(),
+                    capabilities_detail: None,
+                    backend: None,
+                    model_id: None,
+                    model_hash: None,
+                    model_loaded: false,
+                    cache_used_mb: None,
+                    cache_max_mb: None,
+                    cache_pinned_entries: None,
+                    cache_active_entries: None,
+                })
+                .collect();
+
+            let json = match serde_json::to_string(&serde_json::json!({ "workers": response })) {
+                Ok(j) => j,
+                Err(e) => {
+                    tracing::warn!("Failed to serialize workers: {}", e);
+                    let event = mgr
+                        .create_error_event(SseStreamType::Workers, "serialization failed")
+                        .await;
+                    return Some((
+                        Ok(SseEventManager::to_axum_event(&event)),
+                        (state, tenant_id),
+                    ));
+                }
+            };
+
+            let event = mgr
+                .create_event(SseStreamType::Workers, "workers", json)
                 .await;
 
             Some((

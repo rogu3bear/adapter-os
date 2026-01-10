@@ -1,5 +1,13 @@
 //! Adapter repository + version persistence
 //! Implements the core entity model backed by migrations/0175_adapter_repositories_and_versions.sql
+//!
+//! ## Tier Promotion Transaction (ANCHOR, AUDIT, RECTIFY)
+//!
+//! Promotion uses optimistic locking to prevent TOCTOU (time-of-check to time-of-use) races:
+//!
+//! - **ANCHOR**: UPDATE includes `WHERE release_state = ?` to enforce expected state
+//! - **AUDIT**: Tracks `TIER_PROMOTION_TOCTOU_DETECTED` counter via `tier_promotion_toctou_count()`
+//! - **RECTIFY**: On 0 rows affected, returns `Conflict` error so caller can retry with fresh state
 
 use adapteros_core::{AosError, Result};
 use adapteros_types::coreml::CoreMLMode;
@@ -10,7 +18,17 @@ use sqlx::QueryBuilder;
 use sqlx::{Executor, Row, Sqlite, Transaction};
 use std::collections::HashSet;
 use std::str::FromStr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tracing::{error, warn};
+
+/// Counter for TOCTOU race detection during tier promotion.
+static TIER_PROMOTION_TOCTOU_DETECTED: AtomicU64 = AtomicU64::new(0);
+
+/// Returns the count of detected TOCTOU races during tier promotion.
+/// Non-zero values indicate concurrent modification attempts that were safely rejected.
+pub fn tier_promotion_toctou_count() -> u64 {
+    TIER_PROMOTION_TOCTOU_DETECTED.load(Ordering::Relaxed)
+}
 use uuid::Uuid;
 
 use crate::Db;
@@ -1866,17 +1884,36 @@ impl Db {
         if let Some(active) = existing_active {
             if active.id != target_version.id {
                 validate_release_transition(Some(&active.release_state), "deprecated")?;
-                sqlx::query(
+                // ANCHOR: Include release_state in WHERE for optimistic locking
+                let deprecate_result = sqlx::query(
                     r#"
                     UPDATE adapter_versions
                     SET release_state = 'deprecated'
-                    WHERE id = ?
+                    WHERE id = ? AND release_state = ?
                     "#,
                 )
                 .bind(&active.id)
+                .bind(&active.release_state)
                 .execute(&mut *tx)
                 .await
                 .map_err(|e| AosError::Database(e.to_string()))?;
+
+                // RECTIFY: Detect concurrent modification during deprecation
+                if deprecate_result.rows_affected() == 0 {
+                    TIER_PROMOTION_TOCTOU_DETECTED.fetch_add(1, Ordering::Relaxed);
+                    warn!(
+                        version_id = %active.id,
+                        expected_state = %active.release_state,
+                        "TOCTOU detected: active version state changed during deprecation"
+                    );
+                    if let Err(e) = tx.rollback().await {
+                        error!(error = %e, "Transaction rollback failed");
+                    }
+                    return Err(AosError::Conflict(
+                        "active version state changed during deprecation; retry with fresh state"
+                            .to_string(),
+                    ));
+                }
 
                 self.insert_version_history(
                     &mut tx,
@@ -1896,21 +1933,40 @@ impl Db {
             }
         }
 
-        // Promote target version
+        // Promote target version (ANCHOR: optimistic locking prevents TOCTOU)
         if normalize_release_state(&target_version.release_state) != "active" {
             validate_release_transition(Some(&target_version.release_state), "active")?;
-            sqlx::query(
+            // ANCHOR: Include release_state in WHERE for optimistic locking
+            let result = sqlx::query(
                 r#"
                 UPDATE adapter_versions
                 SET release_state = 'active'
-                WHERE id = ? AND tenant_id = ?
+                WHERE id = ? AND tenant_id = ? AND release_state = ?
                 "#,
             )
             .bind(version_id)
             .bind(tenant_id)
+            .bind(&target_version.release_state)
             .execute(&mut *tx)
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
+
+            // RECTIFY: Detect concurrent modification and return retryable error
+            if result.rows_affected() == 0 {
+                TIER_PROMOTION_TOCTOU_DETECTED.fetch_add(1, Ordering::Relaxed);
+                warn!(
+                    version_id = version_id,
+                    expected_state = %target_version.release_state,
+                    "TOCTOU detected: adapter version state changed during promotion"
+                );
+                if let Err(e) = tx.rollback().await {
+                    error!(error = %e, "Transaction rollback failed");
+                }
+                return Err(AosError::Conflict(
+                    "adapter version state changed during promotion; retry with fresh state"
+                        .to_string(),
+                ));
+            }
 
             self.insert_version_history(
                 &mut tx,

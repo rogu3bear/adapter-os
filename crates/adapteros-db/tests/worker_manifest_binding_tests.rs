@@ -32,8 +32,14 @@ async fn ensure_test_infrastructure(db: &Db, tenant_id: &str) {
         .expect("Failed to ensure tenant exists");
     }
 
-    // Use pre-seeded node from seed_dev_data (node-01)
-    // The seed creates nodes: node-01, node-02, node-03
+    // Create test node (seed_dev_data creates 'local', tests use 'node-01')
+    sqlx::query(
+        "INSERT OR IGNORE INTO nodes (id, hostname, agent_endpoint, status, last_seen_at, labels_json, created_at)
+         VALUES ('node-01', 'test-host', 'http://localhost:9000', 'active', datetime('now'), '{}', datetime('now'))",
+    )
+    .execute(&*db.pool())
+    .await
+    .expect("Failed to ensure node exists");
 
     // Insert manifest if not exists (required FK for plans)
     sqlx::query(

@@ -325,16 +325,14 @@ pub fn compute_split_hash_for_sets(
     seed: u64,
     split_ratio: f32,
 ) -> String {
-    let mut train_hashes: Vec<[u8; 32]> =
-        train_examples
-            .iter()
-            .map(|ex| example_hash_for_seed(seed, ex))
-            .collect();
-    let mut validation_hashes: Vec<[u8; 32]> =
-        validation_examples
-            .iter()
-            .map(|ex| example_hash_for_seed(seed, ex))
-            .collect();
+    let mut train_hashes: Vec<[u8; 32]> = train_examples
+        .iter()
+        .map(|ex| example_hash_for_seed(seed, ex))
+        .collect();
+    let mut validation_hashes: Vec<[u8; 32]> = validation_examples
+        .iter()
+        .map(|ex| example_hash_for_seed(seed, ex))
+        .collect();
 
     train_hashes.sort();
     validation_hashes.sort();
@@ -358,14 +356,16 @@ pub fn split_examples_for_validation(
     examples: &[TrainingExampleV1],
     split_ratio: f32,
     seed: u64,
-) -> (Vec<TrainingExampleV1>, Vec<TrainingExampleV1>, ValidationSplitSummary) {
+) -> (
+    Vec<TrainingExampleV1>,
+    Vec<TrainingExampleV1>,
+    ValidationSplitSummary,
+) {
     let split = split_ratio.clamp(0.0, 0.5);
     let total = examples.len();
 
     if split <= 0.0 || total <= 1 {
-        let hashes = examples
-            .iter()
-            .map(|ex| example_hash_for_seed(seed, ex));
+        let hashes = examples.iter().map(|ex| example_hash_for_seed(seed, ex));
         let split_hash_b3 = split_hash_from_hashes(hashes, seed, split, total, total);
         return (
             examples.to_vec(),
@@ -402,8 +402,7 @@ pub fn split_examples_for_validation(
     );
 
     let validation_pairs = hashed.split_off(train_len);
-    let train_examples: Vec<TrainingExampleV1> =
-        hashed.into_iter().map(|(_, ex)| ex).collect();
+    let train_examples: Vec<TrainingExampleV1> = hashed.into_iter().map(|(_, ex)| ex).collect();
     let validation_examples: Vec<TrainingExampleV1> =
         validation_pairs.into_iter().map(|(_, ex)| ex).collect();
 
@@ -425,10 +424,13 @@ mod tests {
     use super::*;
     use adapteros_types::training::ExampleMetadataV1;
 
-    fn make_example(input_tokens: Vec<u32>, target_tokens: Vec<u32>, row_id: u64) -> TrainingExampleV1 {
+    fn make_example(
+        input_tokens: Vec<u32>,
+        target_tokens: Vec<u32>,
+        row_id: u64,
+    ) -> TrainingExampleV1 {
         let metadata = ExampleMetadataV1::new("test", row_id, "{}", 0);
-        let attention_mask =
-            TrainingExampleV1::attention_mask_from_tokens(&input_tokens, 0);
+        let attention_mask = TrainingExampleV1::attention_mask_from_tokens(&input_tokens, 0);
         TrainingExampleV1::new(input_tokens, target_tokens, attention_mask, metadata)
     }
 
@@ -519,6 +521,9 @@ mod tests {
         assert_eq!(summary_a.split_hash_b3, summary_b.split_hash_b3);
         assert_eq!(train_a.len(), train_b.len());
         assert_eq!(val_a.len(), val_b.len());
-        assert_eq!(summary_a.train_count + summary_a.validation_count, examples.len());
+        assert_eq!(
+            summary_a.train_count + summary_a.validation_count,
+            examples.len()
+        );
     }
 }

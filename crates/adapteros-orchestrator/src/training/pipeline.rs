@@ -215,7 +215,12 @@ pub struct PipelineEventContext {
 }
 
 impl PipelineEventContext {
-    pub fn emit_phase_progress(&self, phase: PipelinePhase, progress_pct: f32, metadata: Option<Value>) {
+    pub fn emit_phase_progress(
+        &self,
+        phase: PipelinePhase,
+        progress_pct: f32,
+        metadata: Option<Value>,
+    ) {
         let pipeline_id = self.pipeline_id.as_deref().unwrap_or("");
         tracing::event!(
             tracing::Level::INFO,
@@ -295,7 +300,10 @@ impl TrainingPipeline {
             let created_at = chrono::Utc::now().to_rfc3339();
             // Extract values before moving config_snapshot
             let dataset_id_for_receipt = config_snapshot.dataset_id.clone();
-            let contract_version_for_receipt = config_snapshot.training_config.training_contract_version.clone();
+            let contract_version_for_receipt = config_snapshot
+                .training_config
+                .training_contract_version
+                .clone();
             let state = PipelineState {
                 schema_version: PIPELINE_SCHEMA_VERSION,
                 job_id: job_id.to_string(),
@@ -324,7 +332,11 @@ impl TrainingPipeline {
             )));
         }
 
-        let expected_contract_version = state.config_snapshot.training_config.training_contract_version.clone();
+        let expected_contract_version = state
+            .config_snapshot
+            .training_config
+            .training_contract_version
+            .clone();
         match receipt.training_contract_version.as_ref() {
             Some(version) if version != &expected_contract_version => {
                 return Err(AosError::Validation(format!(
@@ -479,7 +491,8 @@ impl TrainingPipeline {
                 self.receipt.split_hash, split_hash
             ));
         }
-        if !self.receipt.base_model_hash.is_empty() && self.receipt.base_model_hash != base_model_hash
+        if !self.receipt.base_model_hash.is_empty()
+            && self.receipt.base_model_hash != base_model_hash
         {
             mismatches.push(format!(
                 "base_model_hash: receipt={} current={}",
@@ -589,10 +602,7 @@ impl TrainingPipeline {
         let inputs_hash = hash_kv_map(&inputs);
         let outputs_hash = hash_kv_map(&outputs);
         let phase_id = compute_phase_id(
-            self.state
-                .pipeline_id
-                .as_deref()
-                .unwrap_or(EMPTY_HASH),
+            self.state.pipeline_id.as_deref().unwrap_or(EMPTY_HASH),
             phase,
             &inputs_hash,
             &outputs_hash,
@@ -673,8 +683,11 @@ impl TrainingPipeline {
             );
             return Ok(());
         }
-        let pipeline_id =
-            compute_pipeline_id(dataset_hash, &self.receipt.training_config_hash, &self.receipt.base_model_hash);
+        let pipeline_id = compute_pipeline_id(
+            dataset_hash,
+            &self.receipt.training_config_hash,
+            &self.receipt.base_model_hash,
+        );
         self.state.pipeline_id = Some(pipeline_id.clone());
         self.receipt.pipeline_id = pipeline_id;
         Ok(())
@@ -753,7 +766,11 @@ impl TrainingPipeline {
     }
 
     fn advance_phase(&mut self) {
-        self.state.current_phase = self.state.current_phase.next().unwrap_or(PipelinePhase::Complete);
+        self.state.current_phase = self
+            .state
+            .current_phase
+            .next()
+            .unwrap_or(PipelinePhase::Complete);
         self.state.current_status = PhaseStatus::Pending;
         self.state.current_started_at = None;
         self.state.current_started_at_unix_ms = None;
@@ -783,9 +800,8 @@ impl TrainingPipeline {
     }
 
     async fn persist_receipt(&self, receipt: &PhaseReceipt) -> Result<()> {
-        let json = serde_json::to_string_pretty(receipt).map_err(|e| {
-            AosError::Training(format!("Failed to serialize phase receipt: {}", e))
-        })?;
+        let json = serde_json::to_string_pretty(receipt)
+            .map_err(|e| AosError::Training(format!("Failed to serialize phase receipt: {}", e)))?;
         let path = self
             .paths
             .receipts_dir
@@ -796,7 +812,10 @@ impl TrainingPipeline {
         Ok(())
     }
 
-    pub async fn persist_training_result(&self, training_result: &TrainingResult) -> Result<String> {
+    pub async fn persist_training_result(
+        &self,
+        training_result: &TrainingResult,
+    ) -> Result<String> {
         let bytes = serde_json::to_vec(training_result).map_err(|e| {
             AosError::Training(format!("Failed to serialize training result: {}", e))
         })?;
@@ -806,16 +825,21 @@ impl TrainingPipeline {
     }
 
     pub async fn load_training_result(&self) -> Result<Option<TrainingResult>> {
-        if fs::metadata(&self.paths.training_result_path).await.is_err() {
+        if fs::metadata(&self.paths.training_result_path)
+            .await
+            .is_err()
+        {
             return Ok(None);
         }
-        let bytes = fs::read(&self.paths.training_result_path).await.map_err(|e| {
-            AosError::Io(format!(
-                "Failed to read training result {}: {}",
-                self.paths.training_result_path.display(),
-                e
-            ))
-        })?;
+        let bytes = fs::read(&self.paths.training_result_path)
+            .await
+            .map_err(|e| {
+                AosError::Io(format!(
+                    "Failed to read training result {}: {}",
+                    self.paths.training_result_path.display(),
+                    e
+                ))
+            })?;
         let training_result: TrainingResult = serde_json::from_slice(&bytes).map_err(|e| {
             AosError::Training(format!(
                 "Failed to parse training result {}: {}",
@@ -893,7 +917,10 @@ async fn write_atomic_bytes(path: &Path, contents: &[u8]) -> Result<()> {
 
 fn compute_config_fingerprint(snapshot: &PipelineConfigSnapshot) -> Result<String> {
     let bytes = serde_json::to_vec(snapshot).map_err(|e| {
-        AosError::Training(format!("Failed to serialize pipeline config snapshot: {}", e))
+        AosError::Training(format!(
+            "Failed to serialize pipeline config snapshot: {}",
+            e
+        ))
     })?;
     Ok(B3Hash::hash(&bytes).to_hex().to_string())
 }
@@ -921,7 +948,13 @@ async fn load_pipeline_receipt(
     } else {
         Ok(PipelineReceiptV1::new(
             state.config_snapshot.dataset_id.as_deref(),
-            Some(state.config_snapshot.training_config.training_contract_version.as_str()),
+            Some(
+                state
+                    .config_snapshot
+                    .training_config
+                    .training_contract_version
+                    .as_str(),
+            ),
             parse_rfc3339_to_unix_ms(&state.created_at).unwrap_or_else(now_unix_ms),
         ))
     }
@@ -941,7 +974,12 @@ fn hash_kv_map(map: &HashMap<String, String>) -> String {
     }
 }
 
-fn compute_phase_id(pipeline_id: &str, phase: PipelinePhase, inputs_hash: &str, outputs_hash: &str) -> String {
+fn compute_phase_id(
+    pipeline_id: &str,
+    phase: PipelinePhase,
+    inputs_hash: &str,
+    outputs_hash: &str,
+) -> String {
     let mut hasher = Hasher::new();
     hasher.update(b"training_pipeline_phase_v1");
     hasher.update(pipeline_id.as_bytes());
@@ -951,7 +989,11 @@ fn compute_phase_id(pipeline_id: &str, phase: PipelinePhase, inputs_hash: &str, 
     hasher.finalize().to_hex().to_string()
 }
 
-fn compute_pipeline_id(dataset_hash: &str, training_config_hash: &str, base_model_hash: &str) -> String {
+fn compute_pipeline_id(
+    dataset_hash: &str,
+    training_config_hash: &str,
+    base_model_hash: &str,
+) -> String {
     let mut hasher = Hasher::new();
     hasher.update(b"training_pipeline_v1");
     hasher.update(dataset_hash.as_bytes());

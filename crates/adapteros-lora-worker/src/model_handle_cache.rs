@@ -84,6 +84,14 @@
 //! - `eviction_skip_active_count`: High = long-running inferences or guard leaks
 //! - `hit_ratio()`: Low = cache thrashing, increase max_memory_bytes
 //!
+//! ## Pinned Model GC (ANCHOR, AUDIT, RECTIFY)
+//!
+//! Stale pins can leak memory if `unpin()` fails or is never called. The GC system:
+//!
+//! - **ANCHOR**: `gc_stale_pins(timeout)` enforces `DEFAULT_STALE_PIN_TIMEOUT` (1 hour)
+//! - **AUDIT**: `stale_pin_gc_count` in [`CacheStats`], exposed via `stats()` accessor
+//! - **RECTIFY**: Periodic GC unpins stale entries; `audit_pinned_entries()` logs alerts
+//!
 //! ## Design Note: Relationship to `adapteros-memory::ModelCache`
 //!
 //! This cache is **intentionally separate** from `ModelCache` in `adapteros-memory`:
@@ -283,6 +291,8 @@ pub struct ModelHandleCache {
     stats: RwLock<CacheStats>,
     /// Keys that are pinned and should not be evicted
     pinned_keys: RwLock<HashSet<ModelKey>>,
+    /// Timestamps for when each key was pinned (for stale pin GC)
+    pinned_timestamps: RwLock<HashMap<ModelKey, Instant>>,
     /// Optional listeners keyed per model for lifecycle events
     listeners: RwLock<HashMap<ModelKey, Arc<dyn CacheEventListener>>>,
     /// Optional telemetry metrics for Prometheus export
@@ -304,6 +314,8 @@ pub struct CacheStats {
     pub eviction_skip_pinned_count: u64,
     /// Count of eviction attempts blocked because the entry was marked active
     pub eviction_skip_active_count: u64,
+    /// Count of stale pins cleaned up by GC
+    pub stale_pin_gc_count: u64,
 }
 
 /// Base model pinning state and residency counters.
@@ -330,6 +342,10 @@ const MODEL_LOAD_OPERATION: &str = "model_load";
 /// This is a safety cap - operators can override via `with_max_pinned_entries()`.
 pub const DEFAULT_MAX_PINNED_ENTRIES: usize = 16;
 
+/// Default timeout for stale pin garbage collection.
+/// Pins older than this duration are eligible for automatic cleanup.
+pub const DEFAULT_STALE_PIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3600); // 1 hour
+
 impl CacheStats {
     /// Calculate hit ratio (0.0 to 1.0)
     pub fn hit_ratio(&self) -> f64 {
@@ -353,6 +369,7 @@ impl ModelHandleCache {
             max_memory_bytes,
             stats: RwLock::new(CacheStats::default()),
             pinned_keys: RwLock::new(HashSet::new()),
+            pinned_timestamps: RwLock::new(HashMap::new()),
             listeners: RwLock::new(HashMap::new()),
             metrics: None,
             max_pinned_entries: DEFAULT_MAX_PINNED_ENTRIES,
@@ -373,6 +390,7 @@ impl ModelHandleCache {
             max_memory_bytes,
             stats: RwLock::new(CacheStats::default()),
             pinned_keys: RwLock::new(HashSet::new()),
+            pinned_timestamps: RwLock::new(HashMap::new()),
             listeners: RwLock::new(HashMap::new()),
             metrics: Some(metrics),
             max_pinned_entries: DEFAULT_MAX_PINNED_ENTRIES,
@@ -750,6 +768,10 @@ impl ModelHandleCache {
                 }
 
                 if pinned.insert(key.clone()) {
+                    // Record when this key was pinned for stale pin GC
+                    self.pinned_timestamps
+                        .write()
+                        .insert(key.clone(), Instant::now());
                     if let Some(ref m) = self.metrics {
                         m.set_pinned_entries_count(pinned.len());
                         // Update pinned memory gauge
@@ -811,6 +833,10 @@ impl ModelHandleCache {
 
         let was_new = pinned.insert(key.clone());
         if was_new {
+            // Record when this key was pinned for stale pin GC
+            self.pinned_timestamps
+                .write()
+                .insert(key.clone(), Instant::now());
             if let Some(ref m) = self.metrics {
                 m.set_pinned_entries_count(pinned.len());
                 // Also update pinned memory gauge
@@ -831,6 +857,8 @@ impl ModelHandleCache {
         let mut pinned = self.pinned_keys.write();
         let removed = pinned.remove(key);
         if removed {
+            // Clean up timestamp
+            self.pinned_timestamps.write().remove(key);
             if let Some(ref m) = self.metrics {
                 m.set_pinned_entries_count(pinned.len());
                 // Update pinned memory gauge
@@ -884,16 +912,14 @@ impl ModelHandleCache {
         threshold: std::time::Duration,
     ) -> Vec<(ModelKey, std::time::Duration)> {
         let now = Instant::now();
-        let cache = self.cache.read();
-        let pinned = self.pinned_keys.read();
+        let timestamps = self.pinned_timestamps.read();
 
-        cache
+        timestamps
             .iter()
-            .filter(|(k, _)| pinned.contains(*k))
-            .filter_map(|(k, e)| {
-                let age = now.duration_since(e.loaded_at);
+            .filter_map(|(key, pinned_at)| {
+                let age = now.duration_since(*pinned_at);
                 if age > threshold {
-                    Some((k.clone(), age))
+                    Some((key.clone(), age))
                 } else {
                     None
                 }
@@ -961,6 +987,78 @@ impl ModelHandleCache {
                 );
             }
         }
+    }
+
+    /// Garbage collect stale pinned entries
+    ///
+    /// Unpins entries that have been pinned for longer than the specified timeout.
+    /// This prevents memory leaks when `unpin()` is not called (e.g., after failed
+    /// operations or bugs in cleanup paths).
+    ///
+    /// Returns the number of entries that were unpinned.
+    ///
+    /// # Default Behavior
+    ///
+    /// Use `DEFAULT_STALE_PIN_TIMEOUT` (1 hour) as the timeout for typical usage:
+    /// ```ignore
+    /// let gc_count = cache.gc_stale_pins(DEFAULT_STALE_PIN_TIMEOUT);
+    /// ```
+    ///
+    /// # Integration
+    ///
+    /// Call this method periodically from the health monitor (e.g., every 5 minutes).
+    pub fn gc_stale_pins(&self, timeout: std::time::Duration) -> usize {
+        let now = Instant::now();
+        let timestamps = self.pinned_timestamps.read();
+
+        // Collect keys that are stale
+        let stale_keys: Vec<ModelKey> = timestamps
+            .iter()
+            .filter_map(|(key, pinned_at)| {
+                if now.duration_since(*pinned_at) > timeout {
+                    Some(key.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        drop(timestamps); // Release read lock before unpinning
+
+        if stale_keys.is_empty() {
+            return 0;
+        }
+
+        let mut gc_count = 0;
+        for key in &stale_keys {
+            let age = self
+                .pinned_timestamps
+                .read()
+                .get(key)
+                .map(|t| now.duration_since(*t));
+
+            if self.unpin(key) {
+                gc_count += 1;
+                tracing::info!(
+                    key = %key.short_hex(),
+                    age_secs = age.map(|a| a.as_secs()).unwrap_or(0),
+                    timeout_secs = timeout.as_secs(),
+                    "Stale pin garbage collected"
+                );
+            }
+        }
+
+        // Update stats
+        if gc_count > 0 {
+            self.stats.write().stale_pin_gc_count += gc_count as u64;
+            tracing::warn!(
+                gc_count = gc_count,
+                timeout_secs = timeout.as_secs(),
+                "Garbage collected stale pins - check for missing unpin() calls"
+            );
+        }
+
+        gc_count
     }
 
     /// Unpin all entries (emergency memory recovery)

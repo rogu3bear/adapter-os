@@ -190,7 +190,8 @@ pub async fn run(args: TrainBaseAdapterArgs) -> Result<()> {
         patience: None,
         min_delta: None,
         preprocessing: None,
-        training_contract_version: adapteros_types::training::TRAINING_DATA_CONTRACT_VERSION.to_string(),
+        training_contract_version: adapteros_types::training::TRAINING_DATA_CONTRACT_VERSION
+            .to_string(),
         pad_token_id: 0,
         ignore_index: -1,
     };
@@ -394,9 +395,15 @@ fn load_and_tokenize_examples(
             if let Some(num) = serde_json::Number::from_f64(combined_weight as f64) {
                 prov.insert("weight".to_string(), serde_json::Value::Number(num));
             }
-            prov.insert("entry_role".to_string(), serde_json::Value::String(entry.role.clone()));
+            prov.insert(
+                "entry_role".to_string(),
+                serde_json::Value::String(entry.role.clone()),
+            );
 
-            let created_at = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+            let created_at = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
             let metadata = ExampleMetadataV1::new(
                 entry_path.to_string_lossy().to_string(),
                 line_num as u64,
@@ -404,12 +411,7 @@ fn load_and_tokenize_examples(
                 created_at,
             );
             let attention_mask = vec![1u8; input_ids.len()];
-            let example = TrainingExample::new(
-                input_ids,
-                target_ids,
-                attention_mask,
-                metadata,
-            );
+            let example = TrainingExample::new(input_ids, target_ids, attention_mask, metadata);
 
             match entry.role.as_str() {
                 "positive" => positive_examples.push(example),

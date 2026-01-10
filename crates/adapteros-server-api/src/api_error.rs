@@ -673,7 +673,7 @@ impl From<AosError> for ApiError {
                 ApiError::new(StatusCode::NOT_FOUND, "MODEL_NOT_FOUND", err.to_string())
             }
 
-            // ========== 409 Conflict (4 variants) ==========
+            // ========== 409 Conflict (6 variants) ==========
             AosError::AdapterHashMismatch { .. } => ApiError::new(
                 StatusCode::CONFLICT,
                 "ADAPTER_HASH_MISMATCH",
@@ -697,6 +697,9 @@ impl From<AosError> for ApiError {
                 "MODEL_ACQUISITION_IN_PROGRESS",
                 err.to_string(),
             ),
+            AosError::Conflict(_) => {
+                ApiError::new(StatusCode::CONFLICT, "CONFLICT", err.to_string())
+            }
 
             // ========== 502 Bad Gateway (6 variants) ==========
             AosError::Http(_) => ApiError::bad_gateway(err.to_string()),

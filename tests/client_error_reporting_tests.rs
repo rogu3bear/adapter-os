@@ -41,9 +41,8 @@ async fn post_json(
         .await
         .unwrap();
 
-    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap_or_else(|_| {
-        json!({ "raw": String::from_utf8_lossy(&bytes).to_string() })
-    });
+    let json: serde_json::Value = serde_json::from_slice(&bytes)
+        .unwrap_or_else(|_| json!({ "raw": String::from_utf8_lossy(&bytes).to_string() }));
 
     (status, json)
 }
@@ -116,14 +115,21 @@ async fn test_anonymous_endpoint_empty_message_rejected() {
     )
     .await;
 
-    assert_eq!(status, StatusCode::BAD_REQUEST, "Expected 400 Bad Request, got {}: {:?}", status, response);
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "Expected 400 Bad Request, got {}: {:?}",
+        status,
+        response
+    );
     // Server returns error details in either "error" or "message" field depending on middleware
     let error_text = response["error"]
         .as_str()
         .or_else(|| response["message"].as_str())
         .unwrap_or("");
     assert!(
-        error_text.to_lowercase().contains("message") || response["code"].as_str() == Some("BAD_REQUEST"),
+        error_text.to_lowercase().contains("message")
+            || response["code"].as_str() == Some("BAD_REQUEST"),
         "Error should indicate bad request, got: {:?}",
         response
     );
@@ -148,7 +154,13 @@ async fn test_anonymous_endpoint_invalid_timestamp_rejected() {
     )
     .await;
 
-    assert_eq!(status, StatusCode::BAD_REQUEST, "Expected 400 Bad Request, got {}: {:?}", status, response);
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "Expected 400 Bad Request, got {}: {:?}",
+        status,
+        response
+    );
     assert_eq!(
         response["code"].as_str(),
         Some("BAD_REQUEST"),
@@ -177,7 +189,13 @@ async fn test_anonymous_endpoint_message_too_long_rejected() {
     )
     .await;
 
-    assert_eq!(status, StatusCode::BAD_REQUEST, "Expected 400 Bad Request, got {}: {:?}", status, response);
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "Expected 400 Bad Request, got {}: {:?}",
+        status,
+        response
+    );
     assert_eq!(
         response["code"].as_str(),
         Some("BAD_REQUEST"),
@@ -204,7 +222,13 @@ async fn test_anonymous_endpoint_empty_error_type_rejected() {
     )
     .await;
 
-    assert_eq!(status, StatusCode::BAD_REQUEST, "Expected 400 Bad Request, got {}: {:?}", status, response);
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "Expected 400 Bad Request, got {}: {:?}",
+        status,
+        response
+    );
     assert_eq!(
         response["code"].as_str(),
         Some("BAD_REQUEST"),
@@ -222,7 +246,10 @@ async fn test_anonymous_endpoint_empty_error_type_rejected() {
 #[ignore = "Auth disabled in test harness - run with full server setup"]
 async fn test_authenticated_endpoint_success() {
     let mut harness = ApiTestHarness::new().await.expect("Failed to init harness");
-    let token = harness.authenticate().await.expect("Failed to authenticate");
+    let token = harness
+        .authenticate()
+        .await
+        .expect("Failed to authenticate");
 
     let (status, response) = post_json(
         &harness.app,
@@ -267,7 +294,10 @@ async fn test_authenticated_endpoint_requires_auth() {
 #[ignore = "Auth disabled in test harness - run with full server setup"]
 async fn test_authenticated_endpoint_empty_message_rejected() {
     let mut harness = ApiTestHarness::new().await.expect("Failed to init harness");
-    let token = harness.authenticate().await.expect("Failed to authenticate");
+    let token = harness
+        .authenticate()
+        .await
+        .expect("Failed to authenticate");
 
     let payload = json!({
         "error_type": "Network",
@@ -311,7 +341,9 @@ async fn test_response_structure_conforms_to_spec() {
     assert_eq!(status, StatusCode::CREATED);
 
     // Verify error_id is UUID
-    let error_id = response["error_id"].as_str().expect("error_id should be string");
+    let error_id = response["error_id"]
+        .as_str()
+        .expect("error_id should be string");
     uuid::Uuid::parse_str(error_id).expect("error_id should be valid UUID");
 
     // Verify received_at is ISO 8601 (RFC 3339)
@@ -350,7 +382,11 @@ async fn test_all_optional_fields_accepted() {
     )
     .await;
 
-    assert_eq!(status, StatusCode::CREATED, "Should accept all optional fields");
+    assert_eq!(
+        status,
+        StatusCode::CREATED,
+        "Should accept all optional fields"
+    );
     assert!(response.get("error_id").is_some());
 }
 

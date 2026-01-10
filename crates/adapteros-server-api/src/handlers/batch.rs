@@ -453,6 +453,15 @@ fn map_inference_error(id: String, err: crate::types::InferenceError) -> BatchIn
                     .with_string_details(msg),
             ),
         },
+        InferenceError::DuplicateRequest { request_id } => BatchInferItemResponse {
+            id,
+            response: None,
+            error: Some(
+                ErrorResponse::new("duplicate request")
+                    .with_code("DUPLICATE_REQUEST")
+                    .with_string_details(format!("Request {} is already in-flight", request_id)),
+            ),
+        },
     }
 }
 
@@ -910,6 +919,9 @@ async fn process_batch_job(
                                 "DETERMINISM_ERROR"
                             }
                             crate::types::InferenceError::InternalError(_) => "INTERNAL_ERROR",
+                            crate::types::InferenceError::DuplicateRequest { .. } => {
+                                "DUPLICATE_REQUEST"
+                            }
                         };
 
                         let _ = state

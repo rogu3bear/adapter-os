@@ -33,6 +33,15 @@ use crate::training::versioning::{
     canonical_trust_state, compute_combined_data_spec_hash, TrainingVersioningContext,
 };
 
+/// Report from orphaned job recovery at startup
+#[derive(Debug, Clone)]
+pub struct OrphanedJobRecoveryReport {
+    /// Number of jobs successfully recovered
+    pub recovered_count: usize,
+    /// IDs of recovered jobs
+    pub recovered_job_ids: Vec<String>,
+}
+
 /// Training service for managing jobs
 pub struct TrainingService {
     jobs: Arc<RwLock<HashMap<String, TrainingJob>>>,
@@ -148,10 +157,90 @@ impl TrainingService {
         }
     }
 
+    /// Accessor for the configured training storage root (dataset files).
+    pub fn storage_root(&self) -> Option<PathBuf> {
+        self.storage_root.clone()
+    }
+
+    /// Accessor for the configured training artifacts root.
+    pub fn artifacts_root(&self) -> Option<PathBuf> {
+        self.artifacts_root.clone()
+    }
+
     #[cfg(test)]
     pub async fn insert_job_for_test(&self, job: TrainingJob) {
         let mut jobs = self.jobs.write().await;
         jobs.insert(job.id.clone(), job);
+    }
+
+    /// Recover orphaned training jobs at startup
+    ///
+    /// Finds jobs that were marked as "running" but haven't had any activity
+    /// within the staleness threshold. These jobs are transitioned to "interrupted"
+    /// status, which allows them to be retried via the existing retry mechanism.
+    ///
+    /// This should be called during service initialization to clean up jobs
+    /// that were left in an inconsistent state due to crashes or restarts.
+    ///
+    /// # Arguments
+    /// * `staleness_threshold` - Duration after which a running job without activity is considered orphaned
+    ///
+    /// # Returns
+    /// * `RecoveryReport` with count of recovered jobs
+    pub async fn recover_orphaned_jobs(
+        &self,
+        staleness_threshold: std::time::Duration,
+    ) -> anyhow::Result<OrphanedJobRecoveryReport> {
+        let db = self
+            .db
+            .as_ref()
+            .ok_or_else(|| AosError::config("Database not configured for training service"))?;
+
+        let orphaned: Vec<adapteros_db::training_jobs::TrainingJobRecord> =
+            db.find_orphaned_training_jobs(staleness_threshold).await?;
+
+        if orphaned.is_empty() {
+            info!("No orphaned training jobs found during startup recovery");
+            return Ok(OrphanedJobRecoveryReport {
+                recovered_count: 0,
+                recovered_job_ids: vec![],
+            });
+        }
+
+        info!(
+            count = orphaned.len(),
+            "Found orphaned training jobs, initiating recovery"
+        );
+
+        let mut recovered_ids = Vec::with_capacity(orphaned.len());
+
+        for job in &orphaned {
+            if let Err(e) = db
+                .mark_training_job_interrupted(&job.id, "orphaned_recovery_at_startup")
+                .await
+            {
+                error!(
+                    job_id = %job.id,
+                    error = %e,
+                    "Failed to mark orphaned job as interrupted"
+                );
+                continue;
+            }
+
+            info!(
+                job_id = %job.id,
+                started_at = %job.started_at,
+                adapter_name = ?job.adapter_name,
+                "Recovered orphaned training job"
+            );
+
+            recovered_ids.push(job.id.clone());
+        }
+
+        Ok(OrphanedJobRecoveryReport {
+            recovered_count: recovered_ids.len(),
+            recovered_job_ids: recovered_ids,
+        })
     }
 
     /// Create a new training service with database and storage configuration

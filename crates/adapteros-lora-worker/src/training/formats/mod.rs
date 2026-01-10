@@ -190,7 +190,11 @@ pub struct ParserConfig {
 }
 
 /// Parse a file into raw samples.
-pub fn parse_file(path: &Path, format: DatasetFormat, config: &ParserConfig) -> Result<Vec<RawSample>> {
+pub fn parse_file(
+    path: &Path,
+    format: DatasetFormat,
+    config: &ParserConfig,
+) -> Result<Vec<RawSample>> {
     match format {
         DatasetFormat::Jsonl => jsonl::parse_jsonl_file(path),
         DatasetFormat::Csv => {

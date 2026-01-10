@@ -3,9 +3,6 @@
 //! Transforms raw datasets from various sources into tokenized training examples
 //! with provenance tracking and deterministic ordering.
 
-use adapteros_types::training::{
-    provenance_from_map, ExampleMetadataV1, TrainingExampleV1, TRAINING_DATA_CONTRACT_VERSION,
-};
 use super::formats::{
     parse_file, ColumnMapping, DatasetFormat, ParserConfig, RawSample, TextStrategy,
 };
@@ -15,6 +12,10 @@ use crate::tokenizer::QwenTokenizer;
 use adapteros_core::{AosError, Result};
 use adapteros_secure_fs::path_policy::{canonicalize_strict, canonicalize_strict_in_allowed_roots};
 use adapteros_secure_fs::traversal::check_path_traversal;
+use adapteros_types::training::{
+    provenance_from_map, validate_training_examples, ExampleMetadataV1, TrainingDataContractConfig,
+    TrainingExampleV1, TRAINING_DATA_CONTRACT_VERSION,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::fs::{self, File, OpenOptions};
@@ -193,6 +194,10 @@ impl DatasetBuilder {
         // Load tokenizer
         let tokenizer_path = canonicalize_strict(&self.tokenizer_path)?;
         let tokenizer = QwenTokenizer::from_file(&tokenizer_path)?;
+        let pad_token_id = tokenizer.pad_token_id().ok_or_else(|| {
+            AosError::Validation("Tokenizer missing pad_token_id for dataset build".to_string())
+        })?;
+        let vocab_size = tokenizer.vocab_size(true);
 
         // Compute tokenizer hash
         let tokenizer_hash = compute_file_hash(&tokenizer_path)?;
@@ -206,14 +211,25 @@ impl DatasetBuilder {
             ));
         }
 
-        info!("Collected {} raw samples from {} files", samples.len(), source_files.len());
+        info!(
+            "Collected {} raw samples from {} files",
+            samples.len(),
+            source_files.len()
+        );
 
         // Apply deterministic ordering
         deterministic_sort(&mut samples);
-        debug!("Applied deterministic ordering to {} samples", samples.len());
+        debug!(
+            "Applied deterministic ordering to {} samples",
+            samples.len()
+        );
 
         // Tokenize samples
-        let examples = tokenize_samples(&samples, &tokenizer, &self.limits)?;
+        let examples = tokenize_samples(&samples, &tokenizer, &self.limits, pad_token_id)?;
+        let contract = TrainingDataContractConfig::new(pad_token_id, -1);
+        validate_training_examples(&examples, vocab_size, &contract).map_err(|err| {
+            AosError::Validation(format!("Dataset example validation failed: {}", err))
+        })?;
         info!("Tokenized {} examples", examples.len());
 
         // Write examples
@@ -221,26 +237,20 @@ impl DatasetBuilder {
         write_examples(&examples, &examples_path)?;
 
         // Generate manifest
-        let manifest = self.create_manifest(
-            &tokenizer_hash,
-            &source_files,
-            examples.len(),
-        );
+        let manifest = self.create_manifest(&tokenizer_hash, &source_files, examples.len());
         let manifest_path = output_dir.join("DatasetManifest.json");
         write_manifest(&manifest, &manifest_path)?;
 
         // Write provenance
         let provenance_dir = output_dir.join("provenance");
-        fs::create_dir_all(&provenance_dir).map_err(|e| {
-            AosError::Io(format!("Failed to create provenance directory: {}", e))
-        })?;
+        fs::create_dir_all(&provenance_dir)
+            .map_err(|e| AosError::Io(format!("Failed to create provenance directory: {}", e)))?;
         let source_files_path = provenance_dir.join("source_files.json");
         let source_json = serde_json::to_string_pretty(&source_files).map_err(|e| {
             AosError::Validation(format!("Failed to serialize source files: {}", e))
         })?;
-        fs::write(&source_files_path, source_json).map_err(|e| {
-            AosError::Io(format!("Failed to write source files: {}", e))
-        })?;
+        fs::write(&source_files_path, source_json)
+            .map_err(|e| AosError::Io(format!("Failed to write source files: {}", e)))?;
 
         info!(
             "Dataset built: {} examples, manifest at {}",
@@ -257,18 +267,27 @@ impl DatasetBuilder {
     }
 
     /// Collect samples from source.
-    fn collect_samples(&self, source: &DatasetSource) -> Result<(Vec<RawSample>, Vec<SourceFileInfo>)> {
+    fn collect_samples(
+        &self,
+        source: &DatasetSource,
+    ) -> Result<(Vec<RawSample>, Vec<SourceFileInfo>)> {
         match source {
             DatasetSource::Filesystem(path) => self.collect_from_filesystem(path),
-            DatasetSource::Git { url, branch, path, auth } => {
-                self.collect_from_git(url, branch.as_deref(), path.as_deref(), auth)
-            }
+            DatasetSource::Git {
+                url,
+                branch,
+                path,
+                auth,
+            } => self.collect_from_git(url, branch.as_deref(), path.as_deref(), auth),
             DatasetSource::Archive(path) => self.collect_from_archive(path),
         }
     }
 
     /// Collect samples from filesystem path.
-    fn collect_from_filesystem(&self, path: &Path) -> Result<(Vec<RawSample>, Vec<SourceFileInfo>)> {
+    fn collect_from_filesystem(
+        &self,
+        path: &Path,
+    ) -> Result<(Vec<RawSample>, Vec<SourceFileInfo>)> {
         let canonical_path = canonicalize_strict(path)?;
 
         let files = if canonical_path.is_file() {
@@ -290,9 +309,8 @@ impl DatasetBuilder {
         auth: &GitAuth,
     ) -> Result<(Vec<RawSample>, Vec<SourceFileInfo>)> {
         // Create temp directory for clone
-        let temp_dir = tempfile::tempdir().map_err(|e| {
-            AosError::Io(format!("Failed to create temp directory: {}", e))
-        })?;
+        let temp_dir = tempfile::tempdir()
+            .map_err(|e| AosError::Io(format!("Failed to create temp directory: {}", e)))?;
 
         info!("Cloning {} to {}", url, temp_dir.path().display());
 
@@ -310,12 +328,7 @@ impl DatasetBuilder {
                         .join("id_rsa")
                 });
                 callbacks.credentials(move |_url, username_from_url, _allowed_types| {
-                    git2::Cred::ssh_key(
-                        username_from_url.unwrap_or("git"),
-                        None,
-                        &key,
-                        None,
-                    )
+                    git2::Cred::ssh_key(username_from_url.unwrap_or("git"), None, &key, None)
                 });
             }
             GitAuth::HttpsToken(token) => {
@@ -352,9 +365,9 @@ impl DatasetBuilder {
             builder.branch(b);
         }
 
-        let _repo = builder.clone(url, temp_dir.path()).map_err(|e| {
-            AosError::Io(format!("Failed to clone repository {}: {}", url, e))
-        })?;
+        let _repo = builder
+            .clone(url, temp_dir.path())
+            .map_err(|e| AosError::Io(format!("Failed to clone repository {}: {}", url, e)))?;
 
         // Determine source path within repo
         let repo_root = canonicalize_strict(temp_dir.path())?;
@@ -372,10 +385,12 @@ impl DatasetBuilder {
     }
 
     /// Collect samples from archive.
-    fn collect_from_archive(&self, archive_path: &Path) -> Result<(Vec<RawSample>, Vec<SourceFileInfo>)> {
-        let temp_dir = tempfile::tempdir().map_err(|e| {
-            AosError::Io(format!("Failed to create temp directory: {}", e))
-        })?;
+    fn collect_from_archive(
+        &self,
+        archive_path: &Path,
+    ) -> Result<(Vec<RawSample>, Vec<SourceFileInfo>)> {
+        let temp_dir = tempfile::tempdir()
+            .map_err(|e| AosError::Io(format!("Failed to create temp directory: {}", e)))?;
 
         let archive_path = canonicalize_strict(archive_path)?;
         let path_str = archive_path.display().to_string().to_lowercase();
@@ -397,7 +412,11 @@ impl DatasetBuilder {
     }
 
     /// Parse collected files into samples.
-    fn parse_files(&self, files: &[PathBuf], base_path: &Path) -> Result<(Vec<RawSample>, Vec<SourceFileInfo>)> {
+    fn parse_files(
+        &self,
+        files: &[PathBuf],
+        base_path: &Path,
+    ) -> Result<(Vec<RawSample>, Vec<SourceFileInfo>)> {
         let config = ParserConfig {
             column_mapping: self.column_mapping.clone(),
             text_strategy: self.text_strategy,
@@ -456,9 +475,10 @@ impl DatasetBuilder {
             .map(|f| f.name().to_string())
             .unwrap_or_else(|| "auto".to_string());
 
-        let name = self.name.clone().unwrap_or_else(|| {
-            format!("dataset_{}", chrono::Utc::now().format("%Y%m%d_%H%M%S"))
-        });
+        let name = self
+            .name
+            .clone()
+            .unwrap_or_else(|| format!("dataset_{}", chrono::Utc::now().format("%Y%m%d_%H%M%S")));
 
         BuiltDatasetManifest {
             name,
@@ -512,7 +532,11 @@ fn validate_files_and_sizes(files: &[PathBuf], limits: &DatasetSizeLimits) -> Re
     let mut total_bytes: u64 = 0;
     for file in files {
         let size = fs::metadata(file).map_err(|e| {
-            AosError::Io(format!("Failed to read file metadata {}: {}", file.display(), e))
+            AosError::Io(format!(
+                "Failed to read file metadata {}: {}",
+                file.display(),
+                e
+            ))
         })?;
         total_bytes = total_bytes.saturating_add(size.len());
         if total_bytes > limits.max_total_bytes {
@@ -540,29 +564,23 @@ fn tokenize_samples(
     samples: &[RawSample],
     tokenizer: &QwenTokenizer,
     limits: &DatasetSizeLimits,
+    pad_token_id: u32,
 ) -> Result<Vec<TrainingExampleV1>> {
     let mut examples = Vec::with_capacity(samples.len());
-    let pad_token_id = tokenizer.pad_token_id().unwrap_or(0);
     let mut total_tokens: u64 = 0;
     let created_at_unix_ms = chrono::Utc::now().timestamp_millis() as u64;
 
     for (i, sample) in samples.iter().enumerate() {
         let input_tokens = tokenizer.encode(&sample.input).map_err(|e| {
-            AosError::Validation(format!(
-                "Failed to tokenize input at sample {}: {}",
-                i, e
-            ))
+            AosError::Validation(format!("Failed to tokenize input at sample {}: {}", i, e))
         })?;
 
         let target_tokens = tokenizer.encode(&sample.target).map_err(|e| {
-            AosError::Validation(format!(
-                "Failed to tokenize target at sample {}: {}",
-                i, e
-            ))
+            AosError::Validation(format!("Failed to tokenize target at sample {}: {}", i, e))
         })?;
 
-        total_tokens = total_tokens
-            .saturating_add((input_tokens.len() + target_tokens.len()) as u64);
+        total_tokens =
+            total_tokens.saturating_add((input_tokens.len() + target_tokens.len()) as u64);
         if total_tokens > limits.max_tokens {
             return Err(AosError::Validation(format!(
                 "Dataset token count exceeds limit: {} > {}",
@@ -629,7 +647,11 @@ fn build_example_metadata(
 /// Compute BLAKE3 hash of a file.
 fn compute_file_hash(path: &Path) -> Result<String> {
     let file = File::open(path).map_err(|e| {
-        AosError::Io(format!("Failed to open file for hashing {}: {}", path.display(), e))
+        AosError::Io(format!(
+            "Failed to open file for hashing {}: {}",
+            path.display(),
+            e
+        ))
     })?;
 
     let mut reader = BufReader::new(file);
@@ -637,9 +659,9 @@ fn compute_file_hash(path: &Path) -> Result<String> {
     let mut buffer = [0u8; 8192];
 
     loop {
-        let n = reader.read(&mut buffer).map_err(|e| {
-            AosError::Io(format!("Failed to read file for hashing: {}", e))
-        })?;
+        let n = reader
+            .read(&mut buffer)
+            .map_err(|e| AosError::Io(format!("Failed to read file for hashing: {}", e)))?;
         if n == 0 {
             break;
         }
@@ -652,16 +674,18 @@ fn compute_file_hash(path: &Path) -> Result<String> {
 /// Write examples to JSONL file.
 fn write_examples(examples: &[TrainingExampleV1], path: &Path) -> Result<()> {
     let mut file = File::create(path).map_err(|e| {
-        AosError::Io(format!("Failed to create examples file {}: {}", path.display(), e))
+        AosError::Io(format!(
+            "Failed to create examples file {}: {}",
+            path.display(),
+            e
+        ))
     })?;
 
     for example in examples {
-        let line = serde_json::to_string(example).map_err(|e| {
-            AosError::Validation(format!("Failed to serialize example: {}", e))
-        })?;
-        writeln!(file, "{}", line).map_err(|e| {
-            AosError::Io(format!("Failed to write example: {}", e))
-        })?;
+        let line = serde_json::to_string(example)
+            .map_err(|e| AosError::Validation(format!("Failed to serialize example: {}", e)))?;
+        writeln!(file, "{}", line)
+            .map_err(|e| AosError::Io(format!("Failed to write example: {}", e)))?;
     }
 
     Ok(())
@@ -669,12 +693,15 @@ fn write_examples(examples: &[TrainingExampleV1], path: &Path) -> Result<()> {
 
 /// Write manifest to JSON file.
 fn write_manifest(manifest: &BuiltDatasetManifest, path: &Path) -> Result<()> {
-    let json = serde_json::to_string_pretty(manifest).map_err(|e| {
-        AosError::Validation(format!("Failed to serialize manifest: {}", e))
-    })?;
+    let json = serde_json::to_string_pretty(manifest)
+        .map_err(|e| AosError::Validation(format!("Failed to serialize manifest: {}", e)))?;
 
     fs::write(path, json).map_err(|e| {
-        AosError::Io(format!("Failed to write manifest {}: {}", path.display(), e))
+        AosError::Io(format!(
+            "Failed to write manifest {}: {}",
+            path.display(),
+            e
+        ))
     })?;
 
     Ok(())
@@ -683,12 +710,15 @@ fn write_manifest(manifest: &BuiltDatasetManifest, path: &Path) -> Result<()> {
 /// Extract zip archive.
 fn extract_zip(archive_path: &Path, dest: &Path, limits: &DatasetSizeLimits) -> Result<()> {
     let file = File::open(archive_path).map_err(|e| {
-        AosError::Io(format!("Failed to open archive {}: {}", archive_path.display(), e))
+        AosError::Io(format!(
+            "Failed to open archive {}: {}",
+            archive_path.display(),
+            e
+        ))
     })?;
 
-    let mut archive = zip::ZipArchive::new(file).map_err(|e| {
-        AosError::Validation(format!("Invalid zip archive: {}", e))
-    })?;
+    let mut archive = zip::ZipArchive::new(file)
+        .map_err(|e| AosError::Validation(format!("Invalid zip archive: {}", e)))?;
 
     let canonical_dest = canonicalize_strict(dest)?;
     let allowed_roots = [canonical_dest.clone()];
@@ -696,9 +726,9 @@ fn extract_zip(archive_path: &Path, dest: &Path, limits: &DatasetSizeLimits) -> 
     let mut file_count: usize = 0;
 
     for i in 0..archive.len() {
-        let mut entry = archive.by_index(i).map_err(|e| {
-            AosError::Io(format!("Failed to read zip entry {}: {}", i, e))
-        })?;
+        let mut entry = archive
+            .by_index(i)
+            .map_err(|e| AosError::Io(format!("Failed to read zip entry {}: {}", i, e)))?;
 
         if is_zip_symlink(&entry) {
             return Err(AosError::Validation(format!(
@@ -707,11 +737,14 @@ fn extract_zip(archive_path: &Path, dest: &Path, limits: &DatasetSizeLimits) -> 
             )));
         }
 
-        let entry_path = entry.enclosed_name().map(|p| p.to_path_buf()).ok_or_else(|| {
-            let name = entry.name().to_string();
-            error!(original = %name, canonical = "<unavailable>", "Zip entry path rejected");
-            AosError::Validation(format!("Zip entry contains invalid path: {}", name))
-        })?;
+        let entry_path = entry
+            .enclosed_name()
+            .map(|p| p.to_path_buf())
+            .ok_or_else(|| {
+                let name = entry.name().to_string();
+                error!(original = %name, canonical = "<unavailable>", "Zip entry path rejected");
+                AosError::Validation(format!("Zip entry contains invalid path: {}", name))
+            })?;
         validate_archive_entry_path(&entry_path, entry.name())?;
 
         let output_path = canonical_dest.join(&entry_path);
@@ -723,9 +756,8 @@ fn extract_zip(archive_path: &Path, dest: &Path, limits: &DatasetSizeLimits) -> 
                     e
                 ))
             })?;
-            canonicalize_strict_in_allowed_roots(&output_path, &allowed_roots).map_err(|e| {
-                AosError::Validation(format!("Archive path rejected: {}", e))
-            })?;
+            canonicalize_strict_in_allowed_roots(&output_path, &allowed_roots)
+                .map_err(|e| AosError::Validation(format!("Archive path rejected: {}", e)))?;
             continue;
         }
 
@@ -752,9 +784,8 @@ fn extract_zip(archive_path: &Path, dest: &Path, limits: &DatasetSizeLimits) -> 
                     e
                 ))
             })?;
-            canonicalize_strict_in_allowed_roots(parent, &allowed_roots).map_err(|e| {
-                AosError::Validation(format!("Archive path rejected: {}", e))
-            })?;
+            canonicalize_strict_in_allowed_roots(parent, &allowed_roots)
+                .map_err(|e| AosError::Validation(format!("Archive path rejected: {}", e)))?;
         }
 
         if output_path.exists() {
@@ -793,9 +824,8 @@ fn extract_zip(archive_path: &Path, dest: &Path, limits: &DatasetSizeLimits) -> 
             ))
         })?;
 
-        canonicalize_strict_in_allowed_roots(&output_path, &allowed_roots).map_err(|e| {
-            AosError::Validation(format!("Archive path rejected: {}", e))
-        })?;
+        canonicalize_strict_in_allowed_roots(&output_path, &allowed_roots)
+            .map_err(|e| AosError::Validation(format!("Archive path rejected: {}", e)))?;
     }
 
     Ok(())
@@ -804,7 +834,11 @@ fn extract_zip(archive_path: &Path, dest: &Path, limits: &DatasetSizeLimits) -> 
 /// Extract tar.gz archive.
 fn extract_tar_gz(archive_path: &Path, dest: &Path, limits: &DatasetSizeLimits) -> Result<()> {
     let file = File::open(archive_path).map_err(|e| {
-        AosError::Io(format!("Failed to open archive {}: {}", archive_path.display(), e))
+        AosError::Io(format!(
+            "Failed to open archive {}: {}",
+            archive_path.display(),
+            e
+        ))
     })?;
 
     let gz = flate2::read::GzDecoder::new(file);
@@ -815,7 +849,11 @@ fn extract_tar_gz(archive_path: &Path, dest: &Path, limits: &DatasetSizeLimits) 
 /// Extract tar archive.
 fn extract_tar(archive_path: &Path, dest: &Path, limits: &DatasetSizeLimits) -> Result<()> {
     let file = File::open(archive_path).map_err(|e| {
-        AosError::Io(format!("Failed to open archive {}: {}", archive_path.display(), e))
+        AosError::Io(format!(
+            "Failed to open archive {}: {}",
+            archive_path.display(),
+            e
+        ))
     })?;
 
     let mut archive = tar::Archive::new(file);
@@ -832,15 +870,15 @@ fn extract_tar_entries<R: Read>(
     let mut total_bytes: u64 = 0;
     let mut file_count: usize = 0;
 
-    for entry in archive.entries().map_err(|e| {
-        AosError::Validation(format!("Failed to read tar entries: {}", e))
-    })? {
-        let mut entry = entry.map_err(|e| {
-            AosError::Validation(format!("Failed to read tar entry: {}", e))
-        })?;
-        let entry_path = entry.path().map_err(|e| {
-            AosError::Validation(format!("Failed to read tar entry path: {}", e))
-        })?;
+    for entry in archive
+        .entries()
+        .map_err(|e| AosError::Validation(format!("Failed to read tar entries: {}", e)))?
+    {
+        let mut entry =
+            entry.map_err(|e| AosError::Validation(format!("Failed to read tar entry: {}", e)))?;
+        let entry_path = entry
+            .path()
+            .map_err(|e| AosError::Validation(format!("Failed to read tar entry path: {}", e)))?;
         validate_archive_entry_path(&entry_path, &entry_path.to_string_lossy())?;
 
         let entry_type = entry.header().entry_type();
@@ -860,9 +898,8 @@ fn extract_tar_entries<R: Read>(
                     e
                 ))
             })?;
-            canonicalize_strict_in_allowed_roots(&output_path, &allowed_roots).map_err(|e| {
-                AosError::Validation(format!("Archive path rejected: {}", e))
-            })?;
+            canonicalize_strict_in_allowed_roots(&output_path, &allowed_roots)
+                .map_err(|e| AosError::Validation(format!("Archive path rejected: {}", e)))?;
             continue;
         }
 
@@ -896,9 +933,8 @@ fn extract_tar_entries<R: Read>(
                     e
                 ))
             })?;
-            canonicalize_strict_in_allowed_roots(parent, &allowed_roots).map_err(|e| {
-                AosError::Validation(format!("Archive path rejected: {}", e))
-            })?;
+            canonicalize_strict_in_allowed_roots(parent, &allowed_roots)
+                .map_err(|e| AosError::Validation(format!("Archive path rejected: {}", e)))?;
         }
 
         if output_path.exists() {
@@ -937,9 +973,8 @@ fn extract_tar_entries<R: Read>(
             ))
         })?;
 
-        canonicalize_strict_in_allowed_roots(&output_path, &allowed_roots).map_err(|e| {
-            AosError::Validation(format!("Archive path rejected: {}", e))
-        })?;
+        canonicalize_strict_in_allowed_roots(&output_path, &allowed_roots)
+            .map_err(|e| AosError::Validation(format!("Archive path rejected: {}", e)))?;
     }
 
     Ok(())
@@ -1119,24 +1154,28 @@ mod tests {
             dir.path().join("data.jsonl").as_path(),
             DatasetFormat::Jsonl,
             &parser_config,
-        ).unwrap();
+        )
+        .unwrap();
         let mut samples1: Vec<_> = samples1;
         deterministic_sort(&mut samples1);
-        let hashes1: Vec<_> = samples1.iter().map(|s| {
-            blake3::hash(s.input.as_bytes()).to_hex().to_string()
-        }).collect();
+        let hashes1: Vec<_> = samples1
+            .iter()
+            .map(|s| blake3::hash(s.input.as_bytes()).to_hex().to_string())
+            .collect();
 
         // Parse again and sort
         let samples2 = parse_file(
             dir.path().join("data.jsonl").as_path(),
             DatasetFormat::Jsonl,
             &parser_config,
-        ).unwrap();
+        )
+        .unwrap();
         let mut samples2: Vec<_> = samples2;
         deterministic_sort(&mut samples2);
-        let hashes2: Vec<_> = samples2.iter().map(|s| {
-            blake3::hash(s.input.as_bytes()).to_hex().to_string()
-        }).collect();
+        let hashes2: Vec<_> = samples2
+            .iter()
+            .map(|s| blake3::hash(s.input.as_bytes()).to_hex().to_string())
+            .collect();
 
         // Verify identical ordering
         assert_eq!(hashes1, hashes2);
@@ -1250,6 +1289,9 @@ mod tests {
         let hash3 = compute_file_hash(&path).unwrap();
 
         assert_eq!(hash1, hash2, "Same content should produce same hash");
-        assert_ne!(hash1, hash3, "Different content should produce different hash");
+        assert_ne!(
+            hash1, hash3,
+            "Different content should produce different hash"
+        );
     }
 }

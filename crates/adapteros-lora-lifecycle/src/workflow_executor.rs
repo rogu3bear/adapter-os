@@ -642,14 +642,15 @@ impl RealBackendAdapterBackend {
     ) -> Result<Self> {
         use adapteros_lora_mlx_ffi::{MLXFFIBackend, MLXFFIModel};
 
-        let canonical_model_path = canonicalize_model_path(Path::new(&model_path)).map_err(|e| {
-            error!(
-                requested_path = %model_path,
-                error = %e,
-                "MLX model path rejected"
-            );
-            e
-        })?;
+        let canonical_model_path =
+            canonicalize_model_path(Path::new(&model_path)).map_err(|e| {
+                error!(
+                    requested_path = %model_path,
+                    error = %e,
+                    "MLX model path rejected"
+                );
+                e
+            })?;
 
         info!(
             model_path = %canonical_model_path.display(),

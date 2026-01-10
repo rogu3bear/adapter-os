@@ -452,6 +452,14 @@ pub enum AosError {
     #[error("Circuit breaker is half-open for service '{service}'")]
     CircuitBreakerHalfOpen { service: String },
 
+    /// Optimistic locking conflict - resource was modified by another process
+    ///
+    /// This error indicates a TOCTOU (time-of-check to time-of-use) race condition
+    /// was detected. The caller should retry with fresh state.
+    /// Maps to HTTP 409 Conflict.
+    #[error("Conflict: {0}")]
+    Conflict(String),
+
     #[error("Encryption failed: {reason}")]
     EncryptionFailed { reason: String },
 
