@@ -12,6 +12,7 @@ use crate::commands::training_common::{CommonTrainingArgs, TokenizerArg};
 use crate::output::OutputWriter;
 use adapteros_config::resolve_tokenizer_path;
 use adapteros_core::{AosError, Result};
+use adapteros_lora_worker::tokenizer::QwenTokenizer;
 use adapteros_lora_worker::training::{
     DeterminismConfig as TrainingDeterminismConfig, TrainingConfig,
 };
@@ -151,6 +152,13 @@ pub async fn run(args: &TrainFromCodeArgs, output: &OutputWriter) -> Result<()> 
     // Resolve tokenizer path
     let tokenizer_path = resolve_tokenizer_path(args.tokenizer_arg.tokenizer.as_ref())?;
     output.kv("Tokenizer", &tokenizer_path.display().to_string());
+    let tokenizer = QwenTokenizer::from_file(&tokenizer_path)?;
+    let pad_token_id = tokenizer.pad_token_id().ok_or_else(|| {
+        AosError::Validation("Tokenizer missing pad_token_id for code training".to_string())
+    })?;
+    let vocab_size = tokenizer.vocab_size(true);
+    let ignore_index = i32::try_from(pad_token_id)
+        .map_err(|_| AosError::Validation("pad_token_id exceeds i32 range".to_string()))?;
 
     // Resolve repository source
     let source = resolve_repo_source(&args.repo)?;
@@ -163,6 +171,9 @@ pub async fn run(args: &TrainFromCodeArgs, output: &OutputWriter) -> Result<()> 
         batch_size: args.common.batch_size,
         epochs: args.common.epochs,
         hidden_dim: args.common.hidden_dim,
+        vocab_size,
+        pad_token_id,
+        ignore_index,
         ..TrainingConfig::default()
     };
 

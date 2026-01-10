@@ -49,7 +49,10 @@ pub struct TrainArgs {
     resume: bool,
 
     /// Force resume even if config changed (may produce incorrect results)
-    #[arg(long, help = "Force resume even if config changed (may produce incorrect results)")]
+    #[arg(
+        long,
+        help = "Force resume even if config changed (may produce incorrect results)"
+    )]
     force_resume: bool,
 
     /// Common training hyperparameters
@@ -107,10 +110,7 @@ impl TrainArgs {
                     checkpoint.epoch,
                     checkpoint.config.summary()
                 );
-                info!(
-                    "Checkpoint loss at resume: {:.4}",
-                    checkpoint.loss
-                );
+                info!("Checkpoint loss at resume: {:.4}", checkpoint.loss);
                 let epoch = checkpoint.epoch;
                 let result = trainer
                     .train_with_resume_state(&examples, |_| {}, Some(checkpoint))
@@ -365,8 +365,11 @@ mod tests {
         assert_eq!(examples[0].target_tokens, vec![4, 5, 6]);
 
         // Non-string metadata must not be silently coerced to empty string.
-        assert_eq!(examples[1].metadata.get("str").unwrap(), "hello");
-        assert_eq!(examples[1].metadata.get("num").unwrap(), "123");
-        assert_eq!(examples[1].metadata.get("bool").unwrap(), "true");
+        // The provenance is stored as a JSON string in ExampleMetadataV1.
+        let prov: serde_json::Value =
+            serde_json::from_str(&examples[1].metadata.provenance).unwrap();
+        assert_eq!(prov.get("str").unwrap().as_str().unwrap(), "hello");
+        assert_eq!(prov.get("num").unwrap().as_str().unwrap(), "123");
+        assert_eq!(prov.get("bool").unwrap().as_str().unwrap(), "true");
     }
 }

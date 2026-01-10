@@ -211,7 +211,8 @@ async fn start(args: TrainStartArgs, output: &OutputWriter) -> Result<()> {
         base_model_path: None,
         preprocessing: None,
         force_resume: None,
-        training_contract_version: adapteros_types::training::TRAINING_DATA_CONTRACT_VERSION.to_string(),
+        training_contract_version: adapteros_types::training::TRAINING_DATA_CONTRACT_VERSION
+            .to_string(),
         pad_token_id: 0,
         ignore_index: -1,
     };
@@ -495,7 +496,10 @@ async fn report(args: TrainReportArgs, output: &OutputWriter) -> Result<()> {
 
     output.info(format!("Training report {}", response.report.pipeline_id));
     output.kv("dataset_id", &response.report.dataset_id);
-    output.kv("dataset_content_hash", &response.report.dataset_content_hash);
+    output.kv(
+        "dataset_content_hash",
+        &response.report.dataset_content_hash,
+    );
     output.kv("split_hash", &response.report.split_hash);
     output.kv("base_model_id", &response.report.base_model_id);
     output.kv("base_model_hash", &response.report.base_model_hash);
@@ -503,7 +507,10 @@ async fn report(args: TrainReportArgs, output: &OutputWriter) -> Result<()> {
         "final_epoch",
         &response.report.summary.final_epoch.to_string(),
     );
-    output.kv("best_epoch", &response.report.summary.best_epoch.to_string());
+    output.kv(
+        "best_epoch",
+        &response.report.summary.best_epoch.to_string(),
+    );
     output.kv(
         "early_stopped",
         &response.report.summary.early_stopped.to_string(),

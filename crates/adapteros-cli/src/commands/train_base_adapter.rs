@@ -72,6 +72,14 @@ impl TrainBaseAdapterArgs {
         // Step 1: Load tokenizer
         info!("Step 1/4: Loading tokenizer...");
         let tokenizer = QwenTokenizer::from_file(&tokenizer_path)?;
+        let pad_token_id = tokenizer.pad_token_id().ok_or_else(|| {
+            AosError::Validation(
+                "Tokenizer missing pad_token_id for base adapter training".to_string(),
+            )
+        })?;
+        let vocab_size = tokenizer.vocab_size(true);
+        let ignore_index = i32::try_from(pad_token_id)
+            .map_err(|_| AosError::Validation("pad_token_id exceeds i32 range".to_string()))?;
 
         // Step 2: Load manifest and convert to TrainingExample vec
         info!("Step 2/4: Loading dataset manifest...");
@@ -97,6 +105,9 @@ impl TrainBaseAdapterArgs {
             batch_size: self.common.batch_size,
             epochs: self.common.epochs,
             hidden_dim: self.common.hidden_dim,
+            vocab_size,
+            pad_token_id,
+            ignore_index,
             determinism: Some(DeterminismConfig::default()),
             ..TrainingConfig::default()
         };

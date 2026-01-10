@@ -438,8 +438,12 @@ adapteros-registry = { path = "crates/adapteros-registry" }
 adapteros-artifacts = { path = "crates/adapteros-artifacts" }
 adapteros-lora-kernel-api = { path = "crates/adapteros-lora-kernel-api" }
 adapteros-lora-kernel-mtl = { path = "crates/adapteros-lora-kernel-mtl" }  # macOS only - needed for KV quota tests
-adapteros-mlx = { path = "crates/adapteros-mlx" }  # mlx-rs abstraction (experimental fallback)
-adapteros-lora-mlx-ffi = { path = "crates/adapteros-lora-mlx-ffi" }  # Legacy FFI layer
+# NOTE: adapteros-mlx removed from dev-dependencies to fix MLX symbol conflict.
+# adapteros-mlx uses mlx-rs which builds its own libmlx.a from source.
+# adapteros-lora-mlx-ffi uses Homebrew MLX via C++ FFI with different symbols.
+# Having both causes undefined symbol errors at link time for integration tests.
+# adapteros-mlx is deprecated and not used by workspace tests.
+adapteros-lora-mlx-ffi = { path = "crates/adapteros-lora-mlx-ffi" }  # MLX C++ FFI layer
 # adapteros-lora-kernel-prof = { path = "crates/adapteros-lora-kernel-prof" }  # macOS only
 # adapteros-system-metrics = { path = "crates/adapteros-system-metrics" }  # Requires DATABASE_URL
 adapteros-crypto = { path = "crates/adapteros-crypto" }

@@ -26,7 +26,7 @@ pub struct HandshakeRequest {
 }
 
 /// Agent capabilities declared during handshake
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentCapabilities {
     /// Agent supports streaming responses
     #[serde(default)]
@@ -51,6 +51,19 @@ pub struct AgentCapabilities {
     /// Agent supports code modification proposals
     #[serde(default = "default_true")]
     pub supports_modification: bool,
+}
+
+impl Default for AgentCapabilities {
+    fn default() -> Self {
+        Self {
+            supports_streaming: false,
+            supports_barrier: true,
+            supports_cancel: true,
+            max_concurrent_tasks: 1,
+            supports_analysis: true,
+            supports_modification: true,
+        }
+    }
 }
 
 fn default_true() -> bool {

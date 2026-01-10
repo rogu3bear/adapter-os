@@ -12,6 +12,7 @@ use crate::commands::adapter_codebase::CodebaseScopeOverrides;
 use crate::commands::training_common::{CommonTrainingArgs, TokenizerArg};
 use adapteros_core::{AosError, Result};
 use adapteros_db::Db;
+use adapteros_lora_worker::tokenizer::QwenTokenizer;
 use adapteros_lora_worker::training::TrainingConfig;
 use adapteros_orchestrator::codebase_ingestion::{CodebaseIngestion, IngestionConfig};
 use tracing::info;
@@ -113,6 +114,13 @@ impl TrainFromCodeArgs {
         let tokenizer_path =
             adapteros_config::resolve_tokenizer_path(self.tokenizer_arg.tokenizer.as_ref())?;
         info!("Tokenizer: {}", tokenizer_path.display());
+        let tokenizer = QwenTokenizer::from_file(&tokenizer_path)?;
+        let pad_token_id = tokenizer.pad_token_id().ok_or_else(|| {
+            AosError::Validation("Tokenizer missing pad_token_id for code training".to_string())
+        })?;
+        let vocab_size = tokenizer.vocab_size(true);
+        let ignore_index = i32::try_from(pad_token_id)
+            .map_err(|_| AosError::Validation("pad_token_id exceeds i32 range".to_string()))?;
 
         // Build training config from common args
         let training_config = TrainingConfig {
@@ -122,6 +130,9 @@ impl TrainFromCodeArgs {
             batch_size: self.common.batch_size,
             epochs: self.common.epochs,
             hidden_dim: self.common.hidden_dim,
+            vocab_size,
+            pad_token_id,
+            ignore_index,
             ..TrainingConfig::default()
         };
 
