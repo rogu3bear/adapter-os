@@ -23,17 +23,16 @@ use std::fmt;
 
 pub mod example;
 pub use example::{
-    metadata_from_pairs, provenance_from_map, provenance_from_pairs, weight_from_metadata,
-    weight_from_provenance,
+    metadata_from_pairs, provenance_from_map, provenance_from_pairs,
     validate_training_contract_config, validate_training_example, validate_training_examples,
-    ExampleMetadataV1, TrainingDataContractConfig, TrainingExampleBatchSummary,
-    TrainingExampleValidationError, TrainingExampleV1, TrainingTokenLocation,
-    TRAINING_DATA_CONTRACT_VERSION,
+    weight_from_metadata, weight_from_provenance, ExampleMetadataV1, TrainingDataContractConfig,
+    TrainingExampleBatchSummary, TrainingExampleV1, TrainingExampleValidationError,
+    TrainingTokenLocation, TRAINING_DATA_CONTRACT_VERSION,
 };
 pub mod preprocessed_example;
 pub use preprocessed_example::{
-    PreprocessedExampleV1, PREPROCESSED_EXAMPLE_SCHEMA_VERSION, PREPROCESSED_FEATURE_DTYPE_F32,
-    PREPROCESSED_FEATURE_BACKEND_COREML,
+    PreprocessedExampleV1, PREPROCESSED_EXAMPLE_SCHEMA_VERSION,
+    PREPROCESSED_FEATURE_BACKEND_COREML, PREPROCESSED_FEATURE_DTYPE_F32,
 };
 
 /// Training report schema version.

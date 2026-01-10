@@ -14,7 +14,11 @@ use std::path::Path;
 /// Parse a plain text file into raw samples.
 pub fn parse_text_file(path: &Path, strategy: TextStrategy) -> Result<Vec<RawSample>> {
     let content = fs::read_to_string(path).map_err(|e| {
-        AosError::Io(format!("Failed to read text file {}: {}", path.display(), e))
+        AosError::Io(format!(
+            "Failed to read text file {}: {}",
+            path.display(),
+            e
+        ))
     })?;
 
     let path_str = path.display().to_string();
@@ -198,7 +202,9 @@ mod tests {
 
     #[test]
     fn test_heading_content_basic() {
-        let file = write_temp_text("# Question 1\nAnswer to question 1.\n\n# Question 2\nAnswer to question 2.");
+        let file = write_temp_text(
+            "# Question 1\nAnswer to question 1.\n\n# Question 2\nAnswer to question 2.",
+        );
         let samples = parse_text_file(file.path(), TextStrategy::HeadingContent).unwrap();
         assert_eq!(samples.len(), 2);
         assert_eq!(samples[0].input, "Question 1");
@@ -230,14 +236,21 @@ mod tests {
     #[test]
     fn test_heading_content_no_headings() {
         let file = write_temp_text("No headings here.\nJust plain text.");
-        let samples = parse_text_file(file.path(), TextStrategy::HeadingContent).unwrap();
-        assert!(samples.is_empty() || samples.iter().all(|s| !s.input.is_empty()));
+        let result = parse_text_file(file.path(), TextStrategy::HeadingContent);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("contains no valid samples"));
     }
 
     #[test]
     fn test_metadata_contains_strategy() {
         let file = write_temp_text("P1\n\nP2");
         let samples = parse_text_file(file.path(), TextStrategy::ParagraphPairs).unwrap();
-        assert_eq!(samples[0].metadata.get("strategy"), Some(&"paragraph-pairs".to_string()));
+        assert_eq!(
+            samples[0].metadata.get("strategy"),
+            Some(&"paragraph-pairs".to_string())
+        );
     }
 }

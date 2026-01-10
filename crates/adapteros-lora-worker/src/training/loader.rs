@@ -3,13 +3,14 @@
 //! Supports positive/negative weighted JSONL files, converting them into `TrainingExample`
 //! instances encoded with the Qwen tokenizer.
 
-use adapteros_types::training::{
-    provenance_from_map, ExampleMetadataV1, TrainingExampleV1, TRAINING_DATA_CONTRACT_VERSION,
-};
 use super::limits::DatasetSizeLimits;
 use crate::tokenizer::QwenTokenizer;
 use adapteros_core::{AosError, Result};
 use adapteros_secure_fs::path_policy::{canonicalize_strict, canonicalize_strict_in_allowed_roots};
+use adapteros_types::training::{
+    provenance_from_map, validate_training_examples, ExampleMetadataV1, TrainingDataContractConfig,
+    TrainingExampleV1, TRAINING_DATA_CONTRACT_VERSION,
+};
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
@@ -66,13 +67,17 @@ pub fn load_examples_from_manifest<P: AsRef<Path>>(
     let pad_token_id = tokenizer.pad_token_id().ok_or_else(|| {
         AosError::Training("Tokenizer missing pad_token_id for dataset manifest".to_string())
     })?;
-    load_examples_with_encoder(manifest_path, pad_token_id, |text| tokenizer.encode(text))
+    let vocab_size = tokenizer.vocab_size(true);
+    load_examples_with_encoder(manifest_path, pad_token_id, vocab_size, |text| {
+        tokenizer.encode(text)
+    })
 }
 
 /// Load training examples using a caller-provided encoding closure (useful for testing).
 pub fn load_examples_with_encoder<P, F>(
     manifest_path: P,
     pad_token_id: u32,
+    vocab_size: usize,
     encoder: F,
 ) -> Result<Vec<TrainingExampleV1>>
 where
@@ -192,8 +197,8 @@ where
             let input_tokens = encoder(&sample.prompt)?;
             let target_tokens = encoder(&sample.response)?;
 
-            total_tokens = total_tokens
-                .saturating_add((input_tokens.len() + target_tokens.len()) as u64);
+            total_tokens =
+                total_tokens.saturating_add((input_tokens.len() + target_tokens.len()) as u64);
             if total_tokens > limits.max_tokens {
                 return Err(AosError::Training(format!(
                     "Dataset token count exceeds limit: {} > {}",
@@ -254,7 +259,10 @@ where
             }
             if let Some(map) = sample.metadata {
                 for (key, value) in map {
-                    provenance.insert(key, serde_json::Value::String(flatten_metadata_value(&value)));
+                    provenance.insert(
+                        key,
+                        serde_json::Value::String(flatten_metadata_value(&value)),
+                    );
                 }
             }
             if let Some(num) = serde_json::Number::from_f64(combined_weight as f64) {
@@ -297,6 +305,10 @@ where
             manifest_path.display()
         )));
     }
+
+    let contract = TrainingDataContractConfig::new(pad_token_id, -1);
+    validate_training_examples(&all_examples, vocab_size, &contract)
+        .map_err(|err| AosError::Training(format!("Dataset example validation failed: {}", err)))?;
 
     Ok(all_examples)
 }
@@ -407,19 +419,23 @@ mod tests {
 
         let encoder =
             |text: &str| -> Result<Vec<u32>> { Ok(text.chars().map(|c| c as u32).collect()) };
-        let examples = load_examples_with_encoder(&manifest_path, 0, encoder).unwrap();
+        let examples = load_examples_with_encoder(&manifest_path, 0, 1024, encoder).unwrap();
 
         assert_eq!(examples.len(), 2);
         let pos = &examples[0];
-        let pos_prov: serde_json::Value =
-            serde_json::from_str(&pos.metadata.provenance).unwrap();
-        assert_eq!(pos_prov.get("example_id").and_then(|v| v.as_str()), Some("pos1"));
+        let pos_prov: serde_json::Value = serde_json::from_str(&pos.metadata.provenance).unwrap();
+        assert_eq!(
+            pos_prov.get("example_id").and_then(|v| v.as_str()),
+            Some("pos1")
+        );
         assert_eq!(weight_from_metadata(&pos.metadata), Some(1.0));
 
         let neg = &examples[1];
-        let neg_prov: serde_json::Value =
-            serde_json::from_str(&neg.metadata.provenance).unwrap();
-        assert_eq!(neg_prov.get("example_id").and_then(|v| v.as_str()), Some("neg1"));
+        let neg_prov: serde_json::Value = serde_json::from_str(&neg.metadata.provenance).unwrap();
+        assert_eq!(
+            neg_prov.get("example_id").and_then(|v| v.as_str()),
+            Some("neg1")
+        );
         assert_eq!(weight_from_metadata(&neg.metadata), Some(-0.5));
         assert_eq!(neg.target_tokens.len(), "I can't help with that.".len());
     }
@@ -469,7 +485,7 @@ mod tests {
 
         let encoder =
             |text: &str| -> Result<Vec<u32>> { Ok(text.chars().map(|c| c as u32).collect()) };
-        let examples = load_examples_with_encoder(&manifest_path, 0, encoder).unwrap();
+        let examples = load_examples_with_encoder(&manifest_path, 0, 1024, encoder).unwrap();
 
         assert_eq!(examples.len(), 1);
         assert_eq!(weight_from_metadata(&examples[0].metadata), Some(0.125));
