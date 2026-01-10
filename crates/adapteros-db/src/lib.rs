@@ -105,9 +105,10 @@ pub mod write_ack;
 
 // Re-export commonly used types
 pub use adapter_repositories::{
-    AdapterRepository, AdapterRepositoryPolicy, AdapterVersion, AdapterVersionRuntimeState,
-    CreateDraftVersionParams, CreateRepositoryParams, CreateVersionParams, RepositoryGroup,
-    UpsertAdapterRepositoryPolicyParams, UpsertRuntimeStateParams,
+    tier_promotion_toctou_count, AdapterRepository, AdapterRepositoryPolicy, AdapterVersion,
+    AdapterVersionRuntimeState, CreateDraftVersionParams, CreateRepositoryParams,
+    CreateVersionParams, RepositoryGroup, UpsertAdapterRepositoryPolicyParams,
+    UpsertRuntimeStateParams,
 };
 pub use coreml_fusion_pairs::{CoremlFusionPair, CreateCoremlFusionPairParams};
 pub use factory::{DbFactory, StorageBackend as DbStorageBackend};
@@ -1457,9 +1458,7 @@ impl Db {
 
         // Create local node for single-node dev environments
         // The worker registration handler hardcodes node_id="local", so this must exist
-        let nodes = vec![
-            ("local", "localhost", "Local Dev", 32),
-        ];
+        let nodes = vec![("local", "localhost", "Local Dev", 32)];
 
         for (id, hostname, family, memory) in nodes {
             // Store hardware specs in labels_json since columns don't exist
@@ -2536,6 +2535,10 @@ pub mod crypto_audit;
 pub use adapter_snapshots::{AdapterTrainingSnapshot, CreateSnapshotParams};
 pub mod inference_evidence;
 pub use inference_evidence::{CreateEvidenceParams, InferenceEvidence};
+pub mod inference_write_bundle;
+pub use inference_write_bundle::{
+    inference_bundle_commit_failed, inference_bundle_commit_success, InferenceWriteBundle,
+};
 pub mod inference_trace;
 pub use inference_trace::{
     recompute_receipt, SqlTraceSink, TraceFinalization, TraceReceipt, TraceReceiptVerification,
@@ -2678,7 +2681,10 @@ pub use user_tenant_access::{
 };
 pub mod workers;
 pub use models::Worker;
-pub use workers::{TrainingTask, WorkerHealthRecord, WorkerIncident, WorkerIncidentType};
+pub use workers::{
+    temporal_ordering_violations, TrainingTask, WorkerHealthRecord, WorkerIncident,
+    WorkerIncidentType,
+};
 
 // Document management modules
 pub mod collections;

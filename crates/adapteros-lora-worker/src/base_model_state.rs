@@ -2,13 +2,29 @@
 //!
 //! Tracks the loading state of base models (Layer 1) and persists status
 //! to database for UI consumption. Follows existing adapter lifecycle patterns.
+//!
+//! ## Model Error Retry (ANCHOR, AUDIT, RECTIFY)
+//!
+//! - **ANCHOR**: `is_eligible_for_retry()` enforces: Error state, retries < MAX, elapsed > MIN_INTERVAL
+//! - **AUDIT**: Tracks `retry_count`, logs attempts, exposes metrics via accessors
+//! - **RECTIFY**: `prepare_for_retry()` transitions to Loading; exhausted retries emit alert
 
 use crate::lifecycle_state::LifecycleState;
 use adapteros_core::{AosError, Result, WorkerStatus};
 use adapteros_db::Db;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
-use tracing::{debug, info, warn};
+use std::time::{Duration, Instant};
+use tracing::{debug, error, info, warn};
+
+/// Global counters for model retry metrics (AUDIT pillar)
+static MODEL_AUTO_RETRY_COUNT: AtomicU64 = AtomicU64::new(0);
+static MODEL_AUTO_RETRY_EXHAUSTED: AtomicU64 = AtomicU64::new(0);
+
+/// Maximum number of automatic retries for error models
+pub const MAX_MODEL_AUTO_RETRIES: u32 = 3;
+/// Minimum time between retry attempts
+pub const MIN_RETRY_INTERVAL: Duration = Duration::from_secs(60);
 
 /// Base model state tracking
 #[derive(Clone)]
@@ -27,6 +43,10 @@ pub struct BaseModelState {
     db: Arc<Db>,
     /// Tenant ID for multi-tenant support
     tenant_id: String,
+    /// Number of automatic retry attempts for error recovery
+    retry_count: u32,
+    /// When the last error occurred (for retry interval enforcement)
+    last_error_at: Option<Instant>,
 }
 
 impl BaseModelState {
@@ -40,6 +60,8 @@ impl BaseModelState {
             memory_usage_mb: None,
             db,
             tenant_id,
+            retry_count: 0,
+            last_error_at: None,
         }
     }
 
@@ -59,6 +81,9 @@ impl BaseModelState {
         match lifecycle {
             LifecycleState::Active | LifecycleState::Loaded => {
                 self.loaded_at = Some(Instant::now());
+                // Reset retry count on successful load
+                self.retry_count = 0;
+                self.last_error_at = None;
                 info!("Base model {} loaded successfully", self.model_id);
             }
             LifecycleState::Unloaded => {
@@ -66,9 +91,15 @@ impl BaseModelState {
                 info!("Base model {} unloaded", self.model_id);
             }
             LifecycleState::Error => {
+                self.last_error_at = Some(Instant::now());
+                self.retry_count += 1;
                 warn!(
-                    "Base model {} error: {:?}",
-                    self.model_id, self.error_message
+                    model_id = %self.model_id,
+                    error = ?self.error_message,
+                    retry_count = self.retry_count,
+                    "Base model error (retry {} of {})",
+                    self.retry_count,
+                    MAX_MODEL_AUTO_RETRIES
                 );
             }
             _ => {
@@ -160,6 +191,84 @@ impl BaseModelState {
         self.loaded_at.map(|loaded_at| loaded_at.elapsed())
     }
 
+    /// Check if the model is eligible for automatic retry
+    ///
+    /// A model is eligible for retry if:
+    /// 1. It's in Error state
+    /// 2. Retry count is below MAX_MODEL_AUTO_RETRIES
+    /// 3. Enough time has elapsed since the last error (MIN_RETRY_INTERVAL)
+    pub fn is_eligible_for_retry(&self) -> bool {
+        if self.lifecycle != LifecycleState::Error {
+            return false;
+        }
+
+        if self.retry_count >= MAX_MODEL_AUTO_RETRIES {
+            return false;
+        }
+
+        if let Some(last_error) = self.last_error_at {
+            if last_error.elapsed() < MIN_RETRY_INTERVAL {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    /// Check if retry attempts are exhausted
+    pub fn is_retry_exhausted(&self) -> bool {
+        self.lifecycle == LifecycleState::Error && self.retry_count >= MAX_MODEL_AUTO_RETRIES
+    }
+
+    /// Get current retry count
+    pub fn retry_count(&self) -> u32 {
+        self.retry_count
+    }
+
+    /// Prepare for retry by transitioning to Loading state
+    ///
+    /// Call this before attempting to reload the model.
+    /// Returns an error if the model is not eligible for retry.
+    pub async fn prepare_for_retry(&mut self) -> Result<()> {
+        if !self.is_eligible_for_retry() {
+            if self.is_retry_exhausted() {
+                // AUDIT: Track exhausted retries
+                MODEL_AUTO_RETRY_EXHAUSTED.fetch_add(1, Ordering::Relaxed);
+                // RECTIFY: Alert for manual intervention
+                error!(
+                    model_id = %self.model_id,
+                    retry_count = self.retry_count,
+                    total_exhausted = MODEL_AUTO_RETRY_EXHAUSTED.load(Ordering::Relaxed),
+                    "Model retry attempts exhausted - manual intervention required"
+                );
+                return Err(AosError::Worker(format!(
+                    "Model {} retry attempts exhausted ({}/{})",
+                    self.model_id, self.retry_count, MAX_MODEL_AUTO_RETRIES
+                )));
+            }
+            return Err(AosError::Worker(format!(
+                "Model {} not eligible for retry",
+                self.model_id
+            )));
+        }
+
+        // AUDIT: Track retry attempts
+        MODEL_AUTO_RETRY_COUNT.fetch_add(1, Ordering::Relaxed);
+
+        info!(
+            model_id = %self.model_id,
+            retry_attempt = self.retry_count + 1,
+            max_retries = MAX_MODEL_AUTO_RETRIES,
+            total_retries = MODEL_AUTO_RETRY_COUNT.load(Ordering::Relaxed),
+            "Initiating automatic retry for error model"
+        );
+
+        // Transition to Loading state for retry
+        // Note: retry_count is NOT incremented here - it's incremented on error
+        self.update_status(LifecycleState::Loading, None, None)
+            .await
+    }
+
     /// Persist current status to database
     async fn persist_status(&self) -> Result<()> {
         self.db
@@ -199,6 +308,16 @@ impl BaseModelState {
 
         Ok(())
     }
+}
+
+/// AUDIT: Get total count of model auto-retry attempts across all models
+pub fn model_auto_retry_count() -> u64 {
+    MODEL_AUTO_RETRY_COUNT.load(Ordering::Relaxed)
+}
+
+/// AUDIT: Get count of models that exhausted all retry attempts
+pub fn model_auto_retry_exhausted() -> u64 {
+    MODEL_AUTO_RETRY_EXHAUSTED.load(Ordering::Relaxed)
 }
 
 #[cfg(test)]

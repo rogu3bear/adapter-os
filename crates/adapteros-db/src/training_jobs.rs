@@ -3342,4 +3342,196 @@ impl Db {
 
         Ok(result.rows_affected())
     }
+
+    /// Find orphaned training jobs (running jobs without recent activity)
+    ///
+    /// Returns jobs that are in "running" status but haven't had any training metrics
+    /// recorded within the specified staleness threshold. These jobs likely crashed
+    /// or were interrupted without proper cleanup.
+    ///
+    /// # Arguments
+    /// * `staleness_threshold` - Duration after which a running job without activity is considered orphaned
+    ///
+    /// # Returns
+    /// Vector of orphaned training job records
+    pub async fn find_orphaned_training_jobs(
+        &self,
+        staleness_threshold: std::time::Duration,
+    ) -> Result<Vec<TrainingJobRecord>> {
+        let threshold_seconds = staleness_threshold.as_secs() as i64;
+        let cutoff = chrono::Utc::now() - chrono::Duration::seconds(threshold_seconds);
+        let cutoff_str = cutoff.to_rfc3339();
+
+        // Find running jobs where:
+        // 1. No metrics have been recorded in the threshold period, OR
+        // 2. No metrics exist at all AND started_at is older than threshold
+        let jobs = sqlx::query_as::<_, TrainingJobRecord>(
+            r#"
+            SELECT j.id, j.repo_id, j.target_branch, j.base_version_id, j.draft_version_id, j.code_commit_sha,
+                   j.training_config_json, j.status, j.progress_json,
+                   j.started_at, j.completed_at, j.created_by, j.adapter_name, j.template_id,
+                   j.created_at, j.metadata_json, j.config_hash_b3,
+                   j.dataset_id, j.dataset_version_id, j.base_model_id, j.collection_id, j.tenant_id, j.build_id, j.source_documents_json,
+                   j.synthetic_mode, j.data_lineage_mode,
+                   j.retryable, j.retry_of_job_id, j.stack_id, j.adapter_id, j.weights_hash_b3, j.artifact_path, j.produced_version_id,
+                   j.hyperparameters_json, j.data_spec_json, j.metrics_snapshot_id,
+                   j.is_deterministic_run, j.global_seed_hex, j.determinism_config_json, j.seed_mode
+            FROM repository_training_jobs j
+            WHERE j.status = 'running'
+              AND (
+                  -- No metrics exist and job started before cutoff
+                  (NOT EXISTS (SELECT 1 FROM repository_training_metrics m WHERE m.training_job_id = j.id)
+                   AND j.started_at < ?)
+                  OR
+                  -- Metrics exist but all are older than cutoff
+                  (EXISTS (SELECT 1 FROM repository_training_metrics m WHERE m.training_job_id = j.id)
+                   AND NOT EXISTS (
+                       SELECT 1 FROM repository_training_metrics m
+                       WHERE m.training_job_id = j.id
+                         AND m.metric_timestamp > ?
+                   ))
+              )
+            ORDER BY j.started_at ASC
+            "#,
+        )
+        .bind(&cutoff_str)
+        .bind(&cutoff_str)
+        .fetch_all(self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to find orphaned training jobs: {}", e)))?;
+
+        Ok(jobs)
+    }
+
+    /// Mark a training job as interrupted (for recovery after restart)
+    ///
+    /// This transitions a job from "running" to "interrupted" status, which allows
+    /// it to be retried via the existing retry chain mechanism.
+    ///
+    /// # Arguments
+    /// * `job_id` - The job ID to mark as interrupted
+    /// * `reason` - The reason for interruption (e.g., "server_restart", "orphaned_recovery")
+    pub async fn mark_training_job_interrupted(&self, job_id: &str, reason: &str) -> Result<()> {
+        let now = chrono::Utc::now().to_rfc3339();
+
+        if let Some(repo) = self.get_training_job_kv_repo() {
+            if let Err(e) = repo
+                .update_job(job_id, |job| {
+                    job.status = "interrupted".to_string();
+                    job.completed_at = Some(now.clone());
+                })
+                .await
+            {
+                self.record_kv_write_fallback("training_jobs.mark_interrupted");
+                warn!(error = %e, job_id = %job_id, "KV mark interrupted failed");
+            }
+        }
+
+        if self.storage_mode().write_to_sql() {
+            sqlx::query(
+                "UPDATE repository_training_jobs
+                 SET status = 'interrupted', completed_at = ?
+                 WHERE id = ? AND status = 'running'",
+            )
+            .bind(&now)
+            .bind(job_id)
+            .execute(self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
+        } else if !self.storage_mode().write_to_kv() {
+            return Err(AosError::Database(
+                "No backend available for mark_training_job_interrupted".to_string(),
+            ));
+        }
+
+        info!(
+            target: "audit.training",
+            job_id = %job_id,
+            reason = %reason,
+            "Training job marked as interrupted"
+        );
+
+        Ok(())
+    }
+
+    /// Mark a training job as failed due to being orphaned (stale without progress)
+    ///
+    /// This transitions a job from "running" to "failed" status with the failure reason
+    /// recorded in metadata for post-mortem analysis. Unlike "interrupted", "failed" is
+    /// a terminal state that will not be automatically retried.
+    ///
+    /// ## ANCHOR, AUDIT, RECTIFY
+    ///
+    /// - **ANCHOR**: Only transitions jobs in "running" state (optimistic locking)
+    /// - **AUDIT**: Records failure_reason in metadata_json and logs to audit target
+    /// - **RECTIFY**: Terminal "failed" state prevents infinite retry loops for stuck jobs
+    ///
+    /// # Arguments
+    /// * `job_id` - The job ID to mark as failed
+    /// * `reason` - The reason for failure (e.g., "stale_no_progress_24h")
+    /// * `threshold_hours` - The staleness threshold that triggered this cleanup
+    pub async fn mark_training_job_failed_orphaned(
+        &self,
+        job_id: &str,
+        reason: &str,
+        threshold_hours: u64,
+    ) -> Result<()> {
+        let now = chrono::Utc::now().to_rfc3339();
+
+        // AUDIT: Build metadata with failure reason for post-mortem
+        let failure_metadata = serde_json::json!({
+            "failure_reason": reason,
+            "failure_type": "orphaned",
+            "threshold_hours": threshold_hours,
+            "marked_failed_at": &now,
+        });
+        let metadata_str =
+            serde_json::to_string(&failure_metadata).map_err(AosError::Serialization)?;
+
+        if let Some(repo) = self.get_training_job_kv_repo() {
+            let metadata_clone = metadata_str.clone();
+            let now_clone = now.clone();
+            if let Err(e) = repo
+                .update_job(job_id, move |job| {
+                    job.status = "failed".to_string();
+                    job.completed_at = Some(now_clone);
+                    job.metadata_json = Some(metadata_clone);
+                })
+                .await
+            {
+                self.record_kv_write_fallback("training_jobs.mark_failed_orphaned");
+                warn!(error = %e, job_id = %job_id, "KV mark failed orphaned failed");
+            }
+        }
+
+        // ANCHOR: Optimistic locking - only update if still in running state
+        if self.storage_mode().write_to_sql() {
+            sqlx::query(
+                "UPDATE repository_training_jobs
+                 SET status = 'failed', completed_at = ?, metadata_json = ?
+                 WHERE id = ? AND status = 'running'",
+            )
+            .bind(&now)
+            .bind(&metadata_str)
+            .bind(job_id)
+            .execute(self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
+        } else if !self.storage_mode().write_to_kv() {
+            return Err(AosError::Database(
+                "No backend available for mark_training_job_failed_orphaned".to_string(),
+            ));
+        }
+
+        // AUDIT: Log to audit target for observability
+        info!(
+            target: "audit.training",
+            job_id = %job_id,
+            reason = %reason,
+            threshold_hours = threshold_hours,
+            "Training job marked as failed (orphaned)"
+        );
+
+        Ok(())
+    }
 }

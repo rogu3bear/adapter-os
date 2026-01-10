@@ -4,8 +4,23 @@
 //! Running → Paused → Running → Complete/Failed/Cancelled
 //!
 //! This complements ServerPauseTracker by tracking all states, not just paused ones.
+//!
+//! ## Idempotency (ANCHOR, AUDIT, RECTIFY)
+//!
+//! - **ANCHOR**: `register_inference` rejects duplicates while request is in-flight
+//! - **AUDIT**: Tracks `idempotency_accepts` and `idempotency_rejects` counters
+//! - **RECTIFY**: Terminal states (Failed) allow retry - `is_terminal()` check passes
+//!
+//! ## In-Flight Guard (ANCHOR, AUDIT, RECTIFY)
+//!
+//! Prevents adapter modification during inference to avoid race conditions:
+//!
+//! - **ANCHOR**: `is_adapter_in_flight()` enforces invariant before lifecycle transitions
+//! - **AUDIT**: Tracks `in_flight_guard_allows` and `in_flight_guard_blocks` counters
+//! - **RECTIFY**: Returns false (blocked) with actionable logging for retry
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -26,6 +41,8 @@ pub struct InferenceEntry {
     pub state: TrackedState,
     /// Tenant ID for isolation
     pub tenant_id: String,
+    /// Adapter IDs being used by this inference
+    pub adapter_ids: Vec<String>,
     /// When inference started (monotonic, for duration calculation)
     pub started_at: Instant,
     /// When inference started (wall clock, for API responses)
@@ -132,6 +149,14 @@ pub struct InferenceStateTracker {
     config: StateTrackerConfig,
     /// Optional diagnostics service for event emission
     diagnostics: Option<Arc<DiagnosticsService>>,
+    /// AUDIT: Count of successful idempotency checks (request accepted)
+    idempotency_accepts: AtomicU64,
+    /// AUDIT: Count of rejected requests (duplicate in-flight)
+    idempotency_rejects: AtomicU64,
+    /// AUDIT: Count of in-flight guard checks that allowed modification
+    in_flight_guard_allows: AtomicU64,
+    /// AUDIT: Count of in-flight guard checks that blocked modification
+    in_flight_guard_blocks: AtomicU64,
 }
 
 impl Default for InferenceStateTracker {
@@ -147,6 +172,10 @@ impl InferenceStateTracker {
             inferences: RwLock::new(HashMap::new()),
             config: StateTrackerConfig::default(),
             diagnostics: None,
+            idempotency_accepts: AtomicU64::new(0),
+            idempotency_rejects: AtomicU64::new(0),
+            in_flight_guard_allows: AtomicU64::new(0),
+            in_flight_guard_blocks: AtomicU64::new(0),
         }
     }
 
@@ -156,6 +185,10 @@ impl InferenceStateTracker {
             inferences: RwLock::new(HashMap::new()),
             config,
             diagnostics: None,
+            idempotency_accepts: AtomicU64::new(0),
+            idempotency_rejects: AtomicU64::new(0),
+            in_flight_guard_allows: AtomicU64::new(0),
+            in_flight_guard_blocks: AtomicU64::new(0),
         }
     }
 
@@ -166,14 +199,53 @@ impl InferenceStateTracker {
     }
 
     /// Register a new inference at Running state
-    pub fn register_inference(&self, inference_id: String, tenant_id: String, is_replay: bool) {
+    ///
+    /// Returns false if a request with this ID is already in-flight (idempotency check)
+    pub fn register_inference(
+        &self,
+        inference_id: String,
+        tenant_id: String,
+        is_replay: bool,
+    ) -> bool {
+        self.register_inference_with_adapters(inference_id, tenant_id, is_replay, Vec::new())
+    }
+
+    /// Register a new inference at Running state with adapter IDs
+    ///
+    /// Returns false if a request with this ID is already in-flight (idempotency check)
+    pub fn register_inference_with_adapters(
+        &self,
+        inference_id: String,
+        tenant_id: String,
+        is_replay: bool,
+        adapter_ids: Vec<String>,
+    ) -> bool {
         let now = Utc::now();
         let instant = Instant::now();
+
+        // Idempotency check: reject if already in-flight
+        {
+            let guard = self.inferences.read();
+            if let Some(existing) = guard.get(&inference_id) {
+                if !existing.state.is_terminal() {
+                    // AUDIT: Track idempotency rejection
+                    self.idempotency_rejects.fetch_add(1, Ordering::Relaxed);
+                    warn!(
+                        inference_id = %inference_id,
+                        state = %existing.state.name(),
+                        idempotency_rejects = self.idempotency_rejects.load(Ordering::Relaxed),
+                        "Duplicate request rejected: inference already in-flight"
+                    );
+                    return false;
+                }
+            }
+        }
 
         let entry = InferenceEntry {
             inference_id: inference_id.clone(),
             state: TrackedState::Running,
             tenant_id: tenant_id.clone(),
+            adapter_ids,
             started_at: instant,
             created_at: now,
             state_changed_at: instant,
@@ -182,10 +254,14 @@ impl InferenceStateTracker {
             is_replay,
         };
 
+        // AUDIT: Track idempotency acceptance
+        self.idempotency_accepts.fetch_add(1, Ordering::Relaxed);
+
         debug!(
             inference_id = %inference_id,
             tenant_id = %tenant_id,
             is_replay = is_replay,
+            idempotency_accepts = self.idempotency_accepts.load(Ordering::Relaxed),
             "Registered inference as Running"
         );
 
@@ -193,6 +269,62 @@ impl InferenceStateTracker {
         self.emit_state_changed(&entry, "Started", "Running", 0);
 
         self.inferences.write().insert(inference_id, entry);
+        true
+    }
+
+    /// Check if a request with this ID is already in-flight
+    pub fn is_request_in_flight(&self, inference_id: &str) -> bool {
+        self.inferences
+            .read()
+            .get(inference_id)
+            .map(|e| !e.state.is_terminal())
+            .unwrap_or(false)
+    }
+
+    /// Get all adapter IDs currently in use by active (non-terminal) inferences
+    ///
+    /// Used to prevent modification of adapters during inference
+    pub fn adapters_in_flight(&self) -> std::collections::HashSet<String> {
+        self.inferences
+            .read()
+            .values()
+            .filter(|e| !e.state.is_terminal())
+            .flat_map(|e| e.adapter_ids.iter().cloned())
+            .collect()
+    }
+
+    /// Check if an adapter is in-flight and update AUDIT metrics
+    ///
+    /// Returns true if the adapter is in-flight (blocked), false if safe to modify.
+    /// This method updates `in_flight_guard_allows` and `in_flight_guard_blocks` counters.
+    pub fn is_adapter_in_flight(&self, adapter_id: &str) -> bool {
+        let in_flight = self.adapters_in_flight();
+        let is_blocked = in_flight.contains(adapter_id);
+
+        if is_blocked {
+            self.in_flight_guard_blocks.fetch_add(1, Ordering::Relaxed);
+            debug!(
+                adapter_id = %adapter_id,
+                in_flight_count = in_flight.len(),
+                total_blocks = self.in_flight_guard_blocks.load(Ordering::Relaxed),
+                "In-flight guard: blocked adapter modification"
+            );
+        } else {
+            self.in_flight_guard_allows.fetch_add(1, Ordering::Relaxed);
+        }
+
+        is_blocked
+    }
+
+    /// Update adapter IDs for an inference (called when adapters are resolved)
+    pub fn update_adapter_ids(&self, inference_id: &str, adapter_ids: Vec<String>) -> bool {
+        let mut guard = self.inferences.write();
+        if let Some(entry) = guard.get_mut(inference_id) {
+            entry.adapter_ids = adapter_ids;
+            true
+        } else {
+            false
+        }
     }
 
     /// Transition inference to Paused state
@@ -379,6 +511,26 @@ impl InferenceStateTracker {
             .values()
             .filter(|e| !e.state.is_terminal())
             .count()
+    }
+
+    /// AUDIT: Get count of accepted inference requests (idempotency passed)
+    pub fn idempotency_accepts(&self) -> u64 {
+        self.idempotency_accepts.load(Ordering::Relaxed)
+    }
+
+    /// AUDIT: Get count of rejected inference requests (duplicate in-flight)
+    pub fn idempotency_rejects(&self) -> u64 {
+        self.idempotency_rejects.load(Ordering::Relaxed)
+    }
+
+    /// AUDIT: Get count of in-flight guard checks that allowed modification
+    pub fn in_flight_guard_allows(&self) -> u64 {
+        self.in_flight_guard_allows.load(Ordering::Relaxed)
+    }
+
+    /// AUDIT: Get count of in-flight guard checks that blocked modification
+    pub fn in_flight_guard_blocks(&self) -> u64 {
+        self.in_flight_guard_blocks.load(Ordering::Relaxed)
     }
 
     /// Remove an inference entry
