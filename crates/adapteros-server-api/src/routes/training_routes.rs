@@ -26,6 +26,14 @@ pub fn training_routes() -> Router<AppState> {
             get(handlers::training::get_training_queue),
         )
         .route(
+            "/v1/training/backend-readiness",
+            get(handlers::training::get_training_backend_readiness),
+        )
+        .route(
+            "/v1/training/preprocessing/status",
+            post(handlers::get_preprocess_status),
+        )
+        .route(
             "/v1/training/jobs/{job_id}",
             get(handlers::get_training_job),
         )

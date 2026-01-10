@@ -39,12 +39,9 @@ impl From<EventApplierError> for AosError {
     fn from(err: EventApplierError) -> Self {
         match err {
             EventApplierError::Validation { reason, .. } => AosError::Validation(reason),
-            EventApplierError::Serialization { reason, .. } => {
-                AosError::Serialization(serde_json::Error::io(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    reason,
-                )))
-            }
+            EventApplierError::Serialization { reason, .. } => AosError::Serialization(
+                serde_json::Error::io(std::io::Error::new(std::io::ErrorKind::InvalidData, reason)),
+            ),
             EventApplierError::Database { event_type, source } => {
                 AosError::Database(format!("{}: {}", event_type, source))
             }
@@ -744,14 +741,8 @@ mod tests {
             row.get::<Option<String>, _>("targets_json"),
             Some(DEFAULT_TARGETS_JSON.to_string())
         );
-        assert_eq!(
-            row.get::<String, _>("created_at"),
-            "2025-01-02 03:04:05"
-        );
-        assert_eq!(
-            row.get::<String, _>("updated_at"),
-            "2025-01-02 03:04:05"
-        );
+        assert_eq!(row.get::<String, _>("created_at"), "2025-01-02 03:04:05");
+        assert_eq!(row.get::<String, _>("updated_at"), "2025-01-02 03:04:05");
     }
 
     #[tokio::test]
@@ -783,22 +774,13 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!(
-            row.get::<String, _>("adapter_ids_json"),
-            "[\"a\",\"b\"]"
-        );
+        assert_eq!(row.get::<String, _>("adapter_ids_json"), "[\"a\",\"b\"]");
         assert_eq!(
             row.get::<Option<String>, _>("workflow_type"),
             Some("Parallel".to_string())
         );
-        assert_eq!(
-            row.get::<String, _>("created_at"),
-            "2025-01-02 03:04:05"
-        );
-        assert_eq!(
-            row.get::<String, _>("updated_at"),
-            "2025-01-02 03:04:05"
-        );
+        assert_eq!(row.get::<String, _>("created_at"), "2025-01-02 03:04:05");
+        assert_eq!(row.get::<String, _>("updated_at"), "2025-01-02 03:04:05");
     }
 
     #[tokio::test]
@@ -830,20 +812,23 @@ mod tests {
             .unwrap();
         tx.commit().await.unwrap();
 
-        let rows = sqlx::query!(
+        let rows = sqlx::query(
             r#"SELECT key, value_json, updated_at FROM tenant_configs WHERE tenant_id = ? ORDER BY key"#,
-            "tenant-a"
         )
+        .bind("tenant-a")
         .fetch_all(&pool)
         .await
         .unwrap();
 
         assert_eq!(rows.len(), 2);
-        assert_eq!(rows[0].key, "flag.beta");
-        assert_eq!(rows[0].value_json, "true");
-        assert_eq!(rows[0].updated_at, Some("2025-01-02 03:04:05".to_string()));
-        assert_eq!(rows[1].key, "max_sessions");
-        assert_eq!(rows[1].value_json, "10");
+        assert_eq!(rows[0].get::<String, _>("key"), "flag.beta");
+        assert_eq!(rows[0].get::<String, _>("value_json"), "true");
+        assert_eq!(
+            rows[0].get::<Option<String>, _>("updated_at"),
+            Some("2025-01-02 03:04:05".to_string())
+        );
+        assert_eq!(rows[1].get::<String, _>("key"), "max_sessions");
+        assert_eq!(rows[1].get::<String, _>("value_json"), "10");
     }
 
     #[tokio::test]
@@ -863,6 +848,9 @@ mod tests {
 
         let result = apply_event_with_clock(&mut tx, "tenant-a", &event, &fixed_clock()).await;
         assert!(matches!(result, Err(EventApplierError::Validation { .. })));
+
+        // Rollback transaction to release the connection before querying the pool directly
+        tx.rollback().await.unwrap();
 
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM adapters")
             .fetch_one(&pool)

@@ -460,7 +460,8 @@ impl DatasetDomainService {
         DatasetManifest {
             dataset_id: dataset_id.to_string(),
             dataset_version_id: dataset_version_id.to_string(),
-            training_contract_version: adapteros_types::training::TRAINING_DATA_CONTRACT_VERSION.to_string(),
+            training_contract_version: adapteros_types::training::TRAINING_DATA_CONTRACT_VERSION
+                .to_string(),
             hash_b3: hash_b3.to_string(),
             total_rows: kept,
             dropped_rows: dropped,

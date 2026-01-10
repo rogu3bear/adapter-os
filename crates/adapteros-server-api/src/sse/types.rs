@@ -17,6 +17,8 @@ pub enum SseStreamType {
     Telemetry,
     /// Adapter lifecycle state transitions
     AdapterState,
+    /// Worker status updates
+    Workers,
     /// Training progress and signals
     Training,
     /// System alerts and notifications
@@ -51,6 +53,7 @@ impl SseStreamType {
             Self::Inference => 2000, // High frequency token streaming
             Self::Telemetry => 1500, // High volume telemetry
             Self::Training => 500,   // Less frequent training events
+            Self::Workers => 500,    // Moderate frequency worker updates
             Self::Alerts => 200,     // Alerts should be rare
             Self::Anomalies => 200,  // Anomalies should be rare
             _ => 1000,               // Default for most streams
@@ -63,6 +66,7 @@ impl SseStreamType {
             Self::SystemMetrics => "metrics",
             Self::Telemetry => "telemetry",
             Self::AdapterState => "adapters",
+            Self::Workers => "workers",
             Self::Training => "training",
             Self::Alerts => "alerts",
             Self::Anomalies => "anomalies",
@@ -276,6 +280,7 @@ mod tests {
         assert_eq!(SseStreamType::Inference.default_capacity(), 2000);
         assert_eq!(SseStreamType::Alerts.default_capacity(), 200);
         assert_eq!(SseStreamType::SystemMetrics.default_capacity(), 1000);
+        assert_eq!(SseStreamType::Workers.default_capacity(), 500);
     }
 
     #[test]
@@ -283,6 +288,7 @@ mod tests {
         assert_eq!(SseStreamType::SystemMetrics.event_name(), "metrics");
         assert_eq!(SseStreamType::Telemetry.event_name(), "telemetry");
         assert_eq!(SseStreamType::Training.event_name(), "training");
+        assert_eq!(SseStreamType::Workers.event_name(), "workers");
     }
 
     #[test]

@@ -13,16 +13,24 @@ use crate::state::AppState;
 use crate::types::*;
 use crate::worker_capabilities::parse_worker_capabilities;
 use adapteros_config::resolve_worker_socket_for_cp;
+use adapteros_config::ModelConfig;
 use adapteros_core::defaults::DEFAULT_TRAINING_REPORTS_SUBDIR;
 use adapteros_core::AosError;
 use adapteros_db::CreateDraftVersionParams as CreateDraftAdapterVersionParams;
+#[cfg(all(target_os = "macos", feature = "coreml-backend"))]
+use adapteros_lora_worker::backend_factory::resolve_coreml_backend_settings;
+use adapteros_lora_worker::backend_factory::{detect_capabilities, BackendCapabilities};
+use adapteros_lora_worker::base_model_state::MAX_MODEL_AUTO_RETRIES;
+use adapteros_lora_worker::training::preprocessing::inspect_preprocess_cache;
+use adapteros_orchestrator::training_dataset_integration::TrainingDatasetManager;
 use adapteros_orchestrator::{
     training::{compute_combined_data_spec_hash, TrainingVersioningContext},
     TrainingJobStatus,
 };
+use adapteros_secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
 use adapteros_types::training::{
     BranchClassification, DataLineageMode, DatasetVersionSelection as CoreDatasetVersionSelection,
-    LoraTier, TrainingBackendKind, TrainingBackendPolicy,
+    LoraTier, TrainingBackendKind, TrainingBackendPolicy, TrainingDataContractConfig,
 };
 use axum::{
     extract::State,
@@ -43,7 +51,6 @@ use std::time::Duration;
 use tracing::{error, info, warn};
 use utoipa::IntoParams;
 use uuid::Uuid;
-use adapteros_secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
 
 const METRIC_LINEAGE_REQUIRED: &str = "training_jobs_rejected_lineage_required";
 const METRIC_TRUST_BLOCKED: &str = "training_jobs_rejected_trust_blocked";
@@ -87,6 +94,323 @@ fn parse_lora_tier(value: Option<&str>) -> Option<LoraTier> {
         Some("max") => Some(LoraTier::Max),
         _ => None,
     }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct BackendReadinessQuery {
+    pub preferred_backend: Option<TrainingBackendKind>,
+    pub backend_policy: Option<TrainingBackendPolicy>,
+    pub coreml_fallback: Option<TrainingBackendKind>,
+    pub require_gpu: Option<bool>,
+}
+
+#[derive(Debug, Default)]
+struct BackendPlan {
+    resolved_backend: TrainingBackendKind,
+    fallback_backend: Option<TrainingBackendKind>,
+    fallback_reason: Option<String>,
+    ready: bool,
+    warnings: Vec<String>,
+}
+
+fn map_capabilities(capabilities: &BackendCapabilities) -> TrainingBackendCapabilities {
+    TrainingBackendCapabilities {
+        has_coreml: capabilities.has_coreml,
+        has_ane: capabilities.has_ane,
+        has_metal: capabilities.has_metal,
+        has_mlx: capabilities.has_mlx,
+        has_mlx_bridge: Some(capabilities.has_mlx_bridge),
+        metal_device_name: capabilities.metal_device_name.clone(),
+        gpu_memory_bytes: capabilities.gpu_memory_bytes,
+    }
+}
+
+fn backend_available(
+    backend: TrainingBackendKind,
+    coreml_available: bool,
+    capabilities: &BackendCapabilities,
+    require_gpu: bool,
+) -> bool {
+    match backend {
+        TrainingBackendKind::CoreML => coreml_available,
+        TrainingBackendKind::Mlx => capabilities.has_mlx,
+        TrainingBackendKind::Metal => capabilities.has_metal,
+        TrainingBackendKind::Cpu => !require_gpu,
+        TrainingBackendKind::Auto => {
+            coreml_available || capabilities.has_mlx || capabilities.has_metal || !require_gpu
+        }
+    }
+}
+
+fn choose_fallback(
+    preferred: Option<TrainingBackendKind>,
+    coreml_available: bool,
+    capabilities: &BackendCapabilities,
+    require_gpu: bool,
+) -> Option<TrainingBackendKind> {
+    let mut order = Vec::new();
+    if let Some(pref) = preferred {
+        order.push(pref);
+    }
+    order.extend_from_slice(&[
+        TrainingBackendKind::Mlx,
+        TrainingBackendKind::Metal,
+        TrainingBackendKind::Cpu,
+    ]);
+
+    order
+        .into_iter()
+        .find(|backend| backend_available(*backend, coreml_available, capabilities, require_gpu))
+}
+
+fn choose_auto_backend(
+    coreml_available: bool,
+    capabilities: &BackendCapabilities,
+    require_gpu: bool,
+) -> Option<TrainingBackendKind> {
+    [
+        TrainingBackendKind::CoreML,
+        TrainingBackendKind::Mlx,
+        TrainingBackendKind::Metal,
+        TrainingBackendKind::Cpu,
+    ]
+    .into_iter()
+    .find(|backend| backend_available(*backend, coreml_available, capabilities, require_gpu))
+}
+
+fn coreml_unavailable_reason(
+    capabilities: &BackendCapabilities,
+    coreml: &TrainingCoremlReadiness,
+) -> String {
+    if capabilities.has_coreml && !coreml.ane_available {
+        "ane_unavailable".to_string()
+    } else {
+        "coreml_unavailable".to_string()
+    }
+}
+
+fn plan_backend_readiness(
+    requested_backend: TrainingBackendKind,
+    backend_policy: TrainingBackendPolicy,
+    coreml_fallback: Option<TrainingBackendKind>,
+    require_gpu: bool,
+    capabilities: &BackendCapabilities,
+    coreml: &TrainingCoremlReadiness,
+) -> BackendPlan {
+    let coreml_available = coreml.available && coreml.ane_available;
+    let mut resolved = requested_backend;
+    let mut fallback_backend = None;
+    let mut fallback_reason = None;
+    let mut ready = true;
+    let mut warnings = Vec::new();
+
+    match backend_policy {
+        TrainingBackendPolicy::CoremlOnly => {
+            if coreml_available {
+                resolved = TrainingBackendKind::CoreML;
+            } else {
+                ready = false;
+                fallback_reason = Some("coreml_required_unavailable".to_string());
+                warnings.push(
+                    "CoreML is required but unavailable; training will block until ANE/GPU is ready"
+                        .to_string(),
+                );
+            }
+        }
+        TrainingBackendPolicy::CoremlElseFallback => {
+            if coreml_available {
+                resolved = TrainingBackendKind::CoreML;
+            } else if let Some(fallback) =
+                choose_fallback(coreml_fallback, coreml_available, capabilities, require_gpu)
+            {
+                resolved = fallback;
+                fallback_backend = Some(fallback);
+                fallback_reason = Some("coreml_policy_fallback".to_string());
+                warnings.push(format!(
+                    "CoreML unavailable; falling back to {}",
+                    fallback.as_str()
+                ));
+            } else {
+                ready = false;
+                fallback_reason = Some("coreml_policy_no_backend".to_string());
+                warnings.push(
+                    "CoreML unavailable and no fallback backend available for training".to_string(),
+                );
+            }
+        }
+        TrainingBackendPolicy::Auto => match requested_backend {
+            TrainingBackendKind::CoreML => {
+                if coreml_available {
+                    resolved = TrainingBackendKind::CoreML;
+                } else if let Some(fallback) =
+                    choose_fallback(coreml_fallback, coreml_available, capabilities, require_gpu)
+                {
+                    resolved = fallback;
+                    fallback_backend = Some(fallback);
+                    fallback_reason = Some(coreml_unavailable_reason(capabilities, coreml));
+                    warnings.push(format!(
+                        "CoreML unavailable; using {} fallback",
+                        fallback.as_str()
+                    ));
+                } else {
+                    ready = false;
+                    fallback_reason = Some(coreml_unavailable_reason(capabilities, coreml));
+                    warnings.push(
+                        "CoreML unavailable and no fallback backend available for training"
+                            .to_string(),
+                    );
+                }
+            }
+            TrainingBackendKind::Auto => {
+                if let Some(auto_backend) =
+                    choose_auto_backend(coreml_available, capabilities, require_gpu)
+                {
+                    resolved = auto_backend;
+                    if auto_backend != TrainingBackendKind::CoreML && coreml_available {
+                        warnings.push(format!(
+                            "CoreML available but auto-selected {} based on policy",
+                            auto_backend.as_str()
+                        ));
+                    }
+                } else {
+                    ready = false;
+                    fallback_reason = Some("no_backend_available".to_string());
+                    warnings.push(
+                        "No compatible backend available for training on this host".to_string(),
+                    );
+                }
+            }
+            other => {
+                if !backend_available(other, coreml_available, capabilities, require_gpu) {
+                    ready = false;
+                    fallback_reason = Some("requested_backend_unavailable".to_string());
+                    warnings.push(format!(
+                        "Requested backend {} is unavailable on this host",
+                        other.as_str()
+                    ));
+                }
+            }
+        },
+    }
+
+    if ready && !backend_available(resolved, coreml_available, capabilities, require_gpu) {
+        ready = false;
+        warnings.push(format!(
+            "Resolved backend {} is not available after capability detection",
+            resolved.as_str()
+        ));
+        fallback_reason.get_or_insert_with(|| "resolved_backend_unavailable".to_string());
+    }
+
+    BackendPlan {
+        resolved_backend: resolved,
+        fallback_backend,
+        fallback_reason,
+        ready,
+        warnings,
+    }
+}
+
+#[cfg(all(target_os = "macos", feature = "coreml-backend"))]
+fn coreml_compute_units_label(units: adapteros_lora_kernel_coreml::ComputeUnits) -> String {
+    match units {
+        adapteros_lora_kernel_coreml::ComputeUnits::CpuOnly => "cpu_only",
+        adapteros_lora_kernel_coreml::ComputeUnits::CpuAndGpu => "cpu_and_gpu",
+        adapteros_lora_kernel_coreml::ComputeUnits::CpuAndNeuralEngine => "cpu_and_ne",
+        adapteros_lora_kernel_coreml::ComputeUnits::All => "all",
+    }
+    .to_string()
+}
+
+fn build_coreml_readiness(capabilities: &BackendCapabilities) -> TrainingCoremlReadiness {
+    #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
+    {
+        let settings = resolve_coreml_backend_settings();
+        return TrainingCoremlReadiness {
+            available: capabilities.has_coreml,
+            gpu_available: settings.gpu_available,
+            ane_available: settings.ane_available,
+            compute_units_preference: Some(settings.preference.as_str().to_string()),
+            compute_units_effective: Some(coreml_compute_units_label(settings.compute_units)),
+            gpu_used: settings.gpu_used,
+            ane_used: settings.ane_used,
+            production_mode: settings.production_mode,
+        };
+    }
+
+    #[cfg(not(all(target_os = "macos", feature = "coreml-backend")))]
+    {
+        TrainingCoremlReadiness {
+            available: capabilities.has_coreml,
+            gpu_available: capabilities.has_metal,
+            ane_available: capabilities.has_ane,
+            compute_units_preference: None,
+            compute_units_effective: None,
+            gpu_used: false,
+            ane_used: false,
+            production_mode: false,
+        }
+    }
+}
+
+async fn load_base_model_readiness(
+    state: &AppState,
+    tenant_id: &str,
+) -> Result<Option<TrainingBaseModelReadiness>, (StatusCode, Json<ErrorResponse>)> {
+    let status_record = state
+        .db
+        .get_base_model_status(tenant_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let Some(record) = status_record else {
+        return Ok(None);
+    };
+
+    let model = state
+        .db
+        .get_model_for_tenant(tenant_id, &record.model_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let status = adapteros_api_types::ModelLoadStatus::parse_status(&record.status);
+    let retry_exhausted = record
+        .error_message
+        .as_deref()
+        .map(|msg| {
+            let lowered = msg.to_ascii_lowercase();
+            lowered.contains("retry attempts exhausted")
+                || lowered.contains("retry") && lowered.contains("exhausted")
+        })
+        .unwrap_or(false);
+
+    Ok(Some(TrainingBaseModelReadiness {
+        status,
+        model_id: Some(record.model_id),
+        model_name: model.map(|m| m.name),
+        error_message: record.error_message,
+        retry_exhausted,
+        max_retries: MAX_MODEL_AUTO_RETRIES,
+    }))
 }
 
 pub(crate) async fn resolve_base_model_path(
@@ -200,9 +524,13 @@ pub(crate) async fn ensure_training_worker_capable(
     }
 
     let has_gpu_backward = workers.into_iter().any(|worker| {
-        parse_worker_capabilities(worker.capabilities_json.as_deref(), worker.backend.as_deref(), &[])
-            .map(|caps| caps.gpu_backward)
-            .unwrap_or(false)
+        parse_worker_capabilities(
+            worker.capabilities_json.as_deref(),
+            worker.backend.as_deref(),
+            &[],
+        )
+        .map(|caps| caps.gpu_backward)
+        .unwrap_or(false)
     });
 
     if !has_gpu_backward {
@@ -563,8 +891,7 @@ pub async fn create_training_job(
     }
 
     let base_model_id = req.base_model_id.trim().to_string();
-    let base_model_path =
-        resolve_base_model_path(&state, &workspace_id, &base_model_id).await?;
+    let base_model_path = resolve_base_model_path(&state, &workspace_id, &base_model_id).await?;
     ensure_training_worker_capable(&state, &workspace_id).await?;
 
     // Resolve dataset version (default to latest)
@@ -603,32 +930,32 @@ pub async fn create_training_job(
         .start_training(
             adapter_name,
             config,
-            None,                            // template_id
-            None,                            // repo_id
-            None,                            // target_branch
-            None,                            // base_version_id
-            Some(req.dataset_id.clone()),    // dataset_id
-            Some(dataset_version_ids),       // dataset_version_ids
-            false,                           // synthetic_mode
-            DataLineageMode::DatasetOnly,    // lineage
-            Some(claims.tenant_id.clone()),  // tenant_id
-            Some(claims.sub.clone()),        // initiated_by
-            Some(claims.role.clone()),       // initiated_by_role
-            Some(base_model_id.clone()), // base_model_id
-            None,                            // collection_id
-            Some(workspace_id.clone()),      // scope
-            req.lora_tier,                   // lora tier
-            None,                            // category
-            None,                            // description
-            None,                            // language
-            None,                            // framework_id
-            None,                            // framework_version
-            None,                            // post_actions_json
-            None,                            // retry_of_job_id
-            None,                            // versioning
-            None,                            // code_commit_sha
-            None,                            // data_spec_json
-            None,                            // data_spec_hash
+            None,                           // template_id
+            None,                           // repo_id
+            None,                           // target_branch
+            None,                           // base_version_id
+            Some(req.dataset_id.clone()),   // dataset_id
+            Some(dataset_version_ids),      // dataset_version_ids
+            false,                          // synthetic_mode
+            DataLineageMode::DatasetOnly,   // lineage
+            Some(claims.tenant_id.clone()), // tenant_id
+            Some(claims.sub.clone()),       // initiated_by
+            Some(claims.role.clone()),      // initiated_by_role
+            Some(base_model_id.clone()),    // base_model_id
+            None,                           // collection_id
+            Some(workspace_id.clone()),     // scope
+            req.lora_tier,                  // lora tier
+            None,                           // category
+            None,                           // description
+            None,                           // language
+            None,                           // framework_id
+            None,                           // framework_version
+            None,                           // post_actions_json
+            None,                           // retry_of_job_id
+            None,                           // versioning
+            None,                           // code_commit_sha
+            None,                           // data_spec_json
+            None,                           // data_spec_hash
         )
         .await
         .map_err(|e| {
@@ -756,6 +1083,72 @@ pub async fn export_coreml_training_job(
     Ok(Json(TrainingJobResponse::from(job)))
 }
 
+/// Report backend readiness for training (CoreML/Metal/MLX).
+#[utoipa::path(
+    get,
+    path = "/v1/training/backend-readiness",
+    params(
+        ("preferred_backend" = Option<String>, Query, description = "Requested backend (coreml/metal/mlx/cpu/auto). Defaults to coreml."),
+        ("backend_policy" = Option<String>, Query, description = "Backend policy (auto/coreml_only/coreml_else_fallback)"),
+        ("coreml_fallback" = Option<String>, Query, description = "Explicit fallback when CoreML is unavailable"),
+        ("require_gpu" = Option<bool>, Query, description = "Require GPU acceleration (skip CPU fallbacks)")
+    ),
+    responses(
+        (status = 200, description = "Backend readiness state", body = TrainingBackendReadinessResponse),
+        (status = 500, description = "Failed to compute readiness", body = ErrorResponse)
+    ),
+    tag = "training"
+)]
+pub async fn get_training_backend_readiness(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(query): Query<BackendReadinessQuery>,
+) -> Result<Json<TrainingBackendReadinessResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::TrainingView)?;
+
+    let requested_backend = query
+        .preferred_backend
+        .unwrap_or(TrainingBackendKind::CoreML);
+    let backend_policy = query.backend_policy.unwrap_or_default();
+    let coreml_fallback = query.coreml_fallback;
+    let require_gpu = query.require_gpu.unwrap_or(false);
+
+    let capabilities = detect_capabilities();
+    let coreml = build_coreml_readiness(&capabilities);
+    let mut plan = plan_backend_readiness(
+        requested_backend,
+        backend_policy,
+        coreml_fallback,
+        require_gpu,
+        &capabilities,
+        &coreml,
+    );
+    let base_model = load_base_model_readiness(&state, &claims.tenant_id).await?;
+
+    if let Some(ref base) = base_model {
+        if base.status == adapteros_api_types::ModelLoadStatus::Error {
+            plan.warnings.push(format!(
+                "Base model is in error; automatic retries up to {} may be exhausted",
+                base.max_retries
+            ));
+        }
+    }
+
+    Ok(Json(TrainingBackendReadinessResponse {
+        schema_version: adapteros_api_types::schema_version(),
+        requested_backend,
+        backend_policy,
+        resolved_backend: plan.resolved_backend,
+        fallback_backend: plan.fallback_backend,
+        fallback_reason: plan.fallback_reason,
+        ready: plan.ready,
+        warnings: plan.warnings,
+        capabilities: map_capabilities(&capabilities),
+        coreml,
+        base_model,
+    }))
+}
+
 fn build_training_error_response(error: &AosError) -> (StatusCode, Json<ErrorResponse>) {
     let error_message = error.to_string();
     let is_validation_variant = matches!(error, AosError::Validation(_));
@@ -786,6 +1179,263 @@ fn build_training_error_response(error: &AosError) -> (StatusCode, Json<ErrorRes
     )
 }
 
+fn map_preprocessing_config(
+    config: adapteros_types::training::PreprocessingConfig,
+) -> adapteros_lora_worker::training::PreprocessingConfig {
+    use adapteros_lora_worker::training::{
+        PreprocessCompression as WorkerPreprocessCompression,
+        PreprocessOutputFeature as WorkerOutputFeature,
+        PreprocessingConfig as WorkerPreprocessingConfig,
+    };
+
+    let output_feature = match config.output_feature {
+        adapteros_types::training::PreprocessOutputFeature::Embedding => {
+            WorkerOutputFeature::Embedding
+        }
+        adapteros_types::training::PreprocessOutputFeature::HiddenStateLast => {
+            WorkerOutputFeature::HiddenStateLast
+        }
+        adapteros_types::training::PreprocessOutputFeature::Pooled => WorkerOutputFeature::Pooled,
+    };
+    let compression = config.compression.map(|c| match c {
+        adapteros_types::training::PreprocessCompression::None => WorkerPreprocessCompression::None,
+        adapteros_types::training::PreprocessCompression::Q15 => WorkerPreprocessCompression::Q15,
+    });
+
+    WorkerPreprocessingConfig {
+        enabled: config.enabled,
+        coreml_model_id: config.coreml_model_id,
+        coreml_model_path: config.coreml_model_path,
+        output_feature,
+        layer_key: config.layer_key,
+        max_seq_len: config.max_seq_len,
+        batch_size: config.batch_size,
+        compression,
+        cache_dir: config.cache_dir,
+        seed: config.seed,
+    }
+}
+
+/// Inspect CoreML preprocessing cache status for a dataset/base model pair.
+#[utoipa::path(
+    post,
+    path = "/v1/training/preprocessing/status",
+    request_body = PreprocessStatusRequest,
+    responses(
+        (status = 200, description = "Preprocessing status", body = PreprocessStatusResponse),
+        (status = 400, description = "Invalid request", body = ErrorResponse),
+        (status = 404, description = "Dataset not found", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "training"
+)]
+pub async fn get_preprocess_status(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(req): Json<PreprocessStatusRequest>,
+) -> Result<Json<PreprocessStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::TrainingStart)?;
+
+    if req.dataset_id.is_none() && req.dataset_version_id.is_none() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("dataset_id or dataset_version_id is required")
+                    .with_code("VALIDATION_ERROR"),
+            ),
+        ));
+    }
+
+    if !req.preprocessing.enabled {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("CoreML preprocessing must be enabled to query status")
+                    .with_code("PREPROCESSING_DISABLED"),
+            ),
+        ));
+    }
+
+    let (dataset_id, dataset_version_id) = if let Some(version_id) = req.dataset_version_id.clone()
+    {
+        let version = state
+            .db
+            .get_training_dataset_version(&version_id)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("Failed to load dataset version")
+                            .with_code("DATASET_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?
+            .ok_or_else(|| {
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(
+                        ErrorResponse::new("Dataset version not found")
+                            .with_code("DATASET_NOT_FOUND"),
+                    ),
+                )
+            })?;
+        let owner = version
+            .tenant_id
+            .as_deref()
+            .unwrap_or(&claims.tenant_id)
+            .to_string();
+        validate_tenant_isolation(&claims, &owner)?;
+        (version.dataset_id, Some(version_id))
+    } else {
+        let dataset_id = req.dataset_id.clone().unwrap();
+        let dataset = state
+            .db
+            .get_training_dataset(&dataset_id)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("Failed to load dataset")
+                            .with_code("DATASET_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?
+            .ok_or_else(|| {
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(ErrorResponse::new("Dataset not found").with_code("DATASET_NOT_FOUND")),
+                )
+            })?;
+        let owner = dataset
+            .tenant_id
+            .as_deref()
+            .unwrap_or(&claims.tenant_id)
+            .to_string();
+        validate_tenant_isolation(&claims, &owner)?;
+        (dataset_id, None)
+    };
+
+    let base_model_id = req.base_model_id.trim().to_string();
+    let base_model_path =
+        resolve_base_model_path(&state, &claims.tenant_id, &base_model_id).await?;
+    let model_config = ModelConfig::from_config_json(&base_model_path).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("Failed to parse base model config")
+                    .with_code("CONFIG_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    let storage_root = state.training_service.storage_root().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("Training storage root not configured")
+                    .with_code("CONFIG_ERROR"),
+            ),
+        )
+    })?;
+    let artifacts_root = state.training_service.artifacts_root();
+
+    let tokenizer_hint = base_model_path.join("tokenizer.json");
+    let tokenizer_path = tokenizer_hint.exists().then_some(tokenizer_hint);
+    let dataset_manager =
+        TrainingDatasetManager::new(state.db.clone(), storage_root.clone(), tokenizer_path);
+
+    let (examples, resolved_dataset_id) = if let Some(ref version_id) = dataset_version_id {
+        let (examples, _hash_b3, resolved_id) = dataset_manager
+            .load_dataset_version_examples(version_id)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("Failed to load dataset version")
+                            .with_code("DATASET_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
+        (examples, resolved_id)
+    } else {
+        let examples = dataset_manager
+            .load_dataset_examples(&dataset_id)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("Failed to load dataset")
+                            .with_code("DATASET_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
+        (examples, dataset_id.clone())
+    };
+
+    let contract = TrainingDataContractConfig::new(0, -1);
+    let training_seed = req.training_seed.unwrap_or(0);
+    let preprocess_config = map_preprocessing_config(req.preprocessing.clone());
+    let status = inspect_preprocess_cache(
+        &examples,
+        &contract,
+        &preprocess_config,
+        model_config.hidden_size,
+        model_config.vocab_size,
+        &base_model_path,
+        Some(&resolved_dataset_id),
+        artifacts_root.as_deref(),
+        None,
+        training_seed,
+    )
+    .map_err(|e| {
+        let status = match e {
+            AosError::Config(_) | AosError::Validation(_) | AosError::Training(_) => {
+                StatusCode::BAD_REQUEST
+            }
+            _ => StatusCode::INTERNAL_SERVER_ERROR,
+        };
+        (
+            status,
+            Json(
+                ErrorResponse::new("Failed to inspect preprocessing status")
+                    .with_code("PREPROCESS_STATUS_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    let response = PreprocessStatusResponse {
+        preprocess_id: status.preprocess_id,
+        cache_key_b3: status.cache_key_b3,
+        cache_dir: status.cache_dir,
+        manifest_hash_b3: status.manifest_hash_b3,
+        produced_at_unix_ms: status.produced_at_unix_ms,
+        feature_dtype: status.feature_dtype,
+        backend: status.backend,
+        compression: status.compression,
+        cache_hit: status.cache_hit,
+        needs_reprocess: status.needs_reprocess,
+        reasons: status.reasons,
+        dataset_hash_b3: status.dataset_hash_b3,
+        tokenizer_hash_b3: status.tokenizer_hash_b3,
+        tokenizer_cfg_hash_b3: status.tokenizer_cfg_hash_b3,
+        preprocessing_config_hash_b3: status.preprocessing_config_hash_b3,
+        coreml_model_hash_b3: status.coreml_model_hash_b3,
+        base_model_hash_b3: status.base_model_hash_b3,
+    };
+
+    Ok(Json(response))
+}
+
 /// Start a new training job
 #[utoipa::path(
     post,
@@ -813,6 +1463,16 @@ pub async fn start_training(
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse::new("Adapter name is required").with_code("VALIDATION_ERROR")),
+        ));
+    }
+    if let Err(errors) = request.config.validate() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("Invalid training config")
+                    .with_code("VALIDATION_ERROR")
+                    .with_string_details(errors.join("; ")),
+            ),
         ));
     }
 
@@ -1722,6 +2382,74 @@ mod tests {
     #[test]
     fn canonical_trust_state_rejects_non_canonical_tokens() {
         assert_eq!(canonical_trust_state("custom-state"), "unknown");
+    }
+
+    fn caps(coreml: bool, ane: bool, metal: bool, mlx: bool) -> BackendCapabilities {
+        BackendCapabilities {
+            has_coreml: coreml,
+            has_ane: ane,
+            has_metal: metal,
+            has_mlx: mlx,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn backend_readiness_prefers_coreml_when_available() {
+        let capabilities = caps(true, true, true, true);
+        let coreml = build_coreml_readiness(&capabilities);
+        let plan = plan_backend_readiness(
+            TrainingBackendKind::CoreML,
+            TrainingBackendPolicy::Auto,
+            None,
+            false,
+            &capabilities,
+            &coreml,
+        );
+
+        assert!(plan.ready);
+        assert_eq!(plan.resolved_backend, TrainingBackendKind::CoreML);
+        assert!(plan.fallback_backend.is_none());
+        assert!(plan.fallback_reason.is_none());
+    }
+
+    #[test]
+    fn backend_readiness_falls_back_when_coreml_missing() {
+        let capabilities = caps(false, false, true, true);
+        let coreml = build_coreml_readiness(&capabilities);
+        let plan = plan_backend_readiness(
+            TrainingBackendKind::CoreML,
+            TrainingBackendPolicy::Auto,
+            Some(TrainingBackendKind::Mlx),
+            false,
+            &capabilities,
+            &coreml,
+        );
+
+        assert!(plan.ready);
+        assert_eq!(plan.resolved_backend, TrainingBackendKind::Mlx);
+        assert_eq!(plan.fallback_backend, Some(TrainingBackendKind::Mlx));
+        assert_eq!(plan.fallback_reason.as_deref(), Some("coreml_unavailable"));
+    }
+
+    #[test]
+    fn backend_readiness_blocks_when_policy_requires_coreml() {
+        let capabilities = caps(false, false, false, false);
+        let coreml = build_coreml_readiness(&capabilities);
+        let plan = plan_backend_readiness(
+            TrainingBackendKind::CoreML,
+            TrainingBackendPolicy::CoremlOnly,
+            None,
+            true,
+            &capabilities,
+            &coreml,
+        );
+
+        assert!(!plan.ready);
+        assert_eq!(
+            plan.fallback_reason.as_deref(),
+            Some("coreml_required_unavailable")
+        );
     }
 }
 
@@ -3181,8 +3909,7 @@ pub async fn get_training_report(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(job_id): Path<String>,
-) -> Result<Json<adapteros_api_types::TrainingReportResponse>, (StatusCode, Json<ErrorResponse>)>
-{
+) -> Result<Json<adapteros_api_types::TrainingReportResponse>, (StatusCode, Json<ErrorResponse>)> {
     let job = state
         .db
         .get_training_job(&job_id)
@@ -3215,9 +3942,7 @@ pub async fn get_training_report(
         let cfg = state.config.read().map_err(|_| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("config lock poisoned").with_code("CONFIG_UNAVAILABLE"),
-                ),
+                Json(ErrorResponse::new("config lock poisoned").with_code("CONFIG_UNAVAILABLE")),
             )
         })?;
         if cfg.paths.artifacts_root.is_empty() {
@@ -3233,49 +3958,42 @@ pub async fn get_training_report(
         .join("report.json");
 
     let allowed_roots = [artifacts_root.clone()];
-    let report_path =
-        match canonicalize_strict_in_allowed_roots(&report_path, &allowed_roots) {
-            Ok(path) => path,
-            Err(AosError::NotFound(_)) => {
-                return Err((
-                    StatusCode::NOT_FOUND,
-                    Json(
-                        ErrorResponse::new("Training report not found")
-                            .with_code("NOT_FOUND"),
-                    ),
-                ));
-            }
-            Err(AosError::Validation(msg)) => {
-                return Err((
-                    StatusCode::FORBIDDEN,
-                    Json(
-                        ErrorResponse::new("Training report path rejected")
-                            .with_code("FORBIDDEN")
-                            .with_string_details(msg),
-                    ),
-                ));
-            }
-            Err(err) => {
-                return Err((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("Failed to resolve training report path")
-                            .with_code("INTERNAL_ERROR")
-                            .with_string_details(err.to_string()),
-                    ),
-                ));
-            }
-        };
+    let report_path = match canonicalize_strict_in_allowed_roots(&report_path, &allowed_roots) {
+        Ok(path) => path,
+        Err(AosError::NotFound(_)) => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("Training report not found").with_code("NOT_FOUND")),
+            ));
+        }
+        Err(AosError::Validation(msg)) => {
+            return Err((
+                StatusCode::FORBIDDEN,
+                Json(
+                    ErrorResponse::new("Training report path rejected")
+                        .with_code("FORBIDDEN")
+                        .with_string_details(msg),
+                ),
+            ));
+        }
+        Err(err) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to resolve training report path")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(err.to_string()),
+                ),
+            ));
+        }
+    };
 
     let report_contents = match tokio::fs::read_to_string(&report_path).await {
         Ok(contents) => contents,
         Err(err) if err.kind() == ErrorKind::NotFound => {
             return Err((
                 StatusCode::NOT_FOUND,
-                Json(
-                    ErrorResponse::new("Training report not found")
-                        .with_code("NOT_FOUND"),
-                ),
+                Json(ErrorResponse::new("Training report not found").with_code("NOT_FOUND")),
             ));
         }
         Err(err) => {

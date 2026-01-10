@@ -3,7 +3,7 @@
 use super::chunked::{assemble_chunks, expected_chunk_size, expected_chunks, persist_chunk};
 use super::fs_utils::{clean_temp, ensure_dirs};
 use super::hashing::{hash_dataset_manifest, DatasetHashInput};
-use super::helpers::{dataset_quota_limits, quota_error, STREAM_BUFFER_SIZE};
+use super::helpers::{dataset_quota_limits, path_policy_error, quota_error, STREAM_BUFFER_SIZE};
 use super::paths::{resolve_dataset_root, DatasetPaths};
 use super::progress::emit_progress;
 use super::tenant::bind_dataset_to_tenant;
@@ -14,7 +14,8 @@ use super::types::{
 };
 use super::upload::build_training_rows_from_jsonl_bytes;
 use super::validation::{
-    CompositeValidator, FileExistsRule, FileExtensionRule, FileSizeRule, ValidationConfig,
+    validation_error_response, CompositeValidator, FileExistsRule, FileExtensionRule, FileSizeRule,
+    ValidationCategory, ValidationConfig, ValidationError, ValidationSeverity,
 };
 use crate::api_error::ApiError;
 use crate::audit_helper::{actions, log_failure_or_warn, log_success_or_warn, resources};
@@ -296,9 +297,8 @@ pub async fn complete_chunked_upload(
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| paths.dataset_dir(&storage_workspace, &dataset_id));
     ensure_dirs([dataset_path.as_path()]).await?;
-    canonicalize_strict_in_allowed_roots(&dataset_path, &allowed_roots).map_err(|e| {
-        forbidden(&format!("Dataset storage path rejected: {}", e))
-    })?;
+    canonicalize_strict_in_allowed_roots(&dataset_path, &allowed_roots)
+        .map_err(|e| path_policy_error(&dataset_path, e))?;
 
     // Assemble chunks
     let (file_hash, total_bytes) = match assemble_chunks(&session, &output_path).await {
@@ -341,10 +341,7 @@ pub async fn complete_chunked_upload(
         }
     };
     if let Err(e) = canonicalize_strict_in_allowed_roots(&output_path, &allowed_roots) {
-        return Err(forbidden(&format!(
-            "Dataset output path escapes dataset root: {}",
-            e
-        )));
+        return Err(path_policy_error(&output_path, e));
     }
     if total_bytes != session.total_size {
         return Err((
@@ -425,8 +422,18 @@ pub async fn complete_chunked_upload(
     };
     let validation_result = validator.validate_files(&[output_path.as_path()]).await;
     let mut validation_messages: Vec<String> = Vec::new();
+    let mut structured_errors = validation_result.errors.clone();
     if let Err(e) = content_validation {
         validation_messages.push(e.to_string());
+        structured_errors.push(
+            ValidationError::new(
+                ValidationSeverity::Error,
+                ValidationCategory::Format,
+                format!("Content validation failed: {}", e),
+                "CONTENT_VALIDATION_FAILED",
+            )
+            .with_file(output_path.display().to_string()),
+        );
     }
     validation_messages.extend(validation_result.errors.iter().map(|err| err.to_string()));
     let validation_status = if validation_result.is_valid && validation_messages.is_empty() {
@@ -439,6 +446,12 @@ pub async fn complete_chunked_upload(
     } else {
         Some(validation_messages.join("; "))
     };
+    if validation_status == "invalid" {
+        return Err(validation_error_response(
+            "Dataset validation failed",
+            &structured_errors,
+        ));
+    }
 
     // Determine dataset name
     let dataset_name = request.name.unwrap_or_else(|| session.file_name.clone());

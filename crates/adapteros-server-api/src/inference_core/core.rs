@@ -258,9 +258,18 @@ impl<'a> InferenceCore<'a> {
             ctx.emit_run_started(is_replay);
         }
 
-        // Register inference in state tracker as Running
+        // Register inference in state tracker as Running (with idempotency check)
         if let Some(ref tracker) = self.state.inference_state_tracker {
-            tracker.register_inference(request.request_id.clone(), request.cpid.clone(), is_replay);
+            if !tracker.register_inference(
+                request.request_id.clone(),
+                request.cpid.clone(),
+                is_replay,
+            ) {
+                // Duplicate request detected - another request with same ID is already in-flight
+                return Err(InferenceError::DuplicateRequest {
+                    request_id: request.request_id.clone(),
+                });
+            }
         }
 
         let result = async {
