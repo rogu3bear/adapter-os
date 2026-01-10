@@ -3,8 +3,11 @@
 //! Complete training jobs management with list view, detail panel, and job creation.
 
 mod components;
+pub mod dataset_wizard;
 mod detail;
 mod dialogs;
+mod readiness;
+mod state;
 mod utils;
 
 use crate::api::ApiClient;
@@ -14,9 +17,11 @@ use adapteros_api_types::TrainingListParams;
 use leptos::prelude::*;
 use std::sync::Arc;
 
-use components::{StatusFilter, TrainingJobList};
+use components::{CoremlFilters, StatusFilter, TrainingJobList};
 use detail::TrainingJobDetail;
 use dialogs::CreateJobDialog;
+use readiness::BackendReadinessPanel;
+use state::{matches_coreml_filters, CoremlFilterState};
 
 /// Training jobs page with list and detail panels
 #[component]
@@ -26,6 +31,7 @@ pub fn Training() -> impl IntoView {
 
     // Status filter
     let status_filter = RwSignal::new(String::new());
+    let coreml_filter = RwSignal::new(CoremlFilterState::default());
 
     // Dialog open state
     let create_dialog_open = RwSignal::new(false);
@@ -73,6 +79,7 @@ pub fn Training() -> impl IntoView {
 
     view! {
         <div class="p-6 space-y-6">
+            <BackendReadinessPanel/>
             <SplitPanel
                 has_selection=has_selection
                 on_close=Callback::new(move |_| on_close_detail())
@@ -85,6 +92,7 @@ pub fn Training() -> impl IntoView {
                                 <h1 class="text-3xl font-bold tracking-tight">"Training Jobs"</h1>
                                 <div class="flex items-center gap-2">
                                     <StatusFilter filter=status_filter/>
+                                    <CoremlFilters filter=coreml_filter/>
                                     <Button
                                         variant=ButtonVariant::Primary
                                         on_click=Callback::new(move |_| create_dialog_open.set(true))
@@ -105,9 +113,17 @@ pub fn Training() -> impl IntoView {
                                         }.into_any()
                                     }
                                     LoadingState::Loaded(data) => {
+                                        // Apply client-side CoreML filters
+                                        let filter_state = coreml_filter.get();
+                                        let filtered_jobs = data
+                                            .jobs
+                                            .clone()
+                                            .into_iter()
+                                            .filter(|job| matches_coreml_filters(job, &filter_state))
+                                            .collect::<Vec<_>>();
                                         view! {
                                             <TrainingJobList
-                                                jobs=data.jobs.clone()
+                                                jobs=filtered_jobs
                                                 selected_id=selected_job_id
                                                 on_select=on_job_select
                                             />

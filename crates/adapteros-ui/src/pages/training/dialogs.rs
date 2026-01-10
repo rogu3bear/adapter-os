@@ -2,11 +2,13 @@
 //!
 //! Modal dialogs for creating training jobs.
 
-use crate::api::ApiClient;
+use crate::api::{ApiClient, ApiError};
 use crate::components::{Button, ButtonVariant, FormField, Input};
+use crate::pages::training::dataset_wizard::{DatasetUploadOutcome, DatasetUploadWizard};
 use crate::validation::{rules, use_form_errors, validate_field, ValidationRule};
 use adapteros_api_types::TrainingJobResponse;
 use leptos::prelude::*;
+use serde_json::json;
 
 /// Create job dialog
 #[component]
@@ -23,6 +25,19 @@ pub fn CreateJobDialog(
     let alpha = RwSignal::new("16".to_string());
     let dataset_id = RwSignal::new(String::new());
     let category = RwSignal::new("code".to_string());
+    let dataset_upload_message = RwSignal::new(None::<String>);
+    let dataset_wizard_open = RwSignal::new(false);
+    let base_model_id = RwSignal::new(String::new());
+    let preprocess_enabled = RwSignal::new(true);
+    let coreml_model_id = RwSignal::new(String::new());
+    let coreml_model_path = RwSignal::new(String::new());
+    let preprocess_output = RwSignal::new("hidden_state_last".to_string());
+    let preprocess_batch_size = RwSignal::new("0".to_string());
+    let preprocess_max_seq_len = RwSignal::new("0".to_string());
+    let preprocess_compression = RwSignal::new("none".to_string());
+    let preprocess_status = RwSignal::new(None::<adapteros_api_types::PreprocessStatusResponse>);
+    let status_error = RwSignal::new(None::<String>);
+    let checking_status = RwSignal::new(false);
 
     let submitting = RwSignal::new(false);
     let error = RwSignal::new(None::<String>);
@@ -33,6 +48,65 @@ pub fn CreateJobDialog(
     // File upload state
     let uploading = RwSignal::new(false);
     let upload_status = RwSignal::new(String::new());
+    let format_upload_error = |err: &ApiError| -> String {
+        if let ApiError::Structured {
+            error,
+            code,
+            details,
+            ..
+        } = err
+        {
+            if let Some(details) = details {
+                if let Some(errors) = details.get("errors").and_then(|v| v.as_array()) {
+                    let rendered: Vec<String> = errors
+                        .iter()
+                        .filter_map(|entry| {
+                            let msg = entry
+                                .get("message")
+                                .and_then(|m| m.as_str())
+                                .unwrap_or_default();
+                            if msg.is_empty() {
+                                return None;
+                            }
+                            let mut parts = vec![msg.to_string()];
+                            if let Some(field) = entry.get("field_name").and_then(|f| f.as_str()) {
+                                parts.push(format!("field {}", field));
+                            }
+                            if let Some(file) = entry.get("file_path").and_then(|f| f.as_str()) {
+                                parts.push(file.to_string());
+                            }
+                            if let Some(line) = entry.get("line_number").and_then(|l| l.as_i64()) {
+                                parts.push(format!("line {}", line));
+                            }
+                            Some(parts.join(" · "))
+                        })
+                        .collect();
+                    if !rendered.is_empty() {
+                        return format!("{}: {}", error, rendered.join("; "));
+                    }
+                }
+
+                if let Some(path) = details.get("path").and_then(|p| p.as_str()) {
+                    return format!("{}: {}", error, path);
+                }
+            }
+            return format!("{} ({})", error, code);
+        }
+        err.to_string()
+    };
+    let on_dataset_uploaded = {
+        let dataset_id = dataset_id.clone();
+        let upload_status = upload_status.clone();
+        let dataset_upload_message = dataset_upload_message.clone();
+        move |outcome: DatasetUploadOutcome| {
+            dataset_id.set(outcome.dataset_id.clone());
+            upload_status.set(String::new());
+            dataset_upload_message.set(Some(format!(
+                "Dataset {} ready ({} samples)",
+                outcome.dataset_id, outcome.sample_count
+            )));
+        }
+    };
 
     let on_created_clone = on_created.clone();
 
@@ -88,9 +162,10 @@ pub fn CreateJobDialog(
                                                             return;
                                                         }
                                                         Err(e) => {
+                                                            let msg = format_upload_error(&e);
                                                             error.set(Some(format!(
                                                                 "Failed to create dataset: {}",
-                                                                e
+                                                                msg
                                                             )));
                                                             uploading.set(false);
                                                             upload_status.set(String::new());
@@ -133,7 +208,8 @@ pub fn CreateJobDialog(
                                 upload_status.set(String::new());
                             }
                             Err(e) => {
-                                error.set(Some(format!("Upload failed: {}", e)));
+                                let msg = format_upload_error(&e);
+                                error.set(Some(format!("Upload failed: {}", msg)));
                                 uploading.set(false);
                                 upload_status.set(String::new());
                             }
@@ -151,6 +227,67 @@ pub fn CreateJobDialog(
         let _ = (uploading, upload_status, error, dataset_id);
     };
 
+    let check_status = {
+        let dataset_id = dataset_id.clone();
+        let base_model_id = base_model_id.clone();
+        let preprocess_enabled = preprocess_enabled.clone();
+        let coreml_model_id = coreml_model_id.clone();
+        let coreml_model_path = coreml_model_path.clone();
+        let preprocess_output = preprocess_output.clone();
+        let preprocess_batch_size = preprocess_batch_size.clone();
+        let preprocess_max_seq_len = preprocess_max_seq_len.clone();
+        let preprocess_compression = preprocess_compression.clone();
+        let preprocess_status = preprocess_status.clone();
+        let status_error = status_error.clone();
+        let checking_status = checking_status.clone();
+        move |_: ()| {
+            status_error.set(None);
+            preprocess_status.set(None);
+            let ds_id = dataset_id.get();
+            let base_model = base_model_id.get();
+            if ds_id.trim().is_empty() || base_model.trim().is_empty() {
+                status_error.set(Some(
+                    "Dataset ID and base model ID are required to check preprocessing".to_string(),
+                ));
+                return;
+            }
+
+            checking_status.set(true);
+            let request = json!({
+                "dataset_id": ds_id,
+                "base_model_id": base_model,
+                "preprocessing": {
+                    "enabled": preprocess_enabled.get(),
+                    "coreml_model_id": if coreml_model_id.get().trim().is_empty() { serde_json::Value::Null } else { json!(coreml_model_id.get()) },
+                    "coreml_model_path": if coreml_model_path.get().trim().is_empty() { serde_json::Value::Null } else { json!(coreml_model_path.get()) },
+                    "output_feature": preprocess_output.get(),
+                    "max_seq_len": preprocess_max_seq_len.get().parse::<u32>().unwrap_or(0),
+                    "batch_size": preprocess_batch_size.get().parse::<u32>().unwrap_or(0),
+                    "compression": if preprocess_compression.get() == "none" { serde_json::Value::Null } else { json!(preprocess_compression.get()) },
+                }
+            });
+
+            wasm_bindgen_futures::spawn_local(async move {
+                let client = ApiClient::new();
+                let result = client
+                    .post::<_, adapteros_api_types::PreprocessStatusResponse>(
+                        "/v1/training/preprocessing/status",
+                        &request,
+                    )
+                    .await;
+                match result {
+                    Ok(resp) => {
+                        preprocess_status.set(Some(resp));
+                    }
+                    Err(e) => {
+                        status_error.set(Some(e.to_string()));
+                    }
+                }
+                checking_status.set(false);
+            });
+        }
+    };
+
     let submit = move |_: ()| {
         // Clear previous errors
         form_errors.update(|e| e.clear_all());
@@ -163,6 +300,10 @@ pub fn CreateJobDialog(
         let batch_str = batch_size.get();
         let rank_str = rank.get();
         let alpha_str = alpha.get();
+        let base_model = base_model_id.get();
+        let coreml_id_val = coreml_model_id.get();
+        let coreml_path_val = coreml_model_path.get();
+        let preprocess_on = preprocess_enabled.get();
 
         let mut has_errors = false;
 
@@ -226,6 +367,26 @@ pub fn CreateJobDialog(
             has_errors = true;
         }
 
+        if base_model.trim().is_empty() {
+            form_errors.update(|e| {
+                e.set(
+                    "base_model_id",
+                    "Base model ID is required for preprocessing".to_string(),
+                )
+            });
+            has_errors = true;
+        }
+
+        if preprocess_on && coreml_id_val.trim().is_empty() && coreml_path_val.trim().is_empty() {
+            form_errors.update(|e| {
+                e.set(
+                    "coreml_model",
+                    "Provide a CoreML model ID or path for preprocessing".to_string(),
+                )
+            });
+            has_errors = true;
+        }
+
         if has_errors {
             return;
         }
@@ -239,6 +400,20 @@ pub fn CreateJobDialog(
         let alpha_val: u32 = alpha_str.parse().unwrap_or(16);
         let ds_id = dataset_id.get();
         let cat = category.get();
+        let base_model_val = base_model_id.get();
+        let output_feature = preprocess_output.get();
+        let compression_val = preprocess_compression.get();
+        let batch_pre = preprocess_batch_size.get();
+        let seq_pre = preprocess_max_seq_len.get();
+        let preprocess_payload = json!({
+            "enabled": preprocess_on,
+            "coreml_model_id": if coreml_id_val.trim().is_empty() { serde_json::Value::Null } else { json!(coreml_id_val) },
+            "coreml_model_path": if coreml_path_val.trim().is_empty() { serde_json::Value::Null } else { json!(coreml_path_val) },
+            "output_feature": output_feature,
+            "max_seq_len": seq_pre.parse::<u32>().unwrap_or(0),
+            "batch_size": batch_pre.parse::<u32>().unwrap_or(0),
+            "compression": if compression_val == "none" { serde_json::Value::Null } else { json!(compression_val) },
+        });
 
         let on_created = on_created_clone.clone();
 
@@ -248,6 +423,7 @@ pub fn CreateJobDialog(
             // Build the request body
             let request = serde_json::json!({
                 "adapter_name": name,
+                "base_model_id": base_model_val,
                 "config": {
                     "rank": rank_val,
                     "alpha": alpha_val,
@@ -255,6 +431,7 @@ pub fn CreateJobDialog(
                     "epochs": epochs_val,
                     "learning_rate": lr_val,
                     "batch_size": batch_val,
+                    "preprocessing": preprocess_payload,
                 },
                 "category": cat,
                 "dataset_id": if ds_id.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(ds_id.clone()) },
@@ -275,6 +452,16 @@ pub fn CreateJobDialog(
                     rank.set("8".to_string());
                     alpha.set("16".to_string());
                     dataset_id.set(String::new());
+                    base_model_id.set(String::new());
+                    coreml_model_id.set(String::new());
+                    coreml_model_path.set(String::new());
+                    preprocess_output.set("hidden_state_last".to_string());
+                    preprocess_batch_size.set("0".to_string());
+                    preprocess_max_seq_len.set("0".to_string());
+                    preprocess_compression.set("none".to_string());
+                    preprocess_enabled.set(true);
+                    preprocess_status.set(None);
+                    status_error.set(None);
                     form_errors.update(|e| e.clear_all());
                     on_created();
                 }
@@ -289,6 +476,7 @@ pub fn CreateJobDialog(
     let close = move |_: ()| {
         open.set(false);
         error.set(None);
+        dataset_wizard_open.set(false);
         form_errors.update(|e| e.clear_all());
     };
 
@@ -306,7 +494,7 @@ pub fn CreateJobDialog(
                 />
 
                 // Dialog
-                <div class="dialog-content">
+                <div class="dialog-content dialog-scrollable">
                     // Header
                     <div class="flex items-center justify-between mb-4">
                         <div>
@@ -370,7 +558,24 @@ pub fn CreateJobDialog(
 
                         // File upload section
                         <div class="space-y-2">
-                            <label class="text-sm font-medium">"Training Data"</label>
+                            <div class="flex items-center justify-between">
+                                <div class="text-sm font-medium">"Training Data"</div>
+                                <Button
+                                    variant=ButtonVariant::Secondary
+                                    on_click=Callback::new(move |_| dataset_wizard_open.set(true))
+                                >
+                                    "Guided upload"
+                                </Button>
+                            </div>
+                            <p class="text-xs text-muted-foreground">
+                                "Pick manifest + JSONL or structured CSV/Text with inline validation. "
+                                "Prompt/input and target/response are required; weight must be > 0."
+                            </p>
+                            {move || dataset_upload_message.get().map(|msg| view! {
+                                <div class="rounded-md border border-green-600/50 bg-green-100/40 p-2 text-xs text-foreground">
+                                    {msg}
+                                </div>
+                            })}
                             <div class="space-y-3">
                                 // File upload input
                                 <div>
@@ -436,6 +641,18 @@ pub fn CreateJobDialog(
                                     label="Dataset ID".to_string()
                                     placeholder="ds-abc123".to_string()
                                 />
+                                <FormField
+                                    label="Base Model ID"
+                                    name="base_model_id"
+                                    required=true
+                                    help="Foundation model identifier used for tokenizer/CoreML preprocessing"
+                                    error=Signal::derive(move || form_errors.get().get("base_model_id").cloned())
+                                >
+                                    <Input
+                                        value=base_model_id
+                                        placeholder="qwen2.5-coder-base".to_string()
+                                    />
+                                </FormField>
                             </div>
                         </div>
 
@@ -493,6 +710,164 @@ pub fn CreateJobDialog(
                             </div>
                         </div>
 
+                        <div class="border-t pt-4 mt-4 space-y-3">
+                            <div class="flex items-center justify-between gap-3">
+                                <h3 class="text-sm font-medium">"CoreML Preprocessing"</h3>
+                                {move || (!preprocess_enabled.get()).then(|| view! {
+                                    <span class="text-xs text-amber-600">
+                                        "Disabling preprocessing will cause CoreML runs to return an error"
+                                    </span>
+                                })}
+                            </div>
+                            <div class="grid gap-4 grid-cols-2">
+                                <label class="flex items-center gap-2 text-sm">
+                                    <input
+                                        type="checkbox"
+                                        class="h-4 w-4 rounded border"
+                                        prop:checked=Signal::derive(move || preprocess_enabled.get())
+                                        on:change=move |ev| preprocess_enabled.set(event_target_checked(&ev))
+                                    />
+                                    <span>"Enable CoreML preprocessing"</span>
+                                </label>
+                                <FormField
+                                    label="CoreML Model ID"
+                                    name="coreml_model_id"
+                                    help="Lookup key for cached CoreML preprocess package"
+                                    error=Signal::derive(move || form_errors.get().get("coreml_model").cloned())
+                                >
+                                    <Input
+                                        value=coreml_model_id
+                                        placeholder="coreml-preprocess-id".to_string()
+                                    />
+                                </FormField>
+                                <FormField
+                                    label="CoreML Model Path"
+                                    name="coreml_model_path"
+                                    help="Local path to the CoreML preprocess model (mlpackage or mlmodelc)"
+                                    error=Signal::derive(move || form_errors.get().get("coreml_model").cloned())
+                                >
+                                    <Input
+                                        value=coreml_model_path
+                                        placeholder="/path/to/model.mlpackage".to_string()
+                                    />
+                                </FormField>
+                                <FormField
+                                    label="Output Feature"
+                                    name="output_feature"
+                                    help="Hidden state or embedding output to cache"
+                                    error=Signal::derive(move || None::<String>)
+                                >
+                                    <select
+                                        class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                        prop:value=Signal::derive(move || preprocess_output.get())
+                                        on:change=move |ev| preprocess_output.set(event_target_value(&ev))
+                                    >
+                                        <option value="hidden_state_last" selected=true>"hidden_states (last)"</option>
+                                        <option value="embedding">"embeddings"</option>
+                                        <option value="pooled">"pooled (mean)"</option>
+                                    </select>
+                                </FormField>
+                                <FormField
+                                    label="Preprocess Batch Size"
+                                    name="preprocess_batch_size"
+                                    help="Batch size used during preprocessing (0 = auto)"
+                                    error=Signal::derive(move || None::<String>)
+                                >
+                                    <Input
+                                        value=preprocess_batch_size
+                                        input_type="number".to_string()
+                                    />
+                                </FormField>
+                                <FormField
+                                    label="Max Seq Length"
+                                    name="preprocess_max_seq_len"
+                                    help="Trim or pad sequences to this length for preprocessing (0 = input length)"
+                                    error=Signal::derive(move || None::<String>)
+                                >
+                                    <Input
+                                        value=preprocess_max_seq_len
+                                        input_type="number".to_string()
+                                    />
+                                </FormField>
+                                <FormField
+                                    label="Compression"
+                                    name="compression"
+                                    help="Optional compression for cached features"
+                                    error=Signal::derive(move || None::<String>)
+                                >
+                                    <select
+                                        class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                        prop:value=Signal::derive(move || preprocess_compression.get())
+                                        on:change=move |ev| preprocess_compression.set(event_target_value(&ev))
+                                    >
+                                        <option value="none" selected=true>"None"</option>
+                                        <option value="q15">"Q15 (int16 + scale)"</option>
+                                    </select>
+                                </FormField>
+                            </div>
+                            <div class="flex items-center gap-3">
+                                <Button
+                                    variant=ButtonVariant::Secondary
+                                    loading=checking_status.get()
+                                    on_click=Callback::new(check_status.clone())
+                                >
+                                    "Check preprocessing cache"
+                                </Button>
+                                <p class="text-xs text-muted-foreground">
+                                    "Surface cache manifest, dtype, and when a reprocess is needed before training."
+                                </p>
+                            </div>
+                            {move || status_error.get().map(|msg| view! {
+                                <div class="rounded border border-destructive/50 bg-destructive/10 p-2 text-sm text-destructive">{msg}</div>
+                            })}
+                            {move || preprocess_status.get().map(|status| view! {
+                                <div class="rounded-lg border bg-muted/40 p-3 space-y-2">
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-sm font-medium">
+                                            {if status.needs_reprocess {
+                                                "Reprocess required".to_string()
+                                            } else if status.cache_hit {
+                                                "Cache hit (ready)".to_string()
+                                            } else {
+                                                "Cache miss".to_string()
+                                            }}
+                                        </span>
+                                        <span class="text-xs text-muted-foreground font-mono">{status.cache_dir.clone()}</span>
+                                    </div>
+                                    <div class="grid gap-2 text-xs md:grid-cols-2">
+                                        <div>
+                                            <p class="text-muted-foreground">"Cache key"</p>
+                                            <p class="font-mono break-all">{status.cache_key_b3.clone()}</p>
+                                        </div>
+                                        <div>
+                                            <p class="text-muted-foreground">"Manifest hash"</p>
+                                            <p class="font-mono break-all">{status.manifest_hash_b3.clone()}</p>
+                                        </div>
+                                        <div>
+                                            <p class="text-muted-foreground">"Produced at"</p>
+                                            <p class="font-mono">
+                                                {status.produced_at_unix_ms.map(|v| format!("{} ms", v)).unwrap_or_else(|| "unknown".to_string())}
+                                            </p>
+                                        </div>
+                                        <div>
+                                            <p class="text-muted-foreground">"Feature dtype"</p>
+                                            <p class="font-mono">{status.feature_dtype.clone()}</p>
+                                        </div>
+                                    </div>
+                                    {(!status.reasons.is_empty()).then(|| view! {
+                                        <div class="text-xs">
+                                            <p class="font-medium text-amber-700">"Reprocess required"</p>
+                                            <ul class="list-disc pl-4 text-amber-700">
+                                                {status.reasons.iter().map(|reason| {
+                                                    view! { <li class="break-words">{reason.clone()}</li> }
+                                                }).collect::<Vec<_>>()}
+                                            </ul>
+                                        </div>
+                                    })}
+                                </div>
+                            })}
+                        </div>
+
                         <div class="border-t pt-4 mt-4">
                             <h3 class="text-sm font-medium mb-3">"LoRA Configuration"</h3>
                             <div class="grid gap-4 grid-cols-2">
@@ -517,6 +892,11 @@ pub fn CreateJobDialog(
                             </div>
                         </div>
                     </div>
+
+                    <DatasetUploadWizard
+                        open=dataset_wizard_open
+                        on_complete=Callback::new(on_dataset_uploaded.clone())
+                    />
 
                     // Footer
                     <div class="flex justify-end gap-2 mt-6">

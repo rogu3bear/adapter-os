@@ -215,6 +215,154 @@ impl InvertedYScale {
     }
 }
 
+// ============================================================================
+// Range Calculation Utilities
+// ============================================================================
+
+/// Configuration for Y-axis range calculation.
+#[derive(Debug, Clone, Copy)]
+pub struct RangeConfig {
+    /// Minimum value padding factor (0.0 = no padding, 0.1 = 10% padding below).
+    pub min_padding: f64,
+    /// Maximum value padding factor (0.0 = no padding, 0.1 = 10% padding above).
+    pub max_padding: f64,
+    /// If true, include zero in the range even if all data is positive.
+    pub include_zero: bool,
+    /// Optional fixed minimum (overrides data-derived min).
+    pub fixed_min: Option<f64>,
+    /// Optional fixed maximum (overrides data-derived max).
+    pub fixed_max: Option<f64>,
+}
+
+impl Default for RangeConfig {
+    fn default() -> Self {
+        Self {
+            min_padding: 0.0,
+            max_padding: 0.1,
+            include_zero: false,
+            fixed_min: None,
+            fixed_max: None,
+        }
+    }
+}
+
+impl RangeConfig {
+    /// Preset for percentage values (0-100 scale).
+    pub fn percent() -> Self {
+        Self {
+            min_padding: 0.0,
+            max_padding: 0.0,
+            include_zero: true,
+            fixed_min: Some(0.0),
+            fixed_max: Some(100.0),
+        }
+    }
+
+    /// Preset for values that should include zero.
+    pub fn zero_based() -> Self {
+        Self {
+            include_zero: true,
+            ..Default::default()
+        }
+    }
+
+    /// Preset with symmetric padding.
+    pub fn with_padding(padding: f64) -> Self {
+        Self {
+            min_padding: padding,
+            max_padding: padding,
+            ..Default::default()
+        }
+    }
+}
+
+/// Calculate Y range from data with configurable options.
+pub fn calc_range_with_config(
+    values: impl Iterator<Item = f64>,
+    config: &RangeConfig,
+) -> (f64, f64) {
+    let mut data_min: Option<f64> = None;
+    let mut data_max: Option<f64> = None;
+
+    for value in values {
+        if value.is_finite() {
+            data_min = Some(match data_min {
+                Some(min) => min.min(value),
+                None => value,
+            });
+            data_max = Some(match data_max {
+                Some(max) => max.max(value),
+                None => value,
+            });
+        }
+    }
+
+    let mut y_min = config.fixed_min.or(data_min).unwrap_or(0.0);
+    let mut y_max = config.fixed_max.or(data_max).unwrap_or(y_min);
+
+    // Include zero if configured
+    if config.include_zero {
+        if y_min > 0.0 && config.fixed_min.is_none() {
+            y_min = 0.0;
+        }
+        if y_max < 0.0 && config.fixed_max.is_none() {
+            y_max = 0.0;
+        }
+    }
+
+    // Ensure non-zero range
+    if (y_max - y_min).abs() < f64::EPSILON {
+        y_max = y_min + 1.0;
+    }
+
+    // Apply padding (only if not using fixed bounds)
+    let range = y_max - y_min;
+    if config.fixed_min.is_none() {
+        y_min -= range * config.min_padding;
+    }
+    if config.fixed_max.is_none() {
+        y_max += range * config.max_padding;
+    }
+
+    (y_min, y_max)
+}
+
+/// Merge multiple value iterators into a single range.
+pub fn merge_ranges<I, It>(iterators: I, config: &RangeConfig) -> (f64, f64)
+where
+    I: IntoIterator<Item = It>,
+    It: Iterator<Item = f64>,
+{
+    let combined = iterators.into_iter().flatten();
+    calc_range_with_config(combined, config)
+}
+
+/// Round a range to "nice" boundaries for axis display.
+pub fn nice_range(min: f64, max: f64) -> (f64, f64) {
+    let range = max - min;
+    if range.abs() < f64::EPSILON {
+        return (min, min + 1.0);
+    }
+
+    let magnitude = 10_f64.powf(range.log10().floor());
+    let residual = range / magnitude;
+
+    let nice_range = if residual <= 1.5 {
+        magnitude
+    } else if residual <= 3.0 {
+        2.0 * magnitude
+    } else if residual <= 7.0 {
+        5.0 * magnitude
+    } else {
+        10.0 * magnitude
+    };
+
+    let nice_min = (min / nice_range).floor() * nice_range;
+    let nice_max = (max / nice_range).ceil() * nice_range;
+
+    (nice_min, nice_max)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -273,5 +421,68 @@ mod tests {
         let y_at_0 = scale.scale(0.0);
         let y_at_100 = scale.scale(100.0);
         assert!(y_at_100 < y_at_0); // 100 should be higher up (lower Y)
+    }
+
+    // Range utility tests
+
+    #[test]
+    fn test_range_config_percent() {
+        let config = RangeConfig::percent();
+        let (min, max) = calc_range_with_config([25.0, 75.0].into_iter(), &config);
+        assert_eq!(min, 0.0);
+        assert_eq!(max, 100.0);
+    }
+
+    #[test]
+    fn test_range_config_zero_based() {
+        let config = RangeConfig::zero_based();
+        let (min, max) = calc_range_with_config([10.0, 50.0].into_iter(), &config);
+        assert_eq!(min, 0.0);
+        // 50 + 10% padding = 55
+        assert!((max - 55.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_range_config_default_padding() {
+        let config = RangeConfig::default();
+        let (min, max) = calc_range_with_config([10.0, 20.0].into_iter(), &config);
+        assert_eq!(min, 10.0); // no min padding by default
+                               // 20 + 10% of range (10) = 21
+        assert!((max - 21.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_merge_ranges() {
+        let config = RangeConfig::default();
+        let series1 = vec![10.0, 20.0, 30.0];
+        let series2 = vec![5.0, 15.0, 25.0];
+        let (min, max) = merge_ranges([series1.into_iter(), series2.into_iter()], &config);
+        assert_eq!(min, 5.0);
+        // 30 + 10% of 25 = 32.5
+        assert!((max - 32.5).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_nice_range() {
+        let (min, max) = nice_range(3.2, 47.8);
+        assert_eq!(min, 0.0);
+        assert_eq!(max, 50.0);
+    }
+
+    #[test]
+    fn test_nice_range_small() {
+        let (min, max) = nice_range(0.5, 2.3);
+        assert_eq!(min, 0.0);
+        // range=1.8, magnitude=1.0, residual=1.8 -> nice_range=2.0 -> ceil(2.3/2)*2=4
+        assert!((max - 4.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_calc_range_empty() {
+        let config = RangeConfig::default();
+        let (min, max) = calc_range_with_config(std::iter::empty(), &config);
+        assert_eq!(min, 0.0);
+        // After ensuring non-zero range (0, 1), 10% max padding is applied: 1 + 0.1 = 1.1
+        assert!((max - 1.1).abs() < 0.01);
     }
 }

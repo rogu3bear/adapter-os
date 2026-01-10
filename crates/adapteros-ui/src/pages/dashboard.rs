@@ -52,53 +52,68 @@ impl From<&SystemMetricsResponse> for MetricsSnapshot {
     }
 }
 
-/// Metrics history for chart visualization
+/// A single timestamped metrics entry for history tracking.
+#[derive(Clone, Copy)]
+struct TimestampedMetrics {
+    timestamp: u64,
+    cpu_usage: f64,
+    memory_usage: f64,
+    gpu_utilization: f64,
+    requests_per_second: f64,
+    avg_latency_ms: f64,
+}
+
+impl TimestampedMetrics {
+    fn from_response(metrics: &SystemMetricsResponse, timestamp: u64) -> Self {
+        Self {
+            timestamp,
+            cpu_usage: metrics.cpu_usage_percent.unwrap_or(metrics.cpu_usage) as f64,
+            memory_usage: metrics.memory_usage_percent.unwrap_or(metrics.memory_usage) as f64,
+            gpu_utilization: metrics.gpu_utilization as f64,
+            requests_per_second: metrics.requests_per_second as f64,
+            avg_latency_ms: metrics.avg_latency_ms as f64,
+        }
+    }
+}
+
+/// Metrics history for chart visualization using a single synchronized buffer.
 #[derive(Clone, Default)]
 struct MetricsHistory {
-    cpu_usage: VecDeque<f64>,
-    memory_usage: VecDeque<f64>,
-    gpu_utilization: VecDeque<f64>,
-    requests_per_second: VecDeque<f64>,
-    avg_latency_ms: VecDeque<f64>,
-    timestamps: VecDeque<u64>,
+    snapshots: VecDeque<TimestampedMetrics>,
     /// Version counter to enable cheap change detection
     version: u64,
 }
 
 impl MetricsHistory {
     fn push(&mut self, metrics: &SystemMetricsResponse, timestamp: u64) {
-        // Add new data points (convert f32 to f64)
-        self.cpu_usage
-            .push_back(metrics.cpu_usage_percent.unwrap_or(metrics.cpu_usage) as f64);
-        self.memory_usage
-            .push_back(metrics.memory_usage_percent.unwrap_or(metrics.memory_usage) as f64);
-        self.gpu_utilization
-            .push_back(metrics.gpu_utilization as f64);
-        self.requests_per_second
-            .push_back(metrics.requests_per_second as f64);
-        self.avg_latency_ms.push_back(metrics.avg_latency_ms as f64);
-        self.timestamps.push_back(timestamp);
+        self.snapshots
+            .push_back(TimestampedMetrics::from_response(metrics, timestamp));
 
-        // Trim to max size
-        while self.cpu_usage.len() > METRICS_HISTORY_SIZE {
-            self.cpu_usage.pop_front();
-            self.memory_usage.pop_front();
-            self.gpu_utilization.pop_front();
-            self.requests_per_second.pop_front();
-            self.avg_latency_ms.pop_front();
-            self.timestamps.pop_front();
+        // Single trim operation
+        while self.snapshots.len() > METRICS_HISTORY_SIZE {
+            self.snapshots.pop_front();
         }
 
         // Increment version for change detection
         self.version = self.version.wrapping_add(1);
     }
 
-    fn to_time_series(&self, name: &str, values: &VecDeque<f64>) -> TimeSeriesData {
+    /// Extract a single metric field as Vec<f64> for sparklines.
+    fn extract<F>(&self, f: F) -> Vec<f64>
+    where
+        F: Fn(&TimestampedMetrics) -> f64,
+    {
+        self.snapshots.iter().map(|s| f(s)).collect()
+    }
+
+    fn to_time_series<F>(&self, name: &str, extractor: F) -> TimeSeriesData
+    where
+        F: Fn(&TimestampedMetrics) -> f64,
+    {
         let points: Vec<ChartPoint> = self
-            .timestamps
+            .snapshots
             .iter()
-            .zip(values.iter())
-            .map(|(&ts, &val)| ChartPoint::new(ts, val))
+            .map(|s| ChartPoint::new(s.timestamp, extractor(s)))
             .collect();
 
         let mut data = TimeSeriesData::new();
@@ -111,11 +126,11 @@ impl MetricsHistory {
     }
 
     fn throughput_series(&self) -> TimeSeriesData {
-        self.to_time_series("Requests/sec", &self.requests_per_second)
+        self.to_time_series("Requests/sec", |s| s.requests_per_second)
     }
 
     fn latency_series(&self) -> TimeSeriesData {
-        self.to_time_series("Latency (ms)", &self.avg_latency_ms)
+        self.to_time_series("Latency (ms)", |s| s.avg_latency_ms)
     }
 }
 
@@ -372,18 +387,11 @@ fn LiveMetricsSection(
     history: RwSignal<MetricsHistory>,
 ) -> impl IntoView {
     // Use Memo for sparkline data - only recomputes when history version changes
-    // Each Memo captures the specific field, avoiding full history clone on render
-    let cpu_sparkline =
-        Memo::new(move |_| history.with(|h| h.cpu_usage.iter().copied().collect::<Vec<_>>()));
-    let memory_sparkline =
-        Memo::new(move |_| history.with(|h| h.memory_usage.iter().copied().collect::<Vec<_>>()));
-    let gpu_sparkline =
-        Memo::new(move |_| history.with(|h| h.gpu_utilization.iter().copied().collect::<Vec<_>>()));
-    let rps_sparkline = Memo::new(move |_| {
-        history.with(|h| h.requests_per_second.iter().copied().collect::<Vec<_>>())
-    });
-    let latency_sparkline =
-        Memo::new(move |_| history.with(|h| h.avg_latency_ms.iter().copied().collect::<Vec<_>>()));
+    let cpu_sparkline = Memo::new(move |_| history.with(|h| h.extract(|s| s.cpu_usage)));
+    let memory_sparkline = Memo::new(move |_| history.with(|h| h.extract(|s| s.memory_usage)));
+    let gpu_sparkline = Memo::new(move |_| history.with(|h| h.extract(|s| s.gpu_utilization)));
+    let rps_sparkline = Memo::new(move |_| history.with(|h| h.extract(|s| s.requests_per_second)));
+    let latency_sparkline = Memo::new(move |_| history.with(|h| h.extract(|s| s.avg_latency_ms)));
 
     // Time series for the line charts - memoized to avoid redundant computation
     let throughput_data = Memo::new(move |_| history.with(|h| h.throughput_series()));

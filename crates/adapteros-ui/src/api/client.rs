@@ -7,6 +7,8 @@ use gloo_net::http::{Request, RequestBuilder};
 use serde::{de::DeserializeOwned, Serialize};
 use std::sync::{Arc, RwLock};
 
+pub use adapteros_api_types::{DatasetManifest, UploadDatasetResponse};
+
 /// HTTP API client for AdapterOS backend
 #[derive(Clone)]
 pub struct ApiClient {
@@ -406,10 +408,26 @@ impl ApiClient {
         self.post("/v1/training/jobs", request).await
     }
 
+    /// Inspect CoreML preprocessing cache status for a dataset/model pair
+    pub async fn get_preprocess_status(
+        &self,
+        request: &adapteros_api_types::PreprocessStatusRequest,
+    ) -> ApiResult<adapteros_api_types::PreprocessStatusResponse> {
+        self.post("/v1/training/preprocessing/status", request)
+            .await
+    }
+
     /// Get training logs for a job
     pub async fn get_training_logs(&self, job_id: &str) -> ApiResult<Vec<String>> {
         self.get(&format!("/v1/training/jobs/{}/logs", job_id))
             .await
+    }
+
+    /// Get backend readiness for training (CoreML/Metal/MLX availability)
+    pub async fn get_training_backend_readiness(
+        &self,
+    ) -> ApiResult<adapteros_api_types::TrainingBackendReadinessResponse> {
+        self.get("/v1/training/backend-readiness").await
     }
 
     // --- Models ---
@@ -945,6 +963,76 @@ impl ApiClient {
         .await
     }
 
+    /// Upload a training dataset via multipart form data.
+    ///
+    /// Accepts multiple files and forwards them to `/v1/datasets`.
+    #[cfg(target_arch = "wasm32")]
+    pub async fn upload_dataset(
+        &self,
+        form_data: &web_sys::FormData,
+    ) -> ApiResult<adapteros_api_types::UploadDatasetResponse> {
+        use wasm_bindgen::JsCast;
+        use wasm_bindgen_futures::JsFuture;
+
+        let url = format!("{}/v1/datasets", self.base_url);
+
+        let opts = web_sys::RequestInit::new();
+        opts.set_method("POST");
+        opts.set_body(form_data);
+
+        let headers = web_sys::Headers::new()
+            .map_err(|_| ApiError::Network("Failed to create Headers".into()))?;
+        if let Some(token) = self.auth_token.read().ok().and_then(|t| t.clone()) {
+            headers
+                .set("Authorization", &format!("Bearer {}", token))
+                .map_err(|_| ApiError::Network("Failed to set Authorization header".into()))?;
+        }
+        opts.set_headers(&headers);
+
+        let window = web_sys::window().ok_or_else(|| ApiError::Network("No window".into()))?;
+        let request = web_sys::Request::new_with_str_and_init(&url, &opts)
+            .map_err(|_| ApiError::Network("Failed to create Request".into()))?;
+
+        let resp_value = JsFuture::from(window.fetch_with_request(&request))
+            .await
+            .map_err(|_| ApiError::Network("Upload request failed".into()))?;
+        let resp: web_sys::Response = resp_value
+            .dyn_into()
+            .map_err(|_| ApiError::Network("Failed to cast Response".into()))?;
+
+        if !resp.ok() {
+            return Err(ApiError::Http {
+                status: resp.status(),
+                message: resp.status_text(),
+            });
+        }
+
+        let json = JsFuture::from(
+            resp.json()
+                .map_err(|_| ApiError::Network("Failed to read response body".into()))?,
+        )
+        .await
+        .map_err(|_| ApiError::Network("Failed to parse response JSON".into()))?;
+
+        let result: adapteros_api_types::UploadDatasetResponse =
+            serde_wasm_bindgen::from_value(json)
+                .map_err(|e| ApiError::Serialization(e.to_string()))?;
+
+        Ok(result)
+    }
+
+    /// Fetch a normalized dataset manifest for a version.
+    pub async fn get_dataset_manifest(
+        &self,
+        dataset_version_id: &str,
+    ) -> ApiResult<adapteros_api_types::DatasetManifest> {
+        self.get(&format!(
+            "/v1/training/dataset_versions/{}/manifest",
+            dataset_version_id
+        ))
+        .await
+    }
+
     // --- Code Policy ---
 
     /// Get code policy settings
@@ -985,8 +1073,12 @@ impl ApiClient {
     }
 
     /// Get process crash dumps for a worker
-    pub async fn get_worker_crashes(&self, worker_id: &str) -> ApiResult<Vec<ProcessCrashDumpResponse>> {
-        self.get(&format!("/v1/workers/{}/crashes", worker_id)).await
+    pub async fn get_worker_crashes(
+        &self,
+        worker_id: &str,
+    ) -> ApiResult<Vec<ProcessCrashDumpResponse>> {
+        self.get(&format!("/v1/workers/{}/crashes", worker_id))
+            .await
     }
 
     /// Get process health metrics
@@ -1049,11 +1141,16 @@ impl ApiClient {
 
     /// Delete a monitoring rule
     pub async fn delete_monitoring_rule(&self, rule_id: &str) -> ApiResult<()> {
-        self.delete(&format!("/v1/monitoring/rules/{}", rule_id)).await
+        self.delete(&format!("/v1/monitoring/rules/{}", rule_id))
+            .await
     }
 
     /// Toggle a monitoring rule enabled/disabled
-    pub async fn toggle_monitoring_rule(&self, rule_id: &str, enabled: bool) -> ApiResult<ProcessMonitoringRuleResponse> {
+    pub async fn toggle_monitoring_rule(
+        &self,
+        rule_id: &str,
+        enabled: bool,
+    ) -> ApiResult<ProcessMonitoringRuleResponse> {
         self.put(
             &format!("/v1/monitoring/rules/{}", rule_id),
             &serde_json::json!({ "enabled": enabled }),
@@ -1062,7 +1159,11 @@ impl ApiClient {
     }
 
     /// Suppress a process alert
-    pub async fn suppress_alert(&self, alert_id: &str, reason: &str) -> ApiResult<ProcessAlertResponse> {
+    pub async fn suppress_alert(
+        &self,
+        alert_id: &str,
+        reason: &str,
+    ) -> ApiResult<ProcessAlertResponse> {
         self.post(
             &format!("/v1/monitoring/alerts/{}/suppress", alert_id),
             &serde_json::json!({ "reason": reason }),
@@ -1123,12 +1224,18 @@ impl ApiClient {
     }
 
     /// Debug routing for a prompt
-    pub async fn debug_routing(&self, request: &RoutingDebugRequest) -> ApiResult<RoutingDebugResponse> {
+    pub async fn debug_routing(
+        &self,
+        request: &RoutingDebugRequest,
+    ) -> ApiResult<RoutingDebugResponse> {
         self.post("/v1/routing/debug", request).await
     }
 
     /// Get routing history
-    pub async fn get_routing_history(&self, limit: Option<usize>) -> ApiResult<RoutingDecisionsResponse> {
+    pub async fn get_routing_history(
+        &self,
+        limit: Option<usize>,
+    ) -> ApiResult<RoutingDecisionsResponse> {
         let path = match limit {
             Some(l) => format!("/v1/routing/history?limit={}", l),
             None => "/v1/routing/history".to_string(),
@@ -1210,7 +1317,8 @@ impl ApiClient {
         &self,
         id: &str,
     ) -> ApiResult<adapteros_api_types::telemetry::ClientErrorItem> {
-        self.get(&format!("/v1/telemetry/client-errors/{}", id)).await
+        self.get(&format!("/v1/telemetry/client-errors/{}", id))
+            .await
     }
 }
 
@@ -1420,6 +1528,9 @@ pub struct TrainingConfigRequest {
     pub rank: u32,
     pub alpha: u32,
     pub targets: Vec<String>,
+    pub training_contract_version: String,
+    pub pad_token_id: u32,
+    pub ignore_index: i32,
     pub epochs: u32,
     pub learning_rate: f32,
     pub batch_size: u32,

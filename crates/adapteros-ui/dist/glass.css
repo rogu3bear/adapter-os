@@ -219,6 +219,11 @@
     z-index: 2;
 }
 
+/* Scrollable dialogs need overflow-y: auto to work properly */
+.theme-glass .dialog-content.dialog-scrollable {
+    overflow-y: auto;
+}
+
 /* Header */
 .theme-glass header {
     background: var(--glass-bg-1);
