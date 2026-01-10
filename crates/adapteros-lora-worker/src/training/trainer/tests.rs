@@ -3,12 +3,12 @@ use crate::training::coreml_pipeline;
 use adapteros_core::backend::BackendKind;
 use adapteros_core::B3Hash;
 use adapteros_platform::common::PlatformUtils;
+use adapteros_types::training::ExampleMetadataV1;
 use blake3;
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
-use adapteros_types::training::ExampleMetadataV1;
 
 fn new_test_tempdir() -> TempDir {
     let root = PlatformUtils::temp_dir();
@@ -17,11 +17,7 @@ fn new_test_tempdir() -> TempDir {
 }
 
 fn make_prepared(example: &TrainingExample, hidden_dim: usize) -> coreml_pipeline::PreparedExample {
-    let mut scaled_input: Vec<f32> = example
-        .input_tokens
-        .iter()
-        .map(|t| *t as f32)
-        .collect();
+    let mut scaled_input: Vec<f32> = example.input_tokens.iter().map(|t| *t as f32).collect();
     if scaled_input.len() < hidden_dim {
         scaled_input.resize(hidden_dim, 0.0);
     } else {
@@ -45,11 +41,9 @@ fn make_prepared(example: &TrainingExample, hidden_dim: usize) -> coreml_pipelin
 
 fn example(input_tokens: Vec<u32>, target_tokens: Vec<u32>) -> TrainingExample {
     let metadata = ExampleMetadataV1::new("test", 0, "{}", 0);
-    let attention_mask =
-        TrainingExample::attention_mask_from_tokens(&input_tokens, 0);
+    let attention_mask = TrainingExample::attention_mask_from_tokens(&input_tokens, 0);
     TrainingExample::new(input_tokens, target_tokens, attention_mask, metadata)
 }
-
 
 fn find_model_dir(path: &Path) -> Option<PathBuf> {
     if path.is_dir() && path.join("config.json").is_file() {
@@ -872,11 +866,17 @@ fn test_gpu_backward_config_option() {
         use_gpu_backward: false,
         ..Default::default()
     };
-    assert!(!config_disabled.use_gpu_backward, "GPU backward flag should be disabled");
+    assert!(
+        !config_disabled.use_gpu_backward,
+        "GPU backward flag should be disabled"
+    );
 
     // Test builder pattern
     let config_via_builder = TrainingConfig::default().with_gpu_backward(true);
-    assert!(config_via_builder.use_gpu_backward, "Builder should set GPU backward flag");
+    assert!(
+        config_via_builder.use_gpu_backward,
+        "Builder should set GPU backward flag"
+    );
 }
 
 /// Test that should_use_gpu_backward returns correct values based on config.
@@ -910,8 +910,7 @@ fn test_should_use_gpu_backward_logic() {
     );
 }
 
-const CHILD_PROCESS_TEST_NAME: &str =
-    concat!(module_path!(), "::test_determinism_child_process");
+const CHILD_PROCESS_TEST_NAME: &str = concat!(module_path!(), "::test_determinism_child_process");
 
 fn child_process_test_names() -> Vec<String> {
     let with_crate = CHILD_PROCESS_TEST_NAME.to_string();
@@ -928,8 +927,8 @@ fn spawn_determinism_child(
     output_path: &std::path::Path,
     seed: u64,
 ) -> std::result::Result<(), String> {
-    let exe = std::env::current_exe()
-        .map_err(|e| format!("failed to find test binary path: {}", e))?;
+    let exe =
+        std::env::current_exe().map_err(|e| format!("failed to find test binary path: {}", e))?;
     let mut last_error = None;
 
     for test_name in child_process_test_names() {
@@ -990,13 +989,15 @@ async fn test_gpu_backward_determinism() {
 
     // Helper to train with deterministic config and return weights + loss curve
     // Uses Qwen2.5-7B dimensions: hidden_dim=3584, vocab_size=152064
-    async fn train_deterministic(model_path: PathBuf) -> std::result::Result<(LoRAWeights, Vec<f32>), String> {
+    async fn train_deterministic(
+        model_path: PathBuf,
+    ) -> std::result::Result<(LoRAWeights, Vec<f32>), String> {
         let config = TrainingConfig {
             rank: 4,
-            hidden_dim: 3584,    // Qwen2.5-7B hidden size
-            vocab_size: 152064,  // Qwen2.5-7B vocab size
-            batch_size: 1,       // Small batch for fast test
-            epochs: 1,           // Single epoch for fast test
+            hidden_dim: 3584,   // Qwen2.5-7B hidden size
+            vocab_size: 152064, // Qwen2.5-7B vocab size
+            batch_size: 1,      // Small batch for fast test
+            epochs: 1,          // Single epoch for fast test
             learning_rate: 0.01,
             use_gpu_backward: true,
             preferred_backend: Some(TrainingBackend::Mlx),
@@ -1013,9 +1014,16 @@ async fn test_gpu_backward_determinism() {
             ..Default::default()
         };
 
-        eprintln!("Creating trainer with base model path: {:?}", config.base_model_path);
-        let mut trainer = MicroLoRATrainer::new(config).map_err(|e| format!("Failed to create trainer: {}", e))?;
-        eprintln!("Trainer created, has_base_model: {}", trainer.has_base_model());
+        eprintln!(
+            "Creating trainer with base model path: {:?}",
+            config.base_model_path
+        );
+        let mut trainer = MicroLoRATrainer::new(config)
+            .map_err(|e| format!("Failed to create trainer: {}", e))?;
+        eprintln!(
+            "Trainer created, has_base_model: {}",
+            trainer.has_base_model()
+        );
 
         let examples = vec![
             example(vec![1, 2, 3, 4, 5, 6, 7, 8], vec![2, 3, 4, 5, 6, 7, 8, 9]),
@@ -1025,14 +1033,19 @@ async fn test_gpu_backward_determinism() {
             ),
         ];
 
-        let result = trainer.train(&examples).await.map_err(|e| format!("Training failed: {}", e))?;
+        let result = trainer
+            .train(&examples)
+            .await
+            .map_err(|e| format!("Training failed: {}", e))?;
         Ok((result.weights, result.loss_curve))
     }
 
     // Run training twice with the same determinism config
-    let (weights1, losses1) = train_deterministic(model_path.clone()).await
+    let (weights1, losses1) = train_deterministic(model_path.clone())
+        .await
         .expect("First training run should succeed");
-    let (weights2, losses2) = train_deterministic(model_path).await
+    let (weights2, losses2) = train_deterministic(model_path)
+        .await
         .expect("Second training run should succeed");
 
     // Verify bit-exact match for weights
@@ -1042,7 +1055,10 @@ async fn test_gpu_backward_determinism() {
         "LoRA A dimensions should match"
     );
     for (row1, row2) in weights1.lora_a.iter().zip(weights2.lora_a.iter()) {
-        assert_eq!(row1, row2, "LoRA A weights must be bit-exact identical across runs");
+        assert_eq!(
+            row1, row2,
+            "LoRA A weights must be bit-exact identical across runs"
+        );
     }
 
     assert_eq!(
@@ -1051,7 +1067,10 @@ async fn test_gpu_backward_determinism() {
         "LoRA B dimensions should match"
     );
     for (row1, row2) in weights1.lora_b.iter().zip(weights2.lora_b.iter()) {
-        assert_eq!(row1, row2, "LoRA B weights must be bit-exact identical across runs");
+        assert_eq!(
+            row1, row2,
+            "LoRA B weights must be bit-exact identical across runs"
+        );
     }
 
     // Verify loss curve matches
@@ -1124,8 +1143,8 @@ async fn test_determinism_child_process() {
 
     let config = TrainingConfig {
         rank: 4,
-        hidden_dim: 3584,    // Qwen2.5-7B hidden size
-        vocab_size: 152064,  // Qwen2.5-7B vocab size
+        hidden_dim: 3584,   // Qwen2.5-7B hidden size
+        vocab_size: 152064, // Qwen2.5-7B vocab size
         batch_size: 1,
         epochs: 1,
         learning_rate: 0.01,
@@ -1201,8 +1220,8 @@ async fn test_gpu_cpu_loss_equivalence() {
     // Uses Qwen2.5-7B dimensions: hidden_dim=3584, vocab_size=152064
     let gpu_config = TrainingConfig {
         rank: 4,
-        hidden_dim: 3584,    // Qwen2.5-7B hidden size
-        vocab_size: 152064,  // Qwen2.5-7B vocab size
+        hidden_dim: 3584,   // Qwen2.5-7B hidden size
+        vocab_size: 152064, // Qwen2.5-7B vocab size
         batch_size: 2,
         epochs: 2,
         learning_rate: 0.01,

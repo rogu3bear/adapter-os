@@ -7,6 +7,7 @@ use adapteros_db::adapter_repositories::CreateRepositoryParams;
 use adapteros_orchestrator::training::compute_combined_data_spec_hash;
 use adapteros_server_api::handlers::training::start_training;
 use adapteros_server_api::types::ErrorResponse;
+use adapteros_types::training::TRAINING_DATA_CONTRACT_VERSION;
 use axum::{extract::State, http::StatusCode, Extension, Json};
 use std::path::PathBuf;
 use tempfile::TempDir;
@@ -44,6 +45,9 @@ fn base_config() -> TrainingConfigRequest {
         rank: 4,
         alpha: 8,
         targets: vec!["q_proj".to_string()],
+        training_contract_version: TRAINING_DATA_CONTRACT_VERSION.to_string(),
+        pad_token_id: 0,
+        ignore_index: 0,
         epochs: 1,
         learning_rate: 0.01,
         batch_size: 1,
@@ -99,9 +103,7 @@ fn base_request(repo_id: String, base_model_id: &str) -> StartTrainingRequest {
     }
 }
 
-async fn seed_base_model(
-    state: &adapteros_server_api::state::AppState,
-) -> (String, TempDir) {
+async fn seed_base_model(state: &adapteros_server_api::state::AppState) -> (String, TempDir) {
     let tmp_root = PathBuf::from("var").join("tmp");
     std::fs::create_dir_all(&tmp_root).expect("create var/tmp");
     let temp_dir = tempfile::tempdir_in(&tmp_root).expect("tempdir");
@@ -113,10 +115,7 @@ async fn seed_base_model(
     (model_id, temp_dir)
 }
 
-async fn register_training_worker(
-    state: &adapteros_server_api::state::AppState,
-    tenant_id: &str,
-) {
+async fn register_training_worker(state: &adapteros_server_api::state::AppState, tenant_id: &str) {
     let caps = WorkerCapabilities {
         backend_kind: "mlx".to_string(),
         implementation: None,

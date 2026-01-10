@@ -281,6 +281,16 @@ impl ModelHubClient {
     pub fn garbage_collect(&self) -> HubResult<crate::cache::GcStats> {
         Ok(self.cache.garbage_collect()?)
     }
+
+    /// Subscribe to download progress events
+    ///
+    /// Returns a broadcast receiver that receives progress updates for all
+    /// active downloads. Use this to track download progress for observability.
+    pub fn subscribe_progress(
+        &self,
+    ) -> tokio::sync::broadcast::Receiver<crate::download::DownloadProgress> {
+        self.download_manager.subscribe_progress()
+    }
 }
 
 /// Information about a model

@@ -6,8 +6,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use adapteros_api_types::{
-    workers::WorkerCapabilities, DatasetVersionSelection, StartTrainingRequest, TrainingConfigRequest,
-    TrainingListParams,
+    workers::WorkerCapabilities, DatasetVersionSelection, StartTrainingRequest,
+    TrainingConfigRequest, TrainingListParams,
 };
 use adapteros_core::B3Hash;
 use adapteros_db::adapter_repositories::CreateRepositoryParams;
@@ -183,8 +183,7 @@ async fn wait_for_terminal(state: &AppState, job_id: &str) -> TrainingJobStatus 
 async fn test_training_start() {
     let (state, _temp_dir, base_model_id, _has_real_model) = setup_training_state().await;
     let claims = test_admin_claims();
-    let repo_id =
-        create_test_repo(&state, &claims.tenant_id, &claims.sub, &base_model_id).await;
+    let repo_id = create_test_repo(&state, &claims.tenant_id, &claims.sub, &base_model_id).await;
 
     let Json(job) = start_training(
         State(state.clone()),
@@ -242,8 +241,7 @@ async fn training_rejects_missing_base_model_id() {
 async fn training_rejects_unknown_base_model_id() {
     let (state, _temp_dir, base_model_id, _has_real_model) = setup_training_state().await;
     let claims = test_admin_claims();
-    let repo_id =
-        create_test_repo(&state, &claims.tenant_id, &claims.sub, &base_model_id).await;
+    let repo_id = create_test_repo(&state, &claims.tenant_id, &claims.sub, &base_model_id).await;
 
     let req = make_request("adapter-missing-model", repo_id, "missing-model");
     let result = start_training(State(state.clone()), Extension(claims), Json(req)).await;
@@ -256,8 +254,7 @@ async fn training_rejects_unknown_base_model_id() {
 async fn test_training_rejects_missing_dataset_versions_when_non_synthetic() {
     let (state, _temp_dir, base_model_id, _has_real_model) = setup_training_state().await;
     let claims = test_admin_claims();
-    let repo_id =
-        create_test_repo(&state, &claims.tenant_id, &claims.sub, &base_model_id).await;
+    let repo_id = create_test_repo(&state, &claims.tenant_id, &claims.sub, &base_model_id).await;
 
     let mut req = make_request("adapter-no-dataset", repo_id, &base_model_id);
     req.synthetic_mode = false;
@@ -271,12 +268,13 @@ async fn test_training_rejects_missing_dataset_versions_when_non_synthetic() {
 async fn test_training_status_completes() {
     let (state, _temp_dir, base_model_id, has_real_model) = setup_training_state().await;
     if !has_real_model {
-        eprintln!("SKIPPED: AOS_TEST_MODEL_PATH not set; training completion requires a real model");
+        eprintln!(
+            "SKIPPED: AOS_TEST_MODEL_PATH not set; training completion requires a real model"
+        );
         return;
     }
     let claims = test_admin_claims();
-    let repo_id =
-        create_test_repo(&state, &claims.tenant_id, &claims.sub, &base_model_id).await;
+    let repo_id = create_test_repo(&state, &claims.tenant_id, &claims.sub, &base_model_id).await;
 
     let Json(job) = start_training(
         State(state.clone()),
@@ -294,8 +292,7 @@ async fn test_training_status_completes() {
 async fn test_training_list_includes_started_job() {
     let (state, _temp_dir, base_model_id, _has_real_model) = setup_training_state().await;
     let claims = test_admin_claims();
-    let repo_id =
-        create_test_repo(&state, &claims.tenant_id, &claims.sub, &base_model_id).await;
+    let repo_id = create_test_repo(&state, &claims.tenant_id, &claims.sub, &base_model_id).await;
 
     let Json(job) = start_training(
         State(state.clone()),
@@ -323,12 +320,13 @@ async fn test_training_list_includes_started_job() {
 async fn test_training_list_exposes_required_metadata() {
     let (state, _temp_dir, base_model_id, has_real_model) = setup_training_state().await;
     if !has_real_model {
-        eprintln!("SKIPPED: AOS_TEST_MODEL_PATH not set; training completion requires a real model");
+        eprintln!(
+            "SKIPPED: AOS_TEST_MODEL_PATH not set; training completion requires a real model"
+        );
         return;
     }
     let claims = test_admin_claims();
-    let repo_id =
-        create_test_repo(&state, &claims.tenant_id, &claims.sub, &base_model_id).await;
+    let repo_id = create_test_repo(&state, &claims.tenant_id, &claims.sub, &base_model_id).await;
 
     let mut req = make_request("adapter-meta", repo_id.clone(), &base_model_id);
     req.data_spec = Some(r#"{"mode":"synthetic","purpose":"metadata-test"}"#.to_string());
@@ -383,8 +381,7 @@ async fn test_training_list_exposes_required_metadata() {
 async fn test_training_logs_return_entries() {
     let (state, _temp_dir, base_model_id, _has_real_model) = setup_training_state().await;
     let claims = test_admin_claims();
-    let repo_id =
-        create_test_repo(&state, &claims.tenant_id, &claims.sub, &base_model_id).await;
+    let repo_id = create_test_repo(&state, &claims.tenant_id, &claims.sub, &base_model_id).await;
 
     let Json(job) = start_training(
         State(state.clone()),
@@ -422,8 +419,7 @@ async fn test_training_cancel_transitions_job() {
         return;
     }
     let claims = test_admin_claims();
-    let repo_id =
-        create_test_repo(&state, &claims.tenant_id, &claims.sub, &base_model_id).await;
+    let repo_id = create_test_repo(&state, &claims.tenant_id, &claims.sub, &base_model_id).await;
 
     let mut req = make_request("adapter-cancel", repo_id, &base_model_id);
     req.config.epochs = 25;
@@ -497,8 +493,7 @@ async fn seed_dataset_version(
 async fn ui_path_computes_data_spec_hash_when_missing() {
     let (state, _temp_dir, base_model_id, _has_real_model) = setup_training_state().await;
     let claims = test_admin_claims();
-    let repo_id =
-        create_test_repo(&state, &claims.tenant_id, &claims.sub, &base_model_id).await;
+    let repo_id = create_test_repo(&state, &claims.tenant_id, &claims.sub, &base_model_id).await;
     let dataset_id = "ds-ui";
     let version_id = "ds-ui-ver-1";
     let manifest_hash = B3Hash::hash(b"dataset-ui-manifest").to_hex();
@@ -537,8 +532,7 @@ async fn ui_path_computes_data_spec_hash_when_missing() {
 async fn cli_path_rejects_data_spec_hash_mismatch() {
     let (state, _temp_dir, base_model_id, _has_real_model) = setup_training_state().await;
     let claims = test_admin_claims();
-    let repo_id =
-        create_test_repo(&state, &claims.tenant_id, &claims.sub, &base_model_id).await;
+    let repo_id = create_test_repo(&state, &claims.tenant_id, &claims.sub, &base_model_id).await;
     let dataset_id = "ds-cli";
     let version_id = "ds-cli-ver-1";
     let manifest_hash = B3Hash::hash(b"dataset-cli-manifest").to_hex();

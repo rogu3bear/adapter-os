@@ -131,10 +131,10 @@ fn test_training_data_generation() {
 
     // Verify the example structure
     let example = &training_data.examples[0];
-    assert!(!example.input.is_empty());
-    assert!(!example.target.is_empty());
+    assert!(!example.input_tokens.is_empty());
+    assert!(!example.target_tokens.is_empty());
     assert_eq!(
-        example.input, example.target,
+        example.input_tokens, example.target_tokens,
         "For identity strategy, input should equal target"
     );
 }

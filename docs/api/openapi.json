@@ -1581,6 +1581,102 @@
         ],
         "type": "object"
       },
+      "ApplyEventRequest": {
+        "description": "Request to apply a single event to a tenant.\n\nEvents modify tenant state deterministically and are recorded in the audit log.",
+        "properties": {
+          "event_type": {
+            "description": "Event type identifier (e.g., \"adapter.registered\", \"stack.created\")",
+            "type": "string"
+          },
+          "identity": {
+            "description": "Optional event identity for idempotency and tracing"
+          },
+          "metadata": {
+            "description": "Event metadata payload specific to the event type"
+          }
+        },
+        "required": [
+          "event_type",
+          "metadata"
+        ],
+        "type": "object"
+      },
+      "ApplyEventResponse": {
+        "description": "Response after successfully applying an event.",
+        "properties": {
+          "applied_at": {
+            "description": "Timestamp when the event was applied (ISO 8601)",
+            "type": "string"
+          },
+          "event_type": {
+            "description": "The event type that was applied",
+            "type": "string"
+          },
+          "identity_label": {
+            "description": "Identity label extracted from the event, if present",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "success": {
+            "description": "Whether the event was applied successfully",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "event_type",
+          "applied_at"
+        ],
+        "type": "object"
+      },
+      "ApplyEventsBatchRequest": {
+        "description": "Request to apply multiple events atomically.",
+        "properties": {
+          "dry_run": {
+            "description": "If true, validate events without applying (dry run)",
+            "type": "boolean"
+          },
+          "events": {
+            "description": "List of events to apply in order",
+            "items": {
+              "$ref": "#/components/schemas/ApplyEventRequest"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "events"
+        ],
+        "type": "object"
+      },
+      "ApplyEventsBatchResponse": {
+        "description": "Response after applying a batch of events.",
+        "properties": {
+          "applied_count": {
+            "description": "Number of events successfully applied",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "errors": {
+            "description": "Errors encountered during application, if any",
+            "items": {
+              "$ref": "#/components/schemas/EventApplicationError"
+            },
+            "type": "array"
+          },
+          "success": {
+            "description": "Whether all events were applied successfully",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "applied_count"
+        ],
+        "type": "object"
+      },
       "ApprovalRecord": {
         "properties": {
           "action": {
@@ -3826,6 +3922,202 @@
         ],
         "type": "object"
       },
+      "ClientErrorItem": {
+        "description": "Individual client error item in list response",
+        "properties": {
+          "client_timestamp": {
+            "type": "string"
+          },
+          "code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "error_type": {
+            "type": "string"
+          },
+          "failure_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "http_status": {
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "page": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id",
+          "error_type",
+          "message",
+          "client_timestamp",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "ClientErrorReport": {
+        "description": "Client-side error report sent from UI to server for persistent logging",
+        "properties": {
+          "code": {
+            "description": "Error code if available",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "details": {
+            "description": "Additional error details (JSON)"
+          },
+          "error_type": {
+            "description": "Error type classification (e.g., \"Network\", \"Http\", \"Validation\", \"Server\")",
+            "type": "string"
+          },
+          "failure_code": {
+            "description": "Structured failure code as string",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "http_status": {
+            "description": "HTTP status code if applicable",
+            "format": "int32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "message": {
+            "description": "Error message (max 2000 chars enforced server-side)",
+            "type": "string"
+          },
+          "page": {
+            "description": "Current page/route where error occurred",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timestamp": {
+            "description": "ISO 8601 timestamp when error occurred",
+            "type": "string"
+          },
+          "user_agent": {
+            "description": "Browser user agent string",
+            "type": "string"
+          }
+        },
+        "required": [
+          "error_type",
+          "message",
+          "user_agent",
+          "timestamp"
+        ],
+        "type": "object"
+      },
+      "ClientErrorResponse": {
+        "description": "Response to client error report",
+        "properties": {
+          "error_id": {
+            "description": "Server-generated UUID for tracking this error",
+            "type": "string"
+          },
+          "received_at": {
+            "description": "ISO 8601 timestamp when error was received",
+            "type": "string"
+          }
+        },
+        "required": [
+          "error_id",
+          "received_at"
+        ],
+        "type": "object"
+      },
+      "ClientErrorStatsResponse": {
+        "description": "Response for error statistics endpoint",
+        "properties": {
+          "error_type_counts": {
+            "items": {
+              "$ref": "#/components/schemas/TypeCount"
+            },
+            "type": "array"
+          },
+          "errors_per_hour": {
+            "items": {
+              "$ref": "#/components/schemas/HourlyCount"
+            },
+            "type": "array"
+          },
+          "http_status_counts": {
+            "items": {
+              "$ref": "#/components/schemas/StatusCount"
+            },
+            "type": "array"
+          },
+          "total_count": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total_count",
+          "error_type_counts",
+          "http_status_counts",
+          "errors_per_hour"
+        ],
+        "type": "object"
+      },
+      "ClientErrorsListResponse": {
+        "description": "Response for list client errors endpoint",
+        "properties": {
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/ClientErrorItem"
+            },
+            "type": "array"
+          },
+          "total": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "errors",
+          "total"
+        ],
+        "type": "object"
+      },
       "ClusterDefinition": {
         "description": "Cluster definition within the semantic topology.",
         "properties": {
@@ -3849,6 +4141,138 @@
           "id",
           "description",
           "version"
+        ],
+        "type": "object"
+      },
+      "CodeMetricsRequest": {
+        "properties": {
+          "cpid": {
+            "type": "string"
+          },
+          "time_range": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "cpid",
+          "time_range"
+        ],
+        "type": "object"
+      },
+      "CodeMetricsResponse": {
+        "properties": {
+          "acceptance_rate": {
+            "format": "float",
+            "type": "number"
+          },
+          "acceptance_trend": {
+            "format": "float",
+            "type": "number"
+          },
+          "compile_success": {
+            "format": "float",
+            "type": "number"
+          },
+          "cpid": {
+            "type": "string"
+          },
+          "evidence_coverage": {
+            "format": "float",
+            "type": "number"
+          },
+          "follow_up_fixes_rate": {
+            "format": "float",
+            "type": "number"
+          },
+          "latency_p95_ms": {
+            "format": "float",
+            "type": "number"
+          },
+          "regression_rate": {
+            "format": "float",
+            "type": "number"
+          },
+          "router_overhead_pct": {
+            "format": "float",
+            "type": "number"
+          },
+          "secret_violations": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "test_pass_rate": {
+            "format": "float",
+            "type": "number"
+          },
+          "throughput_req_per_sec": {
+            "format": "float",
+            "type": "number"
+          },
+          "time_range": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "cpid",
+          "time_range",
+          "acceptance_rate",
+          "acceptance_trend",
+          "compile_success",
+          "test_pass_rate",
+          "regression_rate",
+          "evidence_coverage",
+          "follow_up_fixes_rate",
+          "secret_violations",
+          "latency_p95_ms",
+          "throughput_req_per_sec",
+          "router_overhead_pct"
+        ],
+        "type": "object"
+      },
+      "CodePolicy": {
+        "properties": {
+          "allow_auto_apply": {
+            "type": "boolean"
+          },
+          "max_patch_size": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "min_evidence_spans": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "path_allowlist": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "path_denylist": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "secret_patterns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "test_coverage_min": {
+            "format": "float",
+            "type": "number"
+          }
+        },
+        "required": [
+          "min_evidence_spans",
+          "allow_auto_apply",
+          "test_coverage_min",
+          "path_allowlist",
+          "path_denylist",
+          "secret_patterns",
+          "max_patch_size"
         ],
         "type": "object"
       },
@@ -4141,6 +4565,58 @@
           "message",
           "changed_files",
           "impacted_symbols"
+        ],
+        "type": "object"
+      },
+      "CompareMetricsRequest": {
+        "properties": {
+          "new_cpid": {
+            "type": "string"
+          },
+          "old_cpid": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "old_cpid",
+          "new_cpid"
+        ],
+        "type": "object"
+      },
+      "CompareMetricsResponse": {
+        "properties": {
+          "improvements": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "metrics_new": {
+            "$ref": "#/components/schemas/CodeMetricsResponse"
+          },
+          "metrics_old": {
+            "$ref": "#/components/schemas/CodeMetricsResponse"
+          },
+          "new_cpid": {
+            "type": "string"
+          },
+          "old_cpid": {
+            "type": "string"
+          },
+          "regressions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "old_cpid",
+          "new_cpid",
+          "metrics_old",
+          "metrics_new",
+          "improvements",
+          "regressions"
         ],
         "type": "object"
       },
@@ -5087,6 +5563,60 @@
           "input_format",
           "output_format",
           "config"
+        ],
+        "type": "object"
+      },
+      "CreateErrorAlertRuleRequest": {
+        "description": "Request to create an error alert rule",
+        "properties": {
+          "cooldown_minutes": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error_type_pattern": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "http_status_pattern": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "notification_channels": {},
+          "page_pattern": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "severity": {
+            "type": "string"
+          },
+          "threshold_count": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "threshold_window_minutes": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "threshold_count",
+          "threshold_window_minutes"
         ],
         "type": "object"
       },
@@ -7137,6 +7667,198 @@
         ],
         "type": "object"
       },
+      "ErrorAlertHistoryListResponse": {
+        "description": "List alert history response",
+        "properties": {
+          "alerts": {
+            "items": {
+              "$ref": "#/components/schemas/ErrorAlertHistoryResponse"
+            },
+            "type": "array"
+          },
+          "total": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "alerts",
+          "total"
+        ],
+        "type": "object"
+      },
+      "ErrorAlertHistoryResponse": {
+        "description": "Error alert history item",
+        "properties": {
+          "acknowledged_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "acknowledged_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error_count": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "id": {
+            "type": "string"
+          },
+          "resolution_note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resolved_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rule_id": {
+            "type": "string"
+          },
+          "rule_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sample_error_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "triggered_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "rule_id",
+          "tenant_id",
+          "triggered_at",
+          "error_count"
+        ],
+        "type": "object"
+      },
+      "ErrorAlertRuleResponse": {
+        "description": "Error alert rule for API responses",
+        "properties": {
+          "cooldown_minutes": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "created_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error_type_pattern": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "http_status_pattern": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "notification_channels": {},
+          "page_pattern": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "severity": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "threshold_count": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "threshold_window_minutes": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "updated_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id",
+          "name",
+          "threshold_count",
+          "threshold_window_minutes",
+          "cooldown_minutes",
+          "severity",
+          "is_active",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "ErrorAlertRulesListResponse": {
+        "description": "List alert rules response",
+        "properties": {
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/ErrorAlertRuleResponse"
+            },
+            "type": "array"
+          },
+          "total": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "rules",
+          "total"
+        ],
+        "type": "object"
+      },
       "ErrorResponse": {
         "description": "Common error response structure",
         "properties": {
@@ -7162,6 +7884,30 @@
           }
         },
         "required": [
+          "error"
+        ],
+        "type": "object"
+      },
+      "EventApplicationError": {
+        "description": "Details about a failed event application.",
+        "properties": {
+          "error": {
+            "description": "Error message describing the failure",
+            "type": "string"
+          },
+          "event_type": {
+            "description": "The event type that failed",
+            "type": "string"
+          },
+          "index": {
+            "description": "Index of the failed event in the batch",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "index",
+          "event_type",
           "error"
         ],
         "type": "object"
@@ -7681,6 +8427,17 @@
         ],
         "type": "object"
       },
+      "GetCodePolicyResponse": {
+        "properties": {
+          "policy": {
+            "$ref": "#/components/schemas/CodePolicy"
+          }
+        },
+        "required": [
+          "policy"
+        ],
+        "type": "object"
+      },
       "GetDashboardConfigResponse": {
         "description": "Response containing all widget configurations for a user",
         "properties": {
@@ -8057,6 +8814,22 @@
         "required": [
           "status",
           "version"
+        ],
+        "type": "object"
+      },
+      "HourlyCount": {
+        "properties": {
+          "count": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "hour": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "hour",
+          "count"
         ],
         "type": "object"
       },
@@ -11151,24 +11924,6 @@
         ],
         "type": "object"
       },
-      "NotImplementedResponse": {
-        "description": "Response for not-implemented endpoints",
-        "properties": {
-          "message": {
-            "description": "Description message",
-            "type": "string"
-          },
-          "status": {
-            "description": "Status indicating not implemented",
-            "type": "string"
-          }
-        },
-        "required": [
-          "status",
-          "message"
-        ],
-        "type": "object"
-      },
       "NotificationResponse": {
         "properties": {
           "content": {
@@ -11240,6 +11995,49 @@
         "required": [
           "total_count",
           "unread_count"
+        ],
+        "type": "object"
+      },
+      "OptimizerConfigSummary": {
+        "description": "Optimizer configuration summary for reports.",
+        "properties": {
+          "beta1": {
+            "description": "First moment decay (Adam/AdamW).",
+            "format": "float",
+            "type": "number"
+          },
+          "beta2": {
+            "description": "Second moment decay (Adam/AdamW).",
+            "format": "float",
+            "type": "number"
+          },
+          "epsilon": {
+            "description": "Numerical stability epsilon.",
+            "format": "float",
+            "type": "number"
+          },
+          "momentum": {
+            "description": "Momentum factor (SGD).",
+            "format": "float",
+            "type": "number"
+          },
+          "optimizer_type": {
+            "description": "Optimizer type (adam, adamw, sgd).",
+            "type": "string"
+          },
+          "weight_decay": {
+            "description": "Weight decay factor.",
+            "format": "float",
+            "type": "number"
+          }
+        },
+        "required": [
+          "optimizer_type",
+          "beta1",
+          "beta2",
+          "epsilon",
+          "weight_decay",
+          "momentum"
         ],
         "type": "object"
       },
@@ -12287,6 +13085,97 @@
         "required": [
           "id"
         ],
+        "type": "object"
+      },
+      "PreprocessCompression": {
+        "description": "Optional compression choices for cached preprocessing tensors.",
+        "enum": [
+          "none",
+          "q15"
+        ],
+        "type": "string"
+      },
+      "PreprocessOutputFeature": {
+        "description": "Output feature selection for preprocessing.",
+        "enum": [
+          "embedding",
+          "hidden_state_last",
+          "pooled"
+        ],
+        "type": "string"
+      },
+      "PreprocessingConfigV1": {
+        "description": "Optional preprocessing stage for tokenized inputs.",
+        "properties": {
+          "batch_size": {
+            "description": "Batch size hint for preprocessing (0 = no batching).",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "cache_dir": {
+            "description": "Optional cache directory override (defaults to dataset artifacts root).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "compression": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PreprocessCompression",
+                "description": "Optional feature compression to apply to cached tensors."
+              }
+            ]
+          },
+          "coreml_model_id": {
+            "description": "Optional CoreML model identifier (resolved via model cache).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "coreml_model_path": {
+            "description": "Optional CoreML model path for preprocessing (mlpackage or mlmodelc).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enabled": {
+            "description": "Explicitly enable preprocessing when set to true.",
+            "type": "boolean"
+          },
+          "layer_key": {
+            "description": "Layer key aligned to hidden_state_layer naming (optional override).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "max_seq_len": {
+            "description": "Maximum sequence length for preprocessing (0 = use input length).",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "output_feature": {
+            "$ref": "#/components/schemas/PreprocessOutputFeature",
+            "description": "Output feature selection (embedding/hidden_state_last/pooled)."
+          },
+          "seed": {
+            "description": "Optional seed to pin preprocessing determinism.",
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
         "type": "object"
       },
       "PromoteRequest": {
@@ -13511,6 +14400,18 @@
           "success",
           "message"
         ],
+        "type": "object"
+      },
+      "ResolveAlertRequest": {
+        "description": "Request to resolve an alert",
+        "properties": {
+          "resolution_note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
         "type": "object"
       },
       "ResourceUsageInfo": {
@@ -14803,20 +15704,6 @@
         },
         "required": [
           "items"
-        ],
-        "type": "object"
-      },
-      "RoutingHistoryResponse": {
-        "description": "Empty routing history response (placeholder)",
-        "properties": {
-          "entries": {
-            "description": "History entries (currently empty)",
-            "items": {},
-            "type": "array"
-          }
-        },
-        "required": [
-          "entries"
         ],
         "type": "object"
       },
@@ -16123,10 +17010,7 @@
           },
           "base_model_id": {
             "description": "Base model ID for provenance tracking",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": "string"
           },
           "base_version_id": {
             "description": "Base adapter version ID (for finetuning an existing version)",
@@ -16338,7 +17222,8 @@
         },
         "required": [
           "adapter_name",
-          "config"
+          "config",
+          "base_model_id"
         ],
         "type": "object"
       },
@@ -16362,6 +17247,23 @@
           "node_id",
           "hostname",
           "federation_role"
+        ],
+        "type": "object"
+      },
+      "StatusCount": {
+        "properties": {
+          "count": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "http_status": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "http_status",
+          "count"
         ],
         "type": "object"
       },
@@ -17310,6 +18212,18 @@
         },
         "type": "object"
       },
+      "TenantEventType": {
+        "description": "Supported event types for reference.",
+        "enum": [
+          "adapter.registered",
+          "stack.created",
+          "policy.updated",
+          "config.updated",
+          "plugin.config.updated",
+          "feature.flag.toggled"
+        ],
+        "type": "string"
+      },
       "TenantExecutionPolicy": {
         "description": "Tenant execution policy\n\nHierarchical policy containing determinism, routing, and golden verification\nconfiguration for a tenant. Loaded at inference time to enforce constraints.",
         "properties": {
@@ -17859,6 +18773,13 @@
             "description": "Backend policy when CoreML is preferred (coreml_only/coreml_else_fallback/auto)",
             "type": "string"
           },
+          "base_model_path": {
+            "description": "Path to base model for training. Required for correct adapter generation.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "batch_size": {
             "format": "int32",
             "minimum": 0,
@@ -17883,6 +18804,13 @@
             "minimum": 0,
             "type": "integer"
           },
+          "force_resume": {
+            "description": "Force resume even when pipeline/checkpoint compatibility checks fail.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "gradient_accumulation_steps": {
             "format": "int32",
             "minimum": 0,
@@ -17890,6 +18818,10 @@
               "integer",
               "null"
             ]
+          },
+          "ignore_index": {
+            "format": "int32",
+            "type": "integer"
           },
           "learning_rate": {
             "format": "float",
@@ -17912,9 +18844,25 @@
               "null"
             ]
           },
+          "pad_token_id": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
           "preferred_backend": {
             "description": "Optional GPU backend preference (coreml, mlx, metal, cpu)",
             "type": "string"
+          },
+          "preprocessing": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PreprocessingConfigV1",
+                "description": "Optional CoreML preprocessing stage configuration."
+              }
+            ]
           },
           "rank": {
             "format": "int32",
@@ -17934,6 +18882,17 @@
             },
             "type": "array"
           },
+          "training_contract_version": {
+            "type": "string"
+          },
+          "validation_split": {
+            "description": "Fraction of dataset to use for validation (0.0-0.5).",
+            "format": "float",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
           "warmup_steps": {
             "format": "int32",
             "minimum": 0,
@@ -17947,6 +18906,9 @@
           "rank",
           "alpha",
           "targets",
+          "training_contract_version",
+          "pad_token_id",
+          "ignore_index",
           "epochs",
           "learning_rate",
           "batch_size"
@@ -18795,6 +19757,205 @@
         ],
         "type": "object"
       },
+      "TrainingReportCurves": {
+        "description": "Curve metrics captured in a training report.",
+        "properties": {
+          "train_loss": {
+            "items": {
+              "format": "float",
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "train_ppl": {
+            "items": {
+              "format": "float",
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "val_loss": {
+            "items": {
+              "format": "float",
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "val_ppl": {
+            "items": {
+              "format": "float",
+              "type": "number"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "train_loss",
+          "train_ppl",
+          "val_loss",
+          "val_ppl"
+        ],
+        "type": "object"
+      },
+      "TrainingReportMetricDefinitions": {
+        "description": "Metric definitions to avoid \"mystery numbers\" in reports.",
+        "properties": {
+          "best_epoch": {
+            "type": "string"
+          },
+          "early_stopped": {
+            "type": "string"
+          },
+          "final_epoch": {
+            "type": "string"
+          },
+          "total_steps": {
+            "type": "string"
+          },
+          "total_tokens": {
+            "type": "string"
+          },
+          "train_loss": {
+            "type": "string"
+          },
+          "train_ppl": {
+            "type": "string"
+          },
+          "val_loss": {
+            "type": "string"
+          },
+          "val_ppl": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "train_loss",
+          "train_ppl",
+          "val_loss",
+          "val_ppl",
+          "best_epoch",
+          "final_epoch",
+          "early_stopped",
+          "total_steps",
+          "total_tokens"
+        ],
+        "type": "object"
+      },
+      "TrainingReportResponse": {
+        "description": "Training report response for report artifact retrieval.",
+        "properties": {
+          "report": {
+            "$ref": "#/components/schemas/TrainingReportV1",
+            "description": "Training report artifact."
+          },
+          "schema_version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "report"
+        ],
+        "type": "object"
+      },
+      "TrainingReportSummary": {
+        "description": "Summary metrics captured in a training report.",
+        "properties": {
+          "best_epoch": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "early_stopped": {
+            "type": "boolean"
+          },
+          "final_epoch": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "total_steps": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "total_tokens": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "best_epoch",
+          "final_epoch",
+          "early_stopped",
+          "total_steps",
+          "total_tokens"
+        ],
+        "type": "object"
+      },
+      "TrainingReportV1": {
+        "description": "Training report artifact (v1).",
+        "properties": {
+          "base_model_hash": {
+            "type": "string"
+          },
+          "base_model_id": {
+            "type": "string"
+          },
+          "curves": {
+            "$ref": "#/components/schemas/TrainingReportCurves"
+          },
+          "dataset_content_hash": {
+            "type": "string"
+          },
+          "dataset_id": {
+            "type": "string"
+          },
+          "generated_at_unix_ms": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "metric_definitions": {
+            "$ref": "#/components/schemas/TrainingReportMetricDefinitions"
+          },
+          "optimizer": {
+            "$ref": "#/components/schemas/OptimizerConfigSummary"
+          },
+          "pipeline_id": {
+            "type": "string"
+          },
+          "report_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "split_hash": {
+            "type": "string"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/TrainingReportSummary"
+          },
+          "training_config_hash": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "pipeline_id",
+          "dataset_id",
+          "dataset_content_hash",
+          "split_hash",
+          "base_model_id",
+          "base_model_hash",
+          "optimizer",
+          "training_config_hash",
+          "curves",
+          "summary",
+          "metric_definitions",
+          "generated_at_unix_ms"
+        ],
+        "type": "object"
+      },
       "TrainingStatus": {
         "description": "Training job status",
         "enum": [
@@ -19049,6 +20210,22 @@
         ],
         "type": "object"
       },
+      "TypeCount": {
+        "properties": {
+          "count": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "error_type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error_type",
+          "count"
+        ],
+        "type": "object"
+      },
       "UmaMemoryBreakdownResponse": {
         "description": "UMA memory breakdown response",
         "properties": {
@@ -19215,6 +20392,17 @@
         },
         "type": "object"
       },
+      "UpdateCodePolicyRequest": {
+        "properties": {
+          "policy": {
+            "$ref": "#/components/schemas/CodePolicy"
+          }
+        },
+        "required": [
+          "policy"
+        ],
+        "type": "object"
+      },
       "UpdateCollectionRequest": {
         "description": "Request to update collection binding for a session",
         "properties": {
@@ -19314,6 +20502,76 @@
           "trust_state",
           "overall_safety_status"
         ],
+        "type": "object"
+      },
+      "UpdateErrorAlertRuleRequest": {
+        "description": "Request to update an error alert rule",
+        "properties": {
+          "cooldown_minutes": {
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error_type_pattern": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "http_status_pattern": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "is_active": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "notification_channels": {},
+          "page_pattern": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "severity": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "threshold_count": {
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "threshold_window_minutes": {
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
         "type": "object"
       },
       "UpdateRepoRequest": {
@@ -22947,6 +24205,47 @@
         ]
       }
     },
+    "/v1/code-policy": {
+      "get": {
+        "operationId": "get_code_policy",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetCodePolicyResponse"
+                }
+              }
+            },
+            "description": "Code policy"
+          }
+        },
+        "tags": [
+          "system"
+        ]
+      },
+      "put": {
+        "operationId": "update_code_policy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCodePolicyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Code policy updated"
+          }
+        },
+        "tags": [
+          "system"
+        ]
+      }
+    },
     "/v1/code/commit-delta": {
       "post": {
         "operationId": "create_commit_delta",
@@ -26461,6 +27760,359 @@
         ]
       }
     },
+    "/v1/error-alerts/history": {
+      "get": {
+        "operationId": "list_error_alert_history",
+        "parameters": [
+          {
+            "description": "Only show unresolved alerts",
+            "in": "query",
+            "name": "unresolved_only",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Maximum number of alerts to return",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAlertHistoryListResponse"
+                }
+              }
+            },
+            "description": "Alert history retrieved"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "summary": "List error alert history",
+        "tags": [
+          "Error Alerts"
+        ]
+      }
+    },
+    "/v1/error-alerts/rules": {
+      "get": {
+        "operationId": "list_error_alert_rules",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAlertRulesListResponse"
+                }
+              }
+            },
+            "description": "Alert rules retrieved"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "summary": "List all error alert rules for the tenant",
+        "tags": [
+          "Error Alerts"
+        ]
+      },
+      "post": {
+        "operationId": "create_error_alert_rule",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateErrorAlertRuleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAlertRuleResponse"
+                }
+              }
+            },
+            "description": "Alert rule created"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "summary": "Create a new error alert rule",
+        "tags": [
+          "Error Alerts"
+        ]
+      }
+    },
+    "/v1/error-alerts/rules/{id}": {
+      "delete": {
+        "operationId": "delete_error_alert_rule",
+        "parameters": [
+          {
+            "description": "Alert rule ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Alert rule deleted"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Rule not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "summary": "Delete an error alert rule",
+        "tags": [
+          "Error Alerts"
+        ]
+      },
+      "get": {
+        "operationId": "get_error_alert_rule",
+        "parameters": [
+          {
+            "description": "Alert rule ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAlertRuleResponse"
+                }
+              }
+            },
+            "description": "Alert rule retrieved"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Rule not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "summary": "Get a single error alert rule by ID",
+        "tags": [
+          "Error Alerts"
+        ]
+      },
+      "put": {
+        "operationId": "update_error_alert_rule",
+        "parameters": [
+          {
+            "description": "Alert rule ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateErrorAlertRuleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAlertRuleResponse"
+                }
+              }
+            },
+            "description": "Alert rule updated"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Rule not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "summary": "Update an error alert rule",
+        "tags": [
+          "Error Alerts"
+        ]
+      }
+    },
+    "/v1/error-alerts/{id}/acknowledge": {
+      "post": {
+        "operationId": "acknowledge_error_alert",
+        "parameters": [
+          {
+            "description": "Alert history ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Alert acknowledged"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Alert not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "summary": "Acknowledge an alert",
+        "tags": [
+          "Error Alerts"
+        ]
+      }
+    },
+    "/v1/error-alerts/{id}/resolve": {
+      "post": {
+        "operationId": "resolve_error_alert",
+        "parameters": [
+          {
+            "description": "Alert history ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveAlertRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Alert resolved"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Alert not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "summary": "Resolve an alert",
+        "tags": [
+          "Error Alerts"
+        ]
+      }
+    },
     "/v1/evidence": {
       "get": {
         "operationId": "list_evidence",
@@ -27901,6 +29553,68 @@
           }
         },
         "summary": "Get adapter performance metrics",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/v1/metrics/code": {
+      "post": {
+        "operationId": "get_code_metrics",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CodeMetricsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodeMetricsResponse"
+                }
+              }
+            },
+            "description": "Code metrics"
+          }
+        },
+        "summary": "Get code metrics for dashboards",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/v1/metrics/compare": {
+      "post": {
+        "operationId": "compare_metrics",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompareMetricsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompareMetricsResponse"
+                }
+              }
+            },
+            "description": "Metrics comparison"
+          }
+        },
+        "summary": "Compare code metrics between two CPIDs",
         "tags": [
           "system"
         ]
@@ -29377,7 +31091,9 @@
         "requestBody": {
           "content": {
             "application/json": {
-              "schema": {}
+              "schema": {
+                "$ref": "#/components/schemas/RoutingDebugRequest"
+              }
             }
           },
           "required": true
@@ -29387,11 +31103,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/NotImplementedResponse"
+                  "$ref": "#/components/schemas/RoutingDebugResponse"
                 }
               }
             },
-            "description": "Routing debug info (not implemented)"
+            "description": "Routing debug info"
           },
           "500": {
             "content": {
@@ -29584,12 +31300,24 @@
     "/v1/routing/history": {
       "get": {
         "operationId": "get_routing_history",
+        "parameters": [
+          {
+            "description": "Maximum number of results (default: 50)",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RoutingHistoryResponse"
+                  "$ref": "#/components/schemas/RoutingDecisionsResponse"
                 }
               }
             },
@@ -30334,6 +32062,55 @@
         ]
       }
     },
+    "/v1/stream/client-errors": {
+      "get": {
+        "description": "Streams new client errors as they are reported in real-time.\nUses polling-based approach with delta queries.",
+        "operationId": "stream_client_errors",
+        "responses": {
+          "200": {
+            "description": "SSE stream of client errors"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_token": []
+          }
+        ],
+        "summary": "GET /v1/stream/client-errors - SSE stream of client errors",
+        "tags": [
+          "telemetry"
+        ]
+      }
+    },
+    "/v1/stream/workers": {
+      "get": {
+        "description": "Streams worker snapshots with replay support.",
+        "operationId": "workers_stream",
+        "parameters": [
+          {
+            "description": "Tenant ID for filtering events (defaults to caller tenant)",
+            "in": "query",
+            "name": "tenant",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SSE stream of worker status updates"
+          }
+        },
+        "summary": "SSE stream for worker status updates",
+        "tags": [
+          "system"
+        ]
+      }
+    },
     "/v1/streams/contacts": {
       "get": {
         "description": "Streams real-time contact discovery and update events as contacts are\ndiscovered during inference operations.\n\nCitation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md §2.6",
@@ -30627,6 +32404,273 @@
         "summary": "GET /v1/system/status",
         "tags": [
           "system"
+        ]
+      }
+    },
+    "/v1/telemetry/client-errors": {
+      "get": {
+        "operationId": "list_client_errors",
+        "parameters": [
+          {
+            "description": "Filter by error type",
+            "in": "query",
+            "name": "error_type",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter by HTTP status",
+            "in": "query",
+            "name": "http_status",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Filter by page pattern (glob)",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter by user ID",
+            "in": "query",
+            "name": "user_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "ISO 8601 start timestamp",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "ISO 8601 end timestamp",
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Max results (default 50)",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Pagination offset",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientErrorsListResponse"
+                }
+              }
+            },
+            "description": "Client errors list"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_token": []
+          }
+        ],
+        "summary": "GET /v1/telemetry/client-errors - List client errors with filtering",
+        "tags": [
+          "telemetry"
+        ]
+      },
+      "post": {
+        "operationId": "report_client_error",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClientErrorReport"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientErrorResponse"
+                }
+              }
+            },
+            "description": "Error report received"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_token": []
+          }
+        ],
+        "summary": "POST /v1/telemetry/client-errors - Report client error (authenticated)",
+        "tags": [
+          "telemetry"
+        ]
+      }
+    },
+    "/v1/telemetry/client-errors/anonymous": {
+      "post": {
+        "description": "Used for errors that occur before authentication (login failures, bootstrap errors).\nHas stricter rate limiting and validation.",
+        "operationId": "report_client_error_anonymous",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClientErrorReport"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientErrorResponse"
+                }
+              }
+            },
+            "description": "Error report received"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "429": {
+            "description": "Rate limited"
+          }
+        },
+        "summary": "POST /v1/telemetry/client-errors/anonymous - Report client error (pre-auth)",
+        "tags": [
+          "telemetry"
+        ]
+      }
+    },
+    "/v1/telemetry/client-errors/stats": {
+      "get": {
+        "operationId": "get_client_error_stats",
+        "parameters": [
+          {
+            "description": "Stats since timestamp (ISO 8601)",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientErrorStatsResponse"
+                }
+              }
+            },
+            "description": "Error statistics"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_token": []
+          }
+        ],
+        "summary": "GET /v1/telemetry/client-errors/stats - Get error statistics",
+        "tags": [
+          "telemetry"
+        ]
+      }
+    },
+    "/v1/telemetry/client-errors/{id}": {
+      "get": {
+        "operationId": "get_client_error",
+        "parameters": [
+          {
+            "description": "Error ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientErrorItem"
+                }
+              }
+            },
+            "description": "Client error details"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Error not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_token": []
+          }
+        ],
+        "summary": "GET /v1/telemetry/client-errors/{id} - Get a single client error by ID",
+        "tags": [
+          "telemetry"
         ]
       }
     },
@@ -30928,6 +32972,87 @@
           }
         },
         "summary": "Set default stack for a tenant",
+        "tags": [
+          "tenants"
+        ]
+      }
+    },
+    "/v1/tenants/{tenant_id}/events": {
+      "post": {
+        "description": "This endpoint allows applying configuration events to modify tenant state\ndeterministically. Events are recorded in the audit log for compliance.\n\nSupported event types:\n- `adapter.registered` - Register a new adapter\n- `stack.created` - Create an adapter stack\n- `policy.updated` - Update a policy\n- `config.updated` - Update tenant configuration\n- `plugin.config.updated` - Update plugin configuration\n- `feature.flag.toggled` - Toggle a feature flag",
+        "operationId": "apply_tenant_event",
+        "parameters": [
+          {
+            "description": "Tenant ID to apply event to",
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyEventRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyEventResponse"
+                }
+              }
+            },
+            "description": "Event applied successfully"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid event format"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden - insufficient permissions"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_token": []
+          }
+        ],
+        "summary": "Apply a single event to a tenant's state.",
         "tags": [
           "tenants"
         ]
@@ -32009,6 +34134,58 @@
           }
         },
         "summary": "Stream real-time training progress for a job",
+        "tags": [
+          "training"
+        ]
+      }
+    },
+    "/v1/training/jobs/{job_id}/report": {
+      "get": {
+        "operationId": "get_training_report",
+        "parameters": [
+          {
+            "description": "Training job ID",
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingReportResponse"
+                }
+              }
+            },
+            "description": "Training report artifact"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Access denied"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Training report not found"
+          }
+        },
+        "summary": "Get training report artifact for a job.",
         "tags": [
           "training"
         ]

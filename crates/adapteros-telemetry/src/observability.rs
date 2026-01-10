@@ -454,6 +454,7 @@ mod tests {
                     trust_state: false,
                 }),
                 model_type: adapteros_types::routing::RouterModelType::Dense,
+                backend_type: None,
             }],
             router_decision_chain: None,
             is_replay: false,

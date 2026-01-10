@@ -7,6 +7,7 @@ use crate::commands::training_common::{CommonTrainingArgs, TokenizerArg};
 use adapteros_config::{resolve_base_model_location, ModelConfig};
 use adapteros_core::{AosError, Result};
 use adapteros_db::Db;
+use adapteros_ingest_docs::training_gen::resolve_pad_token_id;
 use adapteros_ingest_docs::{
     generate_training_data_from_documents, load_tokenizer, ChunkingOptions, DocumentIngestor,
     TrainingGenConfig, TrainingStrategy,
@@ -455,6 +456,9 @@ impl TrainDocsArgs {
         // Get vocab size from tokenizer (with added tokens)
         let vocab_size = tokenizer.get_vocab_size(true);
         info!("Tokenizer vocab size: {}", vocab_size);
+        let pad_token_id = resolve_pad_token_id(&tokenizer)?;
+        let ignore_index = i32::try_from(pad_token_id)
+            .map_err(|_| AosError::Validation("pad_token_id exceeds i32 range".to_string()))?;
 
         let train_config = TrainingConfig {
             rank: self.common.rank,
@@ -464,6 +468,8 @@ impl TrainDocsArgs {
             epochs: self.common.epochs,
             hidden_dim: model_config.hidden_size,
             vocab_size,
+            pad_token_id,
+            ignore_index,
             base_model_path: Some(base_model_location.full_path.clone()),
             determinism: if self.deterministic || self.seed.is_some() {
                 Some(DeterminismConfig {
@@ -492,10 +498,7 @@ impl TrainDocsArgs {
                     checkpoint.epoch,
                     checkpoint.config.summary()
                 );
-                info!(
-                    "Checkpoint loss at resume: {:.4}",
-                    checkpoint.loss
-                );
+                info!("Checkpoint loss at resume: {:.4}", checkpoint.loss);
                 let epoch = checkpoint.epoch;
                 let result = trainer
                     .train_with_resume_state(&examples, |_| {}, Some(checkpoint))

@@ -17,10 +17,13 @@ use crate::training::service::TrainingService;
 // Zero/Empty Dataset Tests
 // ============================================================================
 
-fn make_example(input_tokens: Vec<u32>, target_tokens: Vec<u32>, row_id: u64) -> WorkerTrainingExample {
+fn make_example(
+    input_tokens: Vec<u32>,
+    target_tokens: Vec<u32>,
+    row_id: u64,
+) -> WorkerTrainingExample {
     let metadata = ExampleMetadataV1::new("test", row_id, "{}", 0);
-    let attention_mask =
-        WorkerTrainingExample::attention_mask_from_tokens(&input_tokens, 0);
+    let attention_mask = WorkerTrainingExample::attention_mask_from_tokens(&input_tokens, 0);
     WorkerTrainingExample::new(input_tokens, target_tokens, attention_mask, metadata)
 }
 
