@@ -117,6 +117,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::streaming::activity_stream,
         handlers::discovery::discovery_stream,
         handlers::discovery::contacts_stream,
+        handlers::streams::workers_stream,
         // Training handlers
         handlers::list_training_jobs,
         handlers::get_training_job,
@@ -124,6 +125,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::promote_version,
         handlers::cancel_training,
         handlers::retry_training,
+        handlers::get_preprocess_status,
         handlers::create_training_session,
         handlers::get_training_logs,
         handlers::get_training_metrics,
@@ -553,6 +555,8 @@ use utoipa_swagger_ui::SwaggerUi;
         // Training types
         crate::types::TrainingConfigRequest,
         crate::types::StartTrainingRequest,
+        crate::types::PreprocessStatusRequest,
+        crate::types::PreprocessStatusResponse,
         crate::types::TrainingJobResponse,
         crate::types::TrainingMetricsResponse,
         crate::types::TrainingTemplateResponse,
@@ -1868,6 +1872,7 @@ pub fn build(state: AppState) -> Router {
             "/v1/stream/adapters",
             get(handlers::streams::adapter_state_stream),
         )
+        .route("/v1/stream/workers", get(handlers::streams::workers_stream))
         .route(
             "/v1/stream/boot-progress",
             get(handlers::streaming::boot_progress_stream),

@@ -3,6 +3,15 @@
 //! This module contains the background task spawning logic for the boot sequence.
 //! It spawns background tasks that run throughout the server lifecycle.
 //!
+//! ## Orphaned Training Job Cleanup (ANCHOR, AUDIT, RECTIFY)
+//!
+//! Periodic cleanup of training jobs that have been running for an extended period
+//! without progress, indicating they are orphaned or stuck:
+//!
+//! - **ANCHOR**: Jobs running >24h without metrics are considered orphaned (configurable via `AOS_ORPHANED_JOB_THRESHOLD_HOURS`)
+//! - **AUDIT**: Logs `ORPHANED_TRAINING_JOB_CLEANED` counter and emits warning for each cleaned job
+//! - **RECTIFY**: Marks orphaned jobs as "failed" with reason "stale_no_progress_24h" for post-mortem analysis
+//!
 //! ## Dev Mode Optimization
 //!
 //! When dev bypass is enabled (`AOS_DEV_NO_AUTH=1` or `security.dev_bypass=true`),
@@ -12,7 +21,7 @@
 //! - WAL checkpoint (database health)
 //! - TTL cleanup (prevents DB bloat)
 //!
-//! ## Production Mode Tasks (8 tasks)
+//! ## Production Mode Tasks (9 tasks)
 //!
 //! 1. Status writer task (5s interval)
 //! 2. KV metrics alert monitor task (5s interval)
@@ -22,6 +31,7 @@
 //! 6. Upload session cleanup task (1h interval)
 //! 7. Security cleanup task (1h interval)
 //! 8. Telemetry bundle GC task (6h interval)
+//! 9. Orphaned training job cleanup task (1h interval)
 //!
 //! Each task uses the `BackgroundTaskSpawner` to integrate with the shutdown coordinator
 //! and task tracking system.
@@ -43,11 +53,20 @@ use adapteros_server_api::telemetry::MetricsRegistry;
 use adapteros_server_api::AppState;
 use adapteros_telemetry::AlertingEngine;
 use anyhow::Result;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::MissedTickBehavior;
 use tracing::{debug, error, info, warn};
+
+/// Counter for orphaned training jobs that have been cleaned up.
+static ORPHANED_TRAINING_JOB_CLEANED: AtomicU64 = AtomicU64::new(0);
+
+/// Returns the count of orphaned training jobs that have been marked as failed.
+pub fn orphaned_training_job_cleaned_count() -> u64 {
+    ORPHANED_TRAINING_JOB_CLEANED.load(Ordering::Relaxed)
+}
 
 /// Spawns all background tasks for the AdapterOS control plane.
 ///
@@ -907,6 +926,100 @@ pub async fn spawn_all_background_tasks(
             info!("WAL checkpoint task started (5 minute interval)");
         }
         shutdown_coordinator = spawner.into_coordinator();
+    }
+
+    // Spawn orphaned training job cleanup background task
+    // SKIPPED in dev mode - production maintenance only
+    // ANCHOR: Jobs running >24h without progress are considered orphaned
+    if !dev_mode {
+        let db_clone = db.clone();
+        let interval_secs = std::env::var("AOS_ORPHANED_JOB_CLEANUP_SECS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(3600); // 1 hour default
+        let threshold_hours = std::env::var("AOS_ORPHANED_JOB_THRESHOLD_HOURS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(24); // 24 hours default
+
+        if interval_secs > 0 {
+            let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator)
+                .with_task_tracker(Arc::clone(&background_tasks));
+            let mut shutdown_rx = spawner.coordinator().subscribe_shutdown();
+            if spawner
+                .spawn_optional(
+                    "Orphaned training job cleanup",
+                    async move {
+                        let mut interval =
+                            tokio::time::interval(Duration::from_secs(interval_secs));
+                        interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+                        let staleness_threshold = Duration::from_secs(threshold_hours * 3600);
+
+                        loop {
+                            tokio::select! {
+                                biased;
+                                _ = shutdown_rx.recv() => {
+                                    info!("Orphaned training job cleanup received shutdown signal, exiting gracefully");
+                                    break;
+                                }
+                                _ = interval.tick() => {
+                                    // ANCHOR: Find jobs that have been running too long without progress
+                                    match db_clone.find_orphaned_training_jobs(staleness_threshold).await {
+                                        Ok(orphaned) => {
+                                            if orphaned.is_empty() {
+                                                debug!("No orphaned training jobs found");
+                                            } else {
+                                                info!(
+                                                    count = orphaned.len(),
+                                                    threshold_hours = threshold_hours,
+                                                    "Found orphaned training jobs, marking as failed"
+                                                );
+
+                                                for job in &orphaned {
+                                                    // RECTIFY: Mark as failed with reason recorded in metadata
+                                                    let reason = "stale_no_progress";
+                                                    if let Err(e) = db_clone.mark_training_job_failed_orphaned(
+                                                        &job.id,
+                                                        reason,
+                                                        threshold_hours,
+                                                    ).await {
+                                                        warn!(
+                                                            job_id = %job.id,
+                                                            error = %e,
+                                                            "Failed to mark orphaned training job as failed"
+                                                        );
+                                                    } else {
+                                                        // AUDIT: Track cleanup metrics
+                                                        ORPHANED_TRAINING_JOB_CLEANED.fetch_add(1, Ordering::Relaxed);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            warn!(
+                                                error = %e,
+                                                "Failed to query for orphaned training jobs"
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "Orphaned training jobs may accumulate",
+                )
+                .is_ok()
+            {
+                info!(
+                    interval_secs = interval_secs,
+                    threshold_hours = threshold_hours,
+                    "Orphaned training job cleanup task started"
+                );
+            }
+            shutdown_coordinator = spawner.into_coordinator();
+        } else {
+            info!("Orphaned training job cleanup disabled via AOS_ORPHANED_JOB_CLEANUP_SECS=0");
+        }
     }
 
     // Spawn diagnostics writer if receiver is available

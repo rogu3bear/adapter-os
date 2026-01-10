@@ -7,9 +7,9 @@
 //! - Memory-efficient streaming
 //! - Resume token generation and validation
 
-use anyhow::{anyhow, Context, Result};
 use adapteros_secure_fs::path_policy::{canonicalize_strict, canonicalize_strict_in_allowed_roots};
 use adapteros_secure_fs::traversal::check_path_traversal;
+use anyhow::{anyhow, Context, Result};
 use blake3::Hasher;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -572,15 +572,18 @@ impl CompressionHandler {
                 ));
             }
 
-            let entry_path = entry.enclosed_name().map(|p| p.to_path_buf()).ok_or_else(|| {
-                let name = entry.name().to_string();
-                error!(
-                    original = %name,
-                    canonical = "<unavailable>",
-                    "Zip entry path rejected"
-                );
-                anyhow!("Zip entry contains invalid path: {}", name)
-            })?;
+            let entry_path = entry
+                .enclosed_name()
+                .map(|p| p.to_path_buf())
+                .ok_or_else(|| {
+                    let name = entry.name().to_string();
+                    error!(
+                        original = %name,
+                        canonical = "<unavailable>",
+                        "Zip entry path rejected"
+                    );
+                    anyhow!("Zip entry contains invalid path: {}", name)
+                })?;
             validate_archive_entry_path(&entry_path, entry.name())?;
 
             let output_path = canonical_output_dir.join(&entry_path);

@@ -25,7 +25,7 @@ use super::helpers::{
 };
 use super::progress::emit_progress;
 use crate::auth::Claims;
-use crate::error_helpers::{db_error, forbidden, not_found};
+use crate::error_helpers::{bad_request, db_error, forbidden, not_found};
 use crate::handlers::chunked_upload::FileValidator;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
@@ -207,6 +207,17 @@ impl ValidationError {
 
         parts.join(" ")
     }
+}
+
+/// Convert validation failures into a standardized HTTP error.
+pub fn validation_error_response(
+    message: impl Into<String>,
+    errors: &[ValidationError],
+) -> (StatusCode, Json<ErrorResponse>) {
+    let response = ErrorResponse::new(message)
+        .with_code("VALIDATION_ERROR")
+        .with_details(serde_json::json!({ "errors": errors }));
+    (StatusCode::BAD_REQUEST, Json(response))
 }
 
 impl std::fmt::Display for ValidationError {
@@ -1473,6 +1484,7 @@ pub async fn validate_dataset(
 #[cfg(test)]
 mod validation_tests {
     use super::*;
+    use axum::http::StatusCode;
     use tempfile::tempdir;
     use tokio::fs::File;
     use tokio::io::AsyncWriteExt;
@@ -1680,5 +1692,27 @@ mod validation_tests {
         let result = validator.validate_file(&path).await;
         assert!(result.is_valid);
         assert_eq!(result.files_validated, 1);
+    }
+
+    #[test]
+    fn validation_error_response_includes_details() {
+        let errors = vec![ValidationError::new(
+            ValidationSeverity::Error,
+            ValidationCategory::Schema,
+            "Missing required field: prompt",
+            "MISSING_FIELD",
+        )
+        .with_file("train.jsonl")
+        .with_line(3)
+        .with_field("prompt")];
+
+        let (status, Json(body)) = validation_error_response("Dataset validation failed", &errors);
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body.code, "VALIDATION_ERROR");
+        assert!(body.error.contains("Dataset validation failed"));
+        let details = body.details.expect("details present");
+        let serialized = serde_json::to_string(&details).expect("serialize details");
+        assert!(serialized.contains("MISSING_FIELD"));
+        assert!(serialized.contains("train.jsonl"));
     }
 }

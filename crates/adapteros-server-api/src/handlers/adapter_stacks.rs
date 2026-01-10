@@ -592,9 +592,9 @@ pub async fn update_stack(
     // Merge with existing values
     let name = req.name.unwrap_or(existing.name.clone());
     let description = req.description.or(existing.description.clone());
-    let adapter_ids: Vec<String> = req.adapter_ids.unwrap_or_else(|| {
-        serde_json::from_str(&existing.adapter_ids_json).unwrap_or_default()
-    });
+    let adapter_ids: Vec<String> = req
+        .adapter_ids
+        .unwrap_or_else(|| serde_json::from_str(&existing.adapter_ids_json).unwrap_or_default());
     let workflow_type = req
         .workflow_type
         .map(|w| format!("{:?}", w))
@@ -607,7 +607,8 @@ pub async fn update_stack(
 
     // Validate adapter base model compatibility if adapter_ids changed
     if adapter_ids_changed {
-        let _ = validate_stack_base_model_compatibility(&state.db, &tenant_id, &adapter_ids).await?;
+        let _ =
+            validate_stack_base_model_compatibility(&state.db, &tenant_id, &adapter_ids).await?;
     }
 
     info!(

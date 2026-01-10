@@ -1909,4 +1909,103 @@ mod tests {
 
         assert!(reason.recoverable);
     }
+
+    // ============ Download byte tracking tests ============
+
+    #[tokio::test]
+    async fn test_add_download_bytes() {
+        let manager = BootStateManager::new();
+
+        // Initial state should be zero
+        assert_eq!(manager.total_download_bytes(), 0);
+        assert_eq!(manager.total_download_mb(), 0);
+
+        // Add some bytes
+        manager.add_download_bytes(1024);
+        assert_eq!(manager.total_download_bytes(), 1024);
+
+        // Add more bytes
+        manager.add_download_bytes(2048);
+        assert_eq!(manager.total_download_bytes(), 3072);
+
+        // MB conversion should work correctly
+        manager.add_download_bytes(1_048_576); // 1 MB
+        assert_eq!(manager.total_download_mb(), 1);
+
+        manager.add_download_bytes(1_048_576); // Another MB
+        assert_eq!(manager.total_download_mb(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_download_mb_conversion() {
+        let manager = BootStateManager::new();
+
+        // Test various byte values and their MB conversions
+        manager.add_download_bytes(0);
+        assert_eq!(manager.total_download_mb(), 0);
+
+        // Just under 1 MB
+        let manager = BootStateManager::new();
+        manager.add_download_bytes(1_048_575);
+        assert_eq!(manager.total_download_mb(), 0);
+
+        // Exactly 1 MB
+        let manager = BootStateManager::new();
+        manager.add_download_bytes(1_048_576);
+        assert_eq!(manager.total_download_mb(), 1);
+
+        // 1.5 MB should round down to 1 MB
+        let manager = BootStateManager::new();
+        manager.add_download_bytes(1_048_576 + 524_288);
+        assert_eq!(manager.total_download_mb(), 1);
+
+        // 100 MB
+        let manager = BootStateManager::new();
+        manager.add_download_bytes(100 * 1024 * 1024);
+        assert_eq!(manager.total_download_mb(), 100);
+    }
+
+    #[tokio::test]
+    async fn test_download_bytes_persists_across_with_db() {
+        let manager = BootStateManager::new();
+
+        // Add some bytes
+        manager.add_download_bytes(50 * 1024 * 1024); // 50 MB
+        assert_eq!(manager.total_download_mb(), 50);
+
+        // Create attached manager with database
+        std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
+        let db = Arc::new(adapteros_db::Db::new_in_memory().await.unwrap());
+        let attached = manager.with_db(Arc::clone(&db));
+
+        // Download bytes should be shared between both managers
+        assert_eq!(attached.total_download_mb(), 50);
+
+        // Adding bytes via attached manager should reflect in original
+        attached.add_download_bytes(10 * 1024 * 1024); // 10 more MB
+        assert_eq!(attached.total_download_mb(), 60);
+        assert_eq!(manager.total_download_mb(), 60);
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_download_byte_updates() {
+        let manager = Arc::new(BootStateManager::new());
+
+        // Spawn 20 tasks that each add 1 MB
+        let mut handles = vec![];
+        for _ in 0..20 {
+            let m = Arc::clone(&manager);
+            let handle = tokio::spawn(async move {
+                m.add_download_bytes(1024 * 1024);
+            });
+            handles.push(handle);
+        }
+
+        for handle in handles {
+            handle.await.unwrap();
+        }
+
+        // All 20 MB should be accounted for (atomic operations)
+        assert_eq!(manager.total_download_mb(), 20);
+    }
 }

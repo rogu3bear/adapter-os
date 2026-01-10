@@ -4,14 +4,16 @@ use super::chunked::{expected_chunks, prepare_session_with_workspace};
 use super::fs_utils::ensure_dirs;
 use super::hashing::{hash_dataset_manifest, hash_file, normalize_filename, DatasetHashInput};
 use super::helpers::{
-    dataset_quota_limits, quota_error, MAX_FILE_COUNT, MAX_FILE_SIZE, MAX_TOTAL_SIZE,
+    dataset_quota_limits, path_policy_error, quota_error, MAX_FILE_COUNT, MAX_FILE_SIZE,
+    MAX_TOTAL_SIZE,
 };
 use super::paths::{resolve_dataset_root, DatasetPaths};
 use super::progress::emit_progress;
 use super::tenant::bind_dataset_to_tenant;
 use super::types::{InitiateChunkedUploadRequest, InitiateChunkedUploadResponse};
 use super::validation::{
-    CompositeValidator, FileExistsRule, FileExtensionRule, FileSizeRule, ValidationConfig,
+    validation_error_response, CompositeValidator, FileExistsRule, FileExtensionRule, FileSizeRule,
+    ValidationConfig,
 };
 use crate::auth::Claims;
 use crate::citations::build_dataset_index;
@@ -446,7 +448,10 @@ pub async fn upload_dataset(
         .map_err(|e| internal_error(format!("Failed to resolve canonical dataset path: {}", e)))?;
     ensure_dirs([canonical_dir.as_path()]).await?;
     let canonical_dir = canonicalize_strict_in_allowed_roots(&canonical_dir, &allowed_roots)
-        .map_err(|e| internal_error(format!("Dataset path rejected: {}", e)))?;
+        .map_err(|e| {
+            tracing::warn!(error = %e, path = %canonical_dir.display(), "Path policy rejection");
+            path_policy_error(&canonical_dir, e)
+        })?;
     let storage_path = canonical_dir.to_string_lossy().to_string();
 
     // Deduplicate by dataset hash within workspace (same tenant or admin only)
@@ -522,18 +527,17 @@ pub async fn upload_dataset(
             None,
             &pending.file_name,
         );
-        let candidate_path = storage.path_for(&key).map_err(|e| {
-            internal_error(format!("Failed to resolve storage path: {}", e))
-        })?;
+        let candidate_path = storage
+            .path_for(&key)
+            .map_err(|e| internal_error(format!("Failed to resolve storage path: {}", e)))?;
         let parent = candidate_path.parent().ok_or_else(|| {
             internal_error(format!(
                 "Dataset storage path has no parent: {}",
                 candidate_path.display()
             ))
         })?;
-        canonicalize_strict_in_allowed_roots(parent, &allowed_roots).map_err(|e| {
-            forbidden(&format!("Dataset storage path rejected: {}", e))
-        })?;
+        canonicalize_strict_in_allowed_roots(parent, &allowed_roots)
+            .map_err(|e| path_policy_error(parent, e))?;
         let location = storage
             .store_bytes(&key, &pending.data)
             .await
@@ -550,10 +554,7 @@ pub async fn upload_dataset(
             })?;
         if let Err(e) = canonicalize_strict_in_allowed_roots(&location.path, &allowed_roots) {
             let _ = storage.delete(&key).await;
-            return Err(forbidden(&format!(
-                "Stored dataset path escapes dataset root: {}",
-                e
-            )));
+            return Err(path_policy_error(&location.path, e));
         }
 
         emit_progress(
@@ -766,6 +767,13 @@ pub async fn upload_dataset(
                 .join("; "),
         )
     };
+
+    if !validation_result.is_valid {
+        return Err(validation_error_response(
+            "Dataset validation failed",
+            &validation_result.errors,
+        ));
+    }
 
     state
         .db

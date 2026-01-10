@@ -7,6 +7,7 @@ use adapteros_db::training_datasets::DatasetFile;
 use axum::http::StatusCode;
 use axum::Json;
 use std::collections::HashSet;
+use std::path::Path;
 use tokio::fs;
 use tokio::io::AsyncReadExt;
 
@@ -79,6 +80,20 @@ pub fn map_validation_errors(errors: Option<String>) -> Option<Vec<String>> {
     })
 }
 
+/// Build a standardized error for path policy violations so the UI can map it.
+pub fn path_policy_error(
+    path: &Path,
+    err: impl std::fmt::Display,
+) -> (StatusCode, Json<ErrorResponse>) {
+    let response = ErrorResponse::new("Path policy violation")
+        .with_code("PATH_POLICY_VIOLATION")
+        .with_details(serde_json::json!({
+            "path": path.to_string_lossy(),
+            "error": err.to_string(),
+        }));
+    (StatusCode::BAD_REQUEST, Json(response))
+}
+
 /// Validate file hash using streaming to avoid loading entire file into memory
 pub async fn validate_file_hash_streaming(
     file_path: &std::path::Path,
@@ -127,18 +142,19 @@ pub async fn ensure_dataset_file_within_root(
         dataset_root.join(file_path)
     };
     let allowed_roots = [dataset_root];
-    let canonical = canonicalize_strict_in_allowed_roots(&candidate, &allowed_roots).map_err(|e| {
-        let msg = e.to_string();
-        if msg.contains("allowed roots") || msg.contains("traversal") {
-            forbidden(&format!("Dataset file path rejected: {}", msg))
-        } else {
-            internal_error(format!(
-                "Failed to resolve dataset file path {}: {}",
-                candidate.display(),
-                msg
-            ))
-        }
-    })?;
+    let canonical =
+        canonicalize_strict_in_allowed_roots(&candidate, &allowed_roots).map_err(|e| {
+            let msg = e.to_string();
+            if msg.contains("allowed roots") || msg.contains("traversal") {
+                forbidden(&format!("Dataset file path rejected: {}", msg))
+            } else {
+                internal_error(format!(
+                    "Failed to resolve dataset file path {}: {}",
+                    candidate.display(),
+                    msg
+                ))
+            }
+        })?;
     Ok(canonical)
 }
 
@@ -586,6 +602,23 @@ pub fn spawn_tier2_safety_validation(state: AppState, dataset_version_id: String
             }
         }
     });
+}
+
+#[cfg(test)]
+mod path_policy_tests {
+    use super::*;
+
+    #[test]
+    fn path_policy_error_is_structured() {
+        let path = std::path::PathBuf::from("/tmp/../escape");
+        let (status, Json(err)) = path_policy_error(&path, "outside allowed roots");
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(err.code, "PATH_POLICY_VIOLATION");
+        let details = err.details.expect("details present");
+        let serialized = details.to_string();
+        assert!(serialized.contains("escape"));
+        assert!(serialized.contains("outside allowed roots"));
+    }
 }
 
 #[cfg(test)]

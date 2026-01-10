@@ -192,6 +192,14 @@ pub enum InferenceError {
     DeterminismError(String),
     /// Internal server error
     InternalError(String),
+    /// Duplicate request detected (idempotency violation)
+    ///
+    /// A request with the same request_id is already being processed.
+    /// This prevents duplicate work and ensures at-most-once semantics.
+    DuplicateRequest {
+        /// The request ID that is already in-flight
+        request_id: String,
+    },
 }
 
 impl std::fmt::Display for InferenceError {
@@ -259,6 +267,9 @@ impl std::fmt::Display for InferenceError {
             Self::ReplayError(msg) => write!(f, "Replay error: {}", msg),
             Self::DeterminismError(msg) => write!(f, "Determinism error: {}", msg),
             Self::InternalError(msg) => write!(f, "Internal error: {}", msg),
+            Self::DuplicateRequest { request_id } => {
+                write!(f, "Duplicate request: {} is already in-flight", request_id)
+            }
         }
     }
 }
@@ -291,6 +302,7 @@ impl InferenceError {
             Self::ReplayError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Self::DeterminismError(_) => StatusCode::BAD_REQUEST,
             Self::InternalError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::DuplicateRequest { .. } => StatusCode::CONFLICT,
         }
     }
 
@@ -318,6 +330,7 @@ impl InferenceError {
             Self::ReplayError(_) => "REPLAY_ERROR",
             Self::DeterminismError(_) => "DETERMINISM_ERROR",
             Self::InternalError(_) => "INTERNAL_ERROR",
+            Self::DuplicateRequest { .. } => "DUPLICATE_REQUEST",
         }
     }
 
@@ -360,6 +373,7 @@ impl InferenceError {
             Self::ReplayError(_) => None,
             Self::DeterminismError(_) => Some(FailureCode::PolicyDivergence),
             Self::InternalError(_) => None,
+            Self::DuplicateRequest { .. } => None,
         }
     }
 }

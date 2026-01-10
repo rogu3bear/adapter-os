@@ -216,7 +216,11 @@ pub async fn create_replay_session(
     let mut merkle_roots: Vec<String> = Vec::new();
 
     for bundle_id in &req.telemetry_bundle_ids {
-        if let Ok(Some(bundle)) = state.db.get_telemetry_bundle(&req.tenant_id, bundle_id).await {
+        if let Ok(Some(bundle)) = state
+            .db
+            .get_telemetry_bundle(&req.tenant_id, bundle_id)
+            .await
+        {
             merkle_roots.push(bundle.merkle_root_b3.clone());
         }
     }
@@ -267,7 +271,8 @@ pub async fn create_replay_session(
     let seed_global_b3 = format!("b3:{}", seed_hash.to_hex());
 
     // Generate RNG state with global nonce derived from seed
-    let global_nonce = u64::from_le_bytes(seed_hash.as_bytes()[0..8].try_into().unwrap_or([0u8; 8]));
+    let global_nonce =
+        u64::from_le_bytes(seed_hash.as_bytes()[0..8].try_into().unwrap_or([0u8; 8]));
     let rng_state = serde_json::json!({
         "global_nonce": global_nonce,
         "label": format!("replay:{}", session_id),
@@ -326,7 +331,8 @@ pub async fn create_replay_session(
         telemetry_bundle_ids_json: serde_json::to_string(&req.telemetry_bundle_ids)
             .map_err(internal_error)?,
         adapter_state_json: serde_json::to_string(&adapter_state).map_err(internal_error)?,
-        routing_decisions_json: serde_json::to_string(&routing_decisions).map_err(internal_error)?,
+        routing_decisions_json: serde_json::to_string(&routing_decisions)
+            .map_err(internal_error)?,
         inference_traces_json: None,
         signature: hex::encode(signature.to_bytes()),
         created_at: chrono::Utc::now().to_rfc3339(),
