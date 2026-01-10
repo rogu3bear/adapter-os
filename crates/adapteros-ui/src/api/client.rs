@@ -1021,6 +1021,72 @@ impl ApiClient {
         Ok(result)
     }
 
+    /// Generate a training dataset from a file using local inference.
+    ///
+    /// Accepts multipart form data with:
+    /// - `file`: The text file to generate from
+    /// - `name`: Dataset name (optional)
+    /// - `strategy`: "qa" or "summary" (default: qa)
+    /// - `chunk_size`: Chunk size in characters (default: 2000)
+    /// - `max_tokens`: Max tokens per inference (default: 512)
+    #[cfg(target_arch = "wasm32")]
+    pub async fn generate_dataset(
+        &self,
+        form_data: &web_sys::FormData,
+    ) -> ApiResult<adapteros_api_types::training::GenerateDatasetResponse> {
+        use wasm_bindgen::JsCast;
+        use wasm_bindgen_futures::JsFuture;
+
+        let url = format!("{}/v1/training/datasets/generate", self.base_url);
+
+        let opts = web_sys::RequestInit::new();
+        opts.set_method("POST");
+        opts.set_body(form_data);
+
+        let headers = web_sys::Headers::new()
+            .map_err(|_| ApiError::Network("Failed to create Headers".into()))?;
+        if let Some(token) = self.auth_token.read().ok().and_then(|t| t.clone()) {
+            headers
+                .set("Authorization", &format!("Bearer {}", token))
+                .map_err(|_| ApiError::Network("Failed to set Authorization header".into()))?;
+        }
+        opts.set_headers(&headers);
+
+        let window = web_sys::window().ok_or_else(|| ApiError::Network("No window".into()))?;
+        let request = web_sys::Request::new_with_str_and_init(&url, &opts)
+            .map_err(|_| ApiError::Network("Failed to create Request".into()))?;
+
+        let resp_value = JsFuture::from(window.fetch_with_request(&request))
+            .await
+            .map_err(|_| ApiError::Network("Generate dataset request failed".into()))?;
+        let resp: web_sys::Response = resp_value
+            .dyn_into()
+            .map_err(|_| ApiError::Network("Failed to cast Response".into()))?;
+
+        if !resp.ok() {
+            let status = resp.status();
+            let text = JsFuture::from(resp.text().unwrap())
+                .await
+                .ok()
+                .and_then(|v| v.as_string())
+                .unwrap_or_default();
+            return Err(ApiError::from_response(status, &text));
+        }
+
+        let json = JsFuture::from(
+            resp.json()
+                .map_err(|_| ApiError::Network("Failed to read response body".into()))?,
+        )
+        .await
+        .map_err(|_| ApiError::Network("Failed to parse response JSON".into()))?;
+
+        let result: adapteros_api_types::training::GenerateDatasetResponse =
+            serde_wasm_bindgen::from_value(json)
+                .map_err(|e| ApiError::Serialization(e.to_string()))?;
+
+        Ok(result)
+    }
+
     /// Fetch a normalized dataset manifest for a version.
     pub async fn get_dataset_manifest(
         &self,

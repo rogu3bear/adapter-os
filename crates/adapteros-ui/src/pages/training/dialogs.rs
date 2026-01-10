@@ -5,6 +5,7 @@
 use crate::api::{ApiClient, ApiError};
 use crate::components::{Button, ButtonVariant, FormField, Input};
 use crate::pages::training::dataset_wizard::{DatasetUploadOutcome, DatasetUploadWizard};
+use crate::pages::training::generate_wizard::{GenerateDatasetOutcome, GenerateDatasetWizard};
 use crate::validation::{rules, use_form_errors, validate_field, ValidationRule};
 use adapteros_api_types::TrainingJobResponse;
 use leptos::prelude::*;
@@ -27,6 +28,7 @@ pub fn CreateJobDialog(
     let category = RwSignal::new("code".to_string());
     let dataset_upload_message = RwSignal::new(None::<String>);
     let dataset_wizard_open = RwSignal::new(false);
+    let generate_wizard_open = RwSignal::new(false);
     let base_model_id = RwSignal::new(String::new());
     let preprocess_enabled = RwSignal::new(true);
     let coreml_model_id = RwSignal::new(String::new());
@@ -103,6 +105,18 @@ pub fn CreateJobDialog(
             upload_status.set(String::new());
             dataset_upload_message.set(Some(format!(
                 "Dataset {} ready ({} samples)",
+                outcome.dataset_id, outcome.sample_count
+            )));
+        }
+    };
+
+    let on_dataset_generated = {
+        let dataset_id = dataset_id.clone();
+        let dataset_upload_message = dataset_upload_message.clone();
+        move |outcome: GenerateDatasetOutcome| {
+            dataset_id.set(outcome.dataset_id.clone());
+            dataset_upload_message.set(Some(format!(
+                "Generated dataset {} ({} samples)",
                 outcome.dataset_id, outcome.sample_count
             )));
         }
@@ -560,16 +574,24 @@ pub fn CreateJobDialog(
                         <div class="space-y-2">
                             <div class="flex items-center justify-between">
                                 <div class="text-sm font-medium">"Training Data"</div>
-                                <Button
-                                    variant=ButtonVariant::Secondary
-                                    on_click=Callback::new(move |_| dataset_wizard_open.set(true))
-                                >
-                                    "Guided upload"
-                                </Button>
+                                <div class="flex gap-2">
+                                    <Button
+                                        variant=ButtonVariant::Secondary
+                                        on_click=Callback::new(move |_| generate_wizard_open.set(true))
+                                    >
+                                        "Generate from File"
+                                    </Button>
+                                    <Button
+                                        variant=ButtonVariant::Secondary
+                                        on_click=Callback::new(move |_| dataset_wizard_open.set(true))
+                                    >
+                                        "Guided upload"
+                                    </Button>
+                                </div>
                             </div>
                             <p class="text-xs text-muted-foreground">
-                                "Pick manifest + JSONL or structured CSV/Text with inline validation. "
-                                "Prompt/input and target/response are required; weight must be > 0."
+                                "Generate: use local inference to create Q&A or summary pairs from text files. "
+                                "Guided: pick manifest + JSONL or structured CSV/Text with inline validation."
                             </p>
                             {move || dataset_upload_message.get().map(|msg| view! {
                                 <div class="rounded-md border border-green-600/50 bg-green-100/40 p-2 text-xs text-foreground">
@@ -896,6 +918,11 @@ pub fn CreateJobDialog(
                     <DatasetUploadWizard
                         open=dataset_wizard_open
                         on_complete=Callback::new(on_dataset_uploaded.clone())
+                    />
+
+                    <GenerateDatasetWizard
+                        open=generate_wizard_open
+                        on_generated=Callback::new(on_dataset_generated.clone())
                     />
 
                     // Footer

@@ -6,6 +6,7 @@ mod components;
 pub mod dataset_wizard;
 mod detail;
 mod dialogs;
+pub mod generate_wizard;
 mod readiness;
 mod state;
 mod utils;
