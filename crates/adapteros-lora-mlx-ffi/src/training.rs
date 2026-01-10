@@ -148,7 +148,10 @@ pub fn mlx_cross_entropy_loss_gpu(
 ///
 /// # Returns
 /// Scalar loss value as a tensor
-pub fn mlx_mse_loss_gpu(predictions: &MLXFFITensor, targets: &MLXFFITensor) -> Result<MLXFFITensor> {
+pub fn mlx_mse_loss_gpu(
+    predictions: &MLXFFITensor,
+    targets: &MLXFFITensor,
+) -> Result<MLXFFITensor> {
     ffi_error::clear_ffi_error();
 
     let result = unsafe {
@@ -557,8 +560,7 @@ pub fn mlx_clip_grad_norm_gpu(grads: &mut [MLXFFITensor], max_norm: f32) -> f32 
         return 0.0;
     }
 
-    let mut grad_ptrs: Vec<*mut c_void> =
-        grads.iter().map(|g| g.as_ptr() as *mut c_void).collect();
+    let mut grad_ptrs: Vec<*mut c_void> = grads.iter().map(|g| g.as_ptr() as *mut c_void).collect();
 
     unsafe { mlx_clip_grad_norm(grad_ptrs.as_mut_ptr(), grads.len() as i32, max_norm) }
 }
@@ -574,8 +576,7 @@ pub fn mlx_zero_grad_gpu(grads: &mut [MLXFFITensor]) {
         return;
     }
 
-    let mut grad_ptrs: Vec<*mut c_void> =
-        grads.iter().map(|g| g.as_ptr() as *mut c_void).collect();
+    let mut grad_ptrs: Vec<*mut c_void> = grads.iter().map(|g| g.as_ptr() as *mut c_void).collect();
 
     unsafe { mlx_zero_grad(grad_ptrs.as_mut_ptr(), grads.len() as i32) };
 }

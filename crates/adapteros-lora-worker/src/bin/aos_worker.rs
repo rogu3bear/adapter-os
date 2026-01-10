@@ -177,27 +177,50 @@ fn register_with_cp(
 ///
 /// # Retry Behavior
 ///
-/// - Base delay: 1 second, backoff factor: 2x, max delay: 16 seconds
-/// - Maximum elapsed time: 120 seconds (deadline)
-/// - Logs attempt number, delay, and remaining budget on each retry
+/// Worker Registration Backoff (ANCHOR, AUDIT, RECTIFY)
+///
+/// - **ANCHOR**: Enforces max 10 attempts with exponential backoff up to 5-minute delay
+/// - **AUDIT**: Logs attempt number, delay, remaining budget, and consecutive failures
+/// - **RECTIFY**: Circuit breaker stops retries after `MAX_CONSECUTIVE_FAILURES`
+///
+/// Configuration:
+/// - Base delay: 1 second, backoff factor: 2x, max delay: 5 minutes
+/// - Maximum elapsed time: 10 minutes (deadline)
+/// - Circuit breaker: stops after 5 consecutive failures to prevent infinite retry loops
 /// - Non-transient errors (validation, rejection) fail immediately without retry
 fn register_with_cp_with_retry(
     params: &RegistrationParams,
 ) -> std::result::Result<RegistrationResult, String> {
     use std::time::{Duration, Instant};
 
+    // ANCHOR: Registration backoff constants aligned with critical_system strategy
     const BASE_DELAY: Duration = Duration::from_secs(1);
-    const MAX_DELAY: Duration = Duration::from_secs(16);
-    const MAX_ELAPSED: Duration = Duration::from_secs(120);
+    const MAX_DELAY: Duration = Duration::from_secs(300); // 5 minutes cap (plan requirement)
+    const MAX_ELAPSED: Duration = Duration::from_secs(600); // 10 minute deadline
     const BACKOFF_FACTOR: f64 = 2.0;
+    const MAX_CONSECUTIVE_FAILURES: u32 = 5; // Circuit breaker threshold
 
     let deadline = Instant::now() + MAX_ELAPSED;
     let mut attempt: u32 = 0;
     let mut delay = BASE_DELAY;
+    let mut consecutive_failures: u32 = 0; // RECTIFY: Circuit breaker counter
 
     loop {
         attempt += 1;
         let remaining = deadline.saturating_duration_since(Instant::now());
+
+        // RECTIFY: Circuit breaker - stop after too many consecutive failures
+        if consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
+            error!(
+                attempt = attempt,
+                consecutive_failures = consecutive_failures,
+                "Worker registration circuit breaker triggered - too many consecutive failures"
+            );
+            return Err(format!(
+                "Registration circuit breaker triggered after {} consecutive failures",
+                consecutive_failures
+            ));
+        }
 
         // Check if we've exceeded the deadline (after first attempt)
         if remaining.is_zero() && attempt > 1 {
@@ -213,12 +236,15 @@ fn register_with_cp_with_retry(
                 if attempt > 1 {
                     info!(
                         attempt = attempt,
+                        consecutive_failures = consecutive_failures,
                         "Worker registration succeeded after retry"
                     );
                 }
                 return Ok(result);
             }
             Err(err) => {
+                consecutive_failures += 1; // AUDIT: Track consecutive failures
+
                 // Check if error is transient (network/HTTP errors) or non-transient (validation/rejection)
                 let is_transient = err.contains("HTTP error")
                     || err.contains("connect")
@@ -231,6 +257,7 @@ fn register_with_cp_with_retry(
                     // Non-transient errors (validation, rejection) should fail immediately
                     warn!(
                         attempt = attempt,
+                        consecutive_failures = consecutive_failures,
                         error = %err,
                         "Worker registration failed with non-transient error, not retrying"
                     );
@@ -242,6 +269,7 @@ fn register_with_cp_with_retry(
                 if remaining.is_zero() {
                     error!(
                         attempt = attempt,
+                        consecutive_failures = consecutive_failures,
                         elapsed_ms = MAX_ELAPSED.as_millis() as u64,
                         error = %err,
                         "Worker registration failed: deadline exceeded"
@@ -252,9 +280,10 @@ fn register_with_cp_with_retry(
                     ));
                 }
 
-                // Log retry attempt with structured fields including remaining budget
+                // AUDIT: Log retry attempt with structured fields including consecutive failures
                 warn!(
                     attempt = attempt,
+                    consecutive_failures = consecutive_failures,
                     delay_ms = delay.as_millis() as u64,
                     remaining_budget_ms = remaining.as_millis() as u64,
                     error = %err,

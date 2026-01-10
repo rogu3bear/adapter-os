@@ -150,12 +150,19 @@ impl FromStr for BackendKind {
             "mlxbridge" | "subprocess" => BackendKind::MlxBridge,
             "metal" => BackendKind::Metal,
             "cpu" | "cpuonly" => BackendKind::CPU,
-            _ => {
-                return Err(AosError::Config(format!(
-                    "Invalid backend '{}'. Expected one of: {}",
-                    s,
-                    BackendKind::variants().join(", ")
-                )))
+            other => {
+                // Handle descriptive backend names like "MLX FFI (Apple Silicon)"
+                if other.starts_with("mlx ffi") || other.starts_with("mlxffi") {
+                    BackendKind::Mlx
+                } else if other.starts_with("mlx bridge") || other.starts_with("mlxbridge") {
+                    BackendKind::MlxBridge
+                } else {
+                    return Err(AosError::Config(format!(
+                        "Invalid backend '{}'. Expected one of: {}",
+                        s,
+                        BackendKind::variants().join(", ")
+                    )));
+                }
             }
         };
 
