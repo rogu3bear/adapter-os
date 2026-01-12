@@ -2673,6 +2673,7 @@ impl LifecycleManager {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn persist_model_acquisition(
         &self,
         acquisition_id: &str,

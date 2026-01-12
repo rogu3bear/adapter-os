@@ -87,7 +87,9 @@ impl JavaScriptParser {
             r#"
             (class_declaration
                 name: (identifier) @name
-                superclass: (identifier)? @superclass
+                (class_heritage
+                    (expression) @superclass
+                )?
             ) @class
             "#,
         )
@@ -149,13 +151,11 @@ impl JavaScriptParser {
         let object_method_query = Query::new(
             &javascript_lang,
             r#"
-            (object_expression
-                (pair
-                    key: (property_identifier) @method_name
-                    value: (function_expression
-                        parameters: (formal_parameters) @params
-                    ) @method
-                ) @pair
+            (object
+                (method_definition
+                    name: (property_identifier) @method_name
+                    parameters: (formal_parameters) @params
+                ) @method
             ) @object_with_methods
             "#,
         )

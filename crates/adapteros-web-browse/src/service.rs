@@ -922,7 +922,7 @@ fn deterministic_image_results(query: &str, max_results: u32) -> Vec<ImageSearch
         hasher.update(b"|");
         hasher.update(idx.to_string().as_bytes());
         let hash = hasher.finalize();
-        let hex = hex::encode(&hash);
+        let hex = hex::encode(hash);
 
         let width = 360 + (hash[0] as u32 % 5) * 80;
         let height = 240 + (hash[1] as u32 % 5) * 64;

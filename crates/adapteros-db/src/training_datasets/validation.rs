@@ -14,7 +14,7 @@ pub const VALID_FORMATS: &[&str] = &["patches", "jsonl", "txt", "custom", "parqu
 /// Valid dataset status values
 pub const VALID_STATUSES: &[&str] = &["uploaded", "processing", "ready", "failed"];
 
-/// Valid dataset categories (for row classification)
+/// Valid dataset categories (for row classification and source type)
 pub const VALID_CATEGORIES: &[&str] = &[
     "positive",
     "negative",
@@ -22,6 +22,8 @@ pub const VALID_CATEGORIES: &[&str] = &[
     "synthetic",
     "manual",
     "augmented",
+    "upload",
+    "codebase",
 ];
 
 /// Validate dataset format

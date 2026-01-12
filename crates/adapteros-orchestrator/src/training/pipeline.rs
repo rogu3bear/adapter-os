@@ -181,6 +181,7 @@ pub struct PipelineState {
 
 #[derive(Debug, Clone)]
 pub struct PipelinePaths {
+    #[allow(dead_code)]
     pub root_dir: PathBuf,
     pub state_path: PathBuf,
     pub receipts_dir: PathBuf,
@@ -385,10 +386,12 @@ impl TrainingPipeline {
             .find(|receipt| receipt.phase == phase)
     }
 
+    #[allow(dead_code)]
     pub fn pipeline_id(&self) -> Option<&str> {
         self.state.pipeline_id.as_deref()
     }
 
+    #[allow(dead_code)]
     pub fn receipt_v1(&self) -> &PipelineReceiptV1 {
         &self.receipt
     }
@@ -430,12 +433,10 @@ impl TrainingPipeline {
             .as_deref()
             .unwrap_or_default()
             .is_empty()
+            && !training_contract_version.is_empty()
         {
-            if !training_contract_version.is_empty() {
-                self.receipt.training_contract_version =
-                    Some(training_contract_version.to_string());
-                changed = true;
-            }
+            self.receipt.training_contract_version = Some(training_contract_version.to_string());
+            changed = true;
         }
         if self.receipt.pipeline_id.is_empty()
             && !self.receipt.dataset_content_hash.is_empty()

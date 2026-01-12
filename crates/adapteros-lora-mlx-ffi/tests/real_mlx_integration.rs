@@ -31,6 +31,7 @@ mod model_loading {
     use std::path::PathBuf;
 
     /// Get path to test fixtures
+    #[allow(dead_code)]
     fn fixtures_dir() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
     }
@@ -174,8 +175,8 @@ mod model_loading {
                 hidden, num_layers, num_heads, kv_heads, intermediate
             );
 
-            let config: ModelConfig =
-                serde_json::from_str(&config_json).expect(&format!("Should parse {} config", desc));
+            let config: ModelConfig = serde_json::from_str(&config_json)
+                .unwrap_or_else(|_| panic!("Should parse {} config", desc));
 
             assert_eq!(
                 config.hidden_size, hidden,
@@ -209,14 +210,8 @@ mod memory_tracking {
             memory::format_stats(&initial_stats)
         );
 
-        assert!(
-            initial_stats.total_bytes >= 0,
-            "Memory total should be non-negative"
-        );
-        assert!(
-            initial_stats.allocation_count >= 0,
-            "Allocation count should be non-negative"
-        );
+        // Note: total_bytes and allocation_count are usize, which is always >= 0
+        // by definition. No assertion needed for non-negativity.
     }
 
     #[test]
@@ -225,14 +220,14 @@ mod memory_tracking {
         let memory_mb = memory::bytes_to_mb(memory_bytes);
 
         println!("Current memory usage: {:.2} MB", memory_mb);
-        assert!(memory_bytes >= 0, "Memory usage should be non-negative");
+        // Note: memory_bytes is usize, which is always >= 0 by definition
     }
 
     #[test]
     fn test_memory_allocation_count() {
         let count = memory::allocation_count();
         println!("Active allocations: {}", count);
-        assert!(count >= 0, "Allocation count should be non-negative");
+        // Note: count is usize, which is always >= 0 by definition
     }
 
     #[test]
@@ -552,8 +547,6 @@ mod health_and_resilience {
 
 #[cfg(all(test, feature = "mlx"))]
 mod sampling {
-    use adapteros_lora_mlx_ffi::mlx_sample_token_safe;
-
     #[test]
     fn test_sample_token_validation_temperature() {
         // Note: MLXFFITensor creation would require real MLX library
@@ -586,7 +579,7 @@ mod sampling {
 
         for p in valid_top_ps {
             assert!(
-                p >= 0.0 && p <= 1.0,
+                (0.0..=1.0).contains(&p),
                 "top_p must be in [0.0, 1.0], got {}",
                 p
             );
@@ -625,7 +618,7 @@ mod sampling {
                 "Temperature must be non-negative"
             );
             assert!(
-                params.top_p >= 0.0 && params.top_p <= 1.0,
+                (0.0..=1.0).contains(&params.top_p),
                 "top_p must be in [0.0, 1.0]"
             );
             println!(
@@ -764,7 +757,7 @@ mod integration_scenarios {
         let model = MockMLXFFIModel::new(config);
 
         // Process multiple sequences
-        let sequences = vec![vec![1, 2, 3], vec![4, 5, 6], vec![7, 8, 9]];
+        let sequences = [vec![1, 2, 3], vec![4, 5, 6], vec![7, 8, 9]];
 
         for (idx, seq) in sequences.iter().enumerate() {
             let logits = model.forward(seq, 0).expect("Forward should succeed");

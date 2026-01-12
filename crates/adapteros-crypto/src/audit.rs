@@ -170,7 +170,9 @@ impl CryptoAuditEntry {
         if let Some(ref error) = self.error_message {
             bytes.extend_from_slice(error.as_bytes());
         }
-        bytes.extend_from_slice(self.metadata.to_string().as_bytes());
+        // Use canonical JSON (RFC 8785) for deterministic metadata hashing
+        let metadata_bytes = serde_jcs::to_vec(&self.metadata).unwrap_or_default();
+        bytes.extend_from_slice(&metadata_bytes);
         bytes
     }
 
@@ -199,7 +201,9 @@ impl CryptoAuditEntry {
             hasher.update(error.as_bytes());
         }
 
-        hasher.update(self.metadata.to_string().as_bytes());
+        // Use canonical JSON (RFC 8785) for deterministic metadata hashing
+        let metadata_bytes = serde_jcs::to_vec(&self.metadata).unwrap_or_default();
+        hasher.update(&metadata_bytes);
         hasher.update(&self.signature);
 
         hasher.finalize().as_bytes().to_vec()

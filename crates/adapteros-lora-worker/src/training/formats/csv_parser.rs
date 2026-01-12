@@ -74,12 +74,19 @@ pub fn parse_csv_file(path: &Path, mapping: &ColumnMapping) -> Result<Vec<RawSam
         validate_non_empty(&input, "input", &context)?;
         validate_non_empty(&target, "target", &context)?;
 
-        // Extract weight if present
+        // Extract weight if present (must be non-negative)
         let weight = if let Some(idx) = weight_idx {
-            record
+            let w = record
                 .get(idx)
                 .and_then(|s| s.parse::<f32>().ok())
-                .unwrap_or(1.0)
+                .unwrap_or(1.0);
+            if w < 0.0 {
+                return Err(AosError::Validation(format!(
+                    "Negative weight {} at {}. Weights must be >= 0.0",
+                    w, context
+                )));
+            }
+            w
         } else {
             1.0
         };
@@ -254,5 +261,18 @@ mod tests {
         let mapping = ColumnMapping::default();
         let samples = parse_csv_file(file.path(), &mapping).unwrap();
         assert_eq!(samples.len(), 1);
+    }
+
+    #[test]
+    fn test_negative_weight_rejected() {
+        let file = write_temp_csv("input,target,weight\na,b,-0.5\n");
+        let mapping = ColumnMapping {
+            input_col: "input".to_string(),
+            target_col: "target".to_string(),
+            weight_col: Some("weight".to_string()),
+        };
+        let result = parse_csv_file(file.path(), &mapping);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Negative weight"));
     }
 }

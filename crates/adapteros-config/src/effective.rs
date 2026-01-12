@@ -73,6 +73,8 @@ pub struct EffectiveConfig {
     pub self_hosting: SelfHostingSection,
     /// Diagnostics configuration
     pub diagnostics: DiagnosticsSection,
+    /// Uploads configuration
+    pub uploads: UploadsSection,
     /// Source tracking for each config key
     sources: HashMap<String, String>,
     /// Whether running in production mode
@@ -371,6 +373,19 @@ pub struct DiagnosticsSection {
     pub batch_timeout_ms: u64,
 }
 
+/// Uploads section configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UploadsSection {
+    /// Require explicit workspace_id for chunked uploads (reject "default" scope)
+    /// When false (default), empty workspace_id falls back to "default" with deprecation warning.
+    /// Set to true to enforce explicit workspace scoping.
+    pub require_explicit_workspace: bool,
+    /// Per-workspace hard quota in bytes (default: 5 GiB, 0 = no limit)
+    pub workspace_hard_quota_bytes: u64,
+    /// Per-workspace soft quota in bytes (default: 80% of hard quota, 0 = no limit)
+    pub workspace_soft_quota_bytes: u64,
+}
+
 /// Source of a configuration value (for debugging/observability)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ConfigValueSource {
@@ -425,6 +440,7 @@ impl EffectiveConfig {
         let health = Self::build_health_section(&config);
         let self_hosting = Self::build_self_hosting_section(&config);
         let diagnostics = Self::build_diagnostics_section(&config);
+        let uploads = Self::build_uploads_section(&config);
 
         let effective_config = Self {
             inner: config,
@@ -443,6 +459,7 @@ impl EffectiveConfig {
             health,
             self_hosting,
             diagnostics,
+            uploads,
             sources,
             is_production,
         };
@@ -1096,6 +1113,32 @@ impl EffectiveConfig {
             max_events_per_run,
             batch_size,
             batch_timeout_ms,
+        }
+    }
+
+    fn build_uploads_section(config: &DeterministicConfig) -> UploadsSection {
+        let require_explicit_workspace = config
+            .get("uploads.require_explicit_workspace")
+            .map(|v| v == "true")
+            .unwrap_or(false);
+
+        // Default workspace hard quota: 5 GiB
+        const DEFAULT_WORKSPACE_HARD_QUOTA: u64 = 5 * 1024 * 1024 * 1024;
+
+        let workspace_hard_quota_bytes = config
+            .get("uploads.workspace_hard_quota_bytes")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(DEFAULT_WORKSPACE_HARD_QUOTA);
+
+        let workspace_soft_quota_bytes = config
+            .get("uploads.workspace_soft_quota_bytes")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or((workspace_hard_quota_bytes as f64 * 0.8) as u64);
+
+        UploadsSection {
+            require_explicit_workspace,
+            workspace_hard_quota_bytes,
+            workspace_soft_quota_bytes,
         }
     }
 

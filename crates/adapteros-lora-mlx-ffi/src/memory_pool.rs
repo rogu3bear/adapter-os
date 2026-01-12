@@ -901,7 +901,7 @@ mod tests {
         let mut buffer = pool.allocate(1024).expect("Should allocate");
 
         assert!(!buffer.is_empty());
-        assert!(buffer.len() > 0);
+        assert!(!buffer.is_empty());
         assert!(buffer.size() > 0);
 
         // Test mutable access

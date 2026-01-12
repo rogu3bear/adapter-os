@@ -202,7 +202,6 @@ impl OutputWriter {
     /// Print a section header
     pub fn section(&self, title: impl AsRef<str>) {
         let title = title.as_ref();
-        #[cfg(test)]
         self.record(format!("section:{}", title));
         if !self.mode.is_quiet() && !self.mode.is_json() {
             println!("\n🔧 {}", title);
@@ -212,7 +211,6 @@ impl OutputWriter {
 
     /// Print an info message
     pub fn info(&self, msg: impl AsRef<str>) {
-        #[cfg(test)]
         self.record(format!("info:{}", msg.as_ref()));
         if !self.mode.is_quiet() && !self.mode.is_json() {
             println!("ℹ️  {}", msg.as_ref());
@@ -221,7 +219,6 @@ impl OutputWriter {
 
     /// Print key-value pair
     pub fn kv(&self, key: &str, value: &str) {
-        #[cfg(test)]
         self.record(format!("{key}:{value}"));
         if !self.mode.is_quiet() && !self.mode.is_json() {
             println!("  {}: {}", key, value);

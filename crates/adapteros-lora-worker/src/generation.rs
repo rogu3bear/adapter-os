@@ -209,6 +209,7 @@ impl Generator {
     /// * `max_tokens` - Maximum tokens to generate
     /// * `vocab_size` - Vocabulary size
     /// * `eos_token` - End-of-sequence token ID
+    #[allow(clippy::too_many_arguments)]
     pub fn generate_tokens(
         &mut self,
         backend: &mut dyn adapteros_lora_kernel_api::FusedKernels,

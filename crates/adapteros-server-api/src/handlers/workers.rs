@@ -631,7 +631,7 @@ pub async fn register_worker(
                         &req.tenant_id,
                         &req.plan_id,
                         &req.manifest_hash,
-                        &kernel_hashes_json,
+                        kernel_hashes_json,
                         &req.manifest_hash,
                     )
                     .await

@@ -365,8 +365,10 @@ impl SignalHandler for ContactDiscoveryHandler {
                 .await?;
 
                 // Log to telemetry (sampled at 5% per Telemetry Ruleset #9)
-                // Citation: Sampling pattern from crates/mplora-profiler/src/lib.rs
-                if rand::random::<f32>() < 0.05 || signal.priority == SignalPriority::High {
+                // Uses deterministic sampling based on trace_id for reproducibility
+                let should_sample = signal.priority == SignalPriority::High
+                    || adapteros_core::check_probability_by_id(trace_id.as_bytes(), 0.05);
+                if should_sample {
                     let timestamp = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .expect("System time before UNIX epoch")

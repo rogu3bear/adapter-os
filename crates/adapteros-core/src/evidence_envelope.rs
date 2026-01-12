@@ -37,7 +37,8 @@ use std::convert::TryFrom;
 /// - v1: Initial schema with telemetry, policy, inference scopes
 /// - v2: Added backend_used and backend_attestation_b3 to InferenceReceiptRef (PRD-DET-001)
 /// - v3: Added seed_lineage_hash to InferenceReceiptRef (PRD-DET-001: determinism hardening)
-pub const EVIDENCE_ENVELOPE_SCHEMA_VERSION: u8 = 3;
+/// - v4: Added adapter_training_lineage_digest for training data provenance (patent rectification)
+pub const EVIDENCE_ENVELOPE_SCHEMA_VERSION: u8 = 4;
 
 /// Evidence scope discriminator
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -184,6 +185,18 @@ pub struct InferenceReceiptRef {
     /// replay with different seed → different receipt digest.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seed_lineage_hash: Option<B3Hash>,
+
+    // --- Adapter training lineage (Patent rectification: v4) ---
+    /// BLAKE3 digest of adapter training lineage for data provenance verification.
+    ///
+    /// Computed from the combined hash of all adapters used in this inference,
+    /// including each adapter's training_dataset_hash_b3. Enables proof that
+    /// "this output came from adapter trained on dataset X".
+    ///
+    /// Formula: BLAKE3(adapter_id_1 || training_hash_1 || adapter_id_2 || training_hash_2 || ...)
+    /// Adapters are sorted by adapter_id for determinism.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapter_training_lineage_digest: Option<B3Hash>,
 }
 
 /// Unified evidence envelope with cryptographic chain linking
@@ -670,6 +683,7 @@ mod tests {
             backend_used: "metal".to_string(),
             backend_attestation_b3: Some(B3Hash::hash(b"metal-attestation")),
             seed_lineage_hash: None, // PRD-DET-001: PR-A
+            adapter_training_lineage_digest: None,
         }
     }
 

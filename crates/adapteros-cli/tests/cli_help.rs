@@ -50,6 +50,11 @@ mod tests {
 
     #[test]
     fn help_contains_examples_callgraph_export() {
+        if !cfg!(feature = "codegraph") {
+            eprintln!("Skipping codegraph help test: feature not enabled");
+            return;
+        }
+
         // Test the new git-style subcommand: `codegraph export`
         let output = Command::new("cargo")
             .args([
@@ -72,6 +77,11 @@ mod tests {
 
     #[test]
     fn help_contains_examples_secd_status() {
+        if !cfg!(feature = "secd-support") {
+            eprintln!("Skipping secd help test: feature not enabled");
+            return;
+        }
+
         // Test the new git-style subcommand: `secd status`
         let output = Command::new("cargo")
             .args(["run", "--bin", "aosctl", "--", "secd", "status", "--help"])

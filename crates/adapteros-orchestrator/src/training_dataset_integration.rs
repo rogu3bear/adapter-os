@@ -9,7 +9,7 @@
 
 use adapteros_config::resolve_tokenizer_path;
 use adapteros_core::{AosError, Result};
-use adapteros_db::{Db, ProtectedDb};
+use adapteros_db::ProtectedDb;
 use adapteros_ingest_docs::{
     default_ingest_options, generate_training_data, load_tokenizer, DocumentIngestor,
     TrainingExample as IngestTrainingExample, TrainingGenConfig, TrainingStrategy,

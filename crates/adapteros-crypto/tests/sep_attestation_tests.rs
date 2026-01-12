@@ -175,9 +175,9 @@ fn test_verify_attestation_with_certificates() {
         timestamp: 1234567890,
     };
 
-    // Verification should succeed (currently stub implementation)
+    // Mock chain should fail to parse
     let result = verify_attestation_chain(&attestation);
-    assert!(result.is_ok());
+    assert!(result.is_err());
 }
 
 #[test]

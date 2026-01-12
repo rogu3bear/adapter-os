@@ -15,7 +15,7 @@ compile_error!(
      Stub mode is for testing only."
 );
 
-use crate::export::validate_coreml_fusion;
+pub use crate::export::validate_coreml_fusion;
 use adapteros_core::{AosError, B3Hash, Result, Q15_GATE_DENOMINATOR};
 use adapteros_lora_kernel_api::{
     attestation, BackendHealth, BackendMetrics, FusedKernels, GpuBufferFingerprint, IoBuffers,
@@ -49,6 +49,12 @@ pub use ffi::{
 
 pub use hybrid::{HybridCoreMLBackend, LmHeadLoRA};
 pub use matmul::{axpy, matmul_accelerate, matvec_accelerate};
+
+pub use export::CoreMLFusionMetadata;
+pub use export::{
+    export_coreml_adapter, export_coreml_adapter_async, validate_coreml_ops,
+    validate_coreml_weights, validate_output_path, CoreMLExportOutcome, CoreMLExportRequest,
+};
 
 // TensorBridgeType is defined below in this module
 

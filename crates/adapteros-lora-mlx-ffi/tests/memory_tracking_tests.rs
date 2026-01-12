@@ -1,8 +1,7 @@
-/// Memory tracking tests for MLX backend
-///
-/// These tests verify that memory allocation and deallocation are properly
-/// tracked through the FFI interface.
-
+//! Memory tracking tests for MLX backend
+//!
+//! These tests verify that memory allocation and deallocation are properly
+//! tracked through the FFI interface.
 #[cfg(test)]
 mod memory_tracking_tests {
     use adapteros_lora_mlx_ffi::memory;
@@ -129,7 +128,7 @@ mod memory_api_interface_tests {
             allocation_count: 1,
         };
 
-        let stats2 = stats1.clone();
+        let stats2 = stats1;
         assert_eq!(stats1.total_bytes, stats2.total_bytes);
         assert_eq!(stats1.allocation_count, stats2.allocation_count);
     }
@@ -249,7 +248,7 @@ mod memory_boundary_tests {
     #[test]
     fn test_small_memory_values() {
         // Test with small values
-        assert_eq!(memory::bytes_to_mb(1), 0.00000095367431640625); // Exact 1 byte
+        assert_eq!(memory::bytes_to_mb(1), 1.0 / 1024.0 / 1024.0); // Exact 1 byte
 
         let one_kb = 1024;
         let mb = memory::bytes_to_mb(one_kb);

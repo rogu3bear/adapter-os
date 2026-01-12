@@ -62,13 +62,9 @@ fn find_model_dir(path: &Path) -> Option<PathBuf> {
         .collect();
     entries.sort();
 
-    for entry in entries {
-        if entry.join("config.json").is_file() {
-            return Some(entry);
-        }
-    }
-
-    None
+    entries
+        .into_iter()
+        .find(|entry| entry.join("config.json").is_file())
 }
 
 fn resolve_test_model_path() -> Option<PathBuf> {

@@ -85,7 +85,7 @@ const ADAPTER_COLUMNS_ALIAS_A: &str =
      a.content_hash_b3, a.metadata_json, a.provenance_json, a.repo_path, a.codebase_scope, \
      a.dataset_version_id, a.registration_timestamp, a.manifest_hash, \
      a.adapter_type, a.base_adapter_id, a.stream_session_id, a.versioning_threshold, a.coreml_package_hash, \
-     a.created_at, a.updated_at, a.active";
+     a.training_dataset_hash_b3, a.created_at, a.updated_at, a.active";
 
 tokio::task_local! {
     static TENANT_SCOPE_ACTIVE: bool;
@@ -721,6 +721,8 @@ pub struct AdapterRegistrationBuilder {
     stream_session_id: Option<String>,
     versioning_threshold: Option<i32>,
     coreml_package_hash: Option<String>,
+    // Training dataset hash for lineage binding (from migration 0282)
+    training_dataset_hash_b3: Option<String>,
 }
 
 /// Parameters for adapter registration
@@ -790,6 +792,10 @@ pub struct AdapterRegistrationParams {
     pub versioning_threshold: Option<i32>,
     /// BLAKE3 hash of fused CoreML package for deployment verification
     pub coreml_package_hash: Option<String>,
+    /// BLAKE3 hash of training dataset content at training time.
+    /// Used for receipt generation and lineage verification.
+    /// (from migration 0282)
+    pub training_dataset_hash_b3: Option<String>,
 }
 
 impl AdapterRegistrationBuilder {
@@ -1129,6 +1135,15 @@ impl AdapterRegistrationBuilder {
         self
     }
 
+    /// Set the training dataset hash for lineage binding (optional, from migration 0282)
+    pub fn training_dataset_hash_b3(
+        mut self,
+        training_dataset_hash_b3: Option<impl Into<String>>,
+    ) -> Self {
+        self.training_dataset_hash_b3 = training_dataset_hash_b3.map(|s| s.into());
+        self
+    }
+
     /// Build the adapter registration parameters
     pub fn build(mut self) -> Result<AdapterRegistrationParams> {
         let rank = self
@@ -1318,6 +1333,7 @@ impl AdapterRegistrationBuilder {
             stream_session_id: self.stream_session_id,
             versioning_threshold: self.versioning_threshold,
             coreml_package_hash: self.coreml_package_hash,
+            training_dataset_hash_b3: self.training_dataset_hash_b3,
         })
     }
 }
@@ -1447,6 +1463,11 @@ pub struct Adapter {
     /// BLAKE3 hash of fused CoreML package for deployment verification
     #[sqlx(default)]
     pub coreml_package_hash: Option<String>,
+    /// BLAKE3 hash of training dataset content at training time.
+    /// Used for receipt generation and lineage verification.
+    /// (from migration 0282)
+    #[sqlx(default)]
+    pub training_dataset_hash_b3: Option<String>,
 
     pub created_at: String,
     pub updated_at: String,
@@ -3578,8 +3599,8 @@ impl Db {
 
                     // SQL insert within transaction (don't commit yet)
                     sqlx::query(
-                        "INSERT INTO adapters (id, tenant_id, adapter_id, name, hash_b3, rank, alpha, lora_strength, tier, targets_json, acl_json, languages_json, framework, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, expires_at, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, aos_file_path, aos_file_hash, base_model_id, recommended_for_moe, manifest_schema_version, content_hash_b3, metadata_json, provenance_json, repo_path, codebase_scope, dataset_version_id, registration_timestamp, manifest_hash, version, lifecycle_state, current_state, pinned, memory_bytes, activation_count, load_state, active)
-                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, '1.0.0', 'draft', 'unloaded', 0, 0, 0, 'cold', 1)"
+                        "INSERT INTO adapters (id, tenant_id, adapter_id, name, hash_b3, rank, alpha, lora_strength, tier, targets_json, acl_json, languages_json, framework, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, expires_at, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, aos_file_path, aos_file_hash, base_model_id, recommended_for_moe, manifest_schema_version, content_hash_b3, metadata_json, provenance_json, repo_path, codebase_scope, dataset_version_id, registration_timestamp, manifest_hash, training_dataset_hash_b3, version, lifecycle_state, current_state, pinned, memory_bytes, activation_count, load_state, active)
+                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, '1.0.0', 'draft', 'unloaded', 0, 0, 0, 'cold', 1)"
                     )
                     .bind(&id)
                     .bind(&params.tenant_id)
@@ -3623,6 +3644,7 @@ impl Db {
                     .bind(&params.dataset_version_id)
                     .bind(&params.registration_timestamp)
                     .bind(&params.manifest_hash)
+                    .bind(&params.training_dataset_hash_b3)
                     .execute(&mut *tx)
                     .await
                     .map_err(|e| AosError::database(e.to_string()))?;
@@ -3700,8 +3722,8 @@ impl Db {
                 } else {
                     // Non-strict mode or SQL-only: use direct execute (auto-commit)
                     sqlx::query(
-                        "INSERT INTO adapters (id, tenant_id, adapter_id, name, hash_b3, rank, alpha, lora_strength, tier, targets_json, acl_json, languages_json, framework, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, expires_at, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, aos_file_path, aos_file_hash, base_model_id, recommended_for_moe, manifest_schema_version, content_hash_b3, metadata_json, provenance_json, repo_path, codebase_scope, dataset_version_id, registration_timestamp, manifest_hash, version, lifecycle_state, current_state, pinned, memory_bytes, activation_count, load_state, active)
-                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, '1.0.0', 'draft', 'unloaded', 0, 0, 0, 'cold', 1)"
+                        "INSERT INTO adapters (id, tenant_id, adapter_id, name, hash_b3, rank, alpha, lora_strength, tier, targets_json, acl_json, languages_json, framework, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, expires_at, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, aos_file_path, aos_file_hash, base_model_id, recommended_for_moe, manifest_schema_version, content_hash_b3, metadata_json, provenance_json, repo_path, codebase_scope, dataset_version_id, registration_timestamp, manifest_hash, training_dataset_hash_b3, version, lifecycle_state, current_state, pinned, memory_bytes, activation_count, load_state, active)
+                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, '1.0.0', 'draft', 'unloaded', 0, 0, 0, 'cold', 1)"
                     )
                     .bind(&id)
                     .bind(&params.tenant_id)
@@ -3745,6 +3767,7 @@ impl Db {
                     .bind(&params.dataset_version_id)
                     .bind(&params.registration_timestamp)
                     .bind(&params.manifest_hash)
+                    .bind(&params.training_dataset_hash_b3)
                     .execute(pool)
                     .await
                     .map_err(|e| AosError::database(e.to_string()))?;
@@ -5945,6 +5968,7 @@ impl Db {
                     stream_session_id: adapter.stream_session_id.clone(),
                     versioning_threshold: adapter.versioning_threshold,
                     coreml_package_hash: adapter.coreml_package_hash.clone(),
+                    training_dataset_hash_b3: adapter.training_dataset_hash_b3.clone(),
                 };
 
                 // Delete old KV entry then re-register and sync state/memory
@@ -6031,6 +6055,7 @@ impl Db {
                     stream_session_id: adapter.stream_session_id.clone(),
                     versioning_threshold: adapter.versioning_threshold,
                     coreml_package_hash: adapter.coreml_package_hash.clone(),
+                    training_dataset_hash_b3: adapter.training_dataset_hash_b3.clone(),
                 };
 
                 repo.register_adapter_kv(params).await.map_err(|e| {
@@ -7007,6 +7032,7 @@ impl Db {
             stream_session_id: source.stream_session_id.clone(),
             versioning_threshold: source.versioning_threshold,
             coreml_package_hash: source.coreml_package_hash.clone(),
+            training_dataset_hash_b3: source.training_dataset_hash_b3.clone(),
         };
 
         // Register the new adapter

@@ -873,6 +873,7 @@ mod tests {
             backend_used: "metal".to_string(),
             backend_attestation_b3: Some(B3Hash::hash(b"metal-attestation")),
             seed_lineage_hash: None, // PRD-DET-001: PR-A
+            adapter_training_lineage_digest: None,
         }
     }
 

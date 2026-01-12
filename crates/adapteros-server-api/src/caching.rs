@@ -130,7 +130,11 @@ fn add_cache_headers(mut response: Response, path: &str) -> Response {
     let headers = response.headers_mut();
 
     // Determine cache-ability based on path
-    let cache_control = if path.starts_with("/v1/metrics") || path.starts_with("/v1/infer") {
+    let cache_control = if path.ends_with(".html") || path == "/" || path.starts_with("/index.html")
+    {
+        // Never cache HTML shell; prevents stale index after deploy
+        "no-cache, no-store, must-revalidate"
+    } else if path.starts_with("/v1/metrics") || path.starts_with("/v1/infer") {
         // Don't cache dynamic endpoints
         "no-cache, no-store, must-revalidate"
     } else if path.starts_with("/v1/adapters") || path.starts_with("/v1/models") {

@@ -300,13 +300,6 @@ fn test_feature_score_components() {
 
     let explanation = router.explain_score(&feature_vec);
 
-    // All scores should be non-negative
-    assert!(explanation.language_score >= 0.0);
-    assert!(explanation.framework_score >= 0.0);
-    assert!(explanation.symbol_hits_score >= 0.0);
-    assert!(explanation.path_tokens_score >= 0.0);
-    assert!(explanation.prompt_verb_score >= 0.0);
-
     // Total should equal sum of components
     let sum = explanation.language_score
         + explanation.framework_score

@@ -9,9 +9,10 @@ use crate::{
 };
 use adapteros_core::{AosError, Result};
 use serde_json;
-use sqlx::{Row, SqlitePool};
+use sqlx::{sqlite::SqliteConnectOptions, Row, SqlitePool};
 use std::collections::BTreeMap;
 use std::path::Path;
+use std::str::FromStr;
 
 /// Database configuration
 #[derive(Debug, Clone)]
@@ -46,9 +47,11 @@ impl CodeGraphDb {
     /// Create a new database connection
     pub async fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path_str = path.as_ref().to_string_lossy().to_string();
-        let database_url = format!("sqlite:{}", path_str);
+        let options = SqliteConnectOptions::from_str(&format!("sqlite://{}", path_str))
+            .map_err(|e| AosError::Database(format!("Invalid SQLite path: {}", e)))?
+            .create_if_missing(true);
 
-        let pool = SqlitePool::connect(&database_url)
+        let pool = SqlitePool::connect_with(options)
             .await
             .map_err(|e| AosError::Database(format!("Failed to connect to database: {}", e)))?;
 

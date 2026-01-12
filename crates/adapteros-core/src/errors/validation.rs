@@ -90,7 +90,9 @@ pub enum AosValidationError {
     },
 
     /// Environment variable override with empty/whitespace value
-    #[error("Empty environment override: {variable} - set a value or unset the variable")]
+    #[error(
+        "Empty environment override (empty or whitespace): {variable} - set a value or unset the variable"
+    )]
     EmptyEnvOverride {
         /// The environment variable name
         variable: String,

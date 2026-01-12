@@ -143,7 +143,7 @@ impl GoParser {
             &go_lang,
             r#"
             (package_clause
-                name: (package_identifier) @name
+                (package_identifier) @name
             ) @package
             "#,
         )
@@ -704,7 +704,7 @@ mod tests {
 
         std::fs::write(
             &test_file,
-            "package main\n\nfunc testFunction() int {\n    return 42\n}",
+            "package main\n\nfunc TestFunction() int {\n    return 42\n}",
         )
         .expect("Writing test file should succeed");
 
@@ -716,7 +716,7 @@ mod tests {
         let function_symbol = result
             .symbols
             .iter()
-            .find(|s| s.name == "testFunction")
+            .find(|s| s.name == "TestFunction")
             .expect("Should find function symbol");
         assert_eq!(function_symbol.kind, SymbolKind::Function);
         assert_eq!(function_symbol.language, Language::Go);

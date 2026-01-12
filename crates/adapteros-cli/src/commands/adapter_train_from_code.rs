@@ -62,8 +62,8 @@ pub struct TrainFromCodeArgs {
     #[arg(long, default_value_t = 1.0)]
     pub positive_weight: f32,
 
-    /// Negative sample weight for abstention pairs
-    #[arg(long, default_value_t = -0.5)]
+    /// Abstention sample weight (must be non-negative; sample_role metadata classifies)
+    #[arg(long, default_value_t = 0.5)]
     pub negative_weight: f32,
 
     /// Skip registry registration
@@ -122,8 +122,10 @@ pub async fn run(args: &TrainFromCodeArgs, output: &OutputWriter) -> Result<()> 
         ));
     }
 
-    if args.negative_weight >= 0.0 {
-        output.warning("--negative-weight is non-negative; abstention training may be ineffective");
+    if args.negative_weight < 0.0 {
+        return Err(AosError::Validation(
+            "--negative-weight must be >= 0.0. Sample classification uses sample_role metadata, not weight sign.".to_string(),
+        ));
     }
 
     // Log any scope overrides for debugging/audit trail

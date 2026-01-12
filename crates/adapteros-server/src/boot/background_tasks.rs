@@ -21,7 +21,7 @@
 //! - WAL checkpoint (database health)
 //! - TTL cleanup (prevents DB bloat)
 //!
-//! ## Production Mode Tasks (9 tasks)
+//! ## Production Mode Tasks (10 tasks)
 //!
 //! 1. Status writer task (5s interval)
 //! 2. KV metrics alert monitor task (5s interval)
@@ -32,6 +32,7 @@
 //! 7. Security cleanup task (1h interval)
 //! 8. Telemetry bundle GC task (6h interval)
 //! 9. Orphaned training job cleanup task (1h interval)
+//! 10. Rate limiter eviction task (60s interval)
 //!
 //! Each task uses the `BackgroundTaskSpawner` to integrate with the shutdown coordinator
 //! and task tracking system.
@@ -329,6 +330,7 @@ pub async fn spawn_all_background_tasks(
     // KEPT in dev mode - prevents DB bloat
     {
         let db_clone = db.clone();
+        let tracker = Arc::clone(&background_tasks);
         let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator)
             .with_task_tracker(Arc::clone(&background_tasks));
         let mut shutdown_rx = spawner.coordinator().subscribe_shutdown();
@@ -342,6 +344,9 @@ pub async fn spawn_all_background_tasks(
                     const CIRCUIT_BREAKER_PAUSE_SECS: u64 = 1800; // 30 minutes
 
                     loop {
+                        // PRD-4.8: Heartbeat for stale task detection
+                        tracker.heartbeat("TTL cleanup");
+
                         // Check for shutdown before starting any work
                         tokio::select! {
                             biased;
@@ -460,58 +465,69 @@ pub async fn spawn_all_background_tasks(
     }
 
     // Spawn upload session cleanup background task
-    // SKIPPED in dev mode - production maintenance only
-    if !dev_mode {
+    // PRD Phase 3: Cleanup ALWAYS runs - dev mode reduces frequency, never disables
+    {
         let upload_manager = Arc::clone(&state.upload_session_manager);
+        // In dev mode with keep_partial_uploads, run cleanup less frequently (12 hours)
+        // but never disable it to prevent disk space issues
+        let default_interval = if dev_mode { 43200 } else { 3600 }; // 12h dev, 1h prod
         let interval_secs = std::env::var("AOS_UPLOAD_SESSION_CLEANUP_SECS")
             .ok()
             .and_then(|v| v.parse::<u64>().ok())
-            .unwrap_or(3600);
+            .map(|v| {
+                if v == 0 {
+                    warn!("AOS_UPLOAD_SESSION_CLEANUP_SECS=0 is deprecated; using minimum of 300s");
+                    300 // Minimum 5 minutes, never disable
+                } else {
+                    v
+                }
+            })
+            .unwrap_or(default_interval);
 
-        if interval_secs > 0 {
-            let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator)
-                .with_task_tracker(Arc::clone(&background_tasks));
-            let mut shutdown_rx = spawner.coordinator().subscribe_shutdown();
-            if spawner
-                .spawn_optional(
-                    "Upload session cleanup",
-                    async move {
-                        let mut interval =
-                            tokio::time::interval(Duration::from_secs(interval_secs));
-                        interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator)
+            .with_task_tracker(Arc::clone(&background_tasks));
+        let mut shutdown_rx = spawner.coordinator().subscribe_shutdown();
+        if spawner
+            .spawn_optional(
+                "Upload session cleanup",
+                async move {
+                    let mut interval =
+                        tokio::time::interval(Duration::from_secs(interval_secs));
+                    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
-                        loop {
-                            tokio::select! {
-                                biased;
-                                _ = shutdown_rx.recv() => {
-                                    info!("Upload session cleanup received shutdown signal, exiting gracefully");
-                                    break;
-                                }
-                                _ = interval.tick() => {
-                                    match upload_manager.cleanup_expired().await {
-                                        Ok(count) => {
-                                            if count > 0 {
-                                                info!(count, "Cleaned up expired upload sessions");
-                                            }
+                    loop {
+                        tokio::select! {
+                            biased;
+                            _ = shutdown_rx.recv() => {
+                                info!("Upload session cleanup received shutdown signal, exiting gracefully");
+                                break;
+                            }
+                            _ = interval.tick() => {
+                                match upload_manager.cleanup_expired().await {
+                                    Ok(count) => {
+                                        if count > 0 {
+                                            info!(count, "Cleaned up expired upload sessions");
                                         }
-                                        Err(e) => {
-                                            warn!(error = %e, "Failed to cleanup expired upload sessions");
-                                        }
+                                    }
+                                    Err(e) => {
+                                        warn!(error = %e, "Failed to cleanup expired upload sessions");
                                     }
                                 }
                             }
                         }
-                    },
-                    "Expired upload sessions may accumulate",
-                )
-                .is_ok()
-            {
-                info!("Upload session cleanup task started ({}s interval)", interval_secs);
-            }
-            shutdown_coordinator = spawner.into_coordinator();
-        } else {
-            info!("Upload session cleanup disabled via AOS_UPLOAD_SESSION_CLEANUP_SECS=0");
+                    }
+                },
+                "Expired upload sessions may accumulate",
+            )
+            .is_ok()
+        {
+            info!(
+                interval_secs,
+                dev_mode,
+                "Upload session cleanup task started"
+            );
         }
+        shutdown_coordinator = spawner.into_coordinator();
     }
 
     // Spawn security cleanup background task
@@ -884,6 +900,7 @@ pub async fn spawn_all_background_tasks(
     // KEPT in dev mode - database health
     {
         let db_clone = db.clone();
+        let tracker = Arc::clone(&background_tasks);
         let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator)
             .with_task_tracker(Arc::clone(&background_tasks));
         let mut shutdown_rx = spawner.coordinator().subscribe_shutdown();
@@ -895,6 +912,9 @@ pub async fn spawn_all_background_tasks(
                     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
                     loop {
+                        // PRD-4.8: Heartbeat for stale task detection
+                        tracker.heartbeat("WAL checkpoint");
+
                         tokio::select! {
                             biased;
                             _ = shutdown_rx.recv() => {
@@ -1022,6 +1042,58 @@ pub async fn spawn_all_background_tasks(
         }
     }
 
+    // Spawn rate limiter eviction task (60s interval)
+    // SKIPPED in dev mode - production cleanup only
+    if !dev_mode {
+        let rate_limiter = state.rate_limiter.clone();
+        let metrics_registry = Arc::clone(&metrics_registry);
+        let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator)
+            .with_task_tracker(Arc::clone(&background_tasks));
+        let mut shutdown_rx = spawner.coordinator().subscribe_shutdown();
+        if spawner
+            .spawn_optional(
+                "Rate limiter eviction",
+                async move {
+                    let mut interval = tokio::time::interval(Duration::from_secs(60));
+                    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+                    loop {
+                        tokio::select! {
+                            biased;
+                            _ = shutdown_rx.recv() => {
+                                info!("Rate limiter eviction received shutdown signal, exiting gracefully");
+                                break;
+                            }
+                            _ = interval.tick() => {
+                                let evicted = rate_limiter.evict_stale();
+                                if evicted > 0 {
+                                    debug!(
+                                        evicted_count = evicted,
+                                        remaining_buckets = rate_limiter.bucket_count(),
+                                        "Evicted stale rate limiter buckets"
+                                    );
+                                }
+                                // Record metrics for dashboards
+                                let metrics = rate_limiter.metrics();
+                                metrics_registry
+                                    .record_metric(
+                                        "rate_limiter_bucket_count".to_string(),
+                                        metrics.bucket_count as f64,
+                                    )
+                                    .await;
+                            }
+                        }
+                    }
+                },
+                "Stale rate limiter buckets will not be evicted",
+            )
+            .is_ok()
+        {
+            info!("Rate limiter eviction task started (60s interval)");
+        }
+        shutdown_coordinator = spawner.into_coordinator();
+    }
+
     // Spawn diagnostics writer if receiver is available
     if let Some(receiver) = diag_receiver {
         let persister = SqliteDiagPersister::new_arc(db.pool().clone());
@@ -1054,6 +1126,66 @@ pub async fn spawn_all_background_tasks(
             .is_ok()
         {
             info!("Diagnostics writer task started");
+        }
+        shutdown_coordinator = spawner.into_coordinator();
+    }
+
+    // PRD-4.8: Spawn stale task monitor (60s interval, 5min threshold)
+    // This monitors all other background tasks for health
+    {
+        let tracker = Arc::clone(&background_tasks);
+        let metrics_registry = Arc::clone(&metrics_registry);
+        let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator)
+            .with_task_tracker(Arc::clone(&background_tasks));
+        let mut shutdown_rx = spawner.coordinator().subscribe_shutdown();
+        if spawner
+            .spawn_optional(
+                "Stale task monitor",
+                async move {
+                    let mut interval = tokio::time::interval(Duration::from_secs(60));
+                    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+                    let stale_threshold = Duration::from_secs(300); // 5 minutes
+
+                    loop {
+                        tokio::select! {
+                            biased;
+                            _ = shutdown_rx.recv() => {
+                                info!("Stale task monitor received shutdown signal, exiting gracefully");
+                                break;
+                            }
+                            _ = interval.tick() => {
+                                let stale = tracker.stale_tasks(stale_threshold);
+                                if !stale.is_empty() {
+                                    warn!(
+                                        stale_tasks = ?stale,
+                                        threshold_secs = stale_threshold.as_secs(),
+                                        "Background tasks appear stale (no heartbeat within threshold)"
+                                    );
+                                    // Record metric for alerting
+                                    metrics_registry
+                                        .record_metric(
+                                            "background_tasks_stale_count".to_string(),
+                                            stale.len() as f64,
+                                        )
+                                        .await;
+                                } else {
+                                    // Record zero when all tasks are healthy
+                                    metrics_registry
+                                        .record_metric(
+                                            "background_tasks_stale_count".to_string(),
+                                            0.0,
+                                        )
+                                        .await;
+                                }
+                            }
+                        }
+                    }
+                },
+                "Stale task monitoring disabled",
+            )
+            .is_ok()
+        {
+            info!("Stale task monitor started (60s interval, 5min threshold)");
         }
         shutdown_coordinator = spawner.into_coordinator();
     }

@@ -1169,7 +1169,7 @@ impl From<crate::errors::AosValidationError> for AosError {
                 field, value, constraint
             )),
             AosValidationError::EmptyEnvOverride { variable, .. } => AosError::Config(format!(
-                "Empty environment override: {} - set a value or unset the variable",
+                "Empty environment override (empty or whitespace): {} - set a value or unset the variable",
                 variable
             )),
             AosValidationError::BlankSecret { variable, reason } => {

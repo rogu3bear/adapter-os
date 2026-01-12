@@ -898,6 +898,12 @@ impl MacKeychain {
         }
     }
 
+    fn lock_keys(&self) -> Result<std::sync::MutexGuard<'_, HashMap<String, KeyHandle>>> {
+        self.keys
+            .lock()
+            .map_err(|_| AosError::Crypto("Key cache lock poisoned".to_string()))
+    }
+
     /// Store Ed25519 private key in macOS Keychain using native APIs
     fn store_ed25519_private_key(
         &self,
@@ -905,12 +911,11 @@ impl MacKeychain {
         signing_key: &ed25519_dalek::SigningKey,
     ) -> Result<()> {
         let key_data = signing_key.to_bytes();
-        let key_data_b64 = base64::engine::general_purpose::STANDARD.encode(key_data);
 
         let account = format!("{}-ed25519", key_id);
         let label = format!("AdapterOS Ed25519 Key: {}", key_id);
 
-        self.store_keychain_item(&account, &label, key_data_b64.as_bytes())?;
+        self.store_keychain_item(&account, &label, &key_data)?;
 
         info!(key_id = %key_id, "Stored Ed25519 key in macOS Keychain");
         Ok(())
@@ -1002,12 +1007,10 @@ impl MacKeychain {
 
     /// Store symmetric key in macOS Keychain using native APIs
     fn store_symmetric_key(&self, key_id: &str, key_data: &[u8]) -> Result<()> {
-        let key_data_b64 = base64::engine::general_purpose::STANDARD.encode(key_data);
-
         let account = format!("{}-symmetric", key_id);
         let label = format!("AdapterOS Symmetric Key: {}", key_id);
 
-        self.store_keychain_item(&account, &label, key_data_b64.as_bytes())?;
+        self.store_keychain_item(&account, &label, key_data)?;
 
         info!(key_id = %key_id, "Stored symmetric key in macOS Keychain");
         Ok(())
@@ -1217,10 +1220,8 @@ impl KeyringImpl for MacKeychain {
                 );
 
                 // Cache handle in memory for faster lookups
-                self.keys
-                    .lock()
-                    .unwrap()
-                    .insert(key_id.to_string(), handle.clone());
+                let mut keys = self.lock_keys()?;
+                keys.insert(key_id.to_string(), handle.clone());
 
                 info!(key_id = %key_id, algorithm = ?alg, "Generated Ed25519 key and stored in macOS Keychain");
                 Ok(handle)
@@ -1240,10 +1241,8 @@ impl KeyringImpl for MacKeychain {
                     KeyHandle::new(format!("{}:{}", self.service_name, key_id), alg.clone());
 
                 // Cache handle in memory for faster lookups
-                self.keys
-                    .lock()
-                    .unwrap()
-                    .insert(key_id.to_string(), handle.clone());
+                let mut keys = self.lock_keys()?;
+                keys.insert(key_id.to_string(), handle.clone());
 
                 info!(key_id = %key_id, algorithm = ?alg, "Generated symmetric key and stored in macOS Keychain");
                 Ok(handle)
@@ -1357,7 +1356,7 @@ impl KeyringImpl for MacKeychain {
     async fn rotate_key(&self, key_id: &str) -> Result<RotationReceipt> {
         // Get previous handle and drop lock before await
         let previous_handle = {
-            let keys = self.keys.lock().unwrap();
+            let keys = self.lock_keys()?;
             keys.get(key_id)
                 .cloned()
                 .ok_or_else(|| AosError::Crypto(format!("Key not found: {}", key_id)))?
@@ -1385,7 +1384,7 @@ impl KeyringImpl for MacKeychain {
 
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .map_err(|e| AosError::Crypto(format!("System time before UNIX_EPOCH: {}", e)))?
             .as_secs();
 
         // Create receipt data to sign
@@ -1412,15 +1411,14 @@ impl KeyringImpl for MacKeychain {
     async fn attest(&self) -> Result<ProviderAttestation> {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .map_err(|e| AosError::Crypto(format!("System time before UNIX_EPOCH: {}", e)))?
             .as_secs();
 
         // Calculate policy hash from provider configuration and state
+        let keys_len = self.lock_keys()?.len();
         let policy_data = format!(
             "provider:macos-keychain|service:{}|timestamp:{}|keys:{}",
-            self.service_name,
-            timestamp,
-            self.keys.lock().unwrap().len()
+            self.service_name, timestamp, keys_len
         );
         use sha2::{Digest, Sha256};
         let policy_hash = format!("{:x}", Sha256::digest(&policy_data));
@@ -1514,6 +1512,12 @@ impl LinuxKeyring {
             keys: std::sync::Mutex::new(HashMap::new()),
             backend,
         }
+    }
+
+    fn lock_keys(&self) -> Result<std::sync::MutexGuard<'_, HashMap<String, KeyHandle>>> {
+        self.keys
+            .lock()
+            .map_err(|_| AosError::Crypto("Key cache lock poisoned".to_string()))
     }
 
     /// Detect which backend to use with sophisticated retry logic
@@ -2298,7 +2302,7 @@ impl LinuxKeyring {
         use tracing::warn;
         warn!(account = %account, "Linux keychain deletion not fully implemented");
         // Remove from in-memory cache
-        let mut keys = self.keys.lock().unwrap();
+        let mut keys = self.lock_keys()?;
         keys.retain(|k, _| !k.contains(account));
         Ok(())
     }
@@ -2339,10 +2343,8 @@ impl KeyringImpl for LinuxKeyring {
         };
 
         // Cache handle in memory for faster lookups
-        self.keys
-            .lock()
-            .unwrap()
-            .insert(key_id.to_string(), handle.clone());
+        let mut keys = self.lock_keys()?;
+        keys.insert(key_id.to_string(), handle.clone());
 
         info!(key_id = %key_id, algorithm = ?handle.algorithm, "Generated key and stored in Linux keyring");
         Ok(handle)
@@ -2452,7 +2454,7 @@ impl KeyringImpl for LinuxKeyring {
     async fn rotate_key(&self, key_id: &str) -> Result<RotationReceipt> {
         // Get previous handle and drop lock before await
         let previous_handle = {
-            let keys = self.keys.lock().unwrap();
+            let keys = self.lock_keys()?;
             keys.get(key_id)
                 .cloned()
                 .ok_or_else(|| AosError::Crypto(format!("Key not found: {}", key_id)))?
@@ -2480,7 +2482,7 @@ impl KeyringImpl for LinuxKeyring {
 
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .map_err(|e| AosError::Crypto(format!("System time before UNIX_EPOCH: {}", e)))?
             .as_secs();
 
         // Create receipt data to sign
@@ -2507,7 +2509,7 @@ impl KeyringImpl for LinuxKeyring {
     async fn attest(&self) -> Result<ProviderAttestation> {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .map_err(|e| AosError::Crypto(format!("System time before UNIX_EPOCH: {}", e)))?
             .as_secs();
 
         // Determine provider type based on backend
@@ -2517,12 +2519,10 @@ impl KeyringImpl for LinuxKeyring {
         };
 
         // Calculate policy hash from provider configuration and state
+        let keys_len = self.lock_keys()?.len();
         let policy_data = format!(
             "provider:{}|service:{}|timestamp:{}|keys:{}",
-            provider_type,
-            self.service_name,
-            timestamp,
-            self.keys.lock().unwrap().len()
+            provider_type, self.service_name, timestamp, keys_len
         );
         use sha2::{Digest, Sha256};
         let policy_hash = format!("{:x}", Sha256::digest(&policy_data));
@@ -2552,13 +2552,13 @@ impl KeyringImpl for LinuxKeyring {
         match self.backend {
             LinuxKeyringBackend::SecretService => {
                 // For secret-service, just verify we can access the keys map
-                let _guard = self.keys.lock().unwrap();
+                let _guard = self.lock_keys()?;
                 drop(_guard);
                 Ok(())
             }
             LinuxKeyringBackend::KernelKeyring => {
                 // For kernel keyring, verify we can access the keys map
-                let _guard = self.keys.lock().unwrap();
+                let _guard = self.lock_keys()?;
                 drop(_guard);
                 Ok(())
             }

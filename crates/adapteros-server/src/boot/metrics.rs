@@ -22,7 +22,7 @@ use anyhow::Result;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 /// Context containing initialized metrics components.
 pub struct MetricsContext {
@@ -102,6 +102,17 @@ pub async fn initialize_metrics(
                 metric_type: "gauge".to_string(),
                 labels: std::collections::HashMap::new(),
                 value: adapteros_telemetry::MetricValue::Gauge(0.0),
+            })
+            .await;
+
+        // PRD-4.8: Telemetry drop counter for backpressure observability
+        uds_exporter
+            .register_metric(adapteros_telemetry::MetricMetadata {
+                name: "adapteros_telemetry_dropped_total".to_string(),
+                help: "Total telemetry events dropped due to channel backpressure".to_string(),
+                metric_type: "counter".to_string(),
+                labels: std::collections::HashMap::new(),
+                value: adapteros_telemetry::MetricValue::Counter(0.0),
             })
             .await;
 
@@ -212,6 +223,11 @@ pub async fn initialize_metrics(
                                     let _ = exporter
                                         .set_gauge("adapteros_policy_override_total", adapteros_core::telemetry::policy_override_count() as f64)
                                         .await;
+
+                                    // PRD-4.8: Export telemetry drop counter
+                                    let _ = exporter
+                                        .set_gauge("adapteros_telemetry_dropped_total", adapteros_telemetry::dropped_event_count() as f64)
+                                        .await;
                                 }
                                 _ = kv_shutdown_rx.recv() => {
                                     info!("KV metrics exporter loop shutting down");
@@ -233,10 +249,13 @@ pub async fn initialize_metrics(
                 );
             }
             Err(e) => {
-                background_tasks.record_failed("UDS metrics exporter", &e.to_string(), false);
-                warn!(
+                // PRD-4.8: Make UDS bind failure louder - metrics loss is a critical observability gap
+                background_tasks.record_failed("UDS metrics exporter", &e.to_string(), true);
+                error!(
                     error = %e,
-                    "UDS metrics exporter disabled (socket unavailable)"
+                    socket_path = %socket_path.display(),
+                    "CRITICAL: UDS metrics exporter failed to bind - metrics export disabled. \
+                     Check socket permissions and ensure no other process is using the socket."
                 );
             }
         }

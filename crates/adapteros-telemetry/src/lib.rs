@@ -9,9 +9,20 @@ use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+
+/// PRD-4.8: Track dropped telemetry events for observability
+static DROPPED_EVENTS: AtomicU64 = AtomicU64::new(0);
+
+/// Returns the total count of dropped telemetry events since process start.
+///
+/// Use this for observability to detect backpressure issues.
+pub fn dropped_event_count() -> u64 {
+    DROPPED_EVENTS.load(Ordering::Relaxed)
+}
 
 pub mod alerting;
 pub mod bundle;
@@ -174,7 +185,10 @@ impl TelemetryWriter {
                 // Channel is full - drop event to maintain backpressure.
                 // Log warning but don't fail the caller; telemetry should
                 // never block or fail inference operations.
+                // PRD-4.8: Track dropped events for observability
+                let dropped = DROPPED_EVENTS.fetch_add(1, Ordering::Relaxed) + 1;
                 warn!(
+                    dropped_total = dropped,
                     "Telemetry channel full (capacity: 50,000), dropping event. \
                      Consider increasing channel capacity or reducing event volume."
                 );

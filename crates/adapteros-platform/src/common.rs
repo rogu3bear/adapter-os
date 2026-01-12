@@ -506,6 +506,9 @@ mod tests {
 
     #[test]
     fn test_expand_path_tilde() -> Result<()> {
+        // Ensure no literal '~' exists before test
+        assert!(!Path::new("~").exists(), "Literal '~' folder should not exist before test");
+
         // Test tilde expansion
         let expanded = PlatformUtils::expand_path("~/.cache/adapteros")?;
         assert!(expanded.is_absolute());
@@ -524,6 +527,9 @@ mod tests {
         // Test absolute paths pass through
         let absolute = PlatformUtils::expand_path("/var/run/test")?;
         assert_eq!(absolute, PathBuf::from("/var/run/test"));
+
+        // Final safety check: ensure none of these operations accidentally created a literal '~'
+        assert!(!Path::new("~").exists(), "Literal '~' folder was accidentally created during expansion tests");
 
         Ok(())
     }

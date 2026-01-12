@@ -476,11 +476,34 @@ impl TrainingService {
             .or_else(|| std::env::var("GIT_COMMIT").ok())
             .or_else(|| Some("dev".to_string()));
 
+        let correlation_id = if let Some(db) = self.db.as_ref() {
+            if let Some(dataset_id) = dataset_id.as_deref() {
+                db.get_dataset_correlation_id(dataset_id)
+                    .await
+                    .ok()
+                    .flatten()
+            } else if let Some(sel) = dataset_version_ids
+                .as_ref()
+                .and_then(|versions| versions.first())
+            {
+                db.get_dataset_correlation_id_from_version(&sel.dataset_version_id)
+                    .await
+                    .ok()
+                    .flatten()
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
         let mut job = TrainingJob::new(job_id.clone(), adapter_name.clone(), config.clone());
         job.template_id = template_id;
         job.repo_id = repo_id.clone();
         job.target_branch = target_branch.clone();
         job.base_version_id = base_version_id.clone();
+        job.correlation_id = Some(correlation_id.clone());
         if let Some(ref ver) = versioning {
             job.repo_name = Some(ver.repo_name.clone());
             job.target_branch = Some(ver.branch.clone());
@@ -571,6 +594,7 @@ impl TrainingService {
                     &config_json,
                     created_by,
                     dataset_id.as_deref(),
+                    Some(correlation_id.as_str()),
                     dataset_version_id.as_deref(),
                     job.dataset_version_ids.as_deref(),
                     base_model_id.as_deref(),

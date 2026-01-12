@@ -410,6 +410,8 @@ impl From<AdapterKv> for Adapter {
             stream_session_id: kv.stream_session_id,
             versioning_threshold: kv.versioning_threshold,
             coreml_package_hash: kv.coreml_package_hash,
+            // Training lineage (not stored in KV, set to None)
+            training_dataset_hash_b3: None,
         }
     }
 }
@@ -1409,6 +1411,7 @@ mod tests {
             stream_session_id: None,
             versioning_threshold: None,
             coreml_package_hash: None,
+            training_dataset_hash_b3: None,
         };
 
         // Convert to KV (models::AdapterKv uses same types as SQL Adapter)
@@ -1505,6 +1508,7 @@ mod tests {
                 stream_session_id: None,
                 versioning_threshold: None,
                 coreml_package_hash: None,
+                training_dataset_hash_b3: None,
             },
             Adapter {
                 id: "a".into(),
@@ -1576,6 +1580,7 @@ mod tests {
                 stream_session_id: None,
                 versioning_threshold: None,
                 coreml_package_hash: None,
+                training_dataset_hash_b3: None,
             },
         ];
 

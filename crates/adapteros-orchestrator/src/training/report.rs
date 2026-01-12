@@ -17,6 +17,7 @@ pub(crate) fn training_report_path(artifacts_root: &Path, job_id: &str) -> PathB
         .join("report.json")
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn write_training_report(
     artifacts_root: &Path,
     pipeline_id: &str,
@@ -67,6 +68,7 @@ pub(crate) fn write_training_report(
     Ok(report_path)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_training_report(
     pipeline_id: &str,
     dataset_id: &str,

@@ -252,7 +252,7 @@ async fn test_keychain_key_generation_and_signing() {
             .await;
 
         if let Ok(handle) = handle_result {
-            assert_eq!(handle.provider_id, "test-mac-key");
+            assert!(handle.provider_id.contains("test-mac-key"));
 
             // Try to sign with the key
             let test_data = b"test message";

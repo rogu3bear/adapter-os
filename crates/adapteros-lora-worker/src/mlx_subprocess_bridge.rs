@@ -1702,7 +1702,7 @@ mod tests {
     #[test]
     fn test_bridge_creation_valid_path() {
         // This test requires a valid model path
-        let model_path = PathBuf::from("/tmp/test_mlx_model");
+        let model_path = std::env::temp_dir().join("test_mlx_model");
         std::fs::create_dir_all(&model_path).ok();
 
         let result = MLXSubprocessBridge::new(model_path.clone(), 32000);
@@ -1722,7 +1722,7 @@ mod tests {
 
     #[test]
     fn test_bridge_with_custom_config() {
-        let model_path = PathBuf::from("/tmp/test_mlx_config");
+        let model_path = std::env::temp_dir().join("test_mlx_config");
         std::fs::create_dir_all(&model_path).ok();
 
         let config = MlxBridgeConfig {

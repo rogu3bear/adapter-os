@@ -40,6 +40,12 @@ pub struct RouterEventDigest {
     /// BLAKE3 hash of the policy mask applied (if any)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub policy_mask_digest_b3: Option<B3Hash>,
+    /// BLAKE3 hashes of training datasets for each adapter in adapter_indices.
+    /// Parallel array: adapter_training_digests[i] corresponds to adapter_indices[i].
+    /// Enables verification that routing decisions were made using adapters
+    /// with specific training provenance. (Patent rectification)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adapter_training_digests: Option<Vec<B3Hash>>,
     /// Hash chain link to previous decision
     #[serde(skip_serializing_if = "Option::is_none")]
     pub previous_hash: Option<B3Hash>,
@@ -63,6 +69,31 @@ impl RouterEventDigest {
             gates_q15,
             entropy_q15,
             policy_mask_digest_b3,
+            adapter_training_digests: None,
+            previous_hash,
+        }
+    }
+
+    /// Create a router event digest with training provenance.
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_training_lineage(
+        step: usize,
+        input_token_id: Option<u32>,
+        adapter_indices: Vec<u16>,
+        gates_q15: Vec<i16>,
+        entropy_q15: i16,
+        policy_mask_digest_b3: Option<B3Hash>,
+        adapter_training_digests: Option<Vec<B3Hash>>,
+        previous_hash: Option<B3Hash>,
+    ) -> Self {
+        Self {
+            step,
+            input_token_id,
+            adapter_indices,
+            gates_q15,
+            entropy_q15,
+            policy_mask_digest_b3,
+            adapter_training_digests,
             previous_hash,
         }
     }
@@ -116,6 +147,38 @@ impl DecisionChainBuilder {
             gates_q15,
             entropy_q15,
             policy_mask_digest_b3,
+            self.last_hash,
+        );
+
+        // Update the hash chain
+        self.last_hash = Some(event.hash());
+        self.events.push(event);
+    }
+
+    /// Add a router decision event with training lineage to the chain.
+    ///
+    /// The event's `previous_hash` will be set to the last event's hash
+    /// to maintain the hash chain. Training digests enable verification
+    /// of which training data influenced the routing decision.
+    #[allow(clippy::too_many_arguments)]
+    pub fn push_event_with_training(
+        &mut self,
+        step: usize,
+        input_token_id: Option<u32>,
+        adapter_indices: Vec<u16>,
+        gates_q15: Vec<i16>,
+        entropy_q15: i16,
+        policy_mask_digest_b3: Option<B3Hash>,
+        adapter_training_digests: Option<Vec<B3Hash>>,
+    ) {
+        let event = RouterEventDigest::with_training_lineage(
+            step,
+            input_token_id,
+            adapter_indices,
+            gates_q15,
+            entropy_q15,
+            policy_mask_digest_b3,
+            adapter_training_digests,
             self.last_hash,
         );
 

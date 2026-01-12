@@ -58,8 +58,8 @@ impl RustParser {
             &rust_lang,
             r#"
             (function_item
+                (visibility_modifier)? @visibility
                 name: (identifier) @name
-                visibility_modifier: (visibility_modifier)? @visibility
                 parameters: (parameters) @params
                 return_type: (type_identifier)? @return_type
             ) @function
@@ -71,8 +71,8 @@ impl RustParser {
             &rust_lang,
             r#"
             (struct_item
+                (visibility_modifier)? @visibility
                 name: (type_identifier) @name
-                visibility_modifier: (visibility_modifier)? @visibility
             ) @struct
             "#,
         )
@@ -82,8 +82,8 @@ impl RustParser {
             &rust_lang,
             r#"
             (trait_item
+                (visibility_modifier)? @visibility
                 name: (type_identifier) @name
-                visibility_modifier: (visibility_modifier)? @visibility
             ) @trait
             "#,
         )
@@ -104,8 +104,8 @@ impl RustParser {
             &rust_lang,
             r#"
             (enum_item
+                (visibility_modifier)? @visibility
                 name: (type_identifier) @name
-                visibility_modifier: (visibility_modifier)? @visibility
             ) @enum
             "#,
         )
@@ -115,8 +115,8 @@ impl RustParser {
             &rust_lang,
             r#"
             (const_item
+                (visibility_modifier)? @visibility
                 name: (identifier) @name
-                visibility_modifier: (visibility_modifier)? @visibility
                 type: (type_identifier)? @type
             ) @const
             "#,
@@ -127,8 +127,8 @@ impl RustParser {
             &rust_lang,
             r#"
             (static_item
+                (visibility_modifier)? @visibility
                 name: (identifier) @name
-                visibility_modifier: (visibility_modifier)? @visibility
                 type: (type_identifier)? @type
             ) @static
             "#,
@@ -139,8 +139,8 @@ impl RustParser {
             &rust_lang,
             r#"
             (type_item
+                (visibility_modifier)? @visibility
                 name: (type_identifier) @name
-                visibility_modifier: (visibility_modifier)? @visibility
                 type: (type_identifier)? @type
             ) @type_alias
             "#,
@@ -152,7 +152,6 @@ impl RustParser {
             r#"
             (macro_definition
                 name: (identifier) @name
-                visibility_modifier: (visibility_modifier)? @visibility
             ) @macro
             "#,
         )
@@ -162,8 +161,8 @@ impl RustParser {
             &rust_lang,
             r#"
             (mod_item
+                (visibility_modifier)? @visibility
                 name: (identifier) @name
-                visibility_modifier: (visibility_modifier)? @visibility
             ) @module
             "#,
         )
@@ -238,6 +237,7 @@ impl RustParser {
 
         while let Some(mat) = matches.next() {
             let mut name = None;
+            let mut name_node = None;
             let mut visibility = Visibility::Private;
             let mut params = None;
             let mut _return_type = None;
@@ -245,8 +245,11 @@ impl RustParser {
             for capture in mat.captures {
                 let text = utils::extract_text(capture.node, source);
                 match capture.index {
-                    0 => name = Some(text),
-                    1 => visibility = utils::parse_visibility(&text, Language::Rust),
+                    0 => visibility = utils::parse_visibility(&text, Language::Rust),
+                    1 => {
+                        name = Some(text);
+                        name_node = Some(capture.node);
+                    }
                     2 => params = Some(text),
                     3 => _return_type = Some(text),
                     _ => {}
@@ -254,7 +257,7 @@ impl RustParser {
             }
 
             if let Some(name) = name {
-                let span = utils::node_to_span(mat.captures[0].node);
+                let span = utils::node_to_span(name_node.unwrap_or(mat.captures[0].node));
                 let mut symbol = utils::create_symbol_node(
                     name,
                     SymbolKind::Function,
@@ -288,19 +291,23 @@ impl RustParser {
 
         while let Some(mat) = matches.next() {
             let mut name = None;
+            let mut name_node = None;
             let mut visibility = Visibility::Private;
 
             for capture in mat.captures {
                 let text = utils::extract_text(capture.node, source);
                 match capture.index {
-                    0 => name = Some(text),
-                    1 => visibility = utils::parse_visibility(&text, Language::Rust),
+                    0 => visibility = utils::parse_visibility(&text, Language::Rust),
+                    1 => {
+                        name = Some(text);
+                        name_node = Some(capture.node);
+                    }
                     _ => {}
                 }
             }
 
             if let Some(name) = name {
-                let span = utils::node_to_span(mat.captures[0].node);
+                let span = utils::node_to_span(name_node.unwrap_or(mat.captures[0].node));
                 let symbol = utils::create_symbol_node(
                     name,
                     SymbolKind::Struct,
@@ -330,19 +337,23 @@ impl RustParser {
 
         while let Some(mat) = matches.next() {
             let mut name = None;
+            let mut name_node = None;
             let mut visibility = Visibility::Private;
 
             for capture in mat.captures {
                 let text = utils::extract_text(capture.node, source);
                 match capture.index {
-                    0 => name = Some(text),
-                    1 => visibility = utils::parse_visibility(&text, Language::Rust),
+                    0 => visibility = utils::parse_visibility(&text, Language::Rust),
+                    1 => {
+                        name = Some(text);
+                        name_node = Some(capture.node);
+                    }
                     _ => {}
                 }
             }
 
             if let Some(name) = name {
-                let span = utils::node_to_span(mat.captures[0].node);
+                let span = utils::node_to_span(name_node.unwrap_or(mat.captures[0].node));
                 let symbol = utils::create_symbol_node(
                     name,
                     SymbolKind::Trait,
@@ -419,19 +430,23 @@ impl RustParser {
 
         while let Some(mat) = matches.next() {
             let mut name = None;
+            let mut name_node = None;
             let mut visibility = Visibility::Private;
 
             for capture in mat.captures {
                 let text = utils::extract_text(capture.node, source);
                 match capture.index {
-                    0 => name = Some(text),
-                    1 => visibility = utils::parse_visibility(&text, Language::Rust),
+                    0 => visibility = utils::parse_visibility(&text, Language::Rust),
+                    1 => {
+                        name = Some(text);
+                        name_node = Some(capture.node);
+                    }
                     _ => {}
                 }
             }
 
             if let Some(name) = name {
-                let span = utils::node_to_span(mat.captures[0].node);
+                let span = utils::node_to_span(name_node.unwrap_or(mat.captures[0].node));
                 let symbol = utils::create_symbol_node(
                     name,
                     SymbolKind::Enum,
@@ -461,21 +476,25 @@ impl RustParser {
 
         while let Some(mat) = matches.next() {
             let mut name = None;
+            let mut name_node = None;
             let mut visibility = Visibility::Private;
             let mut type_annotation = None;
 
             for capture in mat.captures {
                 let text = utils::extract_text(capture.node, source);
                 match capture.index {
-                    0 => name = Some(text),
-                    1 => visibility = utils::parse_visibility(&text, Language::Rust),
+                    0 => visibility = utils::parse_visibility(&text, Language::Rust),
+                    1 => {
+                        name = Some(text);
+                        name_node = Some(capture.node);
+                    }
                     2 => type_annotation = Some(text),
                     _ => {}
                 }
             }
 
             if let Some(name) = name {
-                let span = utils::node_to_span(mat.captures[0].node);
+                let span = utils::node_to_span(name_node.unwrap_or(mat.captures[0].node));
                 let mut symbol = utils::create_symbol_node(
                     name,
                     SymbolKind::Const,
@@ -509,21 +528,25 @@ impl RustParser {
 
         while let Some(mat) = matches.next() {
             let mut name = None;
+            let mut name_node = None;
             let mut visibility = Visibility::Private;
             let mut type_annotation = None;
 
             for capture in mat.captures {
                 let text = utils::extract_text(capture.node, source);
                 match capture.index {
-                    0 => name = Some(text),
-                    1 => visibility = utils::parse_visibility(&text, Language::Rust),
+                    0 => visibility = utils::parse_visibility(&text, Language::Rust),
+                    1 => {
+                        name = Some(text);
+                        name_node = Some(capture.node);
+                    }
                     2 => type_annotation = Some(text),
                     _ => {}
                 }
             }
 
             if let Some(name) = name {
-                let span = utils::node_to_span(mat.captures[0].node);
+                let span = utils::node_to_span(name_node.unwrap_or(mat.captures[0].node));
                 let mut symbol = utils::create_symbol_node(
                     name,
                     SymbolKind::Static,
@@ -557,21 +580,25 @@ impl RustParser {
 
         while let Some(mat) = matches.next() {
             let mut name = None;
+            let mut name_node = None;
             let mut visibility = Visibility::Private;
             let mut type_annotation = None;
 
             for capture in mat.captures {
                 let text = utils::extract_text(capture.node, source);
                 match capture.index {
-                    0 => name = Some(text),
-                    1 => visibility = utils::parse_visibility(&text, Language::Rust),
+                    0 => visibility = utils::parse_visibility(&text, Language::Rust),
+                    1 => {
+                        name = Some(text);
+                        name_node = Some(capture.node);
+                    }
                     2 => type_annotation = Some(text),
                     _ => {}
                 }
             }
 
             if let Some(name) = name {
-                let span = utils::node_to_span(mat.captures[0].node);
+                let span = utils::node_to_span(name_node.unwrap_or(mat.captures[0].node));
                 let mut symbol = utils::create_symbol_node(
                     name,
                     SymbolKind::Type,
@@ -605,14 +632,11 @@ impl RustParser {
 
         while let Some(mat) = matches.next() {
             let mut name = None;
-            let mut visibility = Visibility::Private;
 
             for capture in mat.captures {
-                let text = utils::extract_text(capture.node, source);
-                match capture.index {
-                    0 => name = Some(text),
-                    1 => visibility = utils::parse_visibility(&text, Language::Rust),
-                    _ => {}
+                if capture.index == 0 {
+                    let text = utils::extract_text(capture.node, source);
+                    name = Some(text);
                 }
             }
 
@@ -625,7 +649,7 @@ impl RustParser {
                     span,
                     file_path,
                 )
-                .with_visibility(visibility);
+                .with_visibility(Visibility::Private);
 
                 symbols.push(symbol);
             }
@@ -647,19 +671,23 @@ impl RustParser {
 
         while let Some(mat) = matches.next() {
             let mut name = None;
+            let mut name_node = None;
             let mut visibility = Visibility::Private;
 
             for capture in mat.captures {
                 let text = utils::extract_text(capture.node, source);
                 match capture.index {
-                    0 => name = Some(text),
-                    1 => visibility = utils::parse_visibility(&text, Language::Rust),
+                    0 => visibility = utils::parse_visibility(&text, Language::Rust),
+                    1 => {
+                        name = Some(text);
+                        name_node = Some(capture.node);
+                    }
                     _ => {}
                 }
             }
 
             if let Some(name) = name {
-                let span = utils::node_to_span(mat.captures[0].node);
+                let span = utils::node_to_span(name_node.unwrap_or(mat.captures[0].node));
                 let symbol = utils::create_symbol_node(
                     name,
                     SymbolKind::Module,

@@ -37,12 +37,10 @@ fn write_build_info(info: &MlxBuildInfo) {
     let out_dir = env::var("OUT_DIR").expect("OUT_DIR not set");
     let out_path = PathBuf::from(out_dir).join("mlx_build_info.rs");
     let contents = format!(
-        "pub const MLX_BUILD_VERSION: &str = {};\n\
-pub const MLX_BUILD_HASH: &str = {};\n\
-pub const MLX_BUILD_HASH_SOURCE: &str = {};\n",
-        format!("{:?}", info.version),
-        format!("{:?}", info.header_hash),
-        format!("{:?}", info.header_hash_source),
+        "pub const MLX_BUILD_VERSION: &str = {:?};\n\
+pub const MLX_BUILD_HASH: &str = {:?};\n\
+pub const MLX_BUILD_HASH_SOURCE: &str = {:?};\n",
+        info.version, info.header_hash, info.header_hash_source,
     );
     std::fs::write(&out_path, contents).expect("write mlx build info");
 }

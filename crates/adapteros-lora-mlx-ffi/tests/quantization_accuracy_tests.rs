@@ -379,8 +379,7 @@ fn test_group_size_equals_tensor_size() {
 #[test]
 fn test_snr_calculation() {
     let signal = vec![1.0; 100]; // Constant signal = high power
-    let quantized =
-        MLXQuantizer::quantize_int8(&signal, 50, &vec![100]).expect("Quantization failed");
+    let quantized = MLXQuantizer::quantize_int8(&signal, 50, &[100]).expect("Quantization failed");
     let stats =
         MLXQuantizer::calculate_stats(&signal, &quantized).expect("Stats calculation failed");
 

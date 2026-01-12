@@ -72,6 +72,7 @@ async fn build_test_state_with_general(
         auth: Default::default(),
         self_hosting: Default::default(),
         performance: Default::default(),
+        streaming: Default::default(),
         paths: PathsConfig {
             artifacts_root: "var/artifacts".into(),
             bundles_root: "var/bundles".into(),
@@ -686,13 +687,11 @@ async fn test_pinned_adapter_wrong_tenant_rejected() {
         .await
         .unwrap_err();
 
-    // PRD-RECT-001: Cross-tenant access returns AdapterNotFound (not PermissionDenied)
-    // to prevent tenant enumeration attacks.
     match err {
-        InferenceError::AdapterNotFound(msg) => {
-            assert!(msg.contains("tenant2-adapter"));
+        InferenceError::AdapterTenantMismatch { adapter_id, .. } => {
+            assert_eq!(adapter_id, "tenant2-adapter");
         }
-        other => panic!("expected AdapterNotFound, got {:?}", other),
+        other => panic!("expected AdapterTenantMismatch, got {:?}", other),
     }
 }
 
@@ -740,15 +739,14 @@ async fn test_pinned_adapter_outside_allowlist_rejected() {
             &allowlist,
             "Pinned adapter",
         )
+        .await
         .unwrap_err();
 
-    // PRD-RECT-001: Allowlist violations return AdapterNotFound (not PermissionDenied)
-    // to prevent leaking adapter existence across tenants.
     match err {
-        InferenceError::AdapterNotFound(msg) => {
-            assert!(msg.contains("t2-disallowed"));
+        InferenceError::AdapterTenantMismatch { adapter_id, .. } => {
+            assert_eq!(adapter_id, "t2-disallowed");
         }
-        other => panic!("expected AdapterNotFound, got {:?}", other),
+        other => panic!("expected AdapterTenantMismatch, got {:?}", other),
     }
 }
 

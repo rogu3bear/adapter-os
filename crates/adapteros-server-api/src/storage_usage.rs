@@ -16,6 +16,18 @@ impl TenantStorageUsage {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct WorkspaceStorageUsage {
+    pub dataset_bytes: u64,
+    pub dataset_count: u64,
+}
+
+impl WorkspaceStorageUsage {
+    pub fn total_bytes(&self) -> u64 {
+        self.dataset_bytes
+    }
+}
+
 /// Compute per-tenant storage usage by summing dataset sizes and adapter artifacts.
 pub async fn compute_tenant_storage_usage(
     state: &AppState,
@@ -58,5 +70,28 @@ pub async fn compute_tenant_storage_usage(
         adapter_bytes,
         dataset_versions,
         adapter_versions,
+    })
+}
+
+/// Compute per-workspace storage usage by summing dataset sizes.
+pub async fn compute_workspace_storage_usage(
+    state: &AppState,
+    workspace_id: &str,
+) -> Result<WorkspaceStorageUsage> {
+    let dataset_bytes = state
+        .db
+        .sum_dataset_sizes_for_workspace(workspace_id)
+        .await
+        .unwrap_or(0) as u64;
+
+    let dataset_count = state
+        .db
+        .count_datasets_for_workspace(workspace_id)
+        .await
+        .unwrap_or(0) as u64;
+
+    Ok(WorkspaceStorageUsage {
+        dataset_bytes,
+        dataset_count,
     })
 }

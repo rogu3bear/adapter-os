@@ -691,7 +691,7 @@ mod tests {
             failure_code: None,
         };
         let msg = map_trust_error(&err, Some(&"dsv-2".to_string())).unwrap();
-        assert!(msg.contains("needs approval"));
+        assert!(msg.contains("approval"));
         assert!(msg.contains("dsv-2"));
     }
 

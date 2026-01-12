@@ -574,7 +574,7 @@ mod tests {
 
         assert_eq!(result.metadata.quantized_dtype, "int4");
         assert_eq!(result.metadata.scales.len(), 2);
-        assert!(result.data.len() <= (data.len() + 1) / 2);
+        assert!(result.data.len() <= data.len().div_ceil(2));
     }
 
     #[test]

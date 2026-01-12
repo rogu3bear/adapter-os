@@ -534,9 +534,9 @@ impl GlobalTickLedger {
         hasher.update(&tick.to_le_bytes());
         hasher.update(task_id.as_bytes());
 
-        // Hash event-specific data
-        let event_json = serde_json::to_string(event).unwrap_or_default();
-        hasher.update(event_json.as_bytes());
+        // Hash event-specific data using canonical JSON (RFC 8785) for cross-host consistency
+        let event_bytes = serde_jcs::to_vec(event).unwrap_or_default();
+        hasher.update(&event_bytes);
 
         B3Hash::new(*hasher.finalize().as_bytes())
     }
@@ -1019,22 +1019,19 @@ mod tests {
             "First entry should have no previous hash"
         );
 
-        // Each subsequent entry's prev_entry_hash should link correctly
+        // Each subsequent entry's prev_entry_hash should link to previous event_hash
+        // (see record_tick line 284: stores event_hash, not entry_hash)
         for i in 1..entries.len() {
             let prev_entry = &entries[i - 1];
             let current_entry = &entries[i];
 
-            // Recompute what the previous entry's hash should be
-            let expected_prev_hash = ledger
-                .compute_entry_hash(&prev_entry.event_hash, prev_entry.prev_entry_hash.as_ref());
-
-            // Current entry should reference this hash
+            // Current entry's prev_entry_hash should be the previous entry's event_hash
             assert_eq!(
                 current_entry.prev_entry_hash,
-                Some(expected_prev_hash),
+                Some(prev_entry.event_hash),
                 "Entry {} has broken Merkle chain link (expected {:?}, got {:?})",
                 i,
-                Some(expected_prev_hash),
+                Some(prev_entry.event_hash),
                 current_entry.prev_entry_hash
             );
         }

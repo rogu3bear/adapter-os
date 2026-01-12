@@ -47,13 +47,15 @@ fn main() {
         }
     };
 
-    let mut cfg = PreprocessingConfig::default();
-    cfg.enabled = true;
-    cfg.coreml_model_path = std::env::var("AOS_COREML_PREPROCESS_MODEL")
-        .ok()
-        .map(PathBuf::from);
-    cfg.compression = Some(PreprocessCompression::Q15);
-    cfg.output_feature = PreprocessOutputFeature::HiddenStateLast;
+    let cfg = PreprocessingConfig {
+        enabled: true,
+        coreml_model_path: std::env::var("AOS_COREML_PREPROCESS_MODEL")
+            .ok()
+            .map(PathBuf::from),
+        compression: Some(PreprocessCompression::Q15),
+        output_feature: PreprocessOutputFeature::HiddenStateLast,
+        ..Default::default()
+    };
 
     let contract = TrainingDataContractConfig::new(0, -1);
 

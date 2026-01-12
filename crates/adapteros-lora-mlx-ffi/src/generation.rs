@@ -1068,9 +1068,10 @@ mod tests {
     }
 
     fn config_with_layers(layers: usize) -> GenerationConfig {
-        let mut cfg = GenerationConfig::default();
-        cfg.kv_num_layers = Some(layers);
-        cfg
+        GenerationConfig {
+            kv_num_layers: Some(layers),
+            ..Default::default()
+        }
     }
 
     #[test]

@@ -570,7 +570,7 @@ pub struct SessionRecord {
     pub rot_id: Option<String>,
     pub refresh_hash: Option<String>,
     pub refresh_expires_at: Option<String>,
-    pub expires_at: String,
+    pub expires_at: i64,
     pub locked: i64,
 }
 
@@ -584,7 +584,7 @@ pub async fn upsert_user_session(
     device_id: Option<&str>,
     rot_id: Option<&str>,
     refresh_hash: Option<&str>,
-    session_expires_at: &str,
+    session_expires_at: i64,
     refresh_expires_at: &str,
     ip_address: Option<&str>,
     user_agent: Option<&str>,
@@ -666,6 +666,7 @@ pub async fn update_session_rotation(
     rot_id: &str,
     refresh_hash: Option<&str>,
     refresh_expires_at: &str,
+    session_expires_at: i64,
 ) -> Result<()> {
     let session_table = db.resolve_session_table().await?;
     let query = format!(
@@ -678,7 +679,7 @@ pub async fn update_session_rotation(
         .bind(rot_id)
         .bind(refresh_hash)
         .bind(refresh_expires_at)
-        .bind(refresh_expires_at)
+        .bind(session_expires_at)
         .bind(session_id)
         .bind(session_id)
         .execute(db.pool())
@@ -709,7 +710,7 @@ pub async fn create_session(
     jti: &str,
     user_id: &str,
     tenant_id: &str,
-    expires_at: &str,
+    expires_at: i64,
     ip_address: Option<&str>,
     user_agent: Option<&str>,
 ) -> Result<()> {
@@ -756,7 +757,7 @@ pub async fn get_user_sessions(
     db: &Db,
     user_id: &str,
 ) -> Result<Vec<(String, String, Option<String>, String)>> {
-    let now = Utc::now().to_rfc3339();
+    let now = Utc::now().timestamp();
     let session_table = db.resolve_session_table().await?;
     let query = format!(
         "SELECT jti, created_at, ip_address, last_activity
@@ -768,7 +769,7 @@ pub async fn get_user_sessions(
 
     let sessions = sqlx::query_as::<_, (String, String, Option<String>, String)>(&query)
         .bind(user_id)
-        .bind(&now)
+        .bind(now)
         .fetch_all(db.pool())
         .await?;
 
@@ -777,11 +778,11 @@ pub async fn get_user_sessions(
 
 /// Cleanup expired sessions
 pub async fn cleanup_expired_sessions(db: &Db) -> Result<usize> {
-    let now = Utc::now().to_rfc3339();
+    let now = Utc::now().timestamp();
     let session_table = db.resolve_session_table().await?;
     let query = format!("DELETE FROM {session_table} WHERE expires_at < ?");
 
-    let result = sqlx::query(&query).bind(&now).execute(db.pool()).await?;
+    let result = sqlx::query(&query).bind(now).execute(db.pool()).await?;
 
     let count = result.rows_affected() as usize;
 

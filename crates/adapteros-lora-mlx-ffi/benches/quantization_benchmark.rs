@@ -183,7 +183,7 @@ fn benchmark_int4(
     let avg_dequantize = dequantize_times.iter().sum::<f64>() / iterations as f64;
 
     let original_size_bytes = tensor_size * 4; // f32
-    let compressed_size_bytes = (tensor_size + 1) / 2; // 2 values per byte
+    let compressed_size_bytes = tensor_size.div_ceil(2); // 2 values per byte
     let compression_ratio = original_size_bytes as f32 / compressed_size_bytes as f32;
 
     // Throughput in MB/s

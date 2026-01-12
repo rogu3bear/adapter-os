@@ -1184,6 +1184,20 @@ Examples:
 
     /// Training job commands (start/status/list) - control plane
     #[command(subcommand)]
+    #[command(after_help = "\
+Examples:
+  # Start a training job
+  aosctl train start my/repo --base-model-id qwen2.5-7b --dataset-version-ids ds1,ds2
+
+  # Check job status
+  aosctl train status JOB_ID
+
+  # List recent jobs
+  aosctl train list --status running
+
+  # Fetch a training report
+  aosctl train report --id JOB_ID --output ./report.json
+")]
     Train(commands::train_cli::TrainCommand),
 
     /// Train adapter on documentation markdown files

@@ -92,6 +92,7 @@ pub fn build_api_config(server_config: Arc<RwLock<Config>>) -> Result<Arc<RwLock
             require_human_approval: cfg.self_hosting.mode.eq_ignore_ascii_case("safe"),
         },
         performance: Default::default(),
+        streaming: Default::default(),
         paths: adapteros_server_api::PathsConfig {
             artifacts_root: cfg.paths.artifacts_root.clone(),
             bundles_root: cfg.paths.bundles_root.clone(),

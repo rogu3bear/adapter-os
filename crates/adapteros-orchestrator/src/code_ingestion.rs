@@ -63,7 +63,8 @@ pub struct CodeDatasetConfig {
     pub include_private: bool,
     /// Weight assigned to knowledge samples
     pub positive_weight: f32,
-    /// Weight assigned to abstention samples when documentation is missing
+    /// Weight assigned to abstention samples when documentation is missing.
+    /// Must be non-negative; classification is via sample_role metadata, not weight sign.
     pub negative_weight: f32,
 }
 
@@ -73,7 +74,7 @@ impl Default for CodeDatasetConfig {
             max_symbols: 64,
             include_private: false,
             positive_weight: 1.0,
-            negative_weight: -0.5,
+            negative_weight: 0.5, // Non-negative weight; sample_role metadata classifies as abstention
         }
     }
 }

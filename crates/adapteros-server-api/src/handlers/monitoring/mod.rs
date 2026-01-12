@@ -1143,8 +1143,8 @@ pub async fn create_process_monitoring_report(
         worker_id,
         tenant_id: Some(claims.tenant_id.clone()),
         metric_name,
-        start_time: start_time.clone(),
-        end_time: end_time.clone(),
+        start_time,
+        end_time,
         limit: Some(1000),
     };
 

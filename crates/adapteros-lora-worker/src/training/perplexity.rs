@@ -141,8 +141,8 @@ mod tests {
         // exp(0) = 1
         assert!((compute_perplexity(0.0) - 1.0).abs() < 0.001);
 
-        // exp(1) ≈ 2.718
-        assert!((compute_perplexity(1.0) - 2.718).abs() < 0.01);
+        // exp(1) = e
+        assert!((compute_perplexity(1.0) - std::f32::consts::E).abs() < 0.01);
 
         // exp(2) ≈ 7.389
         assert!((compute_perplexity(2.0) - 7.389).abs() < 0.01);
@@ -192,7 +192,7 @@ mod tests {
         assert!((improvement.initial - 20.086).abs() < 0.01);
 
         // Final perplexity should be exp(1.0)
-        assert!((improvement.final_ppl - 2.718).abs() < 0.01);
+        assert!((improvement.final_ppl - std::f32::consts::E).abs() < 0.01);
 
         // Best should be final (since loss keeps decreasing)
         assert_eq!(improvement.best_epoch, 4);

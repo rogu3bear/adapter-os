@@ -260,10 +260,12 @@ mod memory_pool_integration_tests {
     #[test]
     fn test_memory_pool_config() {
         // Test custom memory pool configuration
-        let mut config = MLXMemoryPoolConfig::default();
-        config.max_pooled_memory = 256 * 1024 * 1024; // 256 MB
-        config.idle_timeout_secs = 30;
-        config.pressure_threshold = 0.9;
+        let config = MLXMemoryPoolConfig {
+            max_pooled_memory: 256 * 1024 * 1024, // 256 MB
+            idle_timeout_secs: 30,
+            pressure_threshold: 0.9,
+            ..Default::default()
+        };
 
         let pool = MLXMemoryPool::new(config);
         let stats = pool.get_stats();
@@ -321,8 +323,10 @@ mod memory_pool_integration_tests {
         let _backend = create_test_backend();
 
         // Create a custom pool with short timeout for testing
-        let mut config = MLXMemoryPoolConfig::default();
-        config.idle_timeout_secs = 0; // Very short timeout
+        let config = MLXMemoryPoolConfig {
+            idle_timeout_secs: 0, // Very short timeout
+            ..Default::default()
+        };
 
         let pool = MLXMemoryPool::new(config);
 
