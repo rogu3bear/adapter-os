@@ -1,6 +1,6 @@
 [package]
 name = "adapteros-uds-protocol"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Shared UDS protocol types for AdapterOS control plane ↔ worker communication"
 

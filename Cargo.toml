@@ -1,6 +1,6 @@
 [package]
 name = "adapter-os"
-version = "0.11.0"
+version = "0.12.0"
 edition = "2021"
 authors = ["James KC Auchterlonie <vats-springs0m@icloud.com>"]
 license = "MIT OR Apache-2.0"
@@ -92,7 +92,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.11.0"
+version = "0.12.0"
 edition = "2021"
 authors = ["James KC Auchterlonie <vats-springs0m@icloud.com>"]
 license = "MIT OR Apache-2.0"

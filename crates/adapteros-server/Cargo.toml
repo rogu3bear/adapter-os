@@ -24,8 +24,8 @@ mlx-rs-backend = [
     "adapteros-server-api/mlx-rs-backend",
 ]
 
-# MLX feature (alias for multi-backend with full MLX support)
-mlx = ["multi-backend"]
+# MLX feature (enables multi-backend + worker mlx for capability detection)
+mlx = ["multi-backend", "adapteros-lora-worker/mlx"]
 
 dev-bypass = ["adapteros-server-api/dev-bypass"]
 
