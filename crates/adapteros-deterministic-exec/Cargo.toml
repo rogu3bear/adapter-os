@@ -14,6 +14,7 @@ adapteros-telemetry = { path = "../adapteros-telemetry" }
 tokio = { workspace = true, features = ["rt", "macros", "sync", "time"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde_jcs = { workspace = true }
 blake3 = { workspace = true }
 hkdf = { workspace = true }
 rand = { workspace = true }

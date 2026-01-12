@@ -5,7 +5,7 @@ All notable changes to AdapterOS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - Targeting alpha-v0.11-unstable-pre-release
+## [0.12.0] - 2026-01-12
 
 ### Added
 - Evidence envelopes with comprehensive test coverage
