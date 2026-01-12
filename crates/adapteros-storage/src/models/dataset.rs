@@ -24,6 +24,7 @@ pub struct TrainingDatasetKv {
     pub status: String,
     pub validation_status: String,
     pub validation_errors: Option<String>,
+    pub validation_errors_json: Option<String>,
     pub file_count: i32,
     pub total_size_bytes: i64,
     pub metadata_json: Option<String>,
