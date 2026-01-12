@@ -106,6 +106,11 @@ pub struct MicroLoRATrainer {
     base_model: Option<Arc<adapteros_lora_mlx_ffi::MLXFFIModel>>,
     /// Hidden state layer key to extract from the base model (e.g., "layer_31_output").
     hidden_state_key: String,
+    /// Current global training step (across all epochs)
+    global_step: usize,
+    /// Persistent optimizer state (Adam/SGD moments)
+    #[cfg(feature = "multi-backend")]
+    optimizer: Option<MlxOptimizer>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -284,6 +289,9 @@ impl MicroLoRATrainer {
             #[cfg(feature = "multi-backend")]
             base_model: None,
             hidden_state_key: String::new(),
+            global_step: 0,
+            #[cfg(feature = "multi-backend")]
+            optimizer: None,
         };
 
         // Load base model (required for multi-backend)
@@ -367,6 +375,9 @@ impl MicroLoRATrainer {
             #[cfg(feature = "multi-backend")]
             base_model: None,
             hidden_state_key: String::new(),
+            global_step: 0,
+            #[cfg(feature = "multi-backend")]
+            optimizer: None,
         })
     }
 
