@@ -80,6 +80,7 @@ pub mod pilot_status;
 pub mod plugins;
 pub mod policies;
 pub mod promotion;
+pub mod promotion_validation;
 pub mod rag_common;
 pub mod registry;
 pub mod replay;
