@@ -1439,7 +1439,7 @@ pub async fn validate_dataset(
         .await
         .map_err(|e| db_error(format!("Failed to get dataset files: {}", e)))?;
 
-    let mut validation_errors = Vec::new();
+    let mut validation_errors: Vec<ValidationError> = Vec::new();
     let mut is_valid = true;
     let total_files = files.len() as f32;
     let mut processed_files = 0;
@@ -1451,10 +1451,18 @@ pub async fn validate_dataset(
             .await
             .unwrap_or(false)
         {
-            validation_errors.push(format!(
-                "File {} does not exist at path {}",
-                file.file_name, file.file_path
-            ));
+            validation_errors.push(
+                ValidationError::new(
+                    ValidationSeverity::Error,
+                    ValidationCategory::Structure,
+                    format!(
+                        "File {} does not exist at path {}",
+                        file.file_name, file.file_path
+                    ),
+                    "FILE_NOT_FOUND",
+                )
+                .with_file(&file.file_name),
+            );
             is_valid = false;
             processed_files += 1;
             emit_progress(
@@ -1480,13 +1488,28 @@ pub async fn validate_dataset(
         {
             Ok(matches) => {
                 if !matches {
-                    validation_errors.push(format!("File {} hash mismatch", file.file_name));
+                    validation_errors.push(
+                        ValidationError::new(
+                            ValidationSeverity::Error,
+                            ValidationCategory::Integrity,
+                            format!("File {} hash mismatch", file.file_name),
+                            "HASH_MISMATCH",
+                        )
+                        .with_file(&file.file_name),
+                    );
                     is_valid = false;
                 }
             }
             Err(e) => {
-                validation_errors
-                    .push(format!("Failed to validate file {}: {}", file.file_name, e));
+                validation_errors.push(
+                    ValidationError::new(
+                        ValidationSeverity::Error,
+                        ValidationCategory::Integrity,
+                        format!("Failed to validate file {}: {}", file.file_name, e),
+                        "HASH_ERROR",
+                    )
+                    .with_file(&file.file_name),
+                );
                 is_valid = false;
                 continue;
             }
@@ -1501,10 +1524,15 @@ pub async fn validate_dataset(
             )
             .await
             {
-                validation_errors.push(format!(
-                    "File {} format validation failed: {}",
-                    file.file_name, e
-                ));
+                validation_errors.push(
+                    ValidationError::new(
+                        ValidationSeverity::Error,
+                        ValidationCategory::Format,
+                        format!("File {} format validation failed: {}", file.file_name, e),
+                        "FORMAT_ERROR",
+                    )
+                    .with_file(&file.file_name),
+                );
                 is_valid = false;
             }
         }
@@ -1533,7 +1561,18 @@ pub async fn validate_dataset(
     let validation_errors_str = if validation_errors.is_empty() {
         None
     } else {
-        Some(validation_errors.join("; "))
+        Some(
+            validation_errors
+                .iter()
+                .map(|e| e.message.clone())
+                .collect::<Vec<_>>()
+                .join("; "),
+        )
+    };
+    let validation_errors_json = if validation_errors.is_empty() {
+        None
+    } else {
+        serde_json::to_string(&validation_errors).ok()
     };
 
     state
@@ -1542,6 +1581,7 @@ pub async fn validate_dataset(
             &dataset_id,
             validation_status,
             validation_errors_str.as_deref(),
+            validation_errors_json.as_deref(),
         )
         .await
         .map_err(|e| {
@@ -1554,6 +1594,9 @@ pub async fn validate_dataset(
                         &dataset_id_clone,
                         "invalid",
                         Some("Validation failed due to internal error"),
+                        Some(
+                            r#"[{"severity":"error","category":"structure","message":"Validation failed due to internal error","code":"INTERNAL_ERROR"}]"#,
+                        ),
                     )
                     .await;
             });
@@ -1570,7 +1613,7 @@ pub async fn validate_dataset(
             .update_dataset_version_structural_validation(
                 &version_id,
                 validation_status,
-                validation_errors_str.as_deref(),
+                validation_errors_json.as_deref(),
             )
             .await;
         // Kick off tier2 safety validation asynchronously (stub pipeline)
@@ -1619,7 +1662,7 @@ pub async fn validate_dataset(
         errors: if validation_errors.is_empty() {
             None
         } else {
-            Some(validation_errors)
+            Some(validation_errors.iter().map(|e| e.message.clone()).collect())
         },
         validated_at: chrono::Utc::now().to_rfc3339(),
     }))
