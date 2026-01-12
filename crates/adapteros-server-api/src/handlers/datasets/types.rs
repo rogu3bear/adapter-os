@@ -22,6 +22,12 @@ pub struct InitiateChunkedUploadRequest {
     pub file_name: String,
     /// Total file size in bytes
     pub total_size: u64,
+    /// Optional idempotency key for retry-safe session reuse
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
+    /// Optional expected BLAKE3 hash of the full file
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expected_file_hash_b3: Option<String>,
     /// Content type (e.g., application/gzip)
     pub content_type: Option<String>,
     /// Chunk size preference (will be clamped to valid range)

@@ -1,7 +1,8 @@
 //! Dataset CRUD handlers (list, get, delete).
 
 use super::helpers::{
-    ensure_dataset_file_within_root, map_validation_errors, map_validation_status,
+    ensure_dataset_file_within_root, map_validation_diagnostics, map_validation_errors,
+    map_validation_status,
 };
 use super::types::ListDatasetsQuery;
 use crate::auth::Claims;
@@ -93,6 +94,7 @@ pub async fn list_datasets(
         let (dataset_version_id, trust_state) = latest_trusted
             .map(|(v, trust)| (Some(v.id), Some(trust)))
             .unwrap_or((None, None));
+        let validation_errors = d.validation_errors.clone();
 
         responses.push(DatasetResponse {
             schema_version: "1.0".to_string(),
@@ -109,7 +111,8 @@ pub async fn list_datasets(
             status: d.status,
             workspace_id: d.workspace_id,
             validation_status: map_validation_status(&d.validation_status),
-            validation_errors: map_validation_errors(d.validation_errors),
+            validation_errors: map_validation_errors(validation_errors.clone()),
+            validation_diagnostics: map_validation_diagnostics(validation_errors),
             trust_state,
             created_by: d.created_by.unwrap_or_else(|| "system".to_string()),
             created_at: d.created_at,
@@ -201,7 +204,8 @@ pub async fn get_dataset(
         status: dataset.status,
         workspace_id: dataset.workspace_id,
         validation_status: map_validation_status(&dataset.validation_status),
-        validation_errors: map_validation_errors(dataset.validation_errors),
+        validation_errors: map_validation_errors(dataset.validation_errors.clone()),
+        validation_diagnostics: map_validation_diagnostics(dataset.validation_errors),
         trust_state,
         created_by: dataset.created_by.unwrap_or_else(|| "system".to_string()),
         created_at: dataset.created_at,
