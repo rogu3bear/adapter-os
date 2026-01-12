@@ -23,11 +23,11 @@ use std::fmt;
 
 pub mod example;
 pub use example::{
-    metadata_from_pairs, provenance_from_map, provenance_from_pairs,
-    validate_training_contract_config, validate_training_example, validate_training_examples,
-    weight_from_metadata, weight_from_provenance, ExampleMetadataV1, TrainingDataContractConfig,
-    TrainingExampleBatchSummary, TrainingExampleV1, TrainingExampleValidationError,
-    TrainingTokenLocation, TRAINING_DATA_CONTRACT_VERSION,
+    metadata_from_pairs, provenance_from_map, provenance_from_pairs, sample_role_from_metadata,
+    sample_role_from_provenance, validate_training_contract_config, validate_training_example,
+    validate_training_examples, weight_from_metadata, weight_from_provenance, ExampleMetadataV1,
+    TrainingDataContractConfig, TrainingExampleBatchSummary, TrainingExampleV1,
+    TrainingExampleValidationError, TrainingTokenLocation, TRAINING_DATA_CONTRACT_VERSION,
 };
 pub mod preprocessed_example;
 pub use preprocessed_example::{
@@ -334,6 +334,10 @@ pub struct TrainingJob {
     /// Optional reference to training dataset
     #[serde(rename = "dataset_id")]
     pub dataset_id: Option<String>,
+
+    /// Correlation ID for tracing dataset -> training -> inference
+    #[serde(rename = "correlation_id", skip_serializing_if = "Option::is_none")]
+    pub correlation_id: Option<String>,
 
     /// Dataset versions used for training (with optional sampling weights)
     #[serde(
@@ -703,6 +707,7 @@ impl TrainingJob {
             data_spec_json: None,
             data_spec_hash: None,
             dataset_id: None,
+            correlation_id: None,
             dataset_version_ids: None,
             dataset_version_trust: None,
             dataset_hash_b3: None,
@@ -980,6 +985,7 @@ pub enum PreprocessCompression {
 }
 
 impl PreprocessCompression {
+    /// Return the canonical string identifier for this compression choice.
     pub fn as_str(&self) -> &'static str {
         match self {
             PreprocessCompression::None => "none",
@@ -989,7 +995,7 @@ impl PreprocessCompression {
 }
 
 /// Output feature selection for preprocessing.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "server", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
@@ -999,16 +1005,12 @@ pub enum PreprocessOutputFeature {
     /// Emit the last hidden state token.
     HiddenStateLast,
     /// Emit a pooled (mean) hidden state.
+    #[default]
     Pooled,
 }
 
-impl Default for PreprocessOutputFeature {
-    fn default() -> Self {
-        PreprocessOutputFeature::Pooled
-    }
-}
-
 impl PreprocessOutputFeature {
+    /// Return the canonical string identifier for this output feature.
     pub fn as_str(&self) -> &'static str {
         match self {
             PreprocessOutputFeature::Embedding => "embedding",
@@ -1444,9 +1446,13 @@ pub struct OptimizerConfigSummary {
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct TrainingReportCurves {
+    /// Training loss per step.
     pub train_loss: Vec<f32>,
+    /// Training perplexity per step.
     pub train_ppl: Vec<f32>,
+    /// Validation loss per step.
     pub val_loss: Vec<f32>,
+    /// Validation perplexity per step.
     pub val_ppl: Vec<f32>,
 }
 
@@ -1455,10 +1461,15 @@ pub struct TrainingReportCurves {
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct TrainingReportSummary {
+    /// Best epoch observed during training.
     pub best_epoch: u32,
+    /// Final epoch completed.
     pub final_epoch: u32,
+    /// Whether early stopping triggered.
     pub early_stopped: bool,
+    /// Total optimization steps.
     pub total_steps: u64,
+    /// Total tokens processed.
     pub total_tokens: u64,
 }
 
@@ -1467,14 +1478,23 @@ pub struct TrainingReportSummary {
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct TrainingReportMetricDefinitions {
+    /// Definition for train_loss curve values.
     pub train_loss: String,
+    /// Definition for train_ppl curve values.
     pub train_ppl: String,
+    /// Definition for val_loss curve values.
     pub val_loss: String,
+    /// Definition for val_ppl curve values.
     pub val_ppl: String,
+    /// Definition for best_epoch summary value.
     pub best_epoch: String,
+    /// Definition for final_epoch summary value.
     pub final_epoch: String,
+    /// Definition for early_stopped summary value.
     pub early_stopped: String,
+    /// Definition for total_steps summary value.
     pub total_steps: String,
+    /// Definition for total_tokens summary value.
     pub total_tokens: String,
 }
 
@@ -1484,18 +1504,31 @@ pub struct TrainingReportMetricDefinitions {
 #[serde(rename_all = "snake_case")]
 pub struct TrainingReportV1 {
     #[serde(default = "default_training_report_version")]
+    /// Report schema version.
     pub report_version: u32,
+    /// Pipeline identifier for this training run.
     pub pipeline_id: String,
+    /// Dataset identifier used for training.
     pub dataset_id: String,
+    /// Content hash of the dataset.
     pub dataset_content_hash: String,
+    /// Hash of the dataset split definition.
     pub split_hash: String,
+    /// Base model identifier.
     pub base_model_id: String,
+    /// Base model hash.
     pub base_model_hash: String,
+    /// Optimizer configuration summary.
     pub optimizer: OptimizerConfigSummary,
+    /// Hash of the training configuration.
     pub training_config_hash: String,
+    /// Loss/perplexity curves.
     pub curves: TrainingReportCurves,
+    /// Summary metrics.
     pub summary: TrainingReportSummary,
+    /// Metric definitions for report fields.
     pub metric_definitions: TrainingReportMetricDefinitions,
+    /// Report generation timestamp (unix ms).
     pub generated_at_unix_ms: u64,
 }
 

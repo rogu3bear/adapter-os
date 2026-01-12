@@ -7,6 +7,7 @@
 use adapteros_lora_worker::training::{
     AdapterPackager, LoRAQuantizer, MicroLoRATrainer, TrainingConfig, TrainingExample,
 };
+use adapteros_types::training::example::ExampleMetadataV1;
 use std::path::PathBuf;
 
 #[tokio::main]
@@ -18,11 +19,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Step 1: Create training examples (tiny dataset for demonstration)
     println!("Step 1: Creating training examples...");
+    let created_at = 0;
     let examples = vec![
-        TrainingExample::new(vec![1, 2, 3, 4, 5], vec![6, 7, 8, 9, 10]),
-        TrainingExample::new(vec![11, 12, 13, 14, 15], vec![16, 17, 18, 19, 20]),
-        TrainingExample::new(vec![21, 22, 23, 24, 25], vec![26, 27, 28, 29, 30]),
-        TrainingExample::new(vec![31, 32, 33, 34, 35], vec![36, 37, 38, 39, 40]),
+        TrainingExample::with_pad_token(
+            vec![1, 2, 3, 4, 5],
+            vec![6, 7, 8, 9, 10],
+            0,
+            ExampleMetadataV1::new("demo", 1, "demo", created_at),
+        ),
+        TrainingExample::with_pad_token(
+            vec![11, 12, 13, 14, 15],
+            vec![16, 17, 18, 19, 20],
+            0,
+            ExampleMetadataV1::new("demo", 2, "demo", created_at),
+        ),
+        TrainingExample::with_pad_token(
+            vec![21, 22, 23, 24, 25],
+            vec![26, 27, 28, 29, 30],
+            0,
+            ExampleMetadataV1::new("demo", 3, "demo", created_at),
+        ),
+        TrainingExample::with_pad_token(
+            vec![31, 32, 33, 34, 35],
+            vec![36, 37, 38, 39, 40],
+            0,
+            ExampleMetadataV1::new("demo", 4, "demo", created_at),
+        ),
     ];
     println!("   Created {} training examples", examples.len());
 

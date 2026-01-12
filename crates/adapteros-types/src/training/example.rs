@@ -105,6 +105,7 @@ pub struct TrainingDataContractConfig {
 }
 
 impl TrainingDataContractConfig {
+    /// Build a contract config using the current contract version.
     pub fn new(pad_token_id: u32, ignore_index: i32) -> Self {
         Self {
             contract_version: TRAINING_DATA_CONTRACT_VERSION.to_string(),
@@ -135,10 +136,15 @@ impl std::fmt::Display for TrainingTokenLocation {
 /// Summary for a validated training example batch.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrainingExampleBatchSummary {
+    /// Contract version used for validation.
     pub contract_version: String,
+    /// Pad token ID used for attention masks.
     pub pad_token_id: u32,
+    /// Ignore index used for loss masking.
     pub ignore_index: i32,
+    /// Total examples validated.
     pub total_examples: usize,
+    /// Total tokens across the batch.
     pub total_tokens: u64,
 }
 
@@ -342,51 +348,373 @@ pub fn weight_from_metadata(metadata: &ExampleMetadataV1) -> Option<f32> {
     weight_from_provenance(&metadata.provenance)
 }
 
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
-pub enum TrainingExampleValidationError {
-    #[error("Training example batch is empty")]
-    EmptyBatch,
-    #[error("Training contract version mismatch: expected {expected}, got {actual}")]
-    ContractVersionMismatch { expected: String, actual: String },
-    #[error("Example {index} input_tokens must be non-empty")]
-    EmptyInput { index: usize },
-    #[error("Example {index} target_tokens must be non-empty")]
-    EmptyTarget { index: usize },
-    #[error("Example {index} attention_mask length {mask_len} does not match input_tokens length {input_len}")]
-    AttentionMaskLengthMismatch {
+/// Extract sample role from provenance JSON (if present).
+///
+/// Returns the sample_role field (e.g., "knowledge", "abstention", "negative").
+/// Used to classify examples for separated training.
+pub fn sample_role_from_provenance(provenance: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(provenance).ok()?;
+    value
+        .get("sample_role")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+}
+
+/// Extract sample role from metadata provenance (if present).
+pub fn sample_role_from_metadata(metadata: &ExampleMetadataV1) -> Option<String> {
+    sample_role_from_provenance(&metadata.provenance)
+}
+
+// =============================================================================
+// Preference Pairs (Contrastive Training)
+// =============================================================================
+
+/// Default preference margin for preference pairs.
+fn default_margin() -> f32 {
+    1.0
+}
+
+/// A preference pair for contrastive/DPO-style training.
+///
+/// Represents a single preference comparison where `chosen` response is
+/// preferred over `rejected` response for the given `prompt`. Used for
+/// Direct Preference Optimization (DPO) and similar preference-based methods.
+///
+/// # Patent Alignment
+///
+/// Supports "positive and negative conditions" for verifiable preference
+/// as required by the deterministic inference patent.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "server", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct PreferencePairV1 {
+    /// Shared prompt/context token IDs for both responses.
+    pub prompt_tokens: Vec<u32>,
+    /// Chosen (preferred) response token IDs.
+    pub chosen_tokens: Vec<u32>,
+    /// Rejected (non-preferred) response token IDs.
+    pub rejected_tokens: Vec<u32>,
+    /// Preference margin indicating strength of preference.
+    /// Higher margin = stronger preference. Default 1.0.
+    #[serde(default = "default_margin")]
+    pub margin: f32,
+    /// Attention mask for prompt tokens (1 = real token, 0 = pad).
+    pub prompt_attention_mask: Vec<u8>,
+    /// Canonical metadata payload.
+    pub metadata: ExampleMetadataV1,
+}
+
+impl PreferencePairV1 {
+    /// Create a new preference pair.
+    pub fn new(
+        prompt_tokens: Vec<u32>,
+        chosen_tokens: Vec<u32>,
+        rejected_tokens: Vec<u32>,
+        margin: f32,
+        prompt_attention_mask: Vec<u8>,
+        metadata: ExampleMetadataV1,
+    ) -> Self {
+        Self {
+            prompt_tokens,
+            chosen_tokens,
+            rejected_tokens,
+            margin,
+            prompt_attention_mask,
+            metadata,
+        }
+    }
+
+    /// Create a preference pair and derive the attention mask from pad token ID.
+    pub fn with_pad_token(
+        prompt_tokens: Vec<u32>,
+        chosen_tokens: Vec<u32>,
+        rejected_tokens: Vec<u32>,
+        margin: f32,
+        pad_token_id: u32,
+        metadata: ExampleMetadataV1,
+    ) -> Self {
+        let prompt_attention_mask =
+            TrainingExampleV1::attention_mask_from_tokens(&prompt_tokens, pad_token_id);
+        Self::new(
+            prompt_tokens,
+            chosen_tokens,
+            rejected_tokens,
+            margin,
+            prompt_attention_mask,
+            metadata,
+        )
+    }
+}
+
+/// Unified training example supporting both SFT and preference-based training.
+///
+/// This enum allows a single dataset to contain mixed example types,
+/// enabling hybrid training strategies.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "server", derive(schemars::JsonSchema))]
+#[serde(tag = "example_type", rename_all = "snake_case")]
+pub enum TrainingExample {
+    /// Supervised fine-tuning example (input → target).
+    Sft(TrainingExampleV1),
+    /// Preference pair for contrastive training (prompt → chosen vs rejected).
+    Preference(PreferencePairV1),
+}
+
+impl TrainingExample {
+    /// Get the metadata for this example.
+    pub fn metadata(&self) -> &ExampleMetadataV1 {
+        match self {
+            TrainingExample::Sft(ex) => &ex.metadata,
+            TrainingExample::Preference(pair) => &pair.metadata,
+        }
+    }
+
+    /// Get the source ID for this example.
+    pub fn source_id(&self) -> &str {
+        &self.metadata().source_id
+    }
+
+    /// Get the row ID for this example.
+    pub fn row_id(&self) -> u64 {
+        self.metadata().row_id
+    }
+}
+
+/// Validation failures specific to preference pairs.
+#[derive(Debug, thiserror::Error, PartialEq)]
+pub enum PreferencePairValidationError {
+    /// Prompt tokens were empty.
+    #[error("Preference pair {index} prompt_tokens must be non-empty")]
+    EmptyPrompt {
+        /// Pair index.
         index: usize,
-        input_len: usize,
+    },
+    /// Chosen tokens were empty.
+    #[error("Preference pair {index} chosen_tokens must be non-empty")]
+    EmptyChosen {
+        /// Pair index.
+        index: usize,
+    },
+    /// Rejected tokens were empty.
+    #[error("Preference pair {index} rejected_tokens must be non-empty")]
+    EmptyRejected {
+        /// Pair index.
+        index: usize,
+    },
+    /// Margin must be positive.
+    #[error("Preference pair {index} margin must be positive, got {margin}")]
+    InvalidMargin {
+        /// Pair index.
+        index: usize,
+        /// Invalid margin value.
+        margin: f32,
+    },
+    /// Attention mask length mismatched prompt length.
+    #[error("Preference pair {index} prompt_attention_mask length {mask_len} does not match prompt_tokens length {prompt_len}")]
+    AttentionMaskLengthMismatch {
+        /// Pair index.
+        index: usize,
+        /// Prompt token length.
+        prompt_len: usize,
+        /// Attention mask length.
         mask_len: usize,
     },
+    /// Token exceeds the vocab size.
+    #[error("Preference pair {index} token {token} exceeds vocab size {vocab_size} in {location}")]
+    TokenOutOfVocab {
+        /// Pair index.
+        index: usize,
+        /// Token ID that exceeded vocab.
+        token: u32,
+        /// Vocabulary size.
+        vocab_size: usize,
+        /// Location of the token.
+        location: PreferenceTokenLocation,
+    },
+}
+
+/// Location of a token sequence in a preference pair.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PreferenceTokenLocation {
+    /// Tokens from the prompt sequence.
+    Prompt,
+    /// Tokens from the chosen response.
+    Chosen,
+    /// Tokens from the rejected response.
+    Rejected,
+}
+
+impl std::fmt::Display for PreferenceTokenLocation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PreferenceTokenLocation::Prompt => f.write_str("prompt_tokens"),
+            PreferenceTokenLocation::Chosen => f.write_str("chosen_tokens"),
+            PreferenceTokenLocation::Rejected => f.write_str("rejected_tokens"),
+        }
+    }
+}
+
+/// Validate a single preference pair against contract invariants.
+pub fn validate_preference_pair(
+    pair: &PreferencePairV1,
+    index: usize,
+    vocab_size: usize,
+) -> Result<(), PreferencePairValidationError> {
+    // Check non-empty sequences
+    if pair.prompt_tokens.is_empty() {
+        return Err(PreferencePairValidationError::EmptyPrompt { index });
+    }
+    if pair.chosen_tokens.is_empty() {
+        return Err(PreferencePairValidationError::EmptyChosen { index });
+    }
+    if pair.rejected_tokens.is_empty() {
+        return Err(PreferencePairValidationError::EmptyRejected { index });
+    }
+
+    // Check margin is positive
+    if pair.margin <= 0.0 {
+        return Err(PreferencePairValidationError::InvalidMargin {
+            index,
+            margin: pair.margin,
+        });
+    }
+
+    // Check attention mask length
+    if pair.prompt_attention_mask.len() != pair.prompt_tokens.len() {
+        return Err(PreferencePairValidationError::AttentionMaskLengthMismatch {
+            index,
+            prompt_len: pair.prompt_tokens.len(),
+            mask_len: pair.prompt_attention_mask.len(),
+        });
+    }
+
+    // Check vocab bounds for all token sequences
+    if let Some(&token) = pair
+        .prompt_tokens
+        .iter()
+        .find(|&&t| t as usize >= vocab_size)
+    {
+        return Err(PreferencePairValidationError::TokenOutOfVocab {
+            index,
+            token,
+            vocab_size,
+            location: PreferenceTokenLocation::Prompt,
+        });
+    }
+    if let Some(&token) = pair
+        .chosen_tokens
+        .iter()
+        .find(|&&t| t as usize >= vocab_size)
+    {
+        return Err(PreferencePairValidationError::TokenOutOfVocab {
+            index,
+            token,
+            vocab_size,
+            location: PreferenceTokenLocation::Chosen,
+        });
+    }
+    if let Some(&token) = pair
+        .rejected_tokens
+        .iter()
+        .find(|&&t| t as usize >= vocab_size)
+    {
+        return Err(PreferencePairValidationError::TokenOutOfVocab {
+            index,
+            token,
+            vocab_size,
+            location: PreferenceTokenLocation::Rejected,
+        });
+    }
+
+    Ok(())
+}
+
+/// Validation failures for training example batches.
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum TrainingExampleValidationError {
+    /// No examples were provided.
+    #[error("Training example batch is empty")]
+    EmptyBatch,
+    /// Contract version mismatch.
+    #[error("Training contract version mismatch: expected {expected}, got {actual}")]
+    ContractVersionMismatch {
+        /// Expected contract version.
+        expected: String,
+        /// Actual contract version.
+        actual: String,
+    },
+    /// Input tokens were empty.
+    #[error("Example {index} input_tokens must be non-empty")]
+    EmptyInput {
+        /// Example index.
+        index: usize,
+    },
+    /// Target tokens were empty.
+    #[error("Example {index} target_tokens must be non-empty")]
+    EmptyTarget {
+        /// Example index.
+        index: usize,
+    },
+    /// Attention mask length mismatched input length.
+    #[error("Example {index} attention_mask length {mask_len} does not match input_tokens length {input_len}")]
+    AttentionMaskLengthMismatch {
+        /// Example index.
+        index: usize,
+        /// Input token length.
+        input_len: usize,
+        /// Attention mask length.
+        mask_len: usize,
+    },
+    /// Attention mask contains an invalid value.
     #[error("Example {index} attention_mask value {value} is invalid at position {position}")]
     AttentionMaskValueInvalid {
+        /// Example index.
         index: usize,
+        /// Token position with invalid value.
         position: usize,
+        /// Invalid attention mask value.
         value: u8,
     },
+    /// Pad token ID is outside the vocab range.
     #[error("Pad token id {pad_token_id} is out of vocab range (vocab size {vocab_size})")]
     PadTokenOutOfVocab {
+        /// Pad token ID.
         pad_token_id: u32,
+        /// Vocabulary size.
         vocab_size: usize,
     },
+    /// Ignore index is outside the vocab range.
     #[error("Ignore index {ignore_index} is out of vocab range (vocab size {vocab_size})")]
     IgnoreIndexOutOfVocab {
+        /// Ignore index value.
         ignore_index: i32,
+        /// Vocabulary size.
         vocab_size: usize,
     },
+    /// Attention mask does not match pad token positions.
     #[error("Example {index} attention_mask mismatch for pad token at position {position} (token {token}, pad {pad_token_id}, mask {mask_value})")]
     PadTokenMaskMismatch {
+        /// Example index.
         index: usize,
+        /// Token position.
         position: usize,
+        /// Token ID at the position.
         token: u32,
+        /// Pad token ID.
         pad_token_id: u32,
+        /// Attention mask value.
         mask_value: u8,
     },
+    /// Token exceeds the vocab size.
     #[error("Example {index} token {token} exceeds vocab size {vocab_size} in {location}")]
     TokenOutOfVocab {
+        /// Example index.
         index: usize,
+        /// Token ID that exceeded vocab.
         token: u32,
+        /// Vocabulary size.
         vocab_size: usize,
+        /// Location of the token (input or target).
         location: TrainingTokenLocation,
     },
 }
