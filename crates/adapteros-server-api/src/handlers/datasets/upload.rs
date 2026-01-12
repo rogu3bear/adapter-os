@@ -785,7 +785,7 @@ pub async fn upload_dataset(
 
     state
         .db
-        .update_dataset_validation(&dataset_id, validation_status, validation_errors.as_deref())
+        .update_dataset_validation(&dataset_id, validation_status, validation_errors.as_deref(), None)
         .await
         .map_err(|e| db_error(format!("Failed to update validation status: {}", e)))?;
 

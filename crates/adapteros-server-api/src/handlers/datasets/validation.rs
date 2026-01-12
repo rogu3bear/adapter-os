@@ -1416,7 +1416,7 @@ pub async fn validate_dataset(
     // Set status to 'validating' at start
     state
         .db
-        .update_dataset_validation(&dataset_id, "validating", None)
+        .update_dataset_validation(&dataset_id, "validating", None, None)
         .await
         .map_err(|e| db_error(format!("Failed to update validation status: {}", e)))?;
 

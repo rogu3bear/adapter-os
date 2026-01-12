@@ -301,7 +301,7 @@ impl TrainingDatasetManager {
 
         // Update validation status to valid
         self.db
-            .update_dataset_validation(&dataset_id, "valid", None)
+            .update_dataset_validation(&dataset_id, "valid", None, None)
             .await?;
 
         info!(
