@@ -33,6 +33,7 @@ pub mod backend;
 pub mod build_info;
 pub mod circuit_breaker;
 pub mod circuit_breaker_registry;
+pub mod clock;
 pub mod codebase_versioning;
 pub mod constants;
 pub mod context_hash;
@@ -55,6 +56,7 @@ pub mod identity;
 pub mod index_snapshot;
 pub mod invariants;
 pub mod io_utils;
+pub mod jitter;
 pub mod json;
 pub mod lifecycle;
 pub mod naming;
@@ -88,6 +90,9 @@ pub mod validation;
 pub mod version;
 pub mod worker_status;
 
+#[cfg(test)]
+mod test_support;
+
 pub use adapter_repo_paths::{
     adapter_fs_path, adapter_fs_path_with_root, resolve_adapter_roots_from_strings,
     RepoAdapterPaths, ResolveError, VersionStrategy, DEFAULT_CACHE_DIR, DEFAULT_REPO_DIR,
@@ -107,6 +112,7 @@ pub use circuit_breaker::{
     SharedCircuitBreaker, StandardCircuitBreaker,
 };
 pub use circuit_breaker_registry::CircuitBreakerRegistry;
+pub use clock::{mock_clock, system_clock, Clock, MockClock, SystemClock};
 pub use codebase_versioning::{
     evaluate_versioning, should_auto_version, VersionBump, VersioningContext, VersioningDecision,
     VersioningPolicy, VersioningReason, DEFAULT_VERSIONING_THRESHOLD, MAX_VERSIONING_THRESHOLD,
@@ -152,6 +158,9 @@ pub use io_utils::{
     check_disk_space, classify_and_convert_io_error, classify_io_error, ensure_temp_dir,
     get_available_space, validate_path_characters, IoErrorKind, TempFileGuard,
     DEFAULT_DISK_SPACE_MARGIN,
+};
+pub use jitter::{
+    check_probability, check_probability_by_id, compute_backoff_with_jitter, compute_jitter_delay,
 };
 pub use lifecycle::{
     validate_deterministic_transition, LifecycleError, LifecycleState, LifecycleTransition,
