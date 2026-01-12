@@ -169,7 +169,7 @@ mod circuit_breaker_error_recovery {
     #[tokio::test]
     async fn test_concurrent_circuit_breaker_access() {
         let config = CircuitBreakerConfig {
-            failure_threshold: 100, // High threshold to avoid opening
+            failure_threshold: 10_000, // Keep closed for all concurrent requests
             ..Default::default()
         };
         let breaker = Arc::new(StandardCircuitBreaker::new(
@@ -452,7 +452,7 @@ mod error_type_construction {
         let error_str = error.to_string();
         assert!(error_str.contains("egress_policy"));
         assert!(error_str.contains("expected"));
-        assert!(error_str.contains("actual"));
+        assert!(error_str.contains("def456"));
     }
 
     /// Test feature disabled error

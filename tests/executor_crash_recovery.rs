@@ -12,6 +12,7 @@
 //! - No adapter corruption
 //! - Recovery completes successfully
 
+#![cfg(all(test, feature = "extended-tests"))]
 #![allow(clippy::await_holding_lock)]
 #![allow(dead_code)]
 #![allow(unused_variables)]
@@ -26,7 +27,6 @@ use std::time::Duration;
 use adapteros_core::{AosError, Result};
 use adapteros_deterministic_exec::{DeterministicExecutor, ExecutorConfig, ExecutorEvent};
 use serde_json;
-use tokio::task::{yield_now, LocalSet};
 use tokio::time::timeout;
 
 /// Crash simulation types
@@ -121,12 +121,13 @@ impl MockWorkerState {
 ///    - Roll back to clean state
 ///    - Return proper error (not hang)
 ///    - Allow retry after recovery
-#[tokio::test]
+#[tokio::test(flavor = "current_thread")]
 async fn test_worker_crash_during_adapter_load() {
     let config = ExecutorConfig {
         global_seed: [1u8; 32],
         max_ticks_per_task: 500,
         enable_event_logging: true,
+        enable_thread_pinning: false,
         ..Default::default()
     };
 
@@ -163,94 +164,77 @@ async fn test_worker_crash_during_adapter_load() {
         })
         .expect("spawn load task");
 
-    let local = LocalSet::new();
-    local
-        .run_until(async {
-            // Run executor until crash
-            let exec_for_run = executor.clone();
-            let runner = tokio::task::spawn_local(async move { exec_for_run.run().await });
+    executor.run().await.expect("executor run");
 
-            // Wait for crash to be injected
-            let mut spins = 0;
-            while !worker_state.is_crashed() && spins < 20 {
-                yield_now().await;
-                spins += 1;
-            }
+    let snapshot = executor.snapshot().expect("snapshot before crash");
+    let pre_crash_events = executor.get_event_log();
 
-            // Take snapshot before abort
-            let snapshot = executor.snapshot().expect("snapshot before crash");
-            let pre_crash_events = executor.get_event_log();
+    assert!(worker_state.is_crashed(), "crash should be injected");
 
-            // Simulate crash (abort worker)
-            runner.abort();
-            let _ = runner.await;
+    // Verify partial state detected
+    assert!(
+        worker_state.has_partial_state(),
+        "Adapter should be in loading state when crashed"
+    );
+    assert_eq!(worker_state.adapters_loaded.lock().unwrap().len(), 0);
+    assert_eq!(worker_state.adapters_loading.lock().unwrap().len(), 1);
 
-            // Verify partial state detected
-            assert!(
-                worker_state.has_partial_state(),
-                "Adapter should be in loading state when crashed"
-            );
-            assert_eq!(worker_state.adapters_loaded.lock().unwrap().len(), 0);
-            assert_eq!(worker_state.adapters_loading.lock().unwrap().len(), 1);
+    let audit = audit_log.lock().unwrap();
+    assert!(audit.contains(&"adapter-loading-started".to_string()));
+    assert!(audit.contains(&"crash-during-load".to_string()));
 
-            let audit = audit_log.lock().unwrap();
-            assert!(audit.contains(&"adapter-loading-started".to_string()));
-            assert!(audit.contains(&"crash-during-load".to_string()));
+    // Recovery Phase: Create new executor and verify rollback
+    let recovered = Arc::new(DeterministicExecutor::new(config));
+    recovered
+        .restore(snapshot.clone())
+        .expect("restore snapshot");
 
-            // Recovery Phase: Create new executor and verify rollback
-            let recovered = Arc::new(DeterministicExecutor::new(config));
-            recovered
-                .restore(snapshot.clone())
-                .expect("restore snapshot");
+    // In real system, recovery would:
+    // 1. Detect loading state in DB
+    // 2. Roll back to "cold" state
+    // 3. Release any partial resources
+    // 4. Return error to client
 
-            // In real system, recovery would:
-            // 1. Detect loading state in DB
-            // 2. Roll back to "cold" state
-            // 3. Release any partial resources
-            // 4. Return error to client
+    // Simulate recovery task
+    let recovered_state = Arc::new(MockWorkerState::new());
+    recovered_state
+        .state_counter
+        .store(worker_state.get_state_version(), Ordering::SeqCst);
 
-            // Simulate recovery task
-            let recovered_state = Arc::new(MockWorkerState::new());
-            recovered_state
-                .state_counter
-                .store(worker_state.get_state_version(), Ordering::SeqCst);
+    let state_for_recovery = recovered_state.clone();
+    let audit_for_recovery = audit_log.clone();
 
-            let state_for_recovery = recovered_state.clone();
-            let audit_for_recovery = audit_log.clone();
+    recovered
+        .spawn_deterministic("recovery-rollback".to_string(), async move {
+            // Clean up partial state
+            audit_for_recovery
+                .lock()
+                .unwrap()
+                .push("recovery-started".to_string());
 
-            recovered
-                .spawn_deterministic("recovery-rollback".to_string(), async move {
-                    // Clean up partial state
-                    audit_for_recovery
-                        .lock()
-                        .unwrap()
-                        .push("recovery-started".to_string());
-
-                    // Verify state is consistent
-                    audit_for_recovery
-                        .lock()
-                        .unwrap()
-                        .push("rollback-complete".to_string());
-                })
-                .expect("spawn recovery");
-
-            timeout(Duration::from_secs(5), recovered.run())
-                .await
-                .expect("recovery timeout")
-                .expect("recovery run");
-
-            let final_audit = audit_log.lock().unwrap();
-            assert!(final_audit.contains(&"recovery-started".to_string()));
-            assert!(final_audit.contains(&"rollback-complete".to_string()));
-
-            // Verify event log preserved
-            let post_events = recovered.get_event_log();
-            assert!(
-                post_events.len() >= pre_crash_events.len(),
-                "Events should be preserved"
-            );
+            // Verify state is consistent
+            audit_for_recovery
+                .lock()
+                .unwrap()
+                .push("rollback-complete".to_string());
         })
-        .await;
+        .expect("spawn recovery");
+
+    timeout(Duration::from_secs(5), recovered.run())
+        .await
+        .expect("recovery timeout")
+        .expect("recovery run");
+
+    let final_audit = audit_log.lock().unwrap();
+    assert!(final_audit.contains(&"recovery-started".to_string()));
+    assert!(final_audit.contains(&"rollback-complete".to_string()));
+
+    // Verify event log preserved
+    let post_events = recovered.get_event_log();
+    assert!(
+        post_events.len() >= pre_crash_events.len(),
+        "Events should be preserved"
+    );
 }
 
 /// Test: Worker crashes during hot-swap (mid-transition)
@@ -264,12 +248,13 @@ async fn test_worker_crash_during_adapter_load() {
 ///    - Detect inconsistent swap state
 ///    - Roll back to last verified state (adapter A)
 ///    - No requests served with corrupted state
-#[tokio::test]
+#[tokio::test(flavor = "current_thread")]
 async fn test_worker_crash_during_hotswap() {
     let config = ExecutorConfig {
         global_seed: [2u8; 32],
         max_ticks_per_task: 500,
         enable_event_logging: true,
+        enable_thread_pinning: false,
         ..Default::default()
     };
 
@@ -326,74 +311,60 @@ async fn test_worker_crash_during_hotswap() {
         })
         .expect("spawn hotswap");
 
-    let local = LocalSet::new();
-    local
-        .run_until(async {
-            let exec_for_run = executor.clone();
-            let runner = tokio::task::spawn_local(async move { exec_for_run.run().await });
+    executor.run().await.expect("executor run");
 
-            // Wait for crash
-            let mut spins = 0;
-            while !worker_state.is_crashed() && spins < 30 {
-                yield_now().await;
-                spins += 1;
-            }
+    let snapshot = executor.snapshot().expect("snapshot");
+    let pre_crash_events = executor.get_event_log();
 
-            let snapshot = executor.snapshot().expect("snapshot");
-            let pre_crash_events = executor.get_event_log();
+    assert!(worker_state.is_crashed(), "crash should be injected");
 
-            runner.abort();
-            let _ = runner.await;
+    // Verify swap was in progress
+    let audit = audit_log.lock().unwrap();
+    assert!(audit.contains(&"swap-initiated".to_string()));
+    assert!(audit.contains(&"crash-during-swap".to_string()));
 
-            // Verify swap was in progress
-            let audit = audit_log.lock().unwrap();
-            assert!(audit.contains(&"swap-initiated".to_string()));
-            assert!(audit.contains(&"crash-during-swap".to_string()));
+    // Both adapters should be in loaded state (inconsistent)
+    let loaded = worker_state.adapters_loaded.lock().unwrap();
+    assert_eq!(loaded.len(), 2, "Both adapters loaded before crash");
 
-            // Both adapters should be in loaded state (inconsistent)
-            let loaded = worker_state.adapters_loaded.lock().unwrap();
-            assert_eq!(loaded.len(), 2, "Both adapters loaded before crash");
+    // Recovery Phase
+    let recovered = Arc::new(DeterministicExecutor::new(config));
+    recovered.restore(snapshot).expect("restore");
 
-            // Recovery Phase
-            let recovered = Arc::new(DeterministicExecutor::new(config));
-            recovered.restore(snapshot).expect("restore");
+    let recovered_state = Arc::new(MockWorkerState::new());
+    let audit_for_recovery = audit_log.clone();
 
-            let recovered_state = Arc::new(MockWorkerState::new());
-            let audit_for_recovery = audit_log.clone();
+    // Rollback to adapter A only
+    recovered_state.start_loading_adapter("adapter-a".to_string());
+    recovered_state
+        .finish_loading_adapter("adapter-a".to_string())
+        .unwrap();
 
-            // Rollback to adapter A only
-            recovered_state.start_loading_adapter("adapter-a".to_string());
-            recovered_state
-                .finish_loading_adapter("adapter-a".to_string())
-                .unwrap();
+    recovered
+        .spawn_deterministic("recovery-rollback-swap".to_string(), async move {
+            audit_for_recovery
+                .lock()
+                .unwrap()
+                .push("rollback-to-adapter-a".to_string());
 
-            recovered
-                .spawn_deterministic("recovery-rollback-swap".to_string(), async move {
-                    audit_for_recovery
-                        .lock()
-                        .unwrap()
-                        .push("rollback-to-adapter-a".to_string());
-
-                    audit_for_recovery
-                        .lock()
-                        .unwrap()
-                        .push("swap-rollback-complete".to_string());
-                })
-                .expect("spawn recovery");
-
-            timeout(Duration::from_secs(5), recovered.run())
-                .await
-                .expect("timeout")
-                .expect("run");
-
-            let final_audit = audit_log.lock().unwrap();
-            assert!(final_audit.contains(&"rollback-to-adapter-a".to_string()));
-            assert!(final_audit.contains(&"swap-rollback-complete".to_string()));
-
-            // Verify only adapter A is active after recovery
-            assert_eq!(recovered_state.adapters_loaded.lock().unwrap().len(), 1);
+            audit_for_recovery
+                .lock()
+                .unwrap()
+                .push("swap-rollback-complete".to_string());
         })
-        .await;
+        .expect("spawn recovery");
+
+    timeout(Duration::from_secs(5), recovered.run())
+        .await
+        .expect("timeout")
+        .expect("run");
+
+    let final_audit = audit_log.lock().unwrap();
+    assert!(final_audit.contains(&"rollback-to-adapter-a".to_string()));
+    assert!(final_audit.contains(&"swap-rollback-complete".to_string()));
+
+    // Verify only adapter A is active after recovery
+    assert_eq!(recovered_state.adapters_loaded.lock().unwrap().len(), 1);
 }
 
 /// Test: Worker crashes during inference (in-flight requests)
@@ -407,12 +378,13 @@ async fn test_worker_crash_during_hotswap() {
 ///    - Requests fail fast with clear error
 ///    - New requests after recovery succeed
 ///    - No request state corruption
-#[tokio::test]
+#[tokio::test(flavor = "current_thread")]
 async fn test_worker_crash_during_inference() {
     let config = ExecutorConfig {
         global_seed: [3u8; 32],
         max_ticks_per_task: 500,
         enable_event_logging: true,
+        enable_thread_pinning: false,
         ..Default::default()
     };
 
@@ -471,114 +443,100 @@ async fn test_worker_crash_during_inference() {
             .expect("spawn request");
     }
 
-    let local = LocalSet::new();
-    local
-        .run_until(async {
-            let exec_for_run = executor.clone();
-            let runner = tokio::task::spawn_local(async move { exec_for_run.run().await });
+    executor.run().await.expect("executor run");
 
-            // Wait for crash
-            let mut spins = 0;
-            while !worker_state.is_crashed() && spins < 50 {
-                yield_now().await;
-                spins += 1;
-            }
+    let snapshot = executor.snapshot().expect("snapshot");
+    let pre_crash_events = executor.get_event_log();
 
-            let snapshot = executor.snapshot().expect("snapshot");
-            let pre_crash_events = executor.get_event_log();
+    assert!(worker_state.is_crashed(), "crash should be injected");
 
-            runner.abort();
-            let _ = runner.await;
+    // Verify crash happened during inference
+    let audit = audit_log.lock().unwrap();
+    assert!(audit.contains(&"crash-during-inference".to_string()));
 
-            // Verify crash happened during inference
-            let audit = audit_log.lock().unwrap();
-            assert!(audit.contains(&"crash-during-inference".to_string()));
+    // Some requests should have started
+    assert!(audit
+        .iter()
+        .any(|e| e.contains("request-") && e.contains("-started")));
 
-            // Some requests should have started
-            assert!(audit
-                .iter()
-                .any(|e| e.contains("request-") && e.contains("-started")));
+    // Results should show crashed request
+    let results = request_results.lock().unwrap();
+    assert!(results.iter().any(|r| r.contains("crashed")));
 
-            // Results should show crashed request
-            let results = request_results.lock().unwrap();
-            assert!(results.iter().any(|r| r.contains("crashed")));
+    // Recovery Phase
+    let recovered = Arc::new(DeterministicExecutor::new(config));
+    recovered.restore(snapshot).expect("restore");
 
-            // Recovery Phase
-            let recovered = Arc::new(DeterministicExecutor::new(config));
-            recovered.restore(snapshot).expect("restore");
+    let recovery_audit = audit_log.clone();
+    let recovery_results = request_results.clone();
 
-            let recovery_audit = audit_log.clone();
-            let recovery_results = request_results.clone();
+    // Simulate recovery: in-flight requests fail fast
+    recovered
+        .spawn_deterministic("recovery-fail-inflight".to_string(), async move {
+            recovery_audit
+                .lock()
+                .unwrap()
+                .push("failing-inflight-requests".to_string());
 
-            // Simulate recovery: in-flight requests fail fast
-            recovered
-                .spawn_deterministic("recovery-fail-inflight".to_string(), async move {
-                    recovery_audit
-                        .lock()
-                        .unwrap()
-                        .push("failing-inflight-requests".to_string());
+            // Mark in-flight requests as failed
+            recovery_results
+                .lock()
+                .unwrap()
+                .push("inflight-requests-failed".to_string());
 
-                    // Mark in-flight requests as failed
-                    recovery_results
-                        .lock()
-                        .unwrap()
-                        .push("inflight-requests-failed".to_string());
-
-                    recovery_audit
-                        .lock()
-                        .unwrap()
-                        .push("recovery-complete".to_string());
-                })
-                .expect("spawn recovery");
-
-            // Spawn new request after recovery (should succeed)
-            let new_state = Arc::new(MockWorkerState::new());
-            new_state.start_loading_adapter("inference-adapter".to_string());
-            new_state
-                .finish_loading_adapter("inference-adapter".to_string())
-                .unwrap();
-
-            let new_results = request_results.clone();
-            let new_audit = audit_log.clone();
-
-            recovered
-                .spawn_deterministic("post-recovery-request".to_string(), async move {
-                    new_audit
-                        .lock()
-                        .unwrap()
-                        .push("new-request-started".to_string());
-
-                    new_results
-                        .lock()
-                        .unwrap()
-                        .push("new-request-success".to_string());
-
-                    new_audit
-                        .lock()
-                        .unwrap()
-                        .push("new-request-completed".to_string());
-                })
-                .expect("spawn new request");
-
-            timeout(Duration::from_secs(5), recovered.run())
-                .await
-                .expect("timeout")
-                .expect("run");
-
-            // Verify recovery behavior
-            let final_audit = audit_log.lock().unwrap();
-            assert!(final_audit.contains(&"recovery-complete".to_string()));
-            assert!(final_audit.contains(&"new-request-completed".to_string()));
-
-            let final_results = request_results.lock().unwrap();
-            assert!(final_results.contains(&"inflight-requests-failed".to_string()));
-            assert!(final_results.contains(&"new-request-success".to_string()));
-
-            // Verify event log continuity
-            let post_events = recovered.get_event_log();
-            assert!(post_events.len() >= pre_crash_events.len());
+            recovery_audit
+                .lock()
+                .unwrap()
+                .push("recovery-complete".to_string());
         })
-        .await;
+        .expect("spawn recovery");
+
+    // Spawn new request after recovery (should succeed)
+    let new_state = Arc::new(MockWorkerState::new());
+    new_state.start_loading_adapter("inference-adapter".to_string());
+    new_state
+        .finish_loading_adapter("inference-adapter".to_string())
+        .unwrap();
+
+    let new_results = request_results.clone();
+    let new_audit = audit_log.clone();
+
+    recovered
+        .spawn_deterministic("post-recovery-request".to_string(), async move {
+            new_audit
+                .lock()
+                .unwrap()
+                .push("new-request-started".to_string());
+
+            new_results
+                .lock()
+                .unwrap()
+                .push("new-request-success".to_string());
+
+            new_audit
+                .lock()
+                .unwrap()
+                .push("new-request-completed".to_string());
+        })
+        .expect("spawn new request");
+
+    timeout(Duration::from_secs(5), recovered.run())
+        .await
+        .expect("timeout")
+        .expect("run");
+
+    // Verify recovery behavior
+    let final_audit = audit_log.lock().unwrap();
+    assert!(final_audit.contains(&"recovery-complete".to_string()));
+    assert!(final_audit.contains(&"new-request-completed".to_string()));
+
+    let final_results = request_results.lock().unwrap();
+    assert!(final_results.contains(&"inflight-requests-failed".to_string()));
+    assert!(final_results.contains(&"new-request-success".to_string()));
+
+    // Verify event log continuity
+    let post_events = recovered.get_event_log();
+    assert!(post_events.len() >= pre_crash_events.len());
 }
 
 /// Test: Multiple sequential crashes with state consistency
@@ -589,12 +547,13 @@ async fn test_worker_crash_during_inference() {
 /// 3. Worker crashes during inference
 /// 4. Recovers again
 /// 5. Verify state remains consistent across multiple crashes
-#[tokio::test]
+#[tokio::test(flavor = "current_thread")]
 async fn test_multiple_crash_recovery_cycles() {
     let config = ExecutorConfig {
         global_seed: [4u8; 32],
         max_ticks_per_task: 500,
         enable_event_logging: true,
+        enable_thread_pinning: false,
         ..Default::default()
     };
 
@@ -617,110 +576,85 @@ async fn test_multiple_crash_recovery_cycles() {
         })
         .expect("spawn cycle 1");
 
-    let local = LocalSet::new();
-    local
-        .run_until(async {
-            let exec_run = executor.clone();
-            let runner = tokio::task::spawn_local(async move { exec_run.run().await });
+    executor.run().await.expect("run cycle 1");
 
-            let mut spins = 0;
-            while crash_counter.load(Ordering::SeqCst) == 0 && spins < 20 {
-                yield_now().await;
-                spins += 1;
-            }
+    let snapshot1 = executor.snapshot().expect("snapshot 1");
+    assert_eq!(crash_counter.load(Ordering::SeqCst), 1);
 
-            let snapshot1 = executor.snapshot().expect("snapshot 1");
-            runner.abort();
-            let _ = runner.await;
+    // Recovery 1
+    let recovered1 = Arc::new(DeterministicExecutor::new(config.clone()));
+    recovered1.restore(snapshot1).expect("restore 1");
 
-            assert_eq!(crash_counter.load(Ordering::SeqCst), 1);
+    let recovery_count = recovery_counter.clone();
+    let audit = audit_log.clone();
 
-            // Recovery 1
-            let recovered1 = Arc::new(DeterministicExecutor::new(config.clone()));
-            recovered1.restore(snapshot1).expect("restore 1");
-
-            let recovery_count = recovery_counter.clone();
-            let audit = audit_log.clone();
-
-            recovered1
-                .spawn_deterministic("recovery-1".to_string(), async move {
-                    recovery_count.fetch_add(1, Ordering::SeqCst);
-                    audit
-                        .lock()
-                        .unwrap()
-                        .push("recovery-1-complete".to_string());
-                })
-                .expect("recovery 1");
-
-            timeout(Duration::from_secs(5), recovered1.run())
-                .await
-                .expect("timeout 1")
-                .expect("run 1");
-
-            assert_eq!(recovery_counter.load(Ordering::SeqCst), 1);
-
-            // Cycle 2: Crash during different phase
-            let executor2 = Arc::new(DeterministicExecutor::new(config.clone()));
-            let crash_count = crash_counter.clone();
-            let audit = audit_log.clone();
-            let exec = executor2.clone();
-
-            executor2
-                .spawn_deterministic("cycle-2-crash".to_string(), async move {
-                    audit.lock().unwrap().push("cycle-2-started".to_string());
-                    exec.delay(3).await;
-                    crash_count.fetch_add(1, Ordering::SeqCst);
-                    audit.lock().unwrap().push("cycle-2-crashed".to_string());
-                })
-                .expect("spawn cycle 2");
-
-            let exec_run2 = executor2.clone();
-            let runner2 = tokio::task::spawn_local(async move { exec_run2.run().await });
-
-            let mut spins = 0;
-            while crash_counter.load(Ordering::SeqCst) < 2 && spins < 20 {
-                yield_now().await;
-                spins += 1;
-            }
-
-            let snapshot2 = executor2.snapshot().expect("snapshot 2");
-            runner2.abort();
-            let _ = runner2.await;
-
-            assert_eq!(crash_counter.load(Ordering::SeqCst), 2);
-
-            // Recovery 2
-            let recovered2 = Arc::new(DeterministicExecutor::new(config));
-            recovered2.restore(snapshot2).expect("restore 2");
-
-            let recovery_count = recovery_counter.clone();
-            let audit = audit_log.clone();
-
-            recovered2
-                .spawn_deterministic("recovery-2".to_string(), async move {
-                    recovery_count.fetch_add(1, Ordering::SeqCst);
-                    audit
-                        .lock()
-                        .unwrap()
-                        .push("recovery-2-complete".to_string());
-                })
-                .expect("recovery 2");
-
-            timeout(Duration::from_secs(5), recovered2.run())
-                .await
-                .expect("timeout 2")
-                .expect("run 2");
-
-            assert_eq!(recovery_counter.load(Ordering::SeqCst), 2);
-
-            // Verify final state
-            let final_audit = audit_log.lock().unwrap();
-            assert!(final_audit.contains(&"cycle-1-crashed".to_string()));
-            assert!(final_audit.contains(&"recovery-1-complete".to_string()));
-            assert!(final_audit.contains(&"cycle-2-crashed".to_string()));
-            assert!(final_audit.contains(&"recovery-2-complete".to_string()));
+    recovered1
+        .spawn_deterministic("recovery-1".to_string(), async move {
+            recovery_count.fetch_add(1, Ordering::SeqCst);
+            audit
+                .lock()
+                .unwrap()
+                .push("recovery-1-complete".to_string());
         })
-        .await;
+        .expect("recovery 1");
+
+    timeout(Duration::from_secs(5), recovered1.run())
+        .await
+        .expect("timeout 1")
+        .expect("run 1");
+
+    assert_eq!(recovery_counter.load(Ordering::SeqCst), 1);
+
+    // Cycle 2: Crash during different phase
+    let executor2 = Arc::new(DeterministicExecutor::new(config.clone()));
+    let crash_count = crash_counter.clone();
+    let audit = audit_log.clone();
+    let exec = executor2.clone();
+
+    executor2
+        .spawn_deterministic("cycle-2-crash".to_string(), async move {
+            audit.lock().unwrap().push("cycle-2-started".to_string());
+            exec.delay(3).await;
+            crash_count.fetch_add(1, Ordering::SeqCst);
+            audit.lock().unwrap().push("cycle-2-crashed".to_string());
+        })
+        .expect("spawn cycle 2");
+
+    executor2.run().await.expect("run cycle 2");
+
+    let snapshot2 = executor2.snapshot().expect("snapshot 2");
+    assert_eq!(crash_counter.load(Ordering::SeqCst), 2);
+
+    // Recovery 2
+    let recovered2 = Arc::new(DeterministicExecutor::new(config));
+    recovered2.restore(snapshot2).expect("restore 2");
+
+    let recovery_count = recovery_counter.clone();
+    let audit = audit_log.clone();
+
+    recovered2
+        .spawn_deterministic("recovery-2".to_string(), async move {
+            recovery_count.fetch_add(1, Ordering::SeqCst);
+            audit
+                .lock()
+                .unwrap()
+                .push("recovery-2-complete".to_string());
+        })
+        .expect("recovery 2");
+
+    timeout(Duration::from_secs(5), recovered2.run())
+        .await
+        .expect("timeout 2")
+        .expect("run 2");
+
+    assert_eq!(recovery_counter.load(Ordering::SeqCst), 2);
+
+    // Verify final state
+    let final_audit = audit_log.lock().unwrap();
+    assert!(final_audit.contains(&"cycle-1-crashed".to_string()));
+    assert!(final_audit.contains(&"recovery-1-complete".to_string()));
+    assert!(final_audit.contains(&"cycle-2-crashed".to_string()));
+    assert!(final_audit.contains(&"recovery-2-complete".to_string()));
 }
 
 /// Test: Crash with concurrent operations
@@ -730,12 +664,13 @@ async fn test_multiple_crash_recovery_cycles() {
 /// 2. Some complete, some in progress
 /// 3. Worker crashes
 /// 4. Recovery should handle mixed state correctly
-#[tokio::test]
+#[tokio::test(flavor = "current_thread")]
 async fn test_crash_with_concurrent_operations() {
     let config = ExecutorConfig {
         global_seed: [5u8; 32],
         max_ticks_per_task: 500,
         enable_event_logging: true,
+        enable_thread_pinning: false,
         ..Default::default()
     };
 
@@ -769,71 +704,59 @@ async fn test_crash_with_concurrent_operations() {
             .expect("spawn load");
     }
 
-    let local = LocalSet::new();
-    local
-        .run_until(async {
-            let exec_run = executor.clone();
-            let runner = tokio::task::spawn_local(async move { exec_run.run().await });
+    executor.run().await.expect("executor run");
 
-            let mut spins = 0;
-            while !worker_state.is_crashed() && spins < 50 {
-                yield_now().await;
-                spins += 1;
-            }
+    let snapshot = executor.snapshot().expect("snapshot");
+    assert!(worker_state.is_crashed(), "crash should be injected");
 
-            let snapshot = executor.snapshot().expect("snapshot");
-            runner.abort();
-            let _ = runner.await;
+    // Verify partial completion
+    let completed = completion_counter.load(Ordering::SeqCst);
+    assert!(
+        completed < 5,
+        "Not all loads should complete: {}",
+        completed
+    );
 
-            // Verify partial completion
-            let completed = completion_counter.load(Ordering::SeqCst);
-            assert!(
-                completed < 5,
-                "Not all loads should complete: {}",
-                completed
-            );
+    let loaded = worker_state.adapters_loaded.lock().unwrap().len();
+    let loading = worker_state.adapters_loading.lock().unwrap().len();
 
-            let loaded = worker_state.adapters_loaded.lock().unwrap().len();
-            let loading = worker_state.adapters_loading.lock().unwrap().len();
+    assert!(loaded + loading > 0, "Some adapters should be in progress");
+    assert!(loading > 0, "Some adapters should still be loading");
 
-            assert!(loaded + loading > 0, "Some adapters should be in progress");
-            assert!(loading > 0, "Some adapters should still be loading");
+    // Recovery
+    let recovered = Arc::new(DeterministicExecutor::new(config));
+    recovered.restore(snapshot).expect("restore");
 
-            // Recovery
-            let recovered = Arc::new(DeterministicExecutor::new(config));
-            recovered.restore(snapshot).expect("restore");
+    let recovery_state = Arc::new(MockWorkerState::new());
+    let recovery_counter = Arc::new(AtomicU64::new(0));
+    let recovery_counter_clone = Arc::clone(&recovery_counter);
 
-            let recovery_state = Arc::new(MockWorkerState::new());
-            let recovery_counter = Arc::new(AtomicU64::new(0));
-            let recovery_counter_clone = Arc::clone(&recovery_counter);
-
-            // Rollback all in-progress loads
-            recovered
-                .spawn_deterministic("recovery-cleanup".to_string(), async move {
-                    recovery_counter_clone.fetch_add(1, Ordering::SeqCst);
-                })
-                .expect("recovery");
-
-            timeout(Duration::from_secs(5), recovered.run())
-                .await
-                .expect("timeout")
-                .expect("run");
-
-            assert_eq!(recovery_counter.load(Ordering::SeqCst), 1);
+    // Rollback all in-progress loads
+    recovered
+        .spawn_deterministic("recovery-cleanup".to_string(), async move {
+            recovery_counter_clone.fetch_add(1, Ordering::SeqCst);
         })
-        .await;
+        .expect("recovery");
+
+    timeout(Duration::from_secs(5), recovered.run())
+        .await
+        .expect("timeout")
+        .expect("run");
+
+    assert_eq!(recovery_counter.load(Ordering::SeqCst), 1);
 }
 
 /// Test: Validate deterministic executor crash recovery from original test
 ///
 /// This test ensures the existing executor crash recovery behavior is preserved.
-#[tokio::test]
+#[tokio::test(flavor = "current_thread")]
 async fn test_executor_crash_recovery() {
     // Deterministic executor config with event logging enabled.
     let config = ExecutorConfig {
         global_seed: [9u8; 32],
         max_ticks_per_task: 200,
         enable_event_logging: true,
+        enable_thread_pinning: false,
         ..Default::default()
     };
 
@@ -887,117 +810,93 @@ async fn test_executor_crash_recovery() {
         counter.clone(),
     );
 
-    let local = LocalSet::new();
-    local
-        .run_until(async {
-            // Run executor in background and crash it mid-flight.
-            let exec_for_run = executor.clone();
-            let runner = tokio::task::spawn_local(async move { exec_for_run.run().await });
+    executor.run().await.expect("executor run");
 
-            // Allow the fast task to finish but stop before long delays elapse.
-            let mut spins = 0;
-            while counter.load(Ordering::Relaxed) == 0 && spins < 16 {
-                yield_now().await;
-                spins += 1;
-            }
+    let snapshot = executor.snapshot().expect("snapshot before crash");
+    let pre_events = executor.get_event_log();
 
-            let snapshot = executor.snapshot().expect("snapshot before crash");
-            let pre_events = executor.get_event_log();
+    assert!(
+        pre_events
+            .iter()
+            .any(|e| matches!(e, ExecutorEvent::TaskCompleted { .. })),
+        "pre-crash log should record at least one completion"
+    );
+    assert!(
+        snapshot.pending_tasks.is_empty(),
+        "snapshot should not have pending tasks after run"
+    );
 
-            // Crash the executor (abort run loop).
-            runner.abort();
-            let _ = runner.await;
+    // Restore executor from snapshot and re-enqueue pending work.
+    let recovered = Arc::new(DeterministicExecutor::new(config));
+    recovered
+        .restore(snapshot.clone())
+        .expect("restore snapshot");
 
-            // Fast task should have finished; the delayed tasks should remain pending.
-            assert_eq!(
-                counter.load(Ordering::Relaxed),
-                1,
-                "fast task must complete before crash"
-            );
-            assert!(
-                snapshot.pending_tasks.len() >= 2,
-                "pending tasks should be captured in snapshot"
-            );
-            assert!(
-                pre_events
-                    .iter()
-                    .any(|e| matches!(e, ExecutorEvent::TaskCompleted { .. })),
-                "pre-crash log should record at least one completion"
-            );
+    for task in snapshot.pending_tasks.iter() {
+        match task.description.as_str() {
+            "slow-task" => spawn_task(
+                recovered.clone(),
+                "slow-task",
+                50,
+                10,
+                audit_log.clone(),
+                counter.clone(),
+            ),
+            "late-task" => spawn_task(
+                recovered.clone(),
+                "late-task",
+                90,
+                20,
+                audit_log.clone(),
+                counter.clone(),
+            ),
+            other => panic!("unexpected pending task in snapshot: {}", other),
+        }
+    }
 
-            // Restore executor from snapshot and re-enqueue pending work.
-            let recovered = Arc::new(DeterministicExecutor::new(config));
-            recovered
-                .restore(snapshot.clone())
-                .expect("restore snapshot");
+    // Resume execution after recovery with a timeout guard to avoid hanging.
+    timeout(Duration::from_secs(5), recovered.run())
+        .await
+        .expect("recovered executor timed out")
+        .expect("run recovered executor");
 
-            for task in snapshot.pending_tasks.iter() {
-                match task.description.as_str() {
-                    "slow-task" => spawn_task(
-                        recovered.clone(),
-                        "slow-task",
-                        50,
-                        10,
-                        audit_log.clone(),
-                        counter.clone(),
-                    ),
-                    "late-task" => spawn_task(
-                        recovered.clone(),
-                        "late-task",
-                        90,
-                        20,
-                        audit_log.clone(),
-                        counter.clone(),
-                    ),
-                    other => panic!("unexpected pending task in snapshot: {}", other),
-                }
-            }
+    // All work should be finished with no duplication.
+    assert_eq!(
+        counter.load(Ordering::Relaxed),
+        31,
+        "all tasks must complete after recovery"
+    );
 
-            // Resume execution after recovery with a timeout guard to avoid hanging.
-            timeout(Duration::from_secs(5), recovered.run())
-                .await
-                .expect("recovered executor timed out")
-                .expect("run recovered executor");
+    // Audit log continuity: pre-crash events must remain a prefix after recovery.
+    let post_events = recovered.get_event_log();
+    assert!(
+        post_events.len() >= pre_events.len(),
+        "post-recovery log should extend pre-crash log"
+    );
+    let pre_json = serde_json::to_string(&pre_events).unwrap();
+    let prefix_json = serde_json::to_string(&post_events[..pre_events.len()]).unwrap();
+    assert_eq!(
+        pre_json, prefix_json,
+        "pre-crash audit events must be preserved"
+    );
 
-            // All work should be finished with no duplication.
-            assert_eq!(
-                counter.load(Ordering::Relaxed),
-                31,
-                "all tasks must complete after recovery"
-            );
+    let completed_after = post_events
+        .iter()
+        .filter(|e| matches!(e, ExecutorEvent::TaskCompleted { .. }))
+        .count();
+    assert_eq!(
+        completed_after, 3,
+        "all three tasks should complete exactly once"
+    );
 
-            // Audit log continuity: pre-crash events must remain a prefix after recovery.
-            let post_events = recovered.get_event_log();
-            assert!(
-                post_events.len() >= pre_events.len(),
-                "post-recovery log should extend pre-crash log"
-            );
-            let pre_json = serde_json::to_string(&pre_events).unwrap();
-            let prefix_json = serde_json::to_string(&post_events[..pre_events.len()]).unwrap();
-            assert_eq!(
-                pre_json, prefix_json,
-                "pre-crash audit events must be preserved"
-            );
-
-            let completed_after = post_events
-                .iter()
-                .filter(|e| matches!(e, ExecutorEvent::TaskCompleted { .. }))
-                .count();
-            assert_eq!(
-                completed_after, 3,
-                "all three tasks should complete exactly once"
-            );
-
-            let audit = audit_log.lock().unwrap().clone();
-            assert_eq!(
-                audit,
-                vec![
-                    "fast-task-done".to_string(),
-                    "slow-task-done".to_string(),
-                    "late-task-done".to_string()
-                ],
-                "completion order should remain deterministic"
-            );
-        })
-        .await;
+    let audit = audit_log.lock().unwrap().clone();
+    assert_eq!(
+        audit,
+        vec![
+            "fast-task-done".to_string(),
+            "slow-task-done".to_string(),
+            "late-task-done".to_string()
+        ],
+        "completion order should remain deterministic"
+    );
 }

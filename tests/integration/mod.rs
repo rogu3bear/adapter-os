@@ -14,6 +14,7 @@ pub mod policy_enforcement;
 pub mod resource_isolation;
 pub mod test_utils;
 pub mod fixtures;
+pub mod chunked_upload_idempotency;
 
 // Re-export commonly used test utilities
 pub use test_utils::*;

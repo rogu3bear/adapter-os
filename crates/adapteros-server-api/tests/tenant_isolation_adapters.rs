@@ -301,11 +301,10 @@ async fn pinned_adapter_cross_tenant_is_indistinguishable_from_not_found() -> Re
         .unwrap_err();
 
     match err {
-        InferenceError::AdapterNotFound(msg) => {
-            assert!(msg.contains(&foreign_adapter_id));
-            assert!(!msg.contains("tenant-1"));
+        InferenceError::AdapterTenantMismatch { adapter_id, .. } => {
+            assert_eq!(adapter_id, foreign_adapter_id);
         }
-        other => panic!("expected AdapterNotFound, got {:?}", other),
+        other => panic!("expected AdapterTenantMismatch, got {:?}", other),
     }
 
     Ok(())

@@ -65,8 +65,10 @@ async fn test_e2e_inference_with_audit_trail() {
     let request_id = "e2e-test-request-001";
 
     // Create isolated test environment
-    let base_state = setup_state(None).await.expect("Failed to setup test state");
-    let state = base_state.with_manifest_info(manifest_hash.to_string(), backend_name.to_string());
+    let state = setup_state(None)
+        .await
+        .expect("Failed to setup test state")
+        .with_manifest_info(manifest_hash.to_string(), backend_name.to_string());
 
     // =============================================================================
     // Stage 2: Tenant & User Setup
@@ -657,6 +659,333 @@ async fn test_e2e_inference_with_audit_trail() {
     println!("=====================================\n");
 }
 
+/// Integration Test: Training job artifact wiring to inference adapter resolution.
+#[tokio::test]
+async fn test_training_job_adapter_infer_wiring() {
+    let manifest_hash = "wiring000000000000000000000000000000000000000000000000000000000000";
+    let backend_name = "mlx";
+    let model_name = "wiring-model";
+    let adapter_id = "adapter-wiring";
+    let job_id = "train-wiring-001";
+    let request_id = "wiring-request-001";
+
+    let base_state = setup_state(None).await.expect("Failed to setup test state");
+    let state = base_state.with_manifest_info(manifest_hash.to_string(), backend_name.to_string());
+
+    let claims = test_admin_claims();
+    let identity = IdentityEnvelope::new(
+        claims.tenant_id.clone(),
+        "api".to_string(),
+        "inference".to_string(),
+        "test-rev".to_string(),
+    );
+
+    state
+        .db
+        .initialize_tenant_policy_bindings(&claims.tenant_id, "test-system")
+        .await
+        .expect("Failed to initialize tenant policy bindings");
+
+    let model_params = ModelRegistrationBuilder::new()
+        .name(model_name)
+        .hash_b3("wiring-model-hash-b3")
+        .config_hash_b3("wiring-config-hash-b3")
+        .tokenizer_hash_b3("wiring-tokenizer-hash-b3")
+        .tokenizer_cfg_hash_b3("wiring-tokenizer-cfg-hash-b3")
+        .build()
+        .expect("Failed to build model params");
+
+    let model_id = state
+        .db
+        .register_model(model_params)
+        .await
+        .expect("Failed to register model");
+    state
+        .db
+        .update_base_model_status(&claims.tenant_id, &model_id, "ready", None, Some(2048))
+        .await
+        .expect("Failed to mark model ready");
+
+    let adapter_params = AdapterRegistrationBuilder::new()
+        .tenant_id(claims.tenant_id.clone())
+        .adapter_id(adapter_id.to_string())
+        .name(adapter_id.to_string())
+        .hash_b3("wiring-adapter-hash")
+        .rank(8)
+        .targets_json(r#"["q_proj"]"#)
+        .base_model_id(Some(model_id.clone()))
+        .build()
+        .expect("Failed to build adapter params");
+
+    state
+        .db
+        .register_adapter(adapter_params)
+        .await
+        .expect("Failed to register adapter");
+
+    state
+        .db
+        .create_training_job_with_provenance(
+            Some(job_id),
+            "repo-1",
+            "{}",
+            &claims.sub,
+            None,
+            None,
+            None,
+            None,
+            Some(&model_id),
+            None,
+            Some(&claims.tenant_id),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            None,
+        )
+        .await
+        .expect("Failed to create training job");
+
+    let artifact_path = {
+        let guard = state.config.read().unwrap();
+        let adapters_root = std::path::PathBuf::from(&guard.paths.adapters_root);
+        let tenant_dir = adapters_root.join(&claims.tenant_id);
+        std::fs::create_dir_all(&tenant_dir).expect("create tenant adapter dir");
+        let path = tenant_dir.join(format!("{}.aos", adapter_id));
+        std::fs::write(&path, b"fake-aos").expect("write fake artifact");
+        path
+    };
+    let artifact_path_str = artifact_path.to_string_lossy().to_string();
+
+    state
+        .db
+        .update_training_job_artifact(
+            job_id,
+            &artifact_path_str,
+            adapter_id,
+            "weights-hash-b3",
+            None,
+        )
+        .await
+        .expect("Failed to update training job artifact");
+    state
+        .db
+        .update_training_status(job_id, "completed")
+        .await
+        .expect("Failed to update training job status");
+    state
+        .db
+        .update_adapter_training_job_id(adapter_id, job_id)
+        .await
+        .expect("Failed to link adapter to training job");
+
+    adapteros_db::sqlx::query(
+        "INSERT INTO manifests (id, tenant_id, hash_b3, body_json) VALUES (?, ?, ?, ?)",
+    )
+    .bind("manifest-wiring")
+    .bind(&claims.tenant_id)
+    .bind(manifest_hash)
+    .bind("{}")
+    .execute(state.db.pool())
+    .await
+    .expect("seed manifest");
+
+    adapteros_db::sqlx::query(
+        "INSERT INTO nodes (id, hostname, agent_endpoint, status) VALUES (?, ?, ?, 'active')",
+    )
+    .bind("node-wiring")
+    .bind("node-wiring.local")
+    .bind("http://localhost:0")
+    .execute(state.db.pool())
+    .await
+    .expect("seed node");
+
+    adapteros_db::sqlx::query(
+        "INSERT INTO plans (id, tenant_id, plan_id_b3, manifest_hash_b3, kernel_hashes_json, layout_hash_b3, metadata_json) VALUES (?, ?, ?, ?, '[]', ?, NULL)",
+    )
+    .bind("plan-wiring")
+    .bind(&claims.tenant_id)
+    .bind("plan-b3-wiring")
+    .bind(manifest_hash)
+    .bind("layout-hash-wiring")
+    .execute(state.db.pool())
+    .await
+    .expect("seed plan");
+
+    let uds_dir = TempDir::new_in(".").expect("tempdir");
+    let uds_path = uds_dir
+        .path()
+        .join("aos-wiring-worker.sock")
+        .to_string_lossy()
+        .to_string();
+
+    state
+        .db
+        .register_worker(WorkerRegistrationParams {
+            worker_id: "worker-wiring".to_string(),
+            tenant_id: claims.tenant_id.clone(),
+            node_id: "node-wiring".to_string(),
+            plan_id: "plan-wiring".to_string(),
+            uds_path: uds_path.clone(),
+            pid: 1234,
+            manifest_hash: manifest_hash.to_string(),
+            backend: Some(backend_name.to_string()),
+            model_hash_b3: None,
+            capabilities_json: None,
+            schema_version: API_SCHEMA_VERSION.to_string(),
+            api_version: API_SCHEMA_VERSION.to_string(),
+        })
+        .await
+        .expect("register worker");
+    state
+        .db
+        .transition_worker_status("worker-wiring", "healthy", "test", None)
+        .await
+        .expect("mark worker healthy");
+
+    let worker_response = WorkerInferResponse {
+        text: Some("wiring response".to_string()),
+        status: "stop".to_string(),
+        trace: WorkerTrace {
+            router_summary: RouterSummary {
+                adapters_used: vec![adapter_id.to_string()],
+            },
+            token_count: 5,
+            router_decisions: None,
+            router_decision_chain: None,
+            model_type: None,
+        },
+        run_receipt: None,
+        token_usage: Some(TokenUsage {
+            prompt_tokens: 4,
+            completion_tokens: 5,
+            billed_input_tokens: 4,
+            billed_output_tokens: 5,
+        }),
+        backend_used: Some(backend_name.to_string()),
+        backend_version: Some("v-wiring".to_string()),
+        fallback_triggered: false,
+        coreml_compute_preference: None,
+        coreml_compute_units: None,
+        coreml_gpu_used: None,
+        coreml_package_hash: None,
+        coreml_expected_package_hash: None,
+        coreml_hash_mismatch: None,
+        fallback_backend: None,
+        determinism_mode_applied: Some("strict".to_string()),
+        unavailable_pinned_adapters: None,
+        pinned_routing_fallback: None,
+        placement_trace: None,
+        stop_reason_code: None,
+        stop_reason_token_index: None,
+        stop_policy_digest_b3: None,
+        tokenizer_digest_b3: None,
+    };
+
+    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+    let uds_path_owned = uds_path.clone();
+    let worker_handle = tokio::spawn(async move {
+        let _ = tokio::fs::remove_file(&uds_path_owned).await;
+        let listener = UnixListener::bind(&uds_path_owned).expect("bind uds");
+        let _ = ready_tx.send(());
+
+        if let Ok((mut stream, _)) = listener.accept().await {
+            let mut buf = vec![0u8; 4096];
+            let _ = stream.read(&mut buf).await;
+            let response_json = serde_json::to_vec(&worker_response).expect("serialize response");
+            let _ = stream.write_all(&response_json).await;
+        }
+    });
+    let _ = ready_rx.await;
+
+    let infer_req = InferRequest {
+        prompt: "wiring test".to_string(),
+        model: Some(model_id.clone()),
+        adapters: Some(vec![adapter_id.to_string()]),
+        ..Default::default()
+    };
+
+    let response = infer(
+        State(state.clone()),
+        Extension(claims.clone()),
+        Extension(identity),
+        Some(Extension(RequestId(request_id.to_string()))),
+        None,
+        Json(infer_req),
+    )
+    .await
+    .expect("inference should succeed");
+
+    let payload: InferResponse = response.0;
+    assert_eq!(payload.adapters_used, vec![adapter_id.to_string()]);
+
+    common::create_test_tenant(&state, "tenant-2", "Tenant Two")
+        .await
+        .expect("Failed to create tenant-2");
+    let foreign_params = AdapterRegistrationBuilder::new()
+        .tenant_id("tenant-2".to_string())
+        .adapter_id("tenant-2-wiring-adapter".to_string())
+        .name("Tenant 2 Adapter".to_string())
+        .hash_b3("t2-adapter-hash")
+        .rank(8)
+        .targets_json(r#"["q_proj"]"#)
+        .build()
+        .expect("Failed to build tenant-2 adapter params");
+    state
+        .db
+        .register_adapter(foreign_params)
+        .await
+        .expect("Failed to register tenant-2 adapter");
+
+    let cross_req = InferRequest {
+        prompt: "cross-tenant wiring".to_string(),
+        model: Some(model_id),
+        adapters: Some(vec!["tenant-2-wiring-adapter".to_string()]),
+        ..Default::default()
+    };
+    let cross_result = infer(
+        State(state),
+        Extension(claims.clone()),
+        Extension(IdentityEnvelope::new(
+            "tenant-1".to_string(),
+            "api".to_string(),
+            "inference".to_string(),
+            "test-rev".to_string(),
+        )),
+        Some(Extension(RequestId("cross-tenant-wiring".to_string()))),
+        None,
+        Json(cross_req),
+    )
+    .await;
+    match cross_result {
+        Err((status, Json(body))) => {
+            assert_eq!(status, StatusCode::FORBIDDEN);
+            assert_eq!(body.code, "ADAPTER_TENANT_MISMATCH");
+            let details = body.details.expect("details");
+            assert_eq!(
+                details.get("adapter_id").and_then(|v| v.as_str()),
+                Some("tenant-2-wiring-adapter")
+            );
+            assert_eq!(
+                details.get("tenant_id").and_then(|v| v.as_str()),
+                Some(claims.tenant_id.as_str())
+            );
+            assert_eq!(
+                details.get("adapter_tenant_id").and_then(|v| v.as_str()),
+                Some("tenant-2")
+            );
+        }
+        Ok(_) => panic!("Cross-tenant adapter use should fail"),
+    }
+
+    worker_handle.await.expect("worker task");
+}
+
 /// E2E Test: Inference failure when model is not ready
 ///
 /// This test verifies that the inference pipeline correctly fails fast
@@ -748,6 +1077,7 @@ async fn test_e2e_inference_tenant_isolation() {
         .expect("Failed to create tenant-2");
 
     let claims = test_admin_claims(); // tenant-1 user
+    let tenant_id = claims.tenant_id.clone();
     let identity = IdentityEnvelope::new(
         claims.tenant_id.clone(),
         "api".to_string(),
@@ -812,21 +1142,129 @@ async fn test_e2e_inference_tenant_isolation() {
     )
     .await;
 
-    // Should fail - exact error depends on where isolation is enforced
     match result {
         Err((status, Json(body))) => {
             println!("✓ Cross-tenant access blocked: {} - {}", status, body.error);
-            // Could be 403 FORBIDDEN, 404 NOT_FOUND, or 400 BAD_REQUEST
-            // depending on where tenant isolation catches it
-            assert!(
-                status == StatusCode::FORBIDDEN
-                    || status == StatusCode::NOT_FOUND
-                    || status == StatusCode::BAD_REQUEST,
-                "Should return 403, 404, or 400 for cross-tenant access"
+            assert_eq!(status, StatusCode::FORBIDDEN);
+            assert_eq!(body.code, "ADAPTER_TENANT_MISMATCH");
+            let details = body.details.expect("details");
+            assert_eq!(
+                details.get("adapter_id").and_then(|v| v.as_str()),
+                Some("tenant-2-adapter")
+            );
+            assert_eq!(
+                details.get("tenant_id").and_then(|v| v.as_str()),
+                Some(tenant_id.as_str())
+            );
+            assert_eq!(
+                details.get("adapter_tenant_id").and_then(|v| v.as_str()),
+                Some("tenant-2")
             );
         }
         Ok(_) => {
             panic!("Should not allow cross-tenant adapter access");
+        }
+    }
+}
+
+/// E2E Test: Adapter base model mismatch during inference
+///
+/// Ensures adapters tied to a different base model are rejected with a typed error.
+#[tokio::test]
+async fn test_e2e_inference_rejects_adapter_base_model_mismatch() {
+    let manifest_hash = "base-model-mismatch";
+    let backend_name = "mlx";
+
+    let base_state = setup_state(None).await.expect("Failed to setup state");
+    let state = base_state.with_manifest_info(manifest_hash.to_string(), backend_name.to_string());
+
+    let claims = test_admin_claims();
+    let identity = IdentityEnvelope::new(
+        claims.tenant_id.clone(),
+        "api".to_string(),
+        "inference".to_string(),
+        "test-rev".to_string(),
+    );
+
+    let model_params = ModelRegistrationBuilder::new()
+        .name("expected-model")
+        .hash_b3("expected-hash")
+        .config_hash_b3("expected-config-hash")
+        .tokenizer_hash_b3("expected-tok-hash")
+        .tokenizer_cfg_hash_b3("expected-tokcfg-hash")
+        .build()
+        .expect("Failed to build model params");
+
+    let model_id = state
+        .db
+        .register_model(model_params)
+        .await
+        .expect("Failed to register model");
+
+    state
+        .db
+        .update_base_model_status(&claims.tenant_id, &model_id, "ready", None, Some(2048))
+        .await
+        .expect("Failed to mark model ready");
+
+    let adapter_params = AdapterRegistrationBuilder::new()
+        .tenant_id(claims.tenant_id.clone())
+        .adapter_id("mismatch-adapter".to_string())
+        .name("Mismatch Adapter".to_string())
+        .hash_b3("mismatch-adapter-hash")
+        .rank(8)
+        .targets_json(r#"["q_proj"]"#)
+        .base_model_id(Some("different-model"))
+        .build()
+        .expect("Failed to build adapter params");
+
+    state
+        .db
+        .register_adapter(adapter_params)
+        .await
+        .expect("Failed to register adapter");
+
+    let infer_req = InferRequest {
+        prompt: "Base model mismatch test".to_string(),
+        model: Some(model_id.clone()),
+        adapters: Some(vec!["mismatch-adapter".to_string()]),
+        ..Default::default()
+    };
+
+    let result = infer(
+        State(state),
+        Extension(claims),
+        Extension(identity),
+        Some(Extension(RequestId("base-model-mismatch".to_string()))),
+        None,
+        Json(infer_req),
+    )
+    .await;
+
+    match result {
+        Err((status, Json(body))) => {
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+            assert_eq!(body.code, "ADAPTER_BASE_MODEL_MISMATCH");
+            let details = body.details.expect("details");
+            assert_eq!(
+                details.get("adapter_id").and_then(|v| v.as_str()),
+                Some("mismatch-adapter")
+            );
+            assert_eq!(
+                details
+                    .get("expected_base_model_id")
+                    .and_then(|v| v.as_str()),
+                Some(model_id.as_str())
+            );
+            assert_eq!(
+                details
+                    .get("adapter_base_model_id")
+                    .and_then(|v| v.as_str()),
+                Some("different-model")
+            );
+        }
+        Ok(_) => {
+            panic!("Should not allow adapter base model mismatch");
         }
     }
 }

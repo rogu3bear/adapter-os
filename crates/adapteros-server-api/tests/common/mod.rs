@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 pub mod test_failure_bundle;
+#[allow(unused_imports)]
 pub use test_failure_bundle::*;
 
 use std::sync::{Arc, RwLock};
@@ -127,6 +128,28 @@ pub async fn setup_state(_uds_path: Option<&PathBuf>) -> anyhow::Result<AppState
     .execute(db.pool())
     .await?;
 
+    // Dev bypass user (used when AOS_DEV_NO_AUTH=1)
+    adapteros_db::sqlx::query(
+        "INSERT OR IGNORE INTO users (id, email, display_name, pw_hash, role) VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind("dev-no-auth")
+    .bind("dev-no-auth@adapteros.local")
+    .bind("Dev Bypass User")
+    .bind("dev-hash")
+    .bind("admin")
+    .execute(db.pool())
+    .await?;
+
+    // Create workspace for default tenant (required for dev bypass auth)
+    adapteros_db::sqlx::query(
+        "INSERT OR IGNORE INTO workspaces (id, name, created_by) VALUES (?, ?, ?)",
+    )
+    .bind("default")
+    .bind("Default Workspace")
+    .bind("dev-no-auth")
+    .execute(db.pool())
+    .await?;
+
     // 3. Create test JWT secret
     let jwt_secret = b"test-jwt-secret-for-integration-tests-32bytes!".to_vec();
 
@@ -168,6 +191,7 @@ pub async fn setup_state(_uds_path: Option<&PathBuf>) -> anyhow::Result<AppState
         auth: Default::default(),
         self_hosting: Default::default(),
         performance: Default::default(),
+        streaming: Default::default(),
         paths: PathsConfig {
             artifacts_root: artifacts_root.to_string_lossy().to_string(),
             bundles_root: bundles_root.to_string_lossy().to_string(),

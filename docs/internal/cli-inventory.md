@@ -14,10 +14,12 @@ AdapterOS CLI/tooling surface. Each script name here satisfies the
 - bootstrap_with_checkpoints.sh
 - build-codebase-dataset.sh
 - build-leptos-ui.sh
+- build-ui.sh
 - build-mlx.sh
 - build_metadata.sh
 - build_with_stable_sdk.sh
 - check-config.sh
+- check_cache_staleness.sh
 - check-db.sh
 - check-migrations.sh
 - check-system.sh
@@ -28,6 +30,7 @@ AdapterOS CLI/tooling surface. Each script name here satisfies the
 - check_migrations.sh
 - check_moe_lora_naming.sh
 - check_tracing_imports.sh
+- chunked_upload_example.sh
 - cleanup-logs.sh
 - colima-start.sh
 - colima-stop.sh

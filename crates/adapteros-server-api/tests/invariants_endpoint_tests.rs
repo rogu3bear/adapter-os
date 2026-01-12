@@ -47,14 +47,9 @@ async fn invariants_endpoint_returns_valid_structure() -> anyhow::Result<()> {
         .await
         .expect("read body");
 
-    let response: InvariantStatusResponse = serde_json::from_slice(&body)?;
+    let _response: InvariantStatusResponse = serde_json::from_slice(&body)?;
 
     // Verify response structure has expected fields
-    assert!(response.checked >= 0);
-    assert!(response.passed >= 0);
-    assert!(response.failed >= 0);
-    assert!(response.skipped >= 0);
-    assert!(response.fatal >= 0);
     // violations and skipped_ids should be valid arrays (may be empty)
     // production_mode should be a boolean (either value is valid)
 

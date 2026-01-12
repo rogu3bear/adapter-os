@@ -223,16 +223,16 @@ mod lifecycle_tests {
         init_test_executor();
 
         let config = adapteros_server_api::ShutdownConfig {
-            telemetry_timeout: Duration::from_millis(50),
+            uds_metrics_timeout: Duration::from_millis(50),
             ..Default::default()
         };
         let mut coordinator = adapteros_server_api::ShutdownCoordinator::with_config(config);
 
-        // Register a task that will timeout
+        // Register a non-critical component that will timeout
         let mock_handle = tokio::spawn(async {
             tokio::time::sleep(Duration::from_secs(1)).await;
         });
-        coordinator.set_telemetry_handle(mock_handle);
+        coordinator.set_uds_metrics_handle(mock_handle);
 
         // Shutdown should report partial failure due to timeout
         let result = coordinator.shutdown().await;

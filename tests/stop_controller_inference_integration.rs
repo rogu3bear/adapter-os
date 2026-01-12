@@ -89,6 +89,9 @@ async fn init_test_db() -> Result<Arc<Db>> {
             stop_reason_token_index INTEGER,
             stop_policy_digest_b3 BLOB,
             model_cache_identity_v2_digest_b3 BLOB,
+            prefix_kv_key_b3 TEXT,
+            prefix_cache_hit INTEGER NOT NULL DEFAULT 0,
+            prefix_kv_bytes INTEGER NOT NULL DEFAULT 0,
             created_at TEXT
         );
         "#,

@@ -513,7 +513,9 @@ fn test_stable_ordering() {
 /// Test that different seeds produce different results
 #[test]
 fn test_different_seeds_different_results() {
-    set_thread_local_determinism_config(replay_determinism_config());
+    let mut config = replay_determinism_config();
+    config.fixed_seed = None;
+    set_thread_local_determinism_config(config);
 
     let global1 = B3Hash::from_bytes(REPLAY_SEED_BYTES);
     let global2 = B3Hash::from_bytes([43u8; 32]); // Different seed
@@ -711,6 +713,7 @@ impl ReplayGoldenFixture {
 
 /// Generate golden fixtures for manual verification
 #[test]
+#[ignore = "manual fixture regeneration"]
 fn test_generate_golden_fixtures() {
     let fixtures = vec![
         ReplayGoldenFixture::new("replay_001"),

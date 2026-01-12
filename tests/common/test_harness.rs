@@ -14,7 +14,9 @@ use adapteros_db::Db;
 use adapteros_server_api::routes;
 use adapteros_server_api::AppState;
 use axum::Router;
+use chrono::Utc;
 use std::sync::Arc;
+use uuid::Uuid;
 
 /// Complete integration test harness for API testing
 pub struct ApiTestHarness {
@@ -83,6 +85,7 @@ impl ApiTestHarness {
             security: Default::default(),
             auth: Default::default(),
             performance: Default::default(),
+            streaming: Default::default(),
             paths: paths_config,
             chat_context: Default::default(),
             seed_mode: SeedMode::BestEffort,
@@ -130,9 +133,68 @@ impl ApiTestHarness {
 
     /// Authenticate using default credentials and store token
     pub async fn authenticate(&mut self) -> Result<String, Box<dyn std::error::Error>> {
-        let token = self
-            .login("testadmin@example.com", "test-password-123")
+        let user = self
+            .state
+            .db
+            .get_user_by_email("testadmin@example.com")
+            .await?
+            .ok_or_else(|| {
+                Box::new(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "test admin user not found",
+                )) as Box<dyn std::error::Error>
+            })?;
+        let auth_cfg = adapteros_server_api::auth_common::AuthConfig::from_state(&self.state);
+        let role = user.role.to_string();
+        let session_id = Uuid::now_v7().to_string();
+        let expires_at = Utc::now().timestamp() + auth_cfg.session_ttl_seconds as i64;
+        self.state
+            .db
+            .create_auth_session(
+                &session_id,
+                &user.tenant_id,
+                &user.id,
+                None,
+                None,
+                expires_at,
+            )
             .await?;
+        let roles = vec![role.clone()];
+        let token = if self.state.use_ed25519 {
+            adapteros_server_api::auth::issue_access_token_ed25519(
+                &user.id,
+                &user.email,
+                &role,
+                &roles,
+                &user.tenant_id,
+                &[],
+                None,
+                &session_id,
+                None,
+                &self.state.ed25519_keypair,
+                Some(auth_cfg.access_ttl()),
+            )
+        } else {
+            adapteros_server_api::auth::issue_access_token_hmac(
+                &user.id,
+                &user.email,
+                &role,
+                &roles,
+                &user.tenant_id,
+                &[],
+                None,
+                &session_id,
+                None,
+                self.state.jwt_secret.as_slice(),
+                Some(auth_cfg.access_ttl()),
+            )
+        }
+        .map_err(|e| {
+            Box::new(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string(),
+            )) as Box<dyn std::error::Error>
+        })?;
         self.auth_token = Some(token.clone());
         Ok(token)
     }

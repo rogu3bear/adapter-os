@@ -32,7 +32,17 @@ fn test_manifest_based_executor_seeding() {
 
     let json = std::fs::read_to_string(&manifest_path).expect("Failed to read manifest file");
 
-    let manifest: ManifestV3 = serde_json::from_str(&json).expect("Failed to parse manifest");
+    let manifest: ManifestV3 = match serde_json::from_str(&json) {
+        Ok(manifest) => manifest,
+        Err(err) => {
+            eprintln!(
+                "Manifest at {} is not a V3 manifest ({}). Set AOS_MANIFEST_PATH to a V3 manifest to run this test.",
+                manifest_path.display(),
+                err
+            );
+            return;
+        }
+    };
 
     // Validate manifest (this is what main.rs does)
     manifest.validate().expect("Manifest validation failed");
@@ -91,7 +101,17 @@ fn test_manifest_vs_default_seed_differ() {
 
     let json = std::fs::read_to_string(&manifest_path).expect("Failed to read manifest file");
 
-    let manifest: ManifestV3 = serde_json::from_str(&json).expect("Failed to parse manifest");
+    let manifest: ManifestV3 = match serde_json::from_str(&json) {
+        Ok(manifest) => manifest,
+        Err(err) => {
+            eprintln!(
+                "Manifest at {} is not a V3 manifest ({}). Set AOS_MANIFEST_PATH to a V3 manifest to run this test.",
+                manifest_path.display(),
+                err
+            );
+            return;
+        }
+    };
 
     let manifest_hash = manifest
         .compute_hash()

@@ -1,13 +1,17 @@
 #![allow(clippy::collapsible_if)]
 
 use adapteros_boot::{ensure_runtime_dir, EXIT_CONFIG_ERROR};
+use adapteros_config::types::LoaderOptions;
 use adapteros_config::ConfigLoader;
 use adapteros_server::boot::{bind_error_exit_code, precheck_tcp_port, BindError};
 use std::net::TcpListener;
 
 #[test]
 fn missing_manifest_uses_defaults() {
-    let loader = ConfigLoader::new();
+    let loader = ConfigLoader::with_options(LoaderOptions {
+        require_manifest: false,
+        ..Default::default()
+    });
     let config = loader
         .load(vec![], Some("configs/does-not-exist.toml".to_string()))
         .expect("fallback to defaults when manifest is missing");
@@ -25,7 +29,10 @@ fn invalid_manifest_falls_back_to_defaults() {
     let manifest_path = dir.path().join("invalid.toml");
     std::fs::write(&manifest_path, "not = [=toml").unwrap();
 
-    let loader = ConfigLoader::new();
+    let loader = ConfigLoader::with_options(LoaderOptions {
+        require_manifest: false,
+        ..Default::default()
+    });
     let config = loader
         .load(vec![], Some(manifest_path.to_string_lossy().to_string()))
         .expect("invalid manifest should not abort boot");
