@@ -321,6 +321,7 @@ impl DatasetCleanupManager {
             &dataset.id,
             "archived",
             Some(&format!("Archived at {}", archive_path.display())),
+            None,
         ));
 
         Ok(freed_bytes)

@@ -383,6 +383,33 @@ impl<'a> InferenceCore<'a> {
             request.routing_determinism_mode = Some(RoutingDeterminismMode::Deterministic);
         }
 
+        // Stage 3: Policy Hooks (OnRequestBeforeRouting)
+        // ┌─────────────────────────────────────────────────────────────────┐
+        // │  - Execute policy packs: egress, determinism, isolation, evidence│
+        // │  - Generate policy mask for router                               │
+        // └─────────────────────────────────────────────────────────────────┘
+        let hook_ctx = HookContext::new(
+            request.cpid.clone(),
+            request.request_id.clone(),
+            PolicyHook::OnRequestBeforeRouting,
+            "inference",
+        )
+        .with_input(request.prompt.clone());
+
+        let decisions = enforce_at_hook(self.state, &hook_ctx)
+            .await
+            .map_err(|e| {
+                let violation = e.violations.first();
+                InferenceError::PolicyViolation {
+                    tenant_id: request.cpid.clone(),
+                    policy_id: violation
+                        .map(|v| v.policy_pack_id.clone())
+                        .unwrap_or_else(|| "unknown".to_string()),
+                    reason: e.message,
+                }
+            })?;
+        all_policy_decisions.extend(decisions);
+
         // 0.5 Resolve effective adapter set and stack metadata
         self.resolve_effective_adapters(&mut request, session.as_ref())
             .await?;
@@ -608,6 +635,35 @@ impl<'a> InferenceCore<'a> {
         } else {
             (request.prompt.clone(), None)
         };
+
+        // Stage 7: Policy Hooks (OnBeforeInference)
+        // ┌─────────────────────────────────────────────────────────────────┐
+        // │  - Final policy checks before worker call                       │
+        // │  - Rate limiting, quota enforcement                             │
+        // └─────────────────────────────────────────────────────────────────┘
+        let hook_ctx = HookContext::new(
+            request.cpid.clone(),
+            request.request_id.clone(),
+            PolicyHook::OnBeforeInference,
+            "inference",
+        )
+        .with_input(augmented_prompt.clone())
+        .with_metadata("model_id", serde_json::json!(request.model))
+        .with_metadata("worker_id", serde_json::json!(selected_worker_id));
+
+        let decisions = enforce_at_hook(self.state, &hook_ctx)
+            .await
+            .map_err(|e| {
+                let violation = e.violations.first();
+                InferenceError::PolicyViolation {
+                    tenant_id: request.cpid.clone(),
+                    policy_id: violation
+                        .map(|v| v.policy_pack_id.clone())
+                        .unwrap_or_else(|| "unknown".to_string()),
+                    reason: e.message,
+                }
+            })?;
+        all_policy_decisions.extend(decisions);
 
         if let Some(ref evidence) = rag_evidence {
             inference_span.record(
