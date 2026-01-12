@@ -76,7 +76,7 @@ pub struct KeyMaterial {
 
 impl Zeroize for KeyMaterial {
     fn zeroize(&mut self) {
-        self.inner.zeroize();
+        self.inner.as_mut_slice().zeroize();
     }
 }
 
@@ -140,7 +140,7 @@ pub struct SensitiveData {
 
 impl Zeroize for SensitiveData {
     fn zeroize(&mut self) {
-        self.inner.zeroize();
+        self.inner.as_mut_slice().zeroize();
     }
 }
 

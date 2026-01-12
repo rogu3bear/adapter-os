@@ -217,8 +217,10 @@ fn ensure_request_id_header(response: &mut Response, request_id: &str) {
 struct EnvelopeLike {
     code: Option<String>,
     message: Option<String>,
+    error: Option<String>,
     hint: Option<String>,
     detail: Option<String>,
+    details: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -234,10 +236,24 @@ fn parse_error_payload(
 ) -> (String, String, Option<String>, Option<String>) {
     if !body.is_empty() {
         if let Ok(envelope) = serde_json::from_slice::<EnvelopeLike>(body) {
-            if envelope.code.is_some() || envelope.message.is_some() {
+            if envelope.code.is_some()
+                || envelope.message.is_some()
+                || envelope.error.is_some()
+                || envelope.hint.is_some()
+                || envelope.detail.is_some()
+                || envelope.details.is_some()
+            {
                 let code = envelope.code.unwrap_or_else(|| fallback_code(status));
-                let message = envelope.message.unwrap_or_else(|| fallback_message(status));
-                return (code, message, envelope.hint, envelope.detail);
+                let message = envelope
+                    .message
+                    .or(envelope.error)
+                    .unwrap_or_else(|| fallback_message(status));
+                let detail = envelope.detail.or_else(|| {
+                    envelope
+                        .details
+                        .and_then(|d| serde_json::to_string(&d).ok())
+                });
+                return (code, message, envelope.hint, detail);
             }
         }
 

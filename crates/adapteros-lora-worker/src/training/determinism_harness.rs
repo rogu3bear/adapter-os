@@ -89,6 +89,7 @@ pub fn deterministic_slice(
 ///
 /// # Arguments
 /// * `base_model_path` - Path to the base model for hidden state extraction. Required for training.
+#[allow(clippy::too_many_arguments)]
 pub fn build_harness_training_config(
     hyperparams: HarnessHyperparams,
     backend: TrainingBackend,

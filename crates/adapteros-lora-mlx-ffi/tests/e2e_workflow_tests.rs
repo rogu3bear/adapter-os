@@ -22,7 +22,6 @@ mod e2e_workflow_tests {
     };
     use adapteros_lora_mlx_ffi::{memory, mlx_set_seed_from_bytes, MLXFFIModel};
     use std::collections::HashMap;
-    use std::path::Path;
     use tokio::sync::mpsc;
 
     /// Get path to test model (small 0.5B model for fast tests).
@@ -705,9 +704,9 @@ mod e2e_workflow_tests {
 
         // Verify all runs produced identical outputs (bit-exact)
         for run in 1..num_runs {
-            for step in 0..num_steps {
+            for (step, base_output) in all_run_outputs[0].iter().enumerate().take(num_steps) {
                 assert_bit_exact(
-                    &all_run_outputs[0][step],
+                    base_output,
                     &all_run_outputs[run][step],
                     &format!("run {} step {}", run, step),
                 );
@@ -1054,7 +1053,7 @@ mod e2e_workflow_tests {
         };
 
         // 1. Register multiple adapters
-        let adapters = vec![
+        let adapters = [
             ("code-review", 8),
             ("documentation", 4),
             ("testing", 6),

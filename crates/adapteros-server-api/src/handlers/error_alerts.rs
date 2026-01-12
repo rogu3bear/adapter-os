@@ -53,7 +53,7 @@ pub async fn list_error_alert_rules(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new(&e.to_string())),
+                Json(ErrorResponse::new(e.to_string())),
             )
         })?;
 
@@ -119,7 +119,7 @@ pub async fn get_error_alert_rule(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new(&e.to_string())),
+                Json(ErrorResponse::new(e.to_string())),
             )
         })?
         .ok_or_else(|| {
@@ -199,8 +199,7 @@ pub async fn create_error_alert_rule(
 
     let notification_channels_json = request
         .notification_channels
-        .map(|v| serde_json::to_string(&v).ok())
-        .flatten();
+        .and_then(|v| serde_json::to_string(&v).ok());
 
     let params = CreateAlertRuleParams {
         tenant_id: tenant_id.to_string(),
@@ -224,7 +223,7 @@ pub async fn create_error_alert_rule(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new(&e.to_string())),
+                Json(ErrorResponse::new(e.to_string())),
             )
         })?;
 
@@ -236,7 +235,7 @@ pub async fn create_error_alert_rule(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new(&e.to_string())),
+                Json(ErrorResponse::new(e.to_string())),
             )
         })?
         .ok_or_else(|| {
@@ -304,7 +303,7 @@ pub async fn update_error_alert_rule(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new(&e.to_string())),
+                Json(ErrorResponse::new(e.to_string())),
             )
         })?
         .ok_or_else(|| {
@@ -376,7 +375,7 @@ pub async fn update_error_alert_rule(
     state.db.update_error_alert_rule(&rule).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new(&e.to_string())),
+            Json(ErrorResponse::new(e.to_string())),
         )
     })?;
 
@@ -433,7 +432,7 @@ pub async fn delete_error_alert_rule(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new(&e.to_string())),
+                Json(ErrorResponse::new(e.to_string())),
             )
         })?
         .ok_or_else(|| {
@@ -453,7 +452,7 @@ pub async fn delete_error_alert_rule(
     state.db.delete_error_alert_rule(&id).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new(&e.to_string())),
+            Json(ErrorResponse::new(e.to_string())),
         )
     })?;
 
@@ -490,7 +489,7 @@ pub async fn list_error_alert_history(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new(&e.to_string())),
+                Json(ErrorResponse::new(e.to_string())),
             )
         })?;
 
@@ -558,7 +557,7 @@ pub async fn acknowledge_error_alert(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new(&e.to_string())),
+                Json(ErrorResponse::new(e.to_string())),
             )
         })?;
 
@@ -595,7 +594,7 @@ pub async fn resolve_error_alert(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new(&e.to_string())),
+                Json(ErrorResponse::new(e.to_string())),
             )
         })?;
 

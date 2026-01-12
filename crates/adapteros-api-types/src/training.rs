@@ -445,6 +445,12 @@ impl TrainingConfigRequest {
         if self.rank == 0 {
             errors.push("rank must be > 0".to_string());
         }
+        if self.alpha == 0 {
+            errors.push("alpha must be > 0".to_string());
+        }
+        if self.targets.is_empty() {
+            errors.push("targets must not be empty".to_string());
+        }
         if self.learning_rate <= 0.0 {
             errors.push("learning_rate must be > 0".to_string());
         }
@@ -453,6 +459,11 @@ impl TrainingConfigRequest {
                 "training_contract_version must be {}",
                 TRAINING_DATA_CONTRACT_VERSION
             ));
+        }
+        if let Some(split) = self.validation_split {
+            if !(0.0..=0.5).contains(&split) {
+                errors.push("validation_split must be between 0.0 and 0.5".to_string());
+            }
         }
 
         if errors.is_empty() {
@@ -622,6 +633,9 @@ pub struct TrainingJobResponse {
     pub code_commit_sha: Option<String>,
     pub data_spec_hash: Option<String>,
     pub dataset_id: Option<String>,
+    /// Correlation ID for tracing dataset -> training -> inference
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub correlation_id: Option<String>,
     /// Dataset manifest hash captured at job creation (combined when multi-dataset).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dataset_hash_b3: Option<String>,
@@ -939,6 +953,7 @@ impl From<TrainingJob> for TrainingJobResponse {
             data_spec: job.data_spec_json,
             data_spec_hash,
             dataset_id: job.dataset_id,
+            correlation_id: job.correlation_id,
             dataset_hash_b3: job.dataset_hash_b3,
             dataset_version_ids: job.dataset_version_ids.map(|versions| {
                 versions
@@ -1380,12 +1395,39 @@ pub struct DatasetResponse {
     pub validation_status: DatasetValidationStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub validation_errors: Option<Vec<String>>,
+    /// Structured JSONL validation diagnostics (line-level details)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub validation_diagnostics: Option<Vec<JsonlValidationDiagnostic>>,
     /// Effective trust_state for the selected dataset_version_id (allowed/allowed_with_warning/blocked/needs_approval)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub trust_state: Option<String>,
     pub created_by: String,
     pub created_at: String,
     pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct JsonlValidationDiagnostic {
+    pub line_number: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw_snippet: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub missing_fields: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub invalid_field_types: Option<Vec<JsonlFieldTypeMismatch>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub contract_version_expected: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct JsonlFieldTypeMismatch {
+    pub field: String,
+    pub expected: String,
+    pub actual: String,
 }
 
 /// Summary of a dataset version (used for dataset detail views and selectors)

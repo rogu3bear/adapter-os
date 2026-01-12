@@ -78,11 +78,11 @@ where
                     return RetryResult::Failed(error);
                 }
 
-                // Calculate next delay with exponential backoff and jitter
-                let base_delay = current_delay.as_millis() as f64;
-                let jitter_offset =
-                    base_delay * config.jitter * (rand::random::<f64>() - 0.5) * 2.0;
-                let next_delay = ((base_delay + jitter_offset) * config.backoff_multiplier) as u64;
+                // Calculate next delay with exponential backoff and jitter (deterministic when configured)
+                let base_delay_ms = current_delay.as_millis() as u64;
+                let jittered_delay =
+                    adapteros_core::compute_jitter_delay(base_delay_ms, config.jitter);
+                let next_delay = (jittered_delay as f64 * config.backoff_multiplier) as u64;
                 current_delay =
                     Duration::from_millis(next_delay.min(config.max_delay.as_millis() as u64));
 

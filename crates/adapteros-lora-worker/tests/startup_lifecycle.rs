@@ -1,17 +1,22 @@
 //! Gated end-to-end startup test for aos-worker model loading and clean shutdown.
 //!
 //! This test is skipped unless the following environment variables are set:
-//! - `AOS_E2E_MODEL_PATH`: path to a tiny model directory containing `model.safetensors`
+//! - `AOS_TEST_MODEL_DIR`: path to a tiny model directory containing `model.safetensors`
 //!   (or shard) and `config.json`.
-//! - `AOS_E2E_UDS`: UDS socket path to bind (e.g., `var/run/aos-e2e.sock`).
+//! - `AOS_TEST_WORKER_UDS_PATH`: UDS socket path to bind (e.g., `var/run/aos-e2e.sock`).
 //!
 //! Optional:
-//! - `AOS_E2E_BACKEND`: backend choice (`auto`, `coreml`, `metal`, `mlx`). Defaults to `auto`.
+//! - `AOS_TEST_WORKER_BACKEND`: backend choice (`auto`, `coreml`, `metal`, `mlx`). Defaults to `auto`.
+//!
+//! Legacy fallbacks:
+//! - `AOS_TEST_MODEL_PATH` or `AOS_E2E_MODEL_PATH` in place of `AOS_TEST_MODEL_DIR`.
+//! - `AOS_E2E_UDS` in place of `AOS_TEST_WORKER_UDS_PATH`.
+//! - `AOS_E2E_BACKEND` in place of `AOS_TEST_WORKER_BACKEND`.
 //!
 //! Usage:
 //! ```bash
-//! AOS_E2E_MODEL_PATH=/path/to/model \
-//! AOS_E2E_UDS=var/run/aos-e2e.sock \
+//! AOS_TEST_MODEL_DIR=/path/to/model \
+//! AOS_TEST_WORKER_UDS_PATH=var/run/aos-e2e.sock \
 //! cargo test -p adapteros-lora-worker --test startup_lifecycle -- --nocapture
 //! ```
 
@@ -24,22 +29,40 @@ use std::time::{Duration, Instant};
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(10);
 
+fn read_env_with_fallback(primary: &str, fallbacks: &[&str]) -> Option<String> {
+    std::env::var(primary)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            fallbacks
+                .iter()
+                .find_map(|name| std::env::var(name).ok())
+                .filter(|value| !value.trim().is_empty())
+        })
+}
+
 #[test]
 fn startup_and_shutdown_with_model() -> anyhow::Result<()> {
-    let model_path = match std::env::var("AOS_E2E_MODEL_PATH") {
-        Ok(p) => p,
-        Err(_) => {
-            eprintln!("skipping: set AOS_E2E_MODEL_PATH to run this test");
+    let model_path = match read_env_with_fallback(
+        "AOS_TEST_MODEL_DIR",
+        &["AOS_TEST_MODEL_PATH", "AOS_E2E_MODEL_PATH"],
+    ) {
+        Some(p) => p,
+        None => {
+            eprintln!(
+                "skipping: set AOS_TEST_MODEL_DIR (or legacy AOS_TEST_MODEL_PATH/AOS_E2E_MODEL_PATH) to run this test"
+            );
             return Ok(());
         }
     };
-    let uds_path =
-        std::env::var("AOS_E2E_UDS").unwrap_or_else(|_| "var/run/aos-e2e.sock".to_string());
+    let uds_path = read_env_with_fallback("AOS_TEST_WORKER_UDS_PATH", &["AOS_E2E_UDS"])
+        .unwrap_or_else(|| "var/run/aos-e2e.sock".to_string());
     // Prefer explicit e2e backend, fall back to model backend env, otherwise auto
-    let backend = std::env::var("AOS_E2E_BACKEND")
-        .ok()
-        .or_else(|| std::env::var("AOS_MODEL_BACKEND").ok())
-        .unwrap_or_else(|| "auto".to_string());
+    let backend = read_env_with_fallback(
+        "AOS_TEST_WORKER_BACKEND",
+        &["AOS_E2E_BACKEND", "AOS_MODEL_BACKEND"],
+    )
+    .unwrap_or_else(|| "auto".to_string());
 
     if let Some(parent) = Path::new(&uds_path).parent() {
         fs::create_dir_all(parent)?;

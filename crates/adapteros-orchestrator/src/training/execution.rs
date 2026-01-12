@@ -475,6 +475,11 @@ pub(crate) async fn run_training_job(
         }
 
         let mut trainer = WorkerTrainer::new(worker_cfg.clone())?;
+        let correlation_id = {
+            let jobs = jobs_ref.read().await;
+            jobs.get(&job_id).and_then(|job| job.correlation_id.clone())
+        };
+        trainer.set_correlation_id(correlation_id);
         trainer.set_force_resume(orchestrator_cfg.force_resume);
         let mut preprocessed_ready = false;
 
@@ -510,22 +515,22 @@ pub(crate) async fn run_training_job(
                         None,
                         trainer.training_seed(),
                     )
-                    .map_err(|err| {
+                    .inspect_err(|err| {
                         pipeline
                             .event_context()
                             .emit_phase_error(PipelinePhase::Preprocess, &err.to_string());
-                        err
                     })?;
                     let adapteros_lora_worker::training::preprocessing::PreprocessResult {
                         examples: preprocessed_examples,
                         stats,
                     } = result;
-                    trainer.set_preprocessed_examples(preprocessed_examples).map_err(|err| {
-                        pipeline
-                            .event_context()
-                            .emit_phase_error(PipelinePhase::Preprocess, &err.to_string());
-                        err
-                    })?;
+                    trainer
+                        .set_preprocessed_examples(preprocessed_examples)
+                        .inspect_err(|err| {
+                            pipeline
+                                .event_context()
+                                .emit_phase_error(PipelinePhase::Preprocess, &err.to_string());
+                        })?;
                     preprocessed_ready = true;
                     outputs.insert("preprocess_hash".to_string(), stats.cache_key.clone());
 
@@ -628,19 +633,18 @@ pub(crate) async fn run_training_job(
                     None,
                     trainer.training_seed(),
                 )
-                .map_err(|err| {
+                .inspect_err(|err| {
                     pipeline
                         .event_context()
                         .emit_phase_error(PipelinePhase::Preprocess, &err.to_string());
-                    err
                 })?;
-                trainer.set_preprocessed_examples(result.examples).map_err(|err| {
-                    pipeline
-                        .event_context()
-                        .emit_phase_error(PipelinePhase::Preprocess, &err.to_string());
-                    err
-                })?;
-                preprocessed_ready = true;
+                trainer
+                    .set_preprocessed_examples(result.examples)
+                    .inspect_err(|err| {
+                        pipeline
+                            .event_context()
+                            .emit_phase_error(PipelinePhase::Preprocess, &err.to_string());
+                    })?;
 
                 if let Some(receipt) = pipeline.receipt(PipelinePhase::Preprocess) {
                     if matches!(receipt.status, PhaseStatus::Completed) {
@@ -773,11 +777,10 @@ pub(crate) async fn run_training_job(
                     &orchestrator_cfg.training_contract_version,
                     orchestrator_cfg.force_resume,
                 )
-                .map_err(|err| {
+                .inspect_err(|err| {
                     pipeline
                         .event_context()
                         .emit_phase_error(PipelinePhase::Split, &err.to_string());
-                    err
                 })?;
             pipeline
                 .complete_phase(
@@ -959,11 +962,10 @@ pub(crate) async fn run_training_job(
                         let hash = pipeline
                             .persist_training_result(&training_result)
                             .await
-                            .map_err(|err| {
+                            .inspect_err(|err| {
                                 pipeline
                                     .event_context()
                                     .emit_phase_error(PipelinePhase::TrainingLoop, &err.to_string());
-                                err
                             })?;
                         training_result_hash = Some(hash);
                         Ok(training_result)
@@ -977,11 +979,10 @@ pub(crate) async fn run_training_job(
                 let training_result = pipeline
                     .load_training_result()
                     .await
-                    .map_err(|err| {
+                    .inspect_err(|err| {
                         pipeline
                             .event_context()
                             .emit_phase_error(pipeline.current_phase(), &err.to_string());
-                        err
                     })?
                     .ok_or_else(|| {
                         let err = anyhow::anyhow!(format!(

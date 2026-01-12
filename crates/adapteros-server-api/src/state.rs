@@ -1,4 +1,4 @@
-use adapteros_core::{BackendKind, DeterminismMode, SeedMode};
+use adapteros_core::{BackendKind, Clock, DeterminismMode, SeedMode, SystemClock};
 use adapteros_crypto::Keypair;
 use adapteros_db::git::FileChangeEvent;
 use adapteros_db::{sqlx, Db, KvIsolationScanReport, ProtectedDb, WriteCapableDb};
@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 use tokio::sync::{broadcast, Mutex};
 
 use crate::caching::DashboardCache;
@@ -30,6 +31,7 @@ use crate::config::PathsConfig;
 use crate::handlers::chunked_upload::UploadSessionManager;
 use crate::idempotency::IdempotencyStore;
 use crate::pause_tracker::ServerPauseTracker;
+use crate::rate_limit::{RateLimiterConfig, RateLimiterState};
 use crate::sse::SseEventManager;
 use crate::telemetry::{MetricsRegistry, TelemetryBuffer, TelemetrySender, TraceBuffer};
 use adapteros_registry::Registry;
@@ -86,15 +88,29 @@ pub struct BackgroundTaskSnapshot {
     pub failed: Vec<BackgroundTaskFailure>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct BackgroundTaskTracker {
     tasks: std::sync::RwLock<BTreeMap<String, BackgroundTaskRecord>>,
+    clock: Arc<dyn Clock>,
+}
+
+impl Default for BackgroundTaskTracker {
+    fn default() -> Self {
+        Self {
+            tasks: std::sync::RwLock::new(BTreeMap::new()),
+            clock: Arc::new(SystemClock),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
 struct BackgroundTaskRecord {
     critical: bool,
     status: BackgroundTaskStatus,
+    /// PRD-4.8: Last heartbeat timestamp for stale task detection (millis since epoch)
+    last_heartbeat_millis: Option<u64>,
+    /// PRD-4.8: Cumulative error count for this task
+    error_count: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -104,16 +120,30 @@ enum BackgroundTaskStatus {
 }
 
 impl BackgroundTaskTracker {
+    /// Creates a new tracker with the given clock.
+    ///
+    /// Use this constructor for deterministic testing with MockClock.
+    pub fn with_clock(clock: Arc<dyn Clock>) -> Self {
+        Self {
+            tasks: std::sync::RwLock::new(BTreeMap::new()),
+            clock,
+        }
+    }
+
     pub fn record_spawned(&self, name: &str, critical: bool) {
+        let now_millis = self.clock.now_millis();
         let mut tasks = self.tasks.write().unwrap_or_else(|e| e.into_inner());
         let entry = tasks
             .entry(name.to_string())
             .or_insert(BackgroundTaskRecord {
                 critical,
                 status: BackgroundTaskStatus::Spawned,
+                last_heartbeat_millis: Some(now_millis),
+                error_count: 0,
             });
         entry.critical = entry.critical || critical;
         entry.status = BackgroundTaskStatus::Spawned;
+        entry.last_heartbeat_millis = Some(now_millis);
     }
 
     pub fn record_failed(&self, name: &str, error: &str, critical: bool) {
@@ -125,11 +155,14 @@ impl BackgroundTaskTracker {
                 status: BackgroundTaskStatus::Failed {
                     error: error.to_string(),
                 },
+                last_heartbeat_millis: None,
+                error_count: 0,
             });
         entry.critical = entry.critical || critical;
         entry.status = BackgroundTaskStatus::Failed {
             error: error.to_string(),
         };
+        entry.error_count = entry.error_count.saturating_add(1);
     }
 
     pub fn snapshot(&self) -> BackgroundTaskSnapshot {
@@ -172,6 +205,44 @@ impl BackgroundTaskTracker {
         }
 
         failures
+    }
+
+    /// PRD-4.8: Record a heartbeat from a background task.
+    ///
+    /// Tasks should call this periodically (e.g., each loop iteration) to indicate
+    /// they are still healthy. Use `stale_tasks` to find tasks that haven't sent
+    /// a heartbeat within the expected threshold.
+    pub fn heartbeat(&self, name: &str) {
+        let now_millis = self.clock.now_millis();
+        let mut tasks = self.tasks.write().unwrap_or_else(|e| e.into_inner());
+        if let Some(record) = tasks.get_mut(name) {
+            record.last_heartbeat_millis = Some(now_millis);
+        }
+    }
+
+    /// PRD-4.8: Find tasks that haven't sent a heartbeat within the threshold.
+    ///
+    /// Returns task names that either:
+    /// - Have never sent a heartbeat (last_heartbeat_millis is None)
+    /// - Have a heartbeat older than `threshold`
+    ///
+    /// Only considers tasks with `Spawned` status (failed tasks are expected to be stale).
+    pub fn stale_tasks(&self, threshold: Duration) -> Vec<String> {
+        let now_millis = self.clock.now_millis();
+        let threshold_millis = threshold.as_millis() as u64;
+        let tasks = self.tasks.read().unwrap_or_else(|e| e.into_inner());
+
+        tasks
+            .iter()
+            .filter(|(_, record)| matches!(record.status, BackgroundTaskStatus::Spawned))
+            .filter(|(_, record)| {
+                record
+                    .last_heartbeat_millis
+                    .map(|hb| now_millis.saturating_sub(hb) > threshold_millis)
+                    .unwrap_or(true) // No heartbeat ever = stale
+            })
+            .map(|(name, _)| name.clone())
+            .collect()
     }
 }
 
@@ -235,6 +306,9 @@ pub struct ApiConfig {
     /// Performance configuration
     #[serde(default)]
     pub performance: PerformanceConfigApi,
+    /// Streaming configuration for SSE inference
+    #[serde(default)]
+    pub streaming: StreamingConfig,
     /// Paths configuration for storage locations
     pub paths: PathsConfig,
     /// Chat context configuration for multi-turn conversations
@@ -383,6 +457,41 @@ pub struct PerformanceConfigApi {
     pub cache_size_mb: Option<usize>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StreamingConfig {
+    /// Heartbeat interval in seconds for streaming inference
+    #[serde(default = "default_streaming_heartbeat_interval_secs")]
+    pub inference_heartbeat_interval_secs: u64,
+    /// Idle timeout in seconds for streaming inference
+    #[serde(default = "default_streaming_idle_timeout_secs")]
+    pub inference_idle_timeout_secs: u64,
+    /// Token buffer capacity for streaming inference
+    #[serde(default = "default_streaming_token_buffer_capacity")]
+    pub inference_token_buffer_capacity: usize,
+}
+
+fn default_streaming_heartbeat_interval_secs() -> u64 {
+    15
+}
+
+fn default_streaming_idle_timeout_secs() -> u64 {
+    300
+}
+
+fn default_streaming_token_buffer_capacity() -> usize {
+    128
+}
+
+impl Default for StreamingConfig {
+    fn default() -> Self {
+        Self {
+            inference_heartbeat_interval_secs: default_streaming_heartbeat_interval_secs(),
+            inference_idle_timeout_secs: default_streaming_idle_timeout_secs(),
+            inference_token_buffer_capacity: default_streaming_token_buffer_capacity(),
+        }
+    }
+}
+
 /// Chat context configuration for multi-turn conversations.
 ///
 /// Controls how chat history is loaded and formatted when building
@@ -438,6 +547,7 @@ impl Default for ApiConfig {
             auth: Default::default(),
             self_hosting: Default::default(),
             performance: Default::default(),
+            streaming: Default::default(),
             paths: crate::config::PathsConfig {
                 artifacts_root: "var/artifacts".to_string(),
                 bundles_root: "var/bundles".to_string(),
@@ -699,6 +809,9 @@ pub struct AppState {
     pub db: ProtectedDb,
     pub jwt_secret: Arc<Vec<u8>>,
     pub config: Arc<RwLock<ApiConfig>>,
+    /// Injected clock for deterministic time handling.
+    /// Use this instead of `SystemTime::now()` for rate limiting, session expiry, etc.
+    pub clock: Arc<dyn Clock>,
     pub metrics_exporter: Arc<adapteros_metrics_exporter::MetricsExporter>,
     pub training_service: Arc<TrainingService>,
     pub git_subsystem: Option<Arc<adapteros_git::GitSubsystem>>,
@@ -781,6 +894,8 @@ pub struct AppState {
     pub kv_isolation_lock: Arc<tokio::sync::Mutex<()>>,
     // Background task spawn tracking
     pub background_tasks: Arc<BackgroundTaskTracker>,
+    // Rate limiter with injected clock for deterministic testing
+    pub rate_limiter: Arc<RateLimiterState>,
     // SSE event manager for reliable streaming with replay support
     pub sse_manager: Arc<SseEventManager>,
     // Idempotency store for safe request retries
@@ -887,10 +1002,21 @@ impl AppState {
             }
         }
 
+        // Create shared clock for deterministic time handling
+        let clock: Arc<dyn Clock> = Arc::new(SystemClock);
+
+        // Create rate limiter with shared clock
+        let rate_limiter = Arc::new(RateLimiterState::new(
+            RateLimiterConfig::default(),
+            clock.clone(),
+        ));
+
         Self {
             db: db.clone(),
             jwt_secret: Arc::new(jwt_secret),
             config,
+            clock: clock.clone(),
+            rate_limiter,
             metrics_exporter,
             training_service: Arc::new(TrainingService::new()),
             git_subsystem: None,
@@ -986,6 +1112,30 @@ impl AppState {
     /// Set boot state manager for lifecycle tracking
     pub fn with_boot_state(mut self, boot_state: BootStateManager) -> Self {
         self.boot_state = Some(boot_state);
+        self
+    }
+
+    /// Set custom clock for deterministic time handling.
+    ///
+    /// By default, `AppState` uses [`SystemClock`] which delegates to the OS.
+    /// Use this method to inject a [`MockClock`] for deterministic testing.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use adapteros_core::{MockClock, Clock};
+    /// use std::sync::Arc;
+    ///
+    /// let mock_clock = Arc::new(MockClock::frozen_at(1_000_000));
+    /// let state = AppState::new(...).with_clock(mock_clock);
+    /// ```
+    pub fn with_clock(mut self, clock: Arc<dyn Clock>) -> Self {
+        // Rebuild rate limiter with new clock to maintain consistency
+        self.rate_limiter = Arc::new(RateLimiterState::new(
+            self.rate_limiter.config().clone(),
+            clock.clone(),
+        ));
+        self.clock = clock;
         self
     }
 

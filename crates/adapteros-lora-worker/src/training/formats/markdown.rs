@@ -381,10 +381,8 @@ fn strip_list_marker(line: &str) -> String {
     }
 
     // Check for . or ) followed by space
-    if i > 0 && i < chars.len() && (chars[i] == '.' || chars[i] == ')') {
-        if i + 1 < chars.len() && chars[i + 1] == ' ' {
-            return chars[i + 2..].iter().collect();
-        }
+    if i > 0 && i + 1 < chars.len() && (chars[i] == '.' || chars[i] == ')') && chars[i + 1] == ' ' {
+        return chars[i + 2..].iter().collect();
     }
 
     line.to_string()

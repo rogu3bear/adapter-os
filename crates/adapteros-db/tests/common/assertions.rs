@@ -442,6 +442,7 @@ mod tests {
             stream_session_id: None,
             versioning_threshold: None,
             coreml_package_hash: None,
+            training_dataset_hash_b3: None,
             created_at: "2024-01-01T00:00:00Z".to_string(),
             updated_at: "2024-01-01T00:00:00Z".to_string(),
         }

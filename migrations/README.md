@@ -1,12 +1,10 @@
 # Database Migrations
 
 ## Schema Version
-Current: 0271 (273 total files including placeholders)
+Current: 0283 (283 total files including placeholders)
 
 ## Intentional Gaps
-The following migration numbers are intentionally skipped:
-- 0136: Reserved for future auth schema changes
-- 0180: Reserved for future federation features
+None currently.
 
 ## Running Migrations
 ```bash

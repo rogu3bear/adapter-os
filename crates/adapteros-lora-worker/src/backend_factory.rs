@@ -479,10 +479,10 @@ fn create_mlx_backend(
     #[cfg(all(not(feature = "mlx"), not(feature = "mlx-rs-backend")))]
     {
         let _ = (model_path, manifest_hash, model_weights_hash);
-        return Err(AosError::Config(
+        Err(AosError::Config(
             "MLX backend selected but no MLX implementation is enabled. Rebuild with --features mlx or --features mlx-rs-backend"
                 .to_string(),
-        ));
+        ))
     }
 
     #[cfg(any(feature = "mlx", feature = "mlx-rs-backend"))]
@@ -525,10 +525,10 @@ fn create_mlx_ffi_backend(
     #[cfg(not(feature = "mlx"))]
     {
         let _ = (model_path, manifest_hash, model_weights_hash);
-        return Err(AosError::Config(
+        Err(AosError::Config(
             "MLX FFI backend selected but 'mlx' feature not enabled. Rebuild with --features mlx"
                 .to_string(),
-        ));
+        ))
     }
 
     #[cfg(feature = "mlx")]
@@ -658,10 +658,10 @@ fn create_mlx_rs_backend(
     #[cfg(not(feature = "mlx-rs-backend"))]
     {
         let _ = (model_path, manifest_hash, model_weights_hash);
-        return Err(AosError::Config(
+        Err(AosError::Config(
             "mlx-rs backend selected but not compiled. Rebuild with --features mlx-rs-backend"
                 .to_string(),
-        ));
+        ))
     }
 
     #[cfg(feature = "mlx-rs-backend")]
@@ -1018,7 +1018,7 @@ fn create_coreml_backend(
     let settings = resolve_coreml_backend_settings();
 
     // Load model configuration from config.json if available (with validation)
-    let model_config = load_and_validate_model_config(model_path)?;
+    let model_config = load_and_validate_model_config(&model_path)?;
     if let Some(ref cfg) = model_config {
         info!(
             architecture = %cfg.architecture,
@@ -1033,20 +1033,20 @@ fn create_coreml_backend(
     let cache_key = ModelKey::new(
         BackendType::CoreML,
         *manifest_hash,
-        build_model_cache_identity(BackendType::CoreML, model_path),
+        build_model_cache_identity(BackendType::CoreML, &model_path),
     );
     let cache = get_model_cache()?;
     cache.set_base_model_key(&cache_key);
 
     let pin_enabled = cache.base_model_pin_enabled();
-    let estimated_bytes = estimate_coreml_model_size_bytes(model_path)?;
+    let estimated_bytes = estimate_coreml_model_size_bytes(&model_path)?;
     if pin_enabled {
         validate_base_model_pin_budget(cache, estimated_bytes, BackendType::CoreML)?;
     }
 
     // Verify model integrity before CoreML loads it
     if let Some(expected_hash) = model_weights_hash {
-        let actual_hash = compute_model_directory_hash(model_path)?;
+        let actual_hash = compute_model_directory_hash(&model_path)?;
         if actual_hash != *expected_hash {
             return Err(AosError::CacheCorruption {
                 path: model_path.display().to_string(),

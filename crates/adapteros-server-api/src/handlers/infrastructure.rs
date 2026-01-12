@@ -166,8 +166,9 @@ pub async fn test_node_connection(
                 if attempt >= max_attempts {
                     break Err(e);
                 }
-                // Add jitter to prevent thundering herd on retries
-                let jitter = std::time::Duration::from_millis(rand::random::<u64>() % 100);
+                // Add jitter to prevent thundering herd on retries (deterministic when configured)
+                let jitter_ms = adapteros_core::compute_jitter_delay(50, 1.0); // 0-100ms range
+                let jitter = std::time::Duration::from_millis(jitter_ms);
                 tokio::time::sleep(backoff + jitter).await;
                 backoff = (backoff * 2).min(std::time::Duration::from_millis(800));
             }

@@ -862,7 +862,7 @@ mod tests {
         symlink(&outside_dir, &escape)?;
 
         let escaped_file = escape.join("secret.txt");
-        std::fs::write(&outside_dir.join("secret.txt"), "secret")?;
+        std::fs::write(outside_dir.join("secret.txt"), "secret")?;
 
         let result = resolve_path_within_allowed_roots(&escaped_file, &[&base]);
         assert!(result.is_err(), "Symlink escape should be rejected");

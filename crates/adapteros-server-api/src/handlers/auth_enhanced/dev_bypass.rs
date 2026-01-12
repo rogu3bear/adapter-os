@@ -494,7 +494,7 @@ pub async fn dev_bypass_handler(
         None,
         Some(&rot_id),
         Some(&refresh_hash),
-        &session_expires_at.to_rfc3339(),
+        session_expires_at.timestamp(),
         &refresh_expires_at.to_rfc3339(),
         Some(&client_ip.0),
         user_agent.as_deref(),
@@ -834,7 +834,7 @@ pub async fn dev_bootstrap_handler(
         &claims.jti,
         &admin_user_id,
         &system_tenant_id,
-        &expires_at.to_rfc3339(),
+        expires_at.timestamp(),
         Some(&client_ip.0),
         None,
     )

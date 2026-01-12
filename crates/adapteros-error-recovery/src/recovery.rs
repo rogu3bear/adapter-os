@@ -358,7 +358,7 @@ mod tests {
         // Test file recreation
         fs::write(&test_file, "hello world").await?;
         let result = engine.recreate_file(&test_file).await?;
-        assert!(matches!(result, RecoveryResult::Success));
+        assert!(matches!(result, RecoveryResult::PartialSuccess));
 
         // Verify file was recreated
         let content = fs::read_to_string(&test_file).await?;

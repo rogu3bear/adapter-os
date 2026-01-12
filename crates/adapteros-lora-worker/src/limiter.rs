@@ -192,16 +192,14 @@ impl ThunderingHerdConfig {
         Ok(())
     }
 
-    /// Calculate retry hint with jitter
+    /// Calculate retry hint with jitter (uses deterministic RNG when configured)
     pub fn calculate_retry_hint(&self, attempt: u32) -> u64 {
-        let base = self.base_retry_hint_ms as f64;
-        let multiplier = 2.0f64.powi((attempt.saturating_sub(1)) as i32);
-        let delay = (base * multiplier).min(self.max_retry_hint_ms as f64);
-
-        // Add jitter
-        let jitter_range = delay * self.jitter_factor;
-        let jitter = (rand::random::<f64>() - 0.5) * 2.0 * jitter_range;
-        ((delay + jitter).max(1.0)) as u64
+        adapteros_core::compute_backoff_with_jitter(
+            self.base_retry_hint_ms,
+            attempt,
+            self.max_retry_hint_ms,
+            self.jitter_factor,
+        )
     }
 }
 

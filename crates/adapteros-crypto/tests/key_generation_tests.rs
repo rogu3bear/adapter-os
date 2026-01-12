@@ -19,6 +19,7 @@ fn new_test_tempdir() -> TempDir {
 
 #[tokio::test]
 async fn test_ed25519_key_generation() {
+    let _guard = TestEnvGuard::new();
     let temp_dir = new_test_tempdir();
     let key_file = temp_dir.path().join("test_keys.json");
 
@@ -44,6 +45,7 @@ async fn test_ed25519_key_generation() {
 
 #[tokio::test]
 async fn test_aes256_key_generation() {
+    let _guard = TestEnvGuard::new();
     let temp_dir = new_test_tempdir();
     let key_file = temp_dir.path().join("test_keys.json");
 
@@ -69,6 +71,7 @@ async fn test_aes256_key_generation() {
 
 #[tokio::test]
 async fn test_multiple_key_generation() {
+    let _guard = TestEnvGuard::new();
     let temp_dir = new_test_tempdir();
     let key_file = temp_dir.path().join("test_keys.json");
 
@@ -103,6 +106,7 @@ async fn test_multiple_key_generation() {
 
 #[tokio::test]
 async fn test_key_persistence_across_instances() {
+    let _guard = TestEnvGuard::new();
     let temp_dir = new_test_tempdir();
     let key_file = temp_dir.path().join("test_keys.json");
 
@@ -141,6 +145,7 @@ async fn test_key_persistence_across_instances() {
 
 #[tokio::test]
 async fn test_key_generation_with_rotation() {
+    let _guard = TestEnvGuard::new();
     let temp_dir = new_test_tempdir();
     let key_file = temp_dir.path().join("test_keys.json");
 
@@ -180,6 +185,7 @@ async fn test_key_generation_with_rotation() {
 
 #[tokio::test]
 async fn test_key_rotation_receipt() {
+    let _guard = TestEnvGuard::new();
     let temp_dir = new_test_tempdir();
     let key_file = temp_dir.path().join("test_keys.json");
 
@@ -218,6 +224,7 @@ async fn test_key_rotation_receipt() {
 
 #[tokio::test]
 async fn test_concurrent_key_generation() {
+    let _guard = TestEnvGuard::new();
     let temp_dir = new_test_tempdir();
     let key_file = temp_dir.path().join("test_keys.json");
 
@@ -252,6 +259,7 @@ async fn test_concurrent_key_generation() {
 
 #[tokio::test]
 async fn test_key_fingerprint() {
+    let _guard = TestEnvGuard::new();
     let temp_dir = new_test_tempdir();
     let key_file = temp_dir.path().join("test_keys.json");
 
@@ -280,6 +288,7 @@ async fn test_key_fingerprint() {
 
 #[tokio::test]
 async fn test_different_keys_have_different_fingerprints() {
+    let _guard = TestEnvGuard::new();
     let temp_dir = new_test_tempdir();
     let key_file = temp_dir.path().join("test_keys.json");
 
@@ -312,6 +321,7 @@ async fn test_different_keys_have_different_fingerprints() {
 
 #[tokio::test]
 async fn test_key_generation_error_handling() {
+    let _guard = TestEnvGuard::new();
     let temp_dir = new_test_tempdir();
     let key_file = temp_dir.path().join("test_keys.json");
 
@@ -332,6 +342,7 @@ async fn test_key_generation_error_handling() {
 
 #[tokio::test]
 async fn test_production_mode_rejects_file_provider() {
+    let _guard = TestEnvGuard::new();
     let temp_dir = new_test_tempdir();
     let key_file = temp_dir.path().join("test_keys.json");
 
@@ -353,6 +364,7 @@ async fn test_production_mode_rejects_file_provider() {
 
 #[tokio::test]
 async fn test_production_mode_allows_file_with_flag() {
+    let _guard = TestEnvGuard::new();
     let temp_dir = new_test_tempdir();
     let key_file = temp_dir.path().join("test_keys.json");
 
@@ -396,6 +408,7 @@ async fn test_env_key_takes_precedence() {
 
 #[tokio::test]
 async fn test_attestation() {
+    let _guard = TestEnvGuard::new();
     let temp_dir = new_test_tempdir();
     let key_file = temp_dir.path().join("test_keys.json");
 

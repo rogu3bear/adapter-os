@@ -369,7 +369,7 @@ mod seeding_integration_tests {
         for (phase, label) in &contexts {
             let context_label = format!("mlx-{}:{}", phase, label);
             let seed = derive_seed(&base_hash, &context_label);
-            seeds.push(seed.clone());
+            seeds.push(seed);
 
             assert!(mlx_set_seed_from_bytes(&seed).is_ok());
         }

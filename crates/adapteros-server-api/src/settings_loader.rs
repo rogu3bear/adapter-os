@@ -138,6 +138,7 @@ mod tests {
             auth: Default::default(),
             self_hosting: Default::default(),
             performance: Default::default(),
+            streaming: Default::default(),
             paths: crate::config::PathsConfig {
                 artifacts_root: "var/artifacts".to_string(),
                 bundles_root: "var/bundles".to_string(),

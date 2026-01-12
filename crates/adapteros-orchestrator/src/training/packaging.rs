@@ -159,7 +159,7 @@ pub(crate) async fn package_and_register_adapter(
     let quantized_weights = LoRAQuantizer::quantize_to_q15(&training_result.weights);
 
     // Build packaging metadata for auditability
-    let (scope_value, lora_tier_meta, backend_policy_meta) = {
+    let (scope_value, lora_tier_meta, backend_policy_meta, correlation_id) = {
         let jobs = jobs_ref.read().await;
         let scope_val = jobs
             .get(job_id)
@@ -167,7 +167,8 @@ pub(crate) async fn package_and_register_adapter(
             .unwrap_or_else(|| "project".to_string());
         let tier_val = jobs.get(job_id).and_then(|j| j.lora_tier);
         let backend_policy = jobs.get(job_id).and_then(|j| j.backend_policy.clone());
-        (scope_val, tier_val, backend_policy)
+        let corr = jobs.get(job_id).and_then(|j| j.correlation_id.clone());
+        (scope_val, tier_val, backend_policy, corr)
     };
 
     let mut package_metadata = HashMap::new();
@@ -175,6 +176,9 @@ pub(crate) async fn package_and_register_adapter(
     package_metadata.insert("adapter_name".to_string(), adapter_name.to_string());
     if let Some(ds) = dataset_id {
         package_metadata.insert("dataset_id".to_string(), ds.to_string());
+    }
+    if let Some(corr) = correlation_id.clone() {
+        package_metadata.insert("correlation_id".to_string(), corr);
     }
     if let Some(tid) = tenant_id {
         package_metadata.insert("tenant_id".to_string(), tid.to_string());
@@ -364,6 +368,9 @@ pub(crate) async fn package_and_register_adapter(
         "dataset_hash_b3".to_string(),
         serde_json::json!(dataset_hash_for_metadata.clone()),
     );
+    if let Some(ref corr) = correlation_id {
+        artifact_metadata.insert("correlation_id".to_string(), serde_json::json!(corr));
+    }
     artifact_metadata.insert(
         "synthetic_mode".to_string(),
         serde_json::json!(synthetic_mode),
@@ -414,6 +421,7 @@ pub(crate) async fn package_and_register_adapter(
         adapter_id = %packaged.adapter_id,
         weights_path = %packaged.weights_path.display(),
         hash_b3 = %packaged.hash_b3,
+        correlation_id = %correlation_id.as_deref().unwrap_or("unknown"),
         "Adapter packaged successfully"
     );
 
@@ -685,6 +693,30 @@ pub(crate) async fn package_and_register_adapter(
             .cloned()
             .unwrap_or_else(|| "unspecified".to_string());
         let scope_value = packaged.manifest.scope.clone();
+        let adapter_metadata_json =
+            if let (Some(tenant), Some(model_id)) = (tenant_id, base_model_id) {
+                match database.get_model_for_tenant(tenant, model_id).await {
+                    Ok(Some(model)) => serde_json::to_string(&serde_json::json!({
+                        "base_model_id": model_id,
+                        "base_model_hash_b3": model.hash_b3,
+                        "tokenizer_hash_b3": model.tokenizer_hash_b3,
+                        "tokenizer_cfg_hash_b3": model.tokenizer_cfg_hash_b3,
+                    }))
+                    .ok(),
+                    Ok(None) => None,
+                    Err(e) => {
+                        warn!(
+                            job_id = %job_id,
+                            model_id = %model_id,
+                            error = %e,
+                            "Failed to load base model metadata for adapter linkage"
+                        );
+                        None
+                    }
+                }
+            } else {
+                None
+            };
 
         let reg_params = AdapterRegistrationBuilder::new()
             .tenant_id(tenant_id.unwrap_or("default"))
@@ -701,9 +733,11 @@ pub(crate) async fn package_and_register_adapter(
             .base_model_id(base_model_id)
             .manifest_schema_version(Some(packaged.manifest.version.clone()))
             .content_hash_b3(Some(packaged.hash_b3.clone()))
-            .aos_file_path(Some(packaged.weights_path.to_string_lossy().to_string()))
-            .aos_file_hash(Some(packaged.hash_b3.clone()))
+            .aos_file_path(Some(final_aos_path_str.clone()))
+            .aos_file_hash(Some(final_aos_hash.clone()))
             .provenance_json(serde_json::to_string(&packaged.manifest.metadata).ok())
+            .metadata_json(adapter_metadata_json)
+            .training_dataset_hash_b3(dataset_hash_for_metadata.clone())
             .build()
             .map_err(|e| anyhow::anyhow!("Failed to build registration params: {}", e))?;
 

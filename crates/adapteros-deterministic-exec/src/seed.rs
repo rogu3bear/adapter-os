@@ -647,7 +647,7 @@ mod tests {
         ];
 
         // Use with_thread_seed to isolate the test
-        let metrics = with_thread_seed(seed, || SeedMetrics::collect()).unwrap();
+        let metrics = with_thread_seed(seed, SeedMetrics::collect).unwrap();
 
         // Check that we have at least 1 active thread and the metrics are being tracked
         assert!(metrics.active_threads >= 1);

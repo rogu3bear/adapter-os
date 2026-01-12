@@ -36,3 +36,8 @@ pub use telemetry::*;
 
 // Re-export shared API types from adapteros-api-types.
 pub use adapteros_api_types::*;
+
+// Re-export dataset chunked upload response types for API tests.
+pub use crate::handlers::datasets::{
+    CompleteChunkedUploadResponse, InitiateChunkedUploadResponse, UploadChunkResponse,
+};

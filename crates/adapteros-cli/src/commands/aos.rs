@@ -731,35 +731,35 @@ async fn migrate_aos(args: MigrateArgs, output: &OutputWriter) -> Result<()> {
         )));
     }
 
-    output.info(&format!("Migrating adapter: {}", args.path.display()));
+    output.info(format!("Migrating adapter: {}", args.path.display()));
 
     // Call the migration function (always creates backup when changes occur)
     let result = migrate_file(&args.path).await?;
 
     // Report results
     if result.original_version == result.new_version {
-        output.success(&format!(
+        output.success(format!(
             "Adapter already at current format version {}",
             result.new_version
         ));
     } else {
-        output.success(&format!(
+        output.success(format!(
             "Migrated from v{} to v{}",
             result.original_version, result.new_version
         ));
         for change in &result.changes_applied {
-            output.info(&format!("  - {}", change));
+            output.info(format!("  - {}", change));
         }
 
         // Report backup location
         let backup_path = args.path.with_extension("aos.bak");
         if args.backup {
-            output.info(&format!("Backup saved to: {}", backup_path.display()));
+            output.info(format!("Backup saved to: {}", backup_path.display()));
         } else {
             // User doesn't want backup - remove it
             if backup_path.exists() {
                 if let Err(e) = std::fs::remove_file(&backup_path) {
-                    output.warning(&format!("Could not remove backup: {}", e));
+                    output.warning(format!("Could not remove backup: {}", e));
                 } else {
                     output.verbose("Backup removed as requested");
                 }

@@ -328,6 +328,8 @@ pub struct CreateDatasetParams {
     pub branch: Option<String>,
     /// Git commit SHA at dataset creation time for reproducibility
     pub commit_sha: Option<String>,
+    /// Correlation ID for tracing dataset lineage across runs
+    pub correlation_id: Option<String>,
     // Session lineage fields (migration 0256)
     /// Session ID that created this dataset (for atomic rollback/grouping)
     pub session_id: Option<String>,
@@ -377,6 +379,7 @@ pub struct CreateDatasetParamsBuilder {
     repo_slug: Option<String>,
     branch: Option<String>,
     commit_sha: Option<String>,
+    correlation_id: Option<String>,
     // Session lineage fields (migration 0256)
     session_id: Option<String>,
     session_name: Option<String>,
@@ -531,6 +534,12 @@ impl CreateDatasetParamsBuilder {
         self
     }
 
+    /// Set a correlation ID for tracing (optional)
+    pub fn correlation_id(mut self, correlation_id: impl Into<String>) -> Self {
+        self.correlation_id = Some(correlation_id.into());
+        self
+    }
+
     // Session lineage fields (migration 0256)
 
     /// Set the session ID that created this dataset (for atomic rollback/grouping)
@@ -660,6 +669,7 @@ impl CreateDatasetParamsBuilder {
             repo_slug: self.repo_slug,
             branch: normalize_optional_value(self.branch.as_deref()),
             commit_sha: normalize_optional_value(self.commit_sha.as_deref()),
+            correlation_id: normalize_optional_value(self.correlation_id.as_deref()),
             // Session lineage fields (migration 0256)
             session_id: normalize_optional_value(self.session_id.as_deref()),
             session_name: normalize_optional_value(self.session_name.as_deref()),
@@ -834,8 +844,8 @@ impl Db {
                 id, name, description, format, hash_b3, dataset_hash_b3, storage_path,
                 status, validation_status, created_by, tenant_id, workspace_id,
                 dataset_type, purpose, source_location, collection_method, ownership,
-                metadata_json, repo_slug, branch, commit_sha
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                metadata_json, repo_slug, branch, commit_sha, correlation_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&params.name)
@@ -857,6 +867,7 @@ impl Db {
         .bind(&repo_slug)
         .bind(&branch)
         .bind(&commit_sha)
+        .bind(&params.correlation_id)
         .execute(self.pool())
         .await
         .map_err(db_err("create training dataset from params"))?;
@@ -2064,6 +2075,38 @@ impl Db {
         Ok(dataset)
     }
 
+    /// Get correlation ID for a dataset (best-effort).
+    pub async fn get_dataset_correlation_id(&self, dataset_id: &str) -> Result<Option<String>> {
+        let correlation_id =
+            sqlx::query_scalar("SELECT correlation_id FROM training_datasets WHERE id = ? LIMIT 1")
+                .bind(dataset_id)
+                .fetch_optional(self.pool())
+                .await
+                .map_err(db_err("get dataset correlation id"))?;
+
+        Ok(correlation_id)
+    }
+
+    /// Resolve correlation ID from a dataset version ID (best-effort).
+    pub async fn get_dataset_correlation_id_from_version(
+        &self,
+        dataset_version_id: &str,
+    ) -> Result<Option<String>> {
+        let correlation_id = sqlx::query_scalar(
+            "SELECT td.correlation_id
+             FROM training_dataset_versions v
+             JOIN training_datasets td ON td.id = v.dataset_id
+             WHERE v.id = ?
+             LIMIT 1",
+        )
+        .bind(dataset_version_id)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(db_err("get dataset correlation id from version"))?;
+
+        Ok(correlation_id)
+    }
+
     /// Get training dataset by ID with BLAKE3 hash verification.
     ///
     /// Fetches the dataset and verifies that the file at `storage_path`
@@ -2830,6 +2873,30 @@ impl Db {
         .await
         .unwrap_or(0);
         Ok(total)
+    }
+
+    /// Sum total dataset bytes for a specific workspace.
+    pub async fn sum_dataset_sizes_for_workspace(&self, workspace_id: &str) -> Result<i64> {
+        let total: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(total_size_bytes), 0) as total FROM training_datasets WHERE workspace_id = ?",
+        )
+        .bind(workspace_id)
+        .fetch_one(self.pool())
+        .await
+        .unwrap_or(0);
+        Ok(total)
+    }
+
+    /// Count datasets in a workspace.
+    pub async fn count_datasets_for_workspace(&self, workspace_id: &str) -> Result<i64> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) as cnt FROM training_datasets WHERE workspace_id = ?",
+        )
+        .bind(workspace_id)
+        .fetch_one(self.pool())
+        .await
+        .unwrap_or(0);
+        Ok(count)
     }
 
     /// Count dataset versions for a tenant.
@@ -5258,6 +5325,32 @@ impl Db {
         };
 
         Ok(rows)
+    }
+
+    /// Count training dataset rows, optionally scoped to a dataset version.
+    pub async fn count_training_dataset_rows(
+        &self,
+        dataset_id: &str,
+        dataset_version_id: Option<&str>,
+    ) -> Result<i64> {
+        let count = if let Some(version_id) = dataset_version_id {
+            sqlx::query_scalar(
+                "SELECT COUNT(*) FROM training_dataset_rows WHERE dataset_id = ? AND dataset_version_id = ?",
+            )
+            .bind(dataset_id)
+            .bind(version_id)
+            .fetch_one(self.pool())
+            .await
+            .map_err(db_err("count training dataset rows by version"))?
+        } else {
+            sqlx::query_scalar("SELECT COUNT(*) FROM training_dataset_rows WHERE dataset_id = ?")
+                .bind(dataset_id)
+                .fetch_one(self.pool())
+                .await
+                .map_err(db_err("count training dataset rows"))?
+        };
+
+        Ok(count)
     }
 
     // ============================================================================

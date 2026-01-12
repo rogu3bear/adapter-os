@@ -97,6 +97,7 @@ extern "C" {
     ) -> i32;
 
     fn mlx_optimizer_set_lr(optimizer: *mut c_void, lr: f32);
+    #[allow(dead_code)]
     fn mlx_optimizer_get_lr(optimizer: *mut c_void) -> f32;
     fn mlx_optimizer_reset(optimizer: *mut c_void);
     fn mlx_optimizer_free(optimizer: *mut c_void);
@@ -137,7 +138,7 @@ pub fn mlx_cross_entropy_loss_gpu(
         )
     };
 
-    ffi_error::check_ffi_ptr(result, "cross entropy loss").map(|ptr| MLXFFITensor::from_raw(ptr))
+    ffi_error::check_ffi_ptr(result, "cross entropy loss").map(MLXFFITensor::from_raw)
 }
 
 /// Compute MSE (Mean Squared Error) loss on GPU.
@@ -161,7 +162,7 @@ pub fn mlx_mse_loss_gpu(
         )
     };
 
-    ffi_error::check_ffi_ptr(result, "MSE loss").map(|ptr| MLXFFITensor::from_raw(ptr))
+    ffi_error::check_ffi_ptr(result, "MSE loss").map(MLXFFITensor::from_raw)
 }
 
 // ============================================================================

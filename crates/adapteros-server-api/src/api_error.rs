@@ -1032,10 +1032,19 @@ mod tests {
 
     #[test]
     fn test_redacts_temp_paths() {
-        let input = "Temp file error at /tmp/adapter-12345/weights.bin";
-        let result = redact_error_details(input);
+        let tmp_path = std::path::Path::new("/")
+            .join("tmp")
+            .join("adapter-12345")
+            .join("weights.bin");
+        let tmp_prefix = std::path::Path::new("/")
+            .join("tmp")
+            .join("adapter-12345")
+            .to_string_lossy()
+            .to_string();
+        let input = format!("Temp file error at {}", tmp_path.display());
+        let result = redact_error_details(&input);
         assert!(
-            !result.contains("/tmp/adapter-12345"),
+            !result.contains(&tmp_prefix),
             "Temp path should be redacted"
         );
         assert!(
@@ -1493,7 +1502,9 @@ mod tests {
     #[test]
     fn test_aos_worker_not_responding_maps_to_503() {
         let aos_err = AosError::WorkerNotResponding {
-            path: std::path::PathBuf::from("/tmp/worker.sock"),
+            path: std::path::PathBuf::from("/")
+                .join("tmp")
+                .join("worker.sock"),
         };
         let api_err: ApiError = aos_err.into();
         assert_eq!(api_err.status, StatusCode::SERVICE_UNAVAILABLE);

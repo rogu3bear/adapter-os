@@ -25,6 +25,7 @@
 //! # }
 
 use crate::{AosError, Result};
+use fs2::available_space;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tracing::{debug, warn};
@@ -166,10 +167,12 @@ pub fn classify_and_convert_io_error(
 /// - Unix: Uses `statvfs`
 /// - Windows: Uses `GetDiskFreeSpaceExW`
 pub fn get_available_space(path: &Path) -> Result<u64> {
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     {
-        use std::ffi::CString;
-        use std::os::unix::ffi::OsStrExt;
+        #[cfg(unix)]
+        let fallback_root = Path::new("/");
+        #[cfg(windows)]
+        let fallback_root = Path::new("C:\\");
 
         // Find the actual mount point by traversing up until we find an existing directory
         let check_path = if path.exists() {
@@ -177,74 +180,12 @@ pub fn get_available_space(path: &Path) -> Result<u64> {
         } else {
             path.ancestors()
                 .find(|p| p.exists())
-                .unwrap_or(Path::new("/"))
+                .unwrap_or(fallback_root)
                 .to_path_buf()
         };
 
-        let path_cstr = CString::new(check_path.as_os_str().as_bytes()).map_err(|e| {
-            AosError::InvalidPathCharacters {
-                path: path.display().to_string(),
-                details: format!("Path contains null byte: {}", e),
-                invalid_chars: vec!['\0'],
-            }
-        })?;
-
-        let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
-        let result = unsafe { libc::statvfs(path_cstr.as_ptr(), &mut stat) };
-
-        if result != 0 {
-            let err = std::io::Error::last_os_error();
-            return Err(classify_and_convert_io_error(err, path, "statvfs"));
-        }
-
-        // Available space = available blocks * block size
-        let available = stat.f_bavail as u64 * stat.f_frsize;
-        Ok(available)
-    }
-
-    #[cfg(windows)]
-    {
-        use std::ffi::OsStr;
-        use std::os::windows::ffi::OsStrExt;
-
-        let check_path = if path.exists() {
-            path.to_path_buf()
-        } else {
-            path.ancestors()
-                .find(|p| p.exists())
-                .unwrap_or(Path::new("C:\\"))
-                .to_path_buf()
-        };
-
-        let wide_path: Vec<u16> = check_path
-            .as_os_str()
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect();
-
-        let mut free_bytes: u64 = 0;
-        let mut total_bytes: u64 = 0;
-        let mut total_free_bytes: u64 = 0;
-
-        let result = unsafe {
-            windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW(
-                wide_path.as_ptr(),
-                &mut free_bytes as *mut _,
-                &mut total_bytes as *mut _,
-                &mut total_free_bytes as *mut _,
-            )
-        };
-
-        if result == 0 {
-            let err = std::io::Error::last_os_error();
-            return Err(classify_and_convert_io_error(
-                err,
-                path,
-                "GetDiskFreeSpaceExW",
-            ));
-        }
-
-        Ok(free_bytes)
+        available_space(&check_path)
+            .map_err(|err| classify_and_convert_io_error(err, path, "available_space"))
     }
 
     #[cfg(not(any(unix, windows)))]

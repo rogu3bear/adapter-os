@@ -57,6 +57,7 @@ async fn build_test_state_with_general(
         auth: Default::default(),
         self_hosting: Default::default(),
         performance: Default::default(),
+        streaming: Default::default(),
         paths: PathsConfig {
             artifacts_root: "var/artifacts".into(),
             bundles_root: "var/bundles".into(),

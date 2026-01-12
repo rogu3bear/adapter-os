@@ -24,6 +24,15 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 use zip::ZipArchive;
 
+const KEEP_PARTIALS_ENV: &str = "AOS_KEEP_CHUNKED_UPLOAD_PARTS";
+
+fn keep_partial_uploads() -> bool {
+    std::env::var(KEEP_PARTIALS_ENV)
+        .ok()
+        .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
+
 /// Minimum chunk size for segmented uploads (1MB)
 pub const MIN_CHUNK_SIZE: usize = 1024 * 1024;
 
@@ -41,9 +50,16 @@ pub const UPLOAD_TIMEOUT_SECS: u64 = 3600;
 /// Reduced from 1 hour for more aggressive cleanup of expired sessions.
 const CLEANUP_INTERVAL_SECS: u64 = 300;
 
+/// Current schema version for upload sessions.
+/// Increment when session structure changes to detect stale sessions.
+pub const UPLOAD_SESSION_SCHEMA_VERSION: u16 = 1;
+
 /// Metadata for a chunked upload session
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UploadSession {
+    /// Schema version for forward/backward compatibility detection
+    #[serde(default = "default_schema_version")]
+    pub schema_version: u16,
     /// Unique session identifier
     pub session_id: String,
     /// File being uploaded
@@ -66,6 +82,73 @@ pub struct UploadSession {
     pub is_resumed: bool,
     /// Optional workspace ID for tenant isolation
     pub workspace_id: Option<String>,
+    /// Sealed manifest hash computed at assembly time
+    #[serde(default)]
+    pub sealed_manifest_hash: Option<String>,
+}
+
+impl UploadSession {
+    /// Compute a sealed manifest hash from all chunk hashes and session metadata.
+    /// This binds the chunk hashes to the schema version and session parameters,
+    /// preventing chunk substitution attacks.
+    pub fn compute_sealed_manifest_hash(&self) -> Option<String> {
+        let expected_chunks = self.total_size.div_ceil(self.chunk_size as u64) as usize;
+
+        // All chunks must be present
+        if self.received_chunks.len() != expected_chunks {
+            return None;
+        }
+
+        let mut hasher = blake3::Hasher::new();
+
+        // Include schema version
+        hasher.update(&self.schema_version.to_le_bytes());
+
+        // Include session identifier
+        hasher.update(self.session_id.as_bytes());
+
+        // Include expected total size
+        hasher.update(&self.total_size.to_le_bytes());
+
+        // Include chunk size
+        hasher.update(&(self.chunk_size as u64).to_le_bytes());
+
+        // Include chunk hashes in order
+        for i in 0..expected_chunks {
+            if let Some(hash) = self.received_chunks.get(&i) {
+                hasher.update(hash.as_bytes());
+            } else {
+                return None; // Missing chunk
+            }
+        }
+
+        Some(hasher.finalize().to_hex().to_string())
+    }
+
+    /// Verify that all chunks are present and compute the sealed hash.
+    /// Returns the sealed manifest hash if valid, or an error message.
+    pub fn seal_for_assembly(&mut self) -> Result<String, String> {
+        let expected_chunks = self.total_size.div_ceil(self.chunk_size as u64) as usize;
+
+        // Verify all chunks are present
+        for i in 0..expected_chunks {
+            if !self.received_chunks.contains_key(&i) {
+                return Err(format!("Missing chunk {} of {}", i, expected_chunks));
+            }
+        }
+
+        // Compute and store the sealed hash
+        let sealed_hash = self
+            .compute_sealed_manifest_hash()
+            .ok_or_else(|| "Failed to compute sealed manifest hash".to_string())?;
+
+        self.sealed_manifest_hash = Some(sealed_hash.clone());
+        Ok(sealed_hash)
+    }
+}
+
+fn default_schema_version() -> u16 {
+    1
 }
 
 /// Compression format for uploads
@@ -167,7 +250,37 @@ impl UploadSessionManager {
         workspace_id: Option<String>,
     ) -> Result<UploadSession> {
         let session_id = Uuid::now_v7().to_string();
-        let temp_dir = temp_base_dir.join(&session_id);
+
+        // Check if workspace_id is missing/empty
+        let workspace_is_default = workspace_id
+            .as_deref()
+            .map(|v| v.trim().is_empty())
+            .unwrap_or(true);
+
+        let workspace_scope = if workspace_is_default {
+            // Check config for strict workspace enforcement
+            let require_explicit = adapteros_config::effective_config()
+                .map(|cfg| cfg.uploads.require_explicit_workspace)
+                .unwrap_or(false);
+
+            if require_explicit {
+                return Err(anyhow!(
+                    "workspace_id is required for chunked uploads (uploads.require_explicit_workspace=true)"
+                ));
+            }
+
+            // Emit deprecation warning for default workspace scope
+            warn!(
+                session_id = %session_id,
+                "Chunked upload using deprecated 'default' workspace scope. \
+                 Set explicit workspace_id or configure uploads.require_explicit_workspace=true"
+            );
+            "default"
+        } else {
+            workspace_id.as_deref().unwrap()
+        };
+
+        let temp_dir = temp_base_dir.join(workspace_scope).join(&session_id);
 
         fs::create_dir_all(&temp_dir)
             .await
@@ -176,6 +289,7 @@ impl UploadSessionManager {
         let compression = CompressionFormat::from_content_type(&content_type);
 
         let session = UploadSession {
+            schema_version: UPLOAD_SESSION_SCHEMA_VERSION,
             session_id: session_id.clone(),
             file_name,
             total_size,
@@ -187,6 +301,7 @@ impl UploadSessionManager {
             compression,
             is_resumed: false,
             workspace_id,
+            sealed_manifest_hash: None,
         };
 
         let mut sessions = self.sessions.write().await;
@@ -208,6 +323,26 @@ impl UploadSessionManager {
             .get(session_id)
             .cloned()
             .ok_or_else(|| anyhow!("Upload session {} not found or expired", session_id))
+    }
+
+    /// Restore a session from persisted state (e.g., after restart).
+    pub async fn restore_session(&self, session: UploadSession) -> Result<()> {
+        if !session.temp_dir.exists() {
+            fs::create_dir_all(&session.temp_dir)
+                .await
+                .context("Failed to restore chunk temporary directory")?;
+        }
+
+        let mut sessions = self.sessions.write().await;
+        if !sessions.contains_key(&session.session_id) && sessions.len() >= self.max_sessions {
+            return Err(anyhow!(
+                "Maximum concurrent upload sessions ({}) reached",
+                self.max_sessions
+            ));
+        }
+
+        sessions.insert(session.session_id.clone(), session);
+        Ok(())
     }
 
     /// Update session with received chunk (with lock to prevent race during cleanup)
@@ -259,7 +394,7 @@ impl UploadSessionManager {
         let mut sessions = self.sessions.write().await;
         if let Some(session) = sessions.remove(session_id) {
             // Explicitly clean up temporary directory on session removal
-            if session.temp_dir.exists() {
+            if !keep_partial_uploads() && session.temp_dir.exists() {
                 if let Err(e) = fs::remove_dir_all(&session.temp_dir).await {
                     warn!(
                         session_id = %session_id,
@@ -308,7 +443,7 @@ impl UploadSessionManager {
 
         // Clean up temp directories outside the lock to avoid blocking
         for (session_id, session) in expired_sessions {
-            if session.temp_dir.exists() {
+            if !keep_partial_uploads() && session.temp_dir.exists() {
                 match fs::remove_dir_all(&session.temp_dir).await {
                     Ok(()) => {
                         info!(
@@ -940,6 +1075,7 @@ mod tests {
         std::fs::create_dir_all(&temp_root).unwrap();
         let temp_dir = tempfile::TempDir::new_in(&temp_root).unwrap();
         let session = UploadSession {
+            schema_version: UPLOAD_SESSION_SCHEMA_VERSION,
             session_id: "test-123".to_string(),
             file_name: "data.jsonl".to_string(),
             total_size: 100_000_000,
@@ -951,6 +1087,7 @@ mod tests {
             compression: CompressionFormat::None,
             is_resumed: false,
             workspace_id: Some("test-workspace".to_string()),
+            sealed_manifest_hash: None,
         };
 
         assert_eq!(session.session_id, "test-123");

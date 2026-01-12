@@ -158,17 +158,6 @@ fn token_signature_invalid(msg: impl Into<String>) -> (StatusCode, Json<ErrorRes
     )
 }
 
-fn session_corrupted(msg: impl Into<String>) -> (StatusCode, Json<ErrorResponse>) {
-    (
-        StatusCode::UNAUTHORIZED,
-        Json(
-            ErrorResponse::new("Session storage entry is corrupted")
-                .with_code("SESSION_CORRUPTED")
-                .with_string_details(msg.into()),
-        ),
-    )
-}
-
 fn tenant_header_missing() -> (StatusCode, Json<ErrorResponse>) {
     (
         StatusCode::BAD_REQUEST,
@@ -223,7 +212,7 @@ fn dev_no_auth_claims() -> Claims {
         email: "dev-no-auth@adapteros.local".to_string(),
         role: "admin".to_string(),
         roles: vec!["admin".to_string()],
-        tenant_id: "system".to_string(),
+        tenant_id: "default".to_string(),
         // Dev mode: wildcard grants access to ALL tenants
         // SECURITY: This only works in debug builds via dev_no_auth_enabled() check
         // The "*" wildcard is recognized by check_tenant_access_core() in security/mod.rs
@@ -681,32 +670,7 @@ async fn validate_access_token_with_session(
         // SQL fallback
         match get_session_by_id(&state.db, &session_id).await {
             Ok(Some(session)) => {
-                // Use the longer session expiry (expires_at), falling back to refresh_expires_at
-                let session_exp_ts = match chrono::DateTime::parse_from_rfc3339(&session.expires_at)
-                {
-                    Ok(dt) => dt.timestamp(),
-                    Err(_) => {
-                        // Try refresh_expires_at as fallback
-                        match session
-                            .refresh_expires_at
-                            .as_ref()
-                            .and_then(|dt| chrono::DateTime::parse_from_rfc3339(dt).ok())
-                        {
-                            Some(dt) => dt.timestamp(),
-                            None => {
-                                tracing::warn!(
-                                    session_id = %session_id,
-                                    expires_at = %session.expires_at,
-                                    refresh_expires_at = ?session.refresh_expires_at,
-                                    "Session storage entry is corrupted: invalid timestamp format"
-                                );
-                                return Err(session_corrupted(
-                                    "invalid timestamp format in session data",
-                                ));
-                            }
-                        }
-                    }
-                };
+                let session_exp_ts = session.expires_at;
 
                 if session.locked != 0 || session_exp_ts <= now_ts {
                     tracing::warn!(session_id = %session_id, "Session expired or locked (SQL)");

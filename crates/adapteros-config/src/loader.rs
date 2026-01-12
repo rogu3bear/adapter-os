@@ -125,7 +125,14 @@ impl ConfigLoader {
         let manifest: Value = match toml::from_str(&content) {
             Ok(v) => v,
             Err(e) => {
-                // Always fail on parse errors - invalid config should not silently fall back
+                if !self.options.require_manifest {
+                    tracing::warn!(
+                        manifest = %path,
+                        error = %e,
+                        "Manifest invalid, using compiled-in defaults and environment"
+                    );
+                    return Ok(builder);
+                }
                 return Err(AosError::Config(format!(
                     "Invalid TOML in '{}': {}",
                     path, e

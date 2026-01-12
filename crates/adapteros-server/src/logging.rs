@@ -30,6 +30,91 @@ use adapteros_server_api::config::{LoggingConfig, OtelConfig};
 
 use crate::otel::{self, OtelGuard};
 
+// PRD-4.0: Log sanitization tests
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_redact_bearer_token() {
+        let input = "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9";
+        let result = redact_sensitive(input);
+        assert!(result.contains("[REDACTED]"));
+        assert!(!result.contains("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"));
+    }
+
+    #[test]
+    fn test_redact_api_key() {
+        let input = "api_key=sk-1234567890abcdef";
+        let result = redact_sensitive(input);
+        assert_eq!(result, "api_key=[REDACTED]");
+    }
+
+    #[test]
+    fn test_redact_password() {
+        let input = "password=mysecretpassword123";
+        let result = redact_sensitive(input);
+        assert_eq!(result, "password=[REDACTED]");
+    }
+
+    #[test]
+    fn test_redact_preserves_safe_content() {
+        let input = "user_id=12345, action=login";
+        let result = redact_sensitive(input);
+        assert_eq!(result, input); // No redaction needed
+    }
+
+    #[test]
+    fn test_redact_case_insensitive() {
+        let input = "BEARER abc123 and bearer xyz789";
+        let result = redact_sensitive(input);
+        assert!(result.contains("[REDACTED]"));
+        // Note: our simple implementation only catches the first occurrence
+    }
+}
+
+/// PRD-4.0: Patterns that indicate sensitive data requiring redaction.
+/// These patterns are matched case-insensitively.
+const REDACT_PATTERNS: &[&str] = &[
+    "bearer ",
+    "api_key=",
+    "api-key=",
+    "password=",
+    "secret=",
+    "authorization:",
+    "token=",
+    "access_token=",
+    "refresh_token=",
+    "jwt=",
+    "apikey=",
+];
+
+/// PRD-4.0: Redact sensitive data from log values.
+///
+/// Scans the input for patterns indicating sensitive data (auth tokens, passwords, etc.)
+/// and replaces the sensitive portion with `[REDACTED]`.
+fn redact_sensitive(value: &str) -> String {
+    let mut result = value.to_string();
+    let lower = result.to_lowercase();
+
+    for pattern in REDACT_PATTERNS {
+        let pattern_lower = pattern.to_lowercase();
+        if let Some(idx) = lower.find(&pattern_lower) {
+            let start = idx + pattern.len();
+            // Find end of sensitive value (whitespace, quote, comma, or end of string)
+            let end = result[start..]
+                .find(|c: char| c.is_whitespace() || c == '"' || c == '\'' || c == ',' || c == '}')
+                .map(|i| start + i)
+                .unwrap_or(result.len());
+            if end > start {
+                result.replace_range(start..end, "[REDACTED]");
+            }
+        }
+    }
+
+    result
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum LogProfile {
     Json,
@@ -81,16 +166,21 @@ where
 
         impl<'a> Visit for JsonVisitor<'a> {
             fn record_str(&mut self, field: &Field, value: &str) {
+                // PRD-4.0: Redact sensitive data from log values
+                let sanitized = redact_sensitive(value);
                 self.payload.insert(
                     field.name().to_string(),
-                    serde_json::Value::String(value.to_string()),
+                    serde_json::Value::String(sanitized),
                 );
             }
 
             fn record_debug(&mut self, field: &Field, value: &dyn stdfmt::Debug) {
+                // PRD-4.0: Redact sensitive data from log values
+                let raw = format!("{:?}", value);
+                let sanitized = redact_sensitive(&raw);
                 self.payload.insert(
                     field.name().to_string(),
-                    serde_json::Value::String(format!("{:?}", value)),
+                    serde_json::Value::String(sanitized),
                 );
             }
         }

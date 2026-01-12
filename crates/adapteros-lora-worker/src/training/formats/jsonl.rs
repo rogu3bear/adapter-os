@@ -96,12 +96,19 @@ fn parse_jsonl_line(line: &str, path: &str, line_num: usize) -> Result<RawSample
     validate_non_empty(&input, "input", &context)?;
     validate_non_empty(&target, "target", &context)?;
 
-    // Extract weight if present
+    // Extract weight if present (must be non-negative)
     let weight = obj
         .get("weight")
         .and_then(|v| v.as_f64())
         .map(|w| w as f32)
         .unwrap_or(1.0);
+
+    if weight < 0.0 {
+        return Err(AosError::Validation(format!(
+            "Negative weight {} at {}. Weights must be >= 0.0",
+            weight, context
+        )));
+    }
 
     // Extract metadata
     let mut metadata = HashMap::new();
@@ -223,5 +230,13 @@ mod tests {
         let result = parse_jsonl_file(file.path());
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Invalid JSON"));
+    }
+
+    #[test]
+    fn test_negative_weight_rejected() {
+        let file = write_temp_jsonl(&[r#"{"input": "a", "output": "b", "weight": -0.5}"#]);
+        let result = parse_jsonl_file(file.path());
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Negative weight"));
     }
 }

@@ -82,6 +82,7 @@ fn create_inference_envelope(
         backend_used: "mock".to_string(),
         backend_attestation_b3: None,
         seed_lineage_hash: None,
+        adapter_training_lineage_digest: None,
     };
 
     EvidenceEnvelope::new_inference(tenant_id, receipt_ref, previous_root)

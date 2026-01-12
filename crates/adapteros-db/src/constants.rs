@@ -28,7 +28,7 @@ pub const ADAPTER_COLUMNS: &str =
      base_model_id, recommended_for_moe, manifest_schema_version, content_hash_b3, metadata_json, provenance_json, \
      repo_path, codebase_scope, dataset_version_id, registration_timestamp, manifest_hash, \
      adapter_type, base_adapter_id, stream_session_id, versioning_threshold, coreml_package_hash, \
-     created_at, updated_at, active";
+     training_dataset_hash_b3, created_at, updated_at, active";
 
 /// Training dataset table columns for SELECT queries
 ///

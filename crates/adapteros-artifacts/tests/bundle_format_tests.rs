@@ -6,7 +6,7 @@
 //! 3. Corrupt bundle detection (missing file, bad hash, invalid signature)
 
 use adapteros_artifacts::{create_bundle, extract_bundle};
-use adapteros_core::{B3Hash, Result};
+use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_crypto::{bundle_sign::*, Keypair};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -195,9 +195,7 @@ fn test_corrupt_bundle_invalid_compression() {
     let result = extract_bundle(&corrupt_bundle, &extract_dir);
 
     // Should fail with decompression error
-    assert!(result.is_err());
-    let err_msg = result.unwrap_err().to_string();
-    assert!(err_msg.contains("Failed to create decoder") || err_msg.contains("Failed to extract"));
+    assert!(matches!(result, Err(AosError::Artifact(_))));
 }
 
 #[test]

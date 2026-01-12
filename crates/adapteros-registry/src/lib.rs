@@ -217,9 +217,17 @@ impl Registry {
             )
         } else {
             conn.execute(
-                "INSERT OR REPLACE INTO adapters (id, hash, tier, rank, acl, registered_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, datetime('now'))",
-                params![id, hash.to_hex(), tier, rank, acl_json],
+                "INSERT OR REPLACE INTO adapters (id, hash, tier, rank, acl, parent_id, fork_type, registered_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, datetime('now'))",
+                params![
+                    id,
+                    hash.to_hex(),
+                    tier,
+                    rank,
+                    acl_json,
+                    parent_id,
+                    fork_type.map(|ft| ft.as_str()),
+                ],
             )
         }
         .map_err(|e| AosError::Registry(format!("Failed to register adapter: {}", e)))?;

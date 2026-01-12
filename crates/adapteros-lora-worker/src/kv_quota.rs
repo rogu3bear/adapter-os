@@ -4,7 +4,7 @@
 //! Quotas are enforced at insertion time to prevent cache starvation.
 
 use adapteros_core::{AosError, Result};
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime};
 use tracing::{debug, warn};
@@ -74,6 +74,8 @@ pub struct TenantKvQuotaManager {
     reserved_bytes: AtomicU64,
     /// Active reservations
     reservations: RwLock<Vec<KvReservation>>,
+    /// Serializes quota state updates for consistent snapshots
+    quota_lock: Mutex<()>,
     /// Eviction counter for current session
     evictions: AtomicU32,
     /// Whether quota enforcement is active
@@ -94,6 +96,7 @@ impl TenantKvQuotaManager {
             used_bytes: AtomicU64::new(0),
             reserved_bytes: AtomicU64::new(0),
             reservations: RwLock::new(Vec::new()),
+            quota_lock: Mutex::new(()),
             evictions: AtomicU32::new(0),
             quota_enforced,
         }
@@ -116,6 +119,7 @@ impl TenantKvQuotaManager {
 
     /// Check if allocation is within quota (without reserving)
     pub fn check_quota(&self, bytes: u64) -> Result<()> {
+        let _guard = self.quota_lock.lock();
         let Some(quota) = self.quota_bytes else {
             return Ok(()); // Unlimited
         };
@@ -138,11 +142,26 @@ impl TenantKvQuotaManager {
     ///
     /// Returns a reservation handle that must be finalized or rolled back.
     pub fn reserve(&self, bytes: u64) -> Result<KvReservation> {
-        // Clean up expired reservations first
+        let _guard = self.quota_lock.lock();
+
+        // Clean up expired reservations first (caller holds quota lock)
         self.cleanup_expired();
 
-        // Check quota
-        self.check_quota(bytes)?;
+        // Reserve bytes with a consistent snapshot of used + reserved
+        if let Some(quota) = self.quota_bytes {
+            let current = self.used_bytes.load(Ordering::Acquire);
+            let reserved = self.reserved_bytes.load(Ordering::Acquire);
+            let total_needed = current.saturating_add(reserved).saturating_add(bytes);
+
+            if total_needed > quota {
+                return Err(AosError::MemoryPressure(format!(
+                    "KV quota exceeded for tenant {}: need {} bytes, quota {} bytes (used: {}, reserved: {})",
+                    self.tenant_id, total_needed, quota, current, reserved
+                )));
+            }
+        }
+
+        self.reserved_bytes.fetch_add(bytes, Ordering::AcqRel);
 
         // Create reservation ID
         let reservation_id = format!(
@@ -156,8 +175,6 @@ impl TenantKvQuotaManager {
 
         let reservation = KvReservation::new(reservation_id.clone(), bytes);
 
-        // Add reservation atomically
-        self.reserved_bytes.fetch_add(bytes, Ordering::AcqRel);
         self.reservations.write().push(reservation.clone());
 
         debug!(
@@ -172,6 +189,7 @@ impl TenantKvQuotaManager {
 
     /// Finalize reservation (commit the allocation)
     pub fn finalize(&self, reservation: KvReservation) -> Result<()> {
+        let _guard = self.quota_lock.lock();
         // Remove from reservations
         {
             let mut reservations = self.reservations.write();
@@ -196,6 +214,7 @@ impl TenantKvQuotaManager {
 
     /// Rollback reservation (cancel without allocation)
     pub fn rollback(&self, reservation: KvReservation) {
+        let _guard = self.quota_lock.lock();
         // Remove from reservations
         {
             let mut reservations = self.reservations.write();
@@ -216,6 +235,7 @@ impl TenantKvQuotaManager {
 
     /// Release used bytes (on sequence free)
     pub fn release(&self, bytes: u64) {
+        let _guard = self.quota_lock.lock();
         self.used_bytes.fetch_sub(bytes, Ordering::AcqRel);
 
         debug!(
@@ -242,6 +262,7 @@ impl TenantKvQuotaManager {
 
     /// Get current usage statistics
     pub fn usage(&self) -> KvQuotaUsage {
+        let _guard = self.quota_lock.lock();
         let used = self.used_bytes.load(Ordering::Acquire);
         let reserved = self.reserved_bytes.load(Ordering::Acquire);
         let quota = self.quota_bytes;

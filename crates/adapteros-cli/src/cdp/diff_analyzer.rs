@@ -81,8 +81,8 @@ impl DiffAnalyzer {
             )));
         }
 
-        Ok(String::from_utf8(output.stdout)
-            .map_err(|e| AosError::Git(format!("Invalid git diff output: {}", e)))?)
+        String::from_utf8(output.stdout)
+            .map_err(|e| AosError::Git(format!("Invalid git diff output: {}", e)))
     }
 
     /// Get uncommitted diff
@@ -102,8 +102,8 @@ impl DiffAnalyzer {
             )));
         }
 
-        Ok(String::from_utf8(output.stdout)
-            .map_err(|e| AosError::Git(format!("Invalid git diff output: {}", e)))?)
+        String::from_utf8(output.stdout)
+            .map_err(|e| AosError::Git(format!("Invalid git diff output: {}", e)))
     }
 
     /// Get parent commit SHA
@@ -296,7 +296,7 @@ impl DiffAnalyzer {
     fn extract_struct_name(&self, line: &str) -> Option<String> {
         // Simple regex-like parsing: "struct StructName"
         if let Some(start) = line.find("struct ") {
-            let after_struct = &line[start + 7..];
+            let after_struct = line[start + 7..].trim_start();
             if let Some(end) = after_struct.find(' ') {
                 return Some(after_struct[..end].trim().to_string());
             } else if let Some(end) = after_struct.find('{') {

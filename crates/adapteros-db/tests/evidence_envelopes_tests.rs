@@ -79,6 +79,7 @@ fn sample_inference_ref(sequence: u32) -> InferenceReceiptRef {
         backend_used: "mock".to_string(),
         backend_attestation_b3: Some(B3Hash::hash(b"mock-attestation")),
         seed_lineage_hash: None,
+        adapter_training_lineage_digest: None,
     }
 }
 

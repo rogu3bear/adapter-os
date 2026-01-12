@@ -182,6 +182,7 @@ pub struct CommitDeltaPack {
 
 impl CommitDeltaPack {
     /// Create a new CDP
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         repo_id: String,
         commit_sha: String,

@@ -14,7 +14,7 @@ use crate::providers::file::FileProvider;
 use crate::providers::keychain::KeychainProvider;
 use crate::providers::kms::KmsProvider;
 use crate::signature::SigningKey;
-use adapteros_core::{AosError, Result};
+use adapteros_core::{AosError, B3Hash, Result};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -269,18 +269,16 @@ impl KeyManager {
 
     /// Get the fingerprint of the current key
     ///
-    /// Returns a BLAKE3 hash of the public key for identification.
+    /// Returns a BLAKE3 hash derived from a deterministic signature.
     pub async fn key_fingerprint(&self, key_id: &str) -> Result<String> {
         debug!(key_id = %key_id, "Computing key fingerprint");
 
-        // Generate a test signature to get the public key
+        // Generate a deterministic signature as a stable key fingerprint.
         let provider = self.provider.read().await;
         let test_msg = b"fingerprint-test";
-        let _signature = provider.sign(key_id, test_msg).await?;
+        let signature = provider.sign(key_id, test_msg).await?;
 
-        // Get attestation which includes provider fingerprint
-        let attestation = provider.attest().await?;
-        Ok(attestation.fingerprint)
+        Ok(B3Hash::hash(&signature).to_hex())
     }
 
     /// Get the current provider mode

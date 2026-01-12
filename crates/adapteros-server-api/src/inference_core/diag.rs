@@ -137,6 +137,8 @@ pub fn extract_error_code(error: &crate::types::InferenceError) -> &'static str 
         InferenceError::ModelNotReady(_) => "E6001",
         InferenceError::AdapterNotLoadable { .. } => "E6002",
         InferenceError::AdapterNotFound(_) => "E6003",
+        InferenceError::AdapterTenantMismatch { .. } => "E6004",
+        InferenceError::AdapterBaseModelMismatch { .. } => "E6005",
         InferenceError::ReplayError(_) => "E7001",
         InferenceError::DeterminismError(_) => "E8001",
         InferenceError::CacheBudgetExceeded { .. } => "E9001",
@@ -166,6 +168,10 @@ pub fn suggest_recovery(error: &crate::types::InferenceError) -> Option<&'static
         InferenceError::ModelNotReady(_) => Some("Wait for model loading to complete"),
         InferenceError::AdapterNotLoadable { .. } => Some("Check adapter lifecycle state"),
         InferenceError::AdapterNotFound(_) => Some("Verify adapter ID exists"),
+        InferenceError::AdapterTenantMismatch { .. } => Some("Verify adapter belongs to tenant"),
+        InferenceError::AdapterBaseModelMismatch { .. } => {
+            Some("Use adapters trained on the active base model")
+        }
         InferenceError::ReplayError(_) => Some("Verify replay metadata"),
         InferenceError::DeterminismError(_) => Some("Provide required seed parameter"),
         InferenceError::CacheBudgetExceeded { .. } => {

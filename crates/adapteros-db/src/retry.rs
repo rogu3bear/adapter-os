@@ -429,11 +429,9 @@ where
                 // Cap at max delay
                 delay_ms = delay_ms.min(config.base.max_delay_ms);
 
-                // Add jitter to prevent thundering herd
+                // Add jitter to prevent thundering herd (uses deterministic RNG when configured)
                 if config.jitter_factor > 0.0 {
-                    let jitter_range = delay_ms as f64 * config.jitter_factor;
-                    let jitter = (rand::random::<f64>() - 0.5) * 2.0 * jitter_range;
-                    delay_ms = ((delay_ms as f64 + jitter).max(1.0)) as u64;
+                    delay_ms = adapteros_core::compute_jitter_delay(delay_ms, config.jitter_factor);
                 }
 
                 warn!(

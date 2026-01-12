@@ -2,6 +2,7 @@
 
 use adapteros_api_types::{ErrorResponse, FailureCode};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use utoipa::ToSchema;
 
 /// Standard error envelope returned by the API for all 4xx/5xx responses.
@@ -139,6 +140,24 @@ pub enum InferenceError {
     },
     /// Adapter not found or not loadable (archived/purged)
     AdapterNotFound(String),
+    /// Adapter belongs to a different tenant
+    AdapterTenantMismatch {
+        /// Adapter ID
+        adapter_id: String,
+        /// Request tenant
+        tenant_id: String,
+        /// Adapter owner tenant
+        adapter_tenant_id: String,
+    },
+    /// Adapter base model mismatch for the request
+    AdapterBaseModelMismatch {
+        /// Adapter ID
+        adapter_id: String,
+        /// Base model ID expected for inference
+        expected_base_model_id: String,
+        /// Base model ID recorded on the adapter (if any)
+        adapter_base_model_id: Option<String>,
+    },
     /// Worker ID unavailable for token generation
     ///
     /// When worker authentication is enabled (signing keypair present), we require
@@ -232,6 +251,28 @@ impl std::fmt::Display for InferenceError {
                 tenant_id, reason
             ),
             Self::AdapterNotFound(msg) => write!(f, "Adapter not found: {}", msg),
+            Self::AdapterTenantMismatch {
+                adapter_id,
+                tenant_id,
+                adapter_tenant_id,
+            } => write!(
+                f,
+                "Adapter '{}' belongs to tenant '{}' (request tenant '{}')",
+                adapter_id, adapter_tenant_id, tenant_id
+            ),
+            Self::AdapterBaseModelMismatch {
+                adapter_id,
+                expected_base_model_id,
+                adapter_base_model_id,
+            } => write!(
+                f,
+                "Adapter '{}' base model mismatch: expected '{}', adapter has '{}'",
+                adapter_id,
+                expected_base_model_id,
+                adapter_base_model_id
+                    .as_deref()
+                    .unwrap_or("unknown")
+            ),
             Self::WorkerIdUnavailable { tenant_id, reason } => write!(
                 f,
                 "Worker ID unavailable for tenant {}: {}",
@@ -294,11 +335,13 @@ impl InferenceError {
             Self::NoCompatibleWorker { .. } => StatusCode::SERVICE_UNAVAILABLE,
             Self::WorkerDegraded { .. } => StatusCode::SERVICE_UNAVAILABLE,
             Self::AdapterNotFound(_) => StatusCode::NOT_FOUND,
+            Self::AdapterTenantMismatch { .. } => StatusCode::FORBIDDEN,
             Self::WorkerIdUnavailable { .. } => StatusCode::SERVICE_UNAVAILABLE,
             Self::CacheBudgetExceeded { .. } => StatusCode::SERVICE_UNAVAILABLE,
             Self::PolicyViolation { .. } => StatusCode::FORBIDDEN,
             Self::DatabaseError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Self::AdapterNotLoadable { .. } => StatusCode::SERVICE_UNAVAILABLE,
+            Self::AdapterBaseModelMismatch { .. } => StatusCode::BAD_REQUEST,
             Self::ReplayError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Self::DeterminismError(_) => StatusCode::BAD_REQUEST,
             Self::InternalError(_) => StatusCode::INTERNAL_SERVER_ERROR,
@@ -322,11 +365,13 @@ impl InferenceError {
             Self::NoCompatibleWorker { .. } => "NO_COMPATIBLE_WORKER",
             Self::WorkerDegraded { .. } => "WORKER_DEGRADED",
             Self::AdapterNotFound(_) => "ADAPTER_NOT_FOUND",
+            Self::AdapterTenantMismatch { .. } => "ADAPTER_TENANT_MISMATCH",
             Self::WorkerIdUnavailable { .. } => "WORKER_ID_UNAVAILABLE",
             Self::CacheBudgetExceeded { .. } => "CACHE_BUDGET_EXCEEDED",
             Self::PolicyViolation { .. } => "POLICY_VIOLATION",
             Self::DatabaseError(_) => "DATABASE_ERROR",
             Self::AdapterNotLoadable { .. } => "ADAPTER_NOT_LOADABLE",
+            Self::AdapterBaseModelMismatch { .. } => "ADAPTER_BASE_MODEL_MISMATCH",
             Self::ReplayError(_) => "REPLAY_ERROR",
             Self::DeterminismError(_) => "DETERMINISM_ERROR",
             Self::InternalError(_) => "INTERNAL_ERROR",
@@ -365,11 +410,13 @@ impl InferenceError {
             Self::NoCompatibleWorker { .. } => Some(FailureCode::BackendFallback),
             Self::WorkerDegraded { .. } => Some(FailureCode::BackendFallback),
             Self::AdapterNotFound(_) => None,
+            Self::AdapterTenantMismatch { .. } => Some(FailureCode::TenantAccessDenied),
             Self::WorkerIdUnavailable { .. } => Some(FailureCode::BackendFallback),
             Self::CacheBudgetExceeded { .. } => Some(FailureCode::OutOfMemory),
             Self::PolicyViolation { .. } => Some(FailureCode::PolicyDivergence),
             Self::DatabaseError(_) => None,
             Self::AdapterNotLoadable { .. } => Some(FailureCode::ModelLoadFailed),
+            Self::AdapterBaseModelMismatch { .. } => Some(FailureCode::PolicyDivergence),
             Self::ReplayError(_) => None,
             Self::DeterminismError(_) => Some(FailureCode::PolicyDivergence),
             Self::InternalError(_) => None,
@@ -389,12 +436,36 @@ impl From<InferenceError> for (axum::http::StatusCode, axum::Json<ErrorResponse>
         if let Some(fc) = failure_code {
             response = response.with_failure_code(fc);
         }
-        if let InferenceError::NoCompatibleWorker {
-            details: Some(value),
-            ..
-        } = &err
-        {
-            response = response.with_details(value.clone());
+        match &err {
+            InferenceError::NoCompatibleWorker {
+                details: Some(value),
+                ..
+            } => {
+                response = response.with_details(value.clone());
+            }
+            InferenceError::AdapterTenantMismatch {
+                adapter_id,
+                tenant_id,
+                adapter_tenant_id,
+            } => {
+                response = response.with_details(json!({
+                    "adapter_id": adapter_id,
+                    "tenant_id": tenant_id,
+                    "adapter_tenant_id": adapter_tenant_id,
+                }));
+            }
+            InferenceError::AdapterBaseModelMismatch {
+                adapter_id,
+                expected_base_model_id,
+                adapter_base_model_id,
+            } => {
+                response = response.with_details(json!({
+                    "adapter_id": adapter_id,
+                    "expected_base_model_id": expected_base_model_id,
+                    "adapter_base_model_id": adapter_base_model_id,
+                }));
+            }
+            _ => {}
         }
         (status, axum::Json(response))
     }

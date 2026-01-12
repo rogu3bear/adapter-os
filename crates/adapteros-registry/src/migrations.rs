@@ -2,6 +2,7 @@
 
 use adapteros_core::{AosError, Result};
 use rusqlite::Connection;
+use std::collections::HashSet;
 
 pub fn run_migrations(conn: &mut Connection) -> Result<()> {
     // Create adapters table
@@ -13,11 +14,21 @@ pub fn run_migrations(conn: &mut Connection) -> Result<()> {
             rank INTEGER NOT NULL,
             acl TEXT NOT NULL,
             activation_pct REAL DEFAULT 0.0,
-            registered_at TEXT NOT NULL
+            registered_at TEXT NOT NULL,
+            adapter_name TEXT,
+            tenant_namespace TEXT,
+            domain TEXT,
+            purpose TEXT,
+            revision INTEGER,
+            parent_id TEXT,
+            fork_type TEXT,
+            fork_reason TEXT
         )",
         [],
     )
     .map_err(|e| AosError::Registry(format!("Failed to create adapters table: {}", e)))?;
+
+    ensure_adapter_columns(conn)?;
 
     // Create tenants table
     conn.execute(
@@ -104,4 +115,47 @@ pub fn run_migrations(conn: &mut Connection) -> Result<()> {
     .map_err(|e| AosError::Registry(format!("Failed to create models created_at index: {}", e)))?;
 
     Ok(())
+}
+
+fn ensure_adapter_columns(conn: &Connection) -> Result<()> {
+    let mut columns = existing_columns(conn, "adapters")?;
+    for (name, sql_type) in [
+        ("adapter_name", "TEXT"),
+        ("tenant_namespace", "TEXT"),
+        ("domain", "TEXT"),
+        ("purpose", "TEXT"),
+        ("revision", "INTEGER"),
+        ("parent_id", "TEXT"),
+        ("fork_type", "TEXT"),
+        ("fork_reason", "TEXT"),
+    ] {
+        if !columns.contains(name) {
+            conn.execute(
+                &format!("ALTER TABLE adapters ADD COLUMN {} {}", name, sql_type),
+                [],
+            )
+            .map_err(|e| AosError::Registry(format!("Failed to add adapters.{}: {}", name, e)))?;
+            columns.insert(name.to_string());
+        }
+    }
+
+    Ok(())
+}
+
+fn existing_columns(conn: &Connection, table: &str) -> Result<HashSet<String>> {
+    let mut stmt = conn
+        .prepare(&format!("PRAGMA table_info({})", table))
+        .map_err(|e| AosError::Registry(format!("Failed to read {} schema: {}", table, e)))?;
+    let rows = stmt
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|e| AosError::Registry(format!("Failed to read {} schema: {}", table, e)))?;
+
+    let mut columns = HashSet::new();
+    for row in rows {
+        columns.insert(
+            row.map_err(|e| AosError::Registry(format!("Failed to read {} schema: {}", table, e)))?,
+        );
+    }
+
+    Ok(columns)
 }

@@ -61,7 +61,8 @@ impl PythonParser {
         let async_function_query = Query::new(
             &python_lang,
             r#"
-            (async_function_definition
+            (function_definition
+                "async"
                 name: (identifier) @name
                 parameters: (parameters) @params
                 return_type: (type)? @return_type
@@ -96,7 +97,7 @@ impl PythonParser {
             r#"
             (import_from_statement
                 module_name: (dotted_name)? @module_name
-                (dotted_name) @imported_name
+                name: (_) @imported_name
             ) @import_from
             "#,
         )
@@ -193,6 +194,7 @@ impl PythonParser {
             let mut name = None;
             let mut params = None;
             let mut _return_type = None;
+            let mut function_node = None;
 
             for capture in mat.captures {
                 let text = utils::extract_text(capture.node, source);
@@ -201,6 +203,16 @@ impl PythonParser {
                     1 => params = Some(text),
                     2 => _return_type = Some(text),
                     _ => {}
+                }
+                if capture.node.kind() == "function_definition" {
+                    function_node = Some(capture.node);
+                }
+            }
+
+            if let Some(node) = function_node {
+                let text = utils::extract_text(node, source);
+                if text.trim_start().starts_with("async") {
+                    continue;
                 }
             }
 

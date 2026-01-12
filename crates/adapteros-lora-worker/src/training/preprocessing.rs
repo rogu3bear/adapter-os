@@ -136,6 +136,7 @@ struct PreprocessConfigHashPayload {
     seed: u64,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn preprocess_examples(
     examples: &[TrainingExampleV1],
     contract: &TrainingDataContractConfig,
@@ -429,6 +430,7 @@ pub fn preprocess_examples(
 ///
 /// Returns a compatibility summary that can be used to decide whether
 /// preprocessing needs to run again for the given dataset/model/config tuple.
+#[allow(clippy::too_many_arguments)]
 pub fn inspect_preprocess_cache(
     examples: &[TrainingExampleV1],
     contract: &TrainingDataContractConfig,
@@ -825,6 +827,7 @@ fn store_manifest(path: &Path, manifest: &PreprocessManifest) -> Result<()> {
     write_atomic(path, &data)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn validate_manifest(
     manifest: &PreprocessManifest,
     dataset_hash: &B3Hash,
@@ -1159,7 +1162,7 @@ fn extract_features(
     if raw.len() == hidden_dim {
         return Ok((raw.to_vec(), vec![hidden_dim as u32]));
     }
-    if raw.len() % hidden_dim != 0 {
+    if !raw.len().is_multiple_of(hidden_dim) {
         return Err(AosError::Training(format!(
             "Preprocessing output size {} not divisible by hidden_dim {}",
             raw.len(),
@@ -1251,6 +1254,10 @@ enum PreprocessBackend {
 }
 
 impl PreprocessBackend {
+    #[cfg_attr(
+        not(all(target_os = "macos", feature = "coreml-backend")),
+        allow(unused_variables)
+    )]
     fn encode_tokens(&mut self, token_ids: &[u32], output_name: &str) -> Result<Vec<f32>> {
         match self {
             #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
@@ -1261,6 +1268,10 @@ impl PreprocessBackend {
     }
 }
 
+#[cfg_attr(
+    not(all(target_os = "macos", feature = "coreml-backend")),
+    allow(unused_variables)
+)]
 fn select_backend(model_path: &Path, hidden_dim: usize) -> Result<PreprocessBackend> {
     #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
     {
@@ -1405,23 +1416,28 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
 
+    fn temp_model_path() -> PathBuf {
+        std::env::temp_dir().join("model.mlpackage")
+    }
+
     fn base_config() -> PreprocessingConfig {
-        let mut cfg = PreprocessingConfig::default();
-        cfg.enabled = true;
-        cfg.coreml_model_path = Some(PathBuf::from("/tmp/model.mlpackage"));
-        cfg.output_feature = PreprocessOutputFeature::Pooled;
-        cfg.layer_key = None;
-        cfg.max_seq_len = 128;
-        cfg.batch_size = 4;
-        cfg.compression = Some(PreprocessCompression::None);
-        cfg.seed = Some(7);
-        cfg
+        PreprocessingConfig {
+            enabled: true,
+            coreml_model_path: Some(temp_model_path()),
+            output_feature: PreprocessOutputFeature::Pooled,
+            layer_key: None,
+            max_seq_len: 128,
+            batch_size: 4,
+            compression: Some(PreprocessCompression::None),
+            seed: Some(7),
+            ..Default::default()
+        }
     }
 
     #[test]
     fn preprocess_config_hash_changes_with_output_feature() {
         let mut cfg = base_config();
-        let model_path = PathBuf::from("/tmp/model.mlpackage");
+        let model_path = temp_model_path();
         let hash_a = compute_preprocess_config_hash(&cfg, &model_path, 7).expect("hash a");
 
         cfg.output_feature = PreprocessOutputFeature::Embedding;
@@ -1468,10 +1484,12 @@ mod tests {
         let coreml_path = base_model_path.join("preprocess.mlpackage");
         fs::write(&coreml_path, b"coreml").expect("write coreml stub");
 
-        let mut cfg = PreprocessingConfig::default();
-        cfg.enabled = true;
-        cfg.coreml_model_path = Some(coreml_path);
-        cfg.cache_dir = Some(temp.path().to_path_buf());
+        let cfg = PreprocessingConfig {
+            enabled: true,
+            coreml_model_path: Some(coreml_path),
+            cache_dir: Some(temp.path().to_path_buf()),
+            ..Default::default()
+        };
 
         let contract = TrainingDataContractConfig::new(0, -1);
         let examples = vec![TrainingExampleV1::new(
@@ -1532,8 +1550,11 @@ mod tests {
             example_count: 2,
             processed_count: 2,
             produced_at_unix_ms: 1234,
-            cache_root: "/tmp/cache".to_string(),
-            coreml_model_path: Some("/tmp/model.mlpackage".to_string()),
+            cache_root: std::env::temp_dir()
+                .join("cache")
+                .to_string_lossy()
+                .to_string(),
+            coreml_model_path: Some(temp_model_path().to_string_lossy().to_string()),
         }
     }
 

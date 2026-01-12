@@ -163,6 +163,14 @@ pub fn load_json_dataset<P: AsRef<Path>>(
     let mut total_tokens: u64 = 0;
 
     for (idx, example) in dataset.examples.iter().enumerate() {
+        // Validate weight is non-negative
+        if example.weight < 0.0 {
+            return Err(AosError::Training(format!(
+                "Negative weight {} at example {}. Weights must be >= 0.0",
+                example.weight, idx
+            )));
+        }
+
         let input_tokens = encode_input(&example.input, &config)?;
         let target_tokens = encode_target(&example.target, &config)?;
 
@@ -434,11 +442,14 @@ mod tests {
                     tags: vec!["greeting".to_string()],
                 },
                 JsonTrainingExample {
-                    id: Some("neg1".to_string()),
+                    id: Some("abstention1".to_string()),
                     input: JsonInput::Text("Do something bad".to_string()),
                     target: JsonTarget::Text("I can't help with that.".to_string()),
-                    weight: -1.0,
-                    metadata: None,
+                    weight: 0.5, // Abstention examples use positive weight with explicit role
+                    metadata: Some(HashMap::from([(
+                        "sample_role".to_string(),
+                        Value::String("abstention".to_string()),
+                    )])),
                     tags: vec!["refusal".to_string()],
                 },
             ],
@@ -457,7 +468,7 @@ mod tests {
 
         assert_eq!(examples.len(), 2);
         assert_eq!(weight_from_metadata(&examples[0].metadata), Some(1.0));
-        assert_eq!(weight_from_metadata(&examples[1].metadata), Some(-1.0));
+        assert_eq!(weight_from_metadata(&examples[1].metadata), Some(0.5));
 
         // Check metadata
         let provenance: serde_json::Value =
@@ -478,5 +489,34 @@ mod tests {
             provenance.get("dataset_author").and_then(|v| v.as_str()),
             Some("test_author")
         );
+    }
+
+    #[test]
+    fn test_negative_weight_rejected() {
+        let tmp = tempdir().expect("tempdir");
+        let json_path = tmp.path().join("dataset.json");
+
+        let dataset = JsonTrainingDataset {
+            name: "bad_dataset".to_string(),
+            description: None,
+            version: None,
+            examples: vec![JsonTrainingExample {
+                id: None,
+                input: JsonInput::Text("test".to_string()),
+                target: JsonTarget::Text("test".to_string()),
+                weight: -0.5, // Negative weight should fail
+                metadata: None,
+                tags: vec![],
+            }],
+            metadata: HashMap::new(),
+        };
+
+        let mut file = File::create(&json_path).unwrap();
+        writeln!(file, "{}", serde_json::to_string(&dataset).unwrap()).unwrap();
+
+        let config = JsonLoaderConfig::default();
+        let result = load_json_dataset(&json_path, config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Negative weight"));
     }
 }

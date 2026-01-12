@@ -79,8 +79,10 @@ impl TypeScriptParser {
             r#"
             (class_declaration
                 name: (type_identifier) @name
-                extends: (extends_clause)? @extends
-                implements: (implements_clause)? @implements
+                (class_heritage
+                    (extends_clause)? @extends
+                    (implements_clause)? @implements
+                )?
             ) @class
             "#,
         )
@@ -91,7 +93,7 @@ impl TypeScriptParser {
             r#"
             (interface_declaration
                 name: (type_identifier) @name
-                extends: (extends_clause)? @extends
+                (extends_type_clause)? @extends
             ) @interface
             "#,
         )
@@ -103,7 +105,7 @@ impl TypeScriptParser {
             (type_alias_declaration
                 name: (type_identifier) @name
                 type_parameters: (type_parameters)? @type_params
-                type: (type_annotation) @type
+                value: (type) @type
             ) @type_alias
             "#,
         )
@@ -371,10 +373,14 @@ impl TypeScriptParser {
                 // Add inheritance information to signature
                 let mut signature_parts = Vec::new();
                 if let Some(extends) = extends {
-                    signature_parts.push(format!("extends {}", extends));
+                    let normalized = extends.trim();
+                    let normalized = normalized.strip_prefix("extends ").unwrap_or(normalized);
+                    signature_parts.push(format!("extends {}", normalized));
                 }
                 if let Some(implements) = implements {
-                    signature_parts.push(format!("implements {}", implements));
+                    let normalized = implements.trim();
+                    let normalized = normalized.strip_prefix("implements ").unwrap_or(normalized);
+                    signature_parts.push(format!("implements {}", normalized));
                 }
                 if !signature_parts.is_empty() {
                     symbol = symbol.with_signature(signature_parts.join(", "));
@@ -425,7 +431,9 @@ impl TypeScriptParser {
                 .with_visibility(visibility);
 
                 if let Some(extends) = extends {
-                    symbol = symbol.with_signature(format!("extends {}", extends));
+                    let normalized = extends.trim();
+                    let normalized = normalized.strip_prefix("extends ").unwrap_or(normalized);
+                    symbol = symbol.with_signature(format!("extends {}", normalized));
                 }
 
                 symbols.push(symbol);

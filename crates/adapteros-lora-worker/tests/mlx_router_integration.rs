@@ -591,7 +591,6 @@ mod e2e_mlx_tests {
     use adapteros_lora_kernel_api::{FusedKernels, IoBuffers};
     use adapteros_lora_mlx_ffi::{
         backend::MLXFFIBackend,
-        lora::{LoRAAdapter, LoRAConfig},
         mock::{create_mock_adapter, create_mock_config},
         MLXFFIModel,
     };
@@ -909,8 +908,7 @@ mod e2e_mlx_tests {
         assert_eq!(ring.active_indices(), &[0, 1, 2]);
 
         // Gates should match (within Q15 encoding precision)
-        for i in 0..3 {
-            let expected = gates_q15[i];
+        for (i, &expected) in gates_q15.iter().enumerate() {
             let actual = ring.gates_q15[i];
             assert_eq!(
                 expected, actual,

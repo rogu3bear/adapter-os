@@ -261,7 +261,7 @@ impl PreprocessCompression {
 }
 
 /// Output feature selection for preprocessing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum PreprocessOutputFeature {
     /// Emit per-token embedding features.
@@ -269,13 +269,8 @@ pub enum PreprocessOutputFeature {
     /// Emit the last hidden state token.
     HiddenStateLast,
     /// Emit a pooled (mean) hidden state.
+    #[default]
     Pooled,
-}
-
-impl Default for PreprocessOutputFeature {
-    fn default() -> Self {
-        PreprocessOutputFeature::Pooled
-    }
 }
 
 impl PreprocessOutputFeature {

@@ -65,6 +65,7 @@ pub struct IngestDocsArgs {
 
     /// Path to embedding model (sentence-transformer format)
     /// If not provided, falls back to simple feature-based embeddings
+    #[arg(long)]
     embedding_model: Option<PathBuf>,
 
     /// Tokenizer configuration

@@ -403,7 +403,7 @@ pub async fn get_adapter_health(
         .get_adapter_memory_usage(&adapter_id)
         .await
         .unwrap_or(None)
-        .unwrap_or_else(|| activations.len() as f64 * 2.5);
+        .unwrap_or(activations.len() as f64 * 2.5);
 
     let adapter_id_clone = adapter_id.clone();
     let adapter_id_clone2 = adapter_id.clone();

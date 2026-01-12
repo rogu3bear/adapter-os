@@ -42,6 +42,7 @@ pub fn init_logging() -> Result<()> {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
     let fmt_layer = fmt::layer()
+        .with_writer(std::io::stderr)
         .with_target(false)
         .with_thread_ids(true)
         .with_thread_names(true)

@@ -96,6 +96,8 @@ pub struct MicroLoRATrainer {
     cancel_token: Option<Arc<AtomicBool>>,
     /// Job ID for this training run (used for metrics persistence and cancellation)
     job_id: Option<String>,
+    /// Correlation ID for tracing across pipeline stages
+    correlation_id: Option<String>,
     /// Optional database connection for metrics persistence
     db: Option<Db>,
     /// Base model for extracting real hidden states during training.
@@ -277,6 +279,7 @@ impl MicroLoRATrainer {
             force_resume: false,
             cancel_token: None,
             job_id: None,
+            correlation_id: None,
             db: None,
             #[cfg(feature = "multi-backend")]
             base_model: None,
@@ -359,6 +362,7 @@ impl MicroLoRATrainer {
             force_resume: false,
             cancel_token: None,
             job_id: None,
+            correlation_id: None,
             db: None,
             #[cfg(feature = "multi-backend")]
             base_model: None,
@@ -1522,6 +1526,11 @@ impl MicroLoRATrainer {
         self.job_id = Some(job_id);
     }
 
+    /// Set the correlation ID for tracing across pipeline stages.
+    pub fn set_correlation_id(&mut self, correlation_id: Option<String>) {
+        self.correlation_id = correlation_id;
+    }
+
     /// Set the database connection for metrics persistence
     ///
     /// When set, the trainer will persist metrics (loss, tokens/sec, etc.)
@@ -2498,11 +2507,18 @@ Use --force-resume to override (may produce incorrect results).",
         let backend_name = self.backend_info().unwrap_or("CPU");
         let using_gpu = self.using_gpu();
         let target_epochs = self.target_epochs();
+        let correlation_id = self
+            .correlation_id
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string());
+        let job_id = self.job_id.clone().unwrap_or_else(|| "unknown".to_string());
 
         let prepared_dataset = self.prepare_datasets_for_training(examples)?;
         let total_examples = prepared_dataset.summary.total_examples;
 
         info!(
+            job_id = %job_id,
+            correlation_id = %correlation_id,
             "Starting LoRA training: rank={}, epochs={}, examples={}, backend={}, seed={}, batch_size={}, max_tokens_per_batch={}",
             self.config.rank,
             target_epochs,
@@ -2517,6 +2533,8 @@ Use --force-resume to override (may produce incorrect results).",
         self.telemetry.log(
             "training.started",
             serde_json::json!({
+                "correlation_id": correlation_id,
+                "job_id": job_id,
                 "rank": self.config.rank,
                 "epochs": target_epochs,
                 "examples": total_examples,
@@ -2705,7 +2723,7 @@ Use --force-resume to override (may produce incorrect results).",
                 validation_perplexity = Some(val_perplexity);
 
                 let previous_best = best_validation.map(|(loss, _)| loss);
-                if previous_best.map_or(true, |best| val_loss < best) {
+                if previous_best.is_none_or(|best| val_loss < best) {
                     best_validation = Some((val_loss, (epoch + 1) as u32));
                 }
 

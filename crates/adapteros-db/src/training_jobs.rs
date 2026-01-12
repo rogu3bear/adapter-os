@@ -51,6 +51,9 @@ pub struct TrainingJobRecord {
     pub config_hash_b3: Option<String>,
     // Fields from migration 0100 - provenance tracking
     pub dataset_id: Option<String>,
+    /// Correlation ID for tracing across dataset -> training -> inference
+    #[sqlx(default)]
+    pub correlation_id: Option<String>,
     /// Dataset version ID for provenance tracking and trust gating
     /// Links to training_dataset_versions.id for version-specific lineage
     /// Evidence: migrations/0177_dataset_trust_gates.sql:67
@@ -405,6 +408,7 @@ impl Db {
             metadata_json: record.metadata_json.clone(),
             config_hash_b3: record.config_hash_b3.clone(),
             dataset_id: record.dataset_id.clone(),
+            correlation_id: record.correlation_id.clone(),
             dataset_version_id: record.dataset_version_id.clone(),
             base_model_id: record.base_model_id.clone(),
             collection_id: record.collection_id.clone(),
@@ -468,6 +472,7 @@ impl Db {
             metadata_json: kv.metadata_json.clone(),
             config_hash_b3: kv.config_hash_b3.clone(),
             dataset_id: kv.dataset_id.clone(),
+            correlation_id: kv.correlation_id.clone(),
             dataset_version_id: kv.dataset_version_id.clone(),
             base_model_id: kv.base_model_id.clone(),
             collection_id: kv.collection_id.clone(),
@@ -579,6 +584,7 @@ impl Db {
                 metadata_json: None,
                 config_hash_b3: None,
                 dataset_id: None,
+                correlation_id: None,
                 dataset_version_id: None,
                 base_model_id: None,
                 collection_id: None,
@@ -661,7 +667,7 @@ impl Db {
                     training_config_json, status, progress_json,
                     started_at, completed_at, created_by, adapter_name, template_id,
                     created_at, metadata_json, config_hash_b3,
-                    dataset_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
+                    dataset_id, correlation_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
                     synthetic_mode, data_lineage_mode,
                     retryable, retry_of_job_id, stack_id, adapter_id, weights_hash_b3, artifact_path, produced_version_id,
                     hyperparameters_json, data_spec_json, metrics_snapshot_id,
@@ -691,7 +697,7 @@ impl Db {
                     training_config_json, status, progress_json,
                     started_at, completed_at, created_by, adapter_name, template_id,
                     created_at, metadata_json, config_hash_b3,
-                    dataset_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
+                    dataset_id, correlation_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
                     synthetic_mode, data_lineage_mode,
                     retryable, retry_of_job_id, stack_id, adapter_id, weights_hash_b3, artifact_path, produced_version_id,
                     hyperparameters_json, data_spec_json, metrics_snapshot_id,
@@ -882,7 +888,7 @@ impl Db {
                     training_config_json, status, progress_json,
                     started_at, completed_at, created_by, adapter_name, template_id,
                     created_at, metadata_json, config_hash_b3,
-                    dataset_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
+                    dataset_id, correlation_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
                     synthetic_mode, data_lineage_mode,
                     retryable, retry_of_job_id, stack_id, adapter_id, weights_hash_b3, artifact_path, produced_version_id,
                     hyperparameters_json, data_spec_json, metrics_snapshot_id,
@@ -940,7 +946,7 @@ impl Db {
                     training_config_json, status, progress_json,
                     started_at, completed_at, created_by, adapter_name, template_id,
                     created_at, metadata_json, config_hash_b3,
-                    dataset_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
+                    dataset_id, correlation_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
                     synthetic_mode, data_lineage_mode,
                     retryable, retry_of_job_id, stack_id, adapter_id, weights_hash_b3, artifact_path, produced_version_id,
                     hyperparameters_json, data_spec_json, metrics_snapshot_id,
@@ -1206,7 +1212,7 @@ impl Db {
                     training_config_json, status, progress_json,
                     started_at, completed_at, created_by, adapter_name, template_id,
                     created_at, metadata_json, config_hash_b3,
-                    dataset_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
+                    dataset_id, correlation_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
                     synthetic_mode, data_lineage_mode,
                     retryable, retry_of_job_id, stack_id, adapter_id, weights_hash_b3, artifact_path, produced_version_id,
                     hyperparameters_json, data_spec_json, metrics_snapshot_id,
@@ -1369,7 +1375,7 @@ impl Db {
                     training_config_json, status, progress_json,
                     started_at, completed_at, created_by, adapter_name, template_id,
                     created_at, metadata_json, config_hash_b3,
-                    dataset_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
+                    dataset_id, correlation_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
                     synthetic_mode, data_lineage_mode,
                     retryable, retry_of_job_id, stack_id, adapter_id, weights_hash_b3, artifact_path, produced_version_id,
                     hyperparameters_json, data_spec_json, metrics_snapshot_id,
@@ -1398,6 +1404,7 @@ impl Db {
     /// * `training_config_json` - JSON-serialized training configuration
     /// * `created_by` - User who initiated the training
     /// * `dataset_id` - Optional dataset ID for provenance tracking
+    /// * `correlation_id` - Optional correlation ID for tracing
     /// * `base_model_id` - Optional base model ID
     /// * `collection_id` - Optional document collection ID
     /// * `tenant_id` - Tenant isolation identifier
@@ -1415,6 +1422,7 @@ impl Db {
         training_config_json: &str,
         created_by: &str,
         dataset_id: Option<&str>,
+        correlation_id: Option<&str>,
         dataset_version_id: Option<&str>,
         dataset_version_ids: Option<&[DatasetVersionSelection]>,
         base_model_id: Option<&str>,
@@ -1485,13 +1493,13 @@ impl Db {
 
         if self.storage_mode().write_to_sql() {
             sqlx::query(
-                "INSERT INTO repository_training_jobs
+            "INSERT INTO repository_training_jobs
              (id, repo_id, training_config_json, status, progress_json, created_by,
-             dataset_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
+             dataset_id, correlation_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
              retry_of_job_id, target_branch, base_version_id, draft_version_id, code_commit_sha,
              data_spec_json, synthetic_mode, data_lineage_mode, produced_version_id,
              is_deterministic_run, global_seed_hex, determinism_config_json, seed_mode)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(&id)
             .bind(repo_id)
@@ -1500,6 +1508,7 @@ impl Db {
             .bind(&progress_json)
             .bind(created_by)
             .bind(resolved_dataset_id.as_deref())
+            .bind(correlation_id)
             .bind(resolved_dataset_version_id)
             .bind(base_model_id)
             .bind(collection_id)
@@ -1548,6 +1557,7 @@ impl Db {
                 metadata_json: None,
                 config_hash_b3: None,
                 dataset_id: resolved_dataset_id.clone(),
+                correlation_id: correlation_id.map(|s| s.to_string()),
                 dataset_version_id: resolved_dataset_version_id.map(|s| s.to_string()),
                 base_model_id: base_model_id.map(|s| s.to_string()),
                 collection_id: collection_id.map(|s| s.to_string()),
@@ -2011,7 +2021,7 @@ impl Db {
                     training_config_json, status, progress_json,
                     started_at, completed_at, created_by, adapter_name, template_id,
                     created_at, metadata_json, config_hash_b3,
-                    dataset_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
+                    dataset_id, correlation_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
                     synthetic_mode, data_lineage_mode,
                     retryable, retry_of_job_id, stack_id, adapter_id, weights_hash_b3, artifact_path, produced_version_id,
                     hyperparameters_json, data_spec_json, metrics_snapshot_id,
@@ -2430,7 +2440,7 @@ impl Db {
                     training_config_json, status, progress_json,
                     started_at, completed_at, created_by, adapter_name, template_id,
                     created_at, metadata_json, config_hash_b3,
-                    dataset_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
+                    dataset_id, correlation_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
                     synthetic_mode, data_lineage_mode,
                     retryable, retry_of_job_id, stack_id, adapter_id, weights_hash_b3, artifact_path, produced_version_id,
                     hyperparameters_json, data_spec_json, metrics_snapshot_id,
@@ -2501,7 +2511,7 @@ impl Db {
                     training_config_json, status, progress_json,
                     started_at, completed_at, created_by, adapter_name, template_id,
                     created_at, metadata_json, config_hash_b3,
-                    dataset_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
+                    dataset_id, correlation_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
                     synthetic_mode, data_lineage_mode,
                     retryable, retry_of_job_id, stack_id, adapter_id, weights_hash_b3, artifact_path, produced_version_id,
                     hyperparameters_json, data_spec_json, metrics_snapshot_id,
@@ -2610,9 +2620,11 @@ impl Db {
     ) -> Result<()> {
         let mut dataset_id_for_link = None;
         let mut tenant_id_for_link = None;
+        let mut correlation_id = None;
         if let Some(job) = self.get_training_job(job_id).await? {
             dataset_id_for_link = job.dataset_id;
             tenant_id_for_link = job.tenant_id;
+            correlation_id = job.correlation_id;
         }
 
         if dataset_id_for_link.is_none() {
@@ -2620,14 +2632,25 @@ impl Db {
                 .resolve_dataset_id_from_version(dataset_version_id, tenant_id_for_link.as_deref())
                 .await?;
         }
+        if correlation_id.is_none() {
+            if let Some(dataset_id) = dataset_id_for_link.as_deref() {
+                correlation_id = self.get_dataset_correlation_id(dataset_id).await?;
+            }
+        }
 
         if let Some(repo) = self.get_training_job_kv_repo() {
             let dataset_id_for_kv = dataset_id_for_link.clone();
+            let correlation_for_kv = correlation_id.clone();
             if let Err(e) = repo
                 .update_job(job_id, |job| {
                     job.dataset_version_id = Some(dataset_version_id.to_string());
                     if job.dataset_id.is_none() {
                         job.dataset_id = dataset_id_for_kv.clone();
+                    }
+                    if let Some(ref corr) = correlation_for_kv {
+                        if job.correlation_id.is_none() {
+                            job.correlation_id = Some(corr.clone());
+                        }
                     }
                 })
                 .await
@@ -2641,11 +2664,13 @@ impl Db {
             sqlx::query(
                 "UPDATE repository_training_jobs
                  SET dataset_version_id = ?,
-                     dataset_id = COALESCE(dataset_id, ?)
+                     dataset_id = COALESCE(dataset_id, ?),
+                     correlation_id = COALESCE(correlation_id, ?)
                  WHERE id = ?",
             )
             .bind(dataset_version_id)
             .bind(dataset_id_for_link.as_deref())
+            .bind(correlation_id.as_deref())
             .bind(job_id)
             .execute(self.pool())
             .await
@@ -2734,7 +2759,7 @@ impl Db {
 
     /// Link dataset with full scope information to a training job
     ///
-    /// Atomically updates the dataset_id, dataset_version_id, and data_spec_json
+    /// Atomically updates the dataset_id, correlation_id, dataset_version_id, and data_spec_json
     /// fields for complete provenance and scope tracking. This is the preferred
     /// method when linking a dataset to a training job as it ensures all
     /// provenance information is recorded atomically.
@@ -2758,6 +2783,7 @@ impl Db {
         dataset_version_id: Option<&str>,
         data_spec_json: Option<&str>,
     ) -> Result<()> {
+        let correlation_id = self.get_dataset_correlation_id(dataset_id).await?;
         let mut resolved_version_id = dataset_version_id.map(|s| s.to_string());
         if resolved_version_id.is_none() {
             if let Some(version) = self
@@ -2774,6 +2800,11 @@ impl Db {
                 .update_job(job_id, |job| {
                     job.dataset_id = Some(dataset_id.to_string());
                     job.dataset_version_id = resolved_version_id.map(|s| s.to_string());
+                    if let Some(ref corr) = correlation_id {
+                        if job.correlation_id.is_none() {
+                            job.correlation_id = Some(corr.clone());
+                        }
+                    }
                     if let Some(spec) = data_spec_json {
                         job.data_spec_json = Some(spec.to_string());
                     }
@@ -2789,11 +2820,13 @@ impl Db {
             let result = sqlx::query(
                 "UPDATE repository_training_jobs
                  SET dataset_id = ?,
+                     correlation_id = COALESCE(correlation_id, ?),
                      dataset_version_id = COALESCE(?, dataset_version_id),
                      data_spec_json = COALESCE(?, data_spec_json)
                  WHERE id = ?",
             )
             .bind(dataset_id)
+            .bind(correlation_id.as_deref())
             .bind(resolved_version_id)
             .bind(data_spec_json)
             .bind(job_id)

@@ -69,6 +69,9 @@ pub fn run_coreml_export(job: CoreMLExportJob) -> Result<CoreMLExportRecord> {
         adapter_aos: job.adapter_aos.clone(),
         output_package: job.output_package.clone(),
         compute_units: job.compute_units,
+        allow_overwrite: false,
+        timeout: std::time::Duration::from_secs(300),
+        skip_ops_check: false,
     })?;
     Ok(CoreMLExportRecord {
         fused_package: outcome.fused_package,

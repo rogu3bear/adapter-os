@@ -11,7 +11,7 @@ use adapteros_single_file_adapter::{
     weights::combine_weight_groups,
 };
 use adapteros_telemetry::TelemetryWriter;
-use adapteros_types::training::{weight_from_metadata, TrainingExampleV1 as TrainingExample};
+use adapteros_types::training::{sample_role_from_metadata, TrainingExampleV1 as TrainingExample};
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
 use tracing::{debug, info};
@@ -156,6 +156,10 @@ impl SeparatedLoRATrainer {
     }
 
     /// Separate examples into positive and negative groups.
+    ///
+    /// Classification is based on explicit `sample_role` metadata:
+    /// - "abstention" or "negative" → negative group
+    /// - All other values (including missing) → positive group
     fn separate_examples(
         &self,
         examples: &[TrainingExample],
@@ -164,11 +168,10 @@ impl SeparatedLoRATrainer {
         let mut negative = Vec::new();
 
         for example in examples {
-            let weight = weight_from_metadata(&example.metadata).unwrap_or(1.0);
-            if weight > 0.0 {
-                positive.push(example.clone());
-            } else if weight < 0.0 {
-                negative.push(example.clone());
+            let role = sample_role_from_metadata(&example.metadata);
+            match role.as_deref() {
+                Some("abstention") | Some("negative") => negative.push(example.clone()),
+                _ => positive.push(example.clone()),
             }
         }
 

@@ -699,16 +699,24 @@ impl Db {
     /// - **CRITICAL:** Foreign key enforcement enabled
     pub async fn connect(path: &str) -> Result<Self> {
         // Special-case in-memory connections to avoid producing the invalid
-        // `sqlite://:memory:` URI, which SQLite cannot open.
-        let database_url = if matches!(path, ":memory:" | "sqlite://:memory:") {
-            "sqlite::memory:".to_string()
+        // `sqlite://:memory:` URI, which SQLite cannot open. Use a unique
+        // named in-memory database to prevent cross-test collisions.
+        let database_url = if matches!(path, ":memory:" | "sqlite://:memory:" | "sqlite::memory:") {
+            static MEMORY_DB_COUNTER: std::sync::atomic::AtomicU64 =
+                std::sync::atomic::AtomicU64::new(0);
+            let memory_id = MEMORY_DB_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            format!(
+                "sqlite://file:aos_mem_{}_{}?mode=memory&cache=shared",
+                std::process::id(),
+                memory_id
+            )
         } else if path.starts_with("sqlite:") {
             path.to_string()
         } else {
             format!("sqlite://{}", path)
         };
 
-        let is_memory = database_url.contains(":memory:");
+        let is_memory = database_url.contains(":memory:") || database_url.contains("mode=memory");
         let mut db_dir: Option<PathBuf> = None;
 
         // Ensure parent directories exist for on-disk databases; SQLite will fail

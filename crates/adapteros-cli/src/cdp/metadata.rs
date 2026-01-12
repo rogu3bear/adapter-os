@@ -104,7 +104,7 @@ impl CdpMetadata {
                 || url_str.contains("gitlab.com")
                 || url_str.contains("bitbucket.org")
             {
-                url_str.split('/').last().map(|s| s.to_string())
+                url_str.split('/').next_back().map(|s| s.to_string())
             } else {
                 None
             }

@@ -71,7 +71,7 @@ pub async fn execute(args: CdpListArgs, output: &OutputWriter) -> Result<()> {
     let cdps = store.list_for_repo(&args.repo_id);
 
     if cdps.is_empty() {
-        output.info(&format!("No CDPs found for repository: {}", args.repo_id));
+        output.info(format!("No CDPs found for repository: {}", args.repo_id));
         return Ok(());
     }
 
@@ -109,7 +109,7 @@ pub async fn execute(args: CdpListArgs, output: &OutputWriter) -> Result<()> {
     }
 
     output.table(&table as &dyn std::fmt::Display, Some(&json_data))?;
-    output.info(&format!("Found {} CDPs", cdps.len()));
+    output.info(format!("Found {} CDPs", cdps.len()));
 
     Ok(())
 }

@@ -7,6 +7,7 @@ use adapteros_core::{AosError, Result};
 use adapteros_lora_worker::training::{
     AdapterPackager, LoRAQuantizer, MicroLoRATrainer, TrainingConfig, TrainingExample,
 };
+use adapteros_types::training::example::ExampleMetadataV1;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -110,7 +111,7 @@ fn create_examples_from_text(text: &str) -> Vec<TrainingExample> {
     let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
 
     // Create examples from consecutive line pairs
-    for window in lines.windows(2) {
+    for (idx, window) in lines.windows(2).enumerate() {
         if window.len() == 2 {
             // Simple tokenization: convert chars to token IDs
             let input_tokens: Vec<u32> = window[0]
@@ -128,12 +129,11 @@ fn create_examples_from_text(text: &str) -> Vec<TrainingExample> {
                 .collect();
 
             if !input_tokens.is_empty() && !target_tokens.is_empty() {
-                examples.push(TrainingExample::with_metadata(
+                examples.push(TrainingExample::with_pad_token(
                     input_tokens,
                     target_tokens,
-                    None,
-                    HashMap::new(),
-                    1.0,
+                    0,
+                    ExampleMetadataV1::new("README.md", idx as u64 + 1, "readme", 0),
                 ));
             }
         }

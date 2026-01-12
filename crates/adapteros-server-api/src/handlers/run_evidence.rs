@@ -137,6 +137,9 @@ fn trace_receipt_to_ref(receipt: &TraceReceipt) -> InferenceReceiptRef {
         // PRD-DET-001: Seed lineage binding (PR-A)
         // Defaults to None for legacy traces; new traces bind seed lineage.
         seed_lineage_hash: None,
+        // Training lineage for adapter provenance (patent rectification)
+        // Defaults to None for legacy traces.
+        adapter_training_lineage_digest: None,
     }
 }
 

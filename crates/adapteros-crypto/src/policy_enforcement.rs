@@ -63,7 +63,9 @@ impl Default for CryptoPolicy {
         let mut min_key_sizes = HashMap::new();
         min_key_sizes.insert("rsa".to_string(), 2048);
         min_key_sizes.insert("aes".to_string(), 256);
+        min_key_sizes.insert("aes256gcm".to_string(), 256);
         min_key_sizes.insert("ecdsa".to_string(), 256);
+        min_key_sizes.insert("chacha20poly1305".to_string(), 256);
 
         let mut max_key_ages = HashMap::new();
         max_key_ages.insert("aes256gcm".to_string(), 90 * 24 * 3600); // 90 days

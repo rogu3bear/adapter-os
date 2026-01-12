@@ -500,7 +500,9 @@ mod tests {
         assert_eq!(tracker.get(1), 2000);
         assert_eq!(tracker.total(), 3500);
         assert_eq!(tracker.peak(0), 1500);
-        assert!(tracker.fragmentation(0) >= 0.0);
+        let fragmentation = tracker.fragmentation(0);
+        assert!(fragmentation.is_finite());
+        assert!(fragmentation <= 1.0);
     }
 
     #[test]

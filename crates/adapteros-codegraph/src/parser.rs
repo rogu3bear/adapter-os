@@ -67,8 +67,8 @@ impl CodeParser {
             rust_lang,
             r#"
             (function_item
+                (visibility_modifier)? @visibility
                 name: (identifier) @name
-                visibility_modifier: (visibility_modifier)? @visibility
                 parameters: (parameters) @params
                 return_type: (type_identifier)? @return_type
             ) @function
@@ -79,8 +79,8 @@ impl CodeParser {
             rust_lang,
             r#"
             (struct_item
+                (visibility_modifier)? @visibility
                 name: (type_identifier) @name
-                visibility_modifier: (visibility_modifier)? @visibility
             ) @struct
             "#
         ).map_err(|e| AosError::Parsing(format!("Failed to create struct query: {}", e)))?;
@@ -89,8 +89,8 @@ impl CodeParser {
             rust_lang,
             r#"
             (trait_item
+                (visibility_modifier)? @visibility
                 name: (type_identifier) @name
-                visibility_modifier: (visibility_modifier)? @visibility
             ) @trait
             "#
         ).map_err(|e| AosError::Parsing(format!("Failed to create trait query: {}", e)))?;
@@ -180,6 +180,7 @@ impl CodeParser {
 
         for mat in matches {
             let mut name = None;
+            let mut name_node = None;
             let mut visibility = Visibility::Private;
             let mut params = None;
             let mut return_type = None;
@@ -187,8 +188,11 @@ impl CodeParser {
             for capture in mat.captures {
                 let text = &source[capture.node.byte_range()];
                 match capture.index {
-                    0 => name = Some(text.to_string()),
-                    1 => visibility = self.parse_visibility(text),
+                    0 => visibility = self.parse_visibility(text),
+                    1 => {
+                        name = Some(text.to_string());
+                        name_node = Some(capture.node);
+                    }
                     2 => params = Some(text.to_string()),
                     3 => return_type = Some(text.to_string()),
                     _ => {}
@@ -196,7 +200,7 @@ impl CodeParser {
             }
 
             if let Some(name) = name {
-                let span = self.node_to_span(mat.captures[0].node);
+                let span = self.node_to_span(name_node.unwrap_or(mat.captures[0].node));
                 let id = SymbolId::new(
                     &file_path.to_string_lossy(),
                     &span.to_string(),
@@ -235,19 +239,23 @@ impl CodeParser {
 
         for mat in matches {
             let mut name = None;
+            let mut name_node = None;
             let mut visibility = Visibility::Private;
 
             for capture in mat.captures {
                 let text = &source[capture.node.byte_range()];
                 match capture.index {
-                    0 => name = Some(text.to_string()),
-                    1 => visibility = self.parse_visibility(text),
+                    0 => visibility = self.parse_visibility(text),
+                    1 => {
+                        name = Some(text.to_string());
+                        name_node = Some(capture.node);
+                    }
                     _ => {}
                 }
             }
 
             if let Some(name) = name {
-                let span = self.node_to_span(mat.captures[0].node);
+                let span = self.node_to_span(name_node.unwrap_or(mat.captures[0].node));
                 let id = SymbolId::new(
                     &file_path.to_string_lossy(),
                     &span.to_string(),
@@ -282,19 +290,23 @@ impl CodeParser {
 
         for mat in matches {
             let mut name = None;
+            let mut name_node = None;
             let mut visibility = Visibility::Private;
 
             for capture in mat.captures {
                 let text = &source[capture.node.byte_range()];
                 match capture.index {
-                    0 => name = Some(text.to_string()),
-                    1 => visibility = self.parse_visibility(text),
+                    0 => visibility = self.parse_visibility(text),
+                    1 => {
+                        name = Some(text.to_string());
+                        name_node = Some(capture.node);
+                    }
                     _ => {}
                 }
             }
 
             if let Some(name) = name {
-                let span = self.node_to_span(mat.captures[0].node);
+                let span = self.node_to_span(name_node.unwrap_or(mat.captures[0].node));
                 let id = SymbolId::new(
                     &file_path.to_string_lossy(),
                     &span.to_string(),

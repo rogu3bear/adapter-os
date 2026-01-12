@@ -186,7 +186,7 @@ pub fn compute_validation_loss_with_output_proj(
     let loss_tensor = mlx_cross_entropy_loss_gpu(&logits, &targets_tensor, LOSS_IGNORE_INDEX)?;
     let loss_vec = loss_tensor.to_float_vec()?;
     let loss = loss_vec
-        .get(0)
+        .first()
         .copied()
         .ok_or_else(|| AosError::Training("Loss tensor is empty".to_string()))?;
 

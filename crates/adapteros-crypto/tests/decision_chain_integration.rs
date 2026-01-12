@@ -229,6 +229,7 @@ fn test_router_event_digest_canonical_encoding() {
         gates_q15: vec![8192, 8192, 8192, 8191],
         entropy_q15: 16384,
         policy_mask_digest_b3: Some(B3Hash::hash(b"policy")),
+        adapter_training_digests: None,
         previous_hash: Some(B3Hash::hash(b"previous")),
     };
 
