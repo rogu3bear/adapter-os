@@ -20781,6 +20781,20 @@
               "null"
             ]
           },
+          "training_job_id": {
+            "description": "Training job ID if auto_train was enabled",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "stack_id": {
+            "description": "Stack ID created after training (if post_actions.create_stack=true)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "total_size_bytes": {
             "format": "int64",
             "type": "integer"
@@ -25355,6 +25369,51 @@
       },
       "post": {
         "operationId": "upload_dataset",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "adapter_name": {
+                    "description": "Required if auto_train=true",
+                    "type": "string"
+                  },
+                  "auto_train": {
+                    "default": false,
+                    "type": "boolean"
+                  },
+                  "base_model_id": {
+                    "description": "Required if auto_train=true",
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "file": {
+                    "format": "binary",
+                    "type": "string"
+                  },
+                  "format": {
+                    "description": "Dataset format (jsonl, csv, txt)",
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "post_actions": {
+                    "description": "JSON string for post-training actions",
+                    "type": "string"
+                  },
+                  "training_config": {
+                    "description": "JSON string for training configuration",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "content": {
