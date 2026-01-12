@@ -401,7 +401,7 @@ adapteros-lora-worker = { path = "crates/adapteros-lora-worker" }
 adapteros-aos = { path = "crates/adapteros-aos" }
 adapteros-base-llm = { path = "crates/adapteros-base-llm" }
 adapteros-single-file-adapter = { path = "crates/adapteros-single-file-adapter" }
-adapteros-telemetry = { path = "crates/adapteros-telemetry", version = "0.11.0" }
+adapteros-telemetry = { path = "crates/adapteros-telemetry" }
 adapteros-policy = { path = "crates/adapteros-policy" }
 adapteros-lora-router = { path = "crates/adapteros-lora-router" }
 adapteros-lora-rag = { path = "crates/adapteros-lora-rag" }
