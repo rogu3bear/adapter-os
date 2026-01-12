@@ -1340,6 +1340,12 @@ pub struct UploadDatasetRequest {
     pub name: String,
     pub description: Option<String>,
     pub format: String, // 'patches', 'jsonl', 'txt', 'custom'
+    #[serde(default)]
+    pub auto_train: bool,
+    pub adapter_name: Option<String>,
+    pub base_model_id: Option<String>,
+    pub training_config: Option<String>,
+    pub post_actions: Option<String>,
 }
 
 /// Upload dataset response
@@ -1367,6 +1373,12 @@ pub struct UploadDatasetResponse {
     #[serde(default)]
     pub reused: bool,
     pub created_at: String,
+    /// Training job ID if auto_train was enabled
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub training_job_id: Option<String>,
+    /// Stack ID created after training (if post_actions.create_stack=true)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stack_id: Option<String>,
 }
 
 /// Dataset response
