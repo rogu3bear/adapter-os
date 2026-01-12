@@ -136,20 +136,13 @@ pub fn resolve_index_root() -> Result<ResolvedPath> {
 
 **Impact:** Security vulnerability eliminated.
 
-**Evidence:**
-```rust
-// crates/adapteros-config/src/path_resolver.rs:204-207
-pub fn resolve_index_root() -> Result<PathBuf> {
-    resolve_env_path("AOS_INDEX_ROOT", "./var/indices")  // Missing reject_tmp_persistent_path()
-}
-```
-
 #### tenant-01: Tenant Isolation Gaps
-**Status:** Partial implementation
+**Status:** ✅ Fully Resolved
 - ✅ **Implemented:** Handler validation, composite FKs, migration 0131 triggers
-- ❌ **Missing:** Adapter lifecycle DB queries tenant scoping validation
+- ✅ **Implemented:** Adapter lifecycle DB queries tenant scoping validation (RECT-001)
+- ✅ **Unit Tests:** Cross-tenant denial tests in `crates/adapteros-db/tests/tenant_adapter_lifecycle_tests.rs`
 
-**Impact:** Potential cross-tenant data leakage in adapter operations.
+**Impact:** Security boundaries strictly enforced.
 
 ### Unverified Components (Require Validation)
 
