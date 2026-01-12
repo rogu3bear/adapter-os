@@ -3,7 +3,10 @@
 use super::chunked::{assemble_chunks, expected_chunk_size, expected_chunks, persist_chunk};
 use super::fs_utils::{clean_temp, ensure_dirs};
 use super::hashing::{hash_dataset_manifest, DatasetHashInput};
-use super::helpers::{dataset_quota_limits, path_policy_error, quota_error, STREAM_BUFFER_SIZE};
+use super::helpers::{
+    build_validation_error_payload, dataset_quota_limits, path_policy_error, quota_error,
+    STREAM_BUFFER_SIZE,
+};
 use super::paths::{resolve_dataset_root, DatasetPaths};
 use super::progress::emit_progress;
 use super::tenant::bind_dataset_to_tenant;
@@ -13,6 +16,10 @@ use super::types::{
     UploadSessionStatusResponse, UploadSessionSummary,
 };
 use super::upload::build_training_rows_from_jsonl_bytes;
+use super::upload_sessions::{
+    fetch_expired_sessions, fetch_session_by_id, keep_partial_uploads, mark_session_complete,
+    mark_session_failed, update_session_chunks, UploadSessionRecord,
+};
 use super::validation::{
     validation_error_response, CompositeValidator, FileExistsRule, FileExtensionRule, FileSizeRule,
     ValidationCategory, ValidationConfig, ValidationError, ValidationSeverity,
@@ -22,7 +29,11 @@ use crate::audit_helper::{actions, log_failure_or_warn, log_success_or_warn, res
 use crate::auth::Claims;
 use crate::citations::build_dataset_index;
 use crate::error_helpers::{bad_request, db_error, forbidden, internal_error, not_found};
-use crate::handlers::chunked_upload::{ChunkWriter, FileValidator, UploadSessionManager};
+use crate::handlers::chunked_upload::{
+    ChunkWriter, CompressionFormat, FileValidator, UploadSession, UploadSessionManager,
+    MAX_CHUNK_SIZE, UPLOAD_TIMEOUT_SECS,
+};
+use crate::middleware::request_id::RequestId;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::storage_usage::compute_tenant_storage_usage;
@@ -37,9 +48,95 @@ use axum::{
     response::IntoResponse,
     Extension, Json,
 };
+use chrono::NaiveDateTime;
 use serde_json::{Map, Value};
+use std::time::{Duration, SystemTime};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
+
+const METRIC_CHUNKED_UPLOAD_COMPLETED: &str = "chunked_upload_completed";
+const METRIC_CHUNKED_UPLOAD_FAILED: &str = "chunked_upload_failed";
+
+async fn mark_session_failed_with_metric(
+    state: &AppState,
+    session_id: &str,
+    error_message: &str,
+) -> bool {
+    if let Ok(true) = mark_session_failed(&state.db, session_id, error_message).await {
+        state
+            .metrics_registry
+            .record_metric(METRIC_CHUNKED_UPLOAD_FAILED.to_string(), 1.0)
+            .await;
+        return true;
+    }
+    false
+}
+
+async fn ensure_session_loaded(
+    state: &AppState,
+    claims: &Claims,
+    session_id: &str,
+) -> Result<UploadSessionRecord, (StatusCode, Json<ErrorResponse>)> {
+    let record = fetch_session_by_id(&state.db, session_id)
+        .await?
+        .ok_or_else(|| not_found("Upload session"))?;
+
+    if record.tenant_id != claims.tenant_id {
+        return Err(forbidden(
+            "Access denied: upload session belongs to a different tenant",
+        ));
+    }
+
+    if state
+        .upload_session_manager
+        .get_session(session_id)
+        .await
+        .is_err()
+    {
+        let restored = record_to_upload_session(&record)?;
+        state
+            .upload_session_manager
+            .restore_session(restored)
+            .await
+            .map_err(internal_error)?;
+    }
+
+    Ok(record)
+}
+
+fn record_to_upload_session(
+    record: &UploadSessionRecord,
+) -> Result<UploadSession, (StatusCode, Json<ErrorResponse>)> {
+    let created_at = parse_db_datetime(&record.created_at).unwrap_or_else(SystemTime::now);
+
+    Ok(UploadSession {
+        schema_version: record.schema_version as u16,
+        session_id: record.session_id.clone(),
+        file_name: record.file_name.clone(),
+        total_size: record.total_size_bytes,
+        chunk_size: record.chunk_size_bytes,
+        content_type: record.content_type.clone(),
+        received_chunks: record.received_chunks.clone(),
+        temp_dir: record.temp_dir.clone(),
+        created_at,
+        compression: CompressionFormat::from_content_type(&record.content_type),
+        is_resumed: true,
+        workspace_id: Some(record.workspace_id.clone()),
+        sealed_manifest_hash: None,
+    })
+}
+
+fn parse_db_datetime(value: &str) -> Option<SystemTime> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let parsed = NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%d %H:%M:%S").ok()?;
+    let utc = chrono::DateTime::<chrono::Utc>::from_utc(parsed, chrono::Utc);
+    let duration = utc.timestamp().max(0) as u64;
+    Some(SystemTime::UNIX_EPOCH + Duration::from_secs(duration))
+}
 
 /// Upload a single chunk for a chunked upload session
 ///
@@ -82,10 +179,56 @@ pub async fn upload_chunk(
     // Check permission
     require_permission(&claims, Permission::DatasetUpload)?;
 
+    // PRD Phase 3: Early rejection for oversized chunks BEFORE any processing.
+    // This catches malformed requests before we hit the session or disk.
+    if body.len() > MAX_CHUNK_SIZE {
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            Json(
+                ErrorResponse::new(format!(
+                    "Chunk size {} exceeds maximum of {} bytes",
+                    body.len(),
+                    MAX_CHUNK_SIZE
+                ))
+                .with_code("CHUNK_TOO_LARGE"),
+            ),
+        ));
+    }
+
+    let session_record = ensure_session_loaded(&state, &claims, &session_id).await?;
+    if session_record.status == "complete" {
+        return Err((
+            StatusCode::CONFLICT,
+            Json(
+                ErrorResponse::new("Upload session already completed")
+                    .with_code("UPLOAD_ALREADY_COMPLETE"),
+            ),
+        ));
+    }
+    if session_record.status == "failed" {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new(format!(
+                    "Upload session failed: {}",
+                    session_record
+                        .error_message
+                        .clone()
+                        .unwrap_or_else(|| "unknown".to_string())
+                ))
+                .with_code("UPLOAD_SESSION_FAILED"),
+            ),
+        ));
+    }
+
     let chunk_index = query.chunk_index;
 
     let (session, total_chunks, chunk_hash, chunks_received, is_complete, resume_token) =
         persist_chunk(&state, &session_id, chunk_index, &body).await?;
+
+    if !update_session_chunks(&state.db, &session_id, &session.received_chunks).await? {
+        debug!(session_id = %session_id, "Skipped stale session chunk update");
+    }
 
     // Send progress event
     emit_progress(
@@ -133,8 +276,8 @@ pub async fn upload_chunk(
 /// ## Cleanup Strategy
 /// - On success: Temporary chunk files are deleted during assembly
 /// - On failure: Temporary files remain for retry; session expires after 24 hours
-/// - Abandoned sessions: Background cleanup runs every hour to remove expired sessions
-///   and their temporary files (see UPLOAD_TIMEOUT_SECS in chunked_upload.rs)
+/// - Abandoned sessions: Manual cleanup marks expired sessions failed and removes temp files
+///   (see UPLOAD_TIMEOUT_SECS in chunked_upload.rs)
 #[utoipa::path(
     post,
     path = "/v1/datasets/chunked-upload/{session_id}/complete",
@@ -153,6 +296,7 @@ pub async fn upload_chunk(
 pub async fn complete_chunked_upload(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    request_id: Option<Extension<RequestId>>,
     Path(session_id): Path<String>,
     Json(request): Json<CompleteChunkedUploadRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
@@ -160,10 +304,59 @@ pub async fn complete_chunked_upload(
     require_permission(&claims, Permission::DatasetUpload)?;
 
     let dataset_root = resolve_dataset_root(&state).map_err(internal_error)?;
+    let correlation_id = request_id
+        .map(|r| r.0 .0)
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
     let paths = DatasetPaths::new(dataset_root.clone());
     let allowed_roots = [paths.root().to_path_buf()];
 
-    // Get session
+    let session_record = ensure_session_loaded(&state, &claims, &session_id).await?;
+    if session_record.status == "complete" {
+        // Idempotent: return existing dataset info for already-completed sessions
+        let dataset = state
+            .db
+            .get_training_dataset(&session_record.dataset_id)
+            .await
+            .map_err(|e| db_error(format!("Failed to fetch completed dataset: {}", e)))?
+            .ok_or_else(|| {
+                internal_error(format!(
+                    "Completed session {} references missing dataset {}",
+                    session_id, session_record.dataset_id
+                ))
+            })?;
+        let version_id = state
+            .db
+            .get_latest_dataset_version_for_dataset(&session_record.dataset_id)
+            .await
+            .map_err(|e| db_error(format!("Failed to fetch dataset version: {}", e)))?
+            .map(|v| v.id);
+        return Ok(Json(CompleteChunkedUploadResponse {
+            dataset_id: dataset.id,
+            dataset_version_id: version_id,
+            name: dataset.name,
+            hash: dataset.hash_b3,
+            total_size_bytes: dataset.total_size_bytes,
+            storage_path: dataset.storage_path,
+            created_at: dataset.created_at,
+            workspace_id: dataset.workspace_id,
+        }));
+    }
+    if session_record.status == "failed" {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new(format!(
+                    "Upload session failed: {}",
+                    session_record
+                        .error_message
+                        .clone()
+                        .unwrap_or_else(|| "unknown".to_string())
+                ))
+                .with_code("UPLOAD_SESSION_FAILED"),
+            ),
+        ));
+    }
+
     let session = state
         .upload_session_manager
         .get_session(&session_id)
@@ -174,7 +367,8 @@ pub async fn complete_chunked_upload(
     }
 
     // Validate workspace_id consistency between session and request for tenant isolation
-    if let Some(ref session_workspace_id) = session.workspace_id {
+    let session_workspace_id = Some(session_record.workspace_id.clone());
+    if let Some(ref session_workspace_id) = session_workspace_id {
         if let Some(ref request_workspace_id) = request.workspace_id {
             if session_workspace_id != request_workspace_id {
                 return Err(ApiError::bad_request(
@@ -189,7 +383,7 @@ pub async fn complete_chunked_upload(
     let workspace_id = request
         .workspace_id
         .clone()
-        .or_else(|| session.workspace_id.clone());
+        .or_else(|| session_workspace_id.clone());
 
     // Validate workspace access if workspace_id is provided
     if let Some(ref ws_id) = workspace_id {
@@ -279,7 +473,7 @@ pub async fn complete_chunked_upload(
     };
     let storage = FsByteStorage::new(dataset_root, adapters_root.into());
 
-    let dataset_id = Uuid::now_v7().to_string();
+    let dataset_id = session_record.dataset_id.clone();
     let storage_key = StorageKey::dataset_file(
         Some(storage_workspace.clone()),
         &dataset_id,
@@ -300,12 +494,33 @@ pub async fn complete_chunked_upload(
     canonicalize_strict_in_allowed_roots(&dataset_path, &allowed_roots)
         .map_err(|e| path_policy_error(&dataset_path, e))?;
 
+    // Seal chunk manifest before assembly to prevent chunk substitution
+    let sealed_manifest_hash = session.compute_sealed_manifest_hash().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("Failed to compute sealed manifest hash")
+                    .with_code("MANIFEST_SEAL_FAILED"),
+            ),
+        )
+    })?;
+    info!(
+        session_id = %session_id,
+        sealed_manifest_hash = %sealed_manifest_hash,
+        schema_version = session.schema_version,
+        "Sealed chunk manifest for assembly"
+    );
+
     // Assemble chunks
     let (file_hash, total_bytes) = match assemble_chunks(&session, &output_path).await {
         Ok(res) => res,
         Err((status, Json(payload))) => {
             let error_msg = payload.error.clone();
             error!("Failed to assemble chunks: {}", error_msg);
+            mark_session_failed_with_metric(&state, &session_id, &error_msg).await;
+            if !keep_partial_uploads() {
+                clean_temp(&session.temp_dir).await;
+            }
             let db = state.db.clone();
             let claims_clone = claims.clone();
             let error_msg_clone = error_msg.clone();
@@ -344,6 +559,16 @@ pub async fn complete_chunked_upload(
         return Err(path_policy_error(&output_path, e));
     }
     if total_bytes != session.total_size {
+        mark_session_failed_with_metric(
+            &state,
+            &session_id,
+            "Assembled file size does not match expected size",
+        )
+        .await;
+        if !keep_partial_uploads() {
+            let _ = tokio::fs::remove_file(&output_path).await;
+            clean_temp(&session.temp_dir).await;
+        }
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
@@ -357,6 +582,30 @@ pub async fn complete_chunked_upload(
                 details: None,
             }),
         ));
+    }
+
+    if let Some(expected_hash) = session_record.expected_file_hash_b3.as_deref() {
+        if expected_hash != file_hash {
+            mark_session_failed_with_metric(
+                &state,
+                &session_id,
+                "Uploaded file hash does not match expected hash",
+            )
+            .await;
+            if !keep_partial_uploads() {
+                let _ = tokio::fs::remove_file(&output_path).await;
+                clean_temp(&session.temp_dir).await;
+            }
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new(
+                        "Uploaded file hash does not match expected hash for this session",
+                    )
+                    .with_code("UPLOAD_HASH_MISMATCH"),
+                ),
+            ));
+        }
     }
 
     let (soft_quota, hard_quota) = dataset_quota_limits();
@@ -385,7 +634,13 @@ pub async fn complete_chunked_upload(
         FileValidator::quick_validate(&output_path, &request.format, STREAM_BUFFER_SIZE).await
     };
     if let Err(ref e) = content_validation {
-        warn!("File format validation warning: {}", e);
+        // PRD-4.2: Content validation errors now block completion
+        warn!(
+            session_id = %session_id,
+            format = %request.format,
+            error = %e,
+            "Content validation failed - upload will be rejected"
+        );
     }
 
     let mut validation_config = match request.format.as_str() {
@@ -436,17 +691,28 @@ pub async fn complete_chunked_upload(
         );
     }
     validation_messages.extend(validation_result.errors.iter().map(|err| err.to_string()));
-    let validation_status = if validation_result.is_valid && validation_messages.is_empty() {
+    // PRD-4.2: Format validation must block completion (not just warn)
+    // Check structured_errors to catch both validation_result and content_validation failures
+    let validation_status = if validation_result.is_valid && structured_errors.is_empty() {
         "valid"
     } else {
         "invalid"
     };
-    let validation_errors = if validation_messages.is_empty() {
-        None
+    let validation_errors = if structured_errors.is_empty() {
+        if validation_messages.is_empty() {
+            None
+        } else {
+            Some(validation_messages.join("; "))
+        }
     } else {
-        Some(validation_messages.join("; "))
+        build_validation_error_payload(&structured_errors)
     };
     if validation_status == "invalid" {
+        mark_session_failed_with_metric(&state, &session_id, "Dataset validation failed").await;
+        if !keep_partial_uploads() {
+            let _ = tokio::fs::remove_file(&output_path).await;
+            clean_temp(&session.temp_dir).await;
+        }
         return Err(validation_error_response(
             "Dataset validation failed",
             &structured_errors,
@@ -494,6 +760,11 @@ pub async fn complete_chunked_upload(
     } else {
         "upload"
     };
+    let dataset_status = if request.format == "jsonl" && !is_codebase_jsonl {
+        "processing"
+    } else {
+        "ready"
+    };
 
     let mut dataset_builder = CreateDatasetParams::builder()
         .id(&dataset_id)
@@ -502,13 +773,14 @@ pub async fn complete_chunked_upload(
         .hash_b3(&dataset_hash)
         .dataset_hash_b3(&dataset_hash)
         .storage_path(dataset_path.to_string_lossy().to_string())
-        .status("ready")
+        .status(dataset_status)
         .created_by(&claims.sub)
         .tenant_id(&claims.tenant_id)
         .workspace_id(&storage_workspace)
         .dataset_type(dataset_type)
-        .collection_method("upload")
-        .category(dataset_category);
+        .collection_method("api")
+        .category(dataset_category)
+        .correlation_id(&correlation_id);
 
     if let Some(ref desc) = request.description {
         if !desc.trim().is_empty() {
@@ -536,20 +808,39 @@ pub async fn complete_chunked_upload(
         bad_request(format!("Invalid dataset parameters: {}", e))
     })?;
 
-    state
+    if let Err(e) = state
         .db
         .create_training_dataset_from_params(&dataset_params)
         .await
-        .map_err(|e| {
-            error!("Failed to create dataset record: {}", e);
-            db_error(format!("Failed to create dataset record: {}", e))
-        })?;
+    {
+        mark_session_failed_with_metric(&state, &session_id, "Failed to create dataset record")
+            .await;
+        if !keep_partial_uploads() {
+            let _ = tokio::fs::remove_file(&output_path).await;
+            clean_temp(&session.temp_dir).await;
+        }
+        error!("Failed to create dataset record: {}", e);
+        return Err(db_error(format!("Failed to create dataset record: {}", e)));
+    }
 
     // CRITICAL: Associate dataset with user's tenant for tenant isolation
-    bind_dataset_to_tenant(&state.db, &dataset_id, &claims.tenant_id).await?;
+    if let Err(e) = bind_dataset_to_tenant(&state.db, &dataset_id, &claims.tenant_id).await {
+        mark_session_failed_with_metric(&state, &session_id, "Failed to bind dataset to tenant")
+            .await;
+        if !keep_partial_uploads() {
+            let _ = tokio::fs::remove_file(&output_path).await;
+            clean_temp(&session.temp_dir).await;
+        }
+        return Err(e);
+    }
+    info!(
+        dataset_id = %dataset_id,
+        correlation_id = %correlation_id,
+        "Chunked dataset upload recorded"
+    );
 
     // Add file record
-    state
+    if let Err(e) = state
         .db
         .add_dataset_file(
             &dataset_id,
@@ -560,16 +851,31 @@ pub async fn complete_chunked_upload(
             Some(&session.content_type),
         )
         .await
-        .map_err(|e| {
-            error!("Failed to add file record: {}", e);
-            db_error(format!("Failed to add file record: {}", e))
-        })?;
+    {
+        mark_session_failed_with_metric(&state, &session_id, "Failed to add dataset file record")
+            .await;
+        if !keep_partial_uploads() {
+            clean_temp(&session.temp_dir).await;
+        }
+        error!("Failed to add file record: {}", e);
+        return Err(db_error(format!("Failed to add file record: {}", e)));
+    }
 
-    state
+    if let Err(e) = state
         .db
         .update_dataset_validation(&dataset_id, validation_status, validation_errors.as_deref())
         .await
-        .map_err(|e| db_error(format!("Failed to update validation status: {}", e)))?;
+    {
+        mark_session_failed_with_metric(&state, &session_id, "Failed to update dataset validation")
+            .await;
+        if !keep_partial_uploads() {
+            clean_temp(&session.temp_dir).await;
+        }
+        return Err(db_error(format!(
+            "Failed to update validation status: {}",
+            e
+        )));
+    }
 
     let version_id = if is_codebase_jsonl {
         if let Some(bytes) = jsonl_bytes.as_deref() {
@@ -669,28 +975,7 @@ pub async fn complete_chunked_upload(
                 &claims.tenant_id,
                 Some(&claims.sub),
             );
-            if !rows.is_empty() {
-                match state.db.bulk_insert_training_dataset_rows(&rows).await {
-                    Ok(inserted) => {
-                        info!(
-                            dataset_id = %dataset_id,
-                            dataset_version_id = %version_id,
-                            inserted,
-                            parse_errors,
-                            dropped,
-                            "Inserted training dataset rows from chunked upload"
-                        );
-                    }
-                    Err(e) => {
-                        warn!(
-                            error = %e,
-                            dataset_id = %dataset_id,
-                            dataset_version_id = %version_id,
-                            "Failed to insert training dataset rows (non-blocking)"
-                        );
-                    }
-                }
-            } else if parse_errors > 0 || dropped > 0 {
+            if rows.is_empty() {
                 warn!(
                     dataset_id = %dataset_id,
                     dataset_version_id = %version_id,
@@ -698,12 +983,95 @@ pub async fn complete_chunked_upload(
                     dropped,
                     "No training dataset rows created from chunked upload"
                 );
+                mark_session_failed_with_metric(
+                    &state,
+                    &session_id,
+                    "Dataset contains no valid training rows",
+                )
+                .await;
+                let _ = state.db.update_dataset_status(&dataset_id, "failed").await;
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(
+                        ErrorResponse::new("Dataset contains no valid training rows")
+                            .with_code("DATASET_EMPTY"),
+                    ),
+                ));
             }
+
+            let inserted = match state.db.bulk_insert_training_dataset_rows(&rows).await {
+                Ok(inserted) => inserted,
+                Err(e) => {
+                    warn!(
+                        error = %e,
+                        dataset_id = %dataset_id,
+                        dataset_version_id = %version_id,
+                        "Failed to insert training dataset rows"
+                    );
+                    mark_session_failed_with_metric(
+                        &state,
+                        &session_id,
+                        "Failed to insert training dataset rows",
+                    )
+                    .await;
+                    let _ = state.db.update_dataset_status(&dataset_id, "failed").await;
+                    return Err(db_error(format!(
+                        "Failed to insert training dataset rows: {}",
+                        e
+                    )));
+                }
+            };
+
+            if inserted == 0 {
+                mark_session_failed_with_metric(
+                    &state,
+                    &session_id,
+                    "Dataset contains no valid training rows",
+                )
+                .await;
+                let _ = state.db.update_dataset_status(&dataset_id, "failed").await;
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(
+                        ErrorResponse::new("Dataset contains no valid training rows")
+                            .with_code("DATASET_EMPTY"),
+                    ),
+                ));
+            }
+
+            if let Err(e) = state.db.update_dataset_status(&dataset_id, "ready").await {
+                mark_session_failed_with_metric(
+                    &state,
+                    &session_id,
+                    "Failed to update dataset status",
+                )
+                .await;
+                return Err(db_error(format!("Failed to update dataset status: {}", e)));
+            }
+
+            info!(
+                dataset_id = %dataset_id,
+                dataset_version_id = %version_id,
+                inserted,
+                parse_errors,
+                dropped,
+                "Inserted training dataset rows from chunked upload"
+            );
         } else {
             warn!(
                 dataset_id = %dataset_id,
-                "Failed to read uploaded dataset for row creation (non-blocking)"
+                "Failed to read uploaded dataset for row creation"
             );
+            mark_session_failed_with_metric(
+                &state,
+                &session_id,
+                "Failed to read uploaded dataset for row creation",
+            )
+            .await;
+            let _ = state.db.update_dataset_status(&dataset_id, "failed").await;
+            return Err(internal_error(
+                "Failed to read uploaded dataset for row creation",
+            ));
         }
     } else {
         debug!(
@@ -711,6 +1079,25 @@ pub async fn complete_chunked_upload(
             format = %request.format,
             "Skipping dataset row creation for non-jsonl chunked upload"
         );
+    }
+
+    match mark_session_complete(&state.db, &session_id, &dataset_id, &file_hash).await {
+        Ok(true) => {
+            state
+                .metrics_registry
+                .record_metric(METRIC_CHUNKED_UPLOAD_COMPLETED.to_string(), 1.0)
+                .await;
+        }
+        Ok(false) => {
+            return Err((
+                StatusCode::CONFLICT,
+                Json(
+                    ErrorResponse::new("Upload session already completed")
+                        .with_code("UPLOAD_ALREADY_COMPLETE"),
+                ),
+            ));
+        }
+        Err(e) => return Err(e),
     }
 
     if let Err(e) = state
@@ -986,6 +1373,7 @@ pub async fn get_upload_session_status(
     // Check permission
     require_permission(&claims, Permission::DatasetView)?;
 
+    let _session_record = ensure_session_loaded(&state, &claims, &session_id).await?;
     let session = state
         .upload_session_manager
         .get_session(&session_id)
@@ -1046,7 +1434,7 @@ pub async fn cancel_chunked_upload(
     // Check permission
     require_permission(&claims, Permission::DatasetUpload)?;
 
-    // Get session to find temp dir
+    let session_record = ensure_session_loaded(&state, &claims, &session_id).await?;
     let session = state
         .upload_session_manager
         .get_session(&session_id)
@@ -1063,8 +1451,10 @@ pub async fn cancel_chunked_upload(
             internal_error(format!("Failed to remove session: {}", e))
         })?;
 
-    // Clean up temp directory
-    clean_temp(&session.temp_dir).await;
+    mark_session_failed_with_metric(&state, &session_id, "upload session cancelled").await;
+    if !keep_partial_uploads() {
+        clean_temp(&session.temp_dir).await;
+    }
 
     info!("Cancelled chunked upload session {}", session_id);
 
@@ -1126,6 +1516,32 @@ pub async fn retry_chunk(
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // Check permission
     require_permission(&claims, Permission::DatasetUpload)?;
+
+    let session_record = ensure_session_loaded(&state, &claims, &session_id).await?;
+    if session_record.status == "complete" {
+        return Err((
+            StatusCode::CONFLICT,
+            Json(
+                ErrorResponse::new("Upload session already completed")
+                    .with_code("UPLOAD_ALREADY_COMPLETE"),
+            ),
+        ));
+    }
+    if session_record.status == "failed" {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new(format!(
+                    "Upload session failed: {}",
+                    session_record
+                        .error_message
+                        .clone()
+                        .unwrap_or_else(|| "unknown".to_string())
+                ))
+                .with_code("UPLOAD_SESSION_FAILED"),
+            ),
+        ));
+    }
 
     let chunk_index = query.chunk_index;
 
@@ -1239,6 +1655,10 @@ pub async fn retry_chunk(
         .is_upload_complete(&session_id)
         .await
         .unwrap_or(false);
+
+    if !update_session_chunks(&state.db, &session_id, &updated_session.received_chunks).await? {
+        debug!(session_id = %session_id, "Skipped stale session chunk update");
+    }
 
     // Send progress event
     emit_progress(
@@ -1360,8 +1780,7 @@ pub async fn list_upload_sessions(
 /// Trigger cleanup of expired upload sessions
 ///
 /// Manually triggers the cleanup of expired upload sessions and their
-/// temporary files. This is normally done automatically by a background
-/// task every hour, but can be triggered manually for immediate cleanup.
+/// temporary files.
 ///
 /// Requires admin permission.
 #[utoipa::path(
@@ -1390,9 +1809,28 @@ pub async fn cleanup_expired_sessions(
             internal_error(format!("Failed to cleanup expired sessions: {}", e))
         })?;
 
+    let expired_records = fetch_expired_sessions(&state.db, UPLOAD_TIMEOUT_SECS).await?;
+    let mut db_cleaned = 0usize;
+    for record in expired_records {
+        let _ = state
+            .upload_session_manager
+            .remove_session(&record.session_id)
+            .await;
+        if !mark_session_failed_with_metric(&state, &record.session_id, "Upload session expired")
+            .await
+        {
+            continue;
+        }
+        if !keep_partial_uploads() {
+            clean_temp(&record.temp_dir).await;
+        }
+        db_cleaned += 1;
+    }
+
     info!(
-        "Manual cleanup triggered by {}: removed {} expired sessions",
-        claims.sub, cleaned_count
+        "Manual cleanup triggered by {}: marked {} expired sessions failed",
+        claims.sub,
+        cleaned_count + db_cleaned
     );
 
     // Audit log
@@ -1409,7 +1847,7 @@ pub async fn cleanup_expired_sessions(
     }
 
     Ok(Json(serde_json::json!({
-        "cleaned_count": cleaned_count,
-        "message": format!("Cleaned up {} expired upload sessions", cleaned_count)
+        "cleaned_count": cleaned_count + db_cleaned,
+        "message": format!("Marked {} expired upload sessions failed", cleaned_count + db_cleaned)
     })))
 }

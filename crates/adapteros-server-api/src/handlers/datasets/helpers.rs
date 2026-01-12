@@ -1,7 +1,9 @@
 //! Internal helper functions for dataset handlers.
 
 use crate::error_helpers::{forbidden, internal_error};
+use crate::handlers::datasets::validation::ValidationError;
 use crate::types::{DatasetValidationStatus, ErrorResponse};
+use adapteros_api_types::training::{JsonlFieldTypeMismatch, JsonlValidationDiagnostic};
 use adapteros_core::B3Hash;
 use adapteros_db::training_datasets::DatasetFile;
 use axum::http::StatusCode;
@@ -73,11 +75,92 @@ pub fn map_validation_status(status: &str) -> DatasetValidationStatus {
 }
 
 pub fn map_validation_errors(errors: Option<String>) -> Option<Vec<String>> {
-    errors.and_then(|raw| {
-        serde_json::from_str::<Vec<String>>(&raw)
-            .ok()
-            .or_else(|| Some(vec![raw]))
+    errors.map(|raw| {
+        if let Ok(values) = serde_json::from_str::<Vec<String>>(&raw) {
+            return values;
+        }
+        if let Ok(payload) = serde_json::from_str::<ValidationDiagnosticsPayload>(&raw) {
+            if !payload.messages.is_empty() {
+                return payload.messages;
+            }
+        }
+        vec![raw]
     })
+}
+
+pub fn map_validation_diagnostics(
+    errors: Option<String>,
+) -> Option<Vec<JsonlValidationDiagnostic>> {
+    errors.and_then(|raw| {
+        serde_json::from_str::<ValidationDiagnosticsPayload>(&raw)
+            .ok()
+            .and_then(|payload| {
+                if payload.diagnostics.is_empty() {
+                    None
+                } else {
+                    Some(payload.diagnostics)
+                }
+            })
+    })
+}
+
+pub fn build_validation_error_payload(errors: &[ValidationError]) -> Option<String> {
+    if errors.is_empty() {
+        return None;
+    }
+
+    let messages: Vec<String> = errors.iter().map(|err| err.to_string()).collect();
+    let diagnostics: Vec<JsonlValidationDiagnostic> = errors
+        .iter()
+        .filter_map(|err| {
+            let line_number = err.line_number?;
+            let has_details = err.raw_snippet.is_some()
+                || err.missing_fields.as_ref().is_some_and(|v| !v.is_empty())
+                || err
+                    .invalid_field_types
+                    .as_ref()
+                    .is_some_and(|v| !v.is_empty())
+                || err.contract_version_expected.is_some();
+            if !has_details {
+                return None;
+            }
+
+            Some(JsonlValidationDiagnostic {
+                line_number,
+                raw_snippet: err.raw_snippet.clone(),
+                missing_fields: err.missing_fields.clone(),
+                invalid_field_types: err.invalid_field_types.as_ref().map(|items| {
+                    items
+                        .iter()
+                        .map(|item| JsonlFieldTypeMismatch {
+                            field: item.field.clone(),
+                            expected: item.expected.clone(),
+                            actual: item.actual.clone(),
+                        })
+                        .collect()
+                }),
+                contract_version_expected: err.contract_version_expected.clone(),
+            })
+        })
+        .collect();
+
+    if diagnostics.is_empty() {
+        return Some(messages.join("; "));
+    }
+
+    serde_json::to_string(&ValidationDiagnosticsPayload {
+        messages,
+        diagnostics,
+    })
+    .ok()
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct ValidationDiagnosticsPayload {
+    #[serde(default)]
+    messages: Vec<String>,
+    #[serde(default)]
+    diagnostics: Vec<JsonlValidationDiagnostic>,
 }
 
 /// Build a standardized error for path policy violations so the UI can map it.
@@ -610,7 +693,7 @@ mod path_policy_tests {
 
     #[test]
     fn path_policy_error_is_structured() {
-        let path = std::path::PathBuf::from("/tmp/../escape");
+        let path = std::env::temp_dir().join("..").join("escape");
         let (status, Json(err)) = path_policy_error(&path, "outside allowed roots");
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert_eq!(err.code, "PATH_POLICY_VIOLATION");

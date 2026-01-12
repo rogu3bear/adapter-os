@@ -130,11 +130,30 @@ pub struct ValidationError {
     /// Field name that caused the error (if applicable)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub field_name: Option<String>,
+    /// Raw snippet of the line that failed (truncated)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw_snippet: Option<String>,
+    /// Missing fields detected in JSONL entries
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub missing_fields: Option<Vec<String>>,
+    /// Invalid field types detected in JSONL entries
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub invalid_field_types: Option<Vec<FieldTypeMismatch>>,
+    /// Expected training data contract version
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub contract_version_expected: Option<String>,
     /// Suggested fix for the error
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suggestion: Option<String>,
     /// Error code for programmatic handling
     pub code: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct FieldTypeMismatch {
+    pub field: String,
+    pub expected: String,
+    pub actual: String,
 }
 
 impl ValidationError {
@@ -153,6 +172,10 @@ impl ValidationError {
             line_number: None,
             column_number: None,
             field_name: None,
+            raw_snippet: None,
+            missing_fields: None,
+            invalid_field_types: None,
+            contract_version_expected: None,
             suggestion: None,
             code: code.into(),
         }
@@ -179,6 +202,34 @@ impl ValidationError {
     /// Add field name context
     pub fn with_field(mut self, field: impl Into<String>) -> Self {
         self.field_name = Some(field.into());
+        self
+    }
+
+    /// Add raw line snippet context
+    pub fn with_raw_snippet(mut self, snippet: impl Into<String>) -> Self {
+        self.raw_snippet = Some(snippet.into());
+        self
+    }
+
+    /// Add missing fields context
+    pub fn with_missing_fields(mut self, fields: Vec<String>) -> Self {
+        if !fields.is_empty() {
+            self.missing_fields = Some(fields);
+        }
+        self
+    }
+
+    /// Add invalid field type context
+    pub fn with_invalid_field_types(mut self, fields: Vec<FieldTypeMismatch>) -> Self {
+        if !fields.is_empty() {
+            self.invalid_field_types = Some(fields);
+        }
+        self
+    }
+
+    /// Add expected contract version context
+    pub fn with_contract_version(mut self, version: impl Into<String>) -> Self {
+        self.contract_version_expected = Some(version.into());
         self
     }
 
@@ -717,9 +768,12 @@ impl ValidationRule for JsonlFormatRule {
         let mut line_number = 0;
         let mut entry_count = 0;
         let mut seen_row_ids: HashSet<String> = HashSet::new();
+        let contract_version =
+            adapteros_api_types::training::TRAINING_DATA_CONTRACT_VERSION.to_string();
 
         while let Ok(Some(line)) = lines.next_line().await {
             line_number += 1;
+            let raw_snippet = truncate_jsonl_snippet(&line);
 
             // Skip empty lines
             if line.trim().is_empty() {
@@ -753,20 +807,85 @@ impl ValidationRule for JsonlFormatRule {
 
                     // Check for required fields
                     if let Some(obj) = value.as_object() {
-                        for field in &config.required_fields {
+                        let mut missing_fields = Vec::new();
+                        let mut invalid_field_types = Vec::new();
+
+                        for field in config
+                            .required_fields
+                            .iter()
+                            .filter(|f| *f != "prompt" && *f != "response")
+                        {
                             if !obj.contains_key(field) {
-                                errors.push(
-                                    ValidationError::new(
-                                        ValidationSeverity::Error,
-                                        ValidationCategory::Schema,
-                                        format!("Missing required field: {}", field),
-                                        "MISSING_FIELD",
-                                    )
-                                    .with_file(&path_str)
-                                    .with_line(line_number)
-                                    .with_field(field),
-                                );
+                                missing_fields.push(field.to_string());
                             }
+                        }
+
+                        let prompt_value = obj
+                            .get("prompt")
+                            .or_else(|| obj.get("input"))
+                            .or_else(|| obj.get("question"))
+                            .or_else(|| obj.get("text"))
+                            .or_else(|| obj.get("content"));
+
+                        match prompt_value {
+                            Some(value) => match value.as_str() {
+                                Some(text) if text.trim().is_empty() => {
+                                    missing_fields.push("prompt".to_string());
+                                }
+                                Some(_) => {}
+                                None => invalid_field_types.push(FieldTypeMismatch {
+                                    field: "prompt".to_string(),
+                                    expected: "string".to_string(),
+                                    actual: json_type_name(value).to_string(),
+                                }),
+                            },
+                            None => {
+                                missing_fields.push("prompt".to_string());
+                            }
+                        }
+
+                        let response_value = obj
+                            .get("response")
+                            .or_else(|| obj.get("output"))
+                            .or_else(|| obj.get("answer"))
+                            .or_else(|| obj.get("target"))
+                            .or_else(|| obj.get("completion"));
+
+                        match response_value {
+                            Some(value) => match value.as_str() {
+                                Some(text) if text.trim().is_empty() => {
+                                    missing_fields.push("response".to_string());
+                                }
+                                Some(_) => {}
+                                None => invalid_field_types.push(FieldTypeMismatch {
+                                    field: "response".to_string(),
+                                    expected: "string".to_string(),
+                                    actual: json_type_name(value).to_string(),
+                                }),
+                            },
+                            None => {
+                                missing_fields.push("response".to_string());
+                            }
+                        }
+
+                        if !missing_fields.is_empty() || !invalid_field_types.is_empty() {
+                            errors.push(
+                                ValidationError::new(
+                                    ValidationSeverity::Error,
+                                    ValidationCategory::Schema,
+                                    "JSONL entry has missing or invalid fields",
+                                    "JSONL_SCHEMA_ERROR",
+                                )
+                                .with_file(&path_str)
+                                .with_line(line_number)
+                                .with_raw_snippet(raw_snippet.clone())
+                                .with_missing_fields(missing_fields)
+                                .with_invalid_field_types(invalid_field_types)
+                                .with_contract_version(contract_version.clone())
+                                .with_suggestion(
+                                    "Expected keys: prompt (string), response (string)",
+                                ),
+                            );
                         }
 
                         // Check for duplicate row_ids
@@ -781,7 +900,9 @@ impl ValidationRule for JsonlFormatRule {
                                     )
                                     .with_file(&path_str)
                                     .with_line(line_number)
-                                    .with_field("row_id"),
+                                    .with_field("row_id")
+                                    .with_raw_snippet(raw_snippet.clone())
+                                    .with_contract_version(contract_version.clone()),
                                 );
                             }
                         }
@@ -795,6 +916,8 @@ impl ValidationRule for JsonlFormatRule {
                             )
                             .with_file(&path_str)
                             .with_line(line_number)
+                            .with_raw_snippet(raw_snippet.clone())
+                            .with_contract_version(contract_version.clone())
                             .with_suggestion("Each line should be a JSON object"),
                         );
                     }
@@ -826,7 +949,9 @@ impl ValidationRule for JsonlFormatRule {
                         )
                         .with_file(&path_str)
                         .with_line(line_number)
-                        .with_column(e.column()),
+                        .with_column(e.column())
+                        .with_raw_snippet(raw_snippet.clone())
+                        .with_contract_version(contract_version.clone()),
                     );
 
                     // Limit number of parse errors to avoid overwhelming output
@@ -860,6 +985,29 @@ impl ValidationRule for JsonlFormatRule {
         }
 
         errors
+    }
+}
+
+const JSONL_SNIPPET_LIMIT: usize = 160;
+
+fn truncate_jsonl_snippet(line: &str) -> String {
+    let trimmed = line.trim();
+    if trimmed.chars().count() <= JSONL_SNIPPET_LIMIT {
+        trimmed.to_string()
+    } else {
+        let snippet: String = trimmed.chars().take(JSONL_SNIPPET_LIMIT).collect();
+        format!("{}...", snippet)
+    }
+}
+
+fn json_type_name(value: &serde_json::Value) -> &'static str {
+    match value {
+        serde_json::Value::Null => "null",
+        serde_json::Value::Bool(_) => "boolean",
+        serde_json::Value::Number(_) => "number",
+        serde_json::Value::String(_) => "string",
+        serde_json::Value::Array(_) => "array",
+        serde_json::Value::Object(_) => "object",
     }
 }
 
@@ -1615,7 +1763,13 @@ mod validation_tests {
 
         let errors = rule.validate_file(&path, &config).await;
         assert!(!errors.is_empty());
-        assert!(errors.iter().any(|e| e.code == "INVALID_JSON"));
+        let error = errors.iter().find(|e| e.code == "INVALID_JSON").unwrap();
+        assert_eq!(error.line_number, Some(2));
+        assert!(error.raw_snippet.as_ref().unwrap().contains("invalid json"));
+        assert_eq!(
+            error.contract_version_expected.as_deref(),
+            Some(adapteros_api_types::training::TRAINING_DATA_CONTRACT_VERSION)
+        );
     }
 
     #[tokio::test]
@@ -1630,8 +1784,85 @@ mod validation_tests {
         let config = ValidationConfig::for_training_jsonl();
 
         let errors = rule.validate_file(&path, &config).await;
-        assert!(!errors.is_empty());
-        assert!(errors.iter().any(|e| e.code == "MISSING_FIELD"));
+        let error = errors
+            .iter()
+            .find(|e| e.code == "JSONL_SCHEMA_ERROR")
+            .unwrap();
+        assert_eq!(error.line_number, Some(1));
+        assert!(error
+            .missing_fields
+            .as_ref()
+            .unwrap()
+            .contains(&"response".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_jsonl_format_rule_missing_prompt() {
+        let tmp_root = std::path::PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&tmp_root).expect("create var/tmp");
+        let dir = tempdir().unwrap();
+        let content = r#"{"row_id": "1", "response": "World"}"#;
+        let path = create_test_file(dir.path(), "test.jsonl", content).await;
+
+        let rule = JsonlFormatRule;
+        let config = ValidationConfig::for_training_jsonl();
+
+        let errors = rule.validate_file(&path, &config).await;
+        let error = errors
+            .iter()
+            .find(|e| e.code == "JSONL_SCHEMA_ERROR")
+            .unwrap();
+        assert_eq!(error.line_number, Some(1));
+        assert!(error
+            .missing_fields
+            .as_ref()
+            .unwrap()
+            .contains(&"prompt".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_jsonl_format_rule_empty_prompt() {
+        let tmp_root = std::path::PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&tmp_root).expect("create var/tmp");
+        let dir = tempdir().unwrap();
+        let content = r#"{"row_id": "1", "prompt": "", "response": "World"}"#;
+        let path = create_test_file(dir.path(), "test.jsonl", content).await;
+
+        let rule = JsonlFormatRule;
+        let config = ValidationConfig::for_training_jsonl();
+
+        let errors = rule.validate_file(&path, &config).await;
+        let error = errors
+            .iter()
+            .find(|e| e.code == "JSONL_SCHEMA_ERROR")
+            .unwrap();
+        assert!(error
+            .missing_fields
+            .as_ref()
+            .unwrap()
+            .contains(&"prompt".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_jsonl_format_rule_invalid_response_type() {
+        let tmp_root = std::path::PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&tmp_root).expect("create var/tmp");
+        let dir = tempdir().unwrap();
+        let content = r#"{"row_id": "1", "prompt": "Hello", "response": 42}"#;
+        let path = create_test_file(dir.path(), "test.jsonl", content).await;
+
+        let rule = JsonlFormatRule;
+        let config = ValidationConfig::for_training_jsonl();
+
+        let errors = rule.validate_file(&path, &config).await;
+        let error = errors
+            .iter()
+            .find(|e| e.code == "JSONL_SCHEMA_ERROR")
+            .unwrap();
+        let invalid = error.invalid_field_types.as_ref().unwrap();
+        assert_eq!(invalid[0].field, "response");
+        assert_eq!(invalid[0].expected, "string");
+        assert_eq!(invalid[0].actual, "number");
     }
 
     #[tokio::test]

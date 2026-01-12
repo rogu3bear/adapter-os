@@ -10,7 +10,7 @@ use crate::inference_core::InferenceCore;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::types::{ErrorResponse, InferenceRequestInternal};
-use adapteros_api_types::training::{GeneratedSample, GenerateDatasetResponse, GenerationStrategy};
+use adapteros_api_types::training::{GenerateDatasetResponse, GeneratedSample, GenerationStrategy};
 use adapteros_db::training_datasets::CreateDatasetParams;
 use axum::{
     extract::{Multipart, State},
@@ -63,7 +63,7 @@ fn chunk_text(text: &str, chunk_size: usize) -> Vec<(usize, String)> {
     let mut chunks = Vec::new();
     let mut start = 0;
     let text_len = text.len();
-    let effective_chunk_size = chunk_size.max(500).min(10000);
+    let effective_chunk_size = chunk_size.clamp(500, 10000);
 
     while start < text_len && chunks.len() < MAX_CHUNKS {
         let mut end = (start + effective_chunk_size).min(text_len);
@@ -288,7 +288,10 @@ pub async fn generate_dataset_from_file(
         internal_request.temperature = 0.7;
         internal_request.stream = false;
 
-        match core.route_and_infer(internal_request, None, None, None).await {
+        match core
+            .route_and_infer(internal_request, None, None, None)
+            .await
+        {
             Ok(result) => {
                 total_tokens += result.tokens_generated as u64;
 
@@ -402,7 +405,7 @@ pub async fn generate_dataset_from_file(
         .created_by(&claims.sub)
         .tenant_id(&claims.tenant_id)
         .dataset_type("training")
-        .collection_method("generated")
+        .collection_method("pipeline")
         .category("synthetic")
         .build()
         .map_err(|e| internal_error(format!("Failed to build dataset params: {}", e)))?;

@@ -121,13 +121,52 @@ pub async fn persist_chunk(
         ));
     }
 
-    if session.received_chunks.contains_key(&chunk_index) {
+    if let Some(existing_hash) = session.received_chunks.get(&chunk_index) {
+        let incoming_hash = blake3::hash(body).to_hex().to_string();
+        if &incoming_hash == existing_hash {
+            let chunks_received = session.received_chunks.len();
+            let is_complete = state
+                .upload_session_manager
+                .is_upload_complete(session_id)
+                .await
+                .unwrap_or(false);
+
+            let resume_token = if !is_complete {
+                let next_chunk = (0..expected_chunks)
+                    .find(|i| !session.received_chunks.contains_key(i))
+                    .unwrap_or(expected_chunks);
+
+                Some(
+                    serde_json::to_string(&ResumeToken {
+                        session_id: session_id.to_string(),
+                        next_chunk,
+                        hash_state: incoming_hash.clone(),
+                    })
+                    .unwrap_or_default(),
+                )
+            } else {
+                None
+            };
+
+            return Ok((
+                session,
+                expected_chunks,
+                incoming_hash,
+                chunks_received,
+                is_complete,
+                resume_token,
+            ));
+        }
+
         return Err((
             StatusCode::CONFLICT,
             Json(ErrorResponse {
                 schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-                error: format!("Chunk {} has already been uploaded", chunk_index),
-                code: "DUPLICATE_CHUNK".to_string(),
+                error: format!(
+                    "Chunk {} has already been uploaded with a different hash",
+                    chunk_index
+                ),
+                code: "CHUNK_HASH_MISMATCH".to_string(),
                 failure_code: None,
                 details: None,
             }),

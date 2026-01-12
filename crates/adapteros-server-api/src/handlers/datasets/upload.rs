@@ -4,13 +4,17 @@ use super::chunked::{expected_chunks, prepare_session_with_workspace};
 use super::fs_utils::ensure_dirs;
 use super::hashing::{hash_dataset_manifest, hash_file, normalize_filename, DatasetHashInput};
 use super::helpers::{
-    dataset_quota_limits, path_policy_error, quota_error, MAX_FILE_COUNT, MAX_FILE_SIZE,
-    MAX_TOTAL_SIZE,
+    build_validation_error_payload, dataset_quota_limits, path_policy_error, quota_error,
+    MAX_FILE_COUNT, MAX_FILE_SIZE, MAX_TOTAL_SIZE,
 };
 use super::paths::{resolve_dataset_root, DatasetPaths};
 use super::progress::emit_progress;
 use super::tenant::bind_dataset_to_tenant;
 use super::types::{InitiateChunkedUploadRequest, InitiateChunkedUploadResponse};
+use super::upload_sessions::{
+    build_session_key, fetch_session_by_key, insert_session, validate_idempotency_key,
+    UploadSessionRecord, UPLOAD_SESSION_DB_SCHEMA_VERSION,
+};
 use super::validation::{
     validation_error_response, CompositeValidator, FileExistsRule, FileExtensionRule, FileSizeRule,
     ValidationConfig,
@@ -21,12 +25,14 @@ use crate::error_helpers::{bad_request, db_error, forbidden, internal_error, pay
 use crate::handlers::chunked_upload::{
     CompressionFormat, DEFAULT_CHUNK_SIZE, MAX_CHUNK_SIZE, MIN_CHUNK_SIZE,
 };
+use crate::middleware::request_id::RequestId;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
-use crate::storage_usage::compute_tenant_storage_usage;
+use crate::storage_usage::{compute_tenant_storage_usage, compute_workspace_storage_usage};
 use crate::types::{ErrorResponse, UploadDatasetResponse};
 use adapteros_db::training_datasets::{
-    validate_format, CreateDatasetParams, CreateTrainingDatasetRowParams, DatasetFile,
+    validate_format, validate_hash_b3, CreateDatasetParams, CreateTrainingDatasetRowParams,
+    DatasetFile,
 };
 use adapteros_secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
 use adapteros_storage::{ByteStorage, DatasetCategory, FsByteStorage, StorageKey};
@@ -38,8 +44,13 @@ use axum::{
 };
 use bytes::Bytes;
 use serde_json::{Map, Value};
+use std::collections::HashMap;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
+
+const METRIC_CHUNKED_SESSIONS_CREATED: &str = "chunked_upload_sessions_created";
+const METRIC_CHUNKED_SESSIONS_REUSED: &str = "chunked_upload_reused";
+const METRIC_CHUNKED_CONFLICT_HASH_MISMATCH: &str = "chunked_upload_conflict_hash_mismatch";
 
 struct PendingFile {
     file_name: String,
@@ -120,11 +131,15 @@ fn build_training_rows_from_jsonl(
 pub async fn upload_dataset(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    request_id: Option<Extension<RequestId>>,
     mut multipart: Multipart,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::DatasetUpload)?;
 
     let dataset_id = Uuid::now_v7().to_string();
+    let correlation_id = request_id
+        .map(|r| r.0 .0)
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
     let dataset_root = resolve_dataset_root(&state).map_err(internal_error)?;
     let paths = DatasetPaths::new(dataset_root.clone());
     let allowed_roots = [paths.root().to_path_buf()];
@@ -585,6 +600,11 @@ pub async fn upload_dataset(
     }
 
     // Store in database - associate dataset with the user's tenant
+    let dataset_status = if dataset_format == "jsonl" {
+        "processing"
+    } else {
+        "ready"
+    };
     let mut dataset_builder = CreateDatasetParams::builder()
         .id(&dataset_id)
         .name(&dataset_name)
@@ -592,13 +612,14 @@ pub async fn upload_dataset(
         .hash_b3(&dataset_hash)
         .dataset_hash_b3(&dataset_hash)
         .storage_path(&storage_path)
-        .status("ready")
+        .status(dataset_status)
         .created_by(&claims.sub)
         .tenant_id(&claims.tenant_id)
         .workspace_id(&storage_workspace)
         .dataset_type("training")
-        .collection_method("upload")
-        .category(dataset_category.as_dir_name());
+        .collection_method("api")
+        .category(dataset_category.as_dir_name())
+        .correlation_id(&correlation_id);
 
     if !dataset_description.is_empty() {
         dataset_builder = dataset_builder.description(&dataset_description);
@@ -691,6 +712,11 @@ pub async fn upload_dataset(
 
     // CRITICAL: Associate dataset with user's tenant for tenant isolation
     bind_dataset_to_tenant(&state.db, &dataset_id, &claims.tenant_id).await?;
+    info!(
+        dataset_id = %dataset_id,
+        correlation_id = %correlation_id,
+        "Dataset upload recorded"
+    );
 
     // Add file records to database
     for file in &uploaded_files {
@@ -755,25 +781,7 @@ pub async fn upload_dataset(
     } else {
         "invalid"
     };
-    let validation_errors = if validation_result.errors.is_empty() {
-        None
-    } else {
-        Some(
-            validation_result
-                .errors
-                .iter()
-                .map(|err| err.to_string())
-                .collect::<Vec<_>>()
-                .join("; "),
-        )
-    };
-
-    if !validation_result.is_valid {
-        return Err(validation_error_response(
-            "Dataset validation failed",
-            &validation_result.errors,
-        ));
-    }
+    let validation_errors = build_validation_error_payload(&validation_result.errors);
 
     state
         .db
@@ -798,6 +806,14 @@ pub async fn upload_dataset(
         );
     }
 
+    if !validation_result.is_valid {
+        let _ = state.db.update_dataset_status(&dataset_id, "failed").await;
+        return Err(validation_error_response(
+            "Dataset validation failed",
+            &validation_result.errors,
+        ));
+    }
+
     // Sync dataset to KV store after file counts update (non-blocking)
     if let Err(e) = state
         .db
@@ -820,28 +836,7 @@ pub async fn upload_dataset(
             Some(&claims.sub),
         );
 
-        if !rows.is_empty() {
-            match state.db.bulk_insert_training_dataset_rows(&rows).await {
-                Ok(inserted) => {
-                    info!(
-                        dataset_id = %dataset_id,
-                        dataset_version_id = %dataset_version_id,
-                        inserted,
-                        parse_errors,
-                        dropped,
-                        "Inserted training dataset rows from upload"
-                    );
-                }
-                Err(e) => {
-                    warn!(
-                        error = %e,
-                        dataset_id = %dataset_id,
-                        dataset_version_id = %dataset_version_id,
-                        "Failed to insert training dataset rows (non-blocking)"
-                    );
-                }
-            }
-        } else if parse_errors > 0 || dropped > 0 {
+        if rows.is_empty() {
             warn!(
                 dataset_id = %dataset_id,
                 dataset_version_id = %dataset_version_id,
@@ -849,7 +844,56 @@ pub async fn upload_dataset(
                 dropped,
                 "No training dataset rows created from upload"
             );
+            let _ = state.db.update_dataset_status(&dataset_id, "failed").await;
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("Dataset contains no valid training rows")
+                        .with_code("DATASET_EMPTY"),
+                ),
+            ));
         }
+
+        let inserted = match state.db.bulk_insert_training_dataset_rows(&rows).await {
+            Ok(inserted) => inserted,
+            Err(e) => {
+                warn!(
+                    error = %e,
+                    dataset_id = %dataset_id,
+                    dataset_version_id = %dataset_version_id,
+                    "Failed to insert training dataset rows"
+                );
+                let _ = state.db.update_dataset_status(&dataset_id, "failed").await;
+                return Err(db_error(format!(
+                    "Failed to insert training dataset rows: {}",
+                    e
+                )));
+            }
+        };
+
+        if inserted == 0 {
+            let _ = state.db.update_dataset_status(&dataset_id, "failed").await;
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("Dataset contains no valid training rows")
+                        .with_code("DATASET_EMPTY"),
+                ),
+            ));
+        }
+
+        if let Err(e) = state.db.update_dataset_status(&dataset_id, "ready").await {
+            return Err(db_error(format!("Failed to update dataset status: {}", e)));
+        }
+
+        info!(
+            dataset_id = %dataset_id,
+            dataset_version_id = %dataset_version_id,
+            inserted,
+            parse_errors,
+            dropped,
+            "Inserted training dataset rows from upload"
+        );
     } else {
         debug!(
             dataset_id = %dataset_id,
@@ -940,6 +984,27 @@ pub async fn initiate_chunked_upload(
         )));
     }
 
+    // PRD-4.2: Check quota at initiation (not completion) to fail fast
+    let (soft_quota, hard_quota) = dataset_quota_limits();
+    let usage = compute_tenant_storage_usage(&state, &claims.tenant_id)
+        .await
+        .map_err(|e| internal_error(format!("Failed to compute storage usage: {}", e)))?;
+    let predicted_usage = usage.total_bytes() + request.total_size;
+    if predicted_usage > hard_quota {
+        return Err(quota_error(format!(
+            "Dataset storage quota would be exceeded: predicted {} > {} bytes",
+            predicted_usage, hard_quota
+        )));
+    }
+    if predicted_usage > soft_quota {
+        warn!(
+            tenant_id = %claims.tenant_id,
+            predicted_usage,
+            soft_quota,
+            "Chunked upload initiation: soft quota will be exceeded"
+        );
+    }
+
     // Validate workspace access if provided
     if let Some(ref ws_id) = request.workspace_id {
         let access = state
@@ -957,6 +1022,36 @@ pub async fn initiate_chunked_upload(
                 "Access denied: you are not a member of this workspace",
             ));
         }
+
+        // Check workspace quota if configured
+        let uploads_cfg = adapteros_config::effective_config()
+            .map(|cfg| cfg.uploads.clone())
+            .ok();
+        if let Some(cfg) = uploads_cfg {
+            if cfg.workspace_hard_quota_bytes > 0 {
+                let ws_usage = compute_workspace_storage_usage(&state, ws_id)
+                    .await
+                    .map_err(|e| {
+                        internal_error(format!("Failed to compute workspace usage: {}", e))
+                    })?;
+                let predicted_ws_usage = ws_usage.total_bytes() + request.total_size;
+
+                if predicted_ws_usage > cfg.workspace_hard_quota_bytes {
+                    return Err(quota_error(format!(
+                        "Workspace storage quota exceeded: predicted {} > {} bytes",
+                        predicted_ws_usage, cfg.workspace_hard_quota_bytes
+                    )));
+                }
+                if predicted_ws_usage > cfg.workspace_soft_quota_bytes {
+                    warn!(
+                        workspace_id = %ws_id,
+                        predicted_usage = predicted_ws_usage,
+                        soft_quota = cfg.workspace_soft_quota_bytes,
+                        "Chunked upload initiation: workspace soft quota will be exceeded"
+                    );
+                }
+            }
+        }
     }
 
     let file_name = request.file_name.trim();
@@ -970,12 +1065,40 @@ pub async fn initiate_chunked_upload(
         )));
     }
 
-    // Determine chunk size
-    let chunk_size = request.chunk_size.unwrap_or(DEFAULT_CHUNK_SIZE);
-    let chunk_size = chunk_size.clamp(MIN_CHUNK_SIZE, MAX_CHUNK_SIZE);
+    let idempotency_key = match request.idempotency_key.as_deref() {
+        Some(value) => Some(validate_idempotency_key(value)?),
+        None => None,
+    };
+
+    let expected_file_hash_b3 = match request.expected_file_hash_b3.as_deref() {
+        Some(value) => {
+            validate_hash_b3(value)
+                .map_err(|e| bad_request(format!("Invalid expected file hash (BLAKE3): {}", e)))?;
+            Some(value.to_string())
+        }
+        None => None,
+    };
+
+    // Determine chunk size - reject explicit out-of-bounds values instead of silent clamping
+    let chunk_size = match request.chunk_size {
+        Some(size) if size < MIN_CHUNK_SIZE => {
+            return Err(bad_request(format!(
+                "Chunk size {} is below minimum of {} bytes",
+                size, MIN_CHUNK_SIZE
+            )));
+        }
+        Some(size) if size > MAX_CHUNK_SIZE => {
+            return Err(bad_request(format!(
+                "Chunk size {} exceeds maximum of {} bytes",
+                size, MAX_CHUNK_SIZE
+            )));
+        }
+        Some(size) => size,
+        None => DEFAULT_CHUNK_SIZE,
+    };
 
     // Calculate expected chunks
-    let expected_chunks = expected_chunks(request.total_size, chunk_size);
+    let expected_chunk_count = expected_chunks(request.total_size, chunk_size);
 
     // Detect compression
     let content_type = request
@@ -986,6 +1109,108 @@ pub async fn initiate_chunked_upload(
     let dataset_root = resolve_dataset_root(&state).map_err(internal_error)?;
     let paths = DatasetPaths::new(dataset_root);
 
+    let storage_workspace = request
+        .workspace_id
+        .clone()
+        .unwrap_or_else(|| claims.tenant_id.clone());
+    let normalized_file_name = normalize_filename(file_name);
+    let session_key = build_session_key(
+        idempotency_key.as_deref(),
+        expected_file_hash_b3.as_deref(),
+        &claims.tenant_id,
+        &storage_workspace,
+        &normalized_file_name,
+        request.total_size,
+        chunk_size,
+        &content_type,
+    );
+
+    if let Some(existing) = fetch_session_by_key(
+        &state.db,
+        &claims.tenant_id,
+        &storage_workspace,
+        &session_key,
+    )
+    .await?
+    {
+        if existing.status == "failed" {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new(format!(
+                        "Upload session {} previously failed: {}",
+                        existing.session_id,
+                        existing
+                            .error_message
+                            .clone()
+                            .unwrap_or_else(|| "unknown".to_string())
+                    ))
+                    .with_code("UPLOAD_SESSION_FAILED"),
+                ),
+            ));
+        }
+
+        if existing.normalized_file_name != normalized_file_name
+            || existing.total_size_bytes != request.total_size
+            || existing.chunk_size_bytes != chunk_size
+            || existing.content_type != content_type
+        {
+            return Err((
+                StatusCode::CONFLICT,
+                Json(
+                    ErrorResponse::new(
+                        "Idempotency key already used with different upload parameters",
+                    )
+                    .with_code("IDEMPOTENCY_CONFLICT"),
+                ),
+            ));
+        }
+
+        if let (Some(existing_hash), Some(request_hash)) = (
+            existing.expected_file_hash_b3.as_deref(),
+            expected_file_hash_b3.as_deref(),
+        ) {
+            if existing_hash != request_hash {
+                state
+                    .metrics_registry
+                    .record_metric(METRIC_CHUNKED_CONFLICT_HASH_MISMATCH.to_string(), 1.0)
+                    .await;
+                return Err((
+                    StatusCode::CONFLICT,
+                    Json(
+                        ErrorResponse::new(
+                            "Idempotency key already used with a different expected hash",
+                        )
+                        .with_code("IDEMPOTENCY_CONFLICT"),
+                    ),
+                ));
+            }
+        }
+
+        info!(
+            "Reusing chunked upload session {} for file {} ({} bytes, {} chunks, workspace: {:?})",
+            existing.session_id,
+            existing.file_name,
+            existing.total_size_bytes,
+            expected_chunks(existing.total_size_bytes, existing.chunk_size_bytes),
+            request.workspace_id
+        );
+        state
+            .metrics_registry
+            .record_metric(METRIC_CHUNKED_SESSIONS_REUSED.to_string(), 1.0)
+            .await;
+
+        return Ok(Json(InitiateChunkedUploadResponse {
+            session_id: existing.session_id,
+            chunk_size: existing.chunk_size_bytes,
+            expected_chunks: expected_chunks(existing.total_size_bytes, existing.chunk_size_bytes),
+            compression_format: format!(
+                "{:?}",
+                CompressionFormat::from_content_type(&content_type)
+            ),
+        }));
+    }
+
     // Use shared session manager from AppState with workspace isolation
     let session = prepare_session_with_workspace(
         &state,
@@ -995,24 +1220,53 @@ pub async fn initiate_chunked_upload(
         &content_type,
         chunk_size,
         compression.clone(),
-        request.workspace_id.clone(),
+        Some(storage_workspace.clone()),
     )
     .await?
     .0;
+
+    let dataset_id = Uuid::now_v7().to_string();
+    let session_record = UploadSessionRecord {
+        schema_version: UPLOAD_SESSION_DB_SCHEMA_VERSION,
+        session_id: session.session_id.clone(),
+        session_key,
+        tenant_id: claims.tenant_id.clone(),
+        workspace_id: storage_workspace.clone(),
+        dataset_id: dataset_id.clone(),
+        file_name: session.file_name.clone(),
+        normalized_file_name,
+        total_size_bytes: session.total_size,
+        chunk_size_bytes: session.chunk_size,
+        content_type: session.content_type.clone(),
+        expected_file_hash_b3: expected_file_hash_b3.clone(),
+        actual_file_hash_b3: None,
+        received_chunks: HashMap::new(),
+        status: "initiated".to_string(),
+        error_message: None,
+        temp_dir: session.temp_dir.clone(),
+        created_at: String::new(),
+        updated_at: String::new(),
+    };
+
+    insert_session(&state.db, &session_record).await?;
+    state
+        .metrics_registry
+        .record_metric(METRIC_CHUNKED_SESSIONS_CREATED.to_string(), 1.0)
+        .await;
 
     info!(
         "Initiated chunked upload session {} for file {} ({} bytes, {} chunks, workspace: {:?})",
         session.session_id,
         request.file_name,
         request.total_size,
-        expected_chunks,
+        expected_chunk_count,
         request.workspace_id
     );
 
     Ok(Json(InitiateChunkedUploadResponse {
         session_id: session.session_id,
         chunk_size,
-        expected_chunks,
+        expected_chunks: expected_chunk_count,
         compression_format: format!("{:?}", compression),
     }))
 }
