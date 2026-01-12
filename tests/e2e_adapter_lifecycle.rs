@@ -58,10 +58,17 @@ async fn test_complete_adapter_lifecycle() {
         .unwrap();
 
     let response = harness.app.clone().oneshot(register_request).await.unwrap();
-    assert!(
-        response.status() == StatusCode::OK || response.status() == StatusCode::CREATED,
-        "Adapter registration should succeed"
-    );
+    let status = response.status();
+    if status != StatusCode::OK && status != StatusCode::CREATED {
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        panic!(
+            "Adapter registration should succeed: status {} body {}",
+            status,
+            String::from_utf8_lossy(&body)
+        );
+    }
 
     // Step 2: Verify adapter is registered
     println!("Step 2: Verifying adapter registration...");

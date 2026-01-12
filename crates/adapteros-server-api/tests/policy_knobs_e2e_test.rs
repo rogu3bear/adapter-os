@@ -495,6 +495,7 @@ fn create_test_config(global_determinism: Option<&str>, use_session_stack: bool)
         auth: Default::default(),
         self_hosting: Default::default(),
         performance: Default::default(),
+        streaming: Default::default(),
         paths: PathsConfig {
             artifacts_root: "var/policy-knobs-test".to_string(),
             bundles_root: "var/policy-knobs-test".to_string(),

@@ -1077,7 +1077,7 @@ aosctl adapter codebase ingest --repo <PATH_OR_URL> [OPTIONS]
 - `--max-symbols` (optional): Maximum symbols to sample per repo (default: 64)
 - `--include-private` (optional): Include private symbols in dataset
 - `--positive-weight` (optional): Positive sample weight (default: 1.0)
-- `--negative-weight` (optional): Negative sample weight for abstention pairs (default: -0.5)
+- `--abstention-weight` (optional): Weight for abstention samples (default: 0.5). Uses `sample_role: "abstention"` metadata.
 - `--skip-register` (optional): Skip registry registration
 - `--tier` (optional): Registry tier (default: 1)
 - `--seed` (optional): Deterministic seed override
@@ -1167,7 +1167,7 @@ aosctl adapter train-from-code --repo <PATH_OR_URL> [OPTIONS]
 - `--max-symbols` (optional): Maximum symbols to sample per repo (default: 64)
 - `--include-private` (optional): Include private symbols in dataset
 - `--positive-weight` (optional): Positive sample weight (default: 1.0)
-- `--negative-weight` (optional): Negative sample weight for abstention pairs (default: -0.5)
+- `--abstention-weight` (optional): Weight for abstention samples (default: 0.5). Uses `sample_role: "abstention"` metadata.
 - `--skip-register` (optional): Skip registry registration
 - `--tier` (optional): Registry tier (default: 1)
 - `--seed` (optional): Deterministic seed override

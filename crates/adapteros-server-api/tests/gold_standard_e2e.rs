@@ -721,6 +721,7 @@ async fn test_backend_used_propagation() {
 
 /// Test HKDF algorithm version consistency
 #[tokio::test]
+#[allow(clippy::assertions_on_constants)]
 async fn test_hkdf_version_consistency() {
     // Verify HKDF algorithm version is at least 2 (current canonical)
     assert!(
@@ -748,7 +749,7 @@ mod test_assertions {
     #[should_panic(expected = "should be 64-char hex")]
     fn test_assert_valid_b3_hash_fails_short() {
         let short_hash = "abc123";
-        assert_valid_b3_hash(&short_hash, "test_field");
+        assert_valid_b3_hash(short_hash, "test_field");
     }
 
     #[test]

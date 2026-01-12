@@ -45,6 +45,7 @@ async fn fetch_manifest_by_hash_returns_yaml_and_hash() {
         auth: Default::default(),
         self_hosting: Default::default(),
         performance: Default::default(),
+        streaming: Default::default(),
         paths: PathsConfig {
             artifacts_root: "var/artifacts".into(),
             bundles_root: "var/bundles".into(),

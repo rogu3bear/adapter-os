@@ -258,9 +258,12 @@ async fn test_audit_log_captures_all_actions() {
             json!({
                 "adapter_id": "audit-test-adapter",
                 "tenant_id": "default",
-                "hash": "c".repeat(64),
+                "name": "audit-test-adapter",
+                "hash_b3": "c".repeat(64),
                 "tier": "persistent",
                 "rank": 8,
+                "languages": ["rust"],
+                "category": "code",
                 "acl": ["default"]
             })
             .to_string(),

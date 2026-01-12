@@ -5,12 +5,16 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+#[cfg(feature = "coreml-backend")]
+use adapteros_aos::open_aos;
 use adapteros_api_types::{
     workers::WorkerCapabilities, DatasetVersionSelection, StartTrainingRequest,
     TrainingConfigRequest, TrainingListParams,
 };
 use adapteros_core::B3Hash;
 use adapteros_db::adapter_repositories::CreateRepositoryParams;
+#[cfg(feature = "coreml-backend")]
+use adapteros_lora_worker::training::AdapterManifest;
 use adapteros_orchestrator::training::compute_combined_data_spec_hash;
 use adapteros_orchestrator::TrainingJobStatus;
 use adapteros_server_api::handlers::get_training_logs;
@@ -27,6 +31,8 @@ use std::path::PathBuf;
 use tempfile::TempDir;
 use tokio::time::sleep;
 use tower::ServiceExt;
+#[cfg(feature = "coreml-backend")]
+use walkdir::WalkDir;
 
 mod common;
 use common::{
@@ -52,6 +58,36 @@ async fn create_test_repo(
         })
         .await
         .expect("create adapter repository")
+}
+
+#[cfg(all(feature = "coreml-backend", target_os = "macos"))]
+fn coreml_runtime_available() -> bool {
+    adapteros_lora_kernel_coreml::is_coreml_available()
+        && adapteros_lora_kernel_coreml::is_neural_engine_available()
+}
+
+#[cfg(all(feature = "coreml-backend", not(target_os = "macos")))]
+fn coreml_runtime_available() -> bool {
+    false
+}
+
+#[cfg(feature = "coreml-backend")]
+fn has_coreml_artifacts(path: &PathBuf) -> bool {
+    let has_coreml_extension = |p: &std::path::Path| {
+        p.extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| matches!(ext, "mlmodel" | "mlmodelc" | "mlpackage"))
+            .unwrap_or(false)
+    };
+
+    if path.is_file() {
+        return has_coreml_extension(path);
+    }
+
+    WalkDir::new(path)
+        .into_iter()
+        .filter_map(|entry| entry.ok())
+        .any(|entry| has_coreml_extension(entry.path()))
 }
 
 fn make_request(name: &str, repo_id: String, base_model_id: &str) -> StartTrainingRequest {
@@ -195,6 +231,102 @@ async fn test_training_start() {
 
     assert!(!job.id.is_empty(), "job id should be returned");
     assert_eq!(job.adapter_name, "adapter-start");
+}
+
+#[cfg(feature = "coreml-backend")]
+#[tokio::test]
+async fn training_coreml_export_writes_artifacts_and_metadata() {
+    let _guard = common::env_lock().await;
+    if !coreml_runtime_available() {
+        eprintln!(
+            "SKIP: CoreML export test requires macOS + coreml-backend feature + ANE/CoreML availability"
+        );
+        return;
+    }
+
+    let base_package = match std::env::var("AOS_COREML_EXPORT_BASE_PACKAGE") {
+        Ok(raw) => PathBuf::from(raw),
+        Err(_) => {
+            eprintln!(
+                "SKIP: set AOS_COREML_EXPORT_BASE_PACKAGE to a CoreML .mlpackage/.mlmodelc path"
+            );
+            return;
+        }
+    };
+    if !base_package.exists() {
+        eprintln!(
+            "SKIP: AOS_COREML_EXPORT_BASE_PACKAGE does not exist: {}",
+            base_package.display()
+        );
+        return;
+    }
+
+    let prior_model_path = std::env::var("AOS_MODEL_PATH").ok();
+    std::env::set_var("AOS_MODEL_PATH", base_package.to_string_lossy().to_string());
+
+    let (state, _temp_dir, base_model_id, _has_real_model) = setup_training_state().await;
+    let claims = test_admin_claims();
+    let repo_id = create_test_repo(&state, &claims.tenant_id, &claims.sub, &base_model_id).await;
+
+    let mut request = make_request("adapter-coreml-export", repo_id, &base_model_id);
+    request.config.enable_coreml_export = Some(true);
+
+    let Json(job) = start_training(State(state.clone()), Extension(claims), Json(request))
+        .await
+        .expect("start training");
+
+    let status = wait_for_terminal(&state, &job.id).await;
+    assert_eq!(status, TrainingJobStatus::Completed);
+
+    let job = state.training_service.get_job(&job.id).await.expect("job");
+    assert_eq!(job.coreml_export_status.as_deref(), Some("succeeded"));
+    let coreml_package_path = PathBuf::from(
+        job.coreml_package_path
+            .clone()
+            .expect("coreml_package_path"),
+    );
+    let coreml_metadata_path = PathBuf::from(
+        job.coreml_metadata_path
+            .clone()
+            .expect("coreml_metadata_path"),
+    );
+    assert!(coreml_package_path.exists(), "coreml package missing");
+    assert!(coreml_metadata_path.exists(), "coreml metadata missing");
+    assert!(
+        has_coreml_artifacts(&coreml_package_path),
+        "coreml package missing .mlmodel/.mlmodelc/.mlpackage"
+    );
+
+    let fusion = adapteros_lora_worker::verify_coreml_export(&coreml_metadata_path)
+        .expect("coreml fusion metadata");
+    assert_ne!(
+        fusion.base_manifest_hash, fusion.fused_manifest_hash,
+        "fused manifest hash must differ from base"
+    );
+
+    let aos_path = job.aos_path.expect("aos_path");
+    let aos_bytes = std::fs::read(&aos_path).expect("read aos");
+    let aos = open_aos(&aos_bytes).expect("open aos");
+    let manifest: AdapterManifest =
+        serde_json::from_slice(aos.manifest_bytes).expect("adapter manifest");
+    let placement = manifest.coreml_placement.expect("coreml placement");
+    assert!(
+        placement.version > 0 && !placement.bindings.is_empty(),
+        "coreml placement metadata missing bindings"
+    );
+    assert!(
+        manifest
+            .coreml
+            .as_ref()
+            .map(|meta| meta.coreml_used)
+            .unwrap_or(false),
+        "manifest should preserve coreml export intent"
+    );
+
+    match prior_model_path {
+        Some(value) => std::env::set_var("AOS_MODEL_PATH", value),
+        None => std::env::remove_var("AOS_MODEL_PATH"),
+    }
 }
 
 #[tokio::test]

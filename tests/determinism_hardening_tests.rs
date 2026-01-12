@@ -15,16 +15,13 @@
 //! - T9: Seed lineage receipt binding
 //! - T10: Dual-write drift detection
 
-use adapteros_core::evidence_envelope::{
-    EvidenceEnvelope, EvidenceScope, InferenceReceiptRef, ReceiptCompletenessReport,
-    EVIDENCE_ENVELOPE_SCHEMA_VERSION,
-};
-use adapteros_core::seed::{SeedLineage, SeedMode, TypedSeed, HKDF_ALGORITHM_VERSION};
+use adapteros_core::evidence_envelope::{EvidenceEnvelope, InferenceReceiptRef};
+use adapteros_core::seed::{SeedLineage, SeedMode};
 use adapteros_core::B3Hash;
 use adapteros_lora_kernel_api::attestation::{
     BackendType, DeterminismLevel, DeterminismReport, FloatingPointMode, RngSeedingMethod,
 };
-use adapteros_types::routing::{detect_backend_drift, DriftReport, RouterDecision};
+use adapteros_types::routing::{detect_backend_drift, RouterDecision};
 
 // =============================================================================
 // T1: Seed Collision Detection
@@ -466,7 +463,7 @@ fn test_receipt_completeness_missing_backend() {
 
 #[test]
 fn test_receipt_strict_mode_validation() {
-    let mut receipt = sample_inference_receipt();
+    let receipt = sample_inference_receipt();
     // Missing seed_lineage_hash and backend_attestation_b3
 
     let result = receipt.validate_for_strict_mode();
@@ -498,5 +495,6 @@ fn sample_inference_receipt() -> InferenceReceiptRef {
         backend_used: "metal".to_string(),
         backend_attestation_b3: None,
         seed_lineage_hash: None,
+        adapter_training_lineage_digest: None,
     }
 }

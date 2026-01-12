@@ -1,7 +1,7 @@
 # AdapterOS API Reference
 
-**Version:** 1.1.0
-**Last Updated:** 2025-12-20
+**Version:** 1.2.0
+**Last Updated:** 2026-01-12
 **Copyright:** 2025 MLNavigator Inc. All rights reserved.
 
 This document provides the complete API reference for AdapterOS, consolidating endpoint documentation, request/response formats, and integration examples.
@@ -525,15 +525,22 @@ Content-Type: application/json
 
 **SSE Stream:**
 ```
-event: chunk
-data: {"text": "Lines", "index": 0}
+event: aos.run_envelope
+data: {"run_id":"chatcmpl-...","tenant_id":"...","policy_mask_digest":"..."}
 
-event: chunk
-data: {"text": " of", "index": 1}
-
-event: done
-data: {"total_tokens": 15, "latency_ms": 450}
+data: {"id":"chatcmpl-...","object":"chat.completion.chunk","choices":[{"delta":{"role":"assistant"}}]}
+data: {"id":"chatcmpl-...","object":"chat.completion.chunk","choices":[{"delta":{"content":"Lines"}}]}
+data: {"id":"chatcmpl-...","object":"chat.completion.chunk","choices":[{"delta":{"content":null},"finish_reason":"stop"}]}
+data: [DONE]
 ```
+
+**Stream Events:**
+- `event: aos.run_envelope` is emitted first with run metadata.
+- Token chunks are OpenAI-style `data: {json}` events without an explicit `event:` type.
+- Completion ends with `data: [DONE]`.
+- Heartbeats are sent as SSE comments when no tokens are emitted recently (`: heartbeat`).
+- On failure, the stream ends with `event: error` and JSON data:
+  `{ "code": "...", "message": "...", "retryable": true, "correlation_id": "..." }`
 
 **Note:** `/v1/infer/stream` does not support reconnection replay via `Last-Event-ID`; retry the request on disconnect.
 
@@ -646,6 +653,13 @@ name=customer-support-qa
 
 **Chunked Upload (Large Files):**
 
+**Chunked Upload Contract (Idempotent):**
+- `idempotency_key`: Optional stable key to safely retry `initiate`. If the same key is reused with different parameters or a different hash, the API returns `409 IDEMPOTENCY_CONFLICT`.
+- `expected_file_hash_b3`: Optional 64-hex BLAKE3 of the full file. Stored on the session and validated at `complete` time (`UPLOAD_HASH_MISMATCH` on mismatch).
+- Session reuse: `initiate` reuses the existing session when the same idempotency inputs match (same tenant/workspace, file metadata, and hash/key).
+- Completion is idempotent: calling `complete` again for a completed session returns the same `dataset_id`.
+- `AOS_KEEP_CHUNKED_UPLOAD_PARTS=1` keeps partial chunk files on failure/expiry for debugging; otherwise temp chunks are deleted on failure or cleanup.
+
 1. **Initiate:**
 ```http
 POST /v1/datasets/chunked-upload/initiate
@@ -653,15 +667,17 @@ Authorization: Bearer <token>
 Content-Type: application/json
 
 {
-  "filename": "large_dataset.jsonl",
+  "file_name": "large_dataset.jsonl",
   "total_size": 524288000,
-  "chunk_size": 5242880
+  "chunk_size": 5242880,
+  "idempotency_key": "upload-2025-01-01T12:00:00Z",
+  "expected_file_hash_b3": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 }
 ```
 
 2. **Upload Chunks:**
 ```http
-POST /v1/datasets/chunked-upload/{session_id}/chunk
+POST /v1/datasets/chunked-upload/{session_id}/chunk?chunk_index=0
 Authorization: Bearer <token>
 Content-Type: application/octet-stream
 
@@ -672,7 +688,58 @@ Content-Type: application/octet-stream
 ```http
 POST /v1/datasets/chunked-upload/{session_id}/complete
 Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "name": "large-dataset",
+  "format": "jsonl"
+}
 ```
+
+4. **Retry Complete (Idempotent):**
+```http
+POST /v1/datasets/chunked-upload/{session_id}/complete
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "name": "large-dataset",
+  "format": "jsonl"
+}
+```
+
+**Curl (init → chunk → complete):**
+```bash
+FILE="large_dataset.jsonl"
+HASH="$(b3sum "$FILE" | awk '{print $1}')"
+SIZE="$(stat -f%z "$FILE")"
+IDEMPOTENCY_KEY="upload-$(date -u +%Y%m%dT%H%M%SZ)"
+
+curl -sS "$AOS_BASE_URL/v1/datasets/chunked-upload/initiate" \
+  -H "Authorization: Bearer $AOS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "$(jq -n \
+    --arg file_name "$(basename "$FILE")" \
+    --arg expected_file_hash_b3 "$HASH" \
+    --arg idempotency_key "$IDEMPOTENCY_KEY" \
+    --argjson total_size "$SIZE" \
+    --argjson chunk_size 5242880 \
+    '{file_name:$file_name,total_size:$total_size,chunk_size:$chunk_size,idempotency_key:$idempotency_key,expected_file_hash_b3:$expected_file_hash_b3}')" \
+  | tee /tmp/chunked_init.json
+
+SESSION_ID="$(jq -r .session_id /tmp/chunked_init.json)"
+dd if="$FILE" bs=5242880 count=1 2>/dev/null | \
+  curl -sS "$AOS_BASE_URL/v1/datasets/chunked-upload/$SESSION_ID/chunk?chunk_index=0" \
+    -H "Authorization: Bearer $AOS_TOKEN" \
+    -H "Content-Type: application/octet-stream" \
+    --data-binary @-
+
+curl -sS "$AOS_BASE_URL/v1/datasets/chunked-upload/$SESSION_ID/complete" \
+  -H "Authorization: Bearer $AOS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"large-dataset","format":"jsonl"}'
+```
+See `scripts/chunked_upload_example.sh` for a runnable end-to-end script.
 
 **Dataset Operations:**
 - `GET /v1/datasets` - List datasets
@@ -682,6 +749,51 @@ Authorization: Bearer <token>
 - `GET /v1/datasets/{dataset_id}/statistics` - Statistics
 - `POST /v1/datasets/{dataset_id}/validate` - Validate format
 - `GET /v1/datasets/{dataset_id}/preview` - Preview samples
+
+**Training Example Format (JSONL):**
+
+Training datasets use JSONL format with one JSON object per line:
+
+```jsonl
+{"input": "What is 2+2?", "target": "The answer is 4", "weight": 1.0}
+{"input": "Explain Rust", "target": "Rust is a systems programming language.", "weight": 1.5}
+{"input": "Off-topic question", "target": "I cannot help with that.", "weight": 0.5, "sample_role": "abstention"}
+```
+
+**Field Reference:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `input` | string | Yes | Input/prompt text (aliases: `prompt`, `text`, `content`) |
+| `target` | string | Yes | Target/completion text (aliases: `output`, `completion`, `response`) |
+| `weight` | number | No | Example weight for loss scaling (default: 1.0). **Must be >= 0.0** |
+| `sample_role` | string | No | Sample classification for separated training |
+
+**Weight Validation:**
+- Weights must be **non-negative** (>= 0.0)
+- Negative weights are rejected with a validation error
+- Default weight is 1.0 if not specified
+- Higher weights increase the example's influence during training
+
+**Sample Role Classification:**
+
+The `sample_role` metadata field classifies examples for separated training strategies:
+
+| Value | Description |
+|-------|-------------|
+| (omitted) | Positive/knowledge example (default) |
+| `"abstention"` | Abstention example - teaches the model when to decline |
+| `"negative"` | Negative example - teaches the model what not to do |
+
+**Important:** Sample classification uses the `sample_role` field, **not** the weight sign. Weights are always non-negative and control loss scaling, while `sample_role` determines how the example is used during training.
+
+**Example with Sample Roles:**
+
+```jsonl
+{"input": "What is the capital of France?", "target": "Paris is the capital of France.", "weight": 1.0}
+{"input": "Tell me a harmful joke", "target": "I cannot help with that request.", "weight": 0.8, "sample_role": "abstention"}
+{"input": "How to hack a system?", "target": "I cannot provide hacking instructions.", "weight": 0.5, "sample_role": "negative"}
+```
 
 ### Models
 
@@ -959,6 +1071,26 @@ Authorization: Bearer <token>
   "total_quarantined": 1
 }
 ```
+
+**Evidence Envelope Schema (v4):**
+
+Evidence envelopes are tamper-evident containers for inference receipts. Schema version 4 adds training data provenance.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `adapter_training_lineage_digest` | `Option<B3Hash>` | BLAKE3 hash proving adapter training provenance |
+
+The `adapter_training_lineage_digest` field in `InferenceReceiptRef` enables verification that inference outputs came from adapters trained on specific datasets. Computed as:
+
+```
+BLAKE3(adapter_id_1 || training_hash_1 || adapter_id_2 || training_hash_2 || ...)
+```
+
+Adapters are sorted by `adapter_id` for deterministic hashing.
+
+**Router Event Training Digests:**
+
+The `RouterEventDigest` in decision chains includes `adapter_training_digests: Option<Vec<B3Hash>>`, a parallel array to `adapter_indices` containing training dataset hashes for each routed adapter.
 
 ### Retrieval-Augmented Generation (RAG)
 
@@ -2382,10 +2514,14 @@ All API responses follow this structure:
 - `ROUTING_CHAIN_ERROR` (500) - Router error
 - `DETERMINISM_VIOLATION` (500) - Non-deterministic behavior detected
 - `ADAPTER_QUARANTINED` (503) - Adapter in quarantine due to failures
+- `ADAPTER_TENANT_MISMATCH` (403) - Adapter belongs to a different tenant
+- `ADAPTER_BASE_MODEL_MISMATCH` (400) - Adapter base model does not match request
 
 #### Training Errors (400, 500)
 - `TRAINING_JOB_FAILED` - Training job failed
 - `DATASET_INVALID` - Dataset validation failed
+- `DATASET_EMPTY` - Dataset has no training rows
+- `DATASET_UNTRUSTED` (403) - Dataset requires approval before training
 - `INSUFFICIENT_DATA` - Not enough training data
 - `TRAINING_QUOTA_EXCEEDED` - Too many concurrent jobs
 - `MODEL_EXPORT_FAILED` - Adapter packaging failed
@@ -2473,7 +2609,7 @@ DATASET_ID=$(curl -X POST "$BASE_URL/v1/datasets/upload" \
   -H "Authorization: Bearer $TOKEN" \
   -F "file=@training_data.jsonl" \
   -F "name=customer-support-v1" \
-  | jq -r '.id')
+  | jq -r '.dataset_id')
 
 echo "Dataset ID: $DATASET_ID"
 
@@ -2850,11 +2986,12 @@ All responses include:
 
 ---
 
-**Document Version:** 1.1.0
-**Last Updated:** 2025-12-20
+**Document Version:** 1.2.0
+**Last Updated:** 2026-01-12
 **Maintained By:** MLNavigator Inc
 
 **Changelog:**
+- **v1.2.0 (2026-01-12):** Added Training Example Format documentation under Datasets section: weight validation rules (must be >= 0.0), sample_role metadata field for classification (abstention, negative), and field reference table.
 - **v1.1.0 (2025-12-20):** Added comprehensive documentation for OpenAI compatibility, Replay & Determinism, RAG, extended Chat sessions, Policies, API Keys, Monitoring & Alerts, Plans & Orchestration, Workspaces, Admin Lifecycle, Storage & KV Isolation, Git Integration, Repository Management, Golden Runs & Promotion, Runtime & System State, Notifications, Tutorials, and Dashboard Configuration. Expanded error codes with HTTP status codes and categories.
 - **v1.0.0 (2025-12-11):** Initial comprehensive API reference
 

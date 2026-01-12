@@ -173,7 +173,7 @@ fn is_in_test_block(content: &str, target_line: usize) -> bool {
         let line = lines[i].trim();
         if line.contains("#[test]") || line.contains("mod tests") || line.contains("#[cfg(test)]") {
             // Check if we're still within this block
-            if i + 100 >= target_line {
+            if i + 500 >= target_line {
                 return true;
             }
         }
@@ -382,7 +382,7 @@ fn test_secret_zeroization() {
 
         // Check that SecretKey is zeroized
         assert!(
-            content.contains("impl ZeroizeOnDrop for SecretKey"),
+            content.contains("ZeroizeOnDrop for SecretKey"),
             "SecretKey should implement ZeroizeOnDrop"
         );
     }

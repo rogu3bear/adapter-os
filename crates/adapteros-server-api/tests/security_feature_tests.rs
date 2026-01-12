@@ -312,14 +312,14 @@ mod token_revocation_tests {
         // Create multiple sessions
         for i in 1..=3 {
             let jti = format!("jti-revoke-all-{}", i);
-            let expires_at = (Utc::now() + Duration::hours(8)).to_rfc3339();
+            let expires_at = (Utc::now() + Duration::hours(8)).timestamp();
 
             create_session(
                 &db,
                 &jti,
                 user_id,
                 tenant_id,
-                &expires_at,
+                expires_at,
                 Some("192.168.1.1"),
                 Some("test-agent"),
             )

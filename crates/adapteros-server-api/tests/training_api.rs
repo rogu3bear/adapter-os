@@ -118,6 +118,7 @@ async fn training_job_completion_and_activation_updates_workspace_state() -> any
             &training_config_json,
             &claims.sub,
             Some(dataset_id),
+            None,
             Some(version_id),
             None,
             Some("base-model-1"),

@@ -10,12 +10,22 @@
 //!
 //! [2025-11-22 streaming_inference_tests]
 
+use adapteros_api_types::workers::WorkerCapabilities;
+use adapteros_core::identity::IdentityEnvelope;
 use adapteros_core::{derive_seed, B3Hash};
+use adapteros_server_api::handlers::streaming_infer::{streaming_infer, StreamingInferRequest};
+use axum::body::to_bytes;
+use axum::response::IntoResponse;
+use axum::{extract::State, Extension, Json};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
+
+mod common;
+use common::{create_test_adapter_default, register_test_worker, setup_state, test_admin_claims};
 
 /// OpenAI-compatible streaming chunk format
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -241,6 +251,117 @@ impl Default for StreamingState {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Test that streaming inference emits structured error payloads with all required fields.
+/// The error payload must contain: code, message, retryable (bool), correlation_id.
+#[tokio::test]
+async fn streaming_infer_emits_structured_error_on_unavailable_resource() {
+    let state = setup_state(None).await.expect("state");
+    let caps = WorkerCapabilities {
+        backend_kind: "mlx".to_string(),
+        implementation: None,
+        supports_step: true,
+        supports_bulk: false,
+        supports_logits: true,
+        supports_streaming: true,
+        gpu_backward: true,
+        multi_backend: true,
+    };
+    let worker_id = register_test_worker(&state, "tenant-1", caps)
+        .await
+        .expect("register worker");
+    let manifest_hash = format!("manifest-{}", worker_id);
+    let state = state.with_manifest_info(manifest_hash, "mlx".to_string());
+
+    let adapter_id = format!("adapter-test-{}", uuid::Uuid::new_v4());
+    create_test_adapter_default(&state, &adapter_id, "tenant-1")
+        .await
+        .expect("create adapter");
+
+    let claims = test_admin_claims();
+    let identity = IdentityEnvelope::new(
+        claims.tenant_id.clone(),
+        "api".to_string(),
+        "inference".to_string(),
+        "test".to_string(),
+    );
+
+    let req = StreamingInferRequest {
+        prompt: "hello".to_string(),
+        model: None,
+        coreml_mode: None,
+        routing_determinism_mode: None,
+        stack_id: None,
+        domain: None,
+        max_tokens: 16,
+        temperature: 0.7,
+        top_p: None,
+        top_k: None,
+        stop: Vec::new(),
+        adapter_stack: None,
+        adapters: Some(vec![adapter_id]),
+        seed: None,
+        adapter_strength_overrides: None,
+        require_evidence: false,
+        reasoning_mode: false,
+        collection_id: None,
+        session_id: None,
+        effective_adapter_ids: None,
+        stop_policy: None,
+    };
+
+    let sse = streaming_infer(
+        State(state),
+        Extension(claims),
+        Extension(identity),
+        Json(req),
+    )
+    .await
+    .expect("sse response");
+    let response = sse.into_response();
+    let body = to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .expect("read body");
+    let body_str = String::from_utf8(body.to_vec()).expect("utf8 body");
+
+    let mut error_payload: Option<Value> = None;
+    for block in body_str.split("\n\n") {
+        let mut event_type = None;
+        let mut data = None;
+        for line in block.lines() {
+            if let Some(value) = line.strip_prefix("event:") {
+                event_type = Some(value.trim());
+            } else if let Some(value) = line.strip_prefix("data:") {
+                data = Some(value.trim());
+            }
+        }
+
+        if event_type == Some("error") {
+            if let Some(data) = data {
+                error_payload = serde_json::from_str::<Value>(data).ok();
+                break;
+            }
+        }
+    }
+
+    let payload = error_payload.expect("structured error payload");
+    assert!(payload.get("code").is_some(), "missing error code");
+    assert!(payload.get("message").is_some(), "missing error message");
+    // Verify retryable field exists and is a boolean (value can be true or false depending on error type)
+    assert!(
+        payload.get("retryable").and_then(Value::as_bool).is_some(),
+        "missing or invalid retryable field, got: {:?}",
+        payload.get("retryable")
+    );
+    assert!(
+        payload
+            .get("correlation_id")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .starts_with("chatcmpl-"),
+        "expected correlation_id"
+    );
 }
 
 /// Run streaming generation with proper client disconnect handling

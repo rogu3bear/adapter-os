@@ -115,8 +115,7 @@ impl SseEventCollector {
             return Ok(());
         }
 
-        if line.starts_with("data: ") {
-            let json_str = &line[6..];
+        if let Some(json_str) = line.strip_prefix("data: ") {
             let chunk: ChatCompletionChunk = serde_json::from_str(json_str)
                 .map_err(|e| format!("Invalid JSON in SSE data: {}", e))?;
 
@@ -288,9 +287,11 @@ pub struct StreamValidationResult {
 
 /// Validate collected SSE events against streaming reliability requirements
 pub fn validate_stream(collector: &SseEventCollector) -> StreamValidationResult {
-    let mut result = StreamValidationResult::default();
-    result.event_count = collector.events().len();
-    result.data_event_count = collector.data_events().len();
+    let mut result = StreamValidationResult {
+        event_count: collector.events().len(),
+        data_event_count: collector.data_events().len(),
+        ..Default::default()
+    };
 
     // Check 1: JSON chunk format (data: {json}\n\n)
     for event in collector.data_events() {

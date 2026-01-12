@@ -2,8 +2,8 @@
 
 **Purpose:** Comprehensive database architecture, schema, operations, and troubleshooting guide
 
-**Last Updated:** 2025-12-20
-**Schema Version:** 223 migrations applied
+**Last Updated:** 2026-01-12
+**Schema Version:** 283 migrations applied
 
 ---
 
@@ -97,7 +97,7 @@ export AOS_ATOMIC_DUAL_WRITE_STRICT=1  # Auto-enforced in kv_primary/kv_only
 
 Migrations are managed using the Refinery framework and stored in `/migrations/`. Each migration is:
 
-- Numbered sequentially (0001-0190+)
+- Numbered sequentially (0001-0283)
 - Signed with Ed25519 (`migrations/signatures.json`)
 - SQLite-compatible by default
 - PostgreSQL-compatible via abstraction layer
@@ -436,11 +436,13 @@ CREATE TABLE adapters (
 - `lifecycle_state`: Lifecycle state (draft, active, deprecated, retired)
 - `load_state`: Current load state (unloaded, loading, loaded, error)
 - `pinned`: Pin status for eviction protection
+- `training_dataset_hash_b3`: BLAKE3 hash of training dataset (denormalized for inference-time receipt generation)
 
 **Indexes:**
 - `idx_adapters_adapter_id` on `adapter_id`
 - `idx_adapters_active` on `active`
 - `idx_adapters_tenant_id` on `tenant_id`
+- `idx_adapters_training_dataset_hash` on `training_dataset_hash_b3` (partial, WHERE NOT NULL)
 
 **Example Queries:**
 ```sql
@@ -726,6 +728,7 @@ CREATE TABLE training_datasets (
     validation_status TEXT NOT NULL DEFAULT 'pending',
     validation_errors TEXT,
     metadata_json TEXT,
+    correlation_id TEXT,
     created_by TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -778,6 +781,49 @@ CREATE TABLE dataset_files (
 
 ---
 
+### `dataset_upload_sessions`
+
+**Purpose:** Persist chunked upload session state for idempotency and retries.
+
+**Session Key Semantics:**
+- `session_key` is derived from tenant + workspace and one of: `idempotency_key`, `expected_file_hash_b3`, or a fallback of file metadata (name/size/chunk/content_type).
+- `idempotency_key` + mismatched parameters or hash yields `IDEMPOTENCY_CONFLICT`.
+
+**Schema:**
+```sql
+CREATE TABLE dataset_upload_sessions (
+    session_id TEXT PRIMARY KEY,
+    session_key TEXT NOT NULL,
+    tenant_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL,
+    dataset_id TEXT NOT NULL,
+    file_name TEXT NOT NULL,
+    normalized_file_name TEXT NOT NULL,
+    total_size_bytes INTEGER NOT NULL,
+    chunk_size_bytes INTEGER NOT NULL,
+    content_type TEXT NOT NULL,
+    expected_file_hash_b3 TEXT,
+    actual_file_hash_b3 TEXT,
+    received_chunks_json TEXT NOT NULL DEFAULT '{}',
+    received_chunks_count INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'initiated' CHECK (status IN ('initiated','uploading','complete','failed')),
+    schema_version INTEGER NOT NULL DEFAULT 1,
+    error_message TEXT,
+    temp_dir TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+);
+```
+
+**Indexes:**
+- `idx_dataset_upload_sessions_key` on `(tenant_id, workspace_id, session_key)` (unique)
+- `idx_dataset_upload_sessions_status` on `(status, created_at)`
+- `idx_dataset_upload_sessions_dataset` on `dataset_id`
+- `idx_dataset_upload_sessions_stale` on `(status, updated_at)`
+
+---
+
 ### `training_jobs`
 
 **Purpose:** Job tracking and progress.
@@ -787,6 +833,7 @@ CREATE TABLE dataset_files (
 CREATE TABLE training_jobs (
     id TEXT PRIMARY KEY,
     dataset_id TEXT,
+    correlation_id TEXT,
     status TEXT NOT NULL,
     progress_pct REAL,
     loss REAL,
@@ -797,6 +844,14 @@ CREATE TABLE training_jobs (
     FOREIGN KEY (dataset_id) REFERENCES training_datasets(id)
 );
 ```
+
+---
+
+### `repository_training_jobs`
+
+**Purpose:** Denormalized training job tracking for repository-driven workflows.
+
+**Note:** Includes `correlation_id` for dataset/training traceability (migration 0281).
 
 ---
 
@@ -1283,7 +1338,7 @@ systemctl restart adapteros-server
 
 **Canonical Location:** `/migrations/` (root)
 
-**Migration Count:** 223 migrations (0001-0225, gaps at 0136 and 0180)
+**Migration Count:** 283 migrations (0001-0283)
 
 **Signing:** All migrations signed with Ed25519 (`migrations/signatures.json`)
 
@@ -1304,6 +1359,11 @@ systemctl restart adapteros-server
 | **0177** | Dataset trust gates | `training_datasets` |
 | **0185** | Worker lifecycle upgrade | `workers` |
 | **0190** | Manifest lineage trust snapshot | `manifests`, `lineage_snapshots` |
+| **0279** | Dataset upload sessions table | `dataset_upload_sessions` |
+| **0280** | Dataset upload sessions stale index | `dataset_upload_sessions` |
+| **0281** | Training correlation ID column | `training_datasets`, `repository_training_jobs` |
+| **0282** | Training dataset hash on adapters | `adapters` |
+| **0283** | Upload session schema version | `dataset_upload_sessions` |
 
 ### Creating New Migrations
 

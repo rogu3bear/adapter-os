@@ -370,7 +370,7 @@ fn parse_prompt(prompt: &str) -> HashSet<String> {
         .collect();
     let mut found = HashSet::new();
     for (key, keywords) in PROMPT_KEYWORDS {
-        if keywords.iter().any(|kw| tokens.contains(&kw.to_string())) {
+        if keywords.iter().any(|kw| tokens.contains(*kw)) {
             found.insert((*key).to_string());
         }
     }
@@ -1810,6 +1810,7 @@ fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn print_summary(
     summary: &Summary,
     capabilities: &Capabilities,

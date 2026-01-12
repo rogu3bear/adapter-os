@@ -126,6 +126,8 @@ fn trace_receipt_to_ref(
         // PRD-DET-001: Backend identity fields default to empty when converting from legacy TraceReceipt
         backend_used: String::new(),
         backend_attestation_b3: None,
+        seed_lineage_hash: None,
+        adapter_training_lineage_digest: None,
     }
 }
 

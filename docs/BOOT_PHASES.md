@@ -785,7 +785,8 @@ When set, overrides the derived seed for controlled reproducibility.
 Dataset hashes include all training sample components:
 - Prompt text
 - Response text
-- Sample weight (positive/negative)
+- Sample weight (non-negative)
+- Sample role metadata (e.g., `sample_role: "abstention"`)
 - Metadata key-value pairs
 
 This ensures any change to training data results in a different hash.
