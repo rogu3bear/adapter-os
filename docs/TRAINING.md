@@ -10,15 +10,16 @@ Complete guide to training custom LoRA adapters in AdapterOS, covering the entir
 
 1. [Overview](#overview)
 2. [Training Flow Diagram](#training-flow-diagram)
-3. [Dataset Preparation](#dataset-preparation)
-4. [Training Pipeline](#training-pipeline)
-5. [GPU Integration](#gpu-integration)
-6. [MoE Training](#moe-training)
-7. [Provenance and Versioning](#provenance-and-versioning)
-8. [Backend Selection](#backend-selection)
-9. [Quick Start Examples](#quick-start-examples)
-10. [API Reference](#api-reference)
-11. [Troubleshooting](#troubleshooting)
+3. [Training Example Types](#training-example-types)
+4. [Dataset Preparation](#dataset-preparation)
+5. [Training Pipeline](#training-pipeline)
+6. [GPU Integration](#gpu-integration)
+7. [MoE Training](#moe-training)
+8. [Provenance and Versioning](#provenance-and-versioning)
+9. [Backend Selection](#backend-selection)
+10. [Quick Start Examples](#quick-start-examples)
+11. [API Reference](#api-reference)
+12. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -104,6 +105,51 @@ flowchart TB
 
 ---
 
+## Training Example Types
+
+AdapterOS supports two training paradigms through the `TrainingExample` enum:
+
+### Supervised Fine-Tuning (SFT)
+
+Standard input-target pairs using `TrainingExampleV1`:
+
+```rust
+TrainingExample::Sft(TrainingExampleV1 {
+    input_tokens: vec![...],      // Prompt token IDs
+    target_tokens: vec![...],     // Completion token IDs
+    attention_mask: vec![...],    // 1 = real token, 0 = pad
+    metadata: ExampleMetadataV1 { ... },
+})
+```
+
+### Preference Learning (DPO)
+
+Contrastive pairs using `PreferencePairV1` for Direct Preference Optimization:
+
+```rust
+TrainingExample::Preference(PreferencePairV1 {
+    prompt_tokens: vec![...],           // Shared prompt token IDs
+    chosen_tokens: vec![...],           // Preferred response
+    rejected_tokens: vec![...],         // Non-preferred response
+    margin: 1.0,                        // Preference strength (default 1.0)
+    prompt_attention_mask: vec![...],   // 1 = real token, 0 = pad
+    metadata: ExampleMetadataV1 { ... },
+})
+```
+
+**Validation** (`validate_preference_pair`):
+- All token sequences must be non-empty
+- Margin must be positive
+- Attention mask length must match prompt length
+- All tokens must be within vocab bounds
+
+**Use Cases:**
+- Preference alignment without reward models
+- Steering model behavior toward preferred outputs
+- Hybrid datasets mixing SFT and preference examples
+
+---
+
 ## Dataset Preparation
 
 ### Supported File Formats
@@ -121,6 +167,44 @@ One JSON object per line with input-output pairs:
 **Field Names Recognized:**
 - Input: `input`, `prompt`, `text`, `content`
 - Target: `target`, `output`, `completion`, `response`
+- Weight: `weight` (optional, default 1.0, must be >= 0)
+- Sample Role: `sample_role` in metadata (optional, for abstention training)
+
+Validation diagnostics report missing or invalid fields per line and reference the
+expected training contract version (`1.0`) when JSONL entries are malformed.
+
+#### Sample Weights and Roles
+
+**Weight Validation:**
+
+All sample weights must be non-negative (>= 0). Negative weights are rejected at parse time:
+
+```jsonl
+{"input": "What is X?", "target": "X is...", "weight": 1.0}
+{"input": "Off-topic?", "target": "I can't help with that.", "weight": 0.5, "sample_role": "abstention"}
+```
+
+**Sample Classification:**
+
+Sample classification for abstention/negative training uses the explicit `sample_role` metadata field, not weight sign:
+
+| `sample_role` | Description | Typical Weight |
+|---------------|-------------|----------------|
+| `knowledge` | Standard knowledge example (default) | 1.0 |
+| `abstention` | Model should decline/abstain | 0.5 |
+| `negative` | Negative example for contrastive learning | 0.5 |
+
+**CLI Flags:**
+
+```bash
+# Train with abstention examples (positive_weight for knowledge, negative_weight for abstention)
+./aosctl adapter train-from-code \
+  --positive-weight 1.0 \
+  --negative-weight 0.5 \  # Must be >= 0.0
+  ...
+```
+
+The `--negative-weight` flag enforces `>= 0.0` and errors on negative values. The term "negative" refers to the sample role (abstention/negative examples), not the weight value itself.
 
 #### JSON Format
 
@@ -198,6 +282,10 @@ curl -X POST http://localhost:8080/v1/datasets/{dataset_id}/validate
 - BLAKE3 hash integrity
 - Schema compliance
 - Minimum example count (10 examples)
+
+**Readiness Gate:**
+- Training requires datasets to be `ready` and trusted; untrusted datasets return `DATASET_UNTRUSTED` (403).
+- JSONL uploads that yield zero training rows fail with `DATASET_EMPTY`.
 
 ### Dataset Management
 
@@ -653,6 +741,11 @@ let config = TrainingConfig::default()
     }
 }
 ```
+
+**Adapter ID Notes:**
+
+- Training-generated adapter IDs are deterministic: `adapter-{job_id}` (with a leading `train-` prefix stripped if present).
+- Use this `adapter_id` when calling `POST /v1/infer` (the server resolves the adapter per-tenant and loads the `.aos` artifact recorded by the training job).
 
 **Per-Epoch Metrics:**
 

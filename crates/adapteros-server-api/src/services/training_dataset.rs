@@ -11,8 +11,8 @@ use crate::error_helpers::{bad_request, db_error, internal_error, not_found};
 use crate::handlers::chunked_upload::FileValidator;
 use crate::handlers::datasets::{
     bind_dataset_to_tenant, clean_dataset_dir, dataset_quota_limits, ensure_dirs, hash_file,
-    map_validation_errors, map_validation_status, quota_error, resolve_dataset_root, DatasetPaths,
-    STREAM_BUFFER_SIZE,
+    map_validation_diagnostics, map_validation_errors, map_validation_status, quota_error,
+    resolve_dataset_root, DatasetPaths, STREAM_BUFFER_SIZE,
 };
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
@@ -334,7 +334,8 @@ impl DefaultTrainingDatasetService {
             .map(|(_, trust)| trust);
 
         let response_validation_status = map_validation_status(&validation_status);
-        let response_validation_errors = map_validation_errors(validation_errors);
+        let response_validation_errors = map_validation_errors(validation_errors.clone());
+        let response_validation_diagnostics = map_validation_diagnostics(validation_errors);
         let now = chrono::Utc::now().to_rfc3339();
 
         // Audit log
@@ -381,6 +382,7 @@ impl DefaultTrainingDatasetService {
             workspace_id: None,
             validation_status: response_validation_status,
             validation_errors: response_validation_errors,
+            validation_diagnostics: response_validation_diagnostics,
             trust_state,
             created_by: claims.sub.clone(),
             created_at: now.clone(),

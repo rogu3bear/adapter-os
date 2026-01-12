@@ -330,6 +330,40 @@ fn map_inference_error(id: String, err: crate::types::InferenceError) -> BatchIn
                     .with_string_details(msg),
             ),
         },
+        InferenceError::AdapterTenantMismatch {
+            adapter_id,
+            tenant_id,
+            adapter_tenant_id,
+        } => BatchInferItemResponse {
+            id,
+            response: None,
+            error: Some(
+                ErrorResponse::new("adapter tenant mismatch")
+                    .with_code("ADAPTER_TENANT_MISMATCH")
+                    .with_string_details(format!(
+                        "Adapter {} belongs to tenant {} (request tenant {})",
+                        adapter_id, adapter_tenant_id, tenant_id
+                    )),
+            ),
+        },
+        InferenceError::AdapterBaseModelMismatch {
+            adapter_id,
+            expected_base_model_id,
+            adapter_base_model_id,
+        } => BatchInferItemResponse {
+            id,
+            response: None,
+            error: Some(
+                ErrorResponse::new("adapter base model mismatch")
+                    .with_code("ADAPTER_BASE_MODEL_MISMATCH")
+                    .with_string_details(format!(
+                        "Adapter {} base model mismatch: expected {}, adapter has {}",
+                        adapter_id,
+                        expected_base_model_id,
+                        adapter_base_model_id.unwrap_or_else(|| "unknown".to_string())
+                    )),
+            ),
+        },
         InferenceError::WorkerIdUnavailable { tenant_id, reason } => BatchInferItemResponse {
             id,
             response: None,
@@ -903,6 +937,12 @@ async fn process_batch_job(
                             crate::types::InferenceError::RagError(_) => "INTERNAL_ERROR",
                             crate::types::InferenceError::WorkerError(_) => "INTERNAL_ERROR",
                             crate::types::InferenceError::AdapterNotFound(_) => "NOT_FOUND",
+                            crate::types::InferenceError::AdapterTenantMismatch { .. } => {
+                                "ADAPTER_TENANT_MISMATCH"
+                            }
+                            crate::types::InferenceError::AdapterBaseModelMismatch { .. } => {
+                                "ADAPTER_BASE_MODEL_MISMATCH"
+                            }
                             crate::types::InferenceError::WorkerIdUnavailable { .. } => {
                                 "SERVICE_UNAVAILABLE"
                             }

@@ -16,6 +16,7 @@ use adapteros_config::resolve_worker_socket_for_cp;
 use adapteros_config::ModelConfig;
 use adapteros_core::defaults::DEFAULT_TRAINING_REPORTS_SUBDIR;
 use adapteros_core::AosError;
+use adapteros_db::adapter_repositories::AdapterRepository;
 use adapteros_db::CreateDraftVersionParams as CreateDraftAdapterVersionParams;
 #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
 use adapteros_lora_worker::backend_factory::resolve_coreml_backend_settings;
@@ -493,6 +494,124 @@ pub(crate) async fn resolve_base_model_path(
     Ok(path)
 }
 
+#[derive(Debug, PartialEq, Eq)]
+struct GuardrailError {
+    code: &'static str,
+    message: String,
+}
+
+fn validate_training_guardrails(
+    config: &TrainingConfigRequest,
+    repo: &AdapterRepository,
+    base_model: &adapteros_db::models::Model,
+    dataset_version: Option<&adapteros_db::training_datasets::TrainingDatasetVersion>,
+) -> Result<(), GuardrailError> {
+    if let Err(errors) = config.validate() {
+        return Err(GuardrailError {
+            code: "INVALID_CONFIG",
+            message: errors.join("; "),
+        });
+    }
+
+    if config.targets.is_empty() {
+        return Err(GuardrailError {
+            code: "INVALID_CONFIG",
+            message: "targets must not be empty".to_string(),
+        });
+    }
+
+    if let Some(split) = config.validation_split {
+        if !(0.0..=0.5).contains(&split) {
+            return Err(GuardrailError {
+                code: "INVALID_CONFIG",
+                message: "validation_split must be between 0.0 and 0.5".to_string(),
+            });
+        }
+    }
+
+    if let Some(repo_base) = repo.base_model_id.as_deref() {
+        if repo_base != base_model.id {
+            return Err(GuardrailError {
+                code: "BASE_MODEL_MISMATCH",
+                message: format!(
+                    "Repository base_model_id {} does not match loaded model {}",
+                    repo_base, base_model.id
+                ),
+            });
+        }
+    }
+
+    if let Some(version) = dataset_version {
+        if version.trust_state == "blocked" || version.trust_state == "needs_approval" {
+            return Err(GuardrailError {
+                code: "DATASET_UNTRUSTED",
+                message: format!(
+                    "Dataset version {} trust_state={} blocks training",
+                    version.id, version.trust_state
+                ),
+            });
+        }
+
+        if let Some(manifest_json) = version.manifest_json.as_deref() {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(manifest_json) {
+                if let Some(m_base) = value.get("base_model_id").and_then(|v| v.as_str()) {
+                    if m_base != base_model.id {
+                        return Err(GuardrailError {
+                            code: "BASE_MODEL_MISMATCH",
+                            message: format!(
+                                "Dataset manifest base_model_id {} does not match model {}",
+                                m_base, base_model.id
+                            ),
+                        });
+                    }
+                }
+                if let Some(hash) = value.get("base_model_hash_b3").and_then(|v| v.as_str()) {
+                    if hash != base_model.hash_b3 {
+                        return Err(GuardrailError {
+                            code: "BASE_MODEL_HASH_MISMATCH",
+                            message: format!(
+                                "Dataset manifest base_model_hash_b3 {} does not match model {}",
+                                hash, base_model.hash_b3
+                            ),
+                        });
+                    }
+                }
+                if let Some(tok_hash) = value.get("tokenizer_hash_b3").and_then(|v| v.as_str()) {
+                    if tok_hash != base_model.tokenizer_hash_b3 {
+                        return Err(GuardrailError {
+                            code: "TOKENIZER_HASH_MISMATCH",
+                            message: format!(
+                                "Dataset manifest tokenizer_hash_b3 {} does not match model {}",
+                                tok_hash, base_model.tokenizer_hash_b3
+                            ),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    if matches!(
+        (
+            config.preferred_backend,
+            config.backend_policy.unwrap_or_default(),
+            config.coreml_training_fallback
+        ),
+        (
+            Some(TrainingBackendKind::CoreML),
+            TrainingBackendPolicy::CoremlOnly,
+            None
+        )
+    ) {
+        return Err(GuardrailError {
+            code: "BACKEND_UNAVAILABLE",
+            message: "CoreML requested without fallback; fail fast when unavailable".to_string(),
+        });
+    }
+
+    Ok(())
+}
+
 pub(crate) async fn ensure_training_worker_capable(
     state: &AppState,
     tenant_id: &str,
@@ -691,6 +810,7 @@ pub async fn list_training_jobs(
                     data_spec_json: record.data_spec_json.clone(),
                     data_spec_hash: None,
                     dataset_id: record.dataset_id,
+                    correlation_id: record.correlation_id,
                     dataset_version_ids,
                     dataset_version_trust: None,
                     dataset_hash_b3: record.dataset_hash_b3,
@@ -1725,8 +1845,32 @@ pub async fn start_training(
     }
 
     // Convert request config to training config
-    let mut config = training_config_from_request(request.config);
+    let mut config = training_config_from_request(request.config.clone());
     config.base_model_path = Some(base_model_path);
+    let base_model = state
+        .db
+        .get_model_for_tenant(&claims.tenant_id, &base_model_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to load base model")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new("Base model not found")
+                        .with_code("NOT_FOUND")
+                        .with_string_details(base_model_id.clone()),
+                ),
+            )
+        })?;
 
     // Resolve repository + branch context (required for versioning)
     let repo_id = match request.repo_id.clone() {
@@ -1767,6 +1911,44 @@ pub async fn start_training(
                 ),
             )
         })?;
+
+    let first_dataset_version = request
+        .dataset_version_ids
+        .as_ref()
+        .and_then(|list| list.first());
+    let dataset_version = match first_dataset_version {
+        Some(sel) => state
+            .db
+            .get_training_dataset_version(&sel.dataset_version_id)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("Failed to load dataset version")
+                            .with_code("DATABASE_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?,
+        None => None,
+    };
+
+    if let Err(e) = validate_training_guardrails(
+        &request.config,
+        &repo,
+        &base_model,
+        dataset_version.as_ref(),
+    ) {
+        let status = match e.code {
+            "DATASET_UNTRUSTED" => StatusCode::FORBIDDEN,
+            _ => StatusCode::BAD_REQUEST,
+        };
+        return Err((
+            status,
+            Json(ErrorResponse::new(&e.message).with_code(e.code)),
+        ));
+    }
 
     let target_branch = request
         .target_branch
@@ -2100,6 +2282,31 @@ pub async fn start_training(
                 _ => {}
             }
 
+            let row_count = state
+                .db
+                .count_training_dataset_rows(&ds_version.dataset_id, Some(&sel.dataset_version_id))
+                .await
+                .map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(
+                            ErrorResponse::new("Failed to count training dataset rows")
+                                .with_code("DATABASE_ERROR")
+                                .with_string_details(e.to_string()),
+                        ),
+                    )
+                })?;
+            if row_count == 0 {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(
+                        ErrorResponse::new("Dataset contains no training rows")
+                            .with_code("DATASET_EMPTY")
+                            .with_string_details(sel.dataset_version_id.clone()),
+                    ),
+                ));
+            }
+
             let weight = if sel.weight <= 0.0 { 1.0 } else { sel.weight };
             combined_inputs.push((
                 sel.dataset_version_id.clone(),
@@ -2288,6 +2495,7 @@ pub async fn start_training(
         job_id = %job.id,
         adapter_name = %job.adapter_name,
         user_id = %claims.sub,
+        correlation_id = %job.correlation_id.as_deref().unwrap_or("unknown"),
         "Started training job"
     );
 
@@ -2450,6 +2658,203 @@ mod tests {
             plan.fallback_reason.as_deref(),
             Some("coreml_required_unavailable")
         );
+    }
+
+    fn dummy_model(id: &str) -> adapteros_db::models::Model {
+        adapteros_db::models::Model {
+            id: id.to_string(),
+            name: id.to_string(),
+            hash_b3: "hash-main".to_string(),
+            license_hash_b3: None,
+            config_hash_b3: "config-hash".to_string(),
+            tokenizer_hash_b3: "tok-hash".to_string(),
+            tokenizer_cfg_hash_b3: "tok-cfg-hash".to_string(),
+            metadata_json: None,
+            created_at: "now".to_string(),
+            model_type: None,
+            model_path: Some(
+                std::env::temp_dir()
+                    .join("model")
+                    .to_string_lossy()
+                    .to_string(),
+            ),
+            config: None,
+            routing_bias: None,
+            status: None,
+            tenant_id: Some("tenant".to_string()),
+            updated_at: None,
+            adapter_path: None,
+            backend: None,
+            quantization: None,
+            last_error: None,
+            size_bytes: None,
+            format: None,
+            capabilities: None,
+            import_status: None,
+            import_error: None,
+            imported_at: None,
+            imported_by: None,
+        }
+    }
+
+    fn dummy_repo(base_model_id: Option<&str>) -> AdapterRepository {
+        AdapterRepository {
+            id: "repo".to_string(),
+            tenant_id: "tenant".to_string(),
+            name: "repo".to_string(),
+            base_model_id: base_model_id.map(|s| s.to_string()),
+            default_branch: "main".to_string(),
+            archived: 0,
+            created_by: None,
+            created_at: "now".to_string(),
+            description: None,
+        }
+    }
+
+    fn dummy_dataset_version(
+        manifest_json: Option<&str>,
+        trust_state: &str,
+    ) -> adapteros_db::training_datasets::TrainingDatasetVersion {
+        adapteros_db::training_datasets::TrainingDatasetVersion {
+            id: "dv1".to_string(),
+            dataset_id: "ds1".to_string(),
+            tenant_id: Some("tenant".to_string()),
+            version_number: 1,
+            version_label: None,
+            storage_path: "path".to_string(),
+            hash_b3: "hash".to_string(),
+            manifest_path: None,
+            manifest_json: manifest_json.map(|s| s.to_string()),
+            validation_status: "valid".to_string(),
+            validation_errors_json: None,
+            pii_status: "".to_string(),
+            toxicity_status: "".to_string(),
+            leak_status: "".to_string(),
+            anomaly_status: "".to_string(),
+            overall_safety_status: "".to_string(),
+            trust_state: trust_state.to_string(),
+            overall_trust_status: "".to_string(),
+            sensitivity: None,
+            created_at: "now".to_string(),
+            created_by: None,
+            locked_at: None,
+            soft_deleted_at: None,
+        }
+    }
+
+    #[test]
+    fn guardrails_reject_invalid_config() {
+        let mut config = TrainingConfigRequest {
+            rank: 0,
+            alpha: 0,
+            targets: vec![],
+            training_contract_version: TRAINING_DATA_CONTRACT_VERSION.to_string(),
+            pad_token_id: 0,
+            ignore_index: 0,
+            epochs: 1,
+            learning_rate: 0.1,
+            batch_size: 1,
+            warmup_steps: None,
+            max_seq_length: None,
+            gradient_accumulation_steps: None,
+            validation_split: Some(1.0),
+            preferred_backend: None,
+            backend_policy: None,
+            coreml_training_fallback: None,
+            coreml_placement: None,
+            enable_coreml_export: None,
+            require_gpu: None,
+            max_gpu_memory_mb: None,
+            base_model_path: None,
+            preprocessing: None,
+            force_resume: None,
+        };
+        let repo = dummy_repo(Some("model-1"));
+        let model = dummy_model("model-1");
+        let err = validate_training_guardrails(&config, &repo, &model, None).unwrap_err();
+        assert_eq!(err.code, "INVALID_CONFIG");
+        assert!(err.message.contains("rank must be > 0"));
+
+        config.rank = 1;
+        config.alpha = 8;
+        config.targets = vec!["q_proj".to_string()];
+        config.validation_split = Some(0.4);
+        assert!(validate_training_guardrails(&config, &repo, &model, None).is_ok());
+    }
+
+    #[test]
+    fn guardrails_detect_repo_base_model_mismatch() {
+        let config = TrainingConfigRequest {
+            rank: 8,
+            alpha: 16,
+            targets: vec!["q_proj".to_string()],
+            training_contract_version: TRAINING_DATA_CONTRACT_VERSION.to_string(),
+            pad_token_id: 0,
+            ignore_index: 0,
+            epochs: 1,
+            learning_rate: 0.001,
+            batch_size: 1,
+            warmup_steps: None,
+            max_seq_length: None,
+            gradient_accumulation_steps: None,
+            validation_split: None,
+            preferred_backend: None,
+            backend_policy: None,
+            coreml_training_fallback: None,
+            coreml_placement: None,
+            enable_coreml_export: None,
+            require_gpu: None,
+            max_gpu_memory_mb: None,
+            base_model_path: None,
+            preprocessing: None,
+            force_resume: None,
+        };
+        let repo = dummy_repo(Some("expected-model"));
+        let model = dummy_model("actual-model");
+        let err = validate_training_guardrails(&config, &repo, &model, None).unwrap_err();
+        assert_eq!(err.code, "BASE_MODEL_MISMATCH");
+        assert!(err.message.contains("Repository base_model_id"));
+    }
+
+    #[test]
+    fn guardrails_detect_manifest_hash_mismatch() {
+        let config = TrainingConfigRequest {
+            rank: 8,
+            alpha: 16,
+            targets: vec!["q_proj".to_string()],
+            training_contract_version: TRAINING_DATA_CONTRACT_VERSION.to_string(),
+            pad_token_id: 0,
+            ignore_index: 0,
+            epochs: 1,
+            learning_rate: 0.001,
+            batch_size: 1,
+            warmup_steps: None,
+            max_seq_length: None,
+            gradient_accumulation_steps: None,
+            validation_split: None,
+            preferred_backend: None,
+            backend_policy: None,
+            coreml_training_fallback: None,
+            coreml_placement: None,
+            enable_coreml_export: None,
+            require_gpu: None,
+            max_gpu_memory_mb: None,
+            base_model_path: None,
+            preprocessing: None,
+            force_resume: None,
+        };
+        let repo = dummy_repo(Some("model-1"));
+        let model = dummy_model("model-1");
+        let manifest = serde_json::json!({
+            "base_model_hash_b3": "different-hash",
+            "tokenizer_hash_b3": "tok-hash",
+            "base_model_id": "model-1"
+        })
+        .to_string();
+        let dsv = dummy_dataset_version(Some(&manifest), "allowed");
+        let err = validate_training_guardrails(&config, &repo, &model, Some(&dsv)).unwrap_err();
+        assert_eq!(err.code, "BASE_MODEL_HASH_MISMATCH");
+        assert!(err.message.contains("Dataset manifest base_model_hash_b3"));
     }
 }
 
