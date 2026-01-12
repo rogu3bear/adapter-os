@@ -93,6 +93,7 @@ impl TuiConfig {
     }
 
     /// Update a single field and save
+    #[allow(dead_code)]
     pub fn update_and_save<F>(&mut self, f: F) -> Result<()>
     where
         F: FnOnce(&mut Self),

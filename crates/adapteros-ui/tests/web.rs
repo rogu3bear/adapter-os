@@ -169,6 +169,36 @@ fn test_api_error_display() {
 }
 
 // ============================================================================
+// Route/page smoke mounts
+// ============================================================================
+
+fn mount_component(id: &str, view: impl FnOnce() -> leptos::View + 'static) {
+    use leptos::leptos_dom::helpers::document;
+    let doc = document().expect("document");
+    let body = doc.body().expect("body");
+    let container = doc.create_element("div").expect("create div");
+    container.set_id(id);
+    body.append_child(&container).expect("append");
+    leptos::mount_to(&format!("#{id}"), move || view());
+}
+
+#[wasm_bindgen_test]
+fn mount_smoke_datasets_training_chat() {
+    // Datasets list should mount without panic
+    mount_component(
+        "datasets-smoke",
+        || view! { <adapteros_ui::pages::Datasets/> },
+    );
+    // Training page (list/detail shell) should mount without panic
+    mount_component(
+        "training-smoke",
+        || view! { <adapteros_ui::pages::Training/> },
+    );
+    // Chat page should mount without panic (no network required)
+    mount_component("chat-smoke", || view! { <adapteros_ui::pages::Chat/> });
+}
+
+// ============================================================================
 // Dataset wizard validation helpers
 // ============================================================================
 

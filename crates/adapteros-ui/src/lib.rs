@@ -34,6 +34,7 @@ pub mod theme;
 pub mod validation;
 
 use leptos::prelude::*;
+use leptos::tachys::view::any_view::IntoAny;
 use leptos_meta::*;
 use leptos_router::components::*;
 use leptos_router::path;
@@ -149,17 +150,23 @@ pub fn App() -> impl IntoView {
     provide_meta_context();
     web_sys::console::log_1(&"[App] Meta context provided, creating view...".into());
 
-    view! {
-        <Title text="AdapterOS"/>
-        <Meta charset="utf-8"/>
-        <Meta name="viewport" content="width=device-width, initial-scale=1"/>
+    // Ensure API base URL is configured; fail fast with a clear banner instead of a blank screen
+    if let Err(err) = crate::api::api_base_url_checked() {
+        return view! { <BaseUrlError reason=err.to_string()/> }.into_any();
+    }
 
-        <AuthProvider>
-            <NotificationsProvider>
-                <SearchProvider>
-                    <ChatProvider>
-                        <Router>
-                    <Routes fallback=|| view! { <pages::NotFound/> }>
+    view! {
+        <>
+            <Title text="AdapterOS"/>
+            <Meta charset="utf-8"/>
+            <Meta name="viewport" content="width=device-width, initial-scale=1"/>
+
+            <AuthProvider>
+                <NotificationsProvider>
+                    <SearchProvider>
+                        <ChatProvider>
+                            <Router>
+                        <Routes fallback=|| view! { <pages::NotFound/> }>
                         <Route path=path!("/login") view=pages::Login/>
                         <Route path=path!("/") view=|| view! { <ProtectedRoute><Shell><pages::Dashboard/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/dashboard") view=|| view! { <ProtectedRoute><Shell><pages::Dashboard/></Shell></ProtectedRoute> }/>
@@ -197,13 +204,40 @@ pub fn App() -> impl IntoView {
                         // PRD-UI-003: Style audit (dev tool, no sensitive data)
                         <Route path=path!("/style-audit") view=pages::StyleAudit/>
                     </Routes>
-                        // Global Command Palette overlay
-                        <CommandPalette/>
-                        </Router>
-                    </ChatProvider>
-                </SearchProvider>
-            </NotificationsProvider>
-        </AuthProvider>
+                            // Global Command Palette overlay
+                            <CommandPalette/>
+                            </Router>
+                        </ChatProvider>
+                    </SearchProvider>
+                </NotificationsProvider>
+            </AuthProvider>
+        </>
+    }
+    .into_any()
+}
+
+/// Fatal error surface for missing API base URL configuration
+#[component]
+fn BaseUrlError(reason: String) -> impl IntoView {
+    view! {
+        <div class="min-h-screen flex items-center justify-center bg-background">
+            <div class="max-w-xl w-full mx-4 space-y-3 rounded-lg border border-destructive/40 bg-destructive/10 p-6 shadow-lg">
+                <div class="flex items-center gap-2">
+                    <span class="text-lg font-semibold text-destructive">"AdapterOS UI cannot start"</span>
+                </div>
+                <p class="text-sm text-foreground/80">
+                    "We couldn't determine the API base URL. Set AOS_API_BASE_URL at build time or serve the UI via ./start so the origin is correct."
+                </p>
+                <p class="text-xs text-foreground/60 font-mono break-all">{"Detail: "}{reason}</p>
+                <div class="text-xs text-foreground/70 space-y-1">
+                    <p>"Quick fixes:"</p>
+                    <ul class="list-disc list-inside space-y-0.5">
+                        <li>"Run with ./start up to serve UI and API from the same origin."</li>
+                        <li>"Or export AOS_API_BASE_URL=https://your-api-host before trunk build/serve."</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
     }
 }
 

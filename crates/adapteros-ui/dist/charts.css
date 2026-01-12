@@ -135,13 +135,19 @@
 }
 
 .heatmap-cell.mid {
-    background-color: var(--color-primary);
-    opacity: 0.5;
+    background-color: hsl(222.2 47.4% 45%);
 }
 
 .heatmap-cell.low {
-    background-color: var(--color-primary);
-    opacity: 0.2;
+    background-color: hsl(222.2 25% 75%);
+}
+
+.dark .heatmap-cell.mid {
+    background-color: hsl(210 35% 55%);
+}
+
+.dark .heatmap-cell.low {
+    background-color: hsl(215 20% 35%);
 }
 
 .heatmap-cell.ok {

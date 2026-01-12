@@ -28,7 +28,9 @@
 
 .btn:disabled {
     pointer-events: none;
-    opacity: 0.5;
+    background-color: var(--color-disabled);
+    color: var(--color-disabled-foreground);
+    border-color: var(--color-disabled);
 }
 
 /* Button variants */
@@ -190,7 +192,9 @@
 
 .input:disabled {
     cursor: not-allowed;
-    opacity: 0.5;
+    background-color: var(--color-disabled);
+    color: var(--color-disabled-foreground);
+    border-color: var(--color-disabled);
 }
 
 .input-error {
@@ -230,7 +234,9 @@
 
 .select:disabled {
     cursor: not-allowed;
-    opacity: 0.5;
+    background-color: var(--color-disabled);
+    color: var(--color-disabled-foreground);
+    border-color: var(--color-disabled);
 }
 
 /* ===== Spinner Component ===== */
@@ -279,7 +285,7 @@
 
 .toggle:disabled {
     cursor: not-allowed;
-    opacity: 0.5;
+    background-color: var(--color-disabled);
 }
 
 .toggle-off {

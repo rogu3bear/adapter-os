@@ -154,18 +154,88 @@ fn AdaptersList(adapters: Vec<AdapterResponse>) -> impl IntoView {
     .into_any()
 }
 
+/// Validate adapter ID format
+/// Valid IDs: alphanumeric with hyphens/underscores, 1-128 chars
+fn validate_adapter_id(id: &str) -> Result<(), &'static str> {
+    if id.is_empty() {
+        return Err("Adapter ID is required");
+    }
+    if id.len() > 128 {
+        return Err("Adapter ID exceeds maximum length");
+    }
+    // Allow alphanumeric, hyphens, underscores
+    if !id
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err("Adapter ID contains invalid characters");
+    }
+    Ok(())
+}
+
 /// Adapter detail page
 #[component]
 pub fn AdapterDetail() -> impl IntoView {
+    // Log component mount
+    web_sys::console::log_1(&"[AdapterDetail] Component mounted".into());
+
     let params = use_params_map();
 
-    // Get adapter ID from URL
-    let adapter_id = Memo::new(move |_| params.get().get("id").unwrap_or_default());
+    // Extract adapter ID from URL - must be called unconditionally
+    let adapter_id = Memo::new(move |_| {
+        let params_map = params.get();
+        let id = params_map.get("id").unwrap_or_default();
 
-    // Fetch adapter details
+        // Log parameter extraction
+        if id.is_empty() {
+            web_sys::console::warn_1(&"[AdapterDetail] No 'id' parameter in route params".into());
+        } else {
+            web_sys::console::log_1(
+                &format!("[AdapterDetail] Param extracted: id='{}'", id).into(),
+            );
+        }
+        id
+    });
+
+    // Always call use_api_resource (hooks must be called unconditionally)
+    // Use get_untracked() to avoid reactive tracking warnings
     let (adapter, refetch) = use_api_resource(move |client: Arc<ApiClient>| {
-        let id = adapter_id.get();
-        async move { client.get_adapter(&id).await }
+        let id = adapter_id.get_untracked();
+        async move {
+            // Log validation step
+            web_sys::console::log_1(&format!("[AdapterDetail] Validating ID: '{}'", id).into());
+
+            if let Err(validation_err) = validate_adapter_id(&id) {
+                web_sys::console::error_1(
+                    &format!("[AdapterDetail] Validation failed: {}", validation_err).into(),
+                );
+                return Err(crate::api::ApiError::Validation(validation_err.to_string()));
+            }
+
+            // Log API call initiation
+            web_sys::console::log_1(&format!("[AdapterDetail] Fetching adapter: '{}'", id).into());
+
+            let result = client.get_adapter(&id).await;
+
+            // Log API result
+            match &result {
+                Ok(adapter) => {
+                    web_sys::console::log_1(
+                        &format!(
+                            "[AdapterDetail] Loaded: '{}' ({})",
+                            adapter.name, adapter.id
+                        )
+                        .into(),
+                    );
+                }
+                Err(e) => {
+                    web_sys::console::error_1(
+                        &format!("[AdapterDetail] API error: {:?}", e).into(),
+                    );
+                }
+            }
+            result
+        }
     });
 
     let refetch_signal = StoredValue::new(refetch);
@@ -188,8 +258,18 @@ pub fn AdapterDetail() -> impl IntoView {
             </div>
 
             {move || {
-                match adapter.get() {
-                    LoadingState::Idle | LoadingState::Loading => {
+                let state = adapter.get();
+                match state {
+                    LoadingState::Idle => {
+                        web_sys::console::log_1(&"[AdapterDetail] State: Idle".into());
+                        view! {
+                            <div class="flex items-center justify-center py-12">
+                                <Spinner/>
+                            </div>
+                        }.into_any()
+                    }
+                    LoadingState::Loading => {
+                        web_sys::console::log_1(&"[AdapterDetail] State: Loading".into());
                         view! {
                             <div class="flex items-center justify-center py-12">
                                 <Spinner/>
@@ -197,15 +277,37 @@ pub fn AdapterDetail() -> impl IntoView {
                         }.into_any()
                     }
                     LoadingState::Loaded(data) => {
+                        web_sys::console::log_1(
+                            &format!("[AdapterDetail] State: Loaded ({})", data.id).into()
+                        );
                         view! { <AdapterDetailContent adapter=data/> }.into_any()
                     }
                     LoadingState::Error(e) => {
-                        view! {
-                            <ErrorDisplay
-                                error=e
-                                on_retry=Callback::new(move |_| refetch_signal.with_value(|f| f()))
-                            />
-                        }.into_any()
+                        web_sys::console::error_1(
+                            &format!("[AdapterDetail] State: Error ({:?})", e).into()
+                        );
+                        // Handle validation errors with user-friendly messages
+                        if let crate::api::ApiError::Validation(msg) = &e {
+                            let error_msg = msg.clone();
+                            view! {
+                                <div class="flex items-center justify-center py-12">
+                                    <div class="text-center">
+                                        <h2 class="text-xl font-semibold mb-2 text-destructive">"Invalid Adapter ID"</h2>
+                                        <p class="text-muted-foreground mb-4">{error_msg}</p>
+                                        <a href="/adapters" class="text-primary hover:underline">
+                                            "← Back to Adapters"
+                                        </a>
+                                    </div>
+                                </div>
+                            }.into_any()
+                        } else {
+                            view! {
+                                <ErrorDisplay
+                                    error=e
+                                    on_retry=Callback::new(move |_| refetch_signal.with_value(|f| f()))
+                                />
+                            }.into_any()
+                        }
                     }
                 }
             }}
@@ -213,8 +315,73 @@ pub fn AdapterDetail() -> impl IntoView {
     }
 }
 
+/// Validate adapter response data before rendering
+/// Returns error message if validation fails
+fn validate_adapter_data(adapter: &AdapterResponse) -> Result<(), String> {
+    let mut missing = Vec::new();
+
+    if adapter.id.is_empty() {
+        missing.push("id");
+    }
+    if adapter.adapter_id.is_empty() {
+        missing.push("adapter_id");
+    }
+    if adapter.name.is_empty() {
+        missing.push("name");
+    }
+    if adapter.hash_b3.is_empty() {
+        missing.push("hash_b3");
+    }
+    if adapter.tier.is_empty() {
+        missing.push("tier");
+    }
+    if adapter.lifecycle_state.is_empty() {
+        missing.push("lifecycle_state");
+    }
+
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("Missing required fields: {}", missing.join(", ")))
+    }
+}
+
 #[component]
 fn AdapterDetailContent(adapter: AdapterResponse) -> impl IntoView {
+    // Log component render
+    web_sys::console::log_1(
+        &format!(
+            "[AdapterDetailContent] Rendering: '{}' ({})",
+            adapter.name, adapter.id
+        )
+        .into(),
+    );
+
+    // Validate adapter data before rendering
+    web_sys::console::log_1(&"[AdapterDetailContent] Validating data...".into());
+    if let Err(validation_error) = validate_adapter_data(&adapter) {
+        web_sys::console::error_1(
+            &format!(
+                "[AdapterDetailContent] Validation failed: {}",
+                validation_error
+            )
+            .into(),
+        );
+        return view! {
+            <div class="flex items-center justify-center py-12">
+                <div class="text-center">
+                    <h2 class="text-xl font-semibold mb-2 text-destructive">"Invalid Adapter Data"</h2>
+                    <p class="text-muted-foreground mb-2">{validation_error}</p>
+                    <a href="/adapters" class="text-primary hover:underline">
+                        "← Back to Adapters"
+                    </a>
+                </div>
+            </div>
+        }.into_any();
+    }
+    web_sys::console::log_1(&"[AdapterDetailContent] Validation passed".into());
+
+    // Defensive: Handle potential invalid lifecycle_state values
     let lifecycle_variant = match adapter.lifecycle_state.as_str() {
         "active" => BadgeVariant::Success,
         "deprecated" => BadgeVariant::Warning,
@@ -351,5 +518,5 @@ fn AdapterDetailContent(adapter: AdapterResponse) -> impl IntoView {
                 </div>
             </Card>
         })}
-    }
+    }.into_any()
 }

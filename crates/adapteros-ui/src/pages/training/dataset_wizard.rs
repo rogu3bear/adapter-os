@@ -16,13 +16,64 @@ use adapteros_api_types::TRAINING_DATA_CONTRACT_VERSION;
 use gloo_file::futures::read_as_text;
 #[cfg(target_arch = "wasm32")]
 use gloo_file::Blob;
+use leptos::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use send_wrapper::SendWrapper;
-use leptos::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsCast;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_futures::spawn_local;
+
+#[cfg(target_arch = "wasm32")]
+const MANIFEST_MIME: &[&str] = &["application/json"];
+#[cfg(target_arch = "wasm32")]
+const JSONL_MIME: &[&str] = &["application/jsonl", "application/json", "text/plain"];
+#[cfg(target_arch = "wasm32")]
+const CSV_MIME: &[&str] = &["text/csv", "application/csv"];
+#[cfg(target_arch = "wasm32")]
+const TEXT_MIME: &[&str] = &["text/plain"];
+
+#[cfg(target_arch = "wasm32")]
+fn validate_file(
+    file: &web_sys::File,
+    max_bytes: u64,
+    allowed_mime: &[&str],
+    allowed_exts: &[&str],
+    label: &str,
+) -> Result<(), String> {
+    let size = file.size() as u64;
+    if size == 0 {
+        return Err(format!("{} file is empty", label));
+    }
+    if size > max_bytes {
+        return Err(format!(
+            "{} is too large ({} bytes > {} byte limit)",
+            label, size, max_bytes
+        ));
+    }
+
+    let mime = file.type_();
+    let name = file.name().to_lowercase();
+    let mime_ok = mime.is_empty() || allowed_mime.iter().any(|m| mime == *m);
+    let ext_ok = allowed_exts
+        .iter()
+        .any(|ext| name.ends_with(&ext.to_lowercase()));
+
+    if !mime_ok && !ext_ok {
+        return Err(format!(
+            "{} has unsupported type '{}'; allowed: {}",
+            label,
+            if mime.is_empty() {
+                "unknown"
+            } else {
+                mime.as_str()
+            },
+            allowed_exts.join(", ")
+        ));
+    }
+
+    Ok(())
+}
 
 /// Preview row built from user-supplied files.
 #[derive(Clone, Debug, PartialEq)]
@@ -258,7 +309,7 @@ pub fn parse_text_rows(
         .filter(|b| !b.is_empty())
         .collect();
 
-    if strategy == TextStrategy::PairAdjacent && blocks.len() % 2 != 0 {
+    if strategy == TextStrategy::PairAdjacent && !blocks.len().is_multiple_of(2) {
         errors
             .push("Uneven number of blocks for paired text; last block has no target".to_string());
     }
@@ -311,6 +362,9 @@ pub fn DatasetUploadWizard(
     open: RwSignal<bool>,
     on_complete: Callback<DatasetUploadOutcome>,
 ) -> impl IntoView {
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = &on_complete;
+
     let name = RwSignal::new(String::new());
     let description = RwSignal::new(String::new());
     let mode = RwSignal::new(UploadMode::ManifestJsonl);
@@ -351,14 +405,19 @@ pub fn DatasetUploadWizard(
     });
 
     let refresh_preview: Callback<()> = {
+        #[cfg(target_arch = "wasm32")]
         let mode = mode.clone();
+        #[cfg(target_arch = "wasm32")]
         let csv_mapping = csv_mapping.clone();
+        #[cfg(target_arch = "wasm32")]
         let csv_headers = csv_headers.clone();
         let preview_rows = preview_rows.clone();
         let parse_errors = parse_errors.clone();
         let manifest_info = manifest_info.clone();
+        #[cfg(target_arch = "wasm32")]
         let text_strategy = text_strategy.clone();
         let status = status.clone();
+        #[cfg(target_arch = "wasm32")]
         let name = name.clone();
         #[cfg(target_arch = "wasm32")]
         let manifest_preview = manifest_preview.clone();
@@ -401,14 +460,12 @@ pub fn DatasetUploadWizard(
                                     manifest_info.set(Some(manifest));
                                 }
                                 Err(e) => {
-                                    parse_errors
-                                        .set(vec![format!("Invalid manifest JSON: {}", e)]);
+                                    parse_errors.set(vec![format!("Invalid manifest JSON: {}", e)]);
                                     return;
                                 }
                             }
 
-                            let parsed =
-                                parse_jsonl_rows(&jsonl_file.text, &jsonl_file.name);
+                            let parsed = parse_jsonl_rows(&jsonl_file.text, &jsonl_file.name);
                             match parsed {
                                 Ok(rows) => {
                                     if !rows.is_empty() && name.get().is_empty() {
@@ -480,6 +537,7 @@ pub fn DatasetUploadWizard(
         let manifest_preview = manifest_preview.clone();
         let parse_errors = parse_errors.clone();
         let refresh_preview = refresh_preview.clone();
+        let upload_limits = upload_limits;
         move |ev: web_sys::Event| {
             if let Some(input) = ev
                 .target()
@@ -487,6 +545,17 @@ pub fn DatasetUploadWizard(
             {
                 if let Some(files) = input.files() {
                     if let Some(file) = files.get(0) {
+                        if let Err(err) = validate_file(
+                            &file,
+                            upload_limits.1,
+                            MANIFEST_MIME,
+                            &[".json"],
+                            "manifest",
+                        ) {
+                            parse_errors.set(vec![err]);
+                            return;
+                        }
+
                         let parse_errors = parse_errors.clone();
                         let refresh_preview = refresh_preview.clone();
                         let name = file.name();
@@ -500,10 +569,8 @@ pub fn DatasetUploadWizard(
                                     refresh_preview.run(());
                                 }
                                 Err(e) => {
-                                    parse_errors.set(vec![format!(
-                                        "Failed to read manifest: {}",
-                                        e
-                                    )]);
+                                    parse_errors
+                                        .set(vec![format!("Failed to read manifest: {}", e)]);
                                 }
                             }
                         });
@@ -519,6 +586,8 @@ pub fn DatasetUploadWizard(
         let data_preview = data_preview.clone();
         let parse_errors = parse_errors.clone();
         let refresh_preview = refresh_preview.clone();
+        let mode = mode.clone();
+        let upload_limits = upload_limits;
         move |ev: web_sys::Event| {
             if let Some(input) = ev
                 .target()
@@ -526,6 +595,23 @@ pub fn DatasetUploadWizard(
             {
                 if let Some(files) = input.files() {
                     if let Some(file) = files.get(0) {
+                        let (allowed_mime, allowed_ext, label) = match mode.get() {
+                            UploadMode::ManifestJsonl => {
+                                (JSONL_MIME, &[".jsonl", ".json"][..], "JSONL dataset")
+                            }
+                            UploadMode::Csv => (CSV_MIME, &[".csv"][..], "CSV dataset"),
+                            UploadMode::Text => {
+                                (TEXT_MIME, &[".txt", ".log", ".md"][..], "text dataset")
+                            }
+                        };
+
+                        if let Err(err) =
+                            validate_file(&file, upload_limits.1, allowed_mime, allowed_ext, label)
+                        {
+                            parse_errors.set(vec![err]);
+                            return;
+                        }
+
                         let parse_errors = parse_errors.clone();
                         let refresh_preview = refresh_preview.clone();
                         let name = file.name();
@@ -539,10 +625,8 @@ pub fn DatasetUploadWizard(
                                     refresh_preview.run(());
                                 }
                                 Err(e) => {
-                                    parse_errors.set(vec![format!(
-                                        "Failed to read dataset: {}",
-                                        e
-                                    )]);
+                                    parse_errors
+                                        .set(vec![format!("Failed to read dataset: {}", e)]);
                                 }
                             }
                         });
@@ -563,15 +647,20 @@ pub fn DatasetUploadWizard(
         let manifest_file = manifest_file.clone();
         #[cfg(target_arch = "wasm32")]
         let data_file = data_file.clone();
+        #[cfg(target_arch = "wasm32")]
         let name = name.clone();
+        #[cfg(target_arch = "wasm32")]
         let description = description.clone();
+        #[cfg(target_arch = "wasm32")]
         let mode = mode.clone();
+        #[cfg(target_arch = "wasm32")]
         let csv_mapping = csv_mapping.clone();
         let preview_rows = preview_rows.clone();
         let parse_errors = parse_errors.clone();
         let status = status.clone();
         let upload_error = upload_error.clone();
         let submitting = submitting.clone();
+        #[cfg(target_arch = "wasm32")]
         let manifest_info = manifest_info.clone();
         Callback::new(move |_| {
             upload_error.set(None);
@@ -598,6 +687,7 @@ pub fn DatasetUploadWizard(
                 let mode_value = mode.get();
                 let csv_mapping = csv_mapping.get();
                 let manifest_value_cached = manifest_info.get();
+                status.set("Uploading dataset (this may take a moment)...".to_string());
                 spawn_local(async move {
                     let form = match web_sys::FormData::new() {
                         Ok(f) => f,

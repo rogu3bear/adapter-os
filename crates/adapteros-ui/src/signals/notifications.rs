@@ -106,6 +106,15 @@ impl NotificationAction {
 
     pub fn push_toast(&self, toast: Toast, duration_ms: Option<u32>) {
         self.state.update(|state| {
+            // Drop duplicate messages (same title+message+severity) arriving back-to-back
+            if let Some(last) = state.toasts.last() {
+                if last.title == toast.title
+                    && last.message == toast.message
+                    && last.severity == toast.severity
+                {
+                    return;
+                }
+            }
             state.toasts.push(toast);
             if state.toasts.len() > MAX_TOASTS {
                 state.toasts.remove(0);

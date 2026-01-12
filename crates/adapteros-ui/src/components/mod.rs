@@ -32,6 +32,7 @@ pub mod tabs;
 pub mod toast;
 pub mod toggle;
 pub mod trace_viewer;
+pub mod version_skew_banner;
 pub mod virtual_list;
 pub mod workspace;
 
@@ -67,6 +68,7 @@ pub use table::{Table, TableBody, TableCell, TableHead, TableHeader, TableRow};
 pub use tabs::{TabButton, TabButtonEnum, TabNav, TabNavEnum, TabPanel, TabPanelEnum};
 pub use toggle::{Select, Toggle};
 pub use trace_viewer::{TraceButton, TracePanel, TraceViewer};
+pub use version_skew_banner::VersionSkewBanner;
 pub use workspace::{
     TwoColumnRatio, Workspace, WorkspaceColumn, WorkspaceGrid, WorkspaceHeader, WorkspacePanel,
     WorkspaceThreeColumn, WorkspaceTwoColumn,

@@ -7,6 +7,7 @@ use gloo_net::http::{Request, RequestBuilder};
 use serde::{de::DeserializeOwned, Serialize};
 use std::sync::{Arc, RwLock};
 
+use adapteros_api_types::training::JsonlValidationDiagnostic;
 pub use adapteros_api_types::{DatasetManifest, UploadDatasetResponse};
 
 /// HTTP API client for AdapterOS backend
@@ -1326,6 +1327,7 @@ impl ApiClient {
     // --- Client Errors ---
 
     /// List client errors with optional filtering
+    #[allow(clippy::too_many_arguments)]
     pub async fn list_client_errors(
         &self,
         error_type: Option<&str>,
@@ -1392,8 +1394,6 @@ impl ApiClient {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct InferenceRequest {
     pub prompt: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub system: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2304,6 +2304,10 @@ pub struct DatasetResponse {
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub validation_status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub validation_errors: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub validation_diagnostics: Option<Vec<JsonlValidationDiagnostic>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file_count: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]

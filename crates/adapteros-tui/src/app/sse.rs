@@ -19,6 +19,7 @@ pub struct StreamToken {
 
 /// Training progress event
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 pub struct TrainingProgressEvent {
     pub job_id: String,
     #[serde(default)]
@@ -114,6 +115,7 @@ impl SseClient {
     }
 
     /// Stream training job progress
+    #[allow(dead_code)]
     pub async fn stream_training_progress(
         &self,
         job_id: &str,

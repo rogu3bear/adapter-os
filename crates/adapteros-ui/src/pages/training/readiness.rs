@@ -5,8 +5,7 @@ use crate::api::ApiClient;
 use crate::components::{Badge, BadgeVariant, Card, ErrorDisplay, Spinner};
 use crate::hooks::{use_api_resource, LoadingState};
 use adapteros_api_types::{
-    model_status::ModelLoadStatus,
-    training::TrainingBackendReadinessResponse,
+    model_status::ModelLoadStatus, training::TrainingBackendReadinessResponse,
 };
 use leptos::prelude::*;
 use std::sync::Arc;
@@ -243,9 +242,9 @@ fn BaseModelCard(base: Option<adapteros_api_types::TrainingBaseModelReadiness>) 
                 </div>
                 <Badge variant=badge_variant>{status_label}</Badge>
             </div>
-            {base.and_then(|b| {
+            {base.map(|b| {
                 let err = b.error_message.clone();
-                Some(view! {
+                view! {
                     <div class="space-y-1">
                         {err.map(|e| view! {
                             <p class="text-xs text-destructive break-words">{e}</p>
@@ -254,7 +253,7 @@ fn BaseModelCard(base: Option<adapteros_api_types::TrainingBaseModelReadiness>) 
                             <p class="text-xs text-muted-foreground">{line}</p>
                         })}
                     </div>
-                })
+                }
             })}
         </div>
     }

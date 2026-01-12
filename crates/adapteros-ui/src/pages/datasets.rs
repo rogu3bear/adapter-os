@@ -150,6 +150,8 @@ fn DatasetsList(datasets: DatasetListResponse, refetch_trigger: RwSignal<u32>) -
                         let id_for_nav = dataset.id.clone();
                         let id_for_delete = dataset.id.clone();
                         let name = dataset.name.clone();
+                        let name_for_title = name.clone();
+                        let name_for_aria = name.clone();
                         let name_for_delete = dataset.name.clone();
 
                         let status_variant = match dataset.status.as_str() {
@@ -159,8 +161,9 @@ fn DatasetsList(datasets: DatasetListResponse, refetch_trigger: RwSignal<u32>) -
                             _ => BadgeVariant::Secondary,
                         };
 
-                        let size_display = dataset.total_size_bytes
-                            .map(|b| format_bytes(b))
+                        let size_display = dataset
+                            .total_size_bytes
+                            .map(format_bytes)
                             .unwrap_or_else(|| "—".to_string());
 
                         let nav = navigate.clone();
@@ -169,7 +172,9 @@ fn DatasetsList(datasets: DatasetListResponse, refetch_trigger: RwSignal<u32>) -
                             <TableRow>
                                 <TableCell>
                                     <button
-                                        class="font-medium text-primary hover:underline text-left"
+                                        class="font-medium text-primary hover:underline text-left truncate"
+                                        title=name_for_title
+                                        aria-label=format!("View dataset {}", name_for_aria.as_str())
                                         on:click=move |_| {
                                             nav(&format!("/datasets/{}", id_for_nav), Default::default());
                                         }
@@ -192,6 +197,7 @@ fn DatasetsList(datasets: DatasetListResponse, refetch_trigger: RwSignal<u32>) -
                                 <TableCell class="text-right">
                                     <Button
                                         variant=ButtonVariant::Ghost
+                                        aria_label=format!("Delete dataset {}", name_for_delete.clone())
                                         on_click=Callback::new(move |_| {
                                             pending_delete_id.set(Some(id_for_delete.clone()));
                                             pending_delete_name.set(name_for_delete.clone());
@@ -306,6 +312,7 @@ pub fn DatasetDetail() -> impl IntoView {
                         view! { <LoadingDisplay message="Loading dataset..."/> }.into_any()
                     }
                     LoadingState::Loaded(data) => {
+                        let validation_diagnostics = data.validation_diagnostics.clone();
 
                         view! {
                             <PageHeader
@@ -414,6 +421,44 @@ pub fn DatasetDetail() -> impl IntoView {
                                     }}
                                 </Card>
                             </div>
+
+                            {validation_diagnostics.map(|diagnostics| view! {
+                                <Card>
+                                    <h3 class="text-lg font-semibold mb-4">"Validation Diagnostics"</h3>
+                                    <div class="space-y-3 text-sm">
+                                        {diagnostics.iter().map(|diag| view! {
+                                            <div class="rounded border border-muted p-3">
+                                                <div class="flex items-center justify-between">
+                                                    <span class="text-muted-foreground">"Line"</span>
+                                                    <span class="font-mono">{diag.line_number.to_string()}</span>
+                                                </div>
+                                                {diag.raw_snippet.as_ref().map(|snippet| view! {
+                                                    <div class="mt-2 font-mono text-xs text-muted-foreground truncate">{snippet.clone()}</div>
+                                                })}
+                                                {diag.missing_fields.as_ref().map(|fields| view! {
+                                                    <div class="mt-2">
+                                                        <span class="text-muted-foreground">"Missing: "</span>
+                                                        <span>{fields.join(", ")}</span>
+                                                    </div>
+                                                })}
+                                                {diag.invalid_field_types.as_ref().map(|fields| view! {
+                                                    <div class="mt-2">
+                                                        <span class="text-muted-foreground">"Invalid types: "</span>
+                                                        <span>
+                                                            {fields.iter().map(|field| format!("{} ({} -> {})", field.field, field.actual, field.expected)).collect::<Vec<_>>().join(", ")}
+                                                        </span>
+                                                    </div>
+                                                })}
+                                                {diag.contract_version_expected.as_ref().map(|version| view! {
+                                                    <div class="mt-2 text-muted-foreground">
+                                                        "Contract version expected: " {version.clone()}
+                                                    </div>
+                                                })}
+                                            </div>
+                                        }).collect_view()}
+                                    </div>
+                                </Card>
+                            })}
 
                             <ConfirmationDialog
                                 open=show_delete_confirm

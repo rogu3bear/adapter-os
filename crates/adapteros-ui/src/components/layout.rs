@@ -8,6 +8,7 @@ use crate::components::glass_toggle::GlassThemeToggle;
 use crate::components::global_search::GlobalSearchBox;
 use crate::components::offline_banner::OfflineBanner;
 use crate::components::status::{Badge, BadgeVariant, StatusColor, StatusIndicator};
+use crate::components::version_skew_banner::VersionSkewBanner;
 use crate::components::workspace::Workspace;
 use crate::signals::{use_auth, use_chat, use_search, DockState};
 use leptos::prelude::*;
@@ -84,6 +85,9 @@ pub fn Shell(children: Children) -> impl IntoView {
         <div class="shell">
             // PRD-UI-000: Offline banner for API connectivity status
             <OfflineBanner/>
+            // Version drift banner prompts reload when backend/frontend versions differ
+            <VersionSkewBanner/>
+            // Streaming health indicator (SSE) could go here if needed
 
             // Top bar
             <TopBar/>
@@ -180,6 +184,7 @@ pub fn TopBar() -> impl IntoView {
                     <button
                         class="p-1.5 rounded-md hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors"
                         on:click=move |_| set_notifications_open.update(|v| *v = !*v)
+                        aria-label="Notifications"
                         title="Notifications"
                     >
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -55,6 +55,7 @@ pub fn Button(
     #[prop(optional)] disabled: bool,
     #[prop(optional)] loading: bool,
     #[prop(optional, into)] class: String,
+    #[prop(optional, into)] aria_label: Option<String>,
     #[prop(optional)] on_click: Option<Callback<()>>,
     children: Children,
 ) -> impl IntoView {
@@ -72,6 +73,7 @@ pub fn Button(
         <button
             class=full_class
             disabled=disabled || loading
+            aria-label=aria_label
             on:click=move |_| {
                 if let Some(ref cb) = on_click {
                     cb.run(());

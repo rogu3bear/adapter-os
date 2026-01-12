@@ -4,6 +4,7 @@
 //! generate a training dataset using local AdapterOS inference with
 //! configurable strategies (QA or Summary).
 
+#[cfg(target_arch = "wasm32")]
 use crate::api::ApiClient;
 use crate::components::{Button, ButtonVariant, FormField, Input, Spinner};
 use adapteros_api_types::training::{GenerateDatasetResponse, GeneratedSample};
@@ -31,6 +32,7 @@ pub enum GenerateStrategy {
 }
 
 impl GenerateStrategy {
+    #[allow(dead_code)]
     fn as_str(&self) -> &'static str {
         match self {
             GenerateStrategy::Qa => "qa",
@@ -45,7 +47,8 @@ pub fn GenerateDatasetWizard(
     /// Signal controlling dialog visibility
     open: RwSignal<bool>,
     /// Callback when dataset generation completes successfully
-    #[prop(into)] on_generated: Callback<GenerateDatasetOutcome>,
+    #[prop(into)]
+    on_generated: Callback<GenerateDatasetOutcome>,
 ) -> impl IntoView {
     // Form state
     let name = RwSignal::new(String::new());
@@ -147,7 +150,18 @@ pub fn GenerateDatasetWizard(
     // No-op for non-WASM
     #[cfg(not(target_arch = "wasm32"))]
     let handle_file_select = move |_ev: web_sys::Event| {
-        let _ = (generating, error, preview, result, file_name, name, strategy, chunk_size, max_tokens, on_generated);
+        let _ = (
+            generating,
+            error,
+            preview,
+            result,
+            file_name,
+            name,
+            strategy,
+            chunk_size,
+            max_tokens,
+            on_generated,
+        );
     };
 
     let close = move |_: ()| {

@@ -28,7 +28,8 @@ use super::utils::{format_timestamp, format_uptime, NODES_PAGE_SIZE, WORKERS_PAG
 pub fn SseIndicator(state: RwSignal<SseState>) -> impl IntoView {
     view! {
         {move || {
-            let current_state = state.get();
+            // Use try_get() to safely handle disposed signals during navigation
+            let current_state = state.try_get().unwrap_or(SseState::Disconnected);
             let (color, label, tooltip) = match current_state {
                 SseState::Connected => (
                     StatusColor::Green,

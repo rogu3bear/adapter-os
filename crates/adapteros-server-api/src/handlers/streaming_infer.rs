@@ -47,8 +47,8 @@ use futures_util::stream::{self, Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 use std::sync::Arc;
-use std::time::Duration;
-use tokio::sync::{mpsc, oneshot, Mutex as TokioMutex};
+use std::time::{Duration, Instant};
+use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 use utoipa::ToSchema;
@@ -250,8 +250,22 @@ enum StreamEvent {
     Token(String),
     /// Generation complete
     Done { finish_reason: String },
+    /// Heartbeat to keep SSE connection alive
+    Heartbeat,
     /// Error occurred
-    Error(String),
+    Error {
+        code: String,
+        message: String,
+        retryable: bool,
+    },
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct StreamErrorPayload {
+    code: String,
+    message: String,
+    retryable: bool,
+    correlation_id: String,
 }
 
 /// Inference event types for progress streaming
@@ -498,11 +512,7 @@ pub async fn streaming_infer_with_progress(
 
     let stream = stream::once(async move { Ok(run_envelope_event(&run_envelope)) }).chain(stream);
 
-    Ok(Sse::new(stream).keep_alive(
-        KeepAlive::new()
-            .interval(Duration::from_secs(15))
-            .text("keep-alive"),
-    ))
+    Ok(Sse::new(stream))
 }
 
 /// Streaming inference handler
@@ -879,6 +889,15 @@ pub async fn streaming_infer(
     // Pass hook context to stream state
     let tenant_id = claims.tenant_id.clone();
     let user_id = claims.sub.clone();
+    let stream_config = state
+        .config
+        .read()
+        .unwrap_or_else(|e| {
+            tracing::warn!("Config lock poisoned in streaming_infer, recovering");
+            e.into_inner()
+        })
+        .streaming
+        .clone();
 
     // Create cancellation token for client disconnect detection
     let cancellation_token = CancellationToken::new();
@@ -887,8 +906,12 @@ pub async fn streaming_infer(
         request_id: request_id.clone(),
     };
 
-    let (token_rx, done_rx) =
-        spawn_streaming_inference(state.clone(), internal_request, cancellation_token.clone());
+    let (token_rx, done_rx) = spawn_streaming_inference(
+        state.clone(),
+        internal_request,
+        cancellation_token.clone(),
+        stream_config.inference_token_buffer_capacity,
+    );
 
     // Create the SSE stream with cancellation support
     let stream = stream::unfold(
@@ -906,6 +929,8 @@ pub async fn streaming_infer(
                 user_id,
                 Some(claims),
                 cancellation_token,
+                Duration::from_secs(stream_config.inference_idle_timeout_secs),
+                Duration::from_secs(stream_config.inference_heartbeat_interval_secs),
             ),
             Some(drop_guard), // Keep guard alive while stream is active
         ),
@@ -977,11 +1002,13 @@ fn spawn_streaming_inference(
     state: AppState,
     request: InferenceRequestInternal,
     cancellation_token: CancellationToken,
+    token_buffer_capacity: usize,
 ) -> (
     mpsc::Receiver<WorkerStreamToken>,
     oneshot::Receiver<Result<InferenceResult, InferenceError>>,
 ) {
-    let (token_tx, token_rx) = mpsc::channel(128);
+    // Bounded channel to apply backpressure when clients read slowly.
+    let (token_tx, token_rx) = mpsc::channel(token_buffer_capacity);
     let (done_tx, done_rx) = oneshot::channel();
 
     tokio::spawn(async move {
@@ -1454,10 +1481,21 @@ impl LoadingStreamState {
         internal_request.stop_policy = self.request.stop_policy.clone();
         internal_request.created_at = std::time::Instant::now();
 
+        let stream_config = self
+            .state
+            .config
+            .read()
+            .unwrap_or_else(|e| {
+                tracing::warn!("Config lock poisoned in loading stream, recovering");
+                e.into_inner()
+            })
+            .streaming
+            .clone();
         let (token_rx, done_rx) = spawn_streaming_inference(
             self.state.clone(),
             internal_request,
             self.cancellation_token.clone(),
+            stream_config.inference_token_buffer_capacity,
         );
 
         self.token_rx = Some(token_rx);
@@ -1493,9 +1531,10 @@ struct StreamState {
     // Worker token stream
     token_rx: mpsc::Receiver<WorkerStreamToken>,
     done_rx: Option<oneshot::Receiver<Result<InferenceResult, InferenceError>>>,
-    // Idle timeout tracking (5 minutes default)
-    last_activity: Arc<TokioMutex<std::time::Instant>>,
+    // Idle timeout tracking
+    last_token_at: Instant,
     idle_timeout: Duration,
+    heartbeat_interval: Duration,
     // Cancellation token for stream abort
     cancellation_token: CancellationToken,
     // Session tracking
@@ -1557,6 +1596,8 @@ impl StreamState {
         user_id: String,
         claims: Option<crate::auth::Claims>,
         cancellation_token: CancellationToken,
+        idle_timeout: Duration,
+        heartbeat_interval: Duration,
     ) -> Self {
         let canonical_request_id = run_envelope.run_id.clone();
         if request_id != canonical_request_id {
@@ -1578,8 +1619,9 @@ impl StreamState {
             after_hook_fired: false,
             token_rx,
             done_rx: Some(done_rx),
-            last_activity: Arc::new(TokioMutex::new(std::time::Instant::now())),
-            idle_timeout: Duration::from_secs(300), // 5 minutes
+            last_token_at: Instant::now(),
+            idle_timeout,
+            heartbeat_interval,
             cancellation_token,
             session_id,
             adapters,
@@ -1591,15 +1633,34 @@ impl StreamState {
     }
 
     /// Check if stream has been idle for too long
-    async fn is_idle(&self) -> bool {
-        let last = self.last_activity.lock().await;
-        last.elapsed() > self.idle_timeout
+    fn is_idle(&self) -> bool {
+        self.last_token_at.elapsed() > self.idle_timeout
     }
 
-    /// Update last activity timestamp
-    async fn update_activity(&self) {
-        let mut last = self.last_activity.lock().await;
-        *last = std::time::Instant::now();
+    fn mark_token_activity(&mut self) {
+        self.last_token_at = Instant::now();
+    }
+
+    fn error_event(&self, code: &str, message: impl Into<String>, retryable: bool) -> StreamEvent {
+        StreamEvent::Error {
+            code: code.to_string(),
+            message: message.into(),
+            retryable,
+        }
+    }
+
+    fn map_inference_error(&self, err: InferenceError) -> StreamEvent {
+        let retryable = matches!(
+            err,
+            InferenceError::WorkerNotAvailable(_)
+                | InferenceError::WorkerError(_)
+                | InferenceError::Timeout(_)
+                | InferenceError::BackpressureError(_)
+                | InferenceError::CacheBudgetExceeded { .. }
+                | InferenceError::NoCompatibleWorker { .. }
+                | InferenceError::WorkerDegraded { .. }
+        );
+        self.error_event(err.error_code(), err.to_string(), retryable)
     }
 
     /// Check if stream has been cancelled
@@ -1612,18 +1673,15 @@ impl StreamState {
         if self.is_cancelled() {
             warn!(request_id = %self.request_id, "Stream cancelled by client disconnect");
             self.phase = StreamPhase::Done;
-            return Some(StreamEvent::Error("Stream cancelled".to_string()));
+            return Some(self.error_event("STREAM_CANCELLED", "Stream cancelled", false));
         }
 
         // Check for idle timeout
-        if self.is_idle().await {
-            warn!(request_id = %self.request_id, "Stream idle timeout (5 minutes)");
+        if self.is_idle() {
+            warn!(request_id = %self.request_id, "Stream idle timeout");
             self.phase = StreamPhase::Done;
-            return Some(StreamEvent::Error("Stream idle timeout".to_string()));
+            return Some(self.error_event("STREAM_IDLE_TIMEOUT", "Stream idle timeout", true));
         }
-
-        // Update activity timestamp
-        self.update_activity().await;
 
         match self.phase {
             StreamPhase::Start => {
@@ -1631,35 +1689,76 @@ impl StreamState {
                 self.phase = StreamPhase::StreamingTokens;
                 Some(StreamEvent::Start)
             }
-            StreamPhase::StreamingTokens => match self.token_rx.recv().await {
-                Some(token) => Some(StreamEvent::Token(token.text)),
-                None => {
-                    let done_rx = self.done_rx.take();
-                    let result = if let Some(done_rx) = done_rx {
-                        done_rx.await.ok()
-                    } else {
-                        None
-                    };
+            StreamPhase::StreamingTokens => loop {
+                if self.is_cancelled() {
+                    warn!(request_id = %self.request_id, "Stream cancelled by client disconnect");
+                    self.phase = StreamPhase::Done;
+                    return Some(self.error_event("STREAM_CANCELLED", "Stream cancelled", false));
+                }
 
-                    match result {
-                        Some(Ok(result)) => {
-                            self.stop_reason_code = result.stop_reason_code;
-                            self.stop_reason_token_index = result.stop_reason_token_index;
-                            self.stop_policy_digest_b3 = result.stop_policy_digest_b3.clone();
-                            self.phase = StreamPhase::Done;
-                            Some(StreamEvent::Done {
-                                finish_reason: result.finish_reason,
-                            })
+                if self.is_idle() {
+                    warn!(request_id = %self.request_id, "Stream idle timeout");
+                    self.phase = StreamPhase::Done;
+                    return Some(self.error_event(
+                        "STREAM_IDLE_TIMEOUT",
+                        "Stream idle timeout",
+                        true,
+                    ));
+                }
+
+                let heartbeat_interval = if self.heartbeat_interval.is_zero() {
+                    Duration::from_secs(3600)
+                } else {
+                    self.heartbeat_interval
+                };
+                let heartbeat_in = heartbeat_interval.saturating_sub(self.last_token_at.elapsed());
+
+                tokio::select! {
+                    token = self.token_rx.recv() => {
+                        match token {
+                            Some(token) => {
+                                self.mark_token_activity();
+                                return Some(StreamEvent::Token(token.text));
+                            }
+                            None => {
+                                let done_rx = self.done_rx.take();
+                                let result = if let Some(done_rx) = done_rx {
+                                    done_rx.await.ok()
+                                } else {
+                                    None
+                                };
+
+                                match result {
+                                    Some(Ok(result)) => {
+                                        self.stop_reason_code = result.stop_reason_code;
+                                        self.stop_reason_token_index = result.stop_reason_token_index;
+                                        self.stop_policy_digest_b3 = result.stop_policy_digest_b3.clone();
+                                        self.phase = StreamPhase::Done;
+                                        return Some(StreamEvent::Done {
+                                            finish_reason: result.finish_reason,
+                                        });
+                                    }
+                                    Some(Err(err)) => {
+                                        self.phase = StreamPhase::Done;
+                                        return Some(self.map_inference_error(err));
+                                    }
+                                    None => {
+                                        self.phase = StreamPhase::Done;
+                                        return Some(self.error_event(
+                                            "STREAM_ENDED",
+                                            "Stream ended without completion",
+                                            true,
+                                        ));
+                                    }
+                                }
+                            }
                         }
-                        Some(Err(err)) => {
-                            self.phase = StreamPhase::Done;
-                            Some(StreamEvent::Error(err.to_string()))
-                        }
-                        None => {
-                            self.phase = StreamPhase::Done;
-                            Some(StreamEvent::Error(
-                                "Stream ended without completion".to_string(),
-                            ))
+                    }
+                    _ = tokio::time::sleep(heartbeat_in) => {
+                        if !self.heartbeat_interval.is_zero()
+                            && self.last_token_at.elapsed() >= self.heartbeat_interval
+                        {
+                            return Some(StreamEvent::Heartbeat);
                         }
                     }
                 }
@@ -1721,6 +1820,7 @@ impl StreamState {
                 };
                 Event::default().data(serialize_safe(&chunk, "stream_token"))
             }
+            StreamEvent::Heartbeat => Event::default().comment("heartbeat"),
             StreamEvent::Done { finish_reason } => {
                 // Fire OnAfterInference hook at stream completion
                 // NOTE: For streaming, this is fire-and-forget audit logging only.
@@ -1807,15 +1907,20 @@ impl StreamState {
                 // Send final chunk followed by [DONE]
                 Event::default().data(format!("{}\n\ndata: [DONE]", chunk_json))
             }
-            StreamEvent::Error(message) => {
-                let error_response = serde_json::json!({
-                    "error": {
-                        "message": message,
-                        "type": "inference_error",
-                        "code": "INFERENCE_ERROR"
-                    }
-                });
-                Event::default().data(serialize_safe(&error_response, "stream_error"))
+            StreamEvent::Error {
+                code,
+                message,
+                retryable,
+            } => {
+                let error_response = StreamErrorPayload {
+                    code,
+                    message,
+                    retryable,
+                    correlation_id: self.request_id.clone(),
+                };
+                Event::default()
+                    .event("error")
+                    .data(serialize_safe(&error_response, "stream_error"))
             }
         }
     }
@@ -1832,9 +1937,107 @@ fn current_timestamp() -> u64 {
 mod tests {
     use super::*;
     use crate::handlers::rag_common::parse_rag_doc_id;
+    use crate::state::MetricsConfig;
+    use crate::telemetry::MetricsRegistry;
+    use crate::{ApiConfig, PathsConfig};
+    use adapteros_core::{BackendKind, SeedMode};
+    use adapteros_metrics_exporter::MetricsExporter;
+    use adapteros_telemetry::metrics::MetricsConfig as TelemetryMetricsConfig;
+    use adapteros_telemetry::MetricsCollector;
     use axum::body::to_bytes;
     use axum::response::IntoResponse;
     use futures_util::stream;
+    use std::path::PathBuf;
+    use std::sync::{Arc, RwLock};
+
+    async fn build_test_state() -> AppState {
+        let db = adapteros_db::Db::new_in_memory().await.unwrap();
+        let jwt_secret = b"streaming-test-secret-32-bytes!".to_vec();
+        let base_dir = PathBuf::from("var")
+            .join("tmp")
+            .join("streaming-infer-tests")
+            .join(uuid::Uuid::new_v4().to_string());
+        for dir in [
+            "artifacts",
+            "bundles",
+            "adapters",
+            "plan",
+            "datasets",
+            "documents",
+        ] {
+            let path = base_dir.join(dir);
+            std::fs::create_dir_all(&path).unwrap();
+        }
+        let config = Arc::new(RwLock::new(ApiConfig {
+            metrics: MetricsConfig {
+                enabled: false,
+                bearer_token: "test".to_string(),
+            },
+            directory_analysis_timeout_secs: 1,
+            use_session_stack_for_routing: false,
+            capacity_limits: Default::default(),
+            general: None,
+            server: Default::default(),
+            security: Default::default(),
+            auth: Default::default(),
+            self_hosting: Default::default(),
+            performance: Default::default(),
+            streaming: Default::default(),
+            paths: PathsConfig {
+                artifacts_root: base_dir.join("artifacts").to_string_lossy().to_string(),
+                bundles_root: base_dir.join("bundles").to_string_lossy().to_string(),
+                adapters_root: base_dir.join("adapters").to_string_lossy().to_string(),
+                plan_dir: base_dir.join("plan").to_string_lossy().to_string(),
+                datasets_root: base_dir.join("datasets").to_string_lossy().to_string(),
+                documents_root: base_dir.join("documents").to_string_lossy().to_string(),
+            },
+            chat_context: Default::default(),
+            seed_mode: SeedMode::BestEffort,
+            backend_profile: BackendKind::Auto,
+            worker_id: 0,
+        }));
+        let metrics_exporter =
+            Arc::new(MetricsExporter::new(vec![0.1, 1.0]).expect("metrics exporter"));
+        let metrics_collector = Arc::new(MetricsCollector::new(TelemetryMetricsConfig::default()));
+        let metrics_registry = Arc::new(MetricsRegistry::new());
+        let uma_monitor = Arc::new(adapteros_lora_worker::memory::UmaPressureMonitor::new(
+            15, None,
+        ));
+
+        AppState::new(
+            db,
+            jwt_secret,
+            config,
+            metrics_exporter,
+            metrics_collector,
+            metrics_registry,
+            uma_monitor,
+        )
+    }
+
+    fn test_run_envelope(run_id: &str, tenant: &str) -> adapteros_api_types::RunEnvelope {
+        adapteros_api_types::RunEnvelope {
+            run_id: run_id.to_string(),
+            schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+            workspace_id: tenant.to_string(),
+            actor: adapteros_api_types::RunActor {
+                subject: "tester".to_string(),
+                roles: vec!["admin".to_string()],
+                principal_type: Some("user".to_string()),
+                auth_mode: Some("bearer".to_string()),
+            },
+            manifest_hash_b3: None,
+            plan_id: None,
+            policy_mask_digest_b3: None,
+            router_seed: None,
+            tick: None,
+            worker_id: None,
+            reasoning_mode: false,
+            determinism_version: "v1".to_string(),
+            boot_trace_id: None,
+            created_at: chrono::Utc::now(),
+        }
+    }
 
     #[test]
     fn test_streaming_request_defaults() {
@@ -2060,6 +2263,224 @@ mod tests {
         assert!(json.contains("Done"));
         assert!(json.contains("pin-1"));
         assert!(json.contains("stack_only"));
+    }
+
+    #[tokio::test]
+    async fn stream_emits_heartbeat_then_resumes_with_tokens() {
+        let state = build_test_state().await;
+        let (token_tx, token_rx) = mpsc::channel(4);
+        let (_done_tx, done_rx) = oneshot::channel();
+        let cancellation = CancellationToken::new();
+        let run_id = "chatcmpl-heartbeat";
+
+        let mut stream = StreamState::new(
+            state,
+            run_id.to_string(),
+            test_run_envelope(run_id, "tenant-1"),
+            "test-model".to_string(),
+            token_rx,
+            done_rx,
+            None,
+            None,
+            "tenant-1".to_string(),
+            "user-1".to_string(),
+            None,
+            cancellation,
+            Duration::from_secs(5),
+            Duration::from_millis(10),
+        );
+
+        assert!(matches!(
+            stream.next_event().await,
+            Some(StreamEvent::Start)
+        ));
+
+        tokio::time::sleep(Duration::from_millis(15)).await;
+        assert!(matches!(
+            stream.next_event().await,
+            Some(StreamEvent::Heartbeat)
+        ));
+
+        token_tx
+            .send(WorkerStreamToken {
+                text: "hi".to_string(),
+                token_id: Some(1),
+            })
+            .await
+            .unwrap();
+        assert!(matches!(
+            stream.next_event().await,
+            Some(StreamEvent::Token(_))
+        ));
+
+        drop(token_tx);
+        let next = stream.next_event().await;
+        assert!(
+            !matches!(next, Some(StreamEvent::Heartbeat)),
+            "expected stream to terminate or error after channel closure"
+        );
+    }
+
+    #[tokio::test]
+    async fn backpressure_keeps_stream_responsive() {
+        let state = build_test_state().await;
+        let (token_tx, token_rx) = mpsc::channel(1);
+        let (done_tx, done_rx) = oneshot::channel();
+        let cancellation = CancellationToken::new();
+
+        let mut stream = StreamState::new(
+            state,
+            "chatcmpl-backpressure".to_string(),
+            test_run_envelope("chatcmpl-backpressure", "tenant-1"),
+            "test-model".to_string(),
+            token_rx,
+            done_rx,
+            None,
+            None,
+            "tenant-1".to_string(),
+            "user-1".to_string(),
+            None,
+            cancellation,
+            Duration::from_secs(2),
+            Duration::from_millis(25),
+        );
+
+        let producer = tokio::spawn(async move {
+            for i in 0..5u32 {
+                token_tx
+                    .send(WorkerStreamToken {
+                        text: format!("t{i}"),
+                        token_id: Some(i),
+                    })
+                    .await
+                    .map_err(|e| e.to_string())?;
+            }
+            drop(done_tx);
+            Ok::<_, String>(())
+        });
+
+        assert!(matches!(
+            stream.next_event().await,
+            Some(StreamEvent::Start)
+        ));
+        let mut received = 0;
+        while received < 5 {
+            if let Some(event) = stream.next_event().await {
+                match event {
+                    StreamEvent::Token(text) => {
+                        received += 1;
+                        assert!(!text.is_empty());
+                        tokio::time::sleep(Duration::from_millis(5)).await;
+                    }
+                    StreamEvent::Done { .. } | StreamEvent::Error { .. } => break,
+                    StreamEvent::Heartbeat | StreamEvent::Start => {}
+                }
+            } else {
+                break;
+            }
+        }
+
+        let producer_result = tokio::time::timeout(Duration::from_secs(1), producer)
+            .await
+            .unwrap();
+        assert!(producer_result.is_ok(), "producer should not hang");
+        assert!(
+            received >= 1,
+            "stream should stay responsive under backpressure"
+        );
+    }
+
+    #[tokio::test]
+    async fn stream_error_event_carries_structured_fields() {
+        let state = build_test_state().await;
+        let (token_tx, token_rx) = mpsc::channel(1);
+        drop(token_tx);
+        let (_done_tx, done_rx) = oneshot::channel();
+        let cancellation = CancellationToken::new();
+        let request_id = "chatcmpl-err-123";
+
+        let stream = StreamState::new(
+            state,
+            request_id.to_string(),
+            test_run_envelope(request_id, "tenant-err"),
+            "test-model".to_string(),
+            token_rx,
+            done_rx,
+            Some("session-1".to_string()),
+            None,
+            "tenant-err".to_string(),
+            "user-err".to_string(),
+            None,
+            cancellation,
+            Duration::from_secs(5),
+            Duration::from_secs(0),
+        );
+
+        let event = stream.format_event(StreamEvent::Error {
+            code: "WORKER_DOWN".to_string(),
+            message: "worker unavailable".to_string(),
+            retryable: false,
+        });
+        let response = Sse::new(stream::iter(vec![Ok::<_, Infallible>(event)])).into_response();
+        const MAX_RESPONSE_SIZE: usize = 1024 * 1024;
+        let body = to_bytes(response.into_body(), MAX_RESPONSE_SIZE)
+            .await
+            .unwrap();
+        let body_str = String::from_utf8(body.to_vec()).unwrap();
+
+        assert!(
+            body_str.starts_with("event: error"),
+            "expected SSE error event, got {body_str}"
+        );
+
+        let json_payload = body_str
+            .lines()
+            .find_map(|line| line.strip_prefix("data: "))
+            .expect("data line present");
+        let payload: serde_json::Value = serde_json::from_str(json_payload).unwrap();
+        assert_eq!(payload["code"], "WORKER_DOWN");
+        assert_eq!(payload["message"], "worker unavailable");
+        assert_eq!(payload["retryable"], false);
+        assert_eq!(payload["correlation_id"], request_id);
+    }
+
+    #[tokio::test]
+    async fn stream_error_emitted_once_then_closes() {
+        let state = build_test_state().await;
+        let (token_tx, token_rx) = mpsc::channel(1);
+        drop(token_tx);
+        let (_done_tx, done_rx) = oneshot::channel();
+        let cancellation = CancellationToken::new();
+        let request_id = "chatcmpl-error-once";
+
+        let mut stream = StreamState::new(
+            state,
+            request_id.to_string(),
+            test_run_envelope(request_id, "tenant-err"),
+            "test-model".to_string(),
+            token_rx,
+            done_rx,
+            None,
+            None,
+            "tenant-err".to_string(),
+            "user-err".to_string(),
+            None,
+            cancellation,
+            Duration::from_secs(5),
+            Duration::from_secs(0),
+        );
+
+        assert!(matches!(
+            stream.next_event().await,
+            Some(StreamEvent::Start)
+        ));
+
+        assert!(matches!(
+            stream.next_event().await,
+            Some(StreamEvent::Error { .. })
+        ));
+
+        assert!(stream.next_event().await.is_none());
     }
 
     #[test]
