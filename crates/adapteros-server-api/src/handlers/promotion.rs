@@ -828,10 +828,10 @@ async fn validate_hash_gate(_state: &AppState, run_id: &str) -> AosResult<serde_
 /// Validate policy gate
 async fn validate_policy_gate(_state: &AppState, run_id: &str) -> AosResult<serde_json::Value> {
     use adapteros_policy::policy_packs::PolicyPackId;
+    use crate::handlers::promotion_validation::validate_policy;
 
     // Get all defined policy packs
     let all_policies = PolicyPackId::all();
-    let total_policies = all_policies.len();
 
     // Load golden run to validate against
     let golden_dir = std::path::Path::new("golden_runs")
@@ -845,33 +845,41 @@ async fn validate_policy_gate(_state: &AppState, run_id: &str) -> AosResult<serd
         )));
     }
 
+    // Load archive for validation
+    let archive = GoldenRunArchive::load(&golden_dir)
+        .map_err(|e| AosError::Validation(format!("Failed to load golden run archive: {}", e)))?;
+
     // Track validation results
     let mut passed = 0;
     let mut failed_policies = Vec::new();
+    let mut runtime_policies = Vec::new();
 
     for policy_id in &all_policies {
-        // Each policy pack has specific validation requirements
-        // For now, we validate what we can and report honestly
         let policy_name = policy_id.name();
 
-        match policy_id {
-            PolicyPackId::Determinism => {
-                // Determinism is checked separately in validate_determinism_gate
-                passed += 1;
-            }
-            PolicyPackId::Artifacts => {
-                // Check if golden run has valid artifacts
-                let archive_path = golden_dir.join("archive.json");
-                if archive_path.exists() {
+        match validate_policy(policy_id, &archive) {
+            Ok(result) => {
+                if result.passed {
                     passed += 1;
+                    if let Some(details) = &result.details {
+                        if details
+                            .get("status")
+                            .and_then(|s| s.as_str())
+                            == Some("runtime_enforcement_only")
+                        {
+                            runtime_policies.push(format!("{} (Runtime)", policy_name));
+                        }
+                    }
                 } else {
-                    failed_policies.push(format!("{}: archive.json missing", policy_name));
+                    failed_policies.push(format!(
+                        "{}: {}",
+                        policy_name,
+                        result.failure_reason.unwrap_or_default()
+                    ));
                 }
             }
-            _ => {
-                // For policies without specific validation logic yet,
-                // mark as unchecked rather than fake-passing
-                failed_policies.push(format!("{}: validation not implemented", policy_name));
+            Err(e) => {
+                failed_policies.push(format!("{}: Validation error: {}", policy_name, e));
             }
         }
     }
@@ -883,7 +891,12 @@ async fn validate_policy_gate(_state: &AppState, run_id: &str) -> AosResult<serd
         "policies_passed": passed,
         "policies_failed": failed_policies.len(),
         "failed_details": failed_policies,
-        "note": "Some policies lack validation logic - see failed_details"
+        "runtime_enforcement_only": runtime_policies,
+        "note": if !failed_policies.is_empty() {
+            "Policy validation failed for some rulesets"
+        } else {
+            "Policy validation passed (some checks deferred to runtime)"
+        }
     }))
 }
 
