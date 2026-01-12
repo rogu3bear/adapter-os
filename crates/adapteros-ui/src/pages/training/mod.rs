@@ -39,7 +39,7 @@ pub fn Training() -> impl IntoView {
 
     // Fetch training jobs with server-side filtering
     let (jobs, refetch_jobs) = use_api_resource(move |client: Arc<ApiClient>| {
-        let filter = status_filter.get();
+        let filter = status_filter.get_untracked();
         async move {
             let params = if filter.is_empty() {
                 None

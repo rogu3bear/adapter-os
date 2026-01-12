@@ -135,6 +135,29 @@ impl SearchContext {
             120,
         );
     }
+
+    pub fn search_immediate(&self, value: String) {
+        self.query.set(value.clone());
+        let query = value.trim().to_string();
+        self.search_version.update(|v| *v += 1);
+        if query.is_empty() {
+            self.results.set(Vec::new());
+            self.selected_index.set(0);
+            return;
+        }
+        let mut matches: Vec<SearchResult> = static_results()
+            .into_iter()
+            .filter(|result| result_matches(result, &query))
+            .collect();
+
+        matches.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        self.results.set(matches);
+        self.selected_index.set(0);
+    }
 }
 
 /// Provide search context.

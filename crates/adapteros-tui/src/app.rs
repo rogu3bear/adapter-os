@@ -94,6 +94,7 @@ pub struct App {
     pub log_filter_mode: Option<LogFilterMode>,
 
     // Adapter browser state
+    #[allow(dead_code)]
     pub adapter_filter: String,
 
     // Training jobs state
@@ -135,15 +136,13 @@ pub struct App {
 }
 
 impl App {
-    /// Default server URL for API connections
-    const DEFAULT_SERVER_URL: &'static str = "http://localhost:8080";
-
     pub async fn new() -> Result<Self> {
         // Load persisted config, use its server_url if available
         let tui_config = TuiConfig::load().unwrap_or_default();
         Self::new_with_config(tui_config).await
     }
 
+    #[allow(dead_code)]
     pub async fn new_with_url(server_url: String) -> Result<Self> {
         // Load persisted config but override server_url with provided value
         let mut tui_config = TuiConfig::load().unwrap_or_default();

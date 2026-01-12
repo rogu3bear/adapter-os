@@ -38,10 +38,11 @@ pub fn format_uptime(seconds: u64) -> String {
 
 /// Truncate an ID for display (first 12 chars)
 pub fn short_id(id: &str) -> String {
-    if id.len() > 12 {
-        format!("{}...", &id[..12])
+    let trimmed = id.trim();
+    if trimmed.len() > 12 {
+        format!("{}...", &trimmed[..12])
     } else {
-        id.to_string()
+        trimmed.to_string()
     }
 }
 
@@ -67,8 +68,8 @@ pub fn format_relative_date(iso_date: &str) -> String {
     // Get current date from JavaScript
     let now = js_sys::Date::new_0();
     let today_year = now.get_full_year() as i32;
-    let today_month = now.get_month() as u32 + 1; // JS months are 0-indexed
-    let today_day = now.get_date() as u32;
+    let today_month = now.get_month() + 1; // JS months are 0-indexed
+    let today_day = now.get_date();
 
     // Parse the input date
     let parts: Vec<&str> = date_part.split('-').collect();

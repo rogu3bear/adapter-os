@@ -63,24 +63,37 @@ where
     let (state, set_state) = signal(LoadingState::<T>::Idle);
     let client = Arc::new(ApiClient::new());
     let is_authenticated = client.is_authenticated();
+    let fetch_version = Arc::new(std::sync::atomic::AtomicU64::new(0));
 
     let fetch_clone = fetch.clone();
     let client_clone = Arc::clone(&client);
+    let fetch_version_clone = Arc::clone(&fetch_version);
     let refetch = move || {
         let client = Arc::clone(&client_clone);
         let fetch = fetch_clone.clone();
-
+        let fetch_version = Arc::clone(&fetch_version_clone);
+        let version = fetch_version.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
         set_state.set(LoadingState::Loading);
 
         wasm_bindgen_futures::spawn_local(async move {
             match fetch(client).await {
-                Ok(data) => set_state.set(LoadingState::Loaded(data)),
+                Ok(data) => {
+                    // Ignore stale responses from earlier refetches
+                    if fetch_version.load(std::sync::atomic::Ordering::SeqCst) == version {
+                        set_state.set(LoadingState::Loaded(data));
+                    }
+                }
                 Err(e) => {
-                    // Report error to server (fire-and-forget)
-                    let page = get_current_path();
-                    report_error(&e, page.as_deref(), is_authenticated);
+                    if e.is_aborted() {
+                        return;
+                    }
+                    if fetch_version.load(std::sync::atomic::Ordering::SeqCst) == version {
+                        // Report error to server (fire-and-forget)
+                        let page = get_current_path();
+                        report_error(&e, page.as_deref(), is_authenticated);
 
-                    set_state.set(LoadingState::Error(e));
+                        set_state.set(LoadingState::Error(e));
+                    }
                 }
             }
         });
@@ -149,6 +162,17 @@ where
         let callback = Closure::wrap(Box::new(move || {
             let fetch = fetch.clone();
             wasm_bindgen_futures::spawn_local(async move {
+                // Skip polling when tab is hidden to avoid needless load
+                let should_skip = web_sys::window()
+                    .and_then(|w| w.document())
+                    .map(|d| d.hidden())
+                    .unwrap_or(false)
+                    || web_sys::window()
+                        .map(|w| !w.navigator().on_line())
+                        .unwrap_or(false);
+                if should_skip {
+                    return;
+                }
                 fetch().await;
             });
         }) as Box<dyn FnMut()>);

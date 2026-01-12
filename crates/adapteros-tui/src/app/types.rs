@@ -113,6 +113,7 @@ pub struct LogEntry {
 
 /// Training job status for TUI display
 #[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
 pub struct TrainingJob {
     pub id: String,
     pub status: String,
@@ -223,5 +224,6 @@ pub struct ChatMessage {
 pub enum ChatRole {
     User,
     Assistant,
+    #[allow(dead_code)]
     System,
 }

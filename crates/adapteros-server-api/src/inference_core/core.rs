@@ -396,13 +396,28 @@ impl<'a> InferenceCore<'a> {
                 &request.cpid,
                 &tenant_adapter_allowlist,
                 "Adapter",
-            )?;
+            )
+            .await?;
         }
 
         if let Some(effective) = request.effective_adapter_ids.as_ref() {
             inference_span.record("adapters", tracing::field::display(effective.join(",")));
         } else if let Some(adapters) = request.adapters.as_ref() {
             inference_span.record("adapters", tracing::field::display(adapters.join(",")));
+        }
+
+        if let Some(effective) = request.effective_adapter_ids.as_ref() {
+            let correlation_ids = self
+                .resolve_correlation_ids_for_adapters(&request.cpid, effective)
+                .await;
+            if !correlation_ids.is_empty() {
+                info!(
+                    request_id = %request.request_id,
+                    correlation_id = %correlation_ids.join(","),
+                    adapter_ids = %effective.join(","),
+                    "Inference correlation resolved"
+                );
+            }
         }
 
         // 0.6 Resolve execution policy (determinism, routing, golden)
@@ -550,6 +565,17 @@ impl<'a> InferenceCore<'a> {
             )));
         }
         let base_model_id = aggregated.latest.map(|s| s.model_id.clone());
+        if let Some(ref expected_base_model_id) = base_model_id {
+            let adapter_ids = self.collect_adapter_ids_for_request(&request);
+            if !adapter_ids.is_empty() {
+                self.validate_adapter_base_models(
+                    &request.cpid,
+                    &adapter_ids,
+                    expected_base_model_id,
+                )
+                .await?;
+            }
+        }
 
         // 1. Resolve worker UDS path and capture worker identifier for telemetry
         // For replay: enforce manifest/backend constraints first, then reuse standard selection.
@@ -638,7 +664,8 @@ impl<'a> InferenceCore<'a> {
                 &request.cpid,
                 &tenant_adapter_allowlist,
                 "Pinned adapter",
-            )?;
+            )
+            .await?;
             self.validate_adapter_ids_loadable(pins, &request.request_id)
                 .await?;
         }
@@ -1588,20 +1615,49 @@ impl<'a> InferenceCore<'a> {
             .await
     }
 
+    async fn resolve_correlation_ids_for_adapters(
+        &self,
+        tenant_id: &str,
+        adapter_ids: &[String],
+    ) -> Vec<String> {
+        let mut correlation_ids = Vec::new();
+        for adapter_id in adapter_ids {
+            match self
+                .state
+                .db
+                .get_training_job_by_adapter(adapter_id, tenant_id)
+                .await
+            {
+                Ok(Some(job)) => {
+                    if let Some(corr) = job.correlation_id {
+                        correlation_ids.push(corr);
+                    }
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    warn!(
+                        adapter_id = %adapter_id,
+                        tenant_id = %tenant_id,
+                        error = %e,
+                        "Failed to resolve correlation_id for adapter"
+                    );
+                }
+            }
+        }
+        correlation_ids.sort();
+        correlation_ids.dedup();
+        correlation_ids
+    }
+
     /// Validate pinned adapters belong to the requesting tenant.
     ///
-    /// PRD-RECT-001: Uses tenant-scoped query to prevent cross-tenant enumeration.
-    /// Returns `AdapterNotFound` for both missing and cross-tenant adapters.
     pub(crate) async fn validate_pinned_adapters_for_tenant(
         &self,
         tenant_id: &str,
         pins: &[String],
     ) -> Result<(), InferenceError> {
         for pin in pins {
-            // PRD-RECT-001: Use tenant-scoped query instead of get_adapter() + manual check.
-            // This ensures cross-tenant access returns AdapterNotFound (not PermissionDenied)
-            // to prevent tenant enumeration attacks.
-            let _adapter = self
+            let adapter = self
                 .state
                 .db
                 .get_adapter_for_tenant(tenant_id, pin)
@@ -1611,12 +1667,28 @@ impl<'a> InferenceCore<'a> {
                         "Failed to load pinned adapter '{}': {}",
                         pin, e
                     ))
-                })?
-                .ok_or_else(|| {
-                    // Returns same error for both "not found" and "cross-tenant" cases
-                    InferenceError::AdapterNotFound(format!("Pinned adapter '{}' not found", pin))
                 })?;
-            // No manual tenant check needed - query is already tenant-scoped
+            if adapter.is_none() {
+                let adapter = self.state.db.get_adapter(pin).await.map_err(|e| {
+                    InferenceError::DatabaseError(format!(
+                        "Failed to validate pinned adapter '{}': {}",
+                        pin, e
+                    ))
+                })?;
+                return match adapter {
+                    Some(adapter) if adapter.tenant_id != tenant_id => {
+                        Err(InferenceError::AdapterTenantMismatch {
+                            adapter_id: pin.clone(),
+                            tenant_id: tenant_id.to_string(),
+                            adapter_tenant_id: adapter.tenant_id,
+                        })
+                    }
+                    _ => Err(InferenceError::AdapterNotFound(format!(
+                        "Pinned adapter '{}' not found",
+                        pin
+                    ))),
+                };
+            }
         }
 
         Ok(())
@@ -1655,23 +1727,96 @@ impl<'a> InferenceCore<'a> {
 
     /// Ensure every adapter in `ids` is permitted for the tenant.
     ///
-    /// PRD-RECT-001: Returns `AdapterNotFound` instead of `PermissionDenied`
-    /// to prevent tenant enumeration attacks. This makes cross-tenant adapter
-    /// access indistinguishable from "adapter does not exist".
-    pub(crate) fn validate_ids_against_allowlist(
+    /// Validates adapter IDs against tenant allowlist.
+    pub(crate) async fn validate_ids_against_allowlist(
         &self,
         ids: &[String],
-        _tenant_id: &str,
+        tenant_id: &str,
         allowlist: &HashSet<String>,
-        _context: &str,
+        context: &str,
     ) -> Result<(), InferenceError> {
         for id in ids {
             if !allowlist.contains(id) {
-                // Return AdapterNotFound to avoid leaking existence of adapters
-                // from other tenants (PRD-RECT-001: No existence leaks)
-                return Err(InferenceError::AdapterNotFound(id.clone()));
+                let adapter = self.state.db.get_adapter(id).await.map_err(|e| {
+                    InferenceError::DatabaseError(format!(
+                        "Failed to validate {} '{}': {}",
+                        context, id, e
+                    ))
+                })?;
+                return match adapter {
+                    Some(adapter) if adapter.tenant_id != tenant_id => {
+                        Err(InferenceError::AdapterTenantMismatch {
+                            adapter_id: id.clone(),
+                            tenant_id: tenant_id.to_string(),
+                            adapter_tenant_id: adapter.tenant_id,
+                        })
+                    }
+                    Some(_) => Err(InferenceError::AdapterNotFound(format!(
+                        "{} '{}' not found for tenant {}",
+                        context, id, tenant_id
+                    ))),
+                    None => Err(InferenceError::AdapterNotFound(format!(
+                        "{} '{}' not found",
+                        context, id
+                    ))),
+                };
             }
         }
+        Ok(())
+    }
+
+    fn collect_adapter_ids_for_request(&self, request: &InferenceRequestInternal) -> Vec<String> {
+        if let Some(effective) = request.effective_adapter_ids.as_ref() {
+            return effective.clone();
+        }
+        if let Some(adapters) = request.adapters.as_ref() {
+            return adapters.clone();
+        }
+        if let Some(stack_list) = request.adapter_stack.as_ref() {
+            return stack_list.clone();
+        }
+        Vec::new()
+    }
+
+    pub(crate) async fn validate_adapter_base_models(
+        &self,
+        tenant_id: &str,
+        adapter_ids: &[String],
+        expected_base_model_id: &str,
+    ) -> Result<(), InferenceError> {
+        for adapter_id in adapter_ids {
+            let adapter = self
+                .state
+                .db
+                .get_adapter_for_tenant(tenant_id, adapter_id)
+                .await
+                .map_err(|e| {
+                    InferenceError::DatabaseError(format!(
+                        "Failed to load adapter '{}': {}",
+                        adapter_id, e
+                    ))
+                })?
+                .ok_or_else(|| {
+                    InferenceError::AdapterNotFound(format!(
+                        "Adapter '{}' not found for tenant {}",
+                        adapter_id, tenant_id
+                    ))
+                })?;
+
+            if let Some(ref adapter_base_model_id) = adapter.base_model_id {
+                if adapter_base_model_id != expected_base_model_id {
+                    return Err(InferenceError::AdapterBaseModelMismatch {
+                        adapter_id: adapter
+                            .adapter_id
+                            .clone()
+                            .unwrap_or_else(|| adapter.id.clone()),
+                        expected_base_model_id: expected_base_model_id.to_string(),
+                        adapter_base_model_id: Some(adapter_base_model_id.clone()),
+                    });
+                }
+            }
+        }
+
         Ok(())
     }
 

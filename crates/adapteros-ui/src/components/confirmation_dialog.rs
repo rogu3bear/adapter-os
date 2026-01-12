@@ -200,6 +200,7 @@ pub fn ConfirmationDialog(
                     "hidden"
                 }
             }
+            aria-hidden=move || (!open.get()).to_string()
             on:click={
                 let handle_close = handle_close.clone();
                 move |_| if !loading.get() { handle_close() }
@@ -220,6 +221,7 @@ pub fn ConfirmationDialog(
                 aria-modal="true"
                 aria-labelledby="confirm-dialog-title"
                 aria-describedby="confirm-dialog-description"
+                aria-busy=move || loading.get().to_string()
             >
                 // Icon and header
                 <div class="flex items-start gap-4">
@@ -367,8 +369,8 @@ pub fn ConfirmationDialog(
                     </Button>
                     <Button
                         variant=severity.button_variant()
-                        disabled=!can_confirm.get() || loading.get()
-                        loading=loading.get()
+                        disabled=!can_confirm.get_untracked() || loading.get_untracked()
+                        loading=loading.get_untracked()
                         on_click=Callback::new(handle_confirm)
                     >
                         {confirm_btn_text.clone()}

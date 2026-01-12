@@ -50,7 +50,7 @@ pub fn CreateJobDialog(
     // File upload state
     let uploading = RwSignal::new(false);
     let upload_status = RwSignal::new(String::new());
-    let format_upload_error = |err: &ApiError| -> String {
+    let _format_upload_error = |err: &ApiError| -> String {
         if let ApiError::Structured {
             error,
             code,

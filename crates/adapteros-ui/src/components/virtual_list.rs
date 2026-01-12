@@ -219,7 +219,7 @@ where
     F: Fn(T, usize) -> V + Clone + Send + Sync + 'static,
 {
     let scroll_top = RwSignal::new(0u32);
-    let container_height = (row_height * max_visible_rows as u32) as u32;
+    let container_height = row_height * max_visible_rows as u32;
 
     // Calculate the virtual range
     let virtual_range = Memo::new(move |_| {

@@ -194,6 +194,14 @@ pub fn CommandPalette() -> impl IntoView {
                                     search.search_debounced(value);
                                 }
                             }
+                            on:blur={
+                                let search = search_for_input.clone();
+                                move |_| {
+                                    // Flush pending debounce on blur so users see results before dialog closes
+                                    let value = search.query.get_untracked();
+                                    search.search_immediate(value);
+                                }
+                            }
                         />
                         {
                             let search_for_clear = search_for_clear_outer.clone();

@@ -228,9 +228,7 @@ pub fn Sparkline(
             // Current value indicator (dot at end)
             {move || {
                 let data = sparkline_data.get();
-                let Some(y) = data.dot_y else {
-                    return None;
-                };
+                let y = data.dot_y?;
                 let color = if trend_color {
                     data.trend.color().to_string()
                 } else {

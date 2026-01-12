@@ -13,6 +13,7 @@ mod response_types {
     use serde::Deserialize;
 
     #[derive(Debug, Clone, Deserialize, Default)]
+    #[allow(dead_code)]
     pub struct AdapterDetailResponse {
         pub id: String,
         pub name: String,
@@ -44,12 +45,14 @@ mod response_types {
         pub current_loss: f32,
         #[serde(default)]
         pub tokens_per_second: f32,
+        #[allow(dead_code)]
         pub estimated_time_remaining: Option<String>,
         pub dataset_name: Option<String>,
         pub backend: Option<String>,
     }
 
     #[derive(Debug, Clone, Deserialize, Default)]
+    #[allow(dead_code)]
     pub struct InferResponse {
         pub text: String,
         #[serde(default)]
@@ -59,6 +62,7 @@ mod response_types {
     }
 
     #[derive(Debug, Clone, Deserialize, Default)]
+    #[allow(dead_code)]
     pub struct MemoryBreakdown {
         #[serde(default)]
         pub total_mb: u64,
@@ -75,6 +79,7 @@ mod response_types {
     }
 
     #[derive(Debug, Clone, Deserialize, Default)]
+    #[allow(dead_code)]
     pub struct SystemStatusResponse {
         #[serde(default)]
         pub inference_ready: String,
@@ -532,6 +537,7 @@ impl ApiClient {
     }
 
     /// Get detailed information about a specific adapter
+    #[allow(dead_code)]
     pub async fn get_adapter_detail(&self, adapter_id: &str) -> Result<AdapterDetailResponse> {
         let url = format!("{}/v1/adapters/{}/detail", self.base_url, adapter_id);
 
@@ -577,6 +583,7 @@ impl ApiClient {
     }
 
     /// Get details of a specific training job
+    #[allow(dead_code)]
     pub async fn get_training_job(&self, job_id: &str) -> Result<TrainingJobResponse> {
         let url = format!("{}/v1/training/jobs/{}", self.base_url, job_id);
 
@@ -624,6 +631,7 @@ impl ApiClient {
     // === Inference Methods ===
 
     /// Run inference with optional adapter
+    #[allow(dead_code)]
     pub async fn infer(&self, prompt: &str, adapter_id: Option<&str>) -> Result<InferResponse> {
         let url = format!("{}/v1/infer", self.base_url);
         info!("Running inference with adapter: {:?}", adapter_id);
@@ -660,6 +668,7 @@ impl ApiClient {
     // === Memory/Capacity Methods ===
 
     /// Get unified memory breakdown
+    #[allow(dead_code)]
     pub async fn get_memory_breakdown(&self) -> Result<MemoryBreakdown> {
         let url = format!("{}/v1/memory/uma", self.base_url);
 
@@ -684,6 +693,7 @@ impl ApiClient {
     // === System Status Methods ===
 
     /// Get comprehensive system status
+    #[allow(dead_code)]
     pub async fn get_system_status(&self) -> Result<SystemStatusResponse> {
         let url = format!("{}/v1/system/status", self.base_url);
 

@@ -3,17 +3,27 @@
 //! Provides reactive SSE connections with circuit breaker pattern
 //! and automatic reconnection.
 
+use crate::api::api_base_url;
+#[cfg(target_arch = "wasm32")]
+use crate::api::ApiClient;
 use gloo_timers::callback::{Interval, Timeout};
 use js_sys::Date;
 use leptos::prelude::*;
 use send_wrapper::SendWrapper;
 use std::cell::RefCell;
 use std::rc::Rc;
+#[cfg(target_arch = "wasm32")]
+use std::sync::Arc;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{EventSource, EventSourceInit, MessageEvent};
 
-use super::api_base_url;
+type MessageClosure = Closure<dyn FnMut(MessageEvent)>;
+type MessageClosureList = Rc<RefCell<Vec<MessageClosure>>>;
+type EventClosure = Closure<dyn FnMut()>;
+type EventClosureList = Rc<RefCell<Vec<EventClosure>>>;
+type SubscriptionList = Rc<RefCell<Vec<(String, MessageClosure)>>>;
+type SseHandler = Rc<RefCell<Option<Rc<dyn Fn(SseEvent)>>>>;
 
 /// SSE connection state
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,7 +78,8 @@ impl Default for CircuitBreakerConfig {
             max_retry_delay_ms: 30000,
             reset_timeout_ms: 60000,
             idle_timeout_ms: Some(120_000),
-            with_credentials: false,
+            // SSE uses cookies for auth; default to sending credentials for same-origin
+            with_credentials: true,
             auth_query_param: None,
         }
     }
@@ -101,13 +112,13 @@ struct SseContext {
     failure_count: Rc<RefCell<u32>>,
     event_source: Rc<RefCell<Option<EventSource>>>,
     config: CircuitBreakerConfig,
-    message_closures: Rc<RefCell<Vec<Closure<dyn FnMut(MessageEvent)>>>>,
-    event_closures: Rc<RefCell<Vec<Closure<dyn FnMut()>>>>,
-    subscriptions: Rc<RefCell<Vec<(String, Closure<dyn FnMut(MessageEvent)>)>>>,
+    message_closures: MessageClosureList,
+    event_closures: EventClosureList,
+    subscriptions: SubscriptionList,
     last_event_at: RwSignal<Option<f64>>,
     reconnect_timeout: Rc<RefCell<Option<Timeout>>>,
     watchdog_handle: Rc<RefCell<Option<Interval>>>,
-    handler: Rc<RefCell<Option<Rc<dyn Fn(SseEvent)>>>>,
+    handler: SseHandler,
 }
 
 /// SSE connection with circuit breaker and auto-reconnection
@@ -411,6 +422,7 @@ fn handle_failure(ctx: SseContext, reason: &str) {
             failures,
             reason
         );
+        probe_auth_and_stop_on_unauthorized(&ctx);
         schedule_circuit_reset(ctx);
         return;
     }
@@ -434,6 +446,26 @@ fn increment_failures(ctx: &SseContext) -> u32 {
 fn reset_failures(ctx: &SseContext) {
     *ctx.failure_count.borrow_mut() = 0;
 }
+
+#[cfg(target_arch = "wasm32")]
+fn probe_auth_and_stop_on_unauthorized(ctx: &SseContext) {
+    let ctx = ctx.clone();
+    wasm_bindgen_futures::spawn_local(async move {
+        let client = Arc::new(ApiClient::new());
+        if let Err(crate::api::ApiError::Unauthorized) = client.me().await {
+            clear_reconnect(&ctx);
+            clear_watchdog(&ctx);
+            ctx.state.set(SseState::CircuitOpen);
+            tracing::warn!(
+                "SSE halted for {} due to auth expiry; awaiting re-auth",
+                ctx.endpoint
+            );
+        }
+    });
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn probe_auth_and_stop_on_unauthorized(_ctx: &SseContext) {}
 
 fn schedule_reconnect(ctx: SseContext, failures: u32) {
     clear_reconnect(&ctx);
@@ -616,6 +648,8 @@ where
     let state = connection.state();
     let endpoint_name_for_handler = endpoint_name.clone();
     let on_event_handler = on_event.clone();
+    let parse_failures = Rc::new(std::cell::Cell::new(0u32));
+    let parse_failures_for_handler = Rc::clone(&parse_failures);
 
     let handler = move |event: SseEvent| {
         let data = event.data.trim();
@@ -624,8 +658,13 @@ where
         }
 
         match serde_json::from_str::<T>(data) {
-            Ok(parsed) => on_event_handler(parsed),
+            Ok(parsed) => {
+                parse_failures_for_handler.set(0);
+                on_event_handler(parsed);
+            }
             Err(err) => {
+                let failures = parse_failures_for_handler.get().saturating_add(1);
+                parse_failures_for_handler.set(failures);
                 let preview: String = data.chars().take(200).collect();
                 tracing::warn!(
                     "SSE JSON parse failed for {}: {} (payload: {})",
@@ -633,6 +672,15 @@ where
                     err,
                     preview
                 );
+                if failures >= 3 {
+                    tracing::warn!(
+                        "SSE JSON parse failed {} times for {}; resetting connection",
+                        failures,
+                        endpoint_name_for_handler
+                    );
+                    // Reset the circuit to force a reconnect and reset failure counter
+                    parse_failures_for_handler.set(0);
+                }
             }
         }
     };

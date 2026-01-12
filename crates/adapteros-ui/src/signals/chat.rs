@@ -191,7 +191,6 @@ impl ChatAction {
         // Send inference request
         let request = InferenceRequest {
             prompt,
-            system: Some("You are AdapterOS, an AI assistant for managing ML inference. Be helpful, concise, and technical when needed.".to_string()),
             max_tokens: Some(2048),
             temperature: Some(0.7),
             stream: None,
@@ -225,7 +224,7 @@ impl ChatAction {
 
     /// Build prompt with context based on toggles
     fn build_prompt(&self, content: &str) -> String {
-        let state = self.state.get();
+        let state = self.state.get_untracked();
         let mut parts = Vec::new();
 
         // Add context based on toggles

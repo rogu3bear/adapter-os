@@ -108,6 +108,21 @@ pub fn System() -> impl IntoView {
     // Bridge SSE connection state to user notifications
     use_sse_notifications(sse_status.read_only());
 
+    // Fallback: if SSE is disconnected for 30s, trigger a refetch to keep data warm
+    let _refetch_workers_timeout = StoredValue::new(refetch_workers_signal);
+    Effect::new(move || {
+        if sse_status.get() == SseState::Disconnected {
+            #[cfg(target_arch = "wasm32")]
+            {
+                let refetch = _refetch_workers_timeout.clone();
+                gloo_timers::callback::Timeout::new(30_000, move || {
+                    refetch.with_value(|f| f());
+                })
+                .forget();
+            }
+        }
+    });
+
     // Debug logging for list sizes
     #[cfg(debug_assertions)]
     Effect::new(move |_| {
@@ -131,7 +146,8 @@ pub fn System() -> impl IntoView {
         refetch_nodes_signal.with_value(|f| f());
         refetch_metrics_signal.with_value(|f| f());
         // Only refetch workers if SSE is not connected
-        if sse_status.get() != SseState::Connected {
+        // Use get_untracked since we're in an async context outside reactive tracking
+        if sse_status.get_untracked() != SseState::Connected {
             refetch_workers_signal.with_value(|f| f());
         }
     });

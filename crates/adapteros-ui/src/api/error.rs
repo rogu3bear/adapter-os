@@ -138,7 +138,12 @@ impl ApiError {
 
 impl From<gloo_net::Error> for ApiError {
     fn from(err: gloo_net::Error) -> Self {
-        Self::Network(err.to_string())
+        let msg = err.to_string();
+        if msg.contains("AbortError") {
+            Self::Aborted
+        } else {
+            Self::Network(msg)
+        }
     }
 }
 

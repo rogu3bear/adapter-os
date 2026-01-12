@@ -103,7 +103,7 @@ impl MetricsHistory {
     where
         F: Fn(&TimestampedMetrics) -> f64,
     {
-        self.snapshots.iter().map(|s| f(s)).collect()
+        self.snapshots.iter().map(f).collect()
     }
 
     fn to_time_series<F>(&self, name: &str, extractor: F) -> TimeSeriesData
