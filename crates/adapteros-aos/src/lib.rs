@@ -30,6 +30,7 @@ pub mod implementation;
 #[cfg(feature = "mmap")]
 pub mod manager;
 pub mod metrics;
+pub mod sealed;
 pub mod types;
 pub mod writer;
 
@@ -40,6 +41,10 @@ pub use implementation::{
 };
 #[cfg(feature = "mmap")]
 pub use manager::{AosManager, AosManagerBuilder};
+pub use sealed::{
+    AdapterBundle, AdapterMetadata, AdapterPayload, SealedAdapterContainer, SignedManifest,
+    SEALED_CONTAINER_VERSION, SEALED_MAGIC,
+};
 pub use types::{CombinationStrategy, WeightGroupConfig};
 pub use writer::{
     compute_scope_hash, open_aos, parse_segments, select_segment, AosFileView, AosHeader,

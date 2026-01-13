@@ -19,6 +19,11 @@ adapteros-config = { path = "../adapteros-config" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
+# Cryptography (for sealed containers)
+ed25519-dalek = { workspace = true }
+base64 = { workspace = true }
+blake3 = { workspace = true }
+
 # Logging
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
@@ -56,6 +61,7 @@ hex = { workspace = true }
 [dev-dependencies]
 tempfile = { workspace = true }
 criterion = { workspace = true }
+rand = { workspace = true }
 
 [features]
 default = []

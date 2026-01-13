@@ -11,12 +11,15 @@
 //! - **Single-Flight**: Concurrent cache misses for the same key are deduplicated
 //! - **LRU Eviction**: Evicts least-recently-used entries when capacity is exceeded
 //! - **UMA Optimized**: Stores KV tensors as Vec<f32> for zero-copy MLX access
+//! - **Longest-Prefix Matching**: Find partial cache hits for token prefixes
+//!   (Patent 3535886.0002 Claims 8-10)
 //!
 //! See PRD: PrefixKvCache v1
 
 use adapteros_core::singleflight::{SingleFlightMetrics, SingleFlightSync};
 use adapteros_core::{AosError, B3Hash, Result};
 use parking_lot::{Mutex, RwLock};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -48,10 +51,19 @@ pub struct PrefixKvEntry {
     last_access_ns: AtomicU64,
     /// Active reference count (for eviction safety)
     pub active_refcount: AtomicU32,
+    // Patent 3535886.0002 Claims 8-10: Longest-prefix matching support
+    /// The actual token IDs for this prefix (for prefix matching)
+    pub prefix_tokens: Vec<u32>,
+    /// Context digest this entry was computed for
+    pub context_digest: B3Hash,
+    /// Tokenizer hash used to tokenize this prefix
+    pub tokenizer_hash: B3Hash,
+    /// Model identity hash
+    pub model_identity_hash: B3Hash,
 }
 
 impl PrefixKvEntry {
-    /// Create a new prefix KV entry
+    /// Create a new prefix KV entry (legacy constructor for backward compatibility)
     pub fn new(
         keys: Vec<Vec<f32>>,
         values: Vec<Vec<f32>>,
@@ -70,7 +82,81 @@ impl PrefixKvEntry {
             created_at: now,
             last_access_ns: AtomicU64::new(0),
             active_refcount: AtomicU32::new(0),
+            // Default values for backward compatibility
+            prefix_tokens: Vec::new(),
+            context_digest: B3Hash::zero(),
+            tokenizer_hash: B3Hash::zero(),
+            model_identity_hash: B3Hash::zero(),
         }
+    }
+
+    /// Create a new prefix KV entry with token tracking for longest-prefix matching
+    /// (Patent 3535886.0002 Claims 8-10)
+    pub fn new_with_tokens(
+        keys: Vec<Vec<f32>>,
+        values: Vec<Vec<f32>>,
+        tenant_id: String,
+        prefix_tokens: Vec<u32>,
+        context_digest: B3Hash,
+        tokenizer_hash: B3Hash,
+        model_identity_hash: B3Hash,
+    ) -> Self {
+        let kv_bytes = Self::compute_kv_bytes(&keys, &values);
+        let now = Instant::now();
+        let prefix_cached_token_count = prefix_tokens.len() as u32;
+
+        Self {
+            keys,
+            values,
+            tenant_id,
+            prefix_cached_token_count,
+            kv_bytes,
+            created_at: now,
+            last_access_ns: AtomicU64::new(0),
+            active_refcount: AtomicU32::new(0),
+            prefix_tokens,
+            context_digest,
+            tokenizer_hash,
+            model_identity_hash,
+        }
+    }
+
+    /// Check if this entry supports prefix matching (has token data)
+    pub fn supports_prefix_matching(&self) -> bool {
+        !self.prefix_tokens.is_empty()
+    }
+
+    /// Compute the number of matching tokens with the given input tokens.
+    /// Returns 0 if context/tokenizer/model don't match or if prefix matching is not supported.
+    pub fn compute_prefix_match_length(
+        &self,
+        input_tokens: &[u32],
+        context_digest: &B3Hash,
+        tokenizer_hash: &B3Hash,
+        model_identity_hash: &B3Hash,
+    ) -> u32 {
+        // Must support prefix matching
+        if !self.supports_prefix_matching() {
+            return 0;
+        }
+
+        // Context, tokenizer, and model must match exactly
+        if self.context_digest != *context_digest
+            || self.tokenizer_hash != *tokenizer_hash
+            || self.model_identity_hash != *model_identity_hash
+        {
+            return 0;
+        }
+
+        // Find common prefix length
+        let match_len = self
+            .prefix_tokens
+            .iter()
+            .zip(input_tokens.iter())
+            .take_while(|(a, b)| a == b)
+            .count();
+
+        match_len as u32
     }
 
     /// Compute total bytes for key and value tensors
@@ -224,6 +310,139 @@ impl PrefixKvCache {
             stats.misses += 1;
             None
         }
+    }
+
+    /// Find the longest cached prefix matching the input tokens.
+    /// (Patent 3535886.0002 Claims 8-10)
+    ///
+    /// Unlike `get()` which requires an exact key match, this method searches
+    /// all cache entries to find the one with the longest token prefix match.
+    ///
+    /// # Arguments
+    /// * `input_tokens` - The input token sequence to match against
+    /// * `context_digest` - Context digest for matching
+    /// * `tokenizer_hash` - Tokenizer hash for matching
+    /// * `model_identity_hash` - Model identity hash for matching
+    /// * `min_match_tokens` - Minimum tokens to consider a valid match (default: 1)
+    ///
+    /// # Returns
+    /// * `Some(PrefixMatch)` with the best matching entry and match length
+    /// * `None` if no suitable match found
+    ///
+    /// # Example
+    /// ```ignore
+    /// let match_result = cache.find_longest_prefix_match(
+    ///     &input_tokens,
+    ///     &context_digest,
+    ///     &tokenizer_hash,
+    ///     &model_identity_hash,
+    ///     1, // min 1 token match
+    /// );
+    ///
+    /// if let Some(prefix_match) = match_result {
+    ///     // Reuse prefix_match.matched_token_count tokens from cache
+    ///     let tokens_to_compute = &input_tokens[prefix_match.matched_token_count as usize..];
+    /// }
+    /// ```
+    pub fn find_longest_prefix_match(
+        &self,
+        input_tokens: &[u32],
+        context_digest: &B3Hash,
+        tokenizer_hash: &B3Hash,
+        model_identity_hash: &B3Hash,
+        min_match_tokens: u32,
+    ) -> Option<PrefixMatch> {
+        if input_tokens.is_empty() {
+            return None;
+        }
+
+        let entries = self.entries.read();
+        let mut best_match: Option<(B3Hash, Arc<PrefixKvEntry>, u32)> = None;
+
+        for (key, entry) in entries.iter() {
+            // Skip entries that don't support prefix matching
+            if !entry.supports_prefix_matching() {
+                continue;
+            }
+
+            // Compute match length
+            let match_len = entry.compute_prefix_match_length(
+                input_tokens,
+                context_digest,
+                tokenizer_hash,
+                model_identity_hash,
+            );
+
+            // Check if this is a better match
+            if match_len >= min_match_tokens {
+                if let Some((_, _, best_len)) = &best_match {
+                    if match_len > *best_len {
+                        best_match = Some((*key, Arc::clone(entry), match_len));
+                    }
+                } else {
+                    best_match = Some((*key, Arc::clone(entry), match_len));
+                }
+            }
+        }
+
+        // Update stats and return result
+        if let Some((key, entry, matched_tokens)) = best_match {
+            entry.record_access();
+
+            // This counts as a partial hit
+            let mut stats = self.stats.lock();
+            stats.hits += 1;
+
+            tracing::debug!(
+                cache_key = %key.to_hex()[..16],
+                matched_tokens = matched_tokens,
+                cached_tokens = entry.prefix_cached_token_count,
+                input_tokens = input_tokens.len(),
+                "Prefix KV cache partial hit (longest-prefix match)"
+            );
+
+            Some(PrefixMatch {
+                entry,
+                cache_key: key,
+                matched_token_count: matched_tokens,
+                remaining_tokens: input_tokens.len() as u32 - matched_tokens,
+            })
+        } else {
+            let mut stats = self.stats.lock();
+            stats.misses += 1;
+            None
+        }
+    }
+
+    /// Find prefix match or exact match, preferring exact match.
+    ///
+    /// First tries exact key lookup, then falls back to longest-prefix matching.
+    /// This provides optimal performance when exact matches are available.
+    pub fn get_or_find_prefix(
+        &self,
+        exact_key: &B3Hash,
+        input_tokens: &[u32],
+        context_digest: &B3Hash,
+        tokenizer_hash: &B3Hash,
+        model_identity_hash: &B3Hash,
+    ) -> Option<PrefixMatchResult> {
+        // Try exact match first (fastest path)
+        if let Some(entry) = self.get(exact_key) {
+            return Some(PrefixMatchResult::ExactMatch(entry));
+        }
+
+        // Fall back to longest-prefix matching
+        if let Some(prefix_match) = self.find_longest_prefix_match(
+            input_tokens,
+            context_digest,
+            tokenizer_hash,
+            model_identity_hash,
+            1, // At least 1 token match
+        ) {
+            return Some(PrefixMatchResult::PrefixMatch(prefix_match));
+        }
+
+        None
     }
 
     /// Insert an entry into the cache.
@@ -472,6 +691,105 @@ impl PrefixKvCache {
 unsafe impl Send for PrefixKvCache {}
 unsafe impl Sync for PrefixKvCache {}
 
+// =============================================================================
+// Prefix Match Types (Patent 3535886.0002 Claims 8-10)
+// =============================================================================
+
+/// Result of a longest-prefix match operation
+#[derive(Debug, Clone)]
+pub struct PrefixMatch {
+    /// The cache entry containing the matching prefix
+    pub entry: Arc<PrefixKvEntry>,
+    /// The cache key of the matched entry
+    pub cache_key: B3Hash,
+    /// Number of tokens that matched
+    pub matched_token_count: u32,
+    /// Number of tokens remaining to compute
+    pub remaining_tokens: u32,
+}
+
+impl PrefixMatch {
+    /// Get the cache hit ratio (0.0 to 1.0)
+    pub fn hit_ratio(&self) -> f32 {
+        let total = self.matched_token_count + self.remaining_tokens;
+        if total == 0 {
+            0.0
+        } else {
+            self.matched_token_count as f32 / total as f32
+        }
+    }
+
+    /// Check if this is a full match (all input tokens matched)
+    pub fn is_full_match(&self) -> bool {
+        self.remaining_tokens == 0
+    }
+
+    /// Get the number of KV layers that can be reused
+    pub fn reusable_kv_layers(&self) -> usize {
+        self.entry.keys.len()
+    }
+
+    /// Compute attributed tokens (for billing purposes)
+    /// Attributed = Total - Cached (as per Patent 3535886.0002)
+    pub fn attributed_tokens(&self, total_input_tokens: u32) -> u32 {
+        total_input_tokens.saturating_sub(self.matched_token_count)
+    }
+}
+
+/// Result of get_or_find_prefix operation
+#[derive(Debug)]
+pub enum PrefixMatchResult {
+    /// Exact key match found
+    ExactMatch(Arc<PrefixKvEntry>),
+    /// Partial prefix match found
+    PrefixMatch(PrefixMatch),
+}
+
+impl PrefixMatchResult {
+    /// Get the entry regardless of match type
+    pub fn entry(&self) -> &Arc<PrefixKvEntry> {
+        match self {
+            PrefixMatchResult::ExactMatch(entry) => entry,
+            PrefixMatchResult::PrefixMatch(pm) => &pm.entry,
+        }
+    }
+
+    /// Get the number of matched tokens
+    pub fn matched_token_count(&self) -> u32 {
+        match self {
+            PrefixMatchResult::ExactMatch(entry) => entry.prefix_cached_token_count,
+            PrefixMatchResult::PrefixMatch(pm) => pm.matched_token_count,
+        }
+    }
+
+    /// Check if this is an exact match
+    pub fn is_exact(&self) -> bool {
+        matches!(self, PrefixMatchResult::ExactMatch(_))
+    }
+
+    /// Check if this is a partial prefix match
+    pub fn is_partial(&self) -> bool {
+        matches!(self, PrefixMatchResult::PrefixMatch(_))
+    }
+}
+
+/// Statistics for prefix matching operations
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PrefixMatchStats {
+    /// Total prefix match attempts
+    pub attempts: u64,
+    /// Exact matches found
+    pub exact_matches: u64,
+    /// Partial prefix matches found
+    pub partial_matches: u64,
+    /// No match found
+    pub no_matches: u64,
+    /// Average match ratio for partial matches (0.0 to 1.0)
+    pub avg_partial_match_ratio: f32,
+    /// Total tokens saved by prefix matching
+    pub tokens_saved: u64,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -715,5 +1033,217 @@ mod tests {
 
         // Should fail because key1 is in use and cannot be evicted
         assert!(result.is_err());
+    }
+
+    // Patent 3535886.0002 Claims 8-10: Longest-prefix matching tests
+
+    fn make_entry_with_tokens(
+        tenant: &str,
+        prefix_tokens: Vec<u32>,
+        layers: usize,
+        size_per_layer: usize,
+        context_digest: B3Hash,
+        tokenizer_hash: B3Hash,
+        model_identity_hash: B3Hash,
+    ) -> PrefixKvEntry {
+        let keys: Vec<Vec<f32>> = (0..layers).map(|_| vec![1.0; size_per_layer]).collect();
+        let values: Vec<Vec<f32>> = (0..layers).map(|_| vec![2.0; size_per_layer]).collect();
+        PrefixKvEntry::new_with_tokens(
+            keys,
+            values,
+            tenant.to_string(),
+            prefix_tokens,
+            context_digest,
+            tokenizer_hash,
+            model_identity_hash,
+        )
+    }
+
+    #[test]
+    fn test_prefix_match_exact() {
+        let cache = PrefixKvCache::new(1024 * 1024);
+
+        let context = B3Hash::hash(b"context");
+        let tokenizer = B3Hash::hash(b"tokenizer");
+        let model = B3Hash::hash(b"model");
+
+        let tokens = vec![1, 2, 3, 4, 5];
+        let key = B3Hash::hash(b"key1");
+
+        let entry =
+            make_entry_with_tokens("tenant1", tokens.clone(), 2, 128, context, tokenizer, model);
+        cache.insert(key, entry).unwrap();
+
+        // Search with exact same tokens
+        let result = cache.find_longest_prefix_match(&tokens, &context, &tokenizer, &model, 1);
+
+        assert!(result.is_some());
+        let prefix_match = result.unwrap();
+        assert_eq!(prefix_match.matched_token_count, 5);
+        assert_eq!(prefix_match.remaining_tokens, 0);
+        assert!(prefix_match.is_full_match());
+    }
+
+    #[test]
+    fn test_prefix_match_partial() {
+        let cache = PrefixKvCache::new(1024 * 1024);
+
+        let context = B3Hash::hash(b"context");
+        let tokenizer = B3Hash::hash(b"tokenizer");
+        let model = B3Hash::hash(b"model");
+
+        let cached_tokens = vec![1, 2, 3, 4, 5];
+        let key = B3Hash::hash(b"key1");
+
+        let entry =
+            make_entry_with_tokens("tenant1", cached_tokens, 2, 128, context, tokenizer, model);
+        cache.insert(key, entry).unwrap();
+
+        // Search with tokens that share a prefix
+        let input_tokens = vec![1, 2, 3, 6, 7, 8]; // Shares [1,2,3]
+        let result =
+            cache.find_longest_prefix_match(&input_tokens, &context, &tokenizer, &model, 1);
+
+        assert!(result.is_some());
+        let prefix_match = result.unwrap();
+        assert_eq!(prefix_match.matched_token_count, 3);
+        assert_eq!(prefix_match.remaining_tokens, 3);
+        assert!(!prefix_match.is_full_match());
+        assert!((prefix_match.hit_ratio() - 0.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_prefix_match_longest() {
+        let cache = PrefixKvCache::new(1024 * 1024);
+
+        let context = B3Hash::hash(b"context");
+        let tokenizer = B3Hash::hash(b"tokenizer");
+        let model = B3Hash::hash(b"model");
+
+        // Insert two entries with different prefix lengths
+        let short_tokens = vec![1, 2];
+        let long_tokens = vec![1, 2, 3, 4];
+
+        cache
+            .insert(
+                B3Hash::hash(b"short"),
+                make_entry_with_tokens("tenant1", short_tokens, 2, 64, context, tokenizer, model),
+            )
+            .unwrap();
+
+        cache
+            .insert(
+                B3Hash::hash(b"long"),
+                make_entry_with_tokens("tenant1", long_tokens, 2, 64, context, tokenizer, model),
+            )
+            .unwrap();
+
+        // Search should find the longer match
+        let input_tokens = vec![1, 2, 3, 4, 5, 6];
+        let result =
+            cache.find_longest_prefix_match(&input_tokens, &context, &tokenizer, &model, 1);
+
+        assert!(result.is_some());
+        let prefix_match = result.unwrap();
+        assert_eq!(prefix_match.matched_token_count, 4); // Matched the longer prefix
+    }
+
+    #[test]
+    fn test_prefix_match_context_mismatch() {
+        let cache = PrefixKvCache::new(1024 * 1024);
+
+        let context1 = B3Hash::hash(b"context1");
+        let context2 = B3Hash::hash(b"context2");
+        let tokenizer = B3Hash::hash(b"tokenizer");
+        let model = B3Hash::hash(b"model");
+
+        let tokens = vec![1, 2, 3, 4, 5];
+
+        let entry = make_entry_with_tokens(
+            "tenant1",
+            tokens.clone(),
+            2,
+            128,
+            context1, // Different context
+            tokenizer,
+            model,
+        );
+        cache.insert(B3Hash::hash(b"key1"), entry).unwrap();
+
+        // Search with different context should not match
+        let result = cache.find_longest_prefix_match(
+            &tokens, &context2, // Different context
+            &tokenizer, &model, 1,
+        );
+
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_prefix_match_min_tokens() {
+        let cache = PrefixKvCache::new(1024 * 1024);
+
+        let context = B3Hash::hash(b"context");
+        let tokenizer = B3Hash::hash(b"tokenizer");
+        let model = B3Hash::hash(b"model");
+
+        let cached_tokens = vec![1, 2, 3];
+
+        let entry =
+            make_entry_with_tokens("tenant1", cached_tokens, 2, 128, context, tokenizer, model);
+        cache.insert(B3Hash::hash(b"key1"), entry).unwrap();
+
+        // Search with only 2 matching tokens but min_match_tokens=3
+        let input_tokens = vec![1, 2, 99, 100]; // Only shares [1,2]
+        let result = cache.find_longest_prefix_match(
+            &input_tokens,
+            &context,
+            &tokenizer,
+            &model,
+            3, // Require at least 3 matching tokens
+        );
+
+        assert!(result.is_none());
+
+        // But with min_match_tokens=2, should match
+        let result =
+            cache.find_longest_prefix_match(&input_tokens, &context, &tokenizer, &model, 2);
+
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().matched_token_count, 2);
+    }
+
+    #[test]
+    fn test_get_or_find_prefix_exact() {
+        let cache = PrefixKvCache::new(1024 * 1024);
+
+        let context = B3Hash::hash(b"context");
+        let tokenizer = B3Hash::hash(b"tokenizer");
+        let model = B3Hash::hash(b"model");
+
+        let tokens = vec![1, 2, 3];
+        let exact_key = B3Hash::hash(b"exact_key");
+
+        let entry =
+            make_entry_with_tokens("tenant1", tokens.clone(), 2, 128, context, tokenizer, model);
+        cache.insert(exact_key, entry).unwrap();
+
+        let result = cache.get_or_find_prefix(&exact_key, &tokens, &context, &tokenizer, &model);
+
+        assert!(result.is_some());
+        assert!(result.as_ref().unwrap().is_exact());
+    }
+
+    #[test]
+    fn test_attributed_tokens() {
+        let prefix_match = PrefixMatch {
+            entry: Arc::new(make_entry("tenant1", 100, 2, 128)),
+            cache_key: B3Hash::hash(b"key"),
+            matched_token_count: 100,
+            remaining_tokens: 50,
+        };
+
+        // Total input tokens = 150, cached = 100, attributed = 50
+        assert_eq!(prefix_match.attributed_tokens(150), 50);
     }
 }
