@@ -60,7 +60,44 @@ impl Default for FederationDaemonConfig {
     }
 }
 
-/// Federation Daemon - runs periodic federation verification
+/// Federation Daemon - runs periodic federation verification.
+///
+/// The `FederationDaemon` implements continuous federation verification with
+/// policy enforcement. It runs periodic verification sweeps to ensure all
+/// federation hosts maintain valid chains, and triggers quarantine on failures.
+///
+/// ## Policy Compliance
+///
+/// - **Determinism Ruleset (#2)**: Reproducible verification
+/// - **Telemetry Ruleset (#9)**: 100% sampling for federation events
+/// - **Incident Ruleset (#17)**: Quarantine on chain breaks
+///
+/// ## Features
+///
+/// - Periodic verification sweeps (configurable interval)
+/// - Quorum checking (blocks writes when insufficient peers)
+/// - Automatic quarantine on verification failures
+/// - Read-only mode when quorum is lost
+/// - Comprehensive telemetry logging
+///
+/// # Usage
+///
+/// ```rust,no_run
+/// use adapteros_orchestrator::FederationDaemon;
+/// use std::sync::Arc;
+/// use tokio::sync::broadcast;
+///
+/// # async fn example() -> adapteros_core::Result<()> {
+/// # let daemon: Arc<FederationDaemon> = todo!();
+/// let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
+/// let handle = daemon.start(shutdown_rx);
+///
+/// // Later, to shutdown gracefully:
+/// shutdown_tx.send(()).ok();
+/// handle.await?;
+/// # Ok(())
+/// # }
+/// ```
 pub struct FederationDaemon {
     /// Federation manager
     federation: Arc<FederationManager>,
@@ -79,7 +116,21 @@ pub struct FederationDaemon {
 }
 
 impl FederationDaemon {
-    /// Create a new federation daemon
+    /// Create a new federation daemon.
+    ///
+    /// Initializes the daemon with federation manager, policy watcher,
+    /// telemetry writer, database, and configuration. The daemon is ready
+    /// to start verification sweeps after construction.
+    ///
+    /// # Arguments
+    /// * `federation` - Federation manager for chain verification
+    /// * `policy_watcher` - Policy hash watcher (reserved for policy change detection)
+    /// * `telemetry` - Telemetry writer for event logging
+    /// * `db` - Database handle for querying federation data
+    /// * `config` - Daemon configuration (intervals, quorum, etc.)
+    ///
+    /// # Returns
+    /// A new `FederationDaemon` instance.
     pub fn new(
         federation: Arc<FederationManager>,
         policy_watcher: Arc<PolicyHashWatcher>,
@@ -110,7 +161,13 @@ impl FederationDaemon {
         })
     }
 
-    /// Legacy start method without shutdown support (for backward compatibility)
+    /// Legacy start method without shutdown support (for backward compatibility).
+    ///
+    /// Starts the daemon without graceful shutdown. The daemon will run indefinitely
+    /// until the process terminates. Prefer [`start()`](Self::start) for new code.
+    ///
+    /// # Returns
+    /// A `JoinHandle` that can be awaited (though it will never complete).
     pub fn start_legacy(self: Arc<Self>) -> JoinHandle<()> {
         let (_, shutdown_rx) = broadcast::channel(1); // Create a dummy receiver that never receives
         self.start(shutdown_rx)
@@ -150,7 +207,14 @@ impl FederationDaemon {
         info!("Federation daemon stopped verification sweeps");
     }
 
-    /// Determine if writes are currently blocked due to quorum loss
+    /// Check if the system is in read-only mode due to quorum loss.
+    ///
+    /// When insufficient peers are connected (below `quorum_min_peers`),
+    /// the system enters read-only mode to prevent writes that could cause
+    /// consistency issues.
+    ///
+    /// # Returns
+    /// `true` if the system is read-only (quorum not met), `false` otherwise.
     pub fn is_read_only(&self) -> bool {
         *self.read_only.read()
     }
@@ -436,22 +500,54 @@ impl FederationDaemon {
         Ok(())
     }
 
-    /// Check if system is quarantined
+    /// Check if the system is currently quarantined.
+    ///
+    /// Quarantine is triggered when federation verification fails, indicating
+    /// potential chain breaks or consistency issues.
+    ///
+    /// # Returns
+    /// `true` if the system is quarantined, `false` otherwise.
     pub fn is_quarantined(&self) -> bool {
         self.quarantine.read().is_quarantined()
     }
 
-    /// Check if an operation is allowed
+    /// Check if an operation is allowed given the current quarantine status.
+    ///
+    /// Some operations may be blocked when the system is quarantined, depending
+    /// on the operation type and quarantine policy.
+    ///
+    /// # Arguments
+    /// * `operation` - The operation to check
+    ///
+    /// # Returns
+    /// `Ok(())` if the operation is allowed, or an error if blocked.
+    ///
+    /// # Errors
+    /// Returns an error if the operation is blocked by quarantine policy.
     pub fn check_operation(&self, operation: QuarantineOperation) -> Result<()> {
         self.quarantine.read().check_operation(operation)
     }
 
-    /// Get quarantine status message
+    /// Get a human-readable quarantine status message.
+    ///
+    /// # Returns
+    /// A status message describing the current quarantine state, or an empty
+    /// string if not quarantined.
     pub fn quarantine_status(&self) -> String {
         self.quarantine.read().status_message()
     }
 
-    /// Get latest verification report
+    /// Get the latest verification report by running a single verification sweep.
+    ///
+    /// This is useful for on-demand verification checks without waiting for
+    /// the periodic sweep. Note that this does not trigger quarantine actions;
+    /// only the periodic sweeps handle quarantine.
+    ///
+    /// # Returns
+    /// A verification report containing results for all checked hosts.
+    ///
+    /// # Errors
+    /// Returns an error if verification fails or database queries fail.
     pub async fn get_latest_report(&self) -> Result<FederationVerificationReport> {
         // Run a single verification sweep
         self.verify_all_hosts().await

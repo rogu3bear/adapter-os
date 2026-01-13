@@ -17,9 +17,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use adapteros_core::AosError;
+use adapteros_core::{AosError, Result};
 use adapteros_deterministic_exec::spawn_deterministic;
-use anyhow::Result;
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
@@ -190,7 +189,7 @@ impl TrainingService {
     pub async fn recover_orphaned_jobs(
         &self,
         staleness_threshold: std::time::Duration,
-    ) -> anyhow::Result<OrphanedJobRecoveryReport> {
+    ) -> Result<OrphanedJobRecoveryReport> {
         let db = self
             .db
             .as_ref()
@@ -277,7 +276,7 @@ impl TrainingService {
         let jobs = self.jobs.read().await;
         jobs.get(job_id)
             .cloned()
-            .ok_or_else(|| AosError::NotFound(format!("Training job not found: {}", job_id)).into())
+            .ok_or_else(|| AosError::NotFound(format!("Training job not found: {}", job_id)))
     }
 
     /// Start a new training job
@@ -355,14 +354,12 @@ impl TrainingService {
         if synthetic_mode && !dataset_versions_empty {
             return Err(AosError::Validation(
                 "synthetic_mode=true requires dataset_version_ids to be empty".to_string(),
-            )
-            .into());
+            ));
         }
         if !synthetic_mode && dataset_versions_empty {
             return Err(AosError::Validation(
                 "dataset_version_ids are required for non-synthetic training jobs".to_string(),
-            )
-            .into());
+            ));
         }
 
         let mut combined_inputs: Vec<(String, String, f32)> = Vec::new();
@@ -384,15 +381,13 @@ impl TrainingService {
                     return Err(AosError::Validation(format!(
                         "dataset version {} trust_state={} blocks training",
                         sel.dataset_version_id, trust_state
-                    ))
-                    .into());
+                    )));
                 }
                 if trust_state == "needs_approval" || trust_state == "unknown" {
                     return Err(AosError::Validation(format!(
                         "dataset version {} trust_state={} blocks training",
                         sel.dataset_version_id, trust_state
-                    ))
-                    .into());
+                    )));
                 }
 
                 // Verify dataset integrity before training
@@ -424,8 +419,7 @@ impl TrainingService {
                             integrity_result.mismatches.len(),
                             integrity_result.total_files,
                             mismatch_summary.join(", ")
-                        ))
-                        .into());
+                        )));
                     }
 
                     info!(
@@ -452,7 +446,7 @@ impl TrainingService {
             };
             if let Some(ref provided) = data_spec_hash {
                 if provided != &combined_hash {
-                    return Err(AosError::Validation("DATA_SPEC_HASH_MISMATCH".to_string()).into());
+                    return Err(AosError::Validation("DATA_SPEC_HASH_MISMATCH".to_string()));
                 }
             }
             data_spec_hash = Some(combined_hash);
@@ -770,8 +764,7 @@ impl TrainingService {
                 return Err(adapteros_core::AosError::DeterminismViolation(format!(
                     "Training job {} requires deterministic executor: {}",
                     job_id, e
-                ))
-                .into());
+                )));
             }
         }
 
@@ -800,13 +793,13 @@ impl TrainingService {
                     return Err(AosError::Internal(format!(
                         "Cannot cancel job in state: {:?}",
                         job.status
-                    ))
-                    .into());
+                    )));
                 }
             } else {
-                return Err(
-                    AosError::Internal(format!("Training job not found: {}", job_id)).into(),
-                );
+                return Err(AosError::Internal(format!(
+                    "Training job not found: {}",
+                    job_id
+                )));
             }
         }
 
@@ -933,7 +926,10 @@ impl TrainingService {
 
             Ok(())
         } else {
-            Err(AosError::NotFound(format!("Training job not found: {}", job_id)).into())
+            Err(AosError::NotFound(format!(
+                "Training job not found: {}",
+                job_id
+            )))
         }
     }
 
@@ -954,7 +950,10 @@ impl TrainingService {
 
             Ok(())
         } else {
-            Err(AosError::NotFound(format!("Training job not found: {}", job_id)).into())
+            Err(AosError::NotFound(format!(
+                "Training job not found: {}",
+                job_id
+            )))
         }
     }
 
@@ -964,8 +963,7 @@ impl TrainingService {
         if snapshot.status != TrainingJobStatus::Completed {
             return Err(AosError::Validation(
                 "CoreML export requires a completed training job".to_string(),
-            )
-            .into());
+            ));
         }
 
         let adapter_id = snapshot.adapter_id.clone().ok_or_else(|| {
@@ -1116,9 +1114,10 @@ impl TrainingService {
     /// Get a specific training template
     pub async fn get_template(&self, template_id: &str) -> Result<TrainingTemplate> {
         let templates = self.templates.read().await;
-        templates.get(template_id).cloned().ok_or_else(|| {
-            AosError::NotFound(format!("Template not found: {}", template_id)).into()
-        })
+        templates
+            .get(template_id)
+            .cloned()
+            .ok_or_else(|| AosError::NotFound(format!("Template not found: {}", template_id)))
     }
 }
 

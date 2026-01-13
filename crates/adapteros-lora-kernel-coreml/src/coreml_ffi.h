@@ -57,6 +57,21 @@ int32_t coreml_run_inference_with_lora(
     const size_t* delta_lens
 );
 
+void* coreml_export_output_to_metal(
+    void* output_handle,
+    void* device_handle
+);
+
+void coreml_copy_output_to_metal(
+    void* output_handle,
+    void* buffer_handle
+);
+
+void coreml_release_buffer(void* buffer);
+
+void* coreml_create_metal_device();
+void coreml_release_metal_device(void* device);
+
 // Perform health check on model
 int32_t coreml_health_check(void* handle);
 

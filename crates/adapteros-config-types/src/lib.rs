@@ -100,6 +100,9 @@ pub struct SecurityConfig {
     /// Enable dev auth bypass - skip all authentication (debug builds only)
     #[serde(default = "default_false")]
     pub dev_bypass: bool,
+    /// Allow user self-registration (defaults to false)
+    #[serde(default)]
+    pub allow_registration: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

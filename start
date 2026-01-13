@@ -19,26 +19,14 @@ cd "$SCRIPT_DIR"
 
 # Source libraries
 source scripts/lib/freeze-guard.sh
+source scripts/lib/env-loader.sh
 
-# Source .env file if it exists (provides default values)
+# Set SCRIPT_DIR for path normalization
+export SCRIPT_DIR
+
+# Load .env file if it exists (provides default values)
 # Values can still be overridden by environment variables set before running ./start
-if [[ -f ".env" ]]; then
-    # Export variables from .env, ignoring comments and empty lines
-    set -a  # Enable auto-export
-    while IFS= read -r line || [[ -n "$line" ]]; do
-        # Skip comments and empty lines
-        [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
-        # Only export if line contains = and doesn't start with #
-        if [[ "$line" =~ ^[^#]*= ]]; then
-            # Don't override existing environment variables
-            var_name="${line%%=*}"
-            if [[ -z "${!var_name:-}" ]]; then
-                eval "export $line" 2>/dev/null || true
-            fi
-        fi
-    done < ".env"
-    set +a  # Disable auto-export
-fi
+load_env_file ".env" --no-override || true
 
 # Configuration (can be overridden via environment)
 : "${AOS_SERVER_PORT:=8080}"
@@ -48,6 +36,9 @@ fi
 : "${AOS_QUICK_BOOT:=0}"
 : "${AOS_LOG_PROFILE:=json}"
 
+# Run quick validation (non-fatal, just warnings)
+validate_env_quick || true
+
 VERBOSE=0
 TRACE=0
 SCRIPT_LOG="$AOS_LOG_DIR/start.log"
@@ -56,9 +47,15 @@ DEBUG_LOG_PATH="$AOS_LOG_DIR/debug.jsonl"
 
 # Animation characters
 SPINNER_CHARS="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+PROGRESS_CHARS="▁▂▃▄▅▆▇█"
 CHECK_MARK="✓"
 CROSS_MARK="✗"
 ARROW="→"
+
+# Progress tracking
+BOOT_PROGRESS_CURRENT=0
+BOOT_PROGRESS_TOTAL=100
+BOOT_PROGRESS_STEPS=()
 
 # =============================================================================
 # Animation & Progress Helpers
@@ -135,19 +132,135 @@ update_step() {
     print_step "$status" "$msg"
 }
 
-# Progress bar
+# Animated progress bar with smooth animation
 print_progress() {
     local current="$1"
     local total="$2"
-    local width=30
+    [ "$total" -eq 0 ] && total=1  # Avoid division by zero
+    local width=40
     local pct=$((current * 100 / total))
+    [ $pct -gt 100 ] && pct=100  # Cap at 100%
     local filled=$((current * width / total))
+    [ $filled -gt $width ] && filled=$width  # Cap at width
     local empty=$((width - filled))
 
-    printf "\r  ["
+    printf "\r  ${FG_CYAN}[${FG_RESET}"
+    if [ $filled -gt 0 ]; then
+        printf "${FG_GREEN}%${filled}s${FG_RESET}" | tr ' ' '█'
+    fi
+    if [ $filled -lt $width ]; then
+        printf "%${empty}s" | tr ' ' '░'
+    fi
+    printf "${FG_CYAN}]${FG_RESET} ${FG_BOLD}%3d%%${FG_RESET}" "$pct"
+}
+
+# Animated progress bar with spinner overlay
+print_progress_animated() {
+    local current="$1"
+    local total="$2"
+    local msg="${3:-}"
+    [ "$total" -eq 0 ] && total=1  # Avoid division by zero
+    local width=40
+    local pct=$((current * 100 / total))
+    [ $pct -gt 100 ] && pct=100  # Cap at 100%
+    local filled=$((current * width / total))
+    [ $filled -gt $width ] && filled=$width  # Cap at width
+    local empty=$((width - filled))
+    
+    # Get spinner character
+    local spinner_idx=$((current % ${#SPINNER_CHARS}))
+    local spinner_char="${SPINNER_CHARS:$spinner_idx:1}"
+
+    printf "\r  ${FG_CYAN}${spinner_char}${FG_RESET} ${FG_CYAN}[${FG_RESET}"
     printf "${FG_GREEN}%${filled}s${FG_RESET}" | tr ' ' '█'
     printf "%${empty}s" | tr ' ' '░'
-    printf "] %3d%%" "$pct"
+    printf "${FG_CYAN}]${FG_RESET} ${FG_BOLD}%3d%%${FG_RESET}" "$pct"
+    if [ -n "$msg" ]; then
+        printf " ${FG_CYAN}%s${FG_RESET}" "$msg"
+    fi
+}
+
+# Boot progress tracker
+init_boot_progress() {
+    BOOT_PROGRESS_CURRENT=0
+    BOOT_PROGRESS_TOTAL=100
+    BOOT_PROGRESS_STEPS=(
+        "preflight:10"
+        "backend_start:25"
+        "backend_health:35"
+        "model_seed:45"
+        "worker_start:60"
+        "worker_ready:75"
+        "inference_check:90"
+        "complete:100"
+    )
+}
+
+update_boot_progress() {
+    local step="$1"
+    local target_pct=0
+    
+    # Find target percentage for this step
+    for step_def in "${BOOT_PROGRESS_STEPS[@]}"; do
+        local step_name="${step_def%%:*}"
+        local step_pct="${step_def##*:}"
+        if [ "$step_name" = "$step" ]; then
+            target_pct=$step_pct
+            break
+        fi
+    done
+    
+    # Smoothly animate to target
+    while [ $BOOT_PROGRESS_CURRENT -lt $target_pct ]; do
+        BOOT_PROGRESS_CURRENT=$((BOOT_PROGRESS_CURRENT + 2))
+        if [ $BOOT_PROGRESS_CURRENT -gt $target_pct ]; then
+            BOOT_PROGRESS_CURRENT=$target_pct
+        fi
+        print_progress_animated "$BOOT_PROGRESS_CURRENT" "$BOOT_PROGRESS_TOTAL" "Boot progress"
+        sleep 0.05
+    done
+}
+
+# Enhanced progress bar for operations with time estimate
+print_progress_with_time() {
+    local current="$1"
+    local total="$2"
+    local elapsed="$3"
+    local msg="${4:-}"
+    [ "$total" -eq 0 ] && total=1  # Avoid division by zero
+    local width=40
+    local pct=$((current * 100 / total))
+    [ $pct -gt 100 ] && pct=100  # Cap at 100%
+    local filled=$((current * width / total))
+    [ $filled -gt $width ] && filled=$width  # Cap at width
+    local empty=$((width - filled))
+    
+    # Estimate remaining time
+    local remaining=""
+    if [ $current -gt 0 ] && [ $elapsed -gt 0 ]; then
+        local rate=$((current * 1000 / elapsed))
+        if [ $rate -gt 0 ]; then
+            local remaining_ms=$(((total - current) * 1000 / rate))
+            if [ $remaining_ms -lt 1000 ]; then
+                remaining="${remaining_ms}ms"
+            elif [ $remaining_ms -lt 60000 ]; then
+                remaining="$((remaining_ms / 1000))s"
+            else
+                remaining="$((remaining_ms / 60000))m"
+            fi
+        fi
+    fi
+
+    printf "\r  ${FG_CYAN}[${FG_RESET}"
+    printf "${FG_GREEN}%${filled}s${FG_RESET}" | tr ' ' '█'
+    printf "%${empty}s" | tr ' ' '░'
+    printf "${FG_CYAN}]${FG_RESET} ${FG_BOLD}%3d%%${FG_RESET}" "$pct"
+    if [ -n "$msg" ]; then
+        printf " ${FG_CYAN}%s${FG_RESET}" "$msg"
+    fi
+    if [ -n "$remaining" ]; then
+        printf " ${FG_YELLOW}(~${remaining})${FG_RESET}"
+    fi
 }
 
 # Wait for service to be ready with animation
@@ -537,26 +650,37 @@ start_backend_animated() {
     ensure_var_dirs
 
     # Run preflight silently
+    start_spinner "Checking port availability..."
     if ! freeze_check_port "$AOS_SERVER_PORT" "Backend API" 2>/dev/null; then
+        stop_spinner
         update_step "error" "Backend API - port $AOS_SERVER_PORT in use"
         log_line ERROR "backend:start blocked (port-in-use $AOS_SERVER_PORT)"
         return 1
     fi
+    stop_spinner
 
     # Delegate to service-manager
     if [ -x scripts/service-manager.sh ]; then
         local tail_pid=""
-        if scripts/service-manager.sh start-backend >/dev/null 2>&1; then
+        # Capture stderr to show helpful error messages (e.g., "binary not found")
+        local service_manager_stderr
+        service_manager_stderr=$(mktemp)
+        start_spinner "Launching backend process..."
+        if scripts/service-manager.sh start-backend >/dev/null 2>"$service_manager_stderr"; then
+            stop_spinner
+            rm -f "$service_manager_stderr"
             if [ $VERBOSE -eq 1 ] || [ $TRACE -eq 1 ]; then
                 touch "$AOS_LOG_DIR/backend.log"
                 tail -n 20 -F "$AOS_LOG_DIR/backend.log" &
                 tail_pid=$!
             fi
-            # Wait for health check (configurable timeout)
+            # Wait for health check (configurable timeout) with progress
             local waited=0
             local health_timeout="${AOS_HEALTH_TIMEOUT:-15}"
             while [ $waited -lt "$health_timeout" ]; do
+                print_progress_animated $waited $health_timeout "Waiting for backend health..."
                 if curl -sf --max-time 2 "http://localhost:$AOS_SERVER_PORT/healthz" >/dev/null 2>&1; then
+                    printf "\r"
                     local pid
                     pid=$(cat "$AOS_VAR_DIR/backend.pid" 2>/dev/null)
                     update_step "success" "Backend API     ${FG_GREEN}READY${FG_RESET}  (PID $pid, port $AOS_SERVER_PORT)"
@@ -574,6 +698,7 @@ start_backend_animated() {
                 sleep 1
                 ((waited++))
             done
+            printf "\r"
             # Health check timeout - this is a failure, not success
             local pid
             pid=$(cat "$AOS_VAR_DIR/backend.pid" 2>/dev/null)
@@ -595,8 +720,17 @@ start_backend_animated() {
             if [ -n "$tail_pid" ]; then kill "$tail_pid" 2>/dev/null; fi
             return 1
         else
+            stop_spinner
             update_step "error" "Backend API - failed to start"
             log_line ERROR "backend:start failed (service-manager start-backend)"
+            # Show helpful error messages from service-manager (e.g., "binary not found")
+            if [ -s "$service_manager_stderr" ]; then
+                echo ""
+                echo "${FG_YELLOW}Error details:${FG_RESET}"
+                cat "$service_manager_stderr" | sed 's/^/  /'
+                echo ""
+            fi
+            rm -f "$service_manager_stderr"
             #region agent log
             append_debug_log \
                 "start_backend_animated:error" \
@@ -651,16 +785,22 @@ start_backend() {
 start_all() {
     print_banner
 
+    # Initialize boot progress tracking
+    init_boot_progress
+    echo ""
+    echo -e "${FG_CYAN}Starting AdapterOS${FG_RESET}"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    print_progress_animated 0 100 "Initializing..."
+    sleep 0.2
+
     # Check for stale build cache (warns if >48h or >50GB)
+    update_boot_progress "preflight"
     if [ -x "scripts/check_cache_staleness.sh" ]; then
         scripts/check_cache_staleness.sh 2>&1
     elif command -v cargo >/dev/null 2>&1 && [ -f "xtask/src/check_cache.rs" ]; then
         cargo xtask check-cache 2>/dev/null || true
     fi
-
-    echo -e "${FG_CYAN}Starting AdapterOS${FG_RESET}"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo ""
 
     ensure_var_dirs
 
@@ -677,12 +817,15 @@ start_all() {
     log_line INFO "preflight:start"
 
     local preflight_failed=0
+    local preflight_start=$(date +%s)
 
-    # Port checks
+    # Port checks with progress
+    print_progress_animated 5 10 "Checking ports..."
     if ! freeze_check_port "$AOS_SERVER_PORT" "Backend API"; then
         preflight_failed=1
         log_line WARN "preflight:backend_port_busy port=$AOS_SERVER_PORT"
     fi
+    print_progress_animated 10 10 "Preflight complete"
 
     log_line INFO "preflight:complete status=$preflight_failed"
 
@@ -700,10 +843,15 @@ start_all() {
     local backend_ok=0
     local worker_ok=0
 
+    update_boot_progress "backend_start"
     start_backend_animated && backend_ok=1
+    if [ $backend_ok -eq 1 ]; then
+        update_boot_progress "backend_health"
+    fi
 
     # Seed model into database if AOS_MODEL_PATH is set
     if [ $backend_ok -eq 1 ] && [ -n "${AOS_MODEL_PATH:-}" ]; then
+        update_boot_progress "model_seed"
         print_step "running" "Seeding model into database..."
         local aosctl_bin=""
         if [ -f "./aosctl" ]; then
@@ -715,9 +863,12 @@ start_all() {
         fi
 
         if [ -n "$aosctl_bin" ]; then
+            start_spinner "Seeding model..."
             if "$aosctl_bin" models seed --model-path "$AOS_MODEL_PATH" >/dev/null 2>&1; then
+                stop_spinner
                 update_step "success" "Model seeded"
             else
+                stop_spinner
                 update_step "pending" "Model seeding  ${FG_YELLOW}SKIPPED${FG_RESET}  (already exists or error)"
             fi
         else
@@ -726,22 +877,31 @@ start_all() {
     fi
 
     # Start worker (required by default, use --skip-worker to opt out)
+    update_boot_progress "worker_start"
     print_step "running" "Starting Inference Worker..."
     if [ "${SKIP_WORKER:-0}" = "1" ]; then
         update_step "pending" "Worker          ${FG_YELLOW}SKIPPED${FG_RESET}  (requested via --skip-worker)"
     elif scripts/service-manager.sh start worker >/dev/null 2>&1; then
-        # Wait for socket
+        # Wait for socket with progress animation
         local waited=0
-        while [ $waited -lt 15 ]; do
+        local worker_timeout=15
+        start_spinner "Waiting for worker socket..."
+        while [ $waited -lt $worker_timeout ]; do
+            print_progress_animated $waited $worker_timeout "Worker starting..."
             if [ -S "$AOS_VAR_DIR/run/worker.sock" ]; then
+                stop_spinner
+                printf "\r"
                 update_step "success" "Worker          ${FG_GREEN}READY${FG_RESET}  (socket created)"
                 worker_ok=1
+                update_boot_progress "worker_ready"
                 break
             fi
             sleep 1
             ((waited++))
         done
+        stop_spinner
         if [ $worker_ok -eq 0 ]; then
+            printf "\r"
             update_step "pending" "Worker          ${FG_YELLOW}STARTING${FG_RESET} (socket pending)"
         fi
     else
@@ -772,12 +932,14 @@ start_all() {
     # Final readiness check (unless --quick was used)
     local inference_ready=0
     if [ $backend_ok -eq 1 ] && [ $worker_ok -eq 1 ] && [ "${AOS_QUICK_BOOT:-0}" != "1" ]; then
+        update_boot_progress "inference_check"
         print_step "running" "Checking inference readiness..."
         local readyz_timeout="${AOS_READYZ_TIMEOUT:-30}"
         local readyz_waited=0
         ensure_var_dirs
         local readyz_tmp="$AOS_VAR_DIR/run/readyz-last.json"
         while [ $readyz_waited -lt "$readyz_timeout" ]; do
+            print_progress_animated $readyz_waited $readyz_timeout "Checking /readyz..."
             local readyz_status
             local readyz_body=""
             readyz_status=$(curl -s -o "$readyz_tmp" -w "%{http_code}" --max-time 2 "http://localhost:$AOS_SERVER_PORT/readyz" 2>/dev/null || echo "000")
@@ -786,13 +948,16 @@ start_all() {
             fi
             log_readyz_timeline "$readyz_status" "$readyz_body"
             if [ "$readyz_status" = "200" ]; then
+                printf "\r"
                 update_step "success" "Inference       ${FG_GREEN}READY${FG_RESET}  (/readyz check passed)"
                 inference_ready=1
+                update_boot_progress "complete"
                 break
             fi
             sleep 1
             ((readyz_waited++))
         done
+        printf "\r"
         if [ $inference_ready -eq 0 ]; then
             update_step "error" "Inference       ${FG_RED}NOT READY${FG_RESET} (/readyz timeout after ${readyz_timeout}s)"
             echo ""
@@ -802,6 +967,8 @@ start_all() {
             echo ""
             return 1
         fi
+    else
+        update_boot_progress "complete"
     fi
 
     echo ""
@@ -819,6 +986,10 @@ start_all() {
     fi
 
     if [ $backend_ok -eq 1 ] && [ $show_full_success -eq 1 ]; then
+        # Show final progress bar completion
+        print_progress_animated 100 100 "Complete!"
+        echo ""
+        echo ""
         echo -e "${FG_GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${FG_RESET}"
         echo ""
         echo -e "  ${FG_GREEN}${CHECK_MARK} AdapterOS is ready!${FG_RESET}"
@@ -869,10 +1040,13 @@ do_shutdown() {
             scripts/service-manager.sh stop backend >/dev/null 2>&1 || true
 
             local waited=0
-            while kill -0 "$backend_pid" 2>/dev/null && [ $waited -lt 15 ]; do
+            local shutdown_timeout=15
+            while kill -0 "$backend_pid" 2>/dev/null && [ $waited -lt $shutdown_timeout ]; do
+                print_progress_animated $waited $shutdown_timeout "Shutting down..."
                 sleep 1
                 ((waited++))
             done
+            printf "\r"
 
             if ! kill -0 "$backend_pid" 2>/dev/null; then
                 update_step "success" "Backend stopped"

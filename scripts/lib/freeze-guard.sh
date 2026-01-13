@@ -11,6 +11,7 @@ FG_YELLOW='\033[1;33m'
 FG_GREEN='\033[0;32m'
 FG_BLUE='\033[0;34m'
 FG_CYAN='\033[0;36m'
+FG_BOLD='\033[1m'
 FG_RESET='\033[0m'
 
 fg_status() { printf "${FG_BLUE}[freeze-guard]${FG_RESET} %s\n" "$1"; }

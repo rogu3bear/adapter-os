@@ -3,7 +3,7 @@
 ## Project Structure & Module Organization
 - Rust workspace under `crates/`: `adapteros-core` (seed, determinism), `adapteros-server` (control plane), `adapteros-lora-*` (router, worker, kernels), `adapteros-ui` (Leptos WASM), `adapteros-tui` (terminal dashboard). Tools and helper binaries in `xtask/`, `aosctl`, and `tools/`.
 - Frontend lives in `crates/adapteros-ui` (Trunk build, Rust-first types via `adapteros-api-types`); built WASM is served from `static/` by the backend. Terminal UI is in `crates/adapteros-tui` (ratatui + crossterm).
-- Config/infrastructure: `configs/`, `config/`, `scripts/` (CI, build, env setup), `metal/` (kernels), `migrations/` (DB), shared fixtures in `test_data/`, integration tests in `tests/`, documentation in `docs/`. Runtime files land in `var/` (logs, pids, sockets).
+- Config/infrastructure: `configs/`, `deploy/`, `scripts/` (CI, build, env setup), `metal/` (kernels), `migrations/` (DB), shared fixtures in `test_data/`, integration tests in `tests/`, documentation in `docs/`. Runtime files land in `var/` (logs, pids, sockets).
 - Reference docs to skim: `README.md`, `QUICKSTART.md`, `CONTRIBUTING.md`, `DETERMINISM_LOOP_IMPLEMENTATION_SUMMARY.md`, `docs/API_TYPE_GENERATION.md`, and `scripts/ci/check_openapi_drift.sh` usage.
 
 ## Entry Points: ./start, CLI, and TUI

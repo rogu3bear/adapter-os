@@ -1,5 +1,5 @@
 use adapteros_config::resolve_manifest_cache_dir;
-use adapteros_core::{B3Hash, Result, AosError};
+use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_manifest::ManifestV3;
 use std::fs;
 use tracing::{info, warn};
@@ -17,7 +17,11 @@ pub fn parse_manifest(content: &str) -> Result<ManifestV3> {
 }
 
 /// Fetch manifest from control plane by hash
-pub fn fetch_manifest_from_cp(cp_url: &str, tenant_id: &str, manifest_hash: &B3Hash) -> Result<String> {
+pub fn fetch_manifest_from_cp(
+    cp_url: &str,
+    tenant_id: &str,
+    manifest_hash: &B3Hash,
+) -> Result<String> {
     let url = format!(
         "{}/api/v1/tenants/{}/manifests/{}",
         cp_url,

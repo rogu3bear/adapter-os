@@ -74,6 +74,7 @@ pub fn Textarea(
     #[prop(optional)] disabled: bool,
     #[prop(optional)] rows: Option<u32>,
     #[prop(optional, into)] class: String,
+    #[prop(optional, into)] aria_label: String,
 ) -> impl IntoView {
     let base_class = "input input-textarea";
 
@@ -97,6 +98,7 @@ pub fn Textarea(
                 placeholder=placeholder
                 disabled=disabled
                 rows=rows.unwrap_or(3)
+                aria-label=move || (!aria_label.is_empty()).then(|| aria_label.clone())
                 aria-describedby=described_by
                 prop:value=move || value.get()
                 on:input=move |ev| {

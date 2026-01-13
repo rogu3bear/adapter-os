@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use super::components::{CoremlBadges, JobStatusBadge, ProgressBar};
 use super::state::CoremlState;
-use super::utils::{format_date, format_duration, format_number};
+use super::utils::{format_backend_or, format_date, format_duration, format_number};
 
 /// Training job detail panel
 #[component]
@@ -77,7 +77,9 @@ pub fn TrainingJobDetail(
             <div class="flex items-center justify-between">
                 <h2 class="text-xl font-semibold">"Job Details"</h2>
                 <button
-                    class="text-muted-foreground hover:text-foreground"
+                    class="text-muted-foreground hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
+                    aria-label="Close"
+                    type="button"
                     on:click=move |_| on_close()
                 >
                     <svg
@@ -163,13 +165,18 @@ pub fn JobDetailContent(
             <div class="space-y-4">
                 <div class="flex items-center justify-between">
                     <JobStatusBadge status=status_for_badge/>
-                    {can_cancel.then(|| view! {
-                        <Button
-                            variant=ButtonVariant::Destructive
-                            on_click=Callback::new(move |_| show_cancel_confirm.set(true))
-                        >
-                            "Cancel Job"
-                        </Button>
+                    {can_cancel.then(|| {
+                        let is_cancelling = Signal::derive(move || cancelling.get());
+                        view! {
+                            <Button
+                                variant=ButtonVariant::Destructive
+                                on_click=Callback::new(move |_| show_cancel_confirm.set(true))
+                                loading=is_cancelling
+                                disabled=is_cancelling
+                            >
+                                {move || if cancelling.get() { "Cancelling..." } else { "Cancel Job" }}
+                            </Button>
+                        }
                     })}
                 </div>
 
@@ -184,8 +191,8 @@ pub fn JobDetailContent(
                 })}
 
                 {job.error_message.clone().map(|err| view! {
-                    <div class="rounded-lg border border-destructive bg-destructive/10 p-3">
-                        <p class="text-sm text-destructive">{err}</p>
+                    <div class="rounded-lg border border-status-error bg-status-error/10 p-3">
+                        <p class="text-sm text-status-error">{err}</p>
                     </div>
                 })}
             </div>
@@ -231,14 +238,11 @@ pub fn JobDetailContent(
             <div class="grid gap-3 text-sm">
                 <DetailRow
                     label="Requested Backend"
-                    value=job
-                        .requested_backend
-                        .clone()
-                        .unwrap_or_else(|| "Not specified".to_string())
+                    value=format_backend_or(job.requested_backend.as_deref(), "Not specified")
                 />
                 <DetailRow
                     label="Selected Backend"
-                    value=job.backend.clone().unwrap_or_else(|| "Pending".to_string())
+                    value=format_backend_or(job.backend.as_deref(), "Pending")
                 />
                 {job.backend_reason.clone().map(|reason| view! {
                     <DetailRow label="Backend Reason" value=reason/>
@@ -258,14 +262,14 @@ pub fn JobDetailContent(
             </div>
 
             {coreml_state_for_warning.coreml_fallback.then(|| view! {
-                <div class="mt-3 rounded-lg border border-destructive bg-destructive/10 p-3">
-                    <p class="text-sm text-destructive">
+                <div class="mt-3 rounded-lg border border-status-error bg-status-error/10 p-3">
+                    <p class="text-sm text-status-error">
                         {"CoreML was requested, but the job ran on "}
-                        {job.backend.clone().unwrap_or_else(|| "a different backend".to_string())}
+                        {format_backend_or(job.backend.as_deref(), "a different backend")}
                         {"."}
                     </p>
                     {coreml_state_for_warning.fallback_reason.clone().map(|reason| view! {
-                        <p class="text-xs text-destructive mt-1">{"Reason: "}{reason}</p>
+                        <p class="text-xs text-status-error mt-1">{"Reason: "}{reason}</p>
                     })}
                 </div>
             })}
@@ -424,7 +428,7 @@ pub fn LogViewer(job_id: String) -> impl IntoView {
     });
 
     view! {
-        <div class="h-48 overflow-auto bg-zinc-950 rounded-md p-3 font-mono text-xs text-green-400">
+        <div class="h-48 overflow-auto bg-zinc-950 rounded-md p-3 font-mono text-xs text-status-success">
             {move || {
                 if loading.get() {
                     view! {
@@ -432,7 +436,7 @@ pub fn LogViewer(job_id: String) -> impl IntoView {
                     }.into_any()
                 } else if let Some(err) = error.get() {
                     view! {
-                        <div class="text-red-400">"Error: "{err}</div>
+                        <div class="text-status-error">"Error: "{err}</div>
                     }.into_any()
                 } else if logs.get().is_empty() {
                     view! {

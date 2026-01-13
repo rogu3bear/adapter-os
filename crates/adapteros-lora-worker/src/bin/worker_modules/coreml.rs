@@ -1,4 +1,6 @@
 #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
+use adapteros_core::{AosError, B3Hash, Result};
+#[cfg(all(target_os = "macos", feature = "coreml-backend"))]
 use adapteros_db::Db;
 #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
@@ -9,11 +11,9 @@ use adapteros_lora_kernel_coreml::ComputeUnits;
 #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
 use adapteros_lora_worker::backend_factory::CoreMLBackendSettings;
 #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
-use adapteros_core::{B3Hash, Result, AosError};
+use adapteros_lora_worker::CoremlRuntimeTelemetry;
 #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
 use adapteros_manifest::ManifestV3;
-#[cfg(all(target_os = "macos", feature = "coreml-backend"))]
-use adapteros_lora_worker::CoremlRuntimeTelemetry;
 #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
 use std::fs;
 #[cfg(all(target_os = "macos", feature = "coreml-backend"))]

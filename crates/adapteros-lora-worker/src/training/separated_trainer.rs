@@ -13,6 +13,7 @@ use adapteros_single_file_adapter::{
 use adapteros_telemetry::TelemetryWriter;
 use adapteros_types::training::{sample_role_from_metadata, TrainingExampleV1 as TrainingExample};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::time::Instant;
 use tracing::{debug, info};
 
@@ -427,6 +428,7 @@ impl SeparatedLoRATrainer {
         LoRAWeights {
             lora_a,
             lora_b,
+            modules: HashMap::new(),
             moe_config: None,
             precomputed_delta: None,
         }
@@ -510,6 +512,9 @@ mod tests {
             hidden_state_layer: None,
             validation_split: 0.0,
             preprocessing: None,
+            targets: Vec::new(),
+            multi_module_training: false,
+            lora_layer_indices: Vec::new(),
         };
 
         let trainer = SeparatedLoRATrainer::new(config).unwrap();

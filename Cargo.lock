@@ -1302,6 +1302,7 @@ dependencies = [
 name = "adapteros-orchestrator"
 version = "0.12.0"
 dependencies = [
+ "adapteros-api-types",
  "adapteros-client",
  "adapteros-codegraph",
  "adapteros-config",

@@ -7,8 +7,8 @@
 //! - Storage health monitoring - Track storage usage and quotas
 //! - Background cleanup task - Periodically clean up orphaned files
 
+use adapteros_core::{AosError, Result};
 use adapteros_db::{Db, TrainingDataset};
-use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tracing::{error, info, warn};
@@ -253,8 +253,9 @@ impl DatasetCleanupManager {
 
                     // Ensure archive directory exists
                     if let Some(parent) = archive_path.parent() {
-                        std::fs::create_dir_all(parent)
-                            .context("Failed to create archive directory")?;
+                        std::fs::create_dir_all(parent).map_err(|e| {
+                            AosError::Io(format!("Failed to create archive directory: {}", e))
+                        })?;
                     }
 
                     // Archive dataset

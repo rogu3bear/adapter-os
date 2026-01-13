@@ -228,7 +228,6 @@ impl super::types::AdapterPackager {
         (manifest_metadata, training_backend, determinism, scope_path)
     }
 
-
     fn adapter_dir(
         &self,
         tenant_id: &str,
@@ -1090,11 +1089,16 @@ mod tests {
     use super::*;
     use crate::training::packager::coreml as pkg_coreml;
     use crate::training::packager::metadata as pkg_metadata;
-    use crate::training::packager::types::{AdapterPackager, BranchMetadata, CoremlPlacementSpec, ScanRootMetadata};
+    use crate::training::packager::types::{
+        AdapterPackager, BranchMetadata, CoremlPlacementSpec, ScanRootMetadata,
+    };
     use crate::training::trainer::TrainingConfig;
     use crate::training::LORA_Q15_QUANTIZATION;
     use adapteros_lora_router::ROUTER_GATE_Q15_DENOM;
-    use adapteros_types::coreml::{CoreMLPlacementBinding, CoreMLOpKind, CoreMLPlacementShape, CoreMLProjection, CoreMLTargetRef};
+    use adapteros_types::coreml::{
+        CoreMLOpKind, CoreMLPlacementBinding, CoreMLPlacementShape, CoreMLProjection,
+        CoreMLTargetRef,
+    };
     use std::collections::HashMap;
 
     #[tokio::test]

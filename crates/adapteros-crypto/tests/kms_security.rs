@@ -765,3 +765,27 @@ async fn test_kms_latency_measurement() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_mock_kms_failure_simulation() -> Result<()> {
+    let mock_server = MockKmsServer::new(0);
+    mock_server.set_fail_mode(true);
+
+    let key_data = MockKeyData {
+        algorithm: "Ed25519".to_string(),
+        public_key: vec![],
+        version: 1,
+        created_at: 1698000000,
+    };
+
+    let result = mock_server
+        .store_key("fail-key".to_string(), key_data)
+        .await;
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("simulated failure"));
+
+    Ok(())
+}

@@ -2,6 +2,7 @@
 //!
 //! Exports historical telemetry events and generates synthetic examples for adapter lifecycle training.
 
+use adapteros_core::seed::{derive_seed_u64, get_deterministic_timestamp};
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_db::Db;
 use chrono::{DateTime, Utc};
@@ -9,7 +10,7 @@ use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::path::Path;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
@@ -17,6 +18,7 @@ use tracing::{info, warn};
 
 /// Behavior training example matching the specified JSONL schema
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct BehaviorExample {
     pub input: BehaviorInput,
     pub target: BehaviorTarget,
@@ -25,6 +27,7 @@ pub struct BehaviorExample {
 
 /// Input state for a behavior transition
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct BehaviorInput {
     pub adapter_id: String,
     pub load_state: String,
@@ -35,6 +38,7 @@ pub struct BehaviorInput {
 
 /// Target/expected outcome of the transition
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct BehaviorTarget {
     pub next_state: String,
     pub action: String,
@@ -44,6 +48,7 @@ pub struct BehaviorTarget {
 
 /// Metadata for the example
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct BehaviorMetadata {
     pub quality: f32,
     #[serde(rename = "label")]
@@ -55,7 +60,7 @@ pub struct BehaviorMetadata {
 }
 
 /// Behavior categories for classification
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum BehaviorCategory {
     Promotion,
@@ -147,24 +152,81 @@ pub struct DatasetConfig {
 #[derive(Debug, Clone)]
 pub struct BehaviorDataset {
     pub examples: Vec<BehaviorExample>,
-    pub categories: HashMap<BehaviorCategory, usize>,
+    pub categories: BTreeMap<BehaviorCategory, usize>,
     pub total_examples: usize,
     pub hash: String,
 }
 
-/// Generator for behavior training data
+/// Generator for behavior training data from telemetry and synthetic examples.
+///
+/// The `BehaviorTrainingGenerator` creates training datasets for adapter lifecycle
+/// management by:
+/// - Exporting historical telemetry events as training examples
+/// - Generating synthetic examples based on lifecycle rules
+/// - Combining both sources to create balanced datasets
+///
+/// Training examples follow a structured format with input state, target behavior,
+/// and metadata for RLHF (Reinforcement Learning from Human Feedback) training.
+///
+/// # Usage
+///
+/// ```rust,no_run
+/// use adapteros_orchestrator::{BehaviorTrainingGenerator, DatasetConfig};
+/// use adapteros_db::Db;
+///
+/// # async fn example() -> adapteros_core::Result<()> {
+/// let db = Db::connect("sqlite://var/aos-cp.sqlite3").await?;
+/// let generator = BehaviorTrainingGenerator::new(db, 42);
+///
+/// let config = DatasetConfig {
+///     output_path: Some("training_data.jsonl".to_string()),
+///     min_per_category: 100,
+///     ..Default::default()
+/// };
+///
+/// let dataset = generator.generate_dataset(&config).await?;
+/// println!("Generated {} examples", dataset.total_examples);
+/// # Ok(())
+/// # }
+/// ```
 pub struct BehaviorTrainingGenerator {
     db: Db,
     seed: u64,
 }
 
 impl BehaviorTrainingGenerator {
-    /// Create a new generator
+    /// Create a new behavior training generator.
+    ///
+    /// # Arguments
+    /// * `db` - Database handle for querying telemetry events
+    /// * `seed` - Seed value for deterministic synthetic generation
+    ///
+    /// # Returns
+    /// A new `BehaviorTrainingGenerator` instance.
     pub fn new(db: Db, seed: u64) -> Self {
         Self { db, seed }
     }
 
-    /// Export historical telemetry events as training examples
+    /// Export historical telemetry events as training examples.
+    ///
+    /// Queries the database for behavior events matching the filter criteria
+    /// and converts them into training examples. Events are filtered by time range,
+    /// tenant, adapter, and behavior category.
+    ///
+    /// # Arguments
+    /// * `filter` - Filter criteria for selecting events (time range, tenant, adapter, categories)
+    ///
+    /// # Returns
+    /// A vector of training examples extracted from telemetry events.
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// - Database query fails
+    /// - Event data is malformed or missing required fields
+    ///
+    /// # Note
+    /// Only events matching known behavior categories are exported. Unknown
+    /// event types are skipped. The query is limited to 10,000 events for performance.
     pub async fn export_from_telemetry(
         &self,
         filter: &ExportFilter,
@@ -277,9 +339,39 @@ impl BehaviorTrainingGenerator {
         Ok(examples)
     }
 
-    /// Generate synthetic behavior examples based on lifecycle rules
+    /// Generate synthetic behavior examples based on lifecycle rules.
+    ///
+    /// Creates synthetic training examples that follow realistic adapter lifecycle
+    /// patterns. Examples are deterministically generated using HKDF-derived seeds
+    /// for reproducibility compliance.
+    ///
+    /// # Arguments
+    /// * `config` - Configuration for synthetic generation (count, categories, ranges, seed)
+    ///
+    /// # Returns
+    /// A vector of synthetic training examples.
+    ///
+    /// # Errors
+    /// Returns an error if generation fails (should not happen under normal conditions).
+    ///
+    /// # Determinism
+    /// Uses HKDF-SHA256 seed derivation to ensure reproducible generation across
+    /// runs with the same seed. This complies with determinism requirements.
+    ///
+    /// # Categories
+    /// Generates examples for the specified categories, distributing the total
+    /// count evenly across categories. Each category has specific generation logic:
+    /// - Promotion: State transitions from unloaded → cold → warm → hot
+    /// - Demotion: State transitions from resident → hot → warm → cold
+    /// - Eviction: Memory pressure or low activation scenarios
+    /// - Pinning: Manual pinning or TTL expiration
+    /// - Recovery: Heartbeat timeouts or load failures
+    /// - TTL Enforcement: Time-based expiration scenarios
     pub fn generate_synthetic(&self, config: &SyntheticConfig) -> Result<Vec<BehaviorExample>> {
-        let mut rng = StdRng::seed_from_u64(config.seed);
+        // Use HKDF-derived seed for determinism compliance
+        let global_seed = B3Hash::hash(format!("behavior_training:{}", config.seed).as_bytes());
+        let derived_seed = derive_seed_u64(&global_seed, "synthetic_generation");
+        let mut rng = StdRng::seed_from_u64(derived_seed);
         let mut examples = Vec::new();
 
         if config.categories.is_empty() {
@@ -327,7 +419,7 @@ impl BehaviorTrainingGenerator {
         let current_state = states[rng.gen_range(0..states.len())];
         let activation_pct = rng.gen_range(config.activation_range.0..config.activation_range.1);
         let memory_mb = rng.gen_range(config.memory_range.0..config.memory_range.1);
-        let last_used = Utc::now().to_rfc3339();
+        let last_used = get_deterministic_timestamp().to_rfc3339();
 
         let (next_state, reason) = match current_state {
             "unloaded" => ("cold", "initial_load"),
@@ -375,7 +467,8 @@ impl BehaviorTrainingGenerator {
         let activation_pct = rng.gen_range(0.0..0.1_f32);
         let memory_mb = rng.gen_range(config.memory_range.0..config.memory_range.1);
         let hours_ago = rng.gen_range(1..25);
-        let last_used = (Utc::now() - chrono::Duration::hours(hours_ago)).to_rfc3339();
+        let last_used =
+            (get_deterministic_timestamp() - chrono::Duration::hours(hours_ago)).to_rfc3339();
 
         let (next_state, reason) = match current_state {
             "resident" => ("hot", "manual_unpin"),
@@ -422,7 +515,7 @@ impl BehaviorTrainingGenerator {
         let current_state = states[rng.gen_range(0..states.len())];
         let activation_pct = rng.gen_range(0.0..0.05_f32);
         let memory_mb = rng.gen_range(config.memory_range.0..config.memory_range.1);
-        let last_used = Utc::now().to_rfc3339();
+        let last_used = get_deterministic_timestamp().to_rfc3339();
 
         let reason = if rng.gen_bool(0.5) {
             "memory_pressure_85pct"
@@ -468,7 +561,7 @@ impl BehaviorTrainingGenerator {
         let current_state = states[rng.gen_range(0..states.len())];
         let activation_pct = rng.gen_range(0.5..1.0_f32);
         let memory_mb = rng.gen_range(config.memory_range.0..config.memory_range.1);
-        let last_used = Utc::now().to_rfc3339();
+        let last_used = get_deterministic_timestamp().to_rfc3339();
 
         let (next_state, reason, action) = if rng.gen_bool(0.5) {
             ("resident", "manual_production_pin", "pin")
@@ -515,7 +608,8 @@ impl BehaviorTrainingGenerator {
         let activation_pct = rng.gen_range(0.1..0.5_f32);
         let memory_mb = rng.gen_range(config.memory_range.0..config.memory_range.1);
         let secs_ago = rng.gen_range(301..1800);
-        let last_used = (Utc::now() - chrono::Duration::seconds(secs_ago)).to_rfc3339();
+        let last_used =
+            (get_deterministic_timestamp() - chrono::Duration::seconds(secs_ago)).to_rfc3339();
 
         let (next_state, reason) = if rng.gen_bool(0.7) {
             (current_state, "heartbeat_timeout_300s")
@@ -561,7 +655,7 @@ impl BehaviorTrainingGenerator {
         let current_state = states[rng.gen_range(0..states.len())];
         let activation_pct = rng.gen_range(0.0..0.1_f32);
         let memory_mb = rng.gen_range(config.memory_range.0..config.memory_range.1);
-        let last_used = Utc::now().to_rfc3339();
+        let last_used = get_deterministic_timestamp().to_rfc3339();
 
         let ttl_hours = rng.gen_range(1..168);
         let reason = if ttl_hours < 24 {
@@ -600,10 +694,37 @@ impl BehaviorTrainingGenerator {
         }
     }
 
-    /// Generate complete dataset (historical + synthetic)
+    /// Generate a complete training dataset combining historical and synthetic examples.
+    ///
+    /// This is the main entry point for dataset generation. It:
+    /// 1. Exports historical telemetry events (if configured)
+    /// 2. Generates synthetic examples (if configured)
+    /// 3. Fills categories to meet minimum counts
+    /// 4. Computes dataset hash for verification
+    /// 5. Saves to JSONL file (if output path provided)
+    ///
+    /// # Arguments
+    /// * `config` - Dataset configuration specifying sources, filters, and output
+    ///
+    /// # Returns
+    /// A `BehaviorDataset` containing all examples, category counts, total count, and hash.
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// - Historical export fails
+    /// - Synthetic generation fails
+    /// - File I/O fails (if output path provided)
+    /// - JSON serialization fails
+    ///
+    /// # Process
+    /// - Historical examples are exported first (if filter provided)
+    /// - Synthetic examples are generated to meet minimums
+    /// - Categories are filled to ensure `min_per_category` is met
+    /// - Dataset hash is computed from serialized examples
+    /// - Results are saved to JSONL if `output_path` is set
     pub async fn generate_dataset(&self, config: &DatasetConfig) -> Result<BehaviorDataset> {
         let mut all_examples = Vec::new();
-        let mut categories: HashMap<BehaviorCategory, usize> = HashMap::new();
+        let mut categories: BTreeMap<BehaviorCategory, usize> = BTreeMap::new();
 
         // Export historical if configured
         if let Some(export_filter) = &config.export_filter {
@@ -661,7 +782,24 @@ impl BehaviorTrainingGenerator {
         })
     }
 
-    /// Save dataset to JSONL file
+    /// Save a dataset to a JSONL (JSON Lines) file.
+    ///
+    /// Writes each example as a JSON object on a separate line. This format
+    /// is commonly used for machine learning training data.
+    ///
+    /// # Arguments
+    /// * `examples` - Training examples to save
+    /// * `path` - File path where the JSONL file will be written
+    ///
+    /// # Returns
+    /// `Ok(())` if the file is written successfully.
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// - File creation fails
+    /// - JSON serialization fails
+    /// - File write fails
+    /// - File sync fails
     pub async fn save_to_jsonl(
         &self,
         examples: &[BehaviorExample],
@@ -693,10 +831,29 @@ impl BehaviorTrainingGenerator {
         Ok(())
     }
 
-    /// Validate the generated dataset
+    /// Validate a generated dataset for correctness and quality.
+    ///
+    /// Performs validation checks on the dataset:
+    /// - Category distribution (warns if categories have < 100 examples)
+    /// - Activation percentage bounds (0.0-1.0)
+    /// - Quality score bounds (0.0-1.0)
+    ///
+    /// # Arguments
+    /// * `examples` - Training examples to validate
+    ///
+    /// # Returns
+    /// `Ok(())` if validation passes.
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// - Any example has invalid activation_pct (outside 0.0-1.0)
+    /// - Any example has invalid quality score (outside 0.0-1.0)
+    ///
+    /// # Warnings
+    /// Logs warnings for categories with fewer than 100 examples (recommended minimum: 500+).
     pub fn validate_dataset(&self, examples: &[BehaviorExample]) -> Result<()> {
-        let category_counts: HashMap<BehaviorCategory, usize> =
-            examples.iter().fold(HashMap::new(), |mut acc, ex| {
+        let category_counts: BTreeMap<BehaviorCategory, usize> =
+            examples.iter().fold(BTreeMap::new(), |mut acc, ex| {
                 *acc.entry(ex.metadata.category).or_insert(0) += 1;
                 acc
             });

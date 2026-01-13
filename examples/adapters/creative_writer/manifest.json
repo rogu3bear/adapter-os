@@ -1,0 +1,35 @@
+{
+  "version": "1.0.0",
+  "rank": 12,
+  "alpha": 24.0,
+  "base_model": "qwen2.5-7b",
+  "training_config": {
+    "rank": 12,
+    "alpha": 24.0,
+    "learning_rate": 0.0003,
+    "batch_size": 4,
+    "epochs": 3,
+    "hidden_dim": 2048,
+    "dropout": 0.15,
+    "weight_decay": 0.01
+  },
+  "created_at": "2025-01-18T14:00:00Z",
+  "weights_hash": "",
+  "metadata": {
+    "description": "Adapter optimized for creative and narrative writing tasks",
+    "use_cases": [
+      "Story generation",
+      "Creative writing",
+      "Narrative development",
+      "Character dialogue",
+      "Descriptive text"
+    ],
+    "style": "creative",
+    "temperature_range": [
+      0.7,
+      1.2
+    ],
+    "training_dataset": "creative_writing_corpus",
+    "synthetic": true
+  }
+}

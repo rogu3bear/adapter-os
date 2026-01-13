@@ -275,7 +275,7 @@ fn StackRow(
                         let client = Arc::clone(&client);
                         view! {
                             <button
-                                class="text-sm text-orange-600 hover:underline"
+                                class="text-sm text-status-warning hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
                                 on:click=move |_| {
                                     let client = Arc::clone(&client);
                                     wasm_bindgen_futures::spawn_local(async move {
@@ -293,7 +293,7 @@ fn StackRow(
                         let id_for_activate = id_activate.clone();
                         view! {
                             <button
-                                class="text-sm text-green-600 hover:underline"
+                                class="text-sm text-status-success hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
                                 on:click=move |_| {
                                     let client = Arc::clone(&client);
                                     let id = id_for_activate.clone();
@@ -313,7 +313,7 @@ fn StackRow(
                         let name_for_delete = name_for_delete.clone();
                         view! {
                             <button
-                                class="text-sm text-destructive hover:underline"
+                                class="text-sm text-destructive hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
                                 on:click=move |_| {
                                     pending_delete_id.set(Some(id_for_delete.clone()));
                                     pending_delete_name.set(name_for_delete.clone());
@@ -631,10 +631,10 @@ fn StackDetailContent(
                 <div class="space-y-2">
                     {stack.warnings.iter().map(|warning| {
                         view! {
-                            <div class="flex items-start gap-2 p-3 rounded-lg border border-yellow-500/50 bg-yellow-500/10">
+                            <div class="flex items-start gap-2 p-3 rounded-lg border border-status-warning/50 bg-status-warning/10">
                                 <svg
                                     xmlns="http://www.w3.org/2000/svg"
-                                    class="h-5 w-5 text-yellow-600 shrink-0 mt-0.5"
+                                    class="h-5 w-5 text-status-warning shrink-0 mt-0.5"
                                     viewBox="0 0 24 24"
                                     fill="none"
                                     stroke="currentColor"
@@ -646,7 +646,7 @@ fn StackDetailContent(
                                     <line x1="12" y1="9" x2="12" y2="13"/>
                                     <line x1="12" y1="17" x2="12.01" y2="17"/>
                                 </svg>
-                                <p class="text-sm text-yellow-800">{warning.clone()}</p>
+                                <p class="text-sm text-status-warning">{warning.clone()}</p>
                             </div>
                         }
                     }).collect::<Vec<_>>()}

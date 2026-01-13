@@ -241,9 +241,11 @@ impl SupervisorDaemon {
         info!("Initializing supervisor daemon");
 
         let db = Arc::new(
-            Db::connect(config.db_path.to_str().unwrap())
-                .await
-                .map_err(|e| AosError::Database(format!("Failed to connect to database: {}", e)))?,
+            Db::connect(config.db_path.to_str().ok_or_else(|| {
+                AosError::Validation("Database path contains invalid UTF-8".to_string())
+            })?)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to connect to database: {}", e)))?,
         );
 
         let health_checker = Arc::new(HealthChecker::new(Duration::from_secs(
@@ -476,7 +478,10 @@ impl SupervisorDaemon {
 
         // Get restart state info - extract needed values then drop lock
         let (exceeded_max, backoff, attempts, max_attempts, crash_loop_detected) = {
-            let mut restart_states = self.restart_states.lock().unwrap();
+            let mut restart_states = self
+                .restart_states
+                .lock()
+                .map_err(|e| AosError::Internal(format!("Restart states lock poisoned: {}", e)))?;
             let restart_state = restart_states.entry(tenant_id.to_string()).or_default();
 
             restart_state.attempts += 1;
@@ -579,7 +584,10 @@ impl SupervisorDaemon {
 
         // Update last_restart time
         {
-            let mut restart_states = self.restart_states.lock().unwrap();
+            let mut restart_states = self
+                .restart_states
+                .lock()
+                .map_err(|e| AosError::Internal(format!("Restart states lock poisoned: {}", e)))?;
             if let Some(restart_state) = restart_states.get_mut(tenant_id) {
                 restart_state.last_restart = now;
             }
@@ -661,8 +669,11 @@ impl SupervisorDaemon {
     }
 
     /// Reset restart attempts after successful uptime
-    pub fn reset_restart_attempts(&self, tenant_id: &str) {
-        let mut restart_states = self.restart_states.lock().unwrap();
+    pub fn reset_restart_attempts(&self, tenant_id: &str) -> Result<()> {
+        let mut restart_states = self
+            .restart_states
+            .lock()
+            .map_err(|e| AosError::Internal(format!("Restart states lock poisoned: {}", e)))?;
         if let Some(state) = restart_states.get_mut(tenant_id) {
             info!(
                 "Resetting restart attempts for worker {} (was {})",
@@ -671,11 +682,18 @@ impl SupervisorDaemon {
             state.attempts = 0;
             state.recent_crashes.clear();
         }
+        Ok(())
     }
 
     /// Get restart state for a worker
     pub fn get_restart_state(&self, tenant_id: &str) -> Option<WorkerRestartState> {
-        let restart_states = self.restart_states.lock().unwrap();
+        let restart_states = match self.restart_states.lock() {
+            Ok(lock) => lock,
+            Err(e) => {
+                warn!("Restart states lock poisoned: {}", e);
+                return None;
+            }
+        };
         restart_states.get(tenant_id).cloned()
     }
 }

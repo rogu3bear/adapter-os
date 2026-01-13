@@ -1,11 +1,13 @@
 use adapteros_core::identity::IdentityEnvelope;
-use adapteros_telemetry::unified_events::{EventType, LogLevel, TelemetryEvent as UnifiedTelemetryEvent};
-use adapteros_telemetry::TelemetryWriter;
 use adapteros_lora_worker::panic_utils::{
     build_fatal_payload, extract_panic_message, format_panic_location, truncate_backtrace,
 };
+use adapteros_telemetry::unified_events::{
+    EventType, LogLevel, TelemetryEvent as UnifiedTelemetryEvent,
+};
+use adapteros_telemetry::TelemetryWriter;
 use std::sync::OnceLock;
-use tracing::{warn, info};
+use tracing::{info, warn};
 
 /// Worker identity for panic hook access
 #[derive(Debug, Clone)]
@@ -139,12 +141,12 @@ use adapteros_api_types::workers::WorkerCapabilities;
 use adapteros_config::parse_bool;
 use adapteros_core::{B3Hash, Result};
 use adapteros_lora_kernel_api::attestation::BackendType;
+use adapteros_lora_worker::backend_factory::BackendChoice;
 use adapteros_lora_worker::{
     backend_factory::{detect_capabilities as detect_backend_capabilities, get_model_cache},
     model_handle_cache::ModelHandle,
     model_key::{ModelCacheIdentity, ModelKey},
 };
-use adapteros_lora_worker::backend_factory::BackendChoice;
 use std::sync::Arc;
 
 pub fn dev_no_auth_enabled() -> bool {

@@ -337,7 +337,7 @@ pub fn StartMenu(
                 // Footer
                 <div class="sticky bottom-0 border-t bg-popover/95 backdrop-blur-sm px-4 py-2">
                     <p class="text-xs text-muted-foreground text-center">
-                        "Press "<kbd class="px-1 py-0.5 rounded bg-muted font-mono" style="font-size: 10px">"Esc"</kbd>" to close"
+                        "Press "<kbd class="px-1 py-0.5 rounded bg-muted font-mono text-[10px]">"Esc"</kbd>" to close"
                     </p>
                 </div>
             </div>

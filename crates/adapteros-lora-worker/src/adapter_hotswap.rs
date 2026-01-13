@@ -225,6 +225,16 @@ pub struct MemoryStateEntry {
 }
 
 /// Double-buffered adapter table for atomic swaps
+///
+/// Lock ordering (to prevent deadlocks):
+/// 1. retired_stacks
+/// 2. refcounts
+/// 3. retry_counts
+/// 4. kernels (external)
+///
+/// When acquiring multiple locks, always acquire them in this order. Locks may be dropped
+/// and re-acquired during processing, but when multiple locks are held simultaneously,
+/// they must follow this ordering.
 pub struct AdapterTable {
     /// Currently active adapters
     active: RwLock<HashMap<String, AdapterState>>,
@@ -1046,6 +1056,7 @@ impl AdapterTable {
         kernels_opt: Option<Arc<tokio::sync::Mutex<K>>>,
     ) -> Result<usize> {
         let mut cleaned_count = 0;
+        // Lock order 1: retired_stacks
         let mut retired_guard = self.retired_stacks.lock().await;
         let mut i = 0;
 
@@ -1053,8 +1064,10 @@ impl AdapterTable {
             let stack = &retired_guard[i];
             let stack_generation = stack.generation;
             let adapter_ids: Vec<String> = stack.active.keys().cloned().collect();
-            drop(retired_guard); // Release lock before acquiring refcounts
+            // Release retired_stacks before acquiring refcounts to follow lock order
+            drop(retired_guard);
 
+            // Lock order 2: refcounts (acquired after retired_stacks is dropped)
             let can_unload = {
                 let refcounts = self.refcounts.lock().await;
                 adapter_ids.iter().all(|id| {
@@ -1064,7 +1077,8 @@ impl AdapterTable {
                 })
             };
 
-            retired_guard = self.retired_stacks.lock().await; // re-acquire
+            // Lock order 1: retired_stacks (re-acquire)
+            retired_guard = self.retired_stacks.lock().await;
             if i >= retired_guard.len() {
                 break;
             }
@@ -1079,10 +1093,11 @@ impl AdapterTable {
                 let gen = stack_ref.generation;
                 let adapter_ids_for_unload: Vec<_> = stack_ref.active.keys().cloned().collect();
 
-                // Release retired_guard before kernel operations
+                // Release retired_stacks before kernel operations to follow lock order
                 drop(retired_guard);
 
                 if let Some(kernels) = kernels_opt.clone() {
+                    // Lock order 4: kernels (external, acquired after retired_stacks is dropped)
                     let mut k_lock = kernels.lock().await;
                     let mut unload_failed = false;
                     for id in &adapter_ids_for_unload {
@@ -1095,12 +1110,13 @@ impl AdapterTable {
                     }
                     drop(k_lock);
 
-                    // Re-acquire retired_guard for removal
+                    // Lock order 1: retired_stacks (re-acquire for removal)
                     retired_guard = self.retired_stacks.lock().await;
 
                     if !unload_failed {
                         if let Some(pos) = retired_guard.iter().position(|s| s.generation == gen) {
                             retired_guard.remove(pos);
+                            // Lock order 3: retry_counts (acquired while holding retired_stacks, which is correct order)
                             let mut retry_guard = self.retry_counts.lock().await;
                             retry_guard.remove(&gen);
                             tracing::info!("Force cleanup: unloaded retired stack gen {}", gen);
@@ -1110,10 +1126,11 @@ impl AdapterTable {
                         i += 1;
                     }
                 } else {
-                    // Re-acquire retired_guard for removal (no kernels case)
+                    // Lock order 1: retired_stacks (re-acquire for removal, no kernels case)
                     retired_guard = self.retired_stacks.lock().await;
                     if let Some(pos) = retired_guard.iter().position(|s| s.generation == gen) {
                         retired_guard.remove(pos);
+                        // Lock order 3: retry_counts (acquired while holding retired_stacks, which is correct order)
                         let mut retry_guard = self.retry_counts.lock().await;
                         retry_guard.remove(&gen);
                         tracing::info!("Force cleanup: unloaded retired stack (no kernels)");

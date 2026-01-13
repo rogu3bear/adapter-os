@@ -286,13 +286,16 @@ pub fn ChatSession() -> impl IntoView {
                     {move || {
                         if error.get().is_some() {
                             view! {
-                                <span class="rounded-full bg-destructive/10 px-2 py-1 text-xs font-medium text-destructive">
+                                <span class="rounded-full bg-status-error/10 px-2 py-1 text-xs font-medium text-status-error">
                                     "Error"
                                 </span>
                             }.into_any()
                         } else if streaming.get() {
                             view! {
-                                <span class="rounded-full bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-500">
+                                <span
+                                    class="rounded-full bg-status-success/10 px-2 py-1 text-xs font-medium text-status-success"
+                                    aria-label="Streaming status"
+                                >
                                     "Streaming"
                                 </span>
                             }.into_any()
@@ -440,6 +443,7 @@ pub fn ChatSession() -> impl IntoView {
                         placeholder="Type your message...".to_string()
                         class="flex-1".to_string()
                         rows=2
+                        aria_label="Chat message input".to_string()
                     />
                     {move || {
                         if streaming.get() {
@@ -447,6 +451,7 @@ pub fn ChatSession() -> impl IntoView {
                                 <Button
                                     on_click=do_cancel
                                     class="bg-destructive hover:bg-destructive/90".to_string()
+                                    aria_label="Stop streaming".to_string()
                                 >
                                     "Stop"
                                 </Button>
@@ -458,6 +463,7 @@ pub fn ChatSession() -> impl IntoView {
                                     loading=loading.get()
                                     disabled=disabled
                                     on_click=do_send
+                                    aria_label=if disabled { "Send message (disabled)".to_string() } else { "Send message".to_string() }
                                 >
                                     "Send"
                                 </Button>

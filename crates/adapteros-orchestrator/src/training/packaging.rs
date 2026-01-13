@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use anyhow::Result;
+use adapteros_core::{AosError, Result};
 use base64::Engine as _;
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
@@ -32,10 +32,10 @@ pub(crate) fn load_plan_bytes_for_training(require_gpu: bool, job_id: &str) -> R
         Ok(path) => path,
         Err(e) => {
             if require_gpu {
-                return Err(anyhow::anyhow!(
+                return Err(AosError::Config(format!(
                     "GPU initialization requested but model path is not configured: {}",
                     e
-                ));
+                )));
             }
 
             warn!(
@@ -59,11 +59,11 @@ pub(crate) fn load_plan_bytes_for_training(require_gpu: bool, job_id: &str) -> R
 
         if model_path.is_file() {
             return std::fs::read(model_path).map_err(|e| {
-                anyhow::anyhow!(
+                AosError::Io(format!(
                     "Failed to read model plan from '{}': {}",
                     model_path.display(),
                     e
-                )
+                ))
             });
         }
 
@@ -71,11 +71,11 @@ pub(crate) fn load_plan_bytes_for_training(require_gpu: bool, job_id: &str) -> R
             let safetensors_path = model_path.join("model.safetensors");
             if safetensors_path.exists() {
                 return std::fs::read(&safetensors_path).map_err(|e| {
-                    anyhow::anyhow!(
+                    AosError::Io(format!(
                         "Failed to read model.safetensors at '{}': {}",
                         safetensors_path.display(),
                         e
-                    )
+                    ))
                 });
             }
 
@@ -87,11 +87,11 @@ pub(crate) fn load_plan_bytes_for_training(require_gpu: bool, job_id: &str) -> R
                     // Sharded safetensors first shard
                     if name.starts_with("model-00001-of-") && name.ends_with(".safetensors") {
                         return std::fs::read(&path).map_err(|e| {
-                            anyhow::anyhow!(
+                            AosError::Io(format!(
                                 "Failed to read sharded model file '{}': {}",
                                 path.display(),
                                 e
-                            )
+                            ))
                         });
                     }
 
@@ -107,10 +107,10 @@ pub(crate) fn load_plan_bytes_for_training(require_gpu: bool, job_id: &str) -> R
             }
         }
 
-        Err(anyhow::anyhow!(
+        Err(AosError::Io(format!(
             "Model assets not found under '{}'. Provide model.safetensors or a .mlpackage path.",
             model_path.display()
-        ))
+        )))
     }
 
     match read_plan_bytes(&model_path) {
@@ -292,6 +292,9 @@ pub(crate) async fn package_and_register_adapter(
         hidden_state_layer: worker_cfg.hidden_state_layer.clone(),
         validation_split: worker_cfg.validation_split,
         preprocessing: worker_cfg.preprocessing.clone(),
+        targets: worker_cfg.targets.clone(),
+        multi_module_training: worker_cfg.multi_module_training,
+        lora_layer_indices: worker_cfg.lora_layer_indices.clone(),
     };
 
     // Generate unique adapter ID from job_id
@@ -498,7 +501,9 @@ pub(crate) async fn package_and_register_adapter(
                     bytes.len() as i64,
                 )
             })
-            .map_err(|e| anyhow::anyhow!("Failed to read artifact for verification: {}", e))?;
+            .map_err(|e| {
+                AosError::Io(format!("Failed to read artifact for verification: {}", e))
+            })?;
 
         (target, hash, size_bytes)
     };
@@ -739,7 +744,9 @@ pub(crate) async fn package_and_register_adapter(
             .metadata_json(adapter_metadata_json)
             .training_dataset_hash_b3(dataset_hash_for_metadata.clone())
             .build()
-            .map_err(|e| anyhow::anyhow!("Failed to build registration params: {}", e))?;
+            .map_err(|e| {
+                AosError::Internal(format!("Failed to build registration params: {}", e))
+            })?;
 
         match database.register_adapter(reg_params).await {
             Ok(db_id) => {

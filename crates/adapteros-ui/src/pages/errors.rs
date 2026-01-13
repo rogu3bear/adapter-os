@@ -34,7 +34,7 @@ pub fn Errors() -> impl IntoView {
 
             // Tab navigation
             <div class="border-b">
-                <nav class="-mb-px flex space-x-8">
+                <nav class="-mb-px flex space-x-8" role="tablist">
                     <TabButton
                         tab="live".to_string()
                         label="Live Feed".to_string()
@@ -82,14 +82,20 @@ fn TabButton(tab: String, label: String, active: RwSignal<String>) -> impl IntoV
 
     view! {
         <button
-            class=move || {
-                let base = "whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors";
-                if is_active() {
-                    format!("{} border-primary text-primary", base)
-                } else {
-                    format!("{} border-transparent text-muted-foreground hover:text-foreground hover:border-muted", base)
+            class={
+                let is_active = is_active.clone();
+                move || {
+                    let base = "whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded-t-sm";
+                    if is_active() {
+                        format!("{} border-primary text-primary", base)
+                    } else {
+                        format!("{} border-transparent text-muted-foreground hover:text-foreground hover:border-muted", base)
+                    }
                 }
             }
+            type="button"
+            role="tab"
+            aria-selected=is_active
             on:click={
                 let tab = tab.clone();
                 move |_| active.set(tab.clone())
@@ -522,7 +528,7 @@ fn StatsDisplay(stats: ClientErrorStatsResponse) -> impl IntoView {
                                     let status_class = if hc.http_status >= 500 {
                                         "bg-destructive"
                                     } else if hc.http_status >= 400 {
-                                        "bg-warning"
+                                        "bg-status-warning"
                                     } else {
                                         "bg-primary"
                                     };
@@ -613,11 +619,11 @@ fn AlertsSection() -> impl IntoView {
 #[component]
 fn SseIndicator(state: RwSignal<SseState>) -> impl IntoView {
     let (color, label) = match state.get() {
-        SseState::Connected => ("bg-green-500", "Connected"),
-        SseState::Connecting => ("bg-yellow-500 animate-pulse", "Connecting..."),
-        SseState::Disconnected => ("bg-gray-400", "Disconnected"),
-        SseState::Error => ("bg-red-500", "Error"),
-        SseState::CircuitOpen => ("bg-orange-500", "Circuit Open"),
+        SseState::Connected => ("bg-status-success", "Connected"),
+        SseState::Connecting => ("bg-status-warning animate-pulse", "Connecting..."),
+        SseState::Disconnected => ("bg-muted", "Disconnected"),
+        SseState::Error => ("bg-status-error", "Error"),
+        SseState::CircuitOpen => ("bg-status-warning", "Circuit Open"),
     };
 
     view! {

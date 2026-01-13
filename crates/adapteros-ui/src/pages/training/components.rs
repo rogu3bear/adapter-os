@@ -9,7 +9,7 @@ use adapteros_api_types::TrainingJobResponse;
 use leptos::prelude::*;
 
 use super::state::{CoremlFilterState, CoremlState};
-use super::utils::format_date;
+use super::utils::{format_backend, format_backend_or, format_date};
 
 /// Status filter dropdown
 #[component]
@@ -146,14 +146,14 @@ pub fn TrainingJobList(
                                     <TableCell>
                                         <div class="text-sm">
                                             <p class="font-medium">
-                                                {job.backend.clone().unwrap_or_else(|| "pending".to_string())}
+                                                {format_backend_or(job.backend.as_deref(), "Pending")}
                                             </p>
                                             {job.requested_backend.clone().map(|req| view! {
-                                                <p class="text-xs text-muted-foreground">{"Requested: "}{req}</p>
+                                                <p class="text-xs text-muted-foreground">{"Requested: "}{format_backend(&req)}</p>
                                             })}
                                             {coreml_state_for_backend.coreml_fallback.then(|| view! {
-                                                <p class="text-xs text-destructive">
-                                                    {"Fallback: "}{coreml_state_for_backend.fallback_reason.clone().unwrap_or_else(|| "requested CoreML".to_string())}
+                                                <p class="text-xs text-status-error">
+                                                    {"Fallback: "}{coreml_state_for_backend.fallback_reason.clone().unwrap_or_else(|| "CoreML requested".to_string())}
                                                 </p>
                                             })}
                                         </div>
@@ -204,7 +204,7 @@ pub fn ProgressBar(progress: f32, status: String) -> impl IntoView {
 
     let bar_class = match status.as_str() {
         "running" => "h-full transition-all duration-300 bg-primary",
-        "completed" => "h-full transition-all duration-300 bg-green-500",
+        "completed" => "h-full transition-all duration-300 bg-status-success",
         "failed" => "h-full transition-all duration-300 bg-destructive",
         _ => "h-full transition-all duration-300 bg-muted-foreground",
     };

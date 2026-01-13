@@ -8,6 +8,7 @@
 //! 5. Link dataset to training jobs
 
 use adapteros_config::resolve_tokenizer_path;
+use adapteros_core::seed::get_deterministic_unix_timestamp_millis;
 use adapteros_core::{AosError, Result};
 use adapteros_db::ProtectedDb;
 use adapteros_ingest_docs::{
@@ -22,7 +23,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use tracing::{debug, info};
@@ -36,6 +36,7 @@ pub struct TrainingDatasetManager {
 
 /// Serializable training generation configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct SerializableTrainingConfig {
     /// Strategy: "identity" or "question_answer"
     pub strategy: String,
@@ -72,7 +73,8 @@ impl From<SerializableTrainingConfig> for TrainingGenConfig {
 
 /// Request to create a training dataset from ingested documents
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreateDatasetFromDocumentsRequest {
+#[serde(rename_all = "snake_case")]
+pub struct CreateDatasetFromFilePathsRequest {
     /// Name of the dataset
     pub name: String,
     /// Optional description
@@ -87,6 +89,7 @@ pub struct CreateDatasetFromDocumentsRequest {
 
 /// Statistics about a created dataset
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct DatasetCreationResult {
     /// Dataset ID
     pub dataset_id: String,
@@ -155,7 +158,7 @@ impl TrainingDatasetManager {
     /// Create a training dataset from documents
     pub async fn create_dataset_from_documents(
         &self,
-        request: CreateDatasetFromDocumentsRequest,
+        request: CreateDatasetFromFilePathsRequest,
     ) -> Result<DatasetCreationResult> {
         info!(
             "Creating training dataset '{}' from {} documents",
@@ -256,8 +259,10 @@ impl TrainingDatasetManager {
         // Create storage directory if it doesn't exist
         tokio::fs::create_dir_all(&self.storage_root).await?;
 
-        // Generate unique filename for this dataset
-        let dataset_filename = format!("{}.jsonl", uuid::Uuid::now_v7());
+        // Generate deterministic filename for this dataset using deterministic timestamp
+        // Format: dataset-{timestamp_ms}.jsonl for deterministic replay
+        let timestamp_ms = get_deterministic_unix_timestamp_millis();
+        let dataset_filename = format!("dataset-{}.jsonl", timestamp_ms);
         let storage_path = self.storage_root.join(&dataset_filename);
 
         // Save examples to JSONL format
@@ -504,10 +509,8 @@ impl TrainingDatasetManager {
             }
             let provenance = provenance_from_map(&provenance)
                 .map_err(|e| AosError::Internal(format!("Failed to serialize metadata: {}", e)))?;
-            let created_at = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_millis() as u64)
-                .unwrap_or(0);
+            // Use deterministic timestamp for metadata creation time
+            let created_at = get_deterministic_unix_timestamp_millis() as u64;
             let metadata =
                 ExampleMetadataV1::new(source_str, line_num as u64, provenance, created_at);
             let attention_mask =

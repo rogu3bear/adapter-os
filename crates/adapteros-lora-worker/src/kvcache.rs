@@ -757,7 +757,7 @@ impl KvCache {
 
 impl ZeroizableBuffer for KvCache {
     fn zeroize(&mut self) {
-        self.zeroize()
+        KvCache::zeroize(self)
     }
 }
 

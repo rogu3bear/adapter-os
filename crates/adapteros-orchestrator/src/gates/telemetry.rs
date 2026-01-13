@@ -5,10 +5,10 @@
 //! in the telemetry record.
 
 use crate::{DependencyChecker, Gate, OrchestratorConfig};
+use adapteros_core::{AosError, Result};
 use adapteros_crypto::signature::{PublicKey, Signature};
 use adapteros_db::Db;
 use adapteros_telemetry::bundle::SignatureMetadata;
-use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 use tracing::{debug, warn};
@@ -56,11 +56,11 @@ impl Gate for TelemetryGate {
         if !bundle_dir.exists() {
             // Try to handle missing bundles gracefully
             if config.require_telemetry_bundles {
-                anyhow::bail!(
+                return Err(AosError::NotFound(format!(
                     "No telemetry bundles found for CPID: {}. Checked: {}",
                     config.cpid,
                     bundle_dir.display()
-                );
+                )));
             } else {
                 warn!(
                     bundle_dir = %bundle_dir.display(),
@@ -74,7 +74,10 @@ impl Gate for TelemetryGate {
 
         if bundles.is_empty() {
             if config.require_telemetry_bundles {
-                anyhow::bail!("No telemetry bundles found in: {}", bundle_dir.display());
+                return Err(AosError::NotFound(format!(
+                    "No telemetry bundles found in: {}",
+                    bundle_dir.display()
+                )));
             } else {
                 warn!(
                     bundle_dir = %bundle_dir.display(),
@@ -103,8 +106,11 @@ struct BundleInfo {
 fn discover_bundles(dir: &Path) -> Result<Vec<BundleInfo>> {
     let mut bundles = Vec::new();
 
-    for entry in fs::read_dir(dir).context("Failed to read telemetry directory")? {
-        let entry = entry.context("Failed to read directory entry")?;
+    for entry in fs::read_dir(dir)
+        .map_err(|e| AosError::Io(format!("Failed to read telemetry directory: {}", e)))?
+    {
+        let entry =
+            entry.map_err(|e| AosError::Io(format!("Failed to read directory entry: {}", e)))?;
         let path = entry.path();
 
         // Look for .ndjson files
@@ -112,7 +118,10 @@ fn discover_bundles(dir: &Path) -> Result<Vec<BundleInfo>> {
             let sig_path = path.with_extension("ndjson.sig");
 
             if !sig_path.exists() {
-                anyhow::bail!("Bundle missing signature: {}", path.display());
+                return Err(AosError::Validation(format!(
+                    "Bundle missing signature: {}",
+                    path.display()
+                )));
             }
 
             // Load metadata to get sequence number for sorting
@@ -153,19 +162,16 @@ async fn verify_chain(bundles: &[BundleInfo], db: &Db, cpid: &str) -> Result<()>
                     // Chain link valid
                 }
                 Some(actual_prev) => {
-                    anyhow::bail!(
+                    return Err(AosError::Validation(format!(
                         "Chain break at bundle {}!\n  Expected prev: {}\n  Got: {}",
-                        i,
-                        expected_prev,
-                        actual_prev
-                    );
+                        i, expected_prev, actual_prev
+                    )));
                 }
                 None => {
-                    anyhow::bail!(
+                    return Err(AosError::Validation(format!(
                         "Missing prev_bundle_hash at bundle {} (expected: {})",
-                        i,
-                        expected_prev
-                    );
+                        i, expected_prev
+                    )));
                 }
             }
         } else {
@@ -191,37 +197,37 @@ async fn verify_signature_against_db(
     let stored_sig = db
         .get_bundle_signature(&metadata.merkle_root)
         .await
-        .context("Failed to query bundle signature from database")?;
+        .map_err(|e| {
+            AosError::Database(format!(
+                "Failed to query bundle signature from database: {}",
+                e
+            ))
+        })?;
 
     match stored_sig {
         Some(db_sig) => {
             // Verify CPID matches
             if db_sig.cpid != cpid {
-                anyhow::bail!(
+                return Err(AosError::Validation(format!(
                     "Bundle CPID mismatch: expected '{}', database has '{}'",
-                    cpid,
-                    db_sig.cpid
-                );
+                    cpid, db_sig.cpid
+                )));
             }
 
             // Verify signature matches database record
             if db_sig.signature_hex != metadata.signature {
-                anyhow::bail!(
+                return Err(AosError::Verification(format!(
                     "Signature mismatch for bundle {}:\n  File: {}\n  Database: {}",
-                    metadata.merkle_root,
-                    metadata.signature,
-                    db_sig.signature_hex
-                );
+                    metadata.merkle_root, metadata.signature, db_sig.signature_hex
+                )));
             }
 
             // Verify public key matches database record
             if db_sig.public_key_hex != metadata.public_key {
-                anyhow::bail!(
+                return Err(AosError::Verification(format!(
                     "Public key mismatch for bundle {}:\n  File: {}\n  Database: {}",
-                    metadata.merkle_root,
-                    metadata.public_key,
-                    db_sig.public_key_hex
-                );
+                    metadata.merkle_root, metadata.public_key, db_sig.public_key_hex
+                )));
             }
 
             tracing::debug!(
@@ -231,11 +237,11 @@ async fn verify_signature_against_db(
         }
         None => {
             // No database record - this is an error for promotion gates
-            anyhow::bail!(
+            return Err(AosError::NotFound(format!(
                 "Bundle signature not found in database: {}. \
                  All bundles must be registered before promotion.",
                 metadata.merkle_root
-            );
+            )));
         }
     }
 
@@ -244,45 +250,51 @@ async fn verify_signature_against_db(
 
 /// Load signature metadata from .sig file
 fn load_signature_metadata(sig_path: &Path) -> Result<SignatureMetadata> {
-    let sig_json = fs::read_to_string(sig_path).context("Failed to read signature file")?;
+    let sig_json = fs::read_to_string(sig_path)
+        .map_err(|e| AosError::Io(format!("Failed to read signature file: {}", e)))?;
 
-    serde_json::from_str(&sig_json).context("Failed to parse signature metadata")
+    serde_json::from_str(&sig_json)
+        .map_err(|e| AosError::Parse(format!("Failed to parse signature metadata: {}", e)))
 }
 
 /// Verify bundle signature
 fn verify_signature(metadata: &SignatureMetadata) -> Result<()> {
     // Decode public key
-    let pubkey_bytes = hex::decode(&metadata.public_key).context("Invalid public key hex")?;
+    let pubkey_bytes = hex::decode(&metadata.public_key)
+        .map_err(|e| AosError::Crypto(format!("Invalid public key hex: {}", e)))?;
 
     if pubkey_bytes.len() != 32 {
-        return Err(anyhow::anyhow!(
+        return Err(AosError::Crypto(format!(
             "Invalid public key length: {}",
             pubkey_bytes.len()
-        ));
+        )));
     }
     let mut pubkey_array = [0u8; 32];
     pubkey_array.copy_from_slice(&pubkey_bytes);
-    let pubkey = PublicKey::from_bytes(&pubkey_array).context("Invalid public key format")?;
+    let pubkey = PublicKey::from_bytes(&pubkey_array)
+        .map_err(|e| AosError::Crypto(format!("Invalid public key format: {}", e)))?;
 
     // Decode signature
-    let sig_bytes = hex::decode(&metadata.signature).context("Invalid signature hex")?;
+    let sig_bytes = hex::decode(&metadata.signature)
+        .map_err(|e| AosError::Crypto(format!("Invalid signature hex: {}", e)))?;
 
     if sig_bytes.len() != 64 {
-        return Err(anyhow::anyhow!(
+        return Err(AosError::Crypto(format!(
             "Invalid signature length: {}",
             sig_bytes.len()
-        ));
+        )));
     }
     let mut sig_array = [0u8; 64];
     sig_array.copy_from_slice(&sig_bytes);
-    let signature = Signature::from_bytes(&sig_array).context("Invalid signature format")?;
+    let signature = Signature::from_bytes(&sig_array)
+        .map_err(|e| AosError::Crypto(format!("Invalid signature format: {}", e)))?;
 
     // Verify signature against Merkle root
     let merkle_root_bytes = metadata.merkle_root.as_bytes();
 
     pubkey
         .verify(merkle_root_bytes, &signature)
-        .context("Signature verification failed")?;
+        .map_err(|e| AosError::Verification(format!("Signature verification failed: {}", e)))?;
 
     Ok(())
 }

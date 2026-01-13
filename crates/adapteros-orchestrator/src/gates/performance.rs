@@ -1,8 +1,8 @@
 //! Performance gate: verifies latency and throughput budgets
 
 use crate::{Gate, OrchestratorConfig};
+use adapteros_core::{AosError, Result};
 use adapteros_db::Db;
-use anyhow::Result;
 
 #[derive(Debug, Clone)]
 pub struct PerformanceGate {
@@ -42,7 +42,7 @@ impl Gate for PerformanceGate {
         .bind(&config.cpid)
         .fetch_optional(db.pool())
         .await?
-        .ok_or_else(|| anyhow::anyhow!("No audit found for CPID: {}", config.cpid))?;
+        .ok_or_else(|| AosError::NotFound(format!("No audit found for CPID: {}", config.cpid)))?;
 
         // Parse audit results
         let result: serde_json::Value = serde_json::from_str(&audit.result_json)?;
@@ -77,7 +77,10 @@ impl Gate for PerformanceGate {
         }
 
         if !failures.is_empty() {
-            anyhow::bail!("Performance budgets failed: {}", failures.join(", "));
+            return Err(AosError::Validation(format!(
+                "Performance budgets failed: {}",
+                failures.join(", ")
+            )));
         }
 
         tracing::info!(
