@@ -331,6 +331,173 @@ pub struct Citation {
     pub rank: Option<u32>,
 }
 
+impl Citation {
+    /// Compute a cryptographic citation ID (BLAKE3 hash).
+    /// (Patent 3535886.0002 Claim 6 enhancement)
+    ///
+    /// The citation ID is computed as BLAKE3(adapter_id || file_path || chunk_id || offset_start || offset_end)
+    /// This provides a deterministic, content-based identifier for the citation.
+    #[cfg(feature = "server")]
+    pub fn compute_citation_id(&self) -> B3Hash {
+        // Collect all bytes to hash with separators
+        let mut data = Vec::with_capacity(256);
+        data.extend_from_slice(self.adapter_id.as_bytes());
+        data.push(0x00); // Separator
+        data.extend_from_slice(self.file_path.as_bytes());
+        data.push(0x00);
+        data.extend_from_slice(self.chunk_id.as_bytes());
+        data.push(0x00);
+        data.extend_from_slice(&self.offset_start.to_le_bytes());
+        data.extend_from_slice(&self.offset_end.to_le_bytes());
+        B3Hash::hash(&data)
+    }
+
+    /// Get or compute the citation ID.
+    /// Returns the existing citation_id if present, otherwise computes it.
+    #[cfg(feature = "server")]
+    pub fn get_or_compute_citation_id(&self) -> B3Hash {
+        if let Some(id) = &self.citation_id {
+            // Try to parse existing ID as hex hash
+            B3Hash::from_hex(id).unwrap_or_else(|_| self.compute_citation_id())
+        } else {
+            self.compute_citation_id()
+        }
+    }
+
+    /// Set the citation ID on this citation (mutates self).
+    #[cfg(feature = "server")]
+    pub fn with_computed_id(mut self) -> Self {
+        let id = self.compute_citation_id();
+        self.citation_id = Some(id.to_hex());
+        self
+    }
+}
+
+/// Compute a Merkle root from a list of citations.
+/// (Patent 3535886.0002 Claim 6 enhancement)
+///
+/// The Merkle tree is built as follows:
+/// 1. Compute citation_id for each citation
+/// 2. Sort citation IDs lexicographically for determinism
+/// 3. Build binary Merkle tree with BLAKE3 as the hash function
+/// 4. Return the root hash
+///
+/// Returns zero hash if the list is empty.
+#[cfg(feature = "server")]
+pub fn compute_citations_merkle_root(citations: &[Citation]) -> B3Hash {
+    if citations.is_empty() {
+        return B3Hash::zero();
+    }
+
+    // Compute and sort citation IDs
+    let mut citation_ids: Vec<B3Hash> = citations
+        .iter()
+        .map(|c| c.get_or_compute_citation_id())
+        .collect();
+
+    // Sort for determinism
+    citation_ids.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+
+    // Build Merkle tree
+    merkle_root_from_hashes(&citation_ids)
+}
+
+/// Build a Merkle root from a sorted list of hashes.
+#[cfg(feature = "server")]
+fn merkle_root_from_hashes(hashes: &[B3Hash]) -> B3Hash {
+    if hashes.is_empty() {
+        return B3Hash::zero();
+    }
+    if hashes.len() == 1 {
+        return hashes[0];
+    }
+
+    let mut current_level: Vec<B3Hash> = hashes.to_vec();
+
+    while current_level.len() > 1 {
+        let mut next_level = Vec::with_capacity((current_level.len() + 1) / 2);
+
+        for chunk in current_level.chunks(2) {
+            let combined = if chunk.len() == 2 {
+                // Hash pair - combine both hashes
+                let mut data = Vec::with_capacity(64);
+                data.extend_from_slice(chunk[0].as_bytes());
+                data.extend_from_slice(chunk[1].as_bytes());
+                B3Hash::hash(&data)
+            } else {
+                // Odd element: hash with itself
+                let mut data = Vec::with_capacity(64);
+                data.extend_from_slice(chunk[0].as_bytes());
+                data.extend_from_slice(chunk[0].as_bytes());
+                B3Hash::hash(&data)
+            };
+            next_level.push(combined);
+        }
+
+        current_level = next_level;
+    }
+
+    current_level[0]
+}
+
+/// Citation binding for inclusion in receipts.
+/// (Patent 3535886.0002 Claim 6 enhancement)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct CitationBinding {
+    /// Merkle root of all citation IDs
+    pub merkle_root: String,
+    /// Number of citations included
+    pub citation_count: u32,
+    /// Individual citation IDs (for verification)
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub citation_ids: Vec<String>,
+}
+
+#[cfg(feature = "server")]
+impl CitationBinding {
+    /// Create a citation binding from a list of citations.
+    pub fn from_citations(citations: &[Citation]) -> Self {
+        let citation_ids: Vec<String> = citations
+            .iter()
+            .map(|c| c.get_or_compute_citation_id().to_hex())
+            .collect();
+
+        let merkle_root = compute_citations_merkle_root(citations).to_hex();
+
+        Self {
+            merkle_root,
+            citation_count: citations.len() as u32,
+            citation_ids,
+        }
+    }
+
+    /// Verify that the merkle root matches the citation IDs.
+    pub fn verify(&self) -> bool {
+        if self.citation_ids.is_empty() {
+            return self.merkle_root == B3Hash::zero().to_hex();
+        }
+
+        // Parse citation IDs
+        let hashes: Result<Vec<B3Hash>, _> = self
+            .citation_ids
+            .iter()
+            .map(|id| B3Hash::from_hex(id))
+            .collect();
+
+        let Ok(mut hashes) = hashes else {
+            return false;
+        };
+
+        // Sort and compute merkle root
+        hashes.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+        let computed_root = merkle_root_from_hashes(&hashes);
+
+        self.merkle_root == computed_root.to_hex()
+    }
+}
+
 /// Replay guarantee level for an inference
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
@@ -505,4 +672,145 @@ pub struct KvUsageStats {
     pub kv_residency_policy_id: Option<String>,
     /// Whether quota enforcement was active
     pub kv_quota_enforced: bool,
+}
+
+#[cfg(all(test, feature = "server"))]
+mod tests {
+    use super::*;
+
+    fn make_citation(adapter_id: &str, file_path: &str, chunk_id: &str) -> Citation {
+        Citation {
+            adapter_id: adapter_id.to_string(),
+            file_path: file_path.to_string(),
+            chunk_id: chunk_id.to_string(),
+            offset_start: 0,
+            offset_end: 100,
+            preview: "test".to_string(),
+            citation_id: None,
+            page_number: None,
+            char_range: None,
+            bbox: None,
+            relevance_score: None,
+            rank: None,
+        }
+    }
+
+    #[test]
+    fn test_citation_id_deterministic() {
+        let citation = make_citation("adapter-1", "/path/to/file.rs", "chunk-123");
+
+        let id1 = citation.compute_citation_id();
+        let id2 = citation.compute_citation_id();
+
+        assert_eq!(id1, id2, "Citation ID should be deterministic");
+    }
+
+    #[test]
+    fn test_citation_id_changes_with_content() {
+        let citation1 = make_citation("adapter-1", "/path/to/file.rs", "chunk-123");
+        let citation2 = make_citation("adapter-2", "/path/to/file.rs", "chunk-123");
+
+        let id1 = citation1.compute_citation_id();
+        let id2 = citation2.compute_citation_id();
+
+        assert_ne!(id1, id2, "Different adapters should produce different IDs");
+    }
+
+    #[test]
+    fn test_merkle_root_empty() {
+        let citations: Vec<Citation> = vec![];
+        let root = compute_citations_merkle_root(&citations);
+
+        assert!(root.is_zero(), "Empty citations should produce zero hash");
+    }
+
+    #[test]
+    fn test_merkle_root_single() {
+        let citations = vec![make_citation("adapter-1", "/path/file.rs", "chunk-1")];
+        let root = compute_citations_merkle_root(&citations);
+
+        // Single citation merkle root equals its own hash
+        assert_eq!(root, citations[0].compute_citation_id());
+    }
+
+    #[test]
+    fn test_merkle_root_deterministic() {
+        let citations = vec![
+            make_citation("adapter-1", "/path/file1.rs", "chunk-1"),
+            make_citation("adapter-2", "/path/file2.rs", "chunk-2"),
+            make_citation("adapter-3", "/path/file3.rs", "chunk-3"),
+        ];
+
+        let root1 = compute_citations_merkle_root(&citations);
+        let root2 = compute_citations_merkle_root(&citations);
+
+        assert_eq!(root1, root2, "Merkle root should be deterministic");
+    }
+
+    #[test]
+    fn test_merkle_root_order_independent() {
+        let citations_a = vec![
+            make_citation("adapter-1", "/path/file1.rs", "chunk-1"),
+            make_citation("adapter-2", "/path/file2.rs", "chunk-2"),
+        ];
+
+        let citations_b = vec![
+            make_citation("adapter-2", "/path/file2.rs", "chunk-2"),
+            make_citation("adapter-1", "/path/file1.rs", "chunk-1"),
+        ];
+
+        let root_a = compute_citations_merkle_root(&citations_a);
+        let root_b = compute_citations_merkle_root(&citations_b);
+
+        assert_eq!(root_a, root_b, "Merkle root should be order-independent");
+    }
+
+    #[test]
+    fn test_citation_binding_from_citations() {
+        let citations = vec![
+            make_citation("adapter-1", "/path/file1.rs", "chunk-1"),
+            make_citation("adapter-2", "/path/file2.rs", "chunk-2"),
+        ];
+
+        let binding = CitationBinding::from_citations(&citations);
+
+        assert_eq!(binding.citation_count, 2);
+        assert_eq!(binding.citation_ids.len(), 2);
+        assert!(!binding.merkle_root.is_empty());
+    }
+
+    #[test]
+    fn test_citation_binding_verify() {
+        let citations = vec![
+            make_citation("adapter-1", "/path/file1.rs", "chunk-1"),
+            make_citation("adapter-2", "/path/file2.rs", "chunk-2"),
+        ];
+
+        let binding = CitationBinding::from_citations(&citations);
+
+        assert!(binding.verify(), "Valid binding should verify");
+    }
+
+    #[test]
+    fn test_citation_binding_verify_tampered() {
+        let citations = vec![make_citation("adapter-1", "/path/file1.rs", "chunk-1")];
+
+        let mut binding = CitationBinding::from_citations(&citations);
+        // Tamper with the merkle root
+        binding.merkle_root =
+            "0000000000000000000000000000000000000000000000000000000000000000".to_string();
+
+        assert!(!binding.verify(), "Tampered binding should not verify");
+    }
+
+    #[test]
+    fn test_with_computed_id() {
+        let citation = make_citation("adapter-1", "/path/file.rs", "chunk-1").with_computed_id();
+
+        assert!(citation.citation_id.is_some());
+
+        // Verify the ID matches what we'd compute
+        let expected_id = citation.compute_citation_id().to_hex();
+        assert_eq!(citation.citation_id.unwrap(), expected_id);
+    }
 }

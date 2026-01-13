@@ -91,10 +91,20 @@ pub struct DeviceFingerprint {
     pub firmware_hash: Option<B3Hash>,
     /// BIOS/bootloader version hash
     pub boot_version_hash: Option<B3Hash>,
+    // V2 fields (Patent 3535886.0002 compliance - Equipment Profile)
+    /// Processor identifier (chip model + stepping/revision)
+    #[serde(default)]
+    pub processor_id: Option<String>,
+    /// MLX framework version (e.g., "0.21.0")
+    #[serde(default)]
+    pub mlx_version: Option<String>,
+    /// Apple Neural Engine version (from IOKit)
+    #[serde(default)]
+    pub ane_version: Option<String>,
 }
 
 impl DeviceFingerprint {
-    const SCHEMA_VERSION: u8 = 1;
+    const SCHEMA_VERSION: u8 = 2;
 
     /// Capture current device fingerprint
     pub fn capture_current() -> Result<Self> {
@@ -112,7 +122,181 @@ impl DeviceFingerprint {
             cpu_features: Self::detect_cpu_features()?,
             firmware_hash: Self::detect_firmware_hash().ok(),
             boot_version_hash: Self::detect_boot_version_hash().ok(),
+            // V2 fields (Patent 3535886.0002 compliance)
+            processor_id: Self::detect_processor_id().ok(),
+            mlx_version: Self::detect_mlx_version().ok(),
+            ane_version: Self::detect_ane_version().ok(),
         })
+    }
+
+    /// Compute equipment profile digest for receipt binding (Patent 3535886.0002 Claims 6, 9-10).
+    ///
+    /// This digest binds the processor ID, MLX version, ANE version, SoC ID, and Metal family
+    /// into a single BLAKE3 hash suitable for inclusion in cryptographic receipts.
+    pub fn compute_equipment_digest(&self) -> B3Hash {
+        let mut hasher = blake3::Hasher::new();
+        // Processor ID (required for patent compliance)
+        hasher.update(self.processor_id.as_deref().unwrap_or("unknown").as_bytes());
+        hasher.update(b"\x00"); // separator
+                                // MLX version
+        hasher.update(self.mlx_version.as_deref().unwrap_or("unknown").as_bytes());
+        hasher.update(b"\x00");
+        // ANE version
+        hasher.update(self.ane_version.as_deref().unwrap_or("unknown").as_bytes());
+        hasher.update(b"\x00");
+        // SoC ID (already captured)
+        hasher.update(self.soc_id.as_bytes());
+        hasher.update(b"\x00");
+        // Metal family
+        hasher.update(self.metal_family.as_bytes());
+        B3Hash::from_bytes(hasher.finalize().into())
+    }
+
+    /// Detect processor identifier (chip model + stepping/revision)
+    fn detect_processor_id() -> Result<String> {
+        #[cfg(target_os = "macos")]
+        {
+            // Get chip type and stepping from sysctl
+            let chip_output = Command::new("sysctl")
+                .arg("-n")
+                .arg("machdep.cpu.brand_string")
+                .output()
+                .map_err(|e| AosError::Io(format!("Failed to run sysctl: {}", e)))?;
+
+            let chip = if chip_output.status.success() {
+                String::from_utf8_lossy(&chip_output.stdout)
+                    .trim()
+                    .to_string()
+            } else {
+                "Unknown".to_string()
+            };
+
+            // Try to get stepping/revision info
+            let stepping_output = Command::new("sysctl")
+                .arg("-n")
+                .arg("machdep.cpu.stepping")
+                .output();
+
+            let stepping = stepping_output
+                .ok()
+                .filter(|o| o.status.success())
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                .unwrap_or_default();
+
+            if stepping.is_empty() {
+                Ok(chip)
+            } else {
+                Ok(format!("{}:stepping-{}", chip, stepping))
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            Ok("Unknown".to_string())
+        }
+    }
+
+    /// Detect MLX framework version
+    fn detect_mlx_version() -> Result<String> {
+        #[cfg(target_os = "macos")]
+        {
+            // Try to detect MLX version from Python module or library
+            // First, check if MLX Swift/C++ library is available via dylib
+            let python_check = Command::new("python3")
+                .args(["-c", "import mlx; print(mlx.__version__)"])
+                .output();
+
+            if let Ok(output) = python_check {
+                if output.status.success() {
+                    let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    if !version.is_empty() {
+                        return Ok(version);
+                    }
+                }
+            }
+
+            // Check environment variable as fallback
+            if let Ok(version) = std::env::var("MLX_VERSION") {
+                return Ok(version);
+            }
+
+            // Check for MLX.metallib presence and hash as version proxy
+            let mlx_lib_paths = [
+                "/opt/homebrew/lib/libmlx.dylib",
+                "/usr/local/lib/libmlx.dylib",
+            ];
+
+            for path in mlx_lib_paths {
+                if std::path::Path::new(path).exists() {
+                    // MLX is installed but version unknown
+                    return Ok("installed-unknown".to_string());
+                }
+            }
+
+            Err(AosError::Unavailable("MLX not detected".to_string()))
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            Err(AosError::Unavailable(
+                "MLX only available on macOS".to_string(),
+            ))
+        }
+    }
+
+    /// Detect Apple Neural Engine version
+    fn detect_ane_version() -> Result<String> {
+        #[cfg(target_os = "macos")]
+        {
+            // ANE version is tied to the chip generation
+            // Query IOKit for ANE properties
+            let ioreg_output = Command::new("ioreg")
+                .args(["-c", "AppleARMIODevice", "-r", "-d", "1"])
+                .output();
+
+            if let Ok(output) = ioreg_output {
+                if output.status.success() {
+                    let content = String::from_utf8_lossy(&output.stdout);
+                    // Look for ANE-related entries
+                    if content.contains("ane") || content.contains("ANE") {
+                        // Extract version from chip family
+                        // M1 = ANE 16-core, M2 = ANE 16-core v2, M3 = ANE 16-core v3
+                        let soc = Self::detect_soc_id().unwrap_or_default();
+                        let ane_gen = if soc.contains("M4") {
+                            "ANEv4-38core"
+                        } else if soc.contains("M3") {
+                            "ANEv3-16core"
+                        } else if soc.contains("M2") {
+                            "ANEv2-16core"
+                        } else if soc.contains("M1") {
+                            "ANEv1-16core"
+                        } else {
+                            "ANE-unknown"
+                        };
+                        return Ok(ane_gen.to_string());
+                    }
+                }
+            }
+
+            // Fallback: derive from chip
+            let soc = Self::detect_soc_id().unwrap_or_default();
+            let ane_gen = if soc.contains("M4") {
+                "ANEv4-38core"
+            } else if soc.contains("M3") {
+                "ANEv3-16core"
+            } else if soc.contains("M2") {
+                "ANEv2-16core"
+            } else if soc.contains("M1") {
+                "ANEv1-16core"
+            } else {
+                return Err(AosError::Unavailable("ANE version unknown".to_string()));
+            };
+            Ok(ane_gen.to_string())
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            Err(AosError::Unavailable(
+                "ANE only available on Apple Silicon".to_string(),
+            ))
+        }
     }
 
     /// Detect device model via sysctl
@@ -489,7 +673,7 @@ impl GoldenRunMetadata {
             },
             adapters,
             device: DeviceFingerprint::capture_current().unwrap_or_else(|_| DeviceFingerprint {
-                schema_version: 1,
+                schema_version: 2,
                 device_model: "Unknown".to_string(),
                 soc_id: "Unknown".to_string(),
                 gpu_pci_id: "Unknown".to_string(),
@@ -502,6 +686,9 @@ impl GoldenRunMetadata {
                 cpu_features: vec![],
                 firmware_hash: None,
                 boot_version_hash: None,
+                processor_id: None,
+                mlx_version: None,
+                ane_version: None,
             }),
             global_seed,
         }
@@ -583,7 +770,7 @@ mod tests {
     #[test]
     fn test_device_fingerprint_matches() {
         let device_a = DeviceFingerprint {
-            schema_version: 1,
+            schema_version: 2,
             device_model: "MacBookPro18,3".to_string(),
             soc_id: "Apple M1 Pro".to_string(),
             gpu_pci_id: "Apple M1 Pro::0x0000000000000000".to_string(),
@@ -596,6 +783,9 @@ mod tests {
             cpu_features: vec!["aarch64".to_string()],
             firmware_hash: None,
             boot_version_hash: None,
+            processor_id: Some("Apple M1 Pro:stepping-1".to_string()),
+            mlx_version: Some("0.21.0".to_string()),
+            ane_version: Some("ANEv1-16core".to_string()),
         };
 
         let device_b = device_a.clone();
@@ -604,6 +794,62 @@ mod tests {
         let mut device_c = device_a.clone();
         device_c.metal_family = "Apple8".to_string();
         assert!(!device_a.matches(&device_c));
+    }
+
+    #[test]
+    fn test_equipment_digest_deterministic() {
+        let device = DeviceFingerprint {
+            schema_version: 2,
+            device_model: "MacBookPro18,3".to_string(),
+            soc_id: "Apple M1 Pro".to_string(),
+            gpu_pci_id: "Apple M1 Pro::0x0000000000000000".to_string(),
+            os_version: "14.0".to_string(),
+            os_build: "23A344".to_string(),
+            metal_family: "Apple9".to_string(),
+            gpu_driver_version: "3.1".to_string(),
+            path_hash: B3Hash::hash(b"path:test"),
+            env_hash: B3Hash::hash(b"env:test"),
+            cpu_features: vec!["aarch64".to_string()],
+            firmware_hash: None,
+            boot_version_hash: None,
+            processor_id: Some("Apple M1 Pro:stepping-1".to_string()),
+            mlx_version: Some("0.21.0".to_string()),
+            ane_version: Some("ANEv1-16core".to_string()),
+        };
+
+        let digest1 = device.compute_equipment_digest();
+        let digest2 = device.compute_equipment_digest();
+        assert_eq!(digest1, digest2, "Equipment digest should be deterministic");
+    }
+
+    #[test]
+    fn test_equipment_digest_changes_with_mlx_version() {
+        let mut device = DeviceFingerprint {
+            schema_version: 2,
+            device_model: "MacBookPro18,3".to_string(),
+            soc_id: "Apple M1 Pro".to_string(),
+            gpu_pci_id: "Apple M1 Pro::0x0000000000000000".to_string(),
+            os_version: "14.0".to_string(),
+            os_build: "23A344".to_string(),
+            metal_family: "Apple9".to_string(),
+            gpu_driver_version: "3.1".to_string(),
+            path_hash: B3Hash::hash(b"path:test"),
+            env_hash: B3Hash::hash(b"env:test"),
+            cpu_features: vec!["aarch64".to_string()],
+            firmware_hash: None,
+            boot_version_hash: None,
+            processor_id: Some("Apple M1 Pro:stepping-1".to_string()),
+            mlx_version: Some("0.21.0".to_string()),
+            ane_version: Some("ANEv1-16core".to_string()),
+        };
+
+        let digest1 = device.compute_equipment_digest();
+        device.mlx_version = Some("0.22.0".to_string());
+        let digest2 = device.compute_equipment_digest();
+        assert_ne!(
+            digest1, digest2,
+            "Equipment digest should change with MLX version"
+        );
     }
 
     #[test]

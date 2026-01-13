@@ -61,6 +61,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::auth_enhanced::register_handler,
         handlers::code::propose_patch,
         handlers::infer,
+        handlers::inference::get_inference_provenance,
         handlers::streaming_infer::streaming_infer,
         handlers::streaming_infer::streaming_infer_with_progress,
         handlers::batch::batch_infer,
@@ -429,6 +430,9 @@ use utoipa_swagger_ui::SwaggerUi;
         crate::types::ProposePatchResponse,
         crate::types::InferRequest,
         crate::types::InferResponse,
+        handlers::inference::ProvenanceResponse,
+        handlers::inference::AdapterProvenanceInfo,
+        handlers::inference::DocumentProvenanceInfo,
         handlers::streaming_infer::StreamingInferRequest,
         handlers::streaming_infer::StreamingChunk,
         handlers::streaming_infer::StreamingChoice,
@@ -1227,6 +1231,11 @@ pub fn build(state: AppState) -> Router {
             post(handlers::review::submit_review),
         )
         .route("/v1/infer/paused", get(handlers::review::list_paused))
+        // Provenance chain query (AUDIT)
+        .route(
+            "/v1/inference/{trace_id}/provenance",
+            get(handlers::inference::get_inference_provenance),
+        )
         // CLI-compatible review routes
         .route(
             "/v1/reviews/paused",

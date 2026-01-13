@@ -13,7 +13,7 @@ no_wasm_opt = true
 
 [watch]
 # Watch for changes (stylers generates CSS at cargo build time)
-watch = ["src", "index.html", "dist/base.css"]
+watch = ["src", "index.html", "dist/base.css", "dist/glass.css", "dist/components.css"]
 # Ignore patterns
 ignore = ["target"]
 

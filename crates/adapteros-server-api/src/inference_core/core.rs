@@ -1080,6 +1080,33 @@ impl<'a> InferenceCore<'a> {
         let router_decisions = self.extract_router_decisions(&worker_response);
         let router_decision_chain = self.extract_router_decision_chain(&worker_response);
 
+        // 5a. AARA Lifecycle: Compute max gate score for abstention check
+        let max_gate_score = router_decisions
+            .iter()
+            .flat_map(|d| d.candidates.iter())
+            .map(|c| c.raw_score)
+            .fold(0.0_f32, f32::max);
+
+        // Check if we should abstain due to low confidence
+        let abstention_info = if request.should_abstain(max_gate_score) {
+            let threshold = request.effective_abstention_threshold();
+            tracing::info!(
+                request_id = %request.request_id,
+                max_gate_score = max_gate_score,
+                threshold = threshold,
+                "Abstaining due to low confidence"
+            );
+            Some(crate::types::AbstentionInfo::low_confidence(max_gate_score, threshold))
+        } else if worker_response.trace.router_summary.adapters_used.is_empty() {
+            tracing::info!(
+                request_id = %request.request_id,
+                "Abstaining due to no adapters available"
+            );
+            Some(crate::types::AbstentionInfo::no_adapters())
+        } else {
+            None
+        };
+
         // 5b. Persist per-token routing chain for audit
         if let Some(chain) = router_decision_chain.as_ref() {
             let records: Vec<adapteros_db::RoutingDecisionChainRecord> = chain
@@ -1549,6 +1576,8 @@ impl<'a> InferenceCore<'a> {
             stop_reason_code: worker_response.stop_reason_code,
             stop_reason_token_index: worker_response.stop_reason_token_index,
             stop_policy_digest_b3: worker_response.stop_policy_digest_b3.clone(),
+            // AARA Lifecycle: Abstention
+            abstention: abstention_info,
         })
         }
         .await;

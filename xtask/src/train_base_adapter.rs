@@ -194,6 +194,9 @@ pub async fn run(args: TrainBaseAdapterArgs) -> Result<()> {
             .to_string(),
         pad_token_id: 0,
         ignore_index: -1,
+        targets: vec!["q_proj".to_string(), "v_proj".to_string()],
+        multi_module_training: false,
+        lora_layer_indices: vec![],
     };
 
     // Train positive adapter

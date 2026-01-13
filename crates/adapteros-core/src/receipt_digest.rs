@@ -28,8 +28,10 @@ pub const RECEIPT_SCHEMA_V2: u8 = 2;
 pub const RECEIPT_SCHEMA_V3: u8 = 3;
 /// V4: Full production format with stop controller, KV, prefix cache, model cache fields
 pub const RECEIPT_SCHEMA_V4: u8 = 4;
+/// V5: Patent 3535886.0002 compliance - adds equipment profile and citation binding
+pub const RECEIPT_SCHEMA_V5: u8 = 5;
 /// Current schema version for new receipts
-pub const RECEIPT_SCHEMA_CURRENT: u8 = RECEIPT_SCHEMA_V4;
+pub const RECEIPT_SCHEMA_CURRENT: u8 = RECEIPT_SCHEMA_V5;
 
 /// Input fields for receipt digest computation.
 ///
@@ -92,6 +94,24 @@ pub struct ReceiptDigestInput {
     // V4 fields: Model cache identity
     #[serde(default)]
     pub model_cache_identity_v2_digest_b3: Option<[u8; 32]>,
+
+    // V5 fields: Equipment profile (Patent 3535886.0002 Claims 6, 9-10)
+    #[serde(default)]
+    pub equipment_profile_digest_b3: Option<[u8; 32]>,
+    #[serde(default)]
+    pub processor_id: Option<String>,
+    #[serde(default)]
+    pub mlx_version: Option<String>,
+    #[serde(default)]
+    pub ane_version: Option<String>,
+
+    // V5 fields: Citation binding (Patent 3535886.0002 Claim 6 enhancement)
+    /// Merkle root of all citation IDs used in this inference
+    #[serde(default)]
+    pub citations_merkle_root_b3: Option<[u8; 32]>,
+    /// Count of citations for verification
+    #[serde(default)]
+    pub citation_count: u32,
 }
 
 impl ReceiptDigestInput {
@@ -172,6 +192,32 @@ impl ReceiptDigestInput {
         self
     }
 
+    /// Set equipment profile fields (V5+, Patent 3535886.0002 Claims 6, 9-10)
+    pub fn with_equipment_profile(
+        mut self,
+        equipment_profile_digest_b3: Option<[u8; 32]>,
+        processor_id: Option<String>,
+        mlx_version: Option<String>,
+        ane_version: Option<String>,
+    ) -> Self {
+        self.equipment_profile_digest_b3 = equipment_profile_digest_b3;
+        self.processor_id = processor_id;
+        self.mlx_version = mlx_version;
+        self.ane_version = ane_version;
+        self
+    }
+
+    /// Set citation binding fields (V5+, Patent 3535886.0002 Claim 6 enhancement)
+    pub fn with_citations(
+        mut self,
+        citations_merkle_root_b3: Option<[u8; 32]>,
+        citation_count: u32,
+    ) -> Self {
+        self.citations_merkle_root_b3 = citations_merkle_root_b3;
+        self.citation_count = citation_count;
+        self
+    }
+
     /// Set backend identity fields (V2+)
     pub fn with_backend(
         mut self,
@@ -216,6 +262,7 @@ pub fn compute_receipt_digest(input: &ReceiptDigestInput, schema_version: u8) ->
         RECEIPT_SCHEMA_V2 => Some(compute_v2_digest(input)),
         RECEIPT_SCHEMA_V3 => Some(compute_v3_digest(input)),
         RECEIPT_SCHEMA_V4 => Some(compute_v4_digest(input)),
+        RECEIPT_SCHEMA_V5 => Some(compute_v5_digest(input)),
         _ => {
             tracing::warn!(
                 schema_version = schema_version,
@@ -382,6 +429,99 @@ fn compute_v4_digest(input: &ReceiptDigestInput) -> B3Hash {
         &input.prefix_kv_bytes.to_le_bytes(),
         // Model cache identity V2 (PRD-06)
         &model_cache_identity_bytes,
+    ])
+}
+
+/// Compute V5 receipt digest (Patent 3535886.0002 compliance).
+///
+/// V5 extends V4 with:
+/// - Equipment profile digest (processor ID, MLX version, ANE version)
+/// - Citation binding (Merkle root of citation IDs)
+///
+/// **IMPORTANT**: This must stay in sync with `inference_trace.rs::compute_receipt_digest`.
+fn compute_v5_digest(input: &ReceiptDigestInput) -> B3Hash {
+    // Stop controller fields
+    let stop_reason_bytes = input.stop_reason_code.as_deref().unwrap_or("").as_bytes();
+    let stop_token_index_bytes = input
+        .stop_reason_token_index
+        .unwrap_or(0xFFFFFFFF)
+        .to_le_bytes();
+    let stop_policy_bytes = input
+        .stop_policy_digest_b3
+        .map(|b| b.to_vec())
+        .unwrap_or_else(|| vec![0u8; 32]);
+
+    // KV residency policy
+    let kv_residency_policy_id = input.kv_residency_policy_id.as_deref();
+
+    // Prefix KV cache
+    let prefix_kv_key_bytes = input
+        .prefix_kv_key_b3
+        .map(|b| b.to_vec())
+        .unwrap_or_else(|| vec![0u8; 32]);
+
+    // Model cache identity V2
+    let model_cache_identity_bytes = input
+        .model_cache_identity_v2_digest_b3
+        .map(|b| b.to_vec())
+        .unwrap_or_else(|| vec![0u8; 32]);
+
+    // V5: Equipment profile (Patent 3535886.0002 Claims 6, 9-10)
+    let equipment_profile_bytes = input
+        .equipment_profile_digest_b3
+        .map(|b| b.to_vec())
+        .unwrap_or_else(|| vec![0u8; 32]);
+    let processor_id_bytes = input.processor_id.as_deref().unwrap_or("").as_bytes();
+    let mlx_version_bytes = input.mlx_version.as_deref().unwrap_or("").as_bytes();
+    let ane_version_bytes = input.ane_version.as_deref().unwrap_or("").as_bytes();
+
+    // V5: Citation binding (Patent 3535886.0002 Claim 6 enhancement)
+    let citations_merkle_bytes = input
+        .citations_merkle_root_b3
+        .map(|b| b.to_vec())
+        .unwrap_or_else(|| vec![0u8; 32]);
+
+    B3Hash::hash_multi(&[
+        // Schema version marker
+        &[RECEIPT_SCHEMA_V5],
+        // Core fields
+        &input.context_digest[..],
+        &input.run_head_hash[..],
+        &input.output_digest[..],
+        &input.logical_prompt_tokens.to_le_bytes(),
+        &input.prefix_cached_token_count.to_le_bytes(),
+        &input.billed_input_tokens.to_le_bytes(),
+        &input.logical_output_tokens.to_le_bytes(),
+        &input.billed_output_tokens.to_le_bytes(),
+        // Stop controller fields
+        &(stop_reason_bytes.len() as u32).to_le_bytes(),
+        stop_reason_bytes,
+        &stop_token_index_bytes,
+        &stop_policy_bytes,
+        // KV quota/residency fields
+        &input.tenant_kv_quota_bytes.to_le_bytes(),
+        &input.tenant_kv_bytes_used.to_le_bytes(),
+        &input.kv_evictions.to_le_bytes(),
+        &(kv_residency_policy_id.map(|s| s.len() as u32).unwrap_or(0)).to_le_bytes(),
+        kv_residency_policy_id.map(|s| s.as_bytes()).unwrap_or(&[]),
+        &[if input.kv_quota_enforced { 1u8 } else { 0u8 }],
+        // Prefix KV cache fields
+        &prefix_kv_key_bytes,
+        &[if input.prefix_cache_hit { 1u8 } else { 0u8 }],
+        &input.prefix_kv_bytes.to_le_bytes(),
+        // Model cache identity V2
+        &model_cache_identity_bytes,
+        // V5: Equipment profile (Patent 3535886.0002)
+        &equipment_profile_bytes,
+        &(processor_id_bytes.len() as u32).to_le_bytes(),
+        processor_id_bytes,
+        &(mlx_version_bytes.len() as u32).to_le_bytes(),
+        mlx_version_bytes,
+        &(ane_version_bytes.len() as u32).to_le_bytes(),
+        ane_version_bytes,
+        // V5: Citation binding
+        &citations_merkle_bytes,
+        &input.citation_count.to_le_bytes(),
     ])
 }
 
@@ -702,10 +842,72 @@ mod tests {
         let v2 = compute_receipt_digest(&input, RECEIPT_SCHEMA_V2).unwrap();
         let v3 = compute_receipt_digest(&input, RECEIPT_SCHEMA_V3).unwrap();
         let v4 = compute_receipt_digest(&input, RECEIPT_SCHEMA_V4).unwrap();
+        let v5 = compute_receipt_digest(&input, RECEIPT_SCHEMA_V5).unwrap();
 
         assert_ne!(v1, v2, "V1 and V2 should differ");
         assert_ne!(v2, v3, "V2 and V3 should differ");
         assert_ne!(v3, v4, "V3 and V4 should differ");
+        assert_ne!(v4, v5, "V4 and V5 should differ");
+    }
+
+    #[test]
+    fn test_v5_digest_deterministic() {
+        let input = ReceiptDigestInput::new([1u8; 32], [2u8; 32], [3u8; 32], 100, 10, 90, 50, 50)
+            .with_stop_controller(Some("EOS".to_string()), Some(45), Some([4u8; 32]))
+            .with_kv_quota(
+                1024 * 1024,
+                512 * 1024,
+                0,
+                Some("default".to_string()),
+                true,
+            )
+            .with_prefix_cache(Some([5u8; 32]), true, 256 * 1024)
+            .with_model_cache_identity(Some([6u8; 32]))
+            .with_equipment_profile(
+                Some([7u8; 32]),
+                Some("Apple M4 Max:stepping-1".to_string()),
+                Some("0.21.0".to_string()),
+                Some("ANEv4-38core".to_string()),
+            )
+            .with_citations(Some([8u8; 32]), 5);
+
+        let d1 = compute_receipt_digest(&input, RECEIPT_SCHEMA_V5).unwrap();
+        let d2 = compute_receipt_digest(&input, RECEIPT_SCHEMA_V5).unwrap();
+        assert_eq!(d1, d2, "V5 digest should be deterministic");
+    }
+
+    #[test]
+    fn test_v5_equipment_profile_changes_digest() {
+        let base_input =
+            ReceiptDigestInput::new([1u8; 32], [2u8; 32], [3u8; 32], 100, 10, 90, 50, 50);
+
+        let with_equipment = base_input.clone().with_equipment_profile(
+            Some([7u8; 32]),
+            Some("Apple M4 Max".to_string()),
+            Some("0.21.0".to_string()),
+            Some("ANEv4-38core".to_string()),
+        );
+
+        let without_equipment = base_input.clone();
+
+        let d1 = compute_receipt_digest(&with_equipment, RECEIPT_SCHEMA_V5).unwrap();
+        let d2 = compute_receipt_digest(&without_equipment, RECEIPT_SCHEMA_V5).unwrap();
+
+        assert_ne!(d1, d2, "Equipment profile should change V5 digest");
+    }
+
+    #[test]
+    fn test_v5_citation_binding_changes_digest() {
+        let base_input =
+            ReceiptDigestInput::new([1u8; 32], [2u8; 32], [3u8; 32], 100, 10, 90, 50, 50);
+
+        let with_citations = base_input.clone().with_citations(Some([8u8; 32]), 5);
+        let without_citations = base_input.clone();
+
+        let d1 = compute_receipt_digest(&with_citations, RECEIPT_SCHEMA_V5).unwrap();
+        let d2 = compute_receipt_digest(&without_citations, RECEIPT_SCHEMA_V5).unwrap();
+
+        assert_ne!(d1, d2, "Citation binding should change V5 digest");
     }
 
     #[test]

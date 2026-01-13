@@ -31,19 +31,56 @@ pub async fn run(args: PackLoraArgs) -> Result<()> {
     let weights: adapteros_lora_worker::training::LoRAWeights =
         serde_json::from_str(&weights_json).context("parsing lora_weights.json")?;
 
+    // Determine rank from weights (multi-module or legacy)
+    let rank = if weights.is_multi_module() {
+        // Get rank from first module's lora_a (rank is number of columns)
+        weights
+            .modules
+            .values()
+            .next()
+            .and_then(|m| m.lora_a.first())
+            .map(|row| row.len())
+            .unwrap_or(8)
+    } else {
+        weights.lora_a.len()
+    };
+
+    println!(
+        "📦 Packaging {} weights (rank={}, modules={})",
+        if weights.is_multi_module() {
+            "multi-module"
+        } else {
+            "legacy"
+        },
+        rank,
+        weights.modules.len()
+    );
+
     // Quantize to Q15
     let quant = adapteros_lora_worker::training::LoRAQuantizer::quantize_to_q15(&weights);
 
     // Use default training config for manifest, but preserve rank
     let cfg = adapteros_lora_worker::training::TrainingConfig {
-        rank: weights.lora_a.len(),
+        rank,
+        multi_module_training: weights.is_multi_module(),
+        targets: weights.modules.keys().cloned().collect(),
         ..Default::default()
     };
 
-    // Package
+    // Package with synthetic mode metadata (no dataset lineage for converted adapters)
+    let mut metadata = std::collections::HashMap::new();
+    metadata.insert("synthetic_mode".to_string(), "true".to_string());
+
     let packager = adapteros_lora_worker::training::AdapterPackager::new(&args.output_dir);
     let packaged = packager
-        .package("default", &args.adapter_id, &quant, &cfg, &args.base_model)
+        .package_aos_with_metadata(
+            "default",
+            &args.adapter_id,
+            &quant,
+            &cfg,
+            &args.base_model,
+            metadata,
+        )
         .await
         .context("packaging adapter")?;
 

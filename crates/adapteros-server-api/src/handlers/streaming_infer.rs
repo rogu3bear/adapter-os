@@ -179,6 +179,8 @@ impl From<(&StreamingInferRequest, &Claims)> for InferenceRequestInternal {
             worker_auth_token: None,
             policy_mask_digest_b3: None, // Streaming requests don't use policy hooks
             utf8_healing: None,
+            abstention_threshold: None, // AARA lifecycle
+            citation_mode: None,        // AARA lifecycle
         }
     }
 }

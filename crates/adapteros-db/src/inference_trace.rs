@@ -164,6 +164,58 @@ impl SqlTraceSink {
         out
     }
 
+    /// Decode adapter IDs from blob format
+    pub fn decode_adapter_ids(bytes: &[u8]) -> Vec<String> {
+        if bytes.len() < 4 {
+            return Vec::new();
+        }
+        let count = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
+        let mut ids = Vec::with_capacity(count);
+        let mut cursor = 4;
+
+        for _ in 0..count {
+            if cursor + 4 > bytes.len() {
+                break;
+            }
+            let len = u32::from_le_bytes([
+                bytes[cursor],
+                bytes[cursor + 1],
+                bytes[cursor + 2],
+                bytes[cursor + 3],
+            ]) as usize;
+            cursor += 4;
+
+            if cursor + len > bytes.len() {
+                break;
+            }
+            if let Ok(s) = std::str::from_utf8(&bytes[cursor..cursor + len]) {
+                ids.push(s.to_string());
+            }
+            cursor += len;
+        }
+        ids
+    }
+
+    /// Decode gates from Q15 blob format
+    pub fn decode_gates_q15(bytes: &[u8]) -> Vec<i16> {
+        if bytes.len() < 4 {
+            return Vec::new();
+        }
+        let count = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
+        let mut gates = Vec::with_capacity(count);
+        let mut cursor = 4;
+
+        for _ in 0..count {
+            if cursor + 2 > bytes.len() {
+                break;
+            }
+            let gate = i16::from_le_bytes([bytes[cursor], bytes[cursor + 1]]);
+            gates.push(gate);
+            cursor += 2;
+        }
+        gates
+    }
+
     fn encode_allowed_mask(mask: &[bool]) -> Vec<u8> {
         let mut out = Vec::with_capacity(4 + mask.len());
         out.extend_from_slice(&(mask.len() as u32).to_le_bytes());
@@ -879,4 +931,270 @@ pub async fn recompute_receipt(db: &Db, trace_id: &str) -> Result<TraceReceiptVe
         stored,
         recomputed,
     })
+}
+
+// =============================================================================
+// Provenance Chain (AUDIT)
+// =============================================================================
+
+/// Provenance information for an adapter used in inference
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AdapterProvenance {
+    /// Adapter ID
+    pub adapter_id: String,
+    /// Gate value (Q15 format, 0-32767)
+    pub gate_q15: i16,
+    /// Gate value as normalized float (0.0-1.0)
+    pub gate_normalized: f32,
+    /// Training job ID (if known)
+    pub training_job_id: Option<String>,
+    /// Dataset version ID (if known)
+    pub dataset_version_id: Option<String>,
+}
+
+/// Provenance information for a source document
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DocumentProvenance {
+    /// Source file path
+    pub source_file: String,
+    /// BLAKE3 hash of the document
+    pub source_hash_b3: String,
+    /// Line range cited
+    pub line_start: Option<u32>,
+    pub line_end: Option<u32>,
+    /// Relevance/confidence score of this source
+    pub relevance: Option<f32>,
+}
+
+/// Full provenance chain from inference to source documents
+///
+/// This enables the AUDIT phase of the AARA lifecycle by tracing
+/// inference decisions back through adapters to their source documents.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ProvenanceChain {
+    /// Inference trace ID
+    pub trace_id: String,
+    /// Tenant that owns this trace
+    pub tenant_id: String,
+    /// Request ID (if available)
+    pub request_id: Option<String>,
+    /// When the inference occurred
+    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Adapters that contributed to this inference
+    pub adapters_used: Vec<AdapterProvenance>,
+    /// Source documents that the adapters were trained on
+    pub source_documents: Vec<DocumentProvenance>,
+    /// Whether full provenance could be resolved
+    pub is_complete: bool,
+    /// Any warnings or missing links
+    pub warnings: Vec<String>,
+}
+
+impl ProvenanceChain {
+    /// Create an empty provenance chain
+    pub fn new(trace_id: impl Into<String>, tenant_id: impl Into<String>) -> Self {
+        Self {
+            trace_id: trace_id.into(),
+            tenant_id: tenant_id.into(),
+            request_id: None,
+            created_at: None,
+            adapters_used: Vec::new(),
+            source_documents: Vec::new(),
+            is_complete: false,
+            warnings: Vec::new(),
+        }
+    }
+
+    /// Add a warning message
+    pub fn add_warning(&mut self, warning: impl Into<String>) {
+        self.warnings.push(warning.into());
+    }
+
+    /// Get total confidence based on adapter gates
+    pub fn total_confidence(&self) -> f32 {
+        if self.adapters_used.is_empty() {
+            return 0.0;
+        }
+        let sum: f32 = self.adapters_used.iter().map(|a| a.gate_normalized).sum();
+        sum / self.adapters_used.len() as f32
+    }
+
+    /// Get a human-readable summary
+    pub fn summary(&self) -> String {
+        format!(
+            "Trace {} used {} adapter(s) from {} source document(s)",
+            self.trace_id,
+            self.adapters_used.len(),
+            self.source_documents.len()
+        )
+    }
+}
+
+/// Get the provenance chain for an inference trace
+///
+/// This traces back from the inference through:
+/// 1. Inference trace tokens → adapter IDs + gates
+/// 2. Adapter → training lineage → dataset versions
+/// 3. Dataset versions → training dataset rows → source documents
+///
+/// Returns a ProvenanceChain with as much information as can be resolved.
+pub async fn get_provenance_chain(db: &Db, trace_id: &str) -> Result<ProvenanceChain> {
+    // Get the trace header
+    let trace_row = sqlx::query(
+        r#"
+        SELECT trace_id, tenant_id, request_id, created_at
+        FROM inference_traces
+        WHERE trace_id = ?
+        "#,
+    )
+    .bind(trace_id)
+    .fetch_optional(db.pool())
+    .await
+    .map_err(|e| AosError::Database(format!("Failed to fetch trace: {e}")))?;
+
+    let Some(row) = trace_row else {
+        return Err(AosError::not_found(format!(
+            "Trace not found: {}",
+            trace_id
+        )));
+    };
+
+    let tenant_id: String = row.get("tenant_id");
+    let request_id: Option<String> = row.get("request_id");
+    let created_at: Option<String> = row.get("created_at");
+    let created_at = created_at
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
+        .map(|dt| dt.with_timezone(&chrono::Utc));
+
+    let mut chain = ProvenanceChain::new(trace_id, &tenant_id);
+    chain.request_id = request_id;
+    chain.created_at = created_at;
+
+    // Get all token-level adapter selections
+    let token_rows = sqlx::query(
+        r#"
+        SELECT adapter_ids_blob, gates_blob
+        FROM inference_trace_tokens
+        WHERE trace_id = ?
+        ORDER BY token_index ASC
+        "#,
+    )
+    .bind(trace_id)
+    .fetch_all(db.pool())
+    .await
+    .map_err(|e| AosError::Database(format!("Failed to fetch trace tokens: {e}")))?;
+
+    // Aggregate adapter usage across all tokens
+    let mut adapter_gates: std::collections::HashMap<String, Vec<i16>> =
+        std::collections::HashMap::new();
+
+    for row in token_rows {
+        let adapter_ids_blob: Vec<u8> = row.get("adapter_ids_blob");
+        let gates_blob: Vec<u8> = row.get("gates_blob");
+
+        let adapter_ids = SqlTraceSink::decode_adapter_ids(&adapter_ids_blob);
+        let gates = SqlTraceSink::decode_gates_q15(&gates_blob);
+
+        for (adapter_id, gate) in adapter_ids.into_iter().zip(gates.into_iter()) {
+            adapter_gates.entry(adapter_id).or_default().push(gate);
+        }
+    }
+
+    // Convert to AdapterProvenance with average gates
+    for (adapter_id, gates) in adapter_gates {
+        if gates.is_empty() {
+            continue;
+        }
+        let avg_gate: i32 = gates.iter().map(|&g| g as i32).sum::<i32>() / gates.len() as i32;
+        let avg_gate_q15 = avg_gate as i16;
+        let gate_normalized = avg_gate_q15 as f32 / 32767.0;
+
+        // Try to get training lineage for this adapter
+        let lineage = sqlx::query(
+            r#"
+            SELECT training_job_id, dataset_version_id
+            FROM adapter_training_lineage
+            WHERE adapter_id = ?
+            LIMIT 1
+            "#,
+        )
+        .bind(&adapter_id)
+        .fetch_optional(db.pool())
+        .await
+        .ok()
+        .flatten();
+
+        let (training_job_id, dataset_version_id) = if let Some(lin) = lineage {
+            (
+                lin.try_get("training_job_id").ok(),
+                lin.try_get("dataset_version_id").ok(),
+            )
+        } else {
+            chain.add_warning(format!(
+                "No training lineage found for adapter {}",
+                adapter_id
+            ));
+            (None, None)
+        };
+
+        chain.adapters_used.push(AdapterProvenance {
+            adapter_id,
+            gate_q15: avg_gate_q15,
+            gate_normalized,
+            training_job_id,
+            dataset_version_id,
+        });
+    }
+
+    // Try to get source documents from training dataset rows
+    let mut seen_sources: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    for adapter in &chain.adapters_used {
+        if let Some(ref dsv_id) = adapter.dataset_version_id {
+            // Get training rows for this dataset version
+            let rows = sqlx::query(
+                r#"
+                SELECT DISTINCT source_file, content_hash_b3
+                FROM training_dataset_rows
+                WHERE dataset_version_id = ?
+                LIMIT 100
+                "#,
+            )
+            .bind(dsv_id)
+            .fetch_all(db.pool())
+            .await
+            .ok()
+            .unwrap_or_default();
+
+            for row in rows {
+                let source_file: Option<String> = row.try_get("source_file").ok().flatten();
+                let hash: Option<String> = row.try_get("content_hash_b3").ok().flatten();
+
+                if let Some(sf) = source_file {
+                    if seen_sources.insert(sf.clone()) {
+                        chain.source_documents.push(DocumentProvenance {
+                            source_file: sf,
+                            source_hash_b3: hash.unwrap_or_default(),
+                            line_start: None,
+                            line_end: None,
+                            relevance: None,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Mark as complete if we found adapters and sources
+    chain.is_complete = !chain.adapters_used.is_empty() && !chain.source_documents.is_empty();
+
+    if chain.adapters_used.is_empty() {
+        chain.add_warning("No adapter selections found in trace".to_string());
+    }
+
+    if chain.source_documents.is_empty() && !chain.adapters_used.is_empty() {
+        chain.add_warning("Could not trace adapters back to source documents".to_string());
+    }
+
+    Ok(chain)
 }
