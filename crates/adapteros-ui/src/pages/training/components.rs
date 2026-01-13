@@ -3,7 +3,8 @@
 //! Components for displaying training job lists and status.
 
 use crate::components::{
-    Badge, BadgeVariant, Card, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    Badge, BadgeVariant, Button, ButtonVariant, Card, Table, TableBody, TableCell, TableHead,
+    TableHeader, TableRow,
 };
 use adapteros_api_types::TrainingJobResponse;
 use leptos::prelude::*;
@@ -85,12 +86,38 @@ pub fn TrainingJobList(
     jobs: Vec<TrainingJobResponse>,
     selected_id: RwSignal<Option<String>>,
     on_select: impl Fn(String) + Copy + Send + 'static,
+    #[prop(optional)] on_create: Option<Callback<()>>,
 ) -> impl IntoView {
     if jobs.is_empty() {
         return view! {
             <Card>
-                <div class="py-8 text-center">
-                    <p class="text-muted-foreground">"No training jobs found. Create one to get started."</p>
+                <div class="flex flex-col items-center justify-center py-12 text-center">
+                    <div class="rounded-full bg-muted p-3 mb-4">
+                        <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            class="h-8 w-8 text-muted-foreground"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.5"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                        >
+                            <path d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                        </svg>
+                    </div>
+                    <h3 class="text-lg font-medium text-foreground mb-1">"No training jobs yet"</h3>
+                    <p class="text-sm text-muted-foreground max-w-sm mb-6">
+                        "Train a LoRA adapter on your data to customize model behavior for your use case."
+                    </p>
+                    {on_create.map(|cb| view! {
+                        <Button
+                            variant=ButtonVariant::Primary
+                            on_click=Callback::new(move |_| cb.run(()))
+                        >
+                            "Create Your First Training Job"
+                        </Button>
+                    })}
                 </div>
             </Card>
         }

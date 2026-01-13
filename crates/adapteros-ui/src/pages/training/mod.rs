@@ -23,6 +23,7 @@ pub mod generate_wizard;
 mod readiness;
 mod state;
 mod utils;
+mod wizard;
 
 use crate::api::ApiClient;
 use crate::components::{Button, ButtonVariant, ErrorDisplay, Spinner, SplitPanel};
@@ -33,7 +34,7 @@ use std::sync::Arc;
 
 use components::{CoremlFilters, StatusFilter, TrainingJobList};
 use detail::TrainingJobDetail;
-use dialogs::CreateJobDialog;
+use wizard::CreateJobWizard;
 use readiness::BackendReadinessPanel;
 use state::{matches_coreml_filters, CoremlFilterState};
 
@@ -142,11 +143,13 @@ pub fn Training() -> impl IntoView {
                                             .into_iter()
                                             .filter(|job| matches_coreml_filters(job, &filter_state))
                                             .collect::<Vec<_>>();
+                                        let on_create = Callback::new(move |_| create_dialog_open.set(true));
                                         view! {
                                             <TrainingJobList
                                                 jobs=filtered_jobs
                                                 selected_id=selected_job_id
                                                 on_select=on_job_select
+                                                on_create=on_create
                                             />
                                         }.into_any()
                                     }
@@ -176,8 +179,8 @@ pub fn Training() -> impl IntoView {
                 }
             />
 
-            // Create job dialog (outside SplitPanel, it's a modal)
-            <CreateJobDialog
+            // Create job wizard (outside SplitPanel, it's a modal)
+            <CreateJobWizard
                 open=create_dialog_open
                 on_created=on_job_created
             />

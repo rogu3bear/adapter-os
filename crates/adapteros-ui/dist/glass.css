@@ -181,7 +181,8 @@
     background: var(--glass-bg-3);
     border: 1px solid var(--glass-border);
     box-shadow: var(--glass-shadow-lg), var(--glass-glow);
-    position: relative;
+    /* Explicitly maintain fixed positioning from base styles */
+    position: fixed;
     overflow: hidden;
 }
 
