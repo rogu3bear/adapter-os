@@ -160,6 +160,7 @@ mod tests {
             final_loss: 0.25,
             training_time_us: 1000,
             weights: LoRAWeights {
+                modules: std::collections::HashMap::new(),
                 lora_a: vec![vec![0.1]],
                 lora_b: vec![vec![0.2]],
                 moe_config: None,

@@ -31,6 +31,17 @@ pub struct DeterminismConfig {
     pub epsilon_bounds: EpsilonBounds,
     /// Toolchain version requirements
     pub toolchain_requirements: ToolchainRequirements,
+    // Patent 3535886.0002 Claim 5: Explicit kernel allow list
+    /// Explicit kernel allow list (kernel names that are permitted)
+    /// If None, all kernels are allowed (subject to deny list)
+    #[serde(default)]
+    pub kernel_allow_list: Option<Vec<String>>,
+    /// Kernel deny list (always blocks these kernels, overrides allow list)
+    #[serde(default)]
+    pub kernel_deny_list: Vec<String>,
+    /// Kernel version requirements (kernel_name -> required_version)
+    #[serde(default)]
+    pub kernel_version_requirements: HashMap<String, String>,
 }
 
 /// RNG seeding method
@@ -102,9 +113,47 @@ impl Default for DeterminismConfig {
                 kernel_compiler_version: "1.0".to_string(),
                 allowed_compiler_flags: vec!["-O2".to_string()],
             },
+            // Patent 3535886.0002 Claim 5: Kernel allow/deny lists
+            kernel_allow_list: None, // None = all kernels allowed (except denied)
+            kernel_deny_list: NON_DETERMINISTIC_KERNELS
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+            kernel_version_requirements: HashMap::new(),
         }
     }
 }
+
+/// Known deterministic kernels (Patent 3535886.0002 Claim 5)
+///
+/// These kernels are guaranteed to produce deterministic outputs.
+pub const DETERMINISTIC_KERNELS: &[&str] = &[
+    "gemm_f16_deterministic",
+    "gemm_f32_deterministic",
+    "attention_deterministic",
+    "softmax_stable",
+    "layer_norm_deterministic",
+    "rope_deterministic",
+    "silu_deterministic",
+    "gelu_deterministic",
+    "rms_norm_deterministic",
+    "add_deterministic",
+    "mul_deterministic",
+    "matmul_deterministic",
+];
+
+/// Known non-deterministic kernels to always block (Patent 3535886.0002 Claim 5)
+///
+/// These kernels may produce non-deterministic outputs due to
+/// atomic operations, non-deterministic reduction order, or
+/// hardware-specific optimizations.
+pub const NON_DETERMINISTIC_KERNELS: &[&str] = &[
+    "flash_attention_v1",    // Uses atomic adds
+    "gemm_tensorcore_async", // Non-deterministic reduction order
+    "attention_fused_fast",  // Non-deterministic warp shuffle
+    "softmax_fast",          // Approximation without determinism
+    "layer_norm_fast",       // Non-deterministic parallel reduction
+];
 
 /// Determinism policy enforcement
 pub struct DeterminismPolicy {
@@ -138,6 +187,78 @@ impl DeterminismPolicy {
         } else {
             Ok(())
         }
+    }
+
+    /// Validate a kernel against the allow/deny lists (Patent 3535886.0002 Claim 5)
+    ///
+    /// # Arguments
+    /// * `kernel_name` - Name of the kernel to validate
+    ///
+    /// # Returns
+    /// * `Ok(())` if the kernel is allowed
+    /// * `Err(PolicyViolation)` if the kernel is denied
+    pub fn validate_kernel(&self, kernel_name: &str) -> Result<()> {
+        // Check deny list first (always takes precedence)
+        if self
+            .config
+            .kernel_deny_list
+            .contains(&kernel_name.to_string())
+        {
+            return Err(AosError::PolicyViolation(format!(
+                "Kernel '{}' is in the deny list and cannot be used for deterministic inference",
+                kernel_name
+            )));
+        }
+
+        // If allow list is set, kernel must be in it
+        if let Some(ref allow_list) = self.config.kernel_allow_list {
+            if !allow_list.contains(&kernel_name.to_string()) {
+                return Err(AosError::PolicyViolation(format!(
+                    "Kernel '{}' is not in the allow list. Allowed kernels: {:?}",
+                    kernel_name, allow_list
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Validate a kernel with version requirements
+    pub fn validate_kernel_version(&self, kernel_name: &str, version: &str) -> Result<()> {
+        // First validate the kernel itself
+        self.validate_kernel(kernel_name)?;
+
+        // Then check version requirements
+        if let Some(required_version) = self.config.kernel_version_requirements.get(kernel_name) {
+            if version != required_version {
+                return Err(AosError::PolicyViolation(format!(
+                    "Kernel '{}' version mismatch: expected {}, got {}",
+                    kernel_name, required_version, version
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Check if a kernel is known to be deterministic
+    pub fn is_known_deterministic(kernel_name: &str) -> bool {
+        DETERMINISTIC_KERNELS.contains(&kernel_name)
+    }
+
+    /// Check if a kernel is known to be non-deterministic
+    pub fn is_known_non_deterministic(kernel_name: &str) -> bool {
+        NON_DETERMINISTIC_KERNELS.contains(&kernel_name)
+    }
+
+    /// Get the list of allowed kernels (for reporting)
+    pub fn allowed_kernels(&self) -> Option<&[String]> {
+        self.config.kernel_allow_list.as_deref()
+    }
+
+    /// Get the list of denied kernels (for reporting)
+    pub fn denied_kernels(&self) -> &[String] {
+        &self.config.kernel_deny_list
     }
 
     /// Validate RNG seeding
@@ -653,5 +774,111 @@ mod tests {
                 forbidden
             );
         }
+    }
+
+    // Patent 3535886.0002 Claim 5: Kernel allow list tests
+
+    #[test]
+    fn test_kernel_deny_list_default() {
+        let config = DeterminismConfig::default();
+        // Default should have non-deterministic kernels in deny list
+        assert!(!config.kernel_deny_list.is_empty());
+        assert!(config
+            .kernel_deny_list
+            .contains(&"flash_attention_v1".to_string()));
+    }
+
+    #[test]
+    fn test_kernel_validation_denied() {
+        let config = DeterminismConfig::default();
+        let policy = DeterminismPolicy::new(config);
+
+        // Denied kernel should fail
+        assert!(policy.validate_kernel("flash_attention_v1").is_err());
+    }
+
+    #[test]
+    fn test_kernel_validation_allowed_by_default() {
+        let mut config = DeterminismConfig::default();
+        config.kernel_deny_list.clear(); // Clear deny list for test
+        let policy = DeterminismPolicy::new(config);
+
+        // When no allow list is set, any non-denied kernel is allowed
+        assert!(policy.validate_kernel("gemm_f16_deterministic").is_ok());
+        assert!(policy.validate_kernel("custom_kernel").is_ok());
+    }
+
+    #[test]
+    fn test_kernel_validation_explicit_allow_list() {
+        let mut config = DeterminismConfig::default();
+        config.kernel_allow_list = Some(vec![
+            "gemm_f16_deterministic".to_string(),
+            "attention_deterministic".to_string(),
+        ]);
+        config.kernel_deny_list.clear();
+        let policy = DeterminismPolicy::new(config);
+
+        // Allowed kernel should pass
+        assert!(policy.validate_kernel("gemm_f16_deterministic").is_ok());
+
+        // Non-allowed kernel should fail
+        assert!(policy.validate_kernel("custom_kernel").is_err());
+    }
+
+    #[test]
+    fn test_kernel_deny_list_overrides_allow_list() {
+        let mut config = DeterminismConfig::default();
+        config.kernel_allow_list = Some(vec![
+            "flash_attention_v1".to_string(), // Try to allow a non-deterministic kernel
+        ]);
+        // Keep default deny list which includes flash_attention_v1
+        let policy = DeterminismPolicy::new(config);
+
+        // Deny list should take precedence
+        assert!(policy.validate_kernel("flash_attention_v1").is_err());
+    }
+
+    #[test]
+    fn test_kernel_version_validation() {
+        let mut config = DeterminismConfig::default();
+        config.kernel_deny_list.clear();
+        config
+            .kernel_version_requirements
+            .insert("gemm_f16_deterministic".to_string(), "1.2.0".to_string());
+        let policy = DeterminismPolicy::new(config);
+
+        // Correct version should pass
+        assert!(policy
+            .validate_kernel_version("gemm_f16_deterministic", "1.2.0")
+            .is_ok());
+
+        // Wrong version should fail
+        assert!(policy
+            .validate_kernel_version("gemm_f16_deterministic", "1.1.0")
+            .is_err());
+    }
+
+    #[test]
+    fn test_is_known_deterministic() {
+        assert!(DeterminismPolicy::is_known_deterministic(
+            "gemm_f16_deterministic"
+        ));
+        assert!(DeterminismPolicy::is_known_deterministic(
+            "attention_deterministic"
+        ));
+        assert!(!DeterminismPolicy::is_known_deterministic("custom_kernel"));
+    }
+
+    #[test]
+    fn test_is_known_non_deterministic() {
+        assert!(DeterminismPolicy::is_known_non_deterministic(
+            "flash_attention_v1"
+        ));
+        assert!(DeterminismPolicy::is_known_non_deterministic(
+            "gemm_tensorcore_async"
+        ));
+        assert!(!DeterminismPolicy::is_known_non_deterministic(
+            "gemm_f16_deterministic"
+        ));
     }
 }
