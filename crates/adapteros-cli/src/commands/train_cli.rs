@@ -215,6 +215,8 @@ async fn start(args: TrainStartArgs, output: &OutputWriter) -> Result<()> {
             .to_string(),
         pad_token_id: 0,
         ignore_index: -1,
+        multi_module_training: None,
+        lora_layer_indices: None,
     };
 
     let adapter_name = args

@@ -521,6 +521,8 @@ pub fn training_config_from_request(
         validation_split: req.validation_split,
         preprocessing: req.preprocessing,
         force_resume: req.force_resume.unwrap_or(false),
+        multi_module_training: req.multi_module_training.unwrap_or(false),
+        lora_layer_indices: req.lora_layer_indices.clone().unwrap_or_default(),
     }
 }
 
