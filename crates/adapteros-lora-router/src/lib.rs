@@ -10,6 +10,7 @@ pub mod code_features;
 pub mod constants;
 pub mod features;
 pub mod framework_routing;
+pub mod layer_routing;
 pub mod metrics;
 pub mod orthogonal;
 pub mod path_routing;
@@ -51,4 +52,11 @@ pub use router_diag::{NoopRouterDiagEmitter, RouterDiag, RouterDiagEmitter};
 pub use types::{
     AdapterInfo, Decision, DecisionCandidate, DecisionHash, RouterAbstainReason,
     RouterDeterminismConfig, RouterWeights, RoutingDecision, ScoringExplanation,
+};
+
+// Layer routing exports (Patent 3535886.0002 Claim 7)
+pub use layer_routing::{
+    compute_layer_adapter_scores, LayerDecision, LayerFeatures, LayerRouterConfig,
+    LayerRoutingChain, LayerRoutingChainSummary, LayerRoutingDecision, LayerScoringContext,
+    LayerType,
 };
