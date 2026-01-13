@@ -740,6 +740,8 @@ pub async fn execute_replay(
         worker_auth_token: None,
         policy_mask_digest_b3: stored_policy_mask_digest, // Restored from metadata for audit trail
         utf8_healing: None,
+        abstention_threshold: None, // AARA lifecycle
+        citation_mode: None,        // AARA lifecycle
     };
 
     if base_only
