@@ -283,6 +283,7 @@ pub async fn run_preflight_checks(config: Arc<RwLock<Config>>, cli: &Cli) -> Res
         if require_pf_deny {
             // Convert server SecurityConfig to API SecurityConfig
             let api_security_config = adapteros_server_api::config::SecurityConfig {
+                allow_registration: cfg.security.allow_registration,
                 require_pf_deny: cfg.security.require_pf_deny,
                 mtls_required: cfg.security.mtls_required,
                 jwt_secret: cfg.security.jwt_secret.clone(),

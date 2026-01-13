@@ -1527,6 +1527,34 @@ impl Db {
         Ok(id)
     }
 
+    /// Get dataset hash inputs by dataset_id for algorithm version compatibility checks.
+    ///
+    /// Returns the most recent hash inputs record for the given dataset, which contains
+    /// algorithm version information needed for deterministic replay validation.
+    pub async fn get_dataset_hash_inputs_by_dataset_id(
+        &self,
+        dataset_id: &str,
+    ) -> Result<Option<DatasetHashInputs>> {
+        let inputs: Option<DatasetHashInputs> = sqlx::query_as(
+            "SELECT id, dataset_id, content_hash_b3, repo_id, repo_slug, commit_sha, branch,
+                    scan_root_path, remote_url, max_symbols, include_private, positive_weight,
+                    negative_weight, total_samples, positive_samples, negative_samples,
+                    ingestion_mode, codegraph_version, generator, scope_config_json,
+                    additional_inputs_json, tenant_id, created_at, created_by,
+                    hkdf_version, parser_version, path_normalization_version
+             FROM dataset_hash_inputs
+             WHERE dataset_id = ?
+             ORDER BY created_at DESC
+             LIMIT 1",
+        )
+        .bind(dataset_id)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(db_err("fetch dataset hash inputs by dataset_id"))?;
+
+        Ok(inputs)
+    }
+
     /// Create a training dataset record for scan-root ingestion runs.
     ///
     /// This helper creates:
@@ -2948,14 +2976,16 @@ impl Db {
         dataset_id: &str,
         status: &str,
         errors: Option<&str>,
+        errors_json: Option<&str>,
     ) -> Result<()> {
         sqlx::query(
             "UPDATE training_datasets
-             SET validation_status = ?, validation_errors = ?, updated_at = datetime('now')
+             SET validation_status = ?, validation_errors = ?, validation_errors_json = ?, updated_at = datetime('now')
              WHERE id = ?",
         )
         .bind(status)
         .bind(errors)
+        .bind(errors_json)
         .bind(dataset_id)
         .execute(self.pool())
         .await

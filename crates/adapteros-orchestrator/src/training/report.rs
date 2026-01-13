@@ -3,12 +3,12 @@
 use std::path::{Path, PathBuf};
 
 use adapteros_core::defaults::DEFAULT_TRAINING_REPORTS_SUBDIR;
+use adapteros_core::{AosError, Result};
 use adapteros_lora_worker::training::{loss_to_perplexity_curve, TrainingResult};
 use adapteros_types::training::{
     OptimizerConfigSummary, TrainingReportCurves, TrainingReportMetricDefinitions,
     TrainingReportSummary, TrainingReportV1,
 };
-use anyhow::{Context, Result};
 
 pub(crate) fn training_report_path(artifacts_root: &Path, job_id: &str) -> PathBuf {
     artifacts_root
@@ -48,21 +48,22 @@ pub(crate) fn write_training_report(
 
     let report_path = training_report_path(artifacts_root, pipeline_id);
     if let Some(parent) = report_path.parent() {
-        std::fs::create_dir_all(parent).with_context(|| {
-            format!(
-                "Failed to create training report directory {}",
-                parent.display()
-            )
+        std::fs::create_dir_all(parent).map_err(|e| {
+            AosError::Io(format!(
+                "Failed to create training report directory {}: {}",
+                parent.display(),
+                e
+            ))
         })?;
     }
 
-    let json =
-        serde_json::to_string_pretty(&report).context("Failed to serialize training report")?;
-    std::fs::write(&report_path, json).with_context(|| {
-        format!(
-            "Failed to write training report to {}",
-            report_path.display()
-        )
+    let json = serde_json::to_string_pretty(&report).map_err(|e| AosError::Serialization(e))?;
+    std::fs::write(&report_path, json).map_err(|e| {
+        AosError::Io(format!(
+            "Failed to write training report to {}: {}",
+            report_path.display(),
+            e
+        ))
     })?;
 
     Ok(report_path)

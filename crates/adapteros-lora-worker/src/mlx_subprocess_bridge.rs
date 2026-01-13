@@ -717,32 +717,59 @@ impl MLXSubprocessBridge {
 
     /// Check if the bridge supports streaming
     pub fn supports_streaming(&self) -> bool {
-        *self.streaming_supported.lock().unwrap()
+        self.streaming_supported
+            .lock()
+            .map(|g| *g)
+            .unwrap_or_else(|e| {
+                tracing::error!("Mutex poisoned in supports_streaming: {}", e);
+                false // Safe default
+            })
     }
 
     /// Get the restart count
     pub fn restart_count(&self) -> usize {
-        *self.restart_count.lock().unwrap()
+        self.restart_count.lock().map(|g| *g).unwrap_or_else(|e| {
+            tracing::error!("Mutex poisoned in restart_count: {}", e);
+            0 // Safe default
+        })
     }
 
     /// Get the protocol version of the bridge
     pub fn protocol_version(&self) -> u32 {
-        *self.bridge_protocol_version.lock().unwrap()
+        self.bridge_protocol_version
+            .lock()
+            .map(|g| *g)
+            .unwrap_or_else(|e| {
+                tracing::error!("Mutex poisoned in protocol_version: {}", e);
+                1 // Safe default (minimum protocol version)
+            })
     }
 
     /// Check if the model is MoE (Mixture of Experts)
     pub fn is_moe(&self) -> bool {
-        *self.is_moe.lock().unwrap()
+        self.is_moe.lock().map(|g| *g).unwrap_or_else(|e| {
+            tracing::error!("Mutex poisoned in is_moe: {}", e);
+            false // Safe default
+        })
     }
 
     /// Get the number of experts (MoE models)
     pub fn num_experts(&self) -> usize {
-        *self.num_experts.lock().unwrap()
+        self.num_experts.lock().map(|g| *g).unwrap_or_else(|e| {
+            tracing::error!("Mutex poisoned in num_experts: {}", e);
+            0 // Safe default
+        })
     }
 
     /// Get the number of active experts per token (MoE models)
     pub fn experts_per_token(&self) -> usize {
-        *self.experts_per_token.lock().unwrap()
+        self.experts_per_token
+            .lock()
+            .map(|g| *g)
+            .unwrap_or_else(|e| {
+                tracing::error!("Mutex poisoned in experts_per_token: {}", e);
+                0 // Safe default
+            })
     }
 
     /// Get MoE info as a struct
@@ -760,22 +787,35 @@ impl MLXSubprocessBridge {
 
     /// Set whether to collect expert routing data
     pub fn set_collect_routing(&self, collect: bool) {
-        *self.collect_routing.lock().unwrap() = collect;
+        if let Err(e) = self.collect_routing.lock().map(|mut g| *g = collect) {
+            tracing::error!("Mutex poisoned in set_collect_routing: {}", e);
+        }
     }
 
     /// Check if routing collection is enabled
     pub fn is_collecting_routing(&self) -> bool {
-        *self.collect_routing.lock().unwrap()
+        self.collect_routing.lock().map(|g| *g).unwrap_or_else(|e| {
+            tracing::error!("Mutex poisoned in is_collecting_routing: {}", e);
+            false // Safe default
+        })
     }
 
     /// Set the current adapter ID (for free token lookup)
     pub fn set_adapter_id(&self, adapter_id: Option<String>) {
-        *self.current_adapter_id.lock().unwrap() = adapter_id;
+        if let Err(e) = self.current_adapter_id.lock().map(|mut g| *g = adapter_id) {
+            tracing::error!("Mutex poisoned in set_adapter_id: {}", e);
+        }
     }
 
     /// Get the current adapter ID
     pub fn adapter_id(&self) -> Option<String> {
-        self.current_adapter_id.lock().unwrap().clone()
+        self.current_adapter_id
+            .lock()
+            .map(|g| g.clone())
+            .unwrap_or_else(|e| {
+                tracing::error!("Mutex poisoned in adapter_id: {}", e);
+                None // Safe default
+            })
     }
 
     /// Find the bridge script in the project
@@ -1621,15 +1661,27 @@ impl FusedKernels for MLXSubprocessBridge {
     }
 
     fn is_moe(&self) -> bool {
-        *self.is_moe.lock().unwrap()
+        self.is_moe.lock().map(|g| *g).unwrap_or_else(|e| {
+            tracing::error!("Mutex poisoned in FusedKernels::is_moe: {}", e);
+            false // Safe default
+        })
     }
 
     fn num_experts(&self) -> usize {
-        *self.num_experts.lock().unwrap()
+        self.num_experts.lock().map(|g| *g).unwrap_or_else(|e| {
+            tracing::error!("Mutex poisoned in FusedKernels::num_experts: {}", e);
+            0 // Safe default
+        })
     }
 
     fn experts_per_token(&self) -> usize {
-        *self.experts_per_token.lock().unwrap()
+        self.experts_per_token
+            .lock()
+            .map(|g| *g)
+            .unwrap_or_else(|e| {
+                tracing::error!("Mutex poisoned in FusedKernels::experts_per_token: {}", e);
+                0 // Safe default
+            })
     }
 }
 

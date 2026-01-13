@@ -74,12 +74,18 @@ pub fn StatusItem(
                 <span class="status-item-indicator">
                     {if pulsing {
                         view! {
-                            <span class=format!("status-item-pulse {}", severity.dot_class())></span>
+                            <span
+                                class=format!("status-item-pulse {}", severity.dot_class())
+                                aria-hidden="true"
+                            ></span>
                         }.into_any()
                     } else {
                         view! {}.into_any()
                     }}
-                    <span class=format!("status-item-dot {}", severity.dot_class())></span>
+                    <span
+                        class=format!("status-item-dot {}", severity.dot_class())
+                        aria-hidden="true"
+                    ></span>
                 </span>
 
                 // Label

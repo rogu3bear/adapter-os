@@ -4,10 +4,11 @@
 //! from interruptions or to implement strategies like best-model-restore.
 #![allow(clippy::useless_vec)]
 
-use super::trainer::{LoRAWeights, TrainingConfig};
+use super::trainer::{LoRAWeights, MultiModuleOptimizerState, TrainingConfig};
 use adapteros_core::{AosError, Result};
 use adapteros_types::training::TRAINING_DATA_CONTRACT_VERSION;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tracing::{debug, info};
 
@@ -36,6 +37,9 @@ pub struct TrainingCheckpoint {
     pub timestamp: String,
     /// Optional metadata
     pub metadata: std::collections::HashMap<String, String>,
+    /// Multi-module optimizer state (for multi-module training resume)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub multi_module_optimizer_state: Option<MultiModuleOptimizerState>,
 }
 
 impl TrainingCheckpoint {
@@ -60,6 +64,33 @@ impl TrainingCheckpoint {
             epochs_without_improvement: 0,
             timestamp: chrono::Utc::now().to_rfc3339(),
             metadata: std::collections::HashMap::new(),
+            multi_module_optimizer_state: None,
+        }
+    }
+
+    /// Create a new training checkpoint with multi-module optimizer state
+    pub fn new_with_optimizer_state(
+        epoch: u32,
+        step: u32,
+        loss: f32,
+        learning_rate: f32,
+        config: TrainingConfig,
+        weights: LoRAWeights,
+        optimizer_state: MultiModuleOptimizerState,
+    ) -> Self {
+        Self {
+            epoch,
+            step,
+            loss,
+            learning_rate,
+            training_contract_version: config.training_contract_version.clone(),
+            config,
+            weights,
+            best_loss: loss,
+            epochs_without_improvement: 0,
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            metadata: std::collections::HashMap::new(),
+            multi_module_optimizer_state: Some(optimizer_state),
         }
     }
 
@@ -422,11 +453,15 @@ mod tests {
                 .to_string(),
             pad_token_id: 0,
             ignore_index: -1,
+            targets: Vec::new(),
+            multi_module_training: false,
+            lora_layer_indices: Vec::new(),
         };
 
         let weights = LoRAWeights {
             lora_a: vec![vec![1.0, 2.0], vec![3.0, 4.0]],
             lora_b: vec![vec![5.0, 6.0], vec![7.0, 8.0]],
+            modules: HashMap::new(),
             moe_config: None,
             precomputed_delta: None,
         };
@@ -456,6 +491,7 @@ mod tests {
         let weights = LoRAWeights {
             lora_a: vec![vec![1.0]],
             lora_b: vec![vec![2.0]],
+            modules: HashMap::new(),
             moe_config: None,
             precomputed_delta: None,
         };

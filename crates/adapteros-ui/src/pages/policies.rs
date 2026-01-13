@@ -205,7 +205,9 @@ fn PolicyDetail(cpid: String, on_close: impl Fn() + Copy + 'static) -> impl Into
             <div class="flex items-center justify-between">
                 <h2 class="text-xl font-semibold">"Policy Details"</h2>
                 <button
-                    class="text-muted-foreground hover:text-foreground"
+                    class="text-muted-foreground hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
+                    aria-label="Close"
+                    type="button"
                     on:click=move |_| on_close()
                 >
                     <svg
@@ -280,7 +282,7 @@ fn PolicyDetailContent(policy: PolicyPackResponse) -> impl IntoView {
         // Policy content
         <Card title="Policy Content".to_string() class="mt-4".to_string()>
             <div class="bg-zinc-950 rounded-md p-4 overflow-auto max-h-96">
-                <pre class="text-xs text-green-400 font-mono whitespace-pre-wrap">
+                <pre class="text-xs text-status-success font-mono whitespace-pre-wrap">
                     {policy.content.clone()}
                 </pre>
             </div>

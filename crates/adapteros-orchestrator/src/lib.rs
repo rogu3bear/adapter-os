@@ -2,7 +2,7 @@
 //!
 //! Runs all quality gates and reports pass/fail status with evidence.
 
-use anyhow::Result;
+use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
@@ -43,29 +43,62 @@ pub use training::{
     TrainingConfig, TrainingJob, TrainingJobStatus, TrainingService, TrainingTemplate,
 };
 pub use training_dataset_integration::{
-    CreateDatasetFromDocumentsRequest, DatasetCreationResult, TrainingDatasetManager,
+    CreateDatasetFromFilePathsRequest, DatasetCreationResult, TrainingDatasetManager,
 };
 
-/// Gate runner configuration
+/// Configuration for the orchestrator gate runner.
+///
+/// Controls how gates are executed, what paths are used, and how failures are handled.
 #[derive(Debug, Clone)]
 pub struct OrchestratorConfig {
-    /// Continue running gates even if one fails
+    /// Continue running gates even if one fails.
+    ///
+    /// When `false`, the orchestrator stops on the first gate failure.
+    /// When `true`, all gates are executed regardless of individual results.
     pub continue_on_error: bool,
-    /// CPID to check gates for
+
+    /// CPID (Checkpoint ID) to check gates for.
+    ///
+    /// This identifies the specific checkpoint/promotion being validated.
     pub cpid: String,
-    /// Path to database
+
+    /// Path to the control plane database.
+    ///
+    /// Used by gates to query adapter state, telemetry, and other system data.
     pub db_path: String,
-    /// Path to telemetry bundles
+
+    /// Path to telemetry bundles directory.
+    ///
+    /// Telemetry gates expect bundles to be stored here for analysis.
     pub bundles_path: String,
-    /// Path to manifests
+
+    /// Path to manifests directory.
+    ///
+    /// Contains adapter manifests and metadata used by various gates.
     pub manifests_path: String,
-    /// Skip dependency checks before running gates
+
+    /// Skip dependency checks before running gates.
+    ///
+    /// When `true`, the orchestrator will not validate that required tools
+    /// and paths are available before executing gates.
     pub skip_dependency_checks: bool,
-    /// Allow gates to run with degraded dependencies
+
+    /// Allow gates to run with degraded dependencies.
+    ///
+    /// When `true`, gates can proceed even if some optional dependencies
+    /// are missing. Critical dependencies must still be present.
     pub allow_degraded_mode: bool,
-    /// Require telemetry bundles to exist
+
+    /// Require telemetry bundles to exist.
+    ///
+    /// When `true`, gates that depend on telemetry bundles will fail
+    /// if bundles are not found. When `false`, missing bundles are tolerated.
     pub require_telemetry_bundles: bool,
-    /// Timeout for individual gate execution (seconds)
+
+    /// Timeout for individual gate execution (seconds).
+    ///
+    /// If a gate takes longer than this duration, it will be cancelled
+    /// and marked as failed with a timeout error.
     pub gate_timeout_secs: u64,
 }
 
@@ -85,7 +118,35 @@ impl Default for OrchestratorConfig {
     }
 }
 
-/// Main orchestrator that runs all gates
+/// Main orchestrator that runs all promotion gates.
+///
+/// The orchestrator coordinates execution of quality gates, dependency checks,
+/// and result collection. It provides a unified interface for validating
+/// system state before operations like adapter promotion or deployment.
+///
+/// # Usage
+///
+/// ```rust,no_run
+/// use adapteros_orchestrator::{Orchestrator, OrchestratorConfig};
+///
+/// # async fn example() -> anyhow::Result<()> {
+/// let config = OrchestratorConfig {
+///     cpid: "checkpoint-123".to_string(),
+///     db_path: "var/aos-cp.sqlite3".to_string(),
+///     ..Default::default()
+/// };
+///
+/// let orchestrator = Orchestrator::new(config);
+/// let report = orchestrator.run().await?;
+///
+/// if report.all_passed() {
+///     println!("All gates passed!");
+/// } else {
+///     eprintln!("Some gates failed: {:?}", report.failed_gates());
+/// }
+/// # Ok(())
+/// # }
+/// ```
 pub struct Orchestrator {
     config: OrchestratorConfig,
     gates: Vec<Box<dyn Gate>>,
@@ -93,7 +154,24 @@ pub struct Orchestrator {
 }
 
 impl Orchestrator {
-    /// Create a new orchestrator with standard gates
+    /// Create a new orchestrator with standard gates.
+    ///
+    /// Initializes the orchestrator with the default set of promotion gates:
+    /// - DeterminismGate
+    /// - MetricsGate
+    /// - MetallibGate
+    /// - SbomGate
+    /// - PerformanceGate
+    /// - SecurityGate
+    ///
+    /// The orchestrator also creates a [`DependencyChecker`] to validate
+    /// that required tools and paths are available before gate execution.
+    ///
+    /// # Arguments
+    /// * `config` - Configuration controlling gate execution behavior
+    ///
+    /// # Returns
+    /// A new orchestrator instance ready to run gates.
     pub fn new(config: OrchestratorConfig) -> Self {
         let gates: Vec<Box<dyn Gate>> = vec![
             Box::new(DeterminismGate),
@@ -113,7 +191,23 @@ impl Orchestrator {
         }
     }
 
-    /// Run dependency checks before gates
+    /// Run dependency checks before gates.
+    ///
+    /// Validates that all required dependencies (tools, paths) are available
+    /// for each gate. This is called automatically by [`run()`](Self::run()),
+    /// but can be called separately to check dependencies without executing gates.
+    ///
+    /// # Returns
+    /// A vector of dependency check results, one per gate.
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// - A critical gate has missing dependencies and `allow_degraded_mode` is `false`
+    /// - Dependency checking itself fails (e.g., database access issues)
+    ///
+    /// # Note
+    /// This method respects `skip_dependency_checks` in the config and will
+    /// return an empty vector if dependency checks are disabled.
     pub async fn check_dependencies(&self) -> Result<Vec<DependencyCheckResult>> {
         if self.config.skip_dependency_checks {
             tracing::debug!("Skipping dependency checks as configured");
@@ -151,24 +245,50 @@ impl Orchestrator {
             let deps = self
                 .dependency_checker
                 .get_definition(&result.gate_id)
-                .ok_or_else(|| anyhow::anyhow!("Unknown gate: {}", result.gate_id))?;
+                .ok_or_else(|| AosError::Internal(format!("Unknown gate: {}", result.gate_id)))?;
 
             if deps.severity == GateSeverity::Critical
                 && result.degradation_level == 2
                 && !self.config.allow_degraded_mode
             {
-                anyhow::bail!(
+                return Err(AosError::Internal(format!(
                     "Critical dependencies missing for gate '{}': {:?}",
-                    result.gate_id,
-                    result.messages
-                );
+                    result.gate_id, result.messages
+                )));
             }
         }
 
         Ok(results)
     }
 
-    /// Run all gates and return report
+    /// Run all gates and return a comprehensive report.
+    ///
+    /// This is the main entry point for gate execution. It:
+    ///
+    /// 1. Runs dependency checks (unless skipped)
+    /// 2. Executes each gate sequentially with timeout protection
+    /// 3. Collects results into a [`GateReport`]
+    /// 4. Stops early if `continue_on_error` is `false` and a gate fails
+    ///
+    /// # Execution Flow
+    ///
+    /// - Each gate runs with a timeout (configured via `gate_timeout_secs`)
+    /// - Gate results are added to the report immediately after execution
+    /// - If `continue_on_error` is `false`, execution stops on first failure
+    /// - SBOM gate timeouts are handled specially when `allow_degraded_mode` is enabled
+    ///
+    /// # Returns
+    /// A [`GateReport`] containing results for all executed gates, including
+    /// dependency check results if performed.
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// - Dependency checks fail (and not skipped)
+    /// - A gate times out (unless SBOM in degraded mode)
+    /// - Internal orchestrator errors occur
+    ///
+    /// Note: Individual gate failures are recorded in the report, not returned
+    /// as errors (unless `continue_on_error` is `false` and execution stops).
     pub async fn run(&self) -> Result<GateReport> {
         let mut report = GateReport::new(self.config.cpid.clone());
 
@@ -206,7 +326,7 @@ impl Orchestrator {
                         continue;
                     }
                     tracing::error!(gate = %gate_name, timeout_secs = self.config.gate_timeout_secs, "Gate execution timed out");
-                    Err(anyhow::anyhow!(msg))
+                    Err(AosError::Internal(msg))
                 }
             };
 
@@ -230,13 +350,75 @@ impl Orchestrator {
     }
 }
 
-/// Trait for promotion gates
+/// Trait for promotion gates.
+///
+/// All gates must implement this trait to participate in orchestrator validation.
+/// Gates perform specific quality checks and return `Ok(())` if the check passes,
+/// or an error describing what failed.
+///
+/// # Implementation Requirements
+///
+/// - Gates must be `Send + Sync` to work in async contexts
+/// - `name()` should return a stable, unique identifier for the gate
+/// - `check()` should perform validation and return errors for failures
+/// - Gates should respect timeouts (handled by orchestrator)
+/// - Gates can use `config` to access paths, CPID, and other settings
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use adapteros_orchestrator::{Gate, OrchestratorConfig};
+/// use anyhow::{Result, Context};
+/// use async_trait::async_trait;
+///
+/// struct MyValidationGate;
+///
+/// #[async_trait]
+/// impl Gate for MyValidationGate {
+///     fn name(&self) -> String {
+///         "my_validation".to_string()
+///     }
+///
+///     async fn check(&self, config: &OrchestratorConfig) -> Result<()> {
+///         // Perform validation
+///         std::fs::metadata(&config.db_path)
+///             .context("Database path must exist")?;
+///         Ok(())
+///     }
+/// }
+/// ```
 #[async_trait::async_trait]
 pub trait Gate: Send + Sync {
-    /// Gate name
+    /// Returns the unique name/identifier for this gate.
+    ///
+    /// This name is used in reports and logs. It should be stable across
+    /// gate instances and descriptive of what the gate validates.
     fn name(&self) -> String;
 
-    /// Check if gate passes
+    /// Performs the gate's validation check.
+    ///
+    /// This method is called by the orchestrator to execute the gate.
+    /// It should perform all necessary validation and return:
+    ///
+    /// - `Ok(())` if the gate passes
+    /// - `Err(...)` with a descriptive error if the gate fails
+    ///
+    /// # Arguments
+    /// * `config` - Orchestrator configuration providing paths, CPID, and settings
+    ///
+    /// # Returns
+    /// `Ok(())` if validation passes, or an error describing the failure.
+    ///
+    /// # Errors
+    /// Should return errors for:
+    /// - Missing required resources (files, tools, data)
+    /// - Validation failures (determinism violations, security issues, etc.)
+    /// - Timeouts or other execution problems
+    ///
+    /// # Note
+    /// The orchestrator applies a timeout to this method based on
+    /// `config.gate_timeout_secs`. Long-running checks should be designed
+    /// to complete within reasonable time bounds.
     async fn check(&self, config: &OrchestratorConfig) -> Result<()>;
 }
 

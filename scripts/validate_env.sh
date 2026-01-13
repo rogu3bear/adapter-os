@@ -46,10 +46,10 @@ fi
 log_check ".env file exists"
 log_pass ".env file found"
 
-# Load .env (safely)
-set -a
-source .env
-set +a
+# Load .env using unified loader
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$SCRIPT_DIR/scripts/lib/env-loader.sh"
+load_env_file ".env" --no-override
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # MODEL CONFIGURATION CHECKS

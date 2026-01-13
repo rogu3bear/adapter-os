@@ -353,6 +353,7 @@ pub async fn initialize_database(
                 cookie_same_site: "Lax".to_string(),
                 cookie_domain: None,
                 cookie_secure: None,
+                allow_registration: None,
                 clock_skew_seconds: 300,
                 dev_bypass: false,
             },

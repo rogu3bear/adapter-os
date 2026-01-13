@@ -83,7 +83,7 @@ pub fn TimelineTab(logs: ReadSignal<LoadingState<AuditLogsResponse>>) -> impl In
                                         view! {
                                             <div class="flex items-center justify-center py-4 border-t">
                                                 <button
-                                                    class="text-sm text-primary hover:underline"
+                                                    class="text-sm text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
                                                     on:click=move |_| {
                                                         visible_count.update(|c| *c = (*c + AUDIT_PAGE_SIZE).min(log_count));
                                                     }
@@ -219,7 +219,7 @@ pub fn HashChainTab(chain: ReadSignal<LoadingState<AuditChainResponse>>) -> impl
                                         view! {
                                             <div class="flex items-center justify-center py-4 border-t">
                                                 <button
-                                                    class="text-sm text-primary hover:underline"
+                                                    class="text-sm text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
                                                     on:click=move |_| {
                                                         visible_count.update(|c| *c = (*c + AUDIT_PAGE_SIZE).min(entry_count));
                                                     }
@@ -257,9 +257,9 @@ pub fn HashChainTab(chain: ReadSignal<LoadingState<AuditChainResponse>>) -> impl
 #[component]
 fn ChainEntryRow(entry: AuditChainEntry, is_first: bool) -> impl IntoView {
     let verification_class = if entry.verified {
-        "text-green-500"
+        "text-status-success"
     } else {
-        "text-red-500"
+        "text-status-error"
     };
 
     let hash_short = if entry.entry_hash.len() > 16 {
@@ -281,13 +281,13 @@ fn ChainEntryRow(entry: AuditChainEntry, is_first: bool) -> impl IntoView {
         .unwrap_or_else(|| "GENESIS".to_string());
 
     let border_class = if entry.verified {
-        "border-green-500 bg-green-500/10"
+        "border-status-success bg-status-success/10"
     } else {
-        "border-red-500 bg-red-500/10"
+        "border-status-error bg-status-error/10"
     };
 
     let prev_hash_class = if entry.previous_hash.is_none() {
-        "text-purple-500"
+        "text-primary"
     } else {
         "text-foreground"
     };
@@ -406,7 +406,7 @@ pub fn MerkleTreeTab(
                                 <div class="space-y-4">
                                     // Root visualization
                                     <div class="flex flex-col items-center">
-                                        <div class="p-4 bg-purple-500/10 border-2 border-purple-500 rounded-lg text-center">
+                                        <div class="p-4 bg-primary/10 border-2 border-primary rounded-lg text-center">
                                             <p class="text-xs text-muted-foreground mb-1">
                                                 "Merkle Root"
                                             </p>
@@ -423,7 +423,7 @@ pub fn MerkleTreeTab(
                                         </div>
 
                                         <div class="flex items-center gap-8 mt-2">
-                                            <div class="p-3 bg-blue-500/10 border border-blue-500 rounded text-center">
+                                            <div class="p-3 bg-status-info/10 border border-status-info rounded text-center">
                                                 <p class="text-xs text-muted-foreground">
                                                     "Left Subtree"
                                                 </p>
@@ -431,7 +431,7 @@ pub fn MerkleTreeTab(
                                                     {format!("{} entries", entry_count / 2)}
                                                 </p>
                                             </div>
-                                            <div class="p-3 bg-blue-500/10 border border-blue-500 rounded text-center">
+                                            <div class="p-3 bg-status-info/10 border border-status-info rounded text-center">
                                                 <p class="text-xs text-muted-foreground">
                                                     "Right Subtree"
                                                 </p>
@@ -445,17 +445,17 @@ pub fn MerkleTreeTab(
                                     // Legend
                                     <div class="flex items-center gap-4 justify-center pt-4 border-t">
                                         <div class="flex items-center gap-2">
-                                            <div class="w-3 h-3 bg-purple-500 rounded"></div>
+                                            <div class="w-3 h-3 bg-primary rounded"></div>
                                             <span class="text-xs text-muted-foreground">"Root"</span>
                                         </div>
                                         <div class="flex items-center gap-2">
-                                            <div class="w-3 h-3 bg-blue-500 rounded"></div>
+                                            <div class="w-3 h-3 bg-status-info rounded"></div>
                                             <span class="text-xs text-muted-foreground">
                                                 "Internal"
                                             </span>
                                         </div>
                                         <div class="flex items-center gap-2">
-                                            <div class="w-3 h-3 bg-green-500 rounded"></div>
+                                            <div class="w-3 h-3 bg-status-success rounded"></div>
                                             <span class="text-xs text-muted-foreground">"Leaf"</span>
                                         </div>
                                     </div>
@@ -489,14 +489,14 @@ pub fn MerkleTreeTab(
                     match verification.get() {
                         LoadingState::Loaded(v) => {
                             let status_class = if v.chain_valid {
-                                "bg-green-500/10 border border-green-500"
+                                "bg-status-success/10 border border-status-success"
                             } else {
-                                "bg-red-500/10 border border-red-500"
+                                "bg-status-error/10 border border-status-error"
                             };
                             let text_class = if v.chain_valid {
-                                "text-green-500"
+                                "text-status-success"
                             } else {
-                                "text-red-500"
+                                "text-status-error"
                             };
                             view! {
                                 <div class="space-y-4">
@@ -506,7 +506,7 @@ pub fn MerkleTreeTab(
                                             {if v.chain_valid {
                                                 view! {
                                                     <svg
-                                                        class="h-8 w-8 text-green-500"
+                                                        class="h-8 w-8 text-status-success"
                                                         viewBox="0 0 24 24"
                                                         fill="none"
                                                         stroke="currentColor"
@@ -520,7 +520,7 @@ pub fn MerkleTreeTab(
                                             } else {
                                                 view! {
                                                     <svg
-                                                        class="h-8 w-8 text-red-500"
+                                                        class="h-8 w-8 text-status-error"
                                                         viewBox="0 0 24 24"
                                                         fill="none"
                                                         stroke="currentColor"
@@ -572,7 +572,7 @@ pub fn MerkleTreeTab(
                                                         <span class="text-muted-foreground">
                                                             "First Invalid"
                                                         </span>
-                                                        <span class="font-medium text-red-500">
+                                                        <span class="font-medium text-status-error">
                                                             {format!("#{}", seq)}
                                                         </span>
                                                     </div>
@@ -606,8 +606,8 @@ pub fn MerkleTreeTab(
                                         .clone()
                                         .map(|err| {
                                             view! {
-                                                <div class="p-3 bg-red-500/10 border border-red-500 rounded-md">
-                                                    <p class="text-sm text-red-500">{err}</p>
+                                                <div class="p-3 bg-status-error/10 border border-status-error rounded-md">
+                                                    <p class="text-sm text-status-error">{err}</p>
                                                 </div>
                                             }
                                         })}
@@ -667,13 +667,13 @@ pub fn ComplianceTab(
                                     </div>
                                     <div class="p-4 bg-muted/30 rounded-lg">
                                         <p class="text-sm text-muted-foreground">"Compliant"</p>
-                                        <p class="text-2xl font-bold text-green-500">
+                                        <p class="text-2xl font-bold text-status-success">
                                             {data.compliant_controls}
                                         </p>
                                     </div>
                                     <div class="p-4 bg-muted/30 rounded-lg">
                                         <p class="text-sm text-muted-foreground">"Violations"</p>
-                                        <p class="text-2xl font-bold text-red-500">
+                                        <p class="text-2xl font-bold text-status-error">
                                             {data.active_violations}
                                         </p>
                                     </div>

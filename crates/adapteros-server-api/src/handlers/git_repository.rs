@@ -537,6 +537,8 @@ pub async fn train_repository_adapter(
             .to_string(),
         pad_token_id: 0,
         ignore_index: -1,
+        multi_module_training: false,
+        lora_layer_indices: Vec::new(),
     };
 
     let training_job = state

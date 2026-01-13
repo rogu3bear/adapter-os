@@ -7,7 +7,7 @@ use crate::components::{Button, ButtonVariant, FormField, Input};
 use crate::pages::training::dataset_wizard::{DatasetUploadOutcome, DatasetUploadWizard};
 use crate::pages::training::generate_wizard::{GenerateDatasetOutcome, GenerateDatasetWizard};
 use crate::validation::{rules, use_form_errors, validate_field, ValidationRule};
-use adapteros_api_types::TrainingJobResponse;
+use adapteros_api_types::{TrainingBackendKind, TrainingBackendPolicy, TrainingJobResponse};
 use leptos::prelude::*;
 use serde_json::json;
 
@@ -41,6 +41,11 @@ pub fn CreateJobDialog(
     let status_error = RwSignal::new(None::<String>);
     let checking_status = RwSignal::new(false);
 
+    // Backend selection state
+    let preferred_backend = RwSignal::new("auto".to_string());
+    let backend_policy = RwSignal::new("auto".to_string());
+    let coreml_training_fallback = RwSignal::new("mlx".to_string());
+
     let submitting = RwSignal::new(false);
     let error = RwSignal::new(None::<String>);
 
@@ -50,7 +55,7 @@ pub fn CreateJobDialog(
     // File upload state
     let uploading = RwSignal::new(false);
     let upload_status = RwSignal::new(String::new());
-    let _format_upload_error = |err: &ApiError| -> String {
+    let format_upload_error = |err: &ApiError| -> String {
         if let ApiError::Structured {
             error,
             code,
@@ -429,6 +434,11 @@ pub fn CreateJobDialog(
             "compression": if compression_val == "none" { serde_json::Value::Null } else { json!(compression_val) },
         });
 
+        // Backend selection values
+        let backend_val = preferred_backend.get();
+        let policy_val = backend_policy.get();
+        let fallback_val = coreml_training_fallback.get();
+
         let on_created = on_created_clone.clone();
 
         wasm_bindgen_futures::spawn_local(async move {
@@ -446,6 +456,9 @@ pub fn CreateJobDialog(
                     "learning_rate": lr_val,
                     "batch_size": batch_val,
                     "preprocessing": preprocess_payload,
+                    "preferred_backend": if backend_val == TrainingBackendKind::Auto.as_str() { serde_json::Value::Null } else { json!(backend_val) },
+                    "backend_policy": if policy_val == TrainingBackendPolicy::Auto.as_str() { serde_json::Value::Null } else { json!(policy_val) },
+                    "coreml_training_fallback": if backend_val == TrainingBackendKind::CoreML.as_str() || policy_val == TrainingBackendPolicy::CoremlElseFallback.as_str() { json!(fallback_val) } else { serde_json::Value::Null },
                 },
                 "category": cat,
                 "dataset_id": if ds_id.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(ds_id.clone()) },
@@ -476,6 +489,10 @@ pub fn CreateJobDialog(
                     preprocess_enabled.set(true);
                     preprocess_status.set(None);
                     status_error.set(None);
+                    // Reset backend selection
+                    preferred_backend.set("auto".to_string());
+                    backend_policy.set("auto".to_string());
+                    coreml_training_fallback.set("mlx".to_string());
                     form_errors.update(|e| e.clear_all());
                     on_created();
                 }
@@ -516,7 +533,9 @@ pub fn CreateJobDialog(
                             <p class="text-sm text-muted-foreground">"Configure and start a new adapter training job"</p>
                         </div>
                         <button
-                            class="rounded-sm opacity-70 hover:opacity-100"
+                            class="rounded-sm opacity-70 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                            aria-label="Close"
+                            type="button"
                             on:click=move |_| close(())
                         >
                             <svg
@@ -594,7 +613,7 @@ pub fn CreateJobDialog(
                                 "Guided: pick manifest + JSONL or structured CSV/Text with inline validation."
                             </p>
                             {move || dataset_upload_message.get().map(|msg| view! {
-                                <div class="rounded-md border border-green-600/50 bg-green-100/40 p-2 text-xs text-foreground">
+                                <div class="rounded-md border border-status-success/50 bg-status-success/10 p-2 text-xs text-foreground">
                                     {msg}
                                 </div>
                             })}
@@ -621,7 +640,7 @@ pub fn CreateJobDialog(
                                     } else {
                                         let is_ready = status.contains("ready");
                                         let class = if is_ready {
-                                            "text-sm text-green-600 flex items-center gap-2"
+                                            "text-sm text-status-success flex items-center gap-2"
                                         } else {
                                             "text-sm text-muted-foreground flex items-center gap-2"
                                         };
@@ -636,7 +655,7 @@ pub fn CreateJobDialog(
                                                     }.into_any()
                                                 } else {
                                                     view! {
-                                                        <svg class="h-4 w-4 text-green-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <svg class="h-4 w-4 text-status-success" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
                                                         </svg>
                                                     }.into_any()
@@ -676,6 +695,63 @@ pub fn CreateJobDialog(
                                     />
                                 </FormField>
                             </div>
+                        </div>
+
+                        <div class="border-t pt-4 mt-4">
+                            <h3 class="text-sm font-medium mb-3">"Backend Selection"</h3>
+                            <p class="text-xs text-muted-foreground mb-3">
+                                "Choose the compute backend for training. Auto selects the best available."
+                            </p>
+                            <div class="grid gap-4 grid-cols-2">
+                                <div class="space-y-2">
+                                    <label class="text-sm font-medium">"Preferred Backend"</label>
+                                    <select
+                                        class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                        prop:value=Signal::derive(move || preferred_backend.get())
+                                        on:change=move |ev| preferred_backend.set(event_target_value(&ev))
+                                    >
+                                        <option value="auto">"Auto (recommended)"</option>
+                                        <option value="mlx">"MLX"</option>
+                                        <option value="coreml">"CoreML"</option>
+                                        <option value="metal">"Metal"</option>
+                                        <option value="cpu">"CPU"</option>
+                                    </select>
+                                    <p class="text-xs text-muted-foreground">
+                                        "MLX: flexible, deterministic. CoreML: ANE acceleration. Metal: GPU fallback."
+                                    </p>
+                                </div>
+                                <div class="space-y-2">
+                                    <label class="text-sm font-medium">"Backend Policy"</label>
+                                    <select
+                                        class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                        prop:value=Signal::derive(move || backend_policy.get())
+                                        on:change=move |ev| backend_policy.set(event_target_value(&ev))
+                                    >
+                                        <option value="auto">"Auto"</option>
+                                        <option value="coreml_only">"CoreML Only (fail if unavailable)"</option>
+                                        <option value="coreml_else_fallback">"CoreML with Fallback"</option>
+                                    </select>
+                                    <p class="text-xs text-muted-foreground">
+                                        "Controls how backend unavailability is handled."
+                                    </p>
+                                </div>
+                            </div>
+                            {move || (preferred_backend.get() == TrainingBackendKind::CoreML.as_str() || backend_policy.get() == TrainingBackendPolicy::CoremlElseFallback.as_str()).then(|| view! {
+                                <div class="mt-3 space-y-2">
+                                    <label class="text-sm font-medium">"CoreML Fallback Backend"</label>
+                                    <select
+                                        class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                        prop:value=Signal::derive(move || coreml_training_fallback.get())
+                                        on:change=move |ev| coreml_training_fallback.set(event_target_value(&ev))
+                                    >
+                                        <option value="mlx">"MLX (default)"</option>
+                                        <option value="metal">"Metal"</option>
+                                    </select>
+                                    <p class="text-xs text-muted-foreground">
+                                        "Backend to use when CoreML is unavailable. MLX is recommended for determinism."
+                                    </p>
+                                </div>
+                            })}
                         </div>
 
                         <div class="border-t pt-4 mt-4">
@@ -736,7 +812,7 @@ pub fn CreateJobDialog(
                             <div class="flex items-center justify-between gap-3">
                                 <h3 class="text-sm font-medium">"CoreML Preprocessing"</h3>
                                 {move || (!preprocess_enabled.get()).then(|| view! {
-                                    <span class="text-xs text-amber-600">
+                                    <span class="text-xs text-status-warning">
                                         "Disabling preprocessing will cause CoreML runs to return an error"
                                     </span>
                                 })}
@@ -840,7 +916,7 @@ pub fn CreateJobDialog(
                                 </p>
                             </div>
                             {move || status_error.get().map(|msg| view! {
-                                <div class="rounded border border-destructive/50 bg-destructive/10 p-2 text-sm text-destructive">{msg}</div>
+                                <div class="rounded border border-status-error/50 bg-status-error/10 p-2 text-sm text-status-error">{msg}</div>
                             })}
                             {move || preprocess_status.get().map(|status| view! {
                                 <div class="rounded-lg border bg-muted/40 p-3 space-y-2">
@@ -878,8 +954,8 @@ pub fn CreateJobDialog(
                                     </div>
                                     {(!status.reasons.is_empty()).then(|| view! {
                                         <div class="text-xs">
-                                            <p class="font-medium text-amber-700">"Reprocess required"</p>
-                                            <ul class="list-disc pl-4 text-amber-700">
+                                            <p class="font-medium text-status-warning">"Reprocess required"</p>
+                                            <ul class="list-disc pl-4 text-status-warning">
                                                 {status.reasons.iter().map(|reason| {
                                                     view! { <li class="break-words">{reason.clone()}</li> }
                                                 }).collect::<Vec<_>>()}

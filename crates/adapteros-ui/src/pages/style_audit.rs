@@ -3,6 +3,15 @@
 //! Visual component gallery for baseline snapshots and visual regression testing.
 //! Renders all components in all variants for both light and dark modes.
 
+use crate::api::client::{
+    InferenceTraceDetailResponse, TimingBreakdown, TokenDecision, TraceReceiptSummary,
+};
+use crate::components::charts::{
+    types::{ChartPoint, DataSeries, TimeSeriesData},
+    LineChart, Sparkline, SparklineMetric,
+};
+use crate::components::start_menu::{StartButton, StartMenu};
+use crate::components::trace_viewer::TraceDetailStandalone;
 use crate::components::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ConfirmationDialog,
     ConfirmationSeverity, DangerZone, DangerZoneItem, Dialog, FormField, InfoBanner, Input,
@@ -40,6 +49,76 @@ pub fn StyleAudit() -> impl IntoView {
     let input_value = RwSignal::new(String::new());
     let textarea_value = RwSignal::new(String::new());
     let toggle_checked = RwSignal::new(false);
+    let show_start_menu = RwSignal::new(false);
+
+    // Chart mock data
+    let chart_data = Memo::new(move |_| {
+        let mut data = TimeSeriesData::new();
+        let mut series1 = DataSeries::new("Requests", "var(--color-primary, #3b82f6)");
+        let mut series2 = DataSeries::new("Errors", "var(--color-red-500, #ef4444)");
+
+        let now = 1700000000000u64; // Fixed baseline timestamp
+        for i in 0..20 {
+            let t = now + i * 60000;
+            let v1 = 50.0 + (i as f64 * 0.5).sin() * 20.0 + (i as f64);
+            let v2 = 5.0 + (i as f64 * 0.8).cos() * 2.0;
+            series1.push(ChartPoint::new(t, v1));
+            series2.push(ChartPoint::new(t, v2));
+        }
+
+        data.add_series(series1);
+        data.add_series(series2);
+        data
+    });
+
+    let sparkline_values =
+        Signal::derive(move || vec![10.0, 15.0, 12.0, 20.0, 25.0, 22.0, 30.0, 35.0, 28.0, 40.0]);
+
+    // Mock trace data
+    let mock_trace = InferenceTraceDetailResponse {
+        trace_id: "trc_mock_audit_123".to_string(),
+        request_id: Some("req_mock_audit_456".to_string()),
+        created_at: "2023-10-27T10:00:00Z".to_string(),
+        latency_ms: 450,
+        adapters_used: vec!["finance_v1".to_string(), "legal_v2".to_string()],
+        token_decisions: vec![
+            TokenDecision {
+                token_index: 0,
+                token_id: Some(101),
+                adapter_ids: vec!["finance_v1".to_string()],
+                gates_q15: vec![30000],
+                entropy: 0.1,
+                decision_hash: None,
+            },
+            TokenDecision {
+                token_index: 1,
+                token_id: Some(205),
+                adapter_ids: vec!["finance_v1".to_string(), "legal_v2".to_string()],
+                gates_q15: vec![16000, 15000],
+                entropy: 0.8,
+                decision_hash: None,
+            },
+        ],
+        timing_breakdown: TimingBreakdown {
+            total_ms: 450,
+            routing_ms: 50,
+            inference_ms: 380,
+            policy_ms: 20,
+            prefill_ms: None,
+            decode_ms: None,
+        },
+        receipt: Some(TraceReceiptSummary {
+            receipt_digest: "digest_123abc".to_string(),
+            run_head_hash: "hash_xyz789".to_string(),
+            output_digest: "out_456def".to_string(),
+            logical_prompt_tokens: 15,
+            logical_output_tokens: 42,
+            stop_reason_code: Some("stop".to_string()),
+            verified: true,
+        }),
+    };
+
+    let expanded_trace_tokens = RwSignal::new(false);
 
     view! {
         <div class="min-h-screen bg-background text-foreground p-8">
@@ -65,6 +144,71 @@ pub fn StyleAudit() -> impl IntoView {
 
                 // Component Sections
                 <div class="space-y-12">
+                    // ===== CHARTS =====
+                    <ComponentSection title="Charts">
+                        <SubSection title="Line Chart">
+                            <div class="h-64 border rounded p-4 bg-card">
+                                <LineChart
+                                    data=Signal::from(chart_data)
+                                    title="Traffic Overview".to_string()
+                                    y_label="Requests/sec".to_string()
+                                    height=200.0
+                                    show_points=true
+                                />
+                            </div>
+                        </SubSection>
+
+                        <SubSection title="Sparklines">
+                            <div class="grid gap-4 md:grid-cols-3">
+                                <div class="p-4 border rounded bg-card">
+                                    <h4 class="text-sm text-muted-foreground mb-2">"Simple Sparkline"</h4>
+                                    <Sparkline values=sparkline_values width=120 height=30 fill=true />
+                                </div>
+
+                                <div class="p-4 border rounded bg-card">
+                                    <h4 class="text-sm text-muted-foreground mb-2">"Trend Color"</h4>
+                                    <Sparkline values=sparkline_values width=120 height=30 fill=true trend_color=true />
+                                </div>
+
+                                <SparklineMetric
+                                    label="CPU Usage".to_string()
+                                    value="42%".to_string()
+                                    values=sparkline_values
+                                    class="border rounded p-4 bg-card".to_string()
+                                />
+                            </div>
+                        </SubSection>
+                    </ComponentSection>
+
+                    // ===== INFERENCE =====
+                    <ComponentSection title="Inference">
+                        <SubSection title="Trace Visualization">
+                            <div class="border rounded-lg bg-card">
+                                <TraceDetailStandalone
+                                    trace=mock_trace
+                                    expanded_tokens=expanded_trace_tokens.read_only()
+                                    set_expanded_tokens=expanded_trace_tokens.write_only()
+                                    compact=false
+                                />
+                            </div>
+                        </SubSection>
+                    </ComponentSection>
+
+                    // ===== NAVIGATION =====
+                    <ComponentSection title="Navigation">
+                        <SubSection title="Start Menu">
+                            <div class="h-64 border rounded bg-muted/10 relative p-4 flex items-end">
+                                <div class="relative">
+                                    <StartButton open=show_start_menu/>
+                                    <StartMenu open=show_start_menu/>
+                                </div>
+                                <p class="ml-4 text-sm text-muted-foreground pb-2">
+                                    "Click Start to open the menu (renders fixed at bottom-left of viewport)"
+                                </p>
+                            </div>
+                        </SubSection>
+                    </ComponentSection>
+
                     // ===== BUTTONS =====
                     <ComponentSection title="Buttons">
                         <SubSection title="Variants">

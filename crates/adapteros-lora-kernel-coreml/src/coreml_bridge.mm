@@ -5,6 +5,7 @@
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
 #import <Accelerate/Accelerate.h>
+#include "coreml_ffi.h"
 #include <cstring>
 #include <AvailabilityMacros.h>
 #include <stdatomic.h>
@@ -29,11 +30,6 @@ bool coreml_is_available() {
     }
     return false;
 }
-
-typedef struct {
-    bool available;
-    uint8_t generation;
-} AneCheckResult;
 
 typedef struct {
     bool available;
@@ -384,6 +380,80 @@ int32_t coreml_run_inference_named_output(
         }
 
         return (int32_t)copyLen;
+    }
+}
+
+// Create default Metal device
+// Returns retained id<MTLDevice> cast to void*
+void* coreml_create_metal_device() {
+    @autoreleasepool {
+        id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+        if (device) {
+            return (__bridge_retained void*)device;
+        }
+        return nullptr;
+    }
+}
+
+// Release Metal device
+void coreml_release_metal_device(void* device) {
+    if (device) {
+        CFRelease(device);
+    }
+}
+
+// Export MLMultiArray output to Metal buffer
+// Returns a retained MTLBuffer* cast to void*
+void* coreml_export_output_to_metal(void* output_handle, void* device_handle) {
+    @autoreleasepool {
+        if (!output_handle || !device_handle) {
+            snprintf(g_last_error, sizeof(g_last_error), "Invalid handles provided");
+            return nullptr;
+        }
+
+        MLMultiArray* outputArray = (__bridge MLMultiArray*)output_handle;
+        id<MTLDevice> device = (__bridge id<MTLDevice>)device_handle;
+
+        size_t length = outputArray.count * sizeof(float);
+        if (outputArray.dataType != MLMultiArrayDataTypeFloat32) {
+             snprintf(g_last_error, sizeof(g_last_error), "Output must be Float32");
+             return nullptr;
+        }
+
+        // Create a shared buffer (accessible by CPU and GPU)
+        id<MTLBuffer> buffer = [device newBufferWithBytes:outputArray.dataPointer
+                                                   length:length
+                                                  options:MTLResourceStorageModeShared];
+
+        if (!buffer) {
+            snprintf(g_last_error, sizeof(g_last_error), "Failed to allocate Metal buffer");
+            return nullptr;
+        }
+
+        // Return retained reference
+        return (__bridge_retained void*)buffer;
+    }
+}
+
+// Release Metal buffer
+void coreml_release_buffer(void* buffer) {
+    if (buffer) {
+        CFRelease(buffer);
+    }
+}
+
+// Copy MLMultiArray output to existing Metal buffer
+void coreml_copy_output_to_metal(void* output_handle, void* buffer_handle) {
+    @autoreleasepool {
+        if (!output_handle || !buffer_handle) return;
+
+        MLMultiArray* outputArray = (__bridge MLMultiArray*)output_handle;
+        id<MTLBuffer> buffer = (__bridge id<MTLBuffer>)buffer_handle;
+
+        size_t length = outputArray.count * sizeof(float);
+        if (buffer.length < length) return;
+
+        memcpy(buffer.contents, outputArray.dataPointer, length);
     }
 }
 

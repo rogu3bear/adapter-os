@@ -1,13 +1,13 @@
 //! Token generation loop with sampling strategies
 
+use crate::deterministic_rng::DeterministicRng;
 use adapteros_core::{derive_seed, derive_seed_indexed, expand_u64_seed, AosError, B3Hash, Result};
 use adapteros_lora_router::{policy_mask::PolicyMask, AdapterInfo};
 use rand::Rng;
-use rand::SeedableRng;
 
 /// Token generator with configurable sampling
 pub struct Generator {
-    rng: rand::rngs::StdRng,
+    rng: DeterministicRng,
     temperature: f32,
     top_k: Option<usize>,
     top_p: Option<f32>,
@@ -23,7 +23,8 @@ impl Generator {
     /// Create a new generator with seed
     pub fn new(seed: [u8; 32]) -> Self {
         Self {
-            rng: rand::rngs::StdRng::from_seed(seed),
+            rng: DeterministicRng::new(&seed, "sampling")
+                .expect("Failed to create deterministic RNG"),
             temperature: 1.0,
             top_k: None,
             top_p: None,
@@ -53,7 +54,8 @@ impl Generator {
         let seed = derive_seed(&global, context);
 
         Self {
-            rng: rand::rngs::StdRng::from_seed(seed),
+            rng: DeterministicRng::new(&seed, "sampling")
+                .expect("Failed to create deterministic RNG"),
             temperature: 1.0,
             top_k: None,
             top_p: None,
@@ -75,7 +77,8 @@ impl Generator {
     pub fn reseed_for_step(&mut self, step: usize) {
         if self.deterministic_mode {
             let step_seed = self.derive_step_seed(step);
-            self.rng = rand::rngs::StdRng::from_seed(step_seed);
+            self.rng = DeterministicRng::new(&step_seed, "sampling")
+                .expect("Failed to create deterministic RNG");
             self.step_counter = step;
         }
     }
@@ -151,7 +154,8 @@ impl Generator {
         let seed_bytes = expand_u64_seed(seed);
 
         self.base_seed = seed_bytes;
-        self.rng = rand::rngs::StdRng::from_seed(seed_bytes);
+        self.rng = DeterministicRng::new(&seed_bytes, "sampling")
+            .expect("Failed to create deterministic RNG");
         self.step_counter = 0;
         self.deterministic_mode = true;
     }
@@ -162,7 +166,8 @@ impl Generator {
     /// This enables deterministic replay when the same parameters are used.
     pub fn set_seed_bytes(&mut self, seed: [u8; 32]) {
         self.base_seed = seed;
-        self.rng = rand::rngs::StdRng::from_seed(seed);
+        self.rng =
+            DeterministicRng::new(&seed, "sampling").expect("Failed to create deterministic RNG");
         self.step_counter = 0;
         self.deterministic_mode = true;
     }

@@ -97,9 +97,9 @@ pub fn ChainStatusSummary(
                             LoadingState::Loaded(v) => {
                                 if v.chain_valid {
                                     view! {
-                                        <div class="h-10 w-10 rounded-full bg-green-500/10 flex items-center justify-center">
+                                        <div class="h-10 w-10 rounded-full bg-status-success/10 flex items-center justify-center">
                                             <svg
-                                                class="h-5 w-5 text-green-500"
+                                                class="h-5 w-5 text-status-success"
                                                 viewBox="0 0 24 24"
                                                 fill="none"
                                                 stroke="currentColor"
@@ -113,9 +113,9 @@ pub fn ChainStatusSummary(
                                     .into_any()
                                 } else {
                                     view! {
-                                        <div class="h-10 w-10 rounded-full bg-red-500/10 flex items-center justify-center">
+                                        <div class="h-10 w-10 rounded-full bg-status-error/10 flex items-center justify-center">
                                             <svg
-                                                class="h-5 w-5 text-red-500"
+                                                class="h-5 w-5 text-status-error"
                                                 viewBox="0 0 24 24"
                                                 fill="none"
                                                 stroke="currentColor"
@@ -147,9 +147,9 @@ pub fn ChainStatusSummary(
                                 LoadingState::Loaded(v) => {
                                     let text = if v.chain_valid { "Verified" } else { "Invalid" };
                                     let class = if v.chain_valid {
-                                        "text-green-500"
+                                        "text-status-success"
                                     } else {
-                                        "text-red-500"
+                                        "text-status-error"
                                     };
                                     view! {
                                         <p class=format!("text-lg font-bold {}", class)>{text}</p>
@@ -179,9 +179,9 @@ pub fn ChainStatusSummary(
             // Total Entries
             <Card>
                 <div class="flex items-center gap-3">
-                    <div class="h-10 w-10 rounded-full bg-blue-500/10 flex items-center justify-center">
+                    <div class="h-10 w-10 rounded-full bg-status-info/10 flex items-center justify-center">
                         <svg
-                            class="h-5 w-5 text-blue-500"
+                            class="h-5 w-5 text-status-info"
                             viewBox="0 0 24 24"
                             fill="none"
                             stroke="currentColor"
@@ -216,9 +216,9 @@ pub fn ChainStatusSummary(
             // Merkle Root
             <Card>
                 <div class="flex items-center gap-3">
-                    <div class="h-10 w-10 rounded-full bg-purple-500/10 flex items-center justify-center">
+                    <div class="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
                         <svg
-                            class="h-5 w-5 text-purple-500"
+                            class="h-5 w-5 text-primary"
                             viewBox="0 0 24 24"
                             fill="none"
                             stroke="currentColor"
@@ -268,9 +268,9 @@ pub fn ChainStatusSummary(
             // Compliance Rate
             <Card>
                 <div class="flex items-center gap-3">
-                    <div class="h-10 w-10 rounded-full bg-yellow-500/10 flex items-center justify-center">
+                    <div class="h-10 w-10 rounded-full bg-status-warning/10 flex items-center justify-center">
                         <svg
-                            class="h-5 w-5 text-yellow-500"
+                            class="h-5 w-5 text-status-warning"
                             viewBox="0 0 24 24"
                             fill="none"
                             stroke="currentColor"
@@ -286,11 +286,11 @@ pub fn ChainStatusSummary(
                                 LoadingState::Loaded(c) => {
                                     let rate = format!("{:.0}%", c.compliance_rate * 100.0);
                                     let class = if c.compliance_rate >= 0.95 {
-                                        "text-green-500"
+                                        "text-status-success"
                                     } else if c.compliance_rate >= 0.8 {
-                                        "text-yellow-500"
+                                        "text-status-warning"
                                     } else {
-                                        "text-red-500"
+                                        "text-status-error"
                                     };
                                     view! {
                                         <p class=format!("text-lg font-bold {}", class)>{rate}</p>

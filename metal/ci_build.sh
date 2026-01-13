@@ -7,6 +7,10 @@
 
 set -e
 
+# Source shared toolchain detection logic
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/common.sh"
+
 echo "🔨 Hermetic Metal Kernel Build"
 echo ""
 
@@ -54,9 +58,25 @@ if ! command -v b3sum &> /dev/null; then
     echo "   Install with: brew install b3sum"
 fi
 
+# Detect Metal toolchain
+METAL_CMD=$(resolve_metal_toolchain)
+SDK_PATH=$(get_sdk_path)
+SDK_ARGS=""
+if [ -n "$SDK_PATH" ]; then
+    SDK_ARGS="-isysroot $SDK_PATH"
+fi
+
+if [ -n "$METAL_CMD" ]; then
+    echo "  Using Metal toolchain from: $METAL_CMD"
+else
+    echo "  Using system Metal (xcrun)"
+    METAL_CMD="xcrun"
+    SDK_ARGS="-sdk macosx metal"
+fi
+
 # Compile Metal shaders with deterministic flags
 echo "📦 Compiling aos_kernels.metal..."
-xcrun -sdk macosx metal -c aos_kernels.metal -o aos_kernels.air \
+$METAL_CMD $SDK_ARGS -c aos_kernels.metal -o aos_kernels.air \
     -std=metal3.1 -ffp-contract=off
 
 if [ $? -ne 0 ]; then
@@ -68,7 +88,19 @@ echo "✅ Compilation successful"
 
 # Link into metallib
 echo "🔗 Linking metallib..."
-xcrun -sdk macosx metallib aos_kernels.air -o aos_kernels.metallib
+
+METALLIB_CMD=$(resolve_metallib_toolchain)
+METALLIB_ARGS=""
+
+if [ -n "$METALLIB_CMD" ]; then
+    echo "  Using metallib from: $METALLIB_CMD"
+else
+    echo "  Using system metallib (xcrun)"
+    METALLIB_CMD="xcrun"
+    METALLIB_ARGS="-sdk macosx metallib"
+fi
+
+$METALLIB_CMD $METALLIB_ARGS aos_kernels.air -o aos_kernels.metallib
 
 if [ $? -ne 0 ]; then
     echo "❌ Linking failed"

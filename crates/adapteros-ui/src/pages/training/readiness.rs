@@ -2,7 +2,7 @@
 //! Shows CoreML/Metal/MLX capability summary plus base model status before launch.
 
 use crate::api::ApiClient;
-use crate::components::{Badge, BadgeVariant, Card, ErrorDisplay, Spinner};
+use crate::components::{Badge, BadgeVariant, Card, Spinner};
 use crate::hooks::{use_api_resource, LoadingState};
 use adapteros_api_types::{
     model_status::ModelLoadStatus, training::TrainingBackendReadinessResponse,
@@ -11,6 +11,9 @@ use leptos::prelude::*;
 use std::sync::Arc;
 
 /// Training backend readiness card.
+///
+/// Shows backend capability status. On error, displays a graceful degradation notice
+/// that allows users to proceed with job creation while indicating reduced confidence.
 #[component]
 pub fn BackendReadinessPanel() -> impl IntoView {
     let (readiness, refetch) = use_api_resource(move |client: Arc<ApiClient>| async move {
@@ -33,7 +36,7 @@ pub fn BackendReadinessPanel() -> impl IntoView {
                     </div>
                 }.into_any(),
                 LoadingState::Error(error) => view! {
-                    <ErrorDisplay
+                    <BackendReadinessErrorFallback
                         error=error
                         on_retry=Callback::new(move |_| refetch_signal.with_value(|f| f()))
                     />
@@ -43,6 +46,64 @@ pub fn BackendReadinessPanel() -> impl IntoView {
                 }.into_any(),
             }}
         </Card>
+    }
+}
+
+/// Graceful degradation fallback when backend readiness check fails.
+///
+/// Shows a warning notice but allows users to proceed with job creation.
+/// The backend will use automatic backend selection if readiness info is unavailable.
+#[component]
+fn BackendReadinessErrorFallback(
+    error: crate::api::ApiError,
+    on_retry: Callback<()>,
+) -> impl IntoView {
+    view! {
+        <div class="space-y-4">
+            // Warning banner instead of blocking error
+            <div class="rounded-lg border border-warning/50 bg-warning/10 p-4">
+                <div class="flex items-start gap-3">
+                    <div class="shrink-0 text-warning">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>
+                            <path d="M12 9v4"/>
+                            <path d="M12 17h.01"/>
+                        </svg>
+                    </div>
+                    <div class="flex-1 space-y-2">
+                        <p class="font-semibold text-warning">"Backend Status Unknown"</p>
+                        <p class="text-sm text-muted-foreground">
+                            "Unable to check backend capabilities. You can still create training jobs — "
+                            "the system will automatically select an available backend."
+                        </p>
+                        <details class="text-xs text-muted-foreground">
+                            <summary class="cursor-pointer hover:text-foreground">"Technical details"</summary>
+                            <p class="mt-2 font-mono bg-muted p-2 rounded text-xs break-all">
+                                {error.to_string()}
+                            </p>
+                        </details>
+                    </div>
+                </div>
+            </div>
+
+            // Fallback status summary
+            <div class="grid gap-3 md:grid-cols-2">
+                <InfoRow label="Status" value="Unknown".to_string() accent=false/>
+                <InfoRow label="Backend Policy" value="Auto (fallback)".to_string() accent=false/>
+                <InfoRow label="CoreML" value="Check unavailable".to_string() accent=false/>
+                <InfoRow label="Capabilities" value="Will be detected at runtime".to_string() accent=false/>
+            </div>
+
+            // Retry button
+            <div class="flex justify-end">
+                <button
+                    class="text-sm text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
+                    on:click=move |_| on_retry.run(())
+                >
+                    "Retry readiness check"
+                </button>
+            </div>
+        </div>
     }
 }
 

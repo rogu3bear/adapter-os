@@ -9,7 +9,7 @@ use adapteros_codegraph::DetectedFramework;
 use adapteros_core::{B3Hash, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use tracing::info;
 
 use crate::training::LoRAWeights;
@@ -170,6 +170,7 @@ fn generate_weights(adapter_id: &str, rank: usize, hidden_dim: usize) -> LoRAWei
     LoRAWeights {
         lora_a,
         lora_b,
+        modules: HashMap::new(),
         moe_config: None,
         precomputed_delta: None,
     }

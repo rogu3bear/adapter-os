@@ -109,12 +109,11 @@ pub fn System() -> impl IntoView {
     use_sse_notifications(sse_status.read_only());
 
     // Fallback: if SSE is disconnected for 30s, trigger a refetch to keep data warm
-    let _refetch_workers_timeout = StoredValue::new(refetch_workers_signal);
     Effect::new(move || {
         if sse_status.get() == SseState::Disconnected {
             #[cfg(target_arch = "wasm32")]
             {
-                let refetch = _refetch_workers_timeout.clone();
+                let refetch = refetch_workers_signal.clone();
                 gloo_timers::callback::Timeout::new(30_000, move || {
                     refetch.with_value(|f| f());
                 })

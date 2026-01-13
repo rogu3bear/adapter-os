@@ -5,18 +5,21 @@
 //! - /auth/config - returns auth configuration
 //! - /auth/health - auth subsystem health
 //! - /auth/me - current user info (via middleware)
+//! - /auth/register - user self-registration (when enabled)
 //! - /auth/dev-bypass - dev bypass login (debug builds only)
 
 mod config;
 #[cfg(all(feature = "dev-bypass", debug_assertions))]
 mod dev_bypass;
 mod health;
+mod register;
 mod stubs;
 mod types;
 
 // Active handlers
 pub use config::{__path_get_auth_config_handler, get_auth_config_handler};
 pub use health::{__path_auth_health_handler, auth_health_handler};
+pub use register::{__path_register_handler, register_handler};
 
 #[cfg(all(feature = "dev-bypass", debug_assertions))]
 pub use dev_bypass::{
@@ -40,7 +43,7 @@ pub use stubs::{
 // Re-export types for OpenAPI schema
 pub use types::{
     AuthConfigResponse, AuthHealthResponse, BootstrapRequest, BootstrapResponse, LogoutResponse,
-    RefreshResponse, SessionInfo, SessionsResponse,
+    RefreshResponse, RegisterRequest, RegisterResponse, SessionInfo, SessionsResponse,
 };
 
 #[cfg(all(feature = "dev-bypass", debug_assertions))]

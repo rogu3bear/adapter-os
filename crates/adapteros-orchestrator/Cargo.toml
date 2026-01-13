@@ -22,6 +22,7 @@ serde_yaml = "0.9"
 clap = { workspace = true, features = ["derive"] }
 
 # Internal crates
+adapteros-api-types = { path = "../adapteros-api-types" }
 adapteros-config = { path = "../adapteros-config" }
 adapteros-core = { path = "../adapteros-core" }
 adapteros-secure-fs = { path = "../adapteros-secure-fs" }
