@@ -7,6 +7,7 @@ use crate::components::{
     Button, ButtonVariant, Card, ConfirmationDialog, ConfirmationSeverity, ErrorDisplay, Spinner,
 };
 use crate::hooks::{use_api_resource, use_polling, LoadingState};
+use crate::signals::use_notifications;
 use adapteros_api_types::TrainingJobResponse;
 use leptos::prelude::*;
 use std::sync::Arc;
@@ -43,6 +44,7 @@ pub fn TrainingJobDetail(
     let job_id_for_cancel = job_id.clone();
     let cancelling = RwSignal::new(false);
     let show_cancel_confirm = RwSignal::new(false);
+    let notifications = use_notifications();
 
     // Handle cancel dialog dismiss
     let on_cancel_dismiss = Callback::new(move |_| {
@@ -51,25 +53,30 @@ pub fn TrainingJobDetail(
     });
 
     // Create the cancel callback outside the reactive closure
-    let cancel_callback = Callback::new(move |_| {
-        let job_id = job_id_for_cancel.clone();
-        cancelling.set(true);
+    let cancel_callback = {
+        let notifications = notifications.clone();
+        Callback::new(move |_| {
+            let job_id = job_id_for_cancel.clone();
+            let notifications = notifications.clone();
+            cancelling.set(true);
 
-        wasm_bindgen_futures::spawn_local(async move {
-            let client = ApiClient::new();
-            match client.cancel_training_job(&job_id).await {
-                Ok(_) => {
-                    show_cancel_confirm.set(false);
-                    on_cancelled();
+            wasm_bindgen_futures::spawn_local(async move {
+                let client = ApiClient::new();
+                match client.cancel_training_job(&job_id).await {
+                    Ok(_) => {
+                        show_cancel_confirm.set(false);
+                        notifications.info("Training cancelled", "The training job has been stopped");
+                        on_cancelled();
+                    }
+                    Err(_) => {
+                        // On error, close dialog - user can retry via UI
+                        show_cancel_confirm.set(false);
+                    }
                 }
-                Err(_) => {
-                    // On error, close dialog - user can retry via UI
-                    show_cancel_confirm.set(false);
-                }
-            }
-            cancelling.set(false);
-        });
-    });
+                cancelling.set(false);
+            });
+        })
+    };
 
     view! {
         <div class="space-y-4">
