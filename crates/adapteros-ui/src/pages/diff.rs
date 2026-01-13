@@ -300,7 +300,7 @@ fn FirstDivergenceCard(divergence: FirstDivergence) -> impl IntoView {
                 // Value comparison
                 <div class="grid gap-4 md:grid-cols-2">
                     {divergence.value_a.map(|v| view! {
-                        <div class="p-3 bg-red-500/10 border border-red-500/30 rounded-md">
+                        <div class="p-3 bg-status-error/10 border border-status-error/30 rounded-md">
                             <p class="text-xs text-muted-foreground mb-1">"Run A Value"</p>
                             <pre class="text-xs font-mono whitespace-pre-wrap overflow-x-auto">
                                 {serde_json::to_string_pretty(&v).unwrap_or_default()}
@@ -308,7 +308,7 @@ fn FirstDivergenceCard(divergence: FirstDivergence) -> impl IntoView {
                         </div>
                     })}
                     {divergence.value_b.map(|v| view! {
-                        <div class="p-3 bg-blue-500/10 border border-blue-500/30 rounded-md">
+                        <div class="p-3 bg-status-info/10 border border-status-info/30 rounded-md">
                             <p class="text-xs text-muted-foreground mb-1">"Run B Value"</p>
                             <pre class="text-xs font-mono whitespace-pre-wrap overflow-x-auto">
                                 {serde_json::to_string_pretty(&v).unwrap_or_default()}
@@ -380,14 +380,14 @@ fn AnchorRow(
     value_b: Option<String>,
 ) -> impl IntoView {
     let icon_class = if matches {
-        "text-green-500"
+        "text-status-success"
     } else {
-        "text-red-500"
+        "text-status-error"
     };
     let bg_class = if matches {
-        "bg-green-500/5"
+        "bg-status-success/5"
     } else {
-        "bg-red-500/5"
+        "bg-status-error/5"
     };
 
     view! {
@@ -411,15 +411,15 @@ fn AnchorRow(
             </div>
             <div class="text-right">
                 {if matches {
-                    view! { <span class="text-green-500 text-sm">"Match"</span> }.into_any()
+                    view! { <span class="text-status-success text-sm">"Match"</span> }.into_any()
                 } else {
                     view! {
                         <div class="text-xs font-mono text-muted-foreground">
                             {value_a.map(|v| view! {
-                                <div class="text-red-400">{format!("A: {}...", v.chars().take(12).collect::<String>())}</div>
+                                <div class="text-status-error">{format!("A: {}...", v.chars().take(12).collect::<String>())}</div>
                             })}
                             {value_b.map(|v| view! {
-                                <div class="text-blue-400">{format!("B: {}...", v.chars().take(12).collect::<String>())}</div>
+                                <div class="text-status-info">{format!("B: {}...", v.chars().take(12).collect::<String>())}</div>
                             })}
                         </div>
                     }.into_any()
@@ -483,9 +483,9 @@ fn RouterStepRow(step: RouterStepDiff) -> impl IntoView {
     let bg_class = if step.is_first_divergence {
         "bg-destructive/10 border-destructive"
     } else if step.matches {
-        "bg-green-500/5 border-green-500/30"
+        "bg-status-success/5 border-status-success/30"
     } else {
-        "bg-yellow-500/5 border-yellow-500/30"
+        "bg-status-warning/5 border-status-warning/30"
     };
 
     view! {

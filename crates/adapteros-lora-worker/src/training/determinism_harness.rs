@@ -9,6 +9,7 @@ use super::{
 };
 use adapteros_core::Result;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tracing::info;
 
 /// Hyperparameters used by the drift/determinism harness.
@@ -146,6 +147,9 @@ pub fn build_harness_training_config(
         hidden_state_layer: None,
         validation_split: 0.0, // Disable validation for determinism harness
         preprocessing: None,
+        targets: Vec::new(),
+        multi_module_training: false,
+        lora_layer_indices: Vec::new(),
     };
 
     // Enforce deterministic GPU fallback policy explicitly.
@@ -285,6 +289,7 @@ mod tests {
             weights: LoRAWeights {
                 lora_a: vec![vec![loss]],
                 lora_b: vec![vec![loss * 2.0]],
+                modules: HashMap::new(),
                 moe_config: None,
                 precomputed_delta: None,
             },

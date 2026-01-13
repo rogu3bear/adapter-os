@@ -1,7 +1,7 @@
 //! Security gate: runs cargo-audit and cargo-deny
 
 use crate::{DependencyChecker, Gate, OrchestratorConfig};
-use anyhow::{Context, Result};
+use adapteros_core::{AosError, Result};
 use std::process::Command;
 use tracing::{info, warn};
 
@@ -34,17 +34,25 @@ impl Gate for SecurityGate {
             Ok(audit_output) => {
                 if !audit_output.status.success() {
                     let stderr = String::from_utf8_lossy(&audit_output.stderr);
-                    anyhow::bail!("cargo-audit failed: {}", stderr);
+                    return Err(AosError::Validation(format!(
+                        "cargo-audit failed: {}",
+                        stderr
+                    )));
                 }
 
                 // Parse audit output
                 let audit_json: serde_json::Value = serde_json::from_slice(&audit_output.stdout)
-                    .context("Failed to parse cargo-audit output")?;
+                    .map_err(|e| {
+                        AosError::Parse(format!("Failed to parse cargo-audit output: {}", e))
+                    })?;
 
                 let vulnerabilities = audit_json["vulnerabilities"]["count"].as_u64().unwrap_or(0);
 
                 if vulnerabilities > 0 {
-                    anyhow::bail!("Found {} vulnerabilities", vulnerabilities);
+                    return Err(AosError::Validation(format!(
+                        "Found {} vulnerabilities",
+                        vulnerabilities
+                    )));
                 }
 
                 info!("No vulnerabilities found");
@@ -68,7 +76,10 @@ impl Gate for SecurityGate {
                     Ok(deny_output) => {
                         if !deny_output.status.success() {
                             let stderr = String::from_utf8_lossy(&deny_output.stderr);
-                            anyhow::bail!("cargo-deny failed: {}", stderr);
+                            return Err(AosError::Validation(format!(
+                                "cargo-deny failed: {}",
+                                stderr
+                            )));
                         }
                         info!("Dependency policy checks passed");
                     }

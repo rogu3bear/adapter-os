@@ -58,6 +58,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::auth_enhanced::mfa_verify_handler,
         handlers::auth_enhanced::mfa_disable_handler,
         handlers::auth_enhanced::get_auth_config_handler,
+        handlers::auth_enhanced::register_handler,
         handlers::code::propose_patch,
         handlers::infer,
         handlers::streaming_infer::streaming_infer,
@@ -651,6 +652,8 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::auth_enhanced::BootstrapResponse,
         handlers::auth_enhanced::RefreshResponse,
         handlers::auth_enhanced::LogoutResponse,
+        handlers::auth_enhanced::RegisterRequest,
+        handlers::auth_enhanced::RegisterResponse,
         handlers::auth_enhanced::SessionInfo,
         handlers::auth_enhanced::SessionsResponse,
         handlers::auth_enhanced::AuthConfigResponse,
@@ -784,6 +787,10 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/auth/refresh",
             post(handlers::auth_enhanced::refresh_token_handler),
+        )
+        .route(
+            "/v1/auth/register",
+            post(handlers::auth_enhanced::register_handler),
         )
         .route("/v1/meta", get(handlers::meta))
         .route("/v1/status", get(handlers::get_status))

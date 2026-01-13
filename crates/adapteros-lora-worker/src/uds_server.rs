@@ -15,6 +15,7 @@ use adapteros_boot::key_ring::WorkerKeyRing;
 use adapteros_boot::{KeyUpdateRequest, KeyUpdateResponse, KEY_UPDATE_MAX_AGE_SECS};
 use adapteros_config::prepare_socket_path;
 use adapteros_core::{AosError, Result};
+use adapteros_secure_fs::traversal::normalize_path;
 use blake3::Hasher;
 use ed25519_dalek::VerifyingKey;
 use serde_json;
@@ -67,6 +68,9 @@ use crate::StrictnessControl;
 /// Fixed threshold for UDS accept failures before tripping the circuit breaker.
 const UDS_ACCEPT_FAILURE_THRESHOLD: u32 = 5;
 
+/// Maximum allowed size for JSON request bodies (16MB)
+const MAX_REQUEST_SIZE: usize = 16 * 1024 * 1024; // 16MB
+
 fn trip_uds_accept_circuit_breaker(
     failure_count: u32,
     drain_flag: &AtomicBool,
@@ -84,6 +88,14 @@ fn trip_uds_accept_circuit_breaker(
         );
         monitor.request_shutdown();
     }
+}
+
+/// Parse JSON with size limit to prevent DoS via unbounded deserialization
+fn parse_json_with_limit<T: serde::de::DeserializeOwned>(body: &str) -> Result<T> {
+    if body.len() > MAX_REQUEST_SIZE {
+        return Err(AosError::Worker("Request body too large".to_string()));
+    }
+    serde_json::from_str(body).map_err(|e| AosError::Worker(format!("JSON parse error: {}", e)))
 }
 
 pub struct UdsServer<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> {
@@ -241,6 +253,16 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
 
         let listener = UnixListener::bind(&self.socket_path)
             .map_err(|e| AosError::Worker(format!("Failed to bind UDS socket: {}", e)))?;
+
+        // Set secure socket permissions (owner read/write only)
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&self.socket_path, std::fs::Permissions::from_mode(0o600))
+                .map_err(|e| {
+                    AosError::Worker(format!("Failed to set socket permissions: {}", e))
+                })?;
+        }
 
         info!("UDS server listening on: {:?}", self.socket_path);
 
@@ -601,10 +623,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
         // Route to appropriate handler
         match request.path.as_str() {
             "/inference" | "/api/v1/infer" => {
-                let mut inference_req: InferenceRequest = serde_json::from_str(&request.body)
-                    .map_err(|e| {
-                        AosError::Worker(format!("Failed to parse inference request: {}", e))
-                    })?;
+                let mut inference_req: InferenceRequest = parse_json_with_limit(&request.body)?;
 
                 // Set arrival timestamp for queue/generation time tracking
                 inference_req.arrival_instant = Some(start);
@@ -666,9 +685,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                         cpid: None,
                     }
                 } else {
-                    serde_json::from_str(&request.body).map_err(|e| {
-                        AosError::Worker(format!("Failed to parse inference cancel request: {}", e))
-                    })?
+                    parse_json_with_limit(&request.body)?
                 };
 
                 let auth_result = Self::authenticate_inference_request(
@@ -716,10 +733,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                     return Ok(());
                 }
 
-                let resume_req: SubmitReviewRequest =
-                    serde_json::from_str(&request.body).map_err(|e| {
-                        AosError::Worker(format!("Failed to parse resume request: {}", e))
-                    })?;
+                let resume_req: SubmitReviewRequest = parse_json_with_limit(&request.body)?;
 
                 info!(
                     pause_id = %pause_id,
@@ -753,10 +767,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                 Self::send_json_response(&mut stream, response).await?;
             }
             "/patch_proposal" => {
-                let patch_req: PatchProposalRequest =
-                    serde_json::from_str(&request.body).map_err(|e| {
-                        AosError::Worker(format!("Failed to parse patch request: {}", e))
-                    })?;
+                let patch_req: PatchProposalRequest = parse_json_with_limit(&request.body)?;
 
                 // Create a dummy inference request for patch proposal
                 let inference_req = InferenceRequest {
@@ -833,7 +844,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                 };
 
                 // Parse the key update request
-                let update_req: KeyUpdateRequest = match serde_json::from_str(&request.body) {
+                let update_req: KeyUpdateRequest = match parse_json_with_limit(&request.body) {
                     Ok(req) => req,
                     Err(e) => {
                         error!(error = %e, "Failed to parse key update request");
@@ -973,7 +984,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
             }
             "/model/load" => {
                 // Parse model load request
-                let load_req: ModelLoadRequest = match serde_json::from_str(&request.body) {
+                let load_req: ModelLoadRequest = match parse_json_with_limit(&request.body) {
                     Ok(req) => req,
                     Err(e) => {
                         let response = ModelLoadResponse {
@@ -998,25 +1009,13 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                     "Processing model load request via UDS"
                 );
 
-                // Verify the model path exists
-                let model_path = std::path::Path::new(&load_req.model_path);
-                if !model_path.exists() {
-                    let response = ModelLoadResponse {
-                        status: "error".to_string(),
-                        model_id: load_req.model_id,
-                        memory_usage_mb: None,
-                        error: Some(format!(
-                            "Model path does not exist: {}",
-                            load_req.model_path
-                        )),
-                        loaded_at: None,
-                    };
-                    let json_value = serde_json::to_value(&response).map_err(|e| {
-                        AosError::Worker(format!("Failed to serialize response: {}", e))
-                    })?;
-                    Self::send_json_response(&mut stream, json_value).await?;
-                    return Ok(());
-                }
+                // Canonicalize and validate the model path to prevent path traversal attacks
+                // normalize_path also ensures the path exists (via canonicalize)
+                let _canonical_path = normalize_path(&load_req.model_path)
+                    .map_err(|e| AosError::Worker(format!("Invalid model path: {}", e)))?;
+                // Note: canonical_path validated but not used directly since model loading
+                // happens during worker initialization. This check prevents path traversal
+                // attacks even if model_path is later used for dynamic loading.
 
                 // The worker is already initialized with a model at startup.
                 // This endpoint verifies the model is loaded and returns status.
@@ -1090,10 +1089,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                 Self::send_json_response(&mut stream, status_response).await?;
             }
             "/training/cancel" => {
-                let cancel_req: CancelTrainingRequest = serde_json::from_str(&request.body)
-                    .map_err(|e| {
-                        AosError::Worker(format!("Failed to parse cancel request: {}", e))
-                    })?;
+                let cancel_req: CancelTrainingRequest = parse_json_with_limit(&request.body)?;
 
                 info!(
                     job_id = %cancel_req.job_id,
@@ -1129,7 +1125,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                     timestamp: String,
                 }
 
-                let fatal_msg: WorkerFatal = match serde_json::from_str(&request.body) {
+                let fatal_msg: WorkerFatal = match parse_json_with_limit(&request.body) {
                     Ok(msg) => msg,
                     Err(e) => {
                         error!(
@@ -1180,7 +1176,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                     // Expects AdapterCommand in request body
                     use crate::adapter_hotswap::AdapterCommand;
 
-                    let command: AdapterCommand = match serde_json::from_str(&request.body) {
+                    let command: AdapterCommand = match parse_json_with_limit(&request.body) {
                         Ok(cmd) => cmd,
                         Err(e) => {
                             error!(

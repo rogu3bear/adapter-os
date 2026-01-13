@@ -79,6 +79,7 @@ impl PhaseStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct PhaseReceipt {
     pub phase: PipelinePhase,
     pub status: PhaseStatus,
@@ -99,6 +100,7 @@ pub struct PhaseReceipt {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct PhaseStatusV1 {
     pub phase: PipelinePhase,
     pub status: PhaseStatus,
@@ -110,6 +112,7 @@ pub struct PhaseStatusV1 {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct PipelineReceiptV1 {
     pub pipeline_id: String,
     pub contract_version: u32,
@@ -152,6 +155,7 @@ impl PipelineReceiptV1 {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
 pub struct PipelineConfigSnapshot {
     pub training_config: TrainingConfig,
     pub dataset_id: Option<String>,
@@ -163,6 +167,7 @@ pub struct PipelineConfigSnapshot {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct PipelineState {
     pub schema_version: u32,
     pub job_id: String,

@@ -1,8 +1,8 @@
 //! SBOM gate: verifies SBOM is present and valid
 
 use crate::{DependencyChecker, Gate, OrchestratorConfig};
+use adapteros_core::{AosError, Result};
 use adapteros_sbom::SpdxDocument;
-use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
 use tracing::{info, warn};
@@ -29,23 +29,28 @@ impl Gate for SbomGate {
         let sbom_path = Path::new("target/sbom.spdx.json");
 
         if !sbom_path.exists() {
-            anyhow::bail!(
+            return Err(AosError::Validation(format!(
                 "SBOM not found: {}. Run 'cargo xtask sbom' first.",
                 sbom_path.display()
-            );
+            )));
         }
 
         // Load and validate SBOM
-        let sbom_content = fs::read_to_string(sbom_path).context("Failed to read SBOM")?;
+        let sbom_content = fs::read_to_string(sbom_path)
+            .map_err(|e| AosError::Io(format!("Failed to read SBOM: {}", e)))?;
 
-        let sbom = SpdxDocument::from_json(&sbom_content).context("Failed to parse SBOM")?;
+        let sbom = SpdxDocument::from_json(&sbom_content)
+            .map_err(|e| AosError::Parse(format!("Failed to parse SBOM: {}", e)))?;
 
         // Validate completeness
-        sbom.validate().context("SBOM validation failed")?;
+        sbom.validate()
+            .map_err(|e| AosError::Validation(format!("SBOM validation failed: {}", e)))?;
 
         // Check for minimum content
         if sbom.packages.is_empty() && sbom.files.is_empty() {
-            anyhow::bail!("SBOM is empty (no packages or files)");
+            return Err(AosError::Validation(
+                "SBOM is empty (no packages or files)".to_string(),
+            ));
         }
 
         info!(

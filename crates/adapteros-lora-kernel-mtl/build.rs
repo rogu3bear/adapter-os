@@ -120,6 +120,17 @@ fn resolve_metallib_path(real_home: Option<&str>) -> Option<PathBuf> {
 }
 
 fn compile_metal_shaders() {
+    // Metal Toolchain Detection Strategy:
+    // 1. Prefer explicit Metal toolchain binaries if found in standard locations:
+    //    - METAL_TOOLCHAIN_BIN env var
+    //    - ~/Library/Developer/Toolchains/Metal.xctoolchain/usr/bin
+    //    - /Library/Developer/Toolchains/Metal.xctoolchain/usr/bin
+    //    - /Applications/Xcode.app/Contents/Developer/Toolchains/Metal.xctoolchain/usr/bin
+    // 2. Fall back to `xcrun` only if specific binaries are not found.
+    //
+    // Rationale: `xcrun` may find the default Xcode toolchain's `metal` binary which fails
+    // with "missing Metal Toolchain" if the component isn't installed, even if a
+    // working Metal toolchain exists in ~/Library/Developer/Toolchains.
     let real_home = std::env::var("HOME").ok();
     let home_override = std::env::var("METAL_HOME_OVERRIDE").unwrap_or_else(|_| {
         std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string())
@@ -147,26 +158,60 @@ fn compile_metal_shaders() {
     // Create shaders directory if it doesn't exist
     std::fs::create_dir_all(shaders_dir).expect("Failed to create shaders directory");
 
-    // Verify Metal compiler is available
-    let metal_check = Command::new("xcrun")
-        .args(["--find", "metal"])
-        .output()
-        .expect("Failed to check for Metal compiler");
+    // Get SDK path early (needed for Metal toolchain binaries)
+    let sdk_path = get_sdk_path();
 
-    if !metal_check.status.success() {
-        eprintln!("\n❌ ERROR: Metal compiler not found");
-        eprintln!("Install Xcode Command Line Tools: xcode-select --install");
-        std::process::exit(1);
-    }
+    // Prefer Metal toolchain binaries if available (they work better than xcrun's default)
+    let (metal_cmd, metallib_cmd) =
+        if let Some(metal_path) = resolve_metal_path(real_home.as_deref()) {
+            let metallib_path = resolve_metallib_path(real_home.as_deref())
+                .expect("metallib should exist if metal exists");
+            println!(
+                "cargo:warning=Using Metal toolchain from {}",
+                metal_path.parent().unwrap().parent().unwrap().display()
+            );
+            (metal_path, metallib_path)
+        } else {
+            // Fall back to xcrun if Metal toolchain not found
+            let metal_check = Command::new("xcrun")
+                .args(["--find", "metal"])
+                .output()
+                .expect("Failed to check for Metal compiler");
+
+            if !metal_check.status.success() {
+                eprintln!("\n❌ ERROR: Metal compiler not found");
+                eprintln!("Install Xcode Command Line Tools: xcode-select --install");
+                eprintln!("Or install Metal Toolchain: ./scripts/install-metal-toolchain.sh");
+                std::process::exit(1);
+            }
+            // Use xcrun wrapper - will be handled specially below
+            // Use a sentinel path that we can check for
+            (
+                PathBuf::from("/__XCRUN_SENTINEL__"),
+                PathBuf::from("/__XCRUN_SENTINEL__"),
+            )
+        };
 
     // Compile to AIR
-    let compile_output = Command::new("xcrun")
+    let using_xcrun = metal_cmd.as_os_str() == "/__XCRUN_SENTINEL__";
+    let mut compile_cmd = if using_xcrun {
+        // Using xcrun wrapper
+        let mut cmd = Command::new("xcrun");
+        cmd.args(["-sdk", "macosx", "metal"]);
+        cmd
+    } else {
+        // Using direct Metal toolchain binary
+        let mut cmd = Command::new(&metal_cmd);
+        if let Some(sdk_path) = sdk_path.as_deref() {
+            cmd.arg("-isysroot").arg(sdk_path);
+        }
+        cmd
+    };
+
+    let compile_output = compile_cmd
         .env("CLANG_MODULE_CACHE_PATH", &module_cache_dir)
         .env("HOME", &home_override)
         .args([
-            "-sdk",
-            "macosx",
-            "metal",
             "-c",
             "adapteros_kernels.metal",
             "-o",
@@ -179,40 +224,39 @@ fn compile_metal_shaders() {
 
     if !compile_output.status.success() {
         let stderr = String::from_utf8_lossy(&compile_output.stderr);
-        if stderr.contains("missing Metal Toolchain") {
-            if let Some(metal_path) = resolve_metal_path(real_home.as_deref()) {
-                let sdk_path = get_sdk_path();
-                let mut fallback_cmd = Command::new(&metal_path);
-                if let Some(sdk_path) = sdk_path.as_deref() {
-                    fallback_cmd.arg("-isysroot").arg(sdk_path);
-                }
-                let fallback_output = fallback_cmd
-                    .env("CLANG_MODULE_CACHE_PATH", &module_cache_dir)
-                    .env("HOME", &home_override)
-                    .args([
-                        "-c",
-                        "adapteros_kernels.metal",
-                        "-o",
-                        "adapteros_kernels.air",
-                        "-std=metal3.1",
-                    ])
-                    .current_dir(&kernel_src_dir)
-                    .output()
-                    .expect("Failed to compile Metal shaders with fallback toolchain");
-                if fallback_output.status.success() {
-                    println!("cargo:warning=Using metal from {}", metal_path.display());
-                } else {
-                    eprintln!("\n❌ Metal compilation failed:");
-                    eprintln!("{}", stderr);
-                    eprintln!(
-                        "Fallback metal compilation failed: {}",
-                        String::from_utf8_lossy(&fallback_output.stderr)
-                    );
-                    std::process::exit(1);
-                }
-            } else {
-                eprintln!("\n❌ Metal compilation failed:");
-                eprintln!("{}", stderr);
+        if stderr.contains("missing Metal Toolchain")
+            && metal_cmd.as_os_str() != "/__XCRUN_SENTINEL__"
+        {
+            // Already tried Metal toolchain, but it failed - try xcrun as fallback
+            let fallback_output = Command::new("xcrun")
+                .env("CLANG_MODULE_CACHE_PATH", &module_cache_dir)
+                .env("HOME", &home_override)
+                .args([
+                    "-sdk",
+                    "macosx",
+                    "metal",
+                    "-c",
+                    "adapteros_kernels.metal",
+                    "-o",
+                    "adapteros_kernels.air",
+                    "-std=metal3.1",
+                ])
+                .current_dir(&kernel_src_dir)
+                .output()
+                .expect("Failed to compile Metal shaders with xcrun fallback");
+            if !fallback_output.status.success() {
+                eprintln!("\n❌ Metal compilation failed with both Metal toolchain and xcrun:");
+                eprintln!("Metal toolchain error: {}", stderr);
+                eprintln!(
+                    "xcrun error: {}",
+                    String::from_utf8_lossy(&fallback_output.stderr)
+                );
+                std::process::exit(1);
+            }
+        } else {
+            eprintln!("\n❌ Metal compilation failed:");
+            eprintln!("{}", stderr);
+            if stderr.contains("missing Metal Toolchain") {
                 eprintln!("\n🔧 SOLUTION:");
                 eprintln!("Run the Metal Toolchain installer:");
                 eprintln!("  ./scripts/install-metal-toolchain.sh");
@@ -220,59 +264,67 @@ fn compile_metal_shaders() {
                 eprintln!("  xcodebuild -downloadComponent MetalToolchain");
                 eprintln!("\nOr set METAL_TOOLCHAIN_BIN to the toolchain usr/bin directory.");
                 eprintln!("\nFor more information, see: docs/METAL_TOOLCHAIN_SETUP.md");
-                std::process::exit(1);
             }
-        } else {
-            eprintln!("\n❌ Metal compilation failed:");
-            eprintln!("{}", stderr);
             std::process::exit(1);
         }
     }
 
     // Link metallib
-    let link_output = Command::new("xcrun")
-        .args([
-            "-sdk",
-            "macosx",
-            "metallib",
-            "adapteros_kernels.air",
-            "-o",
-            "adapteros_kernels.metallib",
-        ])
-        .current_dir(&kernel_src_dir)
-        .output()
-        .expect("Failed to link metallib");
+    let link_output = if metallib_cmd.as_os_str() == "/__XCRUN_SENTINEL__" {
+        Command::new("xcrun")
+            .args([
+                "-sdk",
+                "macosx",
+                "metallib",
+                "adapteros_kernels.air",
+                "-o",
+                "adapteros_kernels.metallib",
+            ])
+            .current_dir(&kernel_src_dir)
+            .output()
+            .expect("Failed to link metallib")
+    } else {
+        Command::new(&metallib_cmd)
+            .args(["adapteros_kernels.air", "-o", "adapteros_kernels.metallib"])
+            .current_dir(&kernel_src_dir)
+            .output()
+            .expect("Failed to link metallib")
+    };
 
     if !link_output.status.success() {
         let stderr = String::from_utf8_lossy(&link_output.stderr);
-        if stderr.contains("unable to find utility \"metallib\"") {
-            if let Some(metallib_path) = resolve_metallib_path(real_home.as_deref()) {
-                let fallback_output = Command::new(&metallib_path)
-                    .args(["adapteros_kernels.air", "-o", "adapteros_kernels.metallib"])
-                    .current_dir(&kernel_src_dir)
-                    .output()
-                    .expect("Failed to link metallib with fallback toolchain");
-                if fallback_output.status.success() {
-                    println!(
-                        "cargo:warning=Using metallib from {}",
-                        metallib_path.display()
-                    );
-                } else {
-                    eprintln!(
-                        "Metallib linking failed with fallback: {}",
-                        String::from_utf8_lossy(&fallback_output.stderr)
-                    );
-                    std::process::exit(1);
-                }
-            } else {
-                eprintln!("Metallib linking failed: {}", stderr);
+        if stderr.contains("unable to find utility \"metallib\"")
+            && metallib_cmd.as_os_str() != "/__XCRUN_SENTINEL__"
+        {
+            // Already tried direct metallib, try xcrun as fallback
+            let fallback_output = Command::new("xcrun")
+                .args([
+                    "-sdk",
+                    "macosx",
+                    "metallib",
+                    "adapteros_kernels.air",
+                    "-o",
+                    "adapteros_kernels.metallib",
+                ])
+                .current_dir(&kernel_src_dir)
+                .output()
+                .expect("Failed to link metallib with xcrun fallback");
+            if !fallback_output.status.success() {
+                eprintln!("Metallib linking failed with both Metal toolchain and xcrun:");
+                eprintln!("Metal toolchain error: {}", stderr);
                 eprintln!(
-                    "Install the Metal Toolchain or set METAL_TOOLCHAIN_BIN to its usr/bin path."
+                    "xcrun error: {}",
+                    String::from_utf8_lossy(&fallback_output.stderr)
                 );
                 std::process::exit(1);
             }
         } else {
             eprintln!("Metallib linking failed: {}", stderr);
+            if stderr.contains("unable to find utility \"metallib\"") {
+                eprintln!(
+                    "Install the Metal Toolchain or set METAL_TOOLCHAIN_BIN to its usr/bin path."
+                );
+            }
             std::process::exit(1);
         }
     }
@@ -306,13 +358,14 @@ fn compile_metal_shaders() {
     .expect("Failed to copy metallib");
 
     // Compile aos_kernels.metal from metal/ root directory
-    compile_additional_kernel(
-        metal_dir,
-        "aos_kernels.metal",
-        shaders_dir,
-        &module_cache_dir,
-        &home_override,
-    );
+    let ctx = KernelCompileContext {
+        module_cache_dir: &module_cache_dir,
+        home_override: &home_override,
+        metal_cmd: &metal_cmd,
+        metallib_cmd: &metallib_cmd,
+        sdk_path: &sdk_path,
+    };
+    compile_additional_kernel(metal_dir, "aos_kernels.metal", shaders_dir, &ctx);
 
     // Note: mplora_kernels is part of adapteros_kernels, create alias
     std::fs::copy(
@@ -343,12 +396,20 @@ fn compile_metal_shaders() {
     let _ = std::fs::remove_file(kernel_src_dir.join("adapteros_kernels.air"));
 }
 
+/// Context for compiling Metal kernels, grouping related parameters.
+struct KernelCompileContext<'a> {
+    module_cache_dir: &'a str,
+    home_override: &'a str,
+    metal_cmd: &'a PathBuf,
+    metallib_cmd: &'a PathBuf,
+    sdk_path: &'a Option<String>,
+}
+
 fn compile_additional_kernel(
     metal_dir: &Path,
     kernel_name: &str,
     shaders_dir: &Path,
-    module_cache_dir: &str,
-    home_override: &str,
+    ctx: &KernelCompileContext<'_>,
 ) {
     let kernel_path = metal_dir.join(kernel_name);
 
@@ -378,118 +439,133 @@ fn compile_additional_kernel(
     let metallib_file = format!("{}.metallib", kernel_stem);
 
     // Compile to AIR
-    let compile_output = Command::new("xcrun")
-        .env("CLANG_MODULE_CACHE_PATH", module_cache_dir)
-        .env("HOME", home_override)
-        .args([
-            "-sdk",
-            "macosx",
-            "metal",
-            "-c",
-            kernel_name,
-            "-o",
-            &air_file,
-            "-std=metal3.1",
-        ])
+    let using_xcrun_additional = ctx.metal_cmd.as_os_str() == "/__XCRUN_SENTINEL__";
+    let mut compile_cmd = if using_xcrun_additional {
+        let mut cmd = Command::new("xcrun");
+        cmd.args(["-sdk", "macosx", "metal"]);
+        cmd
+    } else {
+        let mut cmd = Command::new(ctx.metal_cmd);
+        if let Some(sdk_path) = ctx.sdk_path.as_deref() {
+            cmd.arg("-isysroot").arg(sdk_path);
+        }
+        cmd
+    };
+
+    let compile_output = compile_cmd
+        .env("CLANG_MODULE_CACHE_PATH", ctx.module_cache_dir)
+        .env("HOME", ctx.home_override)
+        .args(["-c", kernel_name, "-o", &air_file, "-std=metal3.1"])
         .current_dir(metal_dir)
         .output()
         .expect("Failed to compile additional Metal shader");
 
     if !compile_output.status.success() {
         let stderr = String::from_utf8_lossy(&compile_output.stderr);
-        if stderr.contains("missing Metal Toolchain") {
-            let real_home = std::env::var("HOME").ok();
-            if let Some(metal_path) = resolve_metal_path(real_home.as_deref()) {
-                let sdk_path = get_sdk_path();
-                let mut fallback_cmd = Command::new(&metal_path);
-                if let Some(sdk_path) = sdk_path.as_deref() {
-                    fallback_cmd.arg("-isysroot").arg(sdk_path);
-                }
-                let fallback_output = fallback_cmd
-                    .env("CLANG_MODULE_CACHE_PATH", module_cache_dir)
-                    .env("HOME", home_override)
-                    .args(["-c", kernel_name, "-o", &air_file, "-std=metal3.1"])
-                    .current_dir(metal_dir)
-                    .output()
-                    .expect("Failed to compile additional Metal shader with fallback toolchain");
-                if fallback_output.status.success() {
-                    println!(
-                        "cargo:warning=Using metal from {} for {}",
-                        metal_path.display(),
-                        kernel_name
-                    );
-                } else {
-                    eprintln!("\n❌ Metal compilation failed for {}:", kernel_name);
-                    eprintln!("{}", stderr);
-                    eprintln!(
-                        "Fallback metal compilation failed for {}: {}",
-                        kernel_name,
-                        String::from_utf8_lossy(&fallback_output.stderr)
-                    );
-                    std::process::exit(1);
-                }
-            } else {
-                eprintln!("\n❌ Metal compilation failed for {}:", kernel_name);
-                eprintln!("{}", stderr);
+        if stderr.contains("missing Metal Toolchain")
+            && ctx.metal_cmd.as_os_str() != "/__XCRUN_SENTINEL__"
+        {
+            // Already tried Metal toolchain, try xcrun as fallback
+            let fallback_output = Command::new("xcrun")
+                .env("CLANG_MODULE_CACHE_PATH", ctx.module_cache_dir)
+                .env("HOME", ctx.home_override)
+                .args([
+                    "-sdk",
+                    "macosx",
+                    "metal",
+                    "-c",
+                    kernel_name,
+                    "-o",
+                    &air_file,
+                    "-std=metal3.1",
+                ])
+                .current_dir(metal_dir)
+                .output()
+                .expect("Failed to compile additional Metal shader with xcrun fallback");
+            if !fallback_output.status.success() {
                 eprintln!(
-                    "Install the Metal Toolchain or set METAL_TOOLCHAIN_BIN to its usr/bin path."
+                    "\n❌ Metal compilation failed for {} with both Metal toolchain and xcrun:",
+                    kernel_name
+                );
+                eprintln!("Metal toolchain error: {}", stderr);
+                eprintln!(
+                    "xcrun error: {}",
+                    String::from_utf8_lossy(&fallback_output.stderr)
                 );
                 std::process::exit(1);
             }
         } else {
             eprintln!("\n❌ Metal compilation failed for {}:", kernel_name);
             eprintln!("{}", stderr);
+            if stderr.contains("missing Metal Toolchain") {
+                eprintln!(
+                    "Install the Metal Toolchain or set METAL_TOOLCHAIN_BIN to its usr/bin path."
+                );
+            }
             std::process::exit(1);
         }
     }
 
     // Link metallib
-    let link_output = Command::new("xcrun")
-        .args([
-            "-sdk",
-            "macosx",
-            "metallib",
-            &air_file,
-            "-o",
-            &metallib_file,
-        ])
-        .current_dir(metal_dir)
-        .output()
-        .expect("Failed to link additional metallib");
+    let using_xcrun_metallib_additional = ctx.metallib_cmd.as_os_str() == "/__XCRUN_SENTINEL__";
+    let link_output = if using_xcrun_metallib_additional {
+        Command::new("xcrun")
+            .args([
+                "-sdk",
+                "macosx",
+                "metallib",
+                &air_file,
+                "-o",
+                &metallib_file,
+            ])
+            .current_dir(metal_dir)
+            .output()
+            .expect("Failed to link additional metallib")
+    } else {
+        Command::new(ctx.metallib_cmd)
+            .args([&air_file, "-o", &metallib_file])
+            .current_dir(metal_dir)
+            .output()
+            .expect("Failed to link additional metallib")
+    };
 
     if !link_output.status.success() {
         let stderr = String::from_utf8_lossy(&link_output.stderr);
-        if stderr.contains("unable to find utility \"metallib\"") {
-            let real_home = std::env::var("HOME").ok();
-            if let Some(metallib_path) = resolve_metallib_path(real_home.as_deref()) {
-                let fallback_output = Command::new(&metallib_path)
-                    .args([&air_file, "-o", &metallib_file])
-                    .current_dir(metal_dir)
-                    .output()
-                    .expect("Failed to link additional metallib with fallback toolchain");
-                if fallback_output.status.success() {
-                    println!(
-                        "cargo:warning=Using metallib from {} for {}",
-                        metallib_path.display(),
-                        kernel_name
-                    );
-                } else {
-                    eprintln!(
-                        "Metallib linking failed for {} with fallback: {}",
-                        kernel_name,
-                        String::from_utf8_lossy(&fallback_output.stderr)
-                    );
-                    std::process::exit(1);
-                }
-            } else {
-                eprintln!("Metallib linking failed for {}: {}", kernel_name, stderr);
+        if stderr.contains("unable to find utility \"metallib\"")
+            && ctx.metallib_cmd.as_os_str() != "/__XCRUN_SENTINEL__"
+        {
+            // Already tried direct metallib, try xcrun as fallback
+            let fallback_output = Command::new("xcrun")
+                .args([
+                    "-sdk",
+                    "macosx",
+                    "metallib",
+                    &air_file,
+                    "-o",
+                    &metallib_file,
+                ])
+                .current_dir(metal_dir)
+                .output()
+                .expect("Failed to link additional metallib with xcrun fallback");
+            if !fallback_output.status.success() {
                 eprintln!(
-                    "Install the Metal Toolchain or set METAL_TOOLCHAIN_BIN to its usr/bin path."
+                    "Metallib linking failed for {} with both Metal toolchain and xcrun:",
+                    kernel_name
+                );
+                eprintln!("Metal toolchain error: {}", stderr);
+                eprintln!(
+                    "xcrun error: {}",
+                    String::from_utf8_lossy(&fallback_output.stderr)
                 );
                 std::process::exit(1);
             }
         } else {
             eprintln!("Metallib linking failed for {}: {}", kernel_name, stderr);
+            if stderr.contains("unable to find utility \"metallib\"") {
+                eprintln!(
+                    "Install the Metal Toolchain or set METAL_TOOLCHAIN_BIN to its usr/bin path."
+                );
+            }
             std::process::exit(1);
         }
     }

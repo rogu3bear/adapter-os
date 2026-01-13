@@ -29,13 +29,16 @@ use crate::middleware::request_id::RequestId;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::storage_usage::{compute_tenant_storage_usage, compute_workspace_storage_usage};
-use crate::types::{ErrorResponse, UploadDatasetResponse};
+use crate::types::{
+    ErrorResponse, PostActionsRequest, TrainingConfigRequest, UploadDatasetResponse,
+};
 use adapteros_db::training_datasets::{
     validate_format, validate_hash_b3, CreateDatasetParams, CreateTrainingDatasetRowParams,
     DatasetFile,
 };
 use adapteros_secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
 use adapteros_storage::{ByteStorage, DatasetCategory, FsByteStorage, StorageKey};
+use adapteros_types::training::DataLineageMode;
 use axum::{
     extract::{Multipart, State},
     http::StatusCode,
@@ -196,6 +199,13 @@ pub async fn upload_dataset(
     let mut repo_commit: Option<String> = None;
     let mut unknown_fields: Vec<String> = Vec::new();
 
+    // Auto-train fields
+    let mut auto_train = false;
+    let mut adapter_name: Option<String> = None;
+    let mut base_model_id: Option<String> = None;
+    let mut training_config_json: Option<String> = None;
+    let mut post_actions_json: Option<String> = None;
+
     // Process multipart form
     while let Some(field) = multipart
         .next_field()
@@ -297,6 +307,49 @@ pub async fn upload_dataset(
                 let trimmed = value.trim();
                 if !trimmed.is_empty() {
                     repository_url = Some(trimmed.to_string());
+                }
+            }
+            "auto_train" => {
+                let val = field
+                    .text()
+                    .await
+                    .map_err(|e| bad_request(format!("Failed to read auto_train: {}", e)))?;
+                auto_train = val.trim().parse().unwrap_or(false);
+            }
+            "adapter_name" => {
+                let val = field
+                    .text()
+                    .await
+                    .map_err(|e| bad_request(format!("Failed to read adapter_name: {}", e)))?;
+                if !val.trim().is_empty() {
+                    adapter_name = Some(val);
+                }
+            }
+            "base_model_id" => {
+                let val = field
+                    .text()
+                    .await
+                    .map_err(|e| bad_request(format!("Failed to read base_model_id: {}", e)))?;
+                if !val.trim().is_empty() {
+                    base_model_id = Some(val);
+                }
+            }
+            "training_config" => {
+                let val = field
+                    .text()
+                    .await
+                    .map_err(|e| bad_request(format!("Failed to read training_config: {}", e)))?;
+                if !val.trim().is_empty() {
+                    training_config_json = Some(val);
+                }
+            }
+            "post_actions" => {
+                let val = field
+                    .text()
+                    .await
+                    .map_err(|e| bad_request(format!("Failed to read post_actions: {}", e)))?;
+                if !val.trim().is_empty() {
+                    post_actions_json = Some(val);
                 }
             }
             "file" | "files" | "files[]" => {
@@ -526,6 +579,8 @@ pub async fn upload_dataset(
                         .or_else(|| resolved_workspace_id.clone()),
                     reused: true,
                     created_at: existing.created_at,
+                    training_job_id: None,
+                    stack_id: None,
                 }));
             }
         }
@@ -785,7 +840,12 @@ pub async fn upload_dataset(
 
     state
         .db
-        .update_dataset_validation(&dataset_id, validation_status, validation_errors.as_deref())
+        .update_dataset_validation(
+            &dataset_id,
+            validation_status,
+            validation_errors.as_deref(),
+            None,
+        )
         .await
         .map_err(|e| db_error(format!("Failed to update validation status: {}", e)))?;
 
@@ -909,6 +969,87 @@ pub async fn upload_dataset(
         total_size
     );
 
+    // Auto-train if requested
+    let mut training_job_id = None;
+    let mut stack_id = None;
+
+    if auto_train {
+        // Only allow auto-train for jsonl format as it guarantees training rows
+        if dataset_format != "jsonl" {
+            warn!(
+                dataset_id = %dataset_id,
+                format = %dataset_format,
+                "Auto-train requested but dataset format is not jsonl"
+            );
+            // We don't fail the upload, just skip training
+        } else if let (Some(name), Some(model_id)) = (adapter_name, base_model_id) {
+            let config = if let Some(json) = training_config_json {
+                match serde_json::from_str::<TrainingConfigRequest>(&json) {
+                    Ok(c) => Some(c),
+                    Err(e) => {
+                        warn!(error = %e, "Failed to parse training_config for auto-train");
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
+            let post_actions = if let Some(json) = post_actions_json {
+                match serde_json::from_str::<PostActionsRequest>(&json) {
+                    Ok(p) => Some(p),
+                    Err(e) => {
+                        warn!(error = %e, "Failed to parse post_actions for auto-train");
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
+            info!(
+                dataset_id = %dataset_id,
+                adapter_name = %name,
+                base_model_id = %model_id,
+                "Starting auto-training job"
+            );
+
+            match start_training_from_upload(
+                &state,
+                &claims,
+                &dataset_id,
+                name,
+                model_id,
+                config,
+                post_actions,
+            )
+            .await
+            {
+                Ok((job_id, sid)) => {
+                    info!(
+                        job_id = %job_id,
+                        stack_id = ?sid,
+                        "Auto-training job started successfully"
+                    );
+                    training_job_id = Some(job_id);
+                    stack_id = sid;
+                }
+                Err(e) => {
+                    warn!(
+                        dataset_id = %dataset_id,
+                        error = %e,
+                        "Failed to start auto-training job"
+                    );
+                }
+            }
+        } else {
+            warn!(
+                dataset_id = %dataset_id,
+                "Auto-train requested but missing adapter_name or base_model_id"
+            );
+        }
+    }
+
     // Audit log: dataset uploaded
     if let Err(e) = crate::audit_helper::log_success(
         &state.db,
@@ -950,7 +1091,107 @@ pub async fn upload_dataset(
         workspace_id: resolved_workspace_id,
         reused: false,
         created_at: chrono::Utc::now().to_rfc3339(),
+        training_job_id,
+        stack_id,
     }))
+}
+
+async fn start_training_from_upload(
+    state: &AppState,
+    claims: &Claims,
+    dataset_id: &str,
+    adapter_name: String,
+    base_model_id: String,
+    config: Option<TrainingConfigRequest>,
+    post_actions: Option<PostActionsRequest>,
+) -> Result<(String, Option<String>), String> {
+    // 1. Ensure worker capable (simplified check)
+    // We assume if we are here, we can try. Training service will validate more.
+
+    // 2. Prepare config
+    let config = config.unwrap_or_else(|| TrainingConfigRequest {
+        epochs: 3,
+        learning_rate: 0.0001,
+        rank: 16,
+        alpha: 32,
+        batch_size: 2,
+        targets: vec!["q_proj".to_string(), "v_proj".to_string()],
+        training_contract_version: "1.0".to_string(),
+        pad_token_id: 0,
+        ignore_index: -100,
+        warmup_steps: None,
+        max_seq_length: None,
+        gradient_accumulation_steps: None,
+        validation_split: None,
+        preferred_backend: None,
+        backend_policy: None,
+        coreml_training_fallback: None,
+        coreml_placement: None,
+        enable_coreml_export: None,
+        require_gpu: None,
+        max_gpu_memory_mb: None,
+        base_model_path: None,
+        preprocessing: None,
+        force_resume: None,
+        multi_module_training: None,
+        lora_layer_indices: None,
+    });
+
+    // 3. Prepare post actions
+    let post_actions = post_actions.unwrap_or(PostActionsRequest {
+        package: Some(true),
+        register: Some(true),
+        create_stack: Some(true),
+        tier: None,
+        adapters_root: None,
+    });
+
+    let post_actions_json = serde_json::to_string(&post_actions)
+        .map_err(|e| format!("Failed to serialize post_actions: {}", e))?;
+
+    // 4. Start training
+    // We need to resolve base model path or ensure it exists.
+    // The orchestrator service handles this usually, but handlers often do `resolve_base_model_path`.
+    // We will trust the ID provided or let the service fail.
+    // However, `ensure_training_worker_capable` in `handlers/training.rs` is useful.
+    // We skip it here to avoid duplicating private logic, relying on service error.
+
+    let job = state
+        .training_service
+        .start_training(
+            adapter_name,
+            config.into(),
+            None,                           // template_id
+            None,                           // repo_id
+            None,                           // target_branch
+            None,                           // base_version_id
+            Some(dataset_id.to_string()),   // dataset_id
+            None,                           // dataset_version_ids (uses latest/default)
+            false,                          // synthetic_mode
+            DataLineageMode::DatasetOnly,   // lineage
+            Some(claims.tenant_id.clone()), // tenant_id
+            Some(claims.sub.clone()),       // initiated_by
+            Some(claims.role.clone()),      // initiated_by_role
+            Some(base_model_id),            // base_model_id
+            None,                           // collection_id
+            None,                           // scope
+            None,                           // lora_tier
+            None,                           // category
+            None,                           // description
+            None,                           // language
+            None,                           // framework_id
+            None,                           // framework_version
+            Some(post_actions_json),        // post_actions_json
+            None,                           // retry_of_job_id
+            None,                           // versioning
+            None,                           // code_commit_sha
+            None,                           // data_spec_json
+            None,                           // data_spec_hash
+        )
+        .await
+        .map_err(|e| format!("Failed to start training: {}", e))?;
+
+    Ok((job.id, job.stack_id))
 }
 
 /// Initiate a chunked upload for files > 10MB

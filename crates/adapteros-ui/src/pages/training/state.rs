@@ -3,7 +3,7 @@
 //! Keeps the rendering components simple and testable by encapsulating
 //! how we interpret backend/export intent vs. results.
 
-use adapteros_api_types::TrainingJobResponse;
+use adapteros_api_types::{TrainingBackendKind, TrainingJobResponse};
 
 /// Client-side CoreML filters applied after fetching jobs.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -39,11 +39,15 @@ impl CoremlState {
         let fused_package_hash = job.coreml_fused_package_hash.clone();
         let package_path = job.coreml_package_path.clone();
 
-        let coreml_requested = requested_backend.as_deref() == Some("coreml");
+        let coreml_requested =
+            requested_backend.as_deref() == Some(TrainingBackendKind::CoreML.as_str());
         let export_requested = job.coreml_export_requested.unwrap_or(false);
         let export_reason = job.coreml_export_reason.clone();
 
-        let fallback_reason = if coreml_requested && backend.as_deref() != Some("coreml") {
+        // Detect fallback: CoreML was requested but a different backend was used
+        let is_fallback =
+            coreml_requested && backend.as_deref() != Some(TrainingBackendKind::CoreML.as_str());
+        let fallback_reason = if is_fallback {
             job.coreml_training_fallback
                 .clone()
                 .or_else(|| job.backend_reason.clone())
@@ -57,7 +61,9 @@ impl CoremlState {
         );
         let coreml_exported =
             export_success_status || fused_package_hash.is_some() || package_path.is_some();
-        let coreml_fallback = fallback_reason.is_some();
+        // Mark as fallback if CoreML was requested but different backend used,
+        // regardless of whether a reason was provided
+        let coreml_fallback = is_fallback;
 
         Self {
             coreml_requested,

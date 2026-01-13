@@ -206,8 +206,10 @@ pub fn Dashboard() -> impl IntoView {
                     <SseIndicator state=sse_status/>
                 </div>
                 <button
-                    class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                    class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                     on:click=move |_| refetch_all()
+                    aria-label="Refresh dashboard data"
+                    type="button"
                 >
                     "Refresh"
                 </button>

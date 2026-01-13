@@ -23,6 +23,7 @@ pub struct TrainingDataset {
     pub status: String,
     pub validation_status: String,
     pub validation_errors: Option<String>,
+    pub validation_errors_json: Option<String>,
     pub metadata_json: Option<String>,
     pub created_by: Option<String>,
     pub created_at: String,

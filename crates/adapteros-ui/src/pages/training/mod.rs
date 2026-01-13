@@ -1,6 +1,19 @@
 //! Training page
 //!
 //! Complete training jobs management with list view, detail panel, and job creation.
+//!
+//! ## Filter Architecture
+//!
+//! This page uses a hybrid filtering strategy:
+//!
+//! - **Server-side filtering**: Status filter is sent to the backend via `TrainingListParams`.
+//!   This is efficient for the most common filter case (e.g., "show only running jobs").
+//!
+//! - **Client-side filtering**: CoreML filters (requested, exported, fallback) are applied
+//!   after fetching jobs. This is intentional because CoreML state is derived from multiple
+//!   fields (`requested_backend`, `backend`, `coreml_export_status`, etc.) and would require
+//!   complex backend logic to filter. Client-side filtering also provides instant UI feedback
+//!   when toggling CoreML checkboxes.
 
 mod components;
 pub mod dataset_wizard;
@@ -13,7 +26,7 @@ mod utils;
 
 use crate::api::ApiClient;
 use crate::components::{Button, ButtonVariant, ErrorDisplay, Spinner, SplitPanel};
-use crate::hooks::{use_api_resource, use_polling, LoadingState};
+use crate::hooks::{use_api_resource, use_conditional_polling, LoadingState};
 use adapteros_api_types::TrainingListParams;
 use leptos::prelude::*;
 use std::sync::Arc;
@@ -56,9 +69,16 @@ pub fn Training() -> impl IntoView {
     // Store refetch in a signal for sharing
     let refetch_signal = StoredValue::new(refetch_jobs);
 
-    // Polling for live updates (every 5 seconds when jobs are running)
-    // Return value (stop fn) intentionally ignored - polling runs until unmount
-    let _ = use_polling(5000, move || async move {
+    // Derive whether we need to poll (only when there are running or pending jobs)
+    let should_poll = Signal::derive(move || {
+        matches!(jobs.get(), LoadingState::Loaded(ref data) if data.jobs.iter().any(|job| {
+            matches!(job.status.as_str(), "running" | "pending" | "queued")
+        }))
+    });
+
+    // Conditional polling for live updates (every 5 seconds when jobs are active)
+    // Return value (stop fn) intentionally ignored - polling runs until unmount or no active jobs
+    let _ = use_conditional_polling(5000, should_poll, move || async move {
         refetch_signal.with_value(|f| f());
     });
 

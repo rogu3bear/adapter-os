@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "build_timestamp": "2025-12-19T00:00:00Z",
-  "metal_sdk_version": "26.1",
+  "metal_sdk_version": "26.2",
   "compiler_version": "Apple metal version 32023.830 (metalfe-32023.830.2)",
   "kernels": [
     {
@@ -9,7 +9,7 @@
       "version": "1.0.0",
       "description": "Fused MLP with SwiGLU activation, LoRA support, and bias",
       "parameters": "MlpParams",
-      "blake3_hash": "3e75c92f5c6f3ca1477c041696bed30cfe00380011e6694d788e03cd06b4b8c5",
+      "blake3_hash": "e5cd31770eda70401414784a61a546adb49eff59ee5a6936420bc8e59108026f",
       "features": [
         "SwiGLU activation",
         "LoRA support",
@@ -26,7 +26,7 @@
       "version": "1.0.0",
       "description": "Fused QKV with Grouped Query Attention (GQA) support",
       "parameters": "AttentionParams",
-      "blake3_hash": "3e75c92f5c6f3ca1477c041696bed30cfe00380011e6694d788e03cd06b4b8c5",
+      "blake3_hash": "e5cd31770eda70401414784a61a546adb49eff59ee5a6936420bc8e59108026f",
       "features": [
         "Grouped Query Attention",
         "LoRA support",
@@ -43,7 +43,7 @@
       "version": "1.0.0",
       "description": "Memory-efficient attention computation with GQA support",
       "parameters": "FlashAttentionParams",
-      "blake3_hash": "3e75c92f5c6f3ca1477c041696bed30cfe00380011e6694d788e03cd06b4b8c5",
+      "blake3_hash": "e5cd31770eda70401414784a61a546adb49eff59ee5a6936420bc8e59108026f",
       "features": [
         "Flash Attention",
         "Grouped Query Attention",

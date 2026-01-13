@@ -863,7 +863,12 @@ pub async fn complete_chunked_upload(
 
     if let Err(e) = state
         .db
-        .update_dataset_validation(&dataset_id, validation_status, validation_errors.as_deref())
+        .update_dataset_validation(
+            &dataset_id,
+            validation_status,
+            validation_errors.as_deref(),
+            None,
+        )
         .await
     {
         mark_session_failed_with_metric(&state, &session_id, "Failed to update dataset validation")

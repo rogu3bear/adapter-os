@@ -73,7 +73,21 @@ where
         let fetch = fetch_clone.clone();
         let fetch_version = Arc::clone(&fetch_version_clone);
         let version = fetch_version.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
-        set_state.set(LoadingState::Loading);
+
+        // Defer state update to next microtask to avoid RefCell re-entrancy
+        // when called from click handlers while async tasks complete
+        #[cfg(target_arch = "wasm32")]
+        {
+            let set_state = set_state.clone();
+            gloo_timers::callback::Timeout::new(0, move || {
+                set_state.set(LoadingState::Loading);
+            })
+            .forget();
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            set_state.set(LoadingState::Loading);
+        }
 
         wasm_bindgen_futures::spawn_local(async move {
             match fetch(client).await {
@@ -153,6 +167,110 @@ where
         let interval_id = Arc::clone(&interval_id);
 
         // Initial fetch
+        let fetch_init = fetch.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            fetch_init().await;
+        });
+
+        // Set up interval using web_sys for cleanup capability
+        let callback = Closure::wrap(Box::new(move || {
+            let fetch = fetch.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                // Skip polling when tab is hidden to avoid needless load
+                let should_skip = web_sys::window()
+                    .and_then(|w| w.document())
+                    .map(|d| d.hidden())
+                    .unwrap_or(false)
+                    || web_sys::window()
+                        .map(|w| !w.navigator().on_line())
+                        .unwrap_or(false);
+                if should_skip {
+                    return;
+                }
+                fetch().await;
+            });
+        }) as Box<dyn FnMut()>);
+
+        if let Some(window) = web_sys::window() {
+            if let Ok(id) = window.set_interval_with_callback_and_timeout_and_arguments_0(
+                callback.as_ref().unchecked_ref(),
+                interval_ms as i32,
+            ) {
+                interval_id.store(id, Ordering::SeqCst);
+            }
+        }
+
+        // Closure must be leaked (WASM limitation), but interval is cleared on cleanup
+        callback.forget();
+    });
+
+    // Return cancel function
+    move || {
+        let id = interval_id_for_cancel.swap(-1, Ordering::SeqCst);
+        if id >= 0 {
+            if let Some(window) = web_sys::window() {
+                window.clear_interval_with_handle(id);
+            }
+        }
+    }
+}
+
+/// Conditional polling hook - only polls when the condition signal is true
+///
+/// Similar to `use_polling`, but accepts a reactive `should_poll` signal.
+/// When `should_poll` becomes false, polling stops. When it becomes true again,
+/// polling resumes. This is useful for scenarios like polling for running jobs
+/// only when there are actually running jobs to poll.
+///
+/// Returns a cancel function that permanently stops the polling.
+pub fn use_conditional_polling<F, Fut>(
+    interval_ms: u32,
+    should_poll: Signal<bool>,
+    fetch: F,
+) -> impl Fn()
+where
+    F: Fn() -> Fut + Clone + 'static,
+    Fut: std::future::Future<Output = ()> + 'static,
+{
+    use std::sync::atomic::{AtomicI32, Ordering};
+    use std::sync::Arc;
+    use wasm_bindgen::prelude::*;
+    use wasm_bindgen::JsCast;
+
+    // Store interval ID for cleanup (-1 = no interval)
+    let interval_id = Arc::new(AtomicI32::new(-1));
+    let interval_id_for_cleanup = Arc::clone(&interval_id);
+    let interval_id_for_cancel = Arc::clone(&interval_id);
+
+    // Register cleanup to clear interval on unmount
+    on_cleanup(move || {
+        let id = interval_id_for_cleanup.load(Ordering::SeqCst);
+        if id >= 0 {
+            if let Some(window) = web_sys::window() {
+                window.clear_interval_with_handle(id);
+            }
+        }
+    });
+
+    Effect::new(move || {
+        let fetch = fetch.clone();
+        let interval_id = Arc::clone(&interval_id);
+        let is_polling = should_poll.get();
+
+        // Clear any existing interval first
+        let old_id = interval_id.swap(-1, Ordering::SeqCst);
+        if old_id >= 0 {
+            if let Some(window) = web_sys::window() {
+                window.clear_interval_with_handle(old_id);
+            }
+        }
+
+        // Only set up polling if should_poll is true
+        if !is_polling {
+            return;
+        }
+
+        // Initial fetch when polling starts
         let fetch_init = fetch.clone();
         wasm_bindgen_futures::spawn_local(async move {
             fetch_init().await;

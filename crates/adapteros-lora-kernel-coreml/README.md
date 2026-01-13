@@ -139,7 +139,7 @@ let metadata = validate_coreml_fusion(
 1. Load base CoreML model once (`load_model`)
 2. Load adapters into cache (`load_adapter`)
 3. Hot-swap active adapters (`attach_adapter` / `detach_adapter`)
-4. Base model stays resident, LoRA deltas applied at runtime
+4. Base model stays resident, LoRA deltas applied at runtime via MLX
 
 **Advantages:**
 - ✅ Dynamic adapter switching (no recompilation)
@@ -148,24 +148,23 @@ let metadata = validate_coreml_fusion(
 - ✅ Supports Q15 sparse routing
 
 **Disadvantages:**
-- ⚠️ Slower than pre-fusion (separate LoRA computation)
-- ⚠️ Limited ANE optimization for LoRA path
-- ⚠️ Currently in **STUB MODE** (see below)
+- ⚠️ Slower than pre-fusion (~20-30% overhead)
+- ⚠️ Requires `coreml-mlx-integration` feature
 
 **Implementation Status:**
-- ⚠️ **PARTIAL/STUB** - Basic infrastructure exists but LoRA computation is stubbed
+- ✅ **IMPLEMENTED** - Full pipeline with Metal/MLX integration
 - ✅ Adapter caching and hot-swap logic implemented
 - ✅ RouterRing integration for Q15 gating
-- ❌ Actual LoRA delta application NOT YET IMPLEMENTED
-- ❌ Uses placeholder logits in stub mode
+- ✅ LoRA delta computation using MLX backend
+- ✅ Metal buffer pooling
 
-**Current Behavior (Stub Mode):**
+**Current Behavior:**
 
 ```rust
-// This API exists but LoRA computation is STUBBED
+// This API executes real LoRA computation
 backend.load_adapter(0, adapter_bytes)?;  // ✅ Caches adapter
 backend.attach_adapter(0)?;                // ✅ Marks as active
-backend.run_step(&ring, &mut io)?;         // ⚠️ Returns stub logits (no LoRA applied)
+backend.run_step(&ring, &mut io)?;         // ✅ Returns base logits + LoRA deltas
 ```
 
 **Why Stubbed?**

@@ -1,8 +1,8 @@
 //! Metrics gate: verifies ARR/ECS/HLR/CR thresholds
 
 use crate::{Gate, OrchestratorConfig};
+use adapteros_core::{AosError, Result};
 use adapteros_db::Db;
-use anyhow::Result;
 
 #[derive(Debug, Clone)]
 pub struct MetricsGate {
@@ -44,7 +44,7 @@ impl Gate for MetricsGate {
         .bind(&config.cpid)
         .fetch_optional(db.pool())
         .await?
-        .ok_or_else(|| anyhow::anyhow!("No audit found for CPID: {}", config.cpid))?;
+        .ok_or_else(|| AosError::NotFound(format!("No audit found for CPID: {}", config.cpid)))?;
 
         // Parse audit results
         let result: serde_json::Value = serde_json::from_str(&audit.result_json)?;
@@ -75,7 +75,10 @@ impl Gate for MetricsGate {
         }
 
         if !failures.is_empty() {
-            anyhow::bail!("Hallucination metrics failed: {}", failures.join(", "));
+            return Err(AosError::Validation(format!(
+                "Hallucination metrics failed: {}",
+                failures.join(", ")
+            )));
         }
 
         tracing::info!(

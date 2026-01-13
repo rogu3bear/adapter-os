@@ -435,6 +435,12 @@ pub struct TrainingConfigRequest {
     /// Force resume even when pipeline/checkpoint compatibility checks fail.
     #[serde(default)]
     pub force_resume: Option<bool>,
+    /// Enable multi-module training (train separate weights per target module).
+    #[serde(default)]
+    pub multi_module_training: Option<bool>,
+    /// Layer indices for LoRA injection (e.g., [0, 8, 16, 24, 31]).
+    #[serde(default)]
+    pub lora_layer_indices: Option<Vec<usize>>,
 }
 
 #[cfg(feature = "server")]
@@ -735,12 +741,24 @@ pub struct TrainingJobResponse {
     pub estimated_completion: Option<String>,
 
     // Backend and determinism
+    //
+    // NOTE: These fields use `String` rather than `TrainingBackendKind` enum for
+    // backward compatibility with existing clients. When comparing these values,
+    // use `TrainingBackendKind::as_str()` (e.g., `TrainingBackendKind::CoreML.as_str()`)
+    // rather than hardcoded string literals. Consider migrating to typed enum fields
+    // in a future major version (2.0) for improved type safety.
+    //
+    // Valid values: "auto", "coreml", "mlx", "metal", "cpu"
+    /// Requested backend for training (auto/coreml/mlx/metal/cpu).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub requested_backend: Option<String>,
+    /// Backend policy controlling fallback semantics (auto/coreml_only/coreml_else_fallback).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backend_policy: Option<String>,
+    /// Explicit fallback backend when CoreML is unavailable (mlx/metal).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub coreml_training_fallback: Option<String>,
+    /// Actual backend used for training (resolved from request + availability).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backend: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1225,6 +1243,8 @@ impl From<TrainingConfigRequest> for TrainingConfig {
             validation_split: req.validation_split,
             preprocessing: req.preprocessing,
             force_resume: req.force_resume.unwrap_or(false),
+            multi_module_training: false,
+            lora_layer_indices: Vec::new(),
         }
     }
 }
@@ -1340,6 +1360,12 @@ pub struct UploadDatasetRequest {
     pub name: String,
     pub description: Option<String>,
     pub format: String, // 'patches', 'jsonl', 'txt', 'custom'
+    #[serde(default)]
+    pub auto_train: bool,
+    pub adapter_name: Option<String>,
+    pub base_model_id: Option<String>,
+    pub training_config: Option<String>,
+    pub post_actions: Option<String>,
 }
 
 /// Upload dataset response
@@ -1367,6 +1393,12 @@ pub struct UploadDatasetResponse {
     #[serde(default)]
     pub reused: bool,
     pub created_at: String,
+    /// Training job ID if auto_train was enabled
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub training_job_id: Option<String>,
+    /// Stack ID created after training (if post_actions.create_stack=true)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stack_id: Option<String>,
 }
 
 /// Dataset response

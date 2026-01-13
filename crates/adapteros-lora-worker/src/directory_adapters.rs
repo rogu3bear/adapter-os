@@ -9,7 +9,7 @@ use adapteros_core::{B3Hash, Result};
 use adapteros_platform::common::PlatformUtils;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
 use tracing::info;
 
@@ -173,6 +173,7 @@ fn generate_weights(fingerprint: &B3Hash, rank: usize, hidden_dim: usize) -> LoR
     }
 
     LoRAWeights {
+        modules: std::collections::HashMap::new(),
         lora_a,
         lora_b,
         moe_config: None,

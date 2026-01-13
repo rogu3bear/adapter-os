@@ -3,7 +3,7 @@
 //! Provides centralized dependency resolution with graceful degradation when
 //! required paths or tools are unavailable.
 
-use anyhow::{Context, Result};
+use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
@@ -225,7 +225,7 @@ impl DependencyChecker {
         let deps = self
             .definitions
             .get(gate_id)
-            .context(format!("Unknown gate: {}", gate_id))?;
+            .ok_or_else(|| AosError::Internal(format!("Unknown gate: {}", gate_id)))?;
 
         let mut result = DependencyCheckResult {
             gate_id: gate_id.to_string(),

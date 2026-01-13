@@ -59,21 +59,21 @@ pub enum StatusColor {
 impl StatusColor {
     fn dot_class(&self) -> &'static str {
         match self {
-            Self::Gray => "bg-gray-500",
-            Self::Green => "bg-green-500",
-            Self::Yellow => "bg-yellow-500",
-            Self::Red => "bg-red-500",
-            Self::Blue => "bg-blue-500",
+            Self::Gray => "bg-muted-foreground",
+            Self::Green => "bg-status-success",
+            Self::Yellow => "bg-status-warning",
+            Self::Red => "bg-status-error",
+            Self::Blue => "bg-status-info",
         }
     }
 
     fn pulse_class(&self) -> &'static str {
         match self {
-            Self::Gray => "bg-gray-400",
-            Self::Green => "bg-green-400",
-            Self::Yellow => "bg-yellow-400",
-            Self::Red => "bg-red-400",
-            Self::Blue => "bg-blue-400",
+            Self::Gray => "bg-muted",
+            Self::Green => "bg-status-success/80",
+            Self::Yellow => "bg-status-warning/80",
+            Self::Red => "bg-status-error/80",
+            Self::Blue => "bg-status-info/80",
         }
     }
 }
@@ -85,19 +85,55 @@ pub fn StatusIndicator(
     #[prop(optional)] pulsing: bool,
     #[prop(optional, into)] label: Option<String>,
 ) -> impl IntoView {
+    // Generate aria-label based on color if no text label is provided
+    let status_label = move || {
+        let status_text = match color {
+            StatusColor::Gray => "Unknown",
+            StatusColor::Green => "Active",
+            StatusColor::Yellow => "Warning",
+            StatusColor::Red => "Error",
+            StatusColor::Blue => "Info",
+        };
+        format!("Status: {}", status_text)
+    };
+
+    // Clone label for use in closure
+    let label_for_check = label.clone();
+
     view! {
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2" role="status">
             <span class="relative flex h-3 w-3">
                 {move || {
                     if pulsing {
                         view! {
-                            <span class=format!("animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 {}", color.pulse_class())></span>
+                            <span
+                                class=format!("animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 {}", color.pulse_class())
+                                aria-hidden="true"
+                            ></span>
                         }.into_any()
                     } else {
                         view! {}.into_any()
                     }
                 }}
-                <span class=format!("relative inline-flex rounded-full h-3 w-3 {}", color.dot_class())></span>
+                {move || {
+                    if label_for_check.is_some() {
+                        // Dot is decorative when label text is present
+                        view! {
+                            <span
+                                class=format!("relative inline-flex rounded-full h-3 w-3 {}", color.dot_class())
+                                aria-hidden="true"
+                            ></span>
+                        }.into_any()
+                    } else {
+                        // Dot conveys meaning when no label text
+                        view! {
+                            <span
+                                class=format!("relative inline-flex rounded-full h-3 w-3 {}", color.dot_class())
+                                aria-label=status_label()
+                            ></span>
+                        }.into_any()
+                    }
+                }}
             </span>
             {label.map(|l| view! {
                 <span class="text-sm text-muted-foreground">{l}</span>
@@ -255,10 +291,13 @@ pub fn BackendStatusIndicator(
 
     view! {
         <div class="inline-flex items-center gap-1.5">
-            <span class=format!(
-                "inline-block w-2 h-2 rounded-full {}",
-                status.status_color().dot_class()
-            )></span>
+            <span
+                class=format!(
+                    "inline-block w-2 h-2 rounded-full {}",
+                    status.status_color().dot_class()
+                )
+                aria-hidden="true"
+            ></span>
             <span class="text-sm">{backend_name}</span>
             {move || {
                 if is_downgraded {

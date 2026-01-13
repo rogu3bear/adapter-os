@@ -58,13 +58,13 @@ pub fn Repositories() -> impl IntoView {
                     <div class="flex items-center gap-2">
                         <StatusFilter filter=status_filter/>
                         <button
-                            class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                            class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                             on:click=move |_| register_dialog_open.set(true)
                         >
                             "Register Repository"
                         </button>
                         <button
-                            class="inline-flex items-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent"
+                            class="inline-flex items-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                             on:click=move |_| refetch_repos()
                         >
                             "Refresh"
@@ -292,7 +292,9 @@ fn RepositoryDetailPanel(
             <div class="flex items-center justify-between">
                 <h2 class="text-xl font-semibold">"Repository Details"</h2>
                 <button
-                    class="text-muted-foreground hover:text-foreground"
+                    class="text-muted-foreground hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
+                    aria-label="Close details"
+                    type="button"
                     on:click=move |_| selected_repo_id.set(None)
                 >
                     <svg
@@ -428,7 +430,7 @@ fn RepositoryContent(
                     <RepoStatusBadge status=repo_data.repository.status.clone()/>
                     <div class="flex items-center gap-2">
                         <button
-                            class="inline-flex items-center gap-2 rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-50"
+                            class="inline-flex items-center gap-2 rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                             disabled=syncing.get() || is_scanning
                             on:click={
                                 let repo_id = repo_id_sync.clone();
@@ -446,7 +448,7 @@ fn RepositoryContent(
                             {move || if syncing.get() || is_scanning { "Syncing..." } else { "Sync Now" }}
                         </button>
                         <button
-                            class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                            class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                             on:click=move |_| publish_dialog_open.set(true)
                         >
                             "Publish Adapter"
@@ -706,7 +708,9 @@ fn RegisterRepositoryDialog(open: RwSignal<bool>) -> impl IntoView {
                         <p class="text-sm text-muted-foreground">"Add a codebase for adapter training"</p>
                     </div>
                     <button
-                        class="rounded-sm opacity-70 hover:opacity-100"
+                        class="rounded-sm opacity-70 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                        aria-label="Close"
+                        type="button"
                         on:click=move |_| {
                             open.set(false);
                             error.set(None);
@@ -761,7 +765,7 @@ fn RegisterRepositoryDialog(open: RwSignal<bool>) -> impl IntoView {
                 // Footer
                 <div class="flex justify-end gap-2 mt-6">
                     <button
-                        class="inline-flex items-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent"
+                        class="inline-flex items-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                         on:click=move |_| {
                             open.set(false);
                             error.set(None);
@@ -770,7 +774,7 @@ fn RegisterRepositoryDialog(open: RwSignal<bool>) -> impl IntoView {
                         "Cancel"
                     </button>
                     <button
-                        class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                        class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                         disabled=submitting.get()
                         on:click=move |_| {
                             // Validate
@@ -866,7 +870,9 @@ fn PublishAdapterDialog(open: RwSignal<bool>, #[prop(into)] repo_id: String) -> 
                         <p class="text-sm text-muted-foreground">"Create an adapter from this repository"</p>
                     </div>
                     <button
-                        class="rounded-sm opacity-70 hover:opacity-100"
+                        class="rounded-sm opacity-70 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                        aria-label="Close"
+                        type="button"
                         on:click=move |_| {
                             open.set(false);
                             error.set(None);
@@ -916,7 +922,7 @@ fn PublishAdapterDialog(open: RwSignal<bool>, #[prop(into)] repo_id: String) -> 
                 // Footer
                 <div class="flex justify-end gap-2 mt-6">
                     <button
-                        class="inline-flex items-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent"
+                        class="inline-flex items-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                         on:click=move |_| {
                             open.set(false);
                             error.set(None);

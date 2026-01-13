@@ -303,6 +303,7 @@ impl DefaultTrainingDatasetService {
                 &dataset_id,
                 &validation_status,
                 validation_errors.as_deref(),
+                None,
             )
             .await
             .map_err(|e| db_error(format!("Failed to update validation status: {}", e)))?;

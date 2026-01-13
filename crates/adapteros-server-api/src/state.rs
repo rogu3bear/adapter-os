@@ -425,6 +425,9 @@ pub struct SecurityConfigApi {
     /// Dev bypass: skip all authentication (debug builds only)
     #[serde(default)]
     pub dev_bypass: bool,
+    /// Allow user self-registration (defaults to false)
+    #[serde(default)]
+    pub allow_registration: Option<bool>,
 }
 
 fn default_clock_skew_seconds() -> u64 {

@@ -355,8 +355,15 @@ pub fn mount() {
     let _ = REDACTION_PATTERNS.get_or_init(RedactionPatterns::new);
     boot_log("wasm", "redaction patterns compiled");
 
-    // Initialize tracing
-    tracing_wasm::set_as_global_default();
+    // Initialize tracing (safe to call multiple times - ignore if already set)
+    // Use OnceLock to ensure we only set tracing once, even if mount() is called multiple times
+    static TRACING_INIT: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    TRACING_INIT.get_or_init(|| {
+        // tracing_wasm::set_as_global_default() panics if called twice, so catch it
+        let _ = std::panic::catch_unwind(|| {
+            tracing_wasm::set_as_global_default();
+        });
+    });
     boot_log("wasm", "tracing initialized");
 
     // PRD-UI-000: Signal runtime is initialized

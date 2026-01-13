@@ -516,3 +516,52 @@ textarea,
                 box-shadow 300ms ease,
                 border-color 300ms ease;
 }
+
+/* ===== Text Contrast Safety for Glass Theme ===== */
+/* Ensure text remains readable on translucent glass backgrounds */
+
+/* Add subtle text shadow for improved legibility on glass */
+.theme-glass .card-title,
+.theme-glass .dialog-title,
+.theme-glass h1,
+.theme-glass h2,
+.theme-glass h3 {
+    text-shadow: 0 0 1px var(--color-background);
+}
+
+/* Small text gets a more opaque background to ensure readability */
+.theme-glass .text-xs,
+.theme-glass .text-sm {
+    text-shadow: 0 0 2px var(--color-background);
+}
+
+/* Ensure status badges remain readable on glass */
+.theme-glass .badge {
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+}
+
+/* Form labels need extra contrast on glass backgrounds */
+.theme-glass .label,
+.theme-glass label {
+    text-shadow: 0 0 1px var(--color-background);
+}
+
+/* Table cells with important data should have subtle backing */
+.theme-glass .table-cell {
+    text-shadow: 0 0 1px var(--color-background);
+}
+
+/* Muted foreground text needs higher opacity on glass for readability */
+.theme-glass .text-muted-foreground {
+    opacity: 0.95; /* Slight bump from default to counter translucency */
+}
+
+/* Status indicator text needs to be clearly visible */
+.theme-glass .text-status-error,
+.theme-glass .text-status-warning,
+.theme-glass .text-status-success,
+.theme-glass .text-status-info {
+    text-shadow: 0 0 2px var(--color-background);
+    font-weight: 500; /* Slightly heavier for better readability */
+}

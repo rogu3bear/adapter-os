@@ -47,16 +47,18 @@ if command -v rustc >/dev/null 2>&1; then
   info "rustc version: $(rustc -V)"
 fi
 
-if [ ! -f ".env" ]; then
+# Load environment using unified loader
+SCRIPT_DIR="$ROOT_DIR"
+source "$ROOT_DIR/scripts/lib/env-loader.sh"
+
+if ! check_env_file ".env"; then
   fail "Missing .env. Copy .env.example to .env and fill required values."
 fi
 
-set -a
-source .env
+load_env_file ".env" --no-override
 if [ -f ".env.local" ]; then
-  source .env.local
+  load_env_file ".env.local" --no-override
 fi
-set +a
 
 REQUIRED_ENV_VARS=("AOS_DATABASE_URL")
 for var in "${REQUIRED_ENV_VARS[@]}"; do

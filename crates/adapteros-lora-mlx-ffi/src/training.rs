@@ -389,6 +389,7 @@ pub struct MlxOptimizer {
 // Safety: MLX handles are thread-safe for read operations within a single thread.
 // Cross-thread usage requires external synchronization.
 unsafe impl Send for MlxOptimizer {}
+unsafe impl Sync for MlxOptimizer {}
 
 impl MlxOptimizer {
     /// Create an SGD optimizer with optional momentum.
