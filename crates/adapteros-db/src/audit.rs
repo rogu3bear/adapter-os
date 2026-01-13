@@ -27,6 +27,19 @@ pub struct AuditLog {
     pub metadata_json: Option<String>,
 }
 
+/// Statistics about inference abstention for AARA lifecycle monitoring
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InferenceAbstentionStats {
+    /// Total number of inference requests
+    pub total_inferences: usize,
+    /// Number of requests that resulted in abstention
+    pub abstained_count: usize,
+    /// Abstention rate (0.0 to 1.0)
+    pub abstention_rate: f32,
+    /// Average confidence score across all inferences
+    pub avg_confidence: Option<f32>,
+}
+
 impl Db {
     /// Log an audit event
     ///
@@ -145,6 +158,178 @@ impl Db {
         .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(id)
+    }
+
+    // =========================================================================
+    // AARA Lifecycle: ACT Phase - Inference Decision Audit
+    // =========================================================================
+
+    /// Log an inference decision for the AARA lifecycle audit trail
+    ///
+    /// This logs all inference decisions including:
+    /// - Which adapters were considered and selected
+    /// - Gate scores for each adapter
+    /// - Whether abstention occurred
+    /// - Confidence levels
+    ///
+    /// # Arguments
+    /// * `request_id` - Unique inference request ID
+    /// * `tenant_id` - Tenant context
+    /// * `user_id` - User who made the request
+    /// * `adapters_considered` - All adapters that were candidates
+    /// * `adapters_selected` - Adapters that were actually used
+    /// * `max_gate_score` - Maximum gate score observed
+    /// * `abstained` - Whether the system abstained from answering
+    /// * `abstention_reason` - Reason for abstention (if abstained)
+    /// * `latency_ms` - Total inference latency
+    pub async fn log_inference_decision(
+        &self,
+        request_id: &str,
+        tenant_id: &str,
+        user_id: &str,
+        adapters_considered: &[String],
+        adapters_selected: &[String],
+        max_gate_score: f32,
+        abstained: bool,
+        abstention_reason: Option<&str>,
+        latency_ms: u64,
+    ) -> Result<String> {
+        // Build metadata JSON for the inference decision
+        let metadata = serde_json::json!({
+            "adapters_considered": adapters_considered,
+            "adapters_selected": adapters_selected,
+            "max_gate_score": max_gate_score,
+            "abstained": abstained,
+            "abstention_reason": abstention_reason,
+            "latency_ms": latency_ms,
+            "aara_phase": "act",
+        });
+
+        let action = if abstained {
+            "inference.abstain"
+        } else {
+            "inference.execute"
+        };
+
+        let status = if abstained { "abstained" } else { "success" };
+
+        self.log_audit(
+            user_id,
+            "user", // Role not always known at inference time
+            tenant_id,
+            action,
+            "inference",
+            Some(request_id),
+            status,
+            abstention_reason,
+            None,
+            Some(&metadata.to_string()),
+        )
+        .await
+    }
+
+    /// Query inference decisions for audit analysis (AARA lifecycle)
+    ///
+    /// Returns all inference audit entries for a tenant within a time range.
+    pub async fn query_inference_decisions(
+        &self,
+        tenant_id: &str,
+        start_date: Option<&str>,
+        end_date: Option<&str>,
+        abstained_only: bool,
+        limit: i64,
+    ) -> Result<Vec<AuditLog>> {
+        let limit = limit.clamp(1, 1000);
+
+        let mut query = String::from(
+            "SELECT id, timestamp, user_id, user_role, tenant_id, action, resource_type,
+                    resource_id, status, error_message, ip_address, metadata_json
+             FROM audit_logs
+             WHERE tenant_id = ? AND resource_type = 'inference'",
+        );
+
+        if abstained_only {
+            query.push_str(" AND status = 'abstained'");
+        }
+
+        if start_date.is_some() {
+            query.push_str(" AND timestamp >= ?");
+        }
+        if end_date.is_some() {
+            query.push_str(" AND timestamp <= ?");
+        }
+
+        query.push_str(" ORDER BY timestamp DESC LIMIT ?");
+
+        let mut q = sqlx::query_as::<_, AuditLog>(&query).bind(tenant_id);
+
+        if let Some(start) = start_date {
+            q = q.bind(start);
+        }
+        if let Some(end) = end_date {
+            q = q.bind(end);
+        }
+        q = q.bind(limit);
+
+        q.fetch_all(self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))
+    }
+
+    /// Get inference abstention statistics for a tenant (AARA lifecycle)
+    pub async fn get_inference_abstention_stats(
+        &self,
+        tenant_id: &str,
+        start_date: Option<&str>,
+        end_date: Option<&str>,
+    ) -> Result<InferenceAbstentionStats> {
+        let mut query = String::from(
+            "SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN status = 'abstained' THEN 1 ELSE 0 END) as abstained,
+                AVG(CASE WHEN metadata_json IS NOT NULL
+                    THEN CAST(json_extract(metadata_json, '$.max_gate_score') AS REAL)
+                    ELSE NULL END) as avg_confidence
+             FROM audit_logs
+             WHERE tenant_id = ? AND resource_type = 'inference'",
+        );
+
+        if start_date.is_some() {
+            query.push_str(" AND timestamp >= ?");
+        }
+        if end_date.is_some() {
+            query.push_str(" AND timestamp <= ?");
+        }
+
+        let mut q = sqlx::query(&query).bind(tenant_id);
+
+        if let Some(start) = start_date {
+            q = q.bind(start);
+        }
+        if let Some(end) = end_date {
+            q = q.bind(end);
+        }
+
+        let row = q
+            .fetch_one(self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
+
+        use sqlx::Row;
+        let total: i64 = row.try_get("total").unwrap_or(0);
+        let abstained: i64 = row.try_get("abstained").unwrap_or(0);
+        let avg_confidence: Option<f64> = row.try_get("avg_confidence").ok();
+
+        Ok(InferenceAbstentionStats {
+            total_inferences: total as usize,
+            abstained_count: abstained as usize,
+            abstention_rate: if total > 0 {
+                abstained as f32 / total as f32
+            } else {
+                0.0
+            },
+            avg_confidence: avg_confidence.map(|c| c as f32),
+        })
     }
 
     /// Query audit logs with filters (DEPRECATED - use query_audit_logs_for_tenant instead)

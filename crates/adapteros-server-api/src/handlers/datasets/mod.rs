@@ -27,6 +27,7 @@ mod generate;
 mod helpers;
 mod progress_sse;
 mod safety;
+mod synthesize;
 mod types;
 mod upload;
 mod upload_sessions;
@@ -75,6 +76,10 @@ pub use safety::{
     validate_safety_status, validate_trust_state, DatasetSafetyCheckResult, SafetySignals,
     SafetyStatusValidationResult, BLOCKED_TRUST_STATES, SAFE_TRUST_STATES, VALID_SAFETY_STATUSES,
     VALID_TRUST_STATES,
+};
+pub use synthesize::{
+    synthesize_dataset, DocumentChunk, ExampleCounts, SynthesisConfig, SynthesizeDatasetRequest,
+    SynthesizeDatasetResponse,
 };
 pub use upload::{initiate_chunked_upload, upload_dataset};
 pub use validation::{
@@ -149,6 +154,8 @@ pub use safety::__path_preview_dataset;
 pub use safety::__path_update_dataset_safety;
 #[doc(hidden)]
 pub use safety::__path_update_dataset_version_safety;
+#[doc(hidden)]
+pub use synthesize::__path_synthesize_dataset;
 #[doc(hidden)]
 pub use upload::__path_initiate_chunked_upload;
 #[doc(hidden)]

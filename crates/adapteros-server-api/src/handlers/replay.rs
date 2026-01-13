@@ -676,6 +676,8 @@ pub async fn execute_replay_session(
         worker_auth_token: None,
         policy_mask_digest_b3: None, // Not tracked for session-based replay
         utf8_healing: Some(true),
+        abstention_threshold: None, // AARA lifecycle
+        citation_mode: None,        // AARA lifecycle
     };
 
     // Execute inference through the unified pipeline with replay context (PRD-02)

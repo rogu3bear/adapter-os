@@ -173,6 +173,34 @@ pub struct InferenceRequestInternal {
     /// Enable UTF-8 token healing (default: true)
     /// When enabled, incomplete multi-byte UTF-8 sequences are buffered until complete
     pub utf8_healing: Option<bool>,
+
+    // === AARA Lifecycle: ACT Phase ===
+    /// Abstention threshold for confidence-aware responses (AARA lifecycle)
+    ///
+    /// When the maximum adapter gate score falls below this threshold,
+    /// the system returns an abstention response instead of a potentially
+    /// unreliable answer. Range: 0.0 to 1.0 (default: 0.3)
+    pub abstention_threshold: Option<f32>,
+    /// Citation mode for responses (AARA lifecycle)
+    ///
+    /// Controls whether and how citations are included in responses:
+    /// - "none": No citations
+    /// - "on_request": Include when explicitly requested
+    /// - "always": Always include citations
+    pub citation_mode: Option<CitationMode>,
+}
+
+/// Citation mode for inference responses (AARA lifecycle)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CitationMode {
+    /// No citations in responses
+    #[default]
+    None,
+    /// Include citations only when requested
+    OnRequest,
+    /// Always include citations
+    Always,
 }
 
 impl InferenceRequestInternal {
@@ -225,7 +253,31 @@ impl InferenceRequestInternal {
             created_at: std::time::Instant::now(),
             worker_auth_token: None,
             utf8_healing: None,
+            abstention_threshold: None,
+            citation_mode: None,
         }
+    }
+
+    /// Set abstention threshold for confidence-aware responses
+    pub fn with_abstention_threshold(mut self, threshold: f32) -> Self {
+        self.abstention_threshold = Some(threshold.clamp(0.0, 1.0));
+        self
+    }
+
+    /// Set citation mode
+    pub fn with_citation_mode(mut self, mode: CitationMode) -> Self {
+        self.citation_mode = Some(mode);
+        self
+    }
+
+    /// Get effective abstention threshold (default: 0.3)
+    pub fn effective_abstention_threshold(&self) -> f32 {
+        self.abstention_threshold.unwrap_or(0.3)
+    }
+
+    /// Check if abstention should be triggered based on confidence
+    pub fn should_abstain(&self, max_gate_score: f32) -> bool {
+        max_gate_score < self.effective_abstention_threshold()
     }
 
     /// Set streaming mode
@@ -333,6 +385,90 @@ pub struct InferenceResult {
     /// BLAKE3 digest of the StopPolicySpec used (hex encoded)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stop_policy_digest_b3: Option<String>,
+
+    // AARA Lifecycle: ACT Phase
+    /// Abstention information when confidence was too low (AARA lifecycle)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub abstention: Option<AbstentionInfo>,
+}
+
+/// Information about an abstention decision (AARA lifecycle ACT phase)
+///
+/// When the system's confidence in providing a reliable answer falls below
+/// the configured threshold, it abstains from answering and returns this info.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct AbstentionInfo {
+    /// Reason for abstention
+    pub reason: AbstentionReason,
+    /// Maximum adapter gate score observed
+    pub max_gate_score: f32,
+    /// Threshold that triggered abstention
+    pub threshold: f32,
+    /// Human-readable message explaining the abstention
+    pub message: String,
+    /// Suggestion for the user (e.g., how to get better results)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suggestion: Option<String>,
+}
+
+/// Reason for abstention (AARA lifecycle)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AbstentionReason {
+    /// Confidence score below threshold
+    LowConfidence,
+    /// No adapters available for the topic
+    NoAdaptersAvailable,
+    /// Topic not covered by trained documents
+    TopicNotCovered,
+    /// Request explicitly blocked by policy
+    PolicyBlocked,
+}
+
+impl AbstentionInfo {
+    /// Create a low confidence abstention
+    pub fn low_confidence(max_gate_score: f32, threshold: f32) -> Self {
+        Self {
+            reason: AbstentionReason::LowConfidence,
+            max_gate_score,
+            threshold,
+            message: "I don't have reliable information about this topic.".to_string(),
+            suggestion: Some(
+                "This topic may not be covered in the trained documents. \
+                 Try rephrasing your question or asking about a related topic."
+                    .to_string(),
+            ),
+        }
+    }
+
+    /// Create a no adapters abstention
+    pub fn no_adapters() -> Self {
+        Self {
+            reason: AbstentionReason::NoAdaptersAvailable,
+            max_gate_score: 0.0,
+            threshold: 0.0,
+            message: "No relevant knowledge adapters are available for this query.".to_string(),
+            suggestion: Some("Ensure the appropriate adapters are loaded and active.".to_string()),
+        }
+    }
+
+    /// Create a topic not covered abstention
+    pub fn topic_not_covered(max_gate_score: f32, threshold: f32) -> Self {
+        Self {
+            reason: AbstentionReason::TopicNotCovered,
+            max_gate_score,
+            threshold,
+            message: "This topic is not covered by the available training data.".to_string(),
+            suggestion: Some(
+                "Consider training an adapter on documents related to this topic.".to_string(),
+            ),
+        }
+    }
+
+    /// Check if this abstention is due to low confidence
+    pub fn is_low_confidence(&self) -> bool {
+        self.reason == AbstentionReason::LowConfidence
+    }
 }
 
 /// Router decision record for audit trail
