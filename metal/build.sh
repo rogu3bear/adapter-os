@@ -13,6 +13,10 @@
 
 set -e
 
+# Source shared toolchain detection logic
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/common.sh"
+
 # Set deterministic timestamp for reproducible builds
 export SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-1704067200}
 
@@ -24,13 +28,41 @@ mkdir -p ../crates/adapteros-lora-kernel-mtl/shaders
 # Compile modular kernels to AIR (Apple Intermediate Representation) with optimization
 echo "📦 Compiling modular kernels..."
 
+# Detect Metal toolchain
+METAL_CMD=$(resolve_metal_toolchain)
+SDK_PATH=$(get_sdk_path)
+SDK_ARGS=""
+if [ -n "$SDK_PATH" ]; then
+    SDK_ARGS="-isysroot $SDK_PATH"
+fi
+
+if [ -n "$METAL_CMD" ]; then
+    echo "  Using Metal toolchain from: $METAL_CMD"
+else
+    echo "  Using system Metal (xcrun)"
+    METAL_CMD="xcrun"
+    SDK_ARGS="-sdk macosx metal"
+fi
+
 # Compile the unified kernel file that includes all modules
 echo "  - adapteros_kernels.metal (includes all modules)"
-xcrun -sdk macosx metal -c src/kernels/adapteros_kernels.metal -o adapteros_kernels.air -std=metal3.1
+$METAL_CMD $SDK_ARGS -c src/kernels/adapteros_kernels.metal -o adapteros_kernels.air -std=metal3.1
 
 # Link into metallib
 echo "🔗 Linking modular metallib..."
-xcrun -sdk macosx metallib adapteros_kernels.air -o adapteros_kernels.metallib
+
+METALLIB_CMD=$(resolve_metallib_toolchain)
+METALLIB_ARGS=""
+
+if [ -n "$METALLIB_CMD" ]; then
+    echo "  Using metallib from: $METALLIB_CMD"
+else
+    echo "  Using system metallib (xcrun)"
+    METALLIB_CMD="xcrun"
+    METALLIB_ARGS="-sdk macosx metallib"
+fi
+
+$METALLIB_CMD $METALLIB_ARGS adapteros_kernels.air -o adapteros_kernels.metallib
 
 echo "✅ Modular Metal library built: adapteros_kernels.metallib"
 echo ""
@@ -45,7 +77,13 @@ echo "   Saved to: kernel_hash.txt"
 # Get Metal SDK and compiler versions
 echo "🔍 Gathering build metadata..."
 METAL_SDK_VERSION=$(xcrun --show-sdk-version 2>/dev/null || echo "unknown")
-COMPILER_VERSION=$(xcrun metal --version 2>/dev/null | head -1 || echo "unknown")
+
+if [ "$METAL_CMD" = "xcrun" ]; then
+    COMPILER_VERSION=$(xcrun metal --version 2>/dev/null | head -1 || echo "unknown")
+else
+    COMPILER_VERSION=$($METAL_CMD --version 2>/dev/null | head -1 || echo "unknown")
+fi
+
 BUILD_TIMESTAMP=$(date -u -r ${SOURCE_DATE_EPOCH} +"%Y-%m-%dT%H:%M:%SZ")
 
 # Log build metadata for reproducibility

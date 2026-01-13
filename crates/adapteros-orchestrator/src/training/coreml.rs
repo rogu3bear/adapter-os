@@ -9,9 +9,9 @@ use std::sync::Arc;
 
 use adapteros_config::CoreMLComputePreference;
 use adapteros_core::{adapter_fs_path_with_root, B3Hash};
+use adapteros_core::{AosError, Result};
 use adapteros_db::CreateCoremlFusionPairParams;
 use adapteros_lora_worker::{ComputeUnits, CoreMLExportJob, CoreMLExportRecord};
-use anyhow::Result;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 
@@ -41,10 +41,10 @@ pub(crate) async fn run_coreml_export_flow(
 
     let export_outcome = (|| -> Result<CoreMLExportRecord> {
         let base_package = adapteros_config::model::get_model_path_with_fallback()
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            .map_err(|e| AosError::Config(e.to_string()))?;
         let tenant = tenant_id.unwrap_or("default");
         let fused_root = adapter_fs_path_with_root(adapters_root, tenant, adapter_id)
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?
+            .map_err(|e| AosError::Internal(e.to_string()))?
             .join("coreml");
         let output_package = if base_package.is_dir() {
             fused_root
@@ -237,15 +237,15 @@ pub(crate) fn resolve_coreml_compute_units() -> ComputeUnits {
 
 #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
 fn perform_coreml_export(job: CoreMLExportJob) -> Result<CoreMLExportRecord> {
-    adapteros_lora_worker::run_coreml_export(job).map_err(|e| anyhow::anyhow!(e.to_string()))
+    adapteros_lora_worker::run_coreml_export(job).map_err(|e| AosError::CoreML(e.to_string()))
 }
 
 #[cfg(not(all(target_os = "macos", feature = "coreml-backend")))]
 pub(crate) fn perform_coreml_export(job: CoreMLExportJob) -> Result<CoreMLExportRecord> {
     if std::env::var("AOS_ALLOW_COREML_EXPORT_STUB").is_err() && !cfg!(test) {
-        return Err(anyhow::anyhow!(
+        return Err(AosError::CoreML(
             "CoreML export requires macOS with coreml-backend feature. \
-             Set AOS_ALLOW_COREML_EXPORT_STUB=1 to create metadata-only package (not recommended for production)"
+             Set AOS_ALLOW_COREML_EXPORT_STUB=1 to create metadata-only package (not recommended for production)".to_string()
         ));
     }
 
@@ -260,10 +260,10 @@ pub(crate) fn perform_coreml_export(job: CoreMLExportJob) -> Result<CoreMLExport
     );
 
     if let Some(parent) = job.output_package.parent() {
-        fs::create_dir_all(parent).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        fs::create_dir_all(parent).map_err(|e| AosError::Io(e.to_string()))?;
     }
     if job.output_package.is_dir() || job.base_package.is_dir() {
-        fs::create_dir_all(&job.output_package).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        fs::create_dir_all(&job.output_package).map_err(|e| AosError::Io(e.to_string()))?;
     }
 
     let base_manifest_path = if job.base_package.is_dir() {
@@ -276,7 +276,7 @@ pub(crate) fn perform_coreml_export(job: CoreMLExportJob) -> Result<CoreMLExport
     let fused_manifest_hash = base_manifest_hash;
 
     let adapter_bytes = fs::read(&job.adapter_aos)
-        .map_err(|e| anyhow::anyhow!(format!("Failed to read adapter bundle: {}", e)))?;
+        .map_err(|e| AosError::Io(format!("Failed to read adapter bundle: {}", e)))?;
     let adapter_hash = B3Hash::hash(&adapter_bytes);
 
     let metadata_path = if job.output_package.is_dir() {
@@ -295,7 +295,7 @@ pub(crate) fn perform_coreml_export(job: CoreMLExportJob) -> Result<CoreMLExport
         "fusion_verified": false
     });
     fs::write(&metadata_path, serde_json::to_vec_pretty(&metadata)?)
-        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        .map_err(|e| AosError::Io(e.to_string()))?;
 
     Ok(CoreMLExportRecord {
         fused_package: job.output_package.clone(),

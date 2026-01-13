@@ -1,7 +1,7 @@
 //! Determinism gate: verifies replay produces zero diff
 
 use crate::{DependencyChecker, Gate, OrchestratorConfig};
-use anyhow::{Context, Result};
+use adapteros_core::{AosError, Result};
 use std::path::Path;
 use tracing::{debug, warn};
 
@@ -50,25 +50,25 @@ impl Gate for DeterminismGate {
                 path
             }
             None => {
-                anyhow::bail!(
+                return Err(AosError::NotFound(format!(
                     "Replay bundle not found: {}. Run determinism test first. \
                      (checked primary: {}, fallbacks: {:?})",
                     config.cpid,
                     bundle_path.display(),
                     deps.optional_paths.get("replay_bundle")
-                );
+                )));
             }
         };
 
         // Load and check replay bundle
         let bundle = adapteros_telemetry::load_replay_bundle(&bundle_path)
-            .context("Failed to load replay bundle")?;
+            .map_err(|e| AosError::Internal(format!("Failed to load replay bundle: {}", e)))?;
 
         // For now, just check that bundle loaded successfully
         // In full implementation, would run actual replay and compare
         // Verify event count is reasonable (> 0)
         if bundle.events.is_empty() {
-            anyhow::bail!("Replay bundle is empty");
+            return Err(AosError::Validation("Replay bundle is empty".to_string()));
         }
 
         tracing::info!(

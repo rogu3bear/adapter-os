@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use adapteros_core::{AosError, B3Hash, GuardLogLevel, SeedMode, SeedScopeGuard};
+use adapteros_core::{AosError, B3Hash, GuardLogLevel, Result, SeedMode, SeedScopeGuard};
 use adapteros_db::ProtectedDb;
 use adapteros_deterministic_exec::spawn_deterministic;
 use adapteros_lora_worker::training::trainer::{EpochMetrics as WorkerEpochMetrics, OptimizerType};
@@ -19,7 +19,6 @@ use adapteros_types::training::{
     ExampleMetadataV1, OptimizerConfigSummary, PreprocessCompression as ApiPreprocessCompression,
     PreprocessingConfig as ApiPreprocessingConfig, TrainingDataContractConfig,
 };
-use anyhow::Result;
 use blake3::Hasher;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
@@ -122,19 +121,19 @@ pub(crate) async fn run_training_job(
                     if let Some(path) = version.aos_path {
                         Some(PathBuf::from(path))
                     } else {
-                        return Err(anyhow::anyhow!(format!(
+                        return Err(AosError::Validation(format!(
                             "Base adapter version {} missing aos_path",
                             base_version_id
                         )));
                     }
                 }
                 Ok(None) => {
-                    return Err(anyhow::anyhow!(format!(
+                    return Err(AosError::NotFound(format!(
                         "Base adapter version {} not found",
                         base_version_id
                     )));
                 }
-                Err(e) => return Err(anyhow::anyhow!(e)),
+                Err(e) => return Err(AosError::Database(e.to_string())),
             }
         }
         _ => None,
@@ -217,6 +216,9 @@ pub(crate) async fn run_training_job(
             hidden_state_layer: orchestrator_cfg.hidden_state_layer.clone(),
             validation_split: orchestrator_cfg.validation_split.unwrap_or(0.0),
             preprocessing: map_preprocessing_config_opt(orchestrator_cfg.preprocessing.clone()),
+            targets: vec!["q_proj".to_string(), "v_proj".to_string()],
+            multi_module_training: false,
+            lora_layer_indices: vec![],
         };
 
         // If a CoreML placement is provided, align hidden_dim to the placement shapes for training.
@@ -335,10 +337,10 @@ pub(crate) async fn run_training_job(
                 dataset_source = "dataset_versions";
 
                 if version_selections.is_empty() {
-                    return Err(anyhow::anyhow!(
+                    return Err(AosError::Validation(format!(
                         "dataset_version_ids provided but empty for job {}",
                         job_id
-                    ));
+                    )));
                 }
 
                 let mut per_version: Vec<(Vec<WorkerTrainingExample>, f32)> = Vec::new();
@@ -347,18 +349,18 @@ pub(crate) async fn run_training_job(
                         .load_dataset_version_examples(&sel.dataset_version_id)
                         .await
                         .map_err(|e| {
-                            anyhow::anyhow!(
+                            AosError::Internal(format!(
                                 "Failed to load dataset version {}: {}",
                                 sel.dataset_version_id,
                                 e
-                            )
+                            ))
                         })?;
                     dataset_version_hashes.push(hash_b3.clone());
                     dataset_ids_for_receipt.push(dataset_id_for_ver);
 
                     if let Some(ref expected_hash) = data_spec_hash_for_training {
                         if expected_hash != &hash_b3 {
-                            return Err(anyhow::anyhow!(format!(
+                            return Err(AosError::Validation(format!(
                                 "Dataset version {} hash mismatch vs data_spec_hash (expected {}, got {})",
                                 sel.dataset_version_id, expected_hash, hash_b3
                             )));
@@ -389,7 +391,7 @@ pub(crate) async fn run_training_job(
                 dataset_manager
                     .load_dataset_examples(&ds_id)
                     .await
-                    .map_err(|e| anyhow::anyhow!("Failed to load dataset: {}", e))?
+                    .map_err(|e| AosError::Internal(format!("Failed to load dataset: {}", e)))?
             }
             _ => {
                 // Fallback: tiny synthetic batch for testing
@@ -493,7 +495,7 @@ pub(crate) async fn run_training_job(
             let (status, metadata) = match worker_cfg.preprocessing.as_ref() {
                 Some(cfg) if cfg.enabled => {
                     let base_model_path = worker_cfg.base_model_path.as_ref().ok_or_else(|| {
-                        anyhow::anyhow!("preprocessing requires base_model_path")
+                        AosError::Config("preprocessing requires base_model_path".to_string())
                     })?;
                     let config_hash = hash_preprocess_config(cfg)?;
                     inputs.insert("preprocess_config_hash".to_string(), config_hash);
@@ -614,7 +616,7 @@ pub(crate) async fn run_training_job(
         if !preprocessed_ready {
             if let Some(cfg) = worker_cfg.preprocessing.as_ref().filter(|cfg| cfg.enabled) {
                 let base_model_path = worker_cfg.base_model_path.as_ref().ok_or_else(|| {
-                    anyhow::anyhow!("preprocessing requires base_model_path")
+                    AosError::Config("preprocessing requires base_model_path".to_string())
                 })?;
                 let contract = TrainingDataContractConfig {
                     contract_version: worker_cfg.training_contract_version.clone(),
@@ -985,7 +987,7 @@ pub(crate) async fn run_training_job(
                             .emit_phase_error(pipeline.current_phase(), &err.to_string());
                     })?
                     .ok_or_else(|| {
-                        let err = anyhow::anyhow!(format!(
+                        let err = AosError::Internal(format!(
                             "Missing training result; cannot resume from {}",
                             pipeline.current_phase().as_str()
                         ));
@@ -1018,7 +1020,7 @@ pub(crate) async fn run_training_job(
                 pipeline
                     .event_context()
                     .emit_phase_error(pipeline.current_phase(), &err_msg);
-                Err(AosError::Training(err_msg))
+                Err(AosError::Internal(err_msg))
             }
         };
 
@@ -1027,7 +1029,7 @@ pub(crate) async fn run_training_job(
                 let training_time_ms = training_result.training_time_ms();
                 if training_loop_executed {
                     let training_result_hash = training_result_hash.clone().ok_or_else(|| {
-                        anyhow::anyhow!("Missing training result hash after training loop")
+                        AosError::Internal("Missing training result hash after training loop".to_string())
                     })?;
                     let mut training_inputs = HashMap::new();
                     training_inputs.insert("split_hash".to_string(), split_summary.split_hash_b3.clone());
@@ -1568,8 +1570,7 @@ fn hash_examples_for_receipt(examples: &[WorkerTrainingExample]) -> String {
 fn hash_training_result_for_receipt(
     training_result: &adapteros_lora_worker::training::trainer::TrainingResult,
 ) -> Result<String> {
-    let bytes = serde_json::to_vec(training_result)
-        .map_err(|e| anyhow::anyhow!("Failed to serialize training result for hashing: {}", e))?;
+    let bytes = serde_json::to_vec(training_result).map_err(|e| AosError::Serialization(e))?;
     Ok(B3Hash::hash(&bytes).to_hex().to_string())
 }
 
@@ -1652,8 +1653,7 @@ async fn resolve_training_config_hash(
 fn compute_pipeline_training_config_hash(worker_cfg: &WorkerTrainingConfig) -> Result<String> {
     let mut snapshot = worker_cfg.clone();
     snapshot.base_model_path = None;
-    let bytes = serde_json::to_vec(&snapshot)
-        .map_err(|e| anyhow::anyhow!("Failed to serialize pipeline training config: {}", e))?;
+    let bytes = serde_json::to_vec(&snapshot).map_err(|e| AosError::Serialization(e))?;
     Ok(B3Hash::hash(&bytes).to_hex().to_string())
 }
 
@@ -1664,11 +1664,11 @@ fn compute_pipeline_base_model_hash(base_model_path: Option<&PathBuf>) -> Result
     let config_path = model_path.join("config.json");
     let hash = if config_path.exists() {
         B3Hash::hash_file(&config_path).map_err(|e| {
-            anyhow::anyhow!(
+            AosError::Io(format!(
                 "Failed to hash base model config {}: {}",
                 config_path.display(),
                 e
-            )
+            ))
         })?
     } else {
         B3Hash::hash(model_path.to_string_lossy().as_bytes())
@@ -1677,8 +1677,7 @@ fn compute_pipeline_base_model_hash(base_model_path: Option<&PathBuf>) -> Result
 }
 
 fn hash_preprocess_config(config: &WorkerPreprocessingConfig) -> Result<String> {
-    let bytes = serde_json::to_vec(config)
-        .map_err(|e| anyhow::anyhow!("Failed to serialize preprocessing config: {}", e))?;
+    let bytes = serde_json::to_vec(config).map_err(|e| AosError::Serialization(e))?;
     Ok(B3Hash::hash(&bytes).to_hex().to_string())
 }
 
@@ -1688,25 +1687,29 @@ fn verify_phase_hash(
     key: &str,
     expected: &str,
 ) -> Result<()> {
-    let receipt = pipeline
-        .receipt(phase)
-        .ok_or_else(|| anyhow::anyhow!("Missing pipeline receipt for {}", phase.as_str()))?;
+    let receipt = pipeline.receipt(phase).ok_or_else(|| {
+        AosError::Internal(format!("Missing pipeline receipt for {}", phase.as_str()))
+    })?;
     let actual = receipt
         .outputs
         .get(key)
         .map(|value| value.as_str())
         .or_else(|| receipt.metadata.get(key).and_then(|value| value.as_str()))
         .ok_or_else(|| {
-            anyhow::anyhow!("Missing {} in pipeline receipt for {}", key, phase.as_str())
+            AosError::Internal(format!(
+                "Missing {} in pipeline receipt for {}",
+                key,
+                phase.as_str()
+            ))
         })?;
     if actual != expected {
-        return Err(anyhow::anyhow!(
+        return Err(AosError::Internal(format!(
             "Pipeline receipt mismatch for {} ({}): expected {}, got {}",
             phase.as_str(),
             key,
             expected,
             actual
-        ));
+        )));
     }
     Ok(())
 }

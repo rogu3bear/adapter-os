@@ -283,7 +283,7 @@ fn RolesSection() -> impl IntoView {
                                         <div class="flex items-center gap-2 text-sm">
                                             <svg
                                                 xmlns="http://www.w3.org/2000/svg"
-                                                class="h-4 w-4 text-green-500"
+                                                class="h-4 w-4 text-status-success"
                                                 viewBox="0 0 24 24"
                                                 fill="none"
                                                 stroke="currentColor"
@@ -414,15 +414,15 @@ fn ApiKeysSection() -> impl IntoView {
             {move || {
                 if let Some(token) = created_key_token.get() {
                     view! {
-                        <div class="glass-panel border-green-500/50 bg-green-500/10 p-4 rounded-lg">
+                        <div class="glass-panel border-status-success/50 bg-status-success/10 p-4 rounded-lg">
                             <div class="flex items-start gap-3">
-                                <div class="rounded-full bg-green-500/20 p-2">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-green-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <div class="rounded-full bg-status-success/20 p-2">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-status-success" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                         <polyline points="20 6 9 17 4 12"/>
                                     </svg>
                                 </div>
                                 <div class="flex-1 min-w-0">
-                                    <h4 class="font-medium text-green-400">"API Key Created"</h4>
+                                    <h4 class="font-medium text-status-success">"API Key Created"</h4>
                                     <p class="text-sm text-muted-foreground mt-1">
                                         "Copy this key now. You won't be able to see it again."
                                     </p>
@@ -439,7 +439,9 @@ fn ApiKeysSection() -> impl IntoView {
                                     </div>
                                 </div>
                                 <button
-                                    class="text-muted-foreground hover:text-foreground"
+                                    class="text-muted-foreground hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
+                                    aria-label="Close"
+                                    type="button"
                                     on:click=move |_| created_key_token.set(None)
                                 >
                                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -464,7 +466,9 @@ fn ApiKeysSection() -> impl IntoView {
                                 <div class="flex items-center justify-between">
                                     <h3 class="text-lg font-medium">"Generate New API Key"</h3>
                                     <button
-                                        class="text-muted-foreground hover:text-foreground"
+                                        class="text-muted-foreground hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
+                                        aria-label="Close"
+                                        type="button"
                                         on:click=move |_| {
                                             show_create_dialog.set(false);
                                             create_error.set(None);
@@ -501,10 +505,15 @@ fn ApiKeysSection() -> impl IntoView {
                                                         class=move || {
                                                             let is_selected = selected_scopes.get().contains(&scope_for_check);
                                                             if is_selected {
-                                                                "px-3 py-1.5 rounded-md text-sm font-medium bg-primary text-primary-foreground"
+                                                                "px-3 py-1.5 rounded-md text-sm font-medium bg-primary text-primary-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                                                             } else {
-                                                                "px-3 py-1.5 rounded-md text-sm font-medium bg-muted text-muted-foreground hover:bg-muted/80"
+                                                                "px-3 py-1.5 rounded-md text-sm font-medium bg-muted text-muted-foreground hover:bg-muted/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                                                             }
+                                                        }
+                                                        type="button"
+                                                        aria-pressed={
+                                                            let scope = scope_for_toggle.clone();
+                                                            move || selected_scopes.get().contains(&scope)
                                                         }
                                                         on:click={
                                                             let scope = scope_for_toggle.clone();

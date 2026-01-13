@@ -490,15 +490,25 @@ select_server_binary() {
     local debug_bin="$PROJECT_ROOT/target/debug/adapteros-server"
     local release_bin="$PROJECT_ROOT/target/release/adapteros-server"
 
+    #region agent log
+    echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"H1\",\"location\":\"service-manager.sh:select_server_binary\",\"message\":\"select_server_binary entry\",\"data\":{\"debug_bin\":\"$debug_bin\",\"release_bin\":\"$release_bin\",\"debug_exists\":\"$([ -f \"$debug_bin\" ] && echo true || echo false)\",\"release_exists\":\"$([ -f \"$release_bin\" ] && echo true || echo false)\",\"dev_mode\":\"$(is_dev_mode && echo true || echo false)\"},\"timestamp\":$(date +%s000)}" >> /Users/mln-dev/Dev/adapter-os/.cursor/debug.log 2>/dev/null || true
+    #endregion agent log
+
     if is_dev_mode; then
         local active_flags
         active_flags=$(get_active_dev_flags)
         if [ -f "$debug_bin" ]; then
             # Log to stderr so stdout only contains the path
             status_msg "Dev mode detected ($active_flags) → using debug binary" >&2
+            #region agent log
+            echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"H1\",\"location\":\"service-manager.sh:select_server_binary\",\"message\":\"dev mode success\",\"data\":{\"selected\":\"$debug_bin\"},\"timestamp\":$(date +%s000)}" >> /Users/mln-dev/Dev/adapter-os/.cursor/debug.log 2>/dev/null || true
+            #endregion agent log
             echo "$debug_bin"
             return 0
         else
+            #region agent log
+            echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"H1\",\"location\":\"service-manager.sh:select_server_binary\",\"message\":\"dev mode binary missing\",\"data\":{\"active_flags\":\"$active_flags\"},\"timestamp\":$(date +%s000)}" >> /Users/mln-dev/Dev/adapter-os/.cursor/debug.log 2>/dev/null || true
+            #endregion agent log
             error_msg "Dev bypass flags are set ($active_flags) but debug binary not found."
             error_msg "Release binaries reject dev flags for security. Build debug binary:"
             error_msg "  cargo build -p adapteros-server"
@@ -509,14 +519,23 @@ select_server_binary() {
     else
         # Prod mode: prefer release, fall back to debug
         if [ -f "$release_bin" ]; then
+            #region agent log
+            echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"H1\",\"location\":\"service-manager.sh:select_server_binary\",\"message\":\"prod mode release success\",\"data\":{\"selected\":\"$release_bin\"},\"timestamp\":$(date +%s000)}" >> /Users/mln-dev/Dev/adapter-os/.cursor/debug.log 2>/dev/null || true
+            #endregion agent log
             echo "$release_bin"
             return 0
         elif [ -f "$debug_bin" ]; then
             # Log to stderr so stdout only contains the path
             warning_msg "No release binary found, using debug binary (slower)" >&2
+            #region agent log
+            echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"H1\",\"location\":\"service-manager.sh:select_server_binary\",\"message\":\"prod mode debug fallback\",\"data\":{\"selected\":\"$debug_bin\"},\"timestamp\":$(date +%s000)}" >> /Users/mln-dev/Dev/adapter-os/.cursor/debug.log 2>/dev/null || true
+            #endregion agent log
             echo "$debug_bin"
             return 0
         else
+            #region agent log
+            echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"H1\",\"location\":\"service-manager.sh:select_server_binary\",\"message\":\"no binary found\",\"data\":{},\"timestamp\":$(date +%s000)}" >> /Users/mln-dev/Dev/adapter-os/.cursor/debug.log 2>/dev/null || true
+            #endregion agent log
             error_msg "No server binary found. Build with:"
             error_msg "  cargo build -p adapteros-server           # debug build"
             error_msg "  cargo build -p adapteros-server --release # release build"
@@ -590,9 +609,27 @@ start_backend() {
 
     # Select binary based on dev mode (dev flags → debug binary, prod → release)
     local server_bin=""
-    if ! server_bin=$(select_server_binary); then
+    #region agent log
+    echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"H1\",\"location\":\"service-manager.sh:start_backend\",\"message\":\"before select_server_binary\",\"data\":{},\"timestamp\":$(date +%s000)}" >> /Users/mln-dev/Dev/adapter-os/.cursor/debug.log 2>/dev/null || true
+    #endregion agent log
+    # Capture stderr from select_server_binary to ensure error messages are visible
+    local select_binary_stderr
+    select_binary_stderr=$(mktemp)
+    if ! server_bin=$(select_server_binary 2>"$select_binary_stderr"); then
+        # Flush stderr and show error messages
+        if [ -s "$select_binary_stderr" ]; then
+            cat "$select_binary_stderr" >&2
+        fi
+        rm -f "$select_binary_stderr"
+        #region agent log
+        echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"H1\",\"location\":\"service-manager.sh:start_backend\",\"message\":\"select_server_binary failed\",\"data\":{},\"timestamp\":$(date +%s000)}" >> /Users/mln-dev/Dev/adapter-os/.cursor/debug.log 2>/dev/null || true
+        #endregion agent log
         return 1
     fi
+    rm -f "$select_binary_stderr"
+    #region agent log
+    echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"H1\",\"location\":\"service-manager.sh:start_backend\",\"message\":\"select_server_binary success\",\"data\":{\"server_bin\":\"$server_bin\"},\"timestamp\":$(date +%s000)}" >> /Users/mln-dev/Dev/adapter-os/.cursor/debug.log 2>/dev/null || true
+    #endregion agent log
 
     # Set up environment
     export DATABASE_URL="${DATABASE_URL:-sqlite://$PROJECT_ROOT/var/aos-cp.sqlite3}"

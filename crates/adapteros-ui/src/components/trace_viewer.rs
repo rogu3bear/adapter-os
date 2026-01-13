@@ -179,9 +179,9 @@ fn TraceListItem(
     };
 
     let status_class = match trace.finish_reason.as_deref() {
-        Some("stop") | Some("end_turn") => "bg-green-500/20 text-green-500",
-        Some("length") => "bg-yellow-500/20 text-yellow-500",
-        Some("error") => "bg-red-500/20 text-red-500",
+        Some("stop") | Some("end_turn") => "bg-status-success/20 text-status-success",
+        Some("length") => "bg-status-warning/20 text-status-warning",
+        Some("error") => "bg-status-error/20 text-status-error",
         _ => "bg-muted text-muted-foreground",
     };
 
@@ -342,17 +342,17 @@ fn TimelineVisualization(
             </div>
             <div class={format!("flex rounded-full overflow-hidden {}", bar_height)}>
                 <div
-                    class="bg-blue-500 transition-all"
+                    class="bg-status-info transition-all"
                     style=format!("width: {}%", routing_pct)
                     title=format!("Routing: {}ms", breakdown.routing_ms)
                 ></div>
                 <div
-                    class="bg-green-500 transition-all"
+                    class="bg-status-success transition-all"
                     style=format!("width: {}%", inference_pct)
                     title=format!("Inference: {}ms", breakdown.inference_ms)
                 ></div>
                 <div
-                    class="bg-purple-500 transition-all"
+                    class="bg-primary transition-all"
                     style=format!("width: {}%", policy_pct)
                     title=format!("Policy: {}ms", breakdown.policy_ms)
                 ></div>
@@ -370,15 +370,15 @@ fn TimelineVisualization(
             </div>
             <div class="flex items-center justify-center gap-4 text-xs">
                 <div class="flex items-center gap-1">
-                    <div class="w-3 h-3 rounded bg-blue-500"></div>
+                    <div class="w-3 h-3 rounded bg-status-info"></div>
                     <span>"Routing"</span>
                 </div>
                 <div class="flex items-center gap-1">
-                    <div class="w-3 h-3 rounded bg-green-500"></div>
+                    <div class="w-3 h-3 rounded bg-status-success"></div>
                     <span>"Inference"</span>
                 </div>
                 <div class="flex items-center gap-1">
-                    <div class="w-3 h-3 rounded bg-purple-500"></div>
+                    <div class="w-3 h-3 rounded bg-primary"></div>
                     <span>"Policy"</span>
                 </div>
             </div>
@@ -490,11 +490,11 @@ fn TokenDecisionRow(decision: TokenDecision, #[prop(optional)] compact: bool) ->
 
     // Entropy indicator color
     let entropy_color = if decision.entropy < 0.5 {
-        "text-green-500"
+        "text-status-success"
     } else if decision.entropy < 1.0 {
-        "text-yellow-500"
+        "text-status-warning"
     } else {
-        "text-red-500"
+        "text-status-error"
     };
 
     let entropy_display = format!("{:.2}", decision.entropy);
@@ -533,9 +533,9 @@ fn ReceiptVerification(
     };
 
     let verified_class = if receipt.verified {
-        "bg-green-500/10 border-green-500/20 text-green-500"
+        "bg-status-success/10 border-status-success/20 text-status-success"
     } else {
-        "bg-yellow-500/10 border-yellow-500/20 text-yellow-500"
+        "bg-status-warning/10 border-status-warning/20 text-status-warning"
     };
 
     let verified_text = if receipt.verified {
@@ -713,7 +713,7 @@ fn TraceViewerInner(trace_id: String, #[prop(optional)] compact: bool) -> impl I
 
 /// Trace detail without back button (for modal use)
 #[component]
-fn TraceDetailStandalone(
+pub fn TraceDetailStandalone(
     trace: InferenceTraceDetailResponse,
     expanded_tokens: ReadSignal<bool>,
     set_expanded_tokens: WriteSignal<bool>,

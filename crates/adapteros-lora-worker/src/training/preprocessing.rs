@@ -33,7 +33,7 @@ const DEFAULT_COREML_EMBEDDING_OUTPUT: &str = "embeddings";
 const DEFAULT_COREML_HIDDEN_OUTPUT: &str = "hidden_states";
 const Q15_MAX: f32 = 32767.0;
 const Q15_MIN: f32 = -32768.0;
-const Q15_DENOM: f32 = 32768.0;
+const Q15_DENOM: f32 = 32767.0;
 
 #[derive(Debug, Clone)]
 pub struct PreprocessStats {

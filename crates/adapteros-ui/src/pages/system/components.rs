@@ -74,7 +74,7 @@ pub fn SseIndicator(state: RwSignal<SseState>) -> impl IntoView {
                     })}
                     // Show live indicator when connected
                     {is_connected.then(|| view! {
-                        <span class="text-xs text-green-600 font-medium">"(workers)"</span>
+                        <span class="text-xs text-status-success font-medium">"(workers)"</span>
                     })}
                 </div>
             }
@@ -278,7 +278,7 @@ fn WorkersSection(workers: Vec<WorkerResponse>) -> impl IntoView {
                             Some(view! {
                                 <div class="text-center py-4 border-t">
                                     <button
-                                        class="text-sm text-muted-foreground hover:text-foreground underline"
+                                        class="text-sm text-muted-foreground hover:text-foreground underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
                                         on:click=move |_| {
                                             visible_count.update(|c| *c = (*c + WORKERS_PAGE_SIZE).min(total));
                                         }
@@ -332,9 +332,9 @@ fn WorkerRow(worker: WorkerResponse) -> impl IntoView {
 
     // Row class for visual highlighting of state changes
     let row_class = if is_unhealthy {
-        "bg-destructive/5"
+        "bg-status-error/5"
     } else if is_transitional {
-        "bg-yellow-500/5"
+        "bg-status-warning/5"
     } else {
         ""
     };
@@ -355,8 +355,8 @@ fn WorkerRow(worker: WorkerResponse) -> impl IntoView {
                     // Show animated indicator for transitional states
                     {is_transitional.then(|| view! {
                         <span class="relative flex h-2 w-2">
-                            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75"></span>
-                            <span class="relative inline-flex rounded-full h-2 w-2 bg-yellow-500"></span>
+                            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-status-warning opacity-75"></span>
+                            <span class="relative inline-flex rounded-full h-2 w-2 bg-status-warning"></span>
                         </span>
                     })}
                     // Show warning icon for error states
@@ -480,7 +480,7 @@ fn NodesSection(nodes: Vec<NodeResponse>) -> impl IntoView {
                             Some(view! {
                                 <div class="text-center py-4 border-t">
                                     <button
-                                        class="text-sm text-muted-foreground hover:text-foreground underline"
+                                        class="text-sm text-muted-foreground hover:text-foreground underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
                                         on:click=move |_| {
                                             visible_count.update(|c| *c = (*c + NODES_PAGE_SIZE).min(total));
                                         }
@@ -801,7 +801,7 @@ fn InferenceBlockersSection(blockers: Vec<InferenceBlocker>) -> impl IntoView {
         <Card title="Inference Blockers".to_string() description="Issues preventing inference from running".to_string()>
             {if blockers.is_empty() {
                 view! {
-                    <div class="flex items-center gap-2 text-green-600">
+                    <div class="flex items-center gap-2 text-status-success">
                         <CheckCircleIcon/>
                         <span>"No blockers - system is ready for inference"</span>
                     </div>
@@ -811,13 +811,13 @@ fn InferenceBlockersSection(blockers: Vec<InferenceBlocker>) -> impl IntoView {
                     <div class="space-y-2">
                         {blockers.into_iter().map(|blocker| {
                             let (icon_color, message) = match blocker {
-                                InferenceBlocker::DatabaseUnavailable => ("text-red-500", "Database is unavailable"),
-                                InferenceBlocker::WorkerMissing => ("text-red-500", "No healthy workers available"),
-                                InferenceBlocker::NoModelLoaded => ("text-yellow-500", "No model loaded"),
-                                InferenceBlocker::ActiveModelMismatch => ("text-yellow-500", "Active model mismatch"),
-                                InferenceBlocker::TelemetryDegraded => ("text-yellow-500", "Telemetry is degraded"),
-                                InferenceBlocker::SystemBooting => ("text-blue-500", "System is still booting"),
-                                InferenceBlocker::BootFailed => ("text-red-500", "Boot failed with critical error"),
+                                InferenceBlocker::DatabaseUnavailable => ("text-status-error", "Database is unavailable"),
+                                InferenceBlocker::WorkerMissing => ("text-status-error", "No healthy workers available"),
+                                InferenceBlocker::NoModelLoaded => ("text-status-warning", "No model loaded"),
+                                InferenceBlocker::ActiveModelMismatch => ("text-status-warning", "Active model mismatch"),
+                                InferenceBlocker::TelemetryDegraded => ("text-status-warning", "Telemetry is degraded"),
+                                InferenceBlocker::SystemBooting => ("text-status-info", "System is still booting"),
+                                InferenceBlocker::BootFailed => ("text-status-error", "Boot failed with critical error"),
                             };
 
                             view! {
@@ -885,11 +885,11 @@ pub fn BootStatusSection(boot: adapteros_api_types::BootStatus) -> impl IntoView
                 {if !boot.degraded.is_empty() {
                     view! {
                         <div class="space-y-2">
-                            <span class="text-sm font-medium text-yellow-600">"Degraded Components"</span>
+                            <span class="text-sm font-medium text-status-warning">"Degraded Components"</span>
                             <div class="space-y-1">
                                 {boot.degraded.iter().map(|d| {
                                     view! {
-                                        <div class="flex items-center gap-2 text-yellow-600">
+                                        <div class="flex items-center gap-2 text-status-warning">
                                             <WarningIcon/>
                                             <span class="text-sm">{format!("{}: {}", d.component, d.reason)}</span>
                                         </div>

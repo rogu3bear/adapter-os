@@ -217,11 +217,11 @@ impl WorkerStatus {
     /// Get the CSS color variable for this status.
     pub fn color(&self) -> &'static str {
         match self {
-            Self::Healthy => "var(--color-green-500, #22c55e)",
-            Self::Degraded => "var(--color-yellow-500, #eab308)",
-            Self::Draining => "var(--color-orange-500, #f97316)",
-            Self::Down => "var(--color-red-500, #ef4444)",
-            Self::Unknown => "var(--color-muted, #6b7280)",
+            Self::Healthy => "var(--color-status-success)",
+            Self::Degraded => "var(--color-status-warning)",
+            Self::Draining => "var(--color-orange-500)",
+            Self::Down => "var(--color-status-error)",
+            Self::Unknown => "var(--color-muted-foreground)",
         }
     }
 
@@ -354,32 +354,32 @@ impl HeatmapData {
 /// Chart color palette using CSS variables.
 pub mod colors {
     /// Primary chart line color
-    pub const PRIMARY: &str = "var(--color-primary, #3b82f6)";
+    pub const PRIMARY: &str = "var(--color-primary)";
     /// Secondary chart line color
-    pub const SECONDARY: &str = "var(--color-secondary, #8b5cf6)";
+    pub const SECONDARY: &str = "var(--color-secondary)";
     /// Success/healthy color
-    pub const SUCCESS: &str = "var(--color-green-500, #22c55e)";
+    pub const SUCCESS: &str = "var(--color-status-success)";
     /// Warning color
-    pub const WARNING: &str = "var(--color-yellow-500, #eab308)";
+    pub const WARNING: &str = "var(--color-status-warning)";
     /// Error/danger color
-    pub const ERROR: &str = "var(--color-red-500, #ef4444)";
+    pub const ERROR: &str = "var(--color-status-error)";
     /// Muted/neutral color
-    pub const MUTED: &str = "var(--color-muted-foreground, #6b7280)";
+    pub const MUTED: &str = "var(--color-muted-foreground)";
     /// Grid line color
-    pub const GRID: &str = "var(--color-border, #e5e7eb)";
+    pub const GRID: &str = "var(--color-border)";
     /// Axis text color
-    pub const AXIS_TEXT: &str = "var(--color-muted-foreground, #6b7280)";
+    pub const AXIS_TEXT: &str = "var(--color-muted-foreground)";
 
     /// Get a color from a palette by index (cycles).
     pub fn palette(index: usize) -> &'static str {
         const PALETTE: &[&str] = &[
-            "var(--color-primary, #3b82f6)",
-            "var(--color-secondary, #8b5cf6)",
-            "var(--color-green-500, #22c55e)",
-            "var(--color-yellow-500, #eab308)",
-            "var(--color-orange-500, #f97316)",
-            "var(--color-pink-500, #ec4899)",
-            "var(--color-cyan-500, #06b6d4)",
+            "var(--color-primary)",
+            "var(--color-secondary)",
+            "var(--color-green-500)",
+            "var(--color-yellow-500)",
+            "var(--color-orange-500)",
+            "var(--color-pink-500)",
+            "var(--color-cyan-500)",
         ];
         PALETTE[index % PALETTE.len()]
     }

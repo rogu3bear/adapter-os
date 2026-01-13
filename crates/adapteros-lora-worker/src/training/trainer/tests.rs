@@ -7,6 +7,7 @@ use adapteros_types::training::ExampleMetadataV1;
 use blake3;
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
@@ -703,6 +704,7 @@ async fn test_try_resume_from_checkpoint_with_checkpoint() {
     let weights = LoRAWeights {
         lora_a: vec![vec![1.0, 2.0]],
         lora_b: vec![vec![3.0, 4.0]],
+        modules: HashMap::new(),
         moe_config: None,
         precomputed_delta: None,
     };
@@ -739,6 +741,7 @@ async fn test_try_resume_from_checkpoint_mismatched_optimizer() {
     let weights = LoRAWeights {
         lora_a: vec![vec![1.0, 2.0]],
         lora_b: vec![vec![3.0, 4.0]],
+        modules: HashMap::new(),
         moe_config: None,
         precomputed_delta: None,
     };
@@ -775,6 +778,7 @@ async fn test_try_resume_from_checkpoint_force_resume() {
     let weights = LoRAWeights {
         lora_a: vec![vec![1.0, 2.0]],
         lora_b: vec![vec![3.0, 4.0]],
+        modules: HashMap::new(),
         moe_config: None,
         precomputed_delta: None,
     };
@@ -1256,4 +1260,367 @@ async fn test_gpu_cpu_loss_equivalence() {
         cpu_result.is_err(),
         "CPU backward should be rejected to avoid deprecated loss usage"
     );
+}
+
+// ============================================================================
+// Multi-Module Training Tests
+// ============================================================================
+
+#[test]
+fn test_module_weights_creation() {
+    let module_weights = ModuleWeights::new(8, 512);
+    assert_eq!(module_weights.lora_a.len(), 8); // rank
+    assert_eq!(module_weights.lora_a[0].len(), 512); // hidden_dim
+    assert_eq!(module_weights.lora_b.len(), 512); // hidden_dim
+    assert_eq!(module_weights.lora_b[0].len(), 8); // rank
+    assert!(!module_weights.is_empty());
+}
+
+#[test]
+fn test_lora_weights_multi_module_creation() {
+    let targets = vec![
+        "q_proj".to_string(),
+        "k_proj".to_string(),
+        "v_proj".to_string(),
+    ];
+    let weights = LoRAWeights::new_multi_module(8, 512, &targets);
+
+    assert!(weights.is_multi_module());
+    assert_eq!(weights.modules.len(), 3);
+    assert!(weights.get_module("q_proj").is_some());
+    assert!(weights.get_module("k_proj").is_some());
+    assert!(weights.get_module("v_proj").is_some());
+    assert!(weights.get_module("nonexistent").is_none());
+
+    // Legacy fields should be empty
+    assert!(weights.lora_a.is_empty());
+    assert!(weights.lora_b.is_empty());
+}
+
+#[test]
+fn test_lora_weights_single_module_backward_compat() {
+    // Legacy single-module creation
+    let weights = LoRAWeights::new(8, 512);
+
+    assert!(!weights.is_multi_module());
+    assert!(weights.modules.is_empty());
+    assert_eq!(weights.lora_a.len(), 8);
+    assert_eq!(weights.lora_b.len(), 512);
+}
+
+#[test]
+fn test_lora_weights_get_or_create_module() {
+    let mut weights = LoRAWeights::new_multi_module(8, 512, &["q_proj".to_string()]);
+
+    // Existing module
+    let q_proj = weights.get_or_create_module("q_proj", 8, 512);
+    assert!(!q_proj.is_empty());
+
+    // New module (created on demand)
+    let v_proj = weights.get_or_create_module("v_proj", 8, 512);
+    assert!(!v_proj.is_empty());
+
+    assert_eq!(weights.modules.len(), 2);
+}
+
+#[test]
+fn test_module_optimizer_state_creation() {
+    let state = ModuleOptimizerState::new(8, 512);
+
+    assert_eq!(state.m_a.len(), 8);
+    assert_eq!(state.v_a.len(), 8);
+    assert_eq!(state.m_b.len(), 512);
+    assert_eq!(state.v_b.len(), 512);
+    assert_eq!(state.step, 0);
+}
+
+#[test]
+fn test_multi_module_optimizer_state() {
+    let mut opt_state = MultiModuleOptimizerState::new();
+
+    // Get or create optimizer state for modules
+    {
+        let q_state = opt_state.get_or_create("q_proj", 8, 512);
+        q_state.increment_step();
+    }
+    {
+        let v_state = opt_state.get_or_create("v_proj", 8, 512);
+        v_state.increment_step();
+        v_state.increment_step();
+    }
+
+    assert_eq!(opt_state.module_states.len(), 2);
+    assert_eq!(opt_state.get("q_proj").unwrap().step, 1);
+    assert_eq!(opt_state.get("v_proj").unwrap().step, 2);
+    assert!(opt_state.get("k_proj").is_none());
+}
+
+#[test]
+fn test_lora_weights_serialization_roundtrip() {
+    // Multi-module weights
+    let mut weights =
+        LoRAWeights::new_multi_module(4, 64, &["q_proj".to_string(), "v_proj".to_string()]);
+
+    // Populate with some values
+    if let Some(q_proj) = weights.get_module_mut("q_proj") {
+        q_proj.lora_a[0][0] = 1.5;
+        q_proj.lora_b[0][0] = 2.5;
+    }
+    if let Some(v_proj) = weights.get_module_mut("v_proj") {
+        v_proj.lora_a[0][0] = 3.5;
+        v_proj.lora_b[0][0] = 4.5;
+    }
+
+    // Serialize and deserialize
+    let json = serde_json::to_string(&weights).expect("serialize");
+    let restored: LoRAWeights = serde_json::from_str(&json).expect("deserialize");
+
+    assert!(restored.is_multi_module());
+    assert_eq!(restored.modules.len(), 2);
+    assert_eq!(restored.get_module("q_proj").unwrap().lora_a[0][0], 1.5);
+    assert_eq!(restored.get_module("v_proj").unwrap().lora_b[0][0], 4.5);
+}
+
+#[test]
+fn test_lora_weights_legacy_serialization_roundtrip() {
+    // Single-module weights (legacy)
+    let mut weights = LoRAWeights::new(4, 64);
+    weights.lora_a[0][0] = 1.5;
+    weights.lora_b[0][0] = 2.5;
+
+    // Serialize and deserialize
+    let json = serde_json::to_string(&weights).expect("serialize");
+    let restored: LoRAWeights = serde_json::from_str(&json).expect("deserialize");
+
+    assert!(!restored.is_multi_module());
+    assert_eq!(restored.lora_a[0][0], 1.5);
+    assert_eq!(restored.lora_b[0][0], 2.5);
+}
+
+#[test]
+fn test_training_config_with_multi_module() {
+    let config = TrainingConfig {
+        rank: 8,
+        alpha: 16.0,
+        hidden_dim: 512,
+        vocab_size: 32000,
+        batch_size: 4,
+        epochs: 10,
+        learning_rate: 0.001,
+        targets: vec![
+            "q_proj".to_string(),
+            "k_proj".to_string(),
+            "v_proj".to_string(),
+        ],
+        multi_module_training: true,
+        ..Default::default()
+    };
+
+    assert!(config.multi_module_training);
+    assert_eq!(config.targets.len(), 3);
+}
+
+#[test]
+fn test_training_config_default_targets() {
+    let config = TrainingConfig::default();
+
+    // Default should have at least q_proj and v_proj
+    assert!(!config.targets.is_empty());
+    assert!(!config.multi_module_training); // Default is false
+}
+
+#[test]
+fn test_layer_key_for_module() {
+    // Create a minimal trainer to test the helper function
+    let config = TrainingConfig {
+        rank: 8,
+        alpha: 16.0,
+        hidden_dim: 512,
+        vocab_size: 32000,
+        batch_size: 4,
+        epochs: 1,
+        learning_rate: 0.001,
+        ..Default::default()
+    };
+
+    let trainer = MicroLoRATrainer::new_for_test(config).expect("trainer");
+
+    // Attention modules should use pre_attn
+    assert!(trainer
+        .layer_key_for_module("q_proj", 31)
+        .contains("pre_attn"));
+    assert!(trainer
+        .layer_key_for_module("k_proj", 31)
+        .contains("pre_attn"));
+    assert!(trainer
+        .layer_key_for_module("v_proj", 31)
+        .contains("pre_attn"));
+    assert!(trainer
+        .layer_key_for_module("o_proj", 31)
+        .contains("pre_attn"));
+
+    // FFN modules should use post_attn
+    assert!(trainer
+        .layer_key_for_module("gate_proj", 31)
+        .contains("post_attn"));
+    assert!(trainer
+        .layer_key_for_module("up_proj", 31)
+        .contains("post_attn"));
+    assert!(trainer
+        .layer_key_for_module("down_proj", 31)
+        .contains("post_attn"));
+
+    // Unknown modules should use output
+    assert!(trainer
+        .layer_key_for_module("unknown", 31)
+        .contains("output"));
+}
+
+// ============================================================================
+// Multi-Layer Training Tests
+// ============================================================================
+
+#[test]
+fn test_new_multi_layer_weights() {
+    let targets = vec![
+        "q_proj".to_string(),
+        "k_proj".to_string(),
+        "v_proj".to_string(),
+    ];
+    let layer_indices = vec![0, 16, 31];
+
+    let weights = LoRAWeights::new_multi_layer(8, 512, &targets, &layer_indices);
+
+    // Should have 3 layers x 3 targets = 9 weight sets
+    assert!(weights.is_multi_module());
+    assert_eq!(weights.modules.len(), 9);
+
+    // Check all expected keys exist
+    for layer_idx in &layer_indices {
+        for target in &targets {
+            let key = format!("layer_{}.{}", layer_idx, target);
+            assert!(
+                weights.get_module(&key).is_some(),
+                "Missing module: {}",
+                key
+            );
+        }
+    }
+
+    // Check specific keys
+    assert!(weights.get_module("layer_0.q_proj").is_some());
+    assert!(weights.get_module("layer_16.k_proj").is_some());
+    assert!(weights.get_module("layer_31.v_proj").is_some());
+
+    // Legacy fields should be empty
+    assert!(weights.lora_a.is_empty());
+    assert!(weights.lora_b.is_empty());
+}
+
+#[test]
+fn test_new_multi_layer_single_layer() {
+    let targets = vec!["q_proj".to_string(), "v_proj".to_string()];
+    let layer_indices = vec![31];
+
+    let weights = LoRAWeights::new_multi_layer(8, 512, &targets, &layer_indices);
+
+    // Should have 1 layer x 2 targets = 2 weight sets
+    assert_eq!(weights.modules.len(), 2);
+    assert!(weights.get_module("layer_31.q_proj").is_some());
+    assert!(weights.get_module("layer_31.v_proj").is_some());
+}
+
+#[test]
+fn test_new_multi_layer_empty_inputs() {
+    // Empty targets
+    let weights = LoRAWeights::new_multi_layer(8, 512, &[], &[0, 16, 31]);
+    assert!(weights.modules.is_empty());
+
+    // Empty layer indices
+    let weights = LoRAWeights::new_multi_layer(8, 512, &["q_proj".to_string()], &[]);
+    assert!(weights.modules.is_empty());
+}
+
+#[test]
+fn test_multi_layer_weights_serialization_roundtrip() {
+    let targets = vec!["q_proj".to_string(), "v_proj".to_string()];
+    let layer_indices = vec![0, 31];
+
+    let mut weights = LoRAWeights::new_multi_layer(4, 64, &targets, &layer_indices);
+
+    // Set some values
+    if let Some(w) = weights.get_module_mut("layer_0.q_proj") {
+        w.lora_a[0][0] = 1.5;
+    }
+    if let Some(w) = weights.get_module_mut("layer_31.v_proj") {
+        w.lora_b[0][0] = 2.5;
+    }
+
+    // Serialize and deserialize
+    let json = serde_json::to_string(&weights).expect("serialize");
+    let restored: LoRAWeights = serde_json::from_str(&json).expect("deserialize");
+
+    assert!(restored.is_multi_module());
+    assert_eq!(restored.modules.len(), 4);
+    assert_eq!(
+        restored.get_module("layer_0.q_proj").unwrap().lora_a[0][0],
+        1.5
+    );
+    assert_eq!(
+        restored.get_module("layer_31.v_proj").unwrap().lora_b[0][0],
+        2.5
+    );
+}
+
+#[test]
+fn test_training_config_with_layer_indices() {
+    let config = TrainingConfig {
+        rank: 8,
+        alpha: 16.0,
+        hidden_dim: 512,
+        vocab_size: 32000,
+        batch_size: 4,
+        epochs: 10,
+        learning_rate: 0.001,
+        targets: vec!["q_proj".to_string(), "v_proj".to_string()],
+        multi_module_training: true,
+        lora_layer_indices: vec![0, 8, 16, 24, 31],
+        ..Default::default()
+    };
+
+    assert!(config.multi_module_training);
+    assert_eq!(config.targets.len(), 2);
+    assert_eq!(config.lora_layer_indices.len(), 5);
+
+    // Expected weight count: 2 targets x 5 layers = 10
+    let expected_weight_count = config.targets.len() * config.lora_layer_indices.len();
+    assert_eq!(expected_weight_count, 10);
+}
+
+#[test]
+fn test_training_config_default_layer_indices() {
+    let config = TrainingConfig::default();
+
+    // Default should have empty layer indices (fallback to single layer)
+    assert!(config.lora_layer_indices.is_empty());
+}
+
+#[test]
+fn test_layer_indices_backward_compat_empty() {
+    // Empty lora_layer_indices should not affect existing behavior
+    let config = TrainingConfig {
+        rank: 8,
+        alpha: 16.0,
+        hidden_dim: 512,
+        vocab_size: 32000,
+        batch_size: 4,
+        epochs: 1,
+        learning_rate: 0.001,
+        multi_module_training: true,
+        lora_layer_indices: Vec::new(), // Empty = fallback to single layer
+        ..Default::default()
+    };
+
+    assert!(config.lora_layer_indices.is_empty());
+    // When empty, the training loop falls back to default_lora_layer_idx()
 }

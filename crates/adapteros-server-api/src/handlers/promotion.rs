@@ -827,8 +827,8 @@ async fn validate_hash_gate(_state: &AppState, run_id: &str) -> AosResult<serde_
 
 /// Validate policy gate
 async fn validate_policy_gate(_state: &AppState, run_id: &str) -> AosResult<serde_json::Value> {
-    use adapteros_policy::policy_packs::PolicyPackId;
     use crate::handlers::promotion_validation::validate_policy;
+    use adapteros_policy::policy_packs::PolicyPackId;
 
     // Get all defined policy packs
     let all_policies = PolicyPackId::all();
@@ -862,9 +862,7 @@ async fn validate_policy_gate(_state: &AppState, run_id: &str) -> AosResult<serd
                 if result.passed {
                     passed += 1;
                     if let Some(details) = &result.details {
-                        if details
-                            .get("status")
-                            .and_then(|s| s.as_str())
+                        if details.get("status").and_then(|s| s.as_str())
                             == Some("runtime_enforcement_only")
                         {
                             runtime_policies.push(format!("{} (Runtime)", policy_name));

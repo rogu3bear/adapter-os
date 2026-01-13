@@ -1,13 +1,29 @@
-use super::cli::{Args, EXIT_CONFIG_ERROR, EXIT_TRANSIENT_ERROR, is_prod_runtime};
-use super::helpers::{setup_panic_hook, WORKER_IDENTITY, WORKER_TELEMETRY, WorkerIdentity, detect_capabilities, build_capabilities_detail, mock_capabilities_detail, setup_mock_base_model_cache, dev_no_auth_enabled};
-use super::manifest::{parse_manifest, fetch_manifest_from_cp, cache_manifest, LoadedManifest};
-use super::backend::{parse_backend_choice, validate_backend_feature, is_mock_backend};
-use super::registration::{register_with_cp_with_retry, RegistrationParams, RegistrationResult, notify_cp_status};
+use super::backend::{is_mock_backend, parse_backend_choice, validate_backend_feature};
+use super::cli::{is_prod_runtime, Args, EXIT_CONFIG_ERROR, EXIT_TRANSIENT_ERROR};
 #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
-use super::coreml::{compute_coreml_package_hash, resolve_expected_coreml_hash, resolve_coreml_verify_mode, log_coreml_verification_result, CoremlVerificationStatus, resolve_fusion_ids, coreml_telemetry_from_settings, log_coreml_runtime, run_coreml_boot_smoke};
+use super::coreml::{
+    compute_coreml_package_hash, coreml_telemetry_from_settings, log_coreml_runtime,
+    log_coreml_verification_result, resolve_coreml_verify_mode, resolve_expected_coreml_hash,
+    resolve_fusion_ids, run_coreml_boot_smoke, CoremlVerificationStatus,
+};
+use super::helpers::{
+    build_capabilities_detail, detect_capabilities, dev_no_auth_enabled, mock_capabilities_detail,
+    setup_mock_base_model_cache, setup_panic_hook, WorkerIdentity, WORKER_IDENTITY,
+    WORKER_TELEMETRY,
+};
+use super::manifest::{cache_manifest, fetch_manifest_from_cp, parse_manifest, LoadedManifest};
+use super::registration::{
+    notify_cp_status, register_with_cp_with_retry, RegistrationParams, RegistrationResult,
+};
 use adapteros_boot::jti_cache::JtiCacheStore;
-use adapteros_config::{prepare_socket_path, reject_tmp_persistent_path, resolve_telemetry_dir, resolve_worker_socket_for_worker};
-use adapteros_core::{constants::DEFAULT_ADAPTER_CACHE_SIZE, AosError, B3Hash, ExecutionProfile, Result, SeedMode, WorkerStatus};
+use adapteros_config::{
+    prepare_socket_path, reject_tmp_persistent_path, resolve_telemetry_dir,
+    resolve_worker_socket_for_worker,
+};
+use adapteros_core::{
+    constants::DEFAULT_ADAPTER_CACHE_SIZE, AosError, B3Hash, ExecutionProfile, Result, SeedMode,
+    WorkerStatus,
+};
 use adapteros_lora_kernel_api::MockKernels;
 use adapteros_lora_worker::{
     backend_coordinator::BackendCoordinator,
@@ -26,7 +42,10 @@ use adapteros_lora_worker::{
 };
 use adapteros_telemetry::TelemetryWriter;
 use clap::Parser;
-use std::sync::{atomic::{AtomicBool, Ordering}, Arc};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::{fs, path::PathBuf, time::Duration};
 use tokio::signal;
 use tokio::sync::Mutex;

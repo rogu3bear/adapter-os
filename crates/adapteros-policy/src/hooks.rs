@@ -128,7 +128,8 @@ impl HookContext {
 
     /// Add input prompt to metadata
     pub fn with_input(mut self, input: impl Into<String>) -> Self {
-        self.metadata.insert("input".to_string(), serde_json::Value::String(input.into()));
+        self.metadata
+            .insert("input".to_string(), serde_json::Value::String(input.into()));
         self
     }
 

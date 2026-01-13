@@ -26,7 +26,7 @@ pub fn Settings() -> impl IntoView {
 
                 // Tab navigation
                 <div class="border-b">
-                    <nav class="-mb-px flex space-x-8">
+                    <nav class="-mb-px flex space-x-8" role="tablist">
                         <TabButton
                             tab="profile".to_string()
                             label="Profile".to_string()
@@ -74,14 +74,20 @@ fn TabButton(tab: String, label: String, active: RwSignal<String>) -> impl IntoV
 
     view! {
         <button
-            class=move || {
-                let base = "whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors";
-                if is_active() {
-                    format!("{} border-primary text-primary", base)
-                } else {
-                    format!("{} border-transparent text-muted-foreground hover:text-foreground hover:border-muted", base)
+            class={
+                let is_active = is_active.clone();
+                move || {
+                    let base = "whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded-t-sm";
+                    if is_active() {
+                        format!("{} border-primary text-primary", base)
+                    } else {
+                        format!("{} border-transparent text-muted-foreground hover:text-foreground hover:border-muted", base)
+                    }
                 }
             }
+            type="button"
+            role="tab"
+            aria-selected=is_active
             on:click={
                 let tab = tab.clone();
                 move |_| active.set(tab.clone())
@@ -351,7 +357,7 @@ fn ApiConfigSection() -> impl IntoView {
                                 </div>
                             }.into_any(),
                             ConnectionTestStatus::Success => view! {
-                                <div class="flex items-center gap-2 text-sm text-green-600">
+                                <div class="flex items-center gap-2 text-sm text-status-success">
                                     <CheckIcon/>
                                     "Connection successful"
                                 </div>
@@ -363,7 +369,7 @@ fn ApiConfigSection() -> impl IntoView {
                                 </div>
                             }.into_any(),
                             ConnectionTestStatus::Saved => view! {
-                                <div class="flex items-center gap-2 text-sm text-green-600">
+                                <div class="flex items-center gap-2 text-sm text-status-success">
                                     <CheckIcon/>
                                     "Settings saved"
                                 </div>
@@ -496,23 +502,66 @@ fn PreferencesSection() -> impl IntoView {
         });
     });
 
-    // Show save feedback briefly
+    // Show save feedback briefly with proper cleanup
+    // Use raw web_sys setTimeout/clearTimeout with atomic ID for Send+Sync compatibility
+    #[cfg(target_arch = "wasm32")]
+    {
+        use std::sync::atomic::{AtomicI32, Ordering};
+        use std::sync::Arc;
+        use wasm_bindgen::prelude::*;
+        use wasm_bindgen::JsCast;
+
+        let timeout_id = Arc::new(AtomicI32::new(-1));
+        let timeout_id_cleanup = Arc::clone(&timeout_id);
+
+        // Clear any pending timeout on component unmount
+        on_cleanup(move || {
+            let id = timeout_id_cleanup.swap(-1, Ordering::SeqCst);
+            if id >= 0 {
+                if let Some(window) = web_sys::window() {
+                    window.clear_timeout_with_handle(id);
+                }
+            }
+        });
+
+        Effect::new(move || {
+            let _ = theme.get();
+            let _ = compact_mode.get();
+            let _ = show_timestamps.get();
+            let _ = default_page.get();
+
+            save_feedback.set(true);
+
+            // Cancel previous timeout if any
+            let old_id = timeout_id.swap(-1, Ordering::SeqCst);
+            if old_id >= 0 {
+                if let Some(window) = web_sys::window() {
+                    window.clear_timeout_with_handle(old_id);
+                }
+            }
+
+            // Set new timeout to hide feedback after 2 seconds
+            if let Some(window) = web_sys::window() {
+                let callback = Closure::once_into_js(move || {
+                    save_feedback.set(false);
+                });
+                if let Ok(id) = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+                    callback.unchecked_ref(),
+                    2000,
+                ) {
+                    timeout_id.store(id, Ordering::SeqCst);
+                }
+            }
+        });
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     Effect::new(move || {
         let _ = theme.get();
         let _ = compact_mode.get();
         let _ = show_timestamps.get();
         let _ = default_page.get();
-
         save_feedback.set(true);
-
-        // Hide after 2 seconds
-        #[cfg(target_arch = "wasm32")]
-        {
-            let handle = gloo_timers::callback::Timeout::new(2000, move || {
-                save_feedback.set(false);
-            });
-            handle.forget();
-        }
     });
 
     // Theme options

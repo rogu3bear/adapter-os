@@ -9,6 +9,7 @@ use super::coreml_pipeline::{
     prepare_coreml_dataset, BatchPlan, CoreMLInputSpec, PreparedDataset, PreparedExample,
 };
 use super::dataset::example_hash_for_tokens;
+use super::learning_rate_schedule::{LRScheduleType, LRScheduler, LRSchedulerConfig};
 use super::loss::{self, LOSS_IGNORE_INDEX};
 use super::perplexity::compute_perplexity;
 use super::preprocessing::{preprocess_examples, PreprocessResult};
@@ -44,7 +45,8 @@ use adapteros_lora_mlx_ffi::training::{
 mod types;
 pub use types::{
     DatasetSubsample, DeterminismConfig, DevicePolicyConfig, EpochMetrics, LoRAWeights,
-    MoELoRAStrategy, MoETrainingConfig, OptimizerConfig, OptimizerType, PreprocessCompression,
+    MoELoRAStrategy, MoETrainingConfig, ModuleOptimizerState, ModuleWeights,
+    MultiModuleOptimizerState, OptimizerConfig, OptimizerType, PreprocessCompression,
     PreprocessOutputFeature, PreprocessingConfig, TrainingBackend, TrainingConfig,
     TrainingPerformanceMetrics, TrainingResult,
 };
@@ -106,11 +108,23 @@ pub struct MicroLoRATrainer {
     base_model: Option<Arc<adapteros_lora_mlx_ffi::MLXFFIModel>>,
     /// Hidden state layer key to extract from the base model (e.g., "layer_31_output").
     hidden_state_key: String,
+    /// Number of transformer layers in the base model (for multi-module training).
+    n_layers: usize,
     /// Current global training step (across all epochs)
     global_step: usize,
     /// Persistent optimizer state (Adam/SGD moments)
     #[cfg(feature = "multi-backend")]
     optimizer: Option<MlxOptimizer>,
+    /// Per-module optimizer state for multi-module training (step counts, CPU-side state)
+    multi_module_optimizer: MultiModuleOptimizerState,
+    /// Per-module GPU optimizers for multi-layer training (keyed by module_key)
+    #[cfg(feature = "multi-backend")]
+    module_optimizers: HashMap<String, MlxOptimizer>,
+    /// Learning rate scheduler for warmup and decay
+    lr_scheduler: Option<LRScheduler>,
+    /// Accumulated gradients for gradient accumulation (keyed by module_key)
+    /// Each entry is (grad_a_sum, grad_b_sum, accumulation_count)
+    accumulated_gradients: HashMap<String, (Vec<f32>, Vec<f32>, usize)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -289,9 +303,15 @@ impl MicroLoRATrainer {
             #[cfg(feature = "multi-backend")]
             base_model: None,
             hidden_state_key: String::new(),
+            n_layers: 0,
             global_step: 0,
             #[cfg(feature = "multi-backend")]
             optimizer: None,
+            multi_module_optimizer: MultiModuleOptimizerState::new(),
+            #[cfg(feature = "multi-backend")]
+            module_optimizers: HashMap::new(),
+            lr_scheduler: None, // Initialized when training starts
+            accumulated_gradients: HashMap::new(),
         };
 
         // Load base model (required for multi-backend)
@@ -375,9 +395,15 @@ impl MicroLoRATrainer {
             #[cfg(feature = "multi-backend")]
             base_model: None,
             hidden_state_key: String::new(),
+            n_layers: 0,
             global_step: 0,
             #[cfg(feature = "multi-backend")]
             optimizer: None,
+            multi_module_optimizer: MultiModuleOptimizerState::new(),
+            #[cfg(feature = "multi-backend")]
+            module_optimizers: HashMap::new(),
+            lr_scheduler: None, // Initialized when training starts
+            accumulated_gradients: HashMap::new(),
         })
     }
 
@@ -1585,21 +1611,25 @@ impl MicroLoRATrainer {
         })?;
 
         // Get model config for validation and layer selection
+        // Extract values before moving model into Arc
         let model_config = model.config();
+        let num_hidden_layers = model_config.num_hidden_layers;
+        let hidden_size = model_config.hidden_size;
+        let vocab_size = model_config.vocab_size;
 
         // Validate hidden dimension matches training config
-        if model_config.hidden_size != self.config.hidden_dim {
+        if hidden_size != self.config.hidden_dim {
             return Err(AosError::Training(format!(
                 "Base model hidden_size ({}) doesn't match training hidden_dim ({}). \
                  Update TrainingConfig.hidden_dim to match the model.",
-                model_config.hidden_size, self.config.hidden_dim
+                hidden_size, self.config.hidden_dim
             )));
         }
 
         // Warn if vocab size differs
-        if model_config.vocab_size != self.config.vocab_size {
+        if vocab_size != self.config.vocab_size {
             warn!(
-                model_vocab = model_config.vocab_size,
+                model_vocab = vocab_size,
                 config_vocab = self.config.vocab_size,
                 "Base model vocab_size differs from training config vocab_size"
             );
@@ -1608,20 +1638,21 @@ impl MicroLoRATrainer {
         // Determine which hidden state layer to extract
         let hidden_state_key = self.config.hidden_state_layer.clone().unwrap_or_else(|| {
             // Default to the last transformer layer's output
-            let last_layer = model_config.num_hidden_layers.saturating_sub(1);
+            let last_layer = num_hidden_layers.saturating_sub(1);
             format!("layer_{}_output", last_layer)
         });
 
         info!(
-            num_layers = model_config.num_hidden_layers,
-            hidden_size = model_config.hidden_size,
-            vocab_size = model_config.vocab_size,
+            num_layers = num_hidden_layers,
+            hidden_size = hidden_size,
+            vocab_size = vocab_size,
             hidden_state_key = %hidden_state_key,
             "Base model loaded successfully for training"
         );
 
         self.base_model = Some(Arc::new(model));
         self.hidden_state_key = hidden_state_key;
+        self.n_layers = num_hidden_layers;
 
         Ok(())
     }
@@ -1636,6 +1667,51 @@ impl MicroLoRATrainer {
     #[cfg(not(feature = "multi-backend"))]
     pub fn has_base_model(&self) -> bool {
         false
+    }
+
+    /// Map a target module name to the appropriate hidden state layer key.
+    ///
+    /// Different target modules require hidden states from different points
+    /// in the transformer architecture:
+    /// - Attention modules (q_proj, k_proj, v_proj, o_proj): Use pre-attention hidden states
+    /// - FFN modules (gate_proj, up_proj, down_proj): Use post-attention hidden states
+    ///
+    /// # Arguments
+    /// * `target` - The target module name (e.g., "q_proj", "gate_proj")
+    /// * `layer_idx` - The layer index to extract hidden states from
+    ///
+    /// # Returns
+    /// The hidden state key string (e.g., "layer_31_pre_attn")
+    pub fn layer_key_for_module(&self, target: &str, layer_idx: usize) -> String {
+        match target {
+            // Attention modules: extract before attention (input to attention)
+            "q_proj" | "k_proj" | "v_proj" | "o_proj" => {
+                format!("layer_{}_pre_attn", layer_idx)
+            }
+            // FFN modules: extract after attention (input to MLP)
+            "gate_proj" | "up_proj" | "down_proj" => {
+                format!("layer_{}_post_attn", layer_idx)
+            }
+            // Default: use layer output (after both attention and MLP)
+            _ => format!("layer_{}_output", layer_idx),
+        }
+    }
+
+    /// Get the default layer index for LoRA injection.
+    ///
+    /// Uses the configured hidden_state_layer if set, otherwise defaults
+    /// to the last transformer layer (n_layers - 1).
+    pub fn default_lora_layer_idx(&self) -> usize {
+        self.config
+            .hidden_state_layer
+            .as_ref()
+            .and_then(|key| {
+                // Parse layer index from key like "layer_31_output"
+                key.strip_prefix("layer_")
+                    .and_then(|s| s.split('_').next())
+                    .and_then(|n| n.parse().ok())
+            })
+            .unwrap_or_else(|| self.n_layers.saturating_sub(1))
     }
 
     /// Check if cancellation has been requested
@@ -2091,6 +2167,19 @@ Use --force-resume to override (may produce incorrect results).",
                     "Resuming training from checkpoint"
                 );
             }
+            // Restore optimizer state if present (for multi-module training)
+            if let Some(ref opt_state) = checkpoint.multi_module_optimizer_state {
+                self.multi_module_optimizer = opt_state.clone();
+                info!(
+                    modules = opt_state.module_states.len(),
+                    "Restored multi-module optimizer state from checkpoint"
+                );
+            } else if self.config.multi_module_training {
+                warn!(
+                    "Multi-module training enabled but checkpoint has no optimizer state. \
+                     Adam momentum will start fresh."
+                );
+            }
             self.run_training(
                 prepared_dataset,
                 checkpoint.epoch as usize,
@@ -2143,6 +2232,19 @@ Use --force-resume to override (may produce incorrect results).",
                     start_epoch = checkpoint.epoch,
                     config = %checkpoint.config.summary(),
                     "Resuming training from checkpoint (pre-split)"
+                );
+            }
+            // Restore optimizer state if present (for multi-module training)
+            if let Some(ref opt_state) = checkpoint.multi_module_optimizer_state {
+                self.multi_module_optimizer = opt_state.clone();
+                info!(
+                    modules = opt_state.module_states.len(),
+                    "Restored multi-module optimizer state from checkpoint"
+                );
+            } else if self.config.multi_module_training {
+                warn!(
+                    "Multi-module training enabled but checkpoint has no optimizer state. \
+                     Adam momentum will start fresh."
                 );
             }
             self.run_training(
@@ -2246,6 +2348,13 @@ Use --force-resume to override (may produce incorrect results).",
             debug!("Epoch {}/{}", epoch + 1, self.config.epochs);
 
             let epoch_start = Instant::now();
+            #[cfg(feature = "multi-backend")]
+            let epoch_loss = if self.config.multi_module_training {
+                self.train_epoch_multi_module(&mut weights, examples, epoch)?
+            } else {
+                self.train_epoch_deterministic(&mut weights, examples, epoch)?
+            };
+            #[cfg(not(feature = "multi-backend"))]
             let epoch_loss = self.train_epoch_deterministic(&mut weights, examples, epoch)?;
             let epoch_duration_us = epoch_start.elapsed().as_micros() as u64;
             final_loss = epoch_loss;
@@ -2313,18 +2422,30 @@ Use --force-resume to override (may produce incorrect results).",
             };
             on_epoch(epoch_metrics);
 
-            // Save checkpoint if configured
+            // Save checkpoint if configured (includes optimizer state for multi-module)
             if let Some(ref manager) = self.checkpoint_manager {
                 let epoch_u32 = (epoch + 1) as u32;
                 if manager.should_save(epoch_u32) {
-                    let checkpoint = TrainingCheckpoint::new(
-                        epoch_u32,
-                        0,
-                        epoch_loss,
-                        self.config.learning_rate,
-                        self.config.clone(),
-                        weights.clone(),
-                    );
+                    let checkpoint = if self.config.multi_module_training {
+                        TrainingCheckpoint::new_with_optimizer_state(
+                            epoch_u32,
+                            0,
+                            epoch_loss,
+                            self.config.learning_rate,
+                            self.config.clone(),
+                            weights.clone(),
+                            self.multi_module_optimizer.clone(),
+                        )
+                    } else {
+                        TrainingCheckpoint::new(
+                            epoch_u32,
+                            0,
+                            epoch_loss,
+                            self.config.learning_rate,
+                            self.config.clone(),
+                            weights.clone(),
+                        )
+                    };
                     if let Err(e) = manager.save_checkpoint(&checkpoint).await {
                         warn!(
                             epoch = epoch + 1,
@@ -2488,6 +2609,7 @@ Use --force-resume to override (may produce incorrect results).",
         Ok(LoRAWeights {
             lora_a,
             lora_b,
+            modules: HashMap::new(),
             moe_config: self.config.moe_config.clone(),
             precomputed_delta: None,
         })
@@ -2594,6 +2716,41 @@ Use --force-resume to override (may produce incorrect results).",
         self.total_examples_processed = examples_processed;
         let mut was_cancelled = false;
         let target_epochs = self.target_epochs();
+
+        // Initialize learning rate scheduler
+        let total_training_steps =
+            (target_epochs - start_epoch) as u32 * dataset.summary.total_examples as u32;
+        let warmup_steps = self.config.warmup_steps.unwrap_or(0);
+        let lr_config = if warmup_steps > 0 {
+            // Use cosine decay with warmup if warmup is configured
+            LRSchedulerConfig::cosine(
+                self.config.learning_rate,
+                self.config.learning_rate * 0.1, // Decay to 10% of initial
+                total_training_steps,
+            )
+            .with_warmup(warmup_steps)
+        } else {
+            // Default: constant LR
+            LRSchedulerConfig::constant(self.config.learning_rate)
+        };
+        self.lr_scheduler = Some(LRScheduler::new(lr_config));
+        let accumulation_steps = self.gradient_accumulation_steps();
+        info!(
+            total_steps = total_training_steps,
+            warmup_steps = warmup_steps,
+            initial_lr = self.config.learning_rate,
+            gradient_accumulation_steps = accumulation_steps,
+            effective_batch_size = accumulation_steps * dataset.summary.total_examples as usize
+                / total_training_steps as usize,
+            "Learning rate scheduler initialized"
+        );
+        if accumulation_steps > 1 {
+            info!(
+                "Gradient accumulation enabled: {} steps (effective batch multiplier)",
+                accumulation_steps
+            );
+        }
+
         let curve_capacity = target_epochs.saturating_sub(start_epoch);
         let mut loss_curve = Vec::with_capacity(curve_capacity);
         let mut train_perplexity_curve = Vec::with_capacity(curve_capacity);
@@ -2675,6 +2832,13 @@ Use --force-resume to override (may produce incorrect results).",
             );
 
             let epoch_start = Instant::now();
+            #[cfg(feature = "multi-backend")]
+            let epoch_loss = if self.config.multi_module_training {
+                self.train_epoch_multi_module(&mut weights, &dataset, epoch)?
+            } else {
+                self.train_epoch_deterministic(&mut weights, &dataset, epoch)?
+            };
+            #[cfg(not(feature = "multi-backend"))]
             let epoch_loss = self.train_epoch_deterministic(&mut weights, &dataset, epoch)?;
             let epoch_duration_us = epoch_start.elapsed().as_micros() as u64;
             final_loss = epoch_loss;
@@ -2823,18 +2987,30 @@ Use --force-resume to override (may produce incorrect results).",
             };
             on_epoch(epoch_metrics);
 
-            // Save checkpoint if configured
+            // Save checkpoint if configured (includes optimizer state for multi-module)
             if let Some(ref manager) = self.checkpoint_manager {
                 let epoch_u32 = (epoch + 1) as u32;
                 if manager.should_save(epoch_u32) {
-                    let checkpoint = TrainingCheckpoint::new(
-                        epoch_u32,
-                        0,
-                        epoch_loss,
-                        self.config.learning_rate,
-                        self.config.clone(),
-                        weights.clone(),
-                    );
+                    let checkpoint = if self.config.multi_module_training {
+                        TrainingCheckpoint::new_with_optimizer_state(
+                            epoch_u32,
+                            0,
+                            epoch_loss,
+                            self.config.learning_rate,
+                            self.config.clone(),
+                            weights.clone(),
+                            self.multi_module_optimizer.clone(),
+                        )
+                    } else {
+                        TrainingCheckpoint::new(
+                            epoch_u32,
+                            0,
+                            epoch_loss,
+                            self.config.learning_rate,
+                            self.config.clone(),
+                            weights.clone(),
+                        )
+                    };
                     if let Err(e) = manager.save_checkpoint(&checkpoint).await {
                         warn!(
                             epoch = epoch + 1,
@@ -2993,6 +3169,207 @@ Use --force-resume to override (may produce incorrect results).",
         Ok(total_loss / num_batches as f32)
     }
 
+    /// Train one epoch with multi-module and multi-layer support.
+    ///
+    /// When `multi_module_training` is enabled, this function trains separate LoRA weights
+    /// for each (layer, module) combination. If `lora_layer_indices` is empty, falls back
+    /// to single-layer training at the default layer index.
+    ///
+    /// Module keys follow the pattern:
+    /// - Multi-layer: `layer_{idx}.{module}` (e.g., `layer_0.q_proj`, `layer_31.v_proj`)
+    /// - Single-layer fallback: `{module}` (e.g., `q_proj`, `v_proj`)
+    #[cfg(feature = "multi-backend")]
+    fn train_epoch_multi_module(
+        &mut self,
+        weights: &mut LoRAWeights,
+        dataset: &PreparedDataset,
+        epoch: usize,
+    ) -> Result<f32> {
+        // Create epoch-specific RNG seed
+        let epoch_seed_bytes = derive_seed(
+            &adapteros_core::B3Hash::hash(&self.training_seed.to_le_bytes()),
+            &format!("epoch_{}_multi", epoch),
+        );
+        let epoch_seed = u64::from_le_bytes([
+            epoch_seed_bytes[0],
+            epoch_seed_bytes[1],
+            epoch_seed_bytes[2],
+            epoch_seed_bytes[3],
+            epoch_seed_bytes[4],
+            epoch_seed_bytes[5],
+            epoch_seed_bytes[6],
+            epoch_seed_bytes[7],
+        ]);
+
+        let targets = self.config.targets.clone();
+        let rank = self.config.rank;
+        let hidden_dim = self.config.hidden_dim;
+
+        // Determine layer indices: use configured list or fallback to single layer
+        let layer_indices: Vec<usize> = if self.config.lora_layer_indices.is_empty() {
+            vec![self.default_lora_layer_idx()]
+        } else {
+            self.config.lora_layer_indices.clone()
+        };
+
+        // Determine if we're in multi-layer mode (affects module key naming)
+        let is_multi_layer = !self.config.lora_layer_indices.is_empty();
+
+        if targets.is_empty() {
+            return Err(AosError::Training(
+                "No target modules specified for multi-module training".to_string(),
+            ));
+        }
+
+        // Validate layer indices against model
+        if self.n_layers > 0 {
+            for layer_idx in &layer_indices {
+                if *layer_idx >= self.n_layers {
+                    return Err(AosError::Training(format!(
+                        "Invalid layer index {}: model has {} layers (valid range: 0-{})",
+                        layer_idx,
+                        self.n_layers,
+                        self.n_layers.saturating_sub(1)
+                    )));
+                }
+            }
+        }
+
+        // Memory usage warning for large multi-layer configurations
+        let weight_count = targets.len() * layer_indices.len();
+        let weight_memory_mb = (weight_count * rank * hidden_dim * 4 * 2) / (1024 * 1024);
+        if weight_count > 20 {
+            warn!(
+                "Multi-layer training: {} weight sets (~{} MB). Consider reducing targets or layers if memory constrained.",
+                weight_count,
+                weight_memory_mb
+            );
+        }
+
+        info!(
+            "Multi-module training: {} targets x {} layers = {} weight sets",
+            targets.len(),
+            layer_indices.len(),
+            weight_count
+        );
+
+        // Clone the Arc to allow &mut self access during backward pass
+        let model = self.base_model.clone().ok_or_else(|| {
+            AosError::Training("Base model required for multi-module training".to_string())
+        })?;
+
+        // Validate hidden state availability before starting training
+        // Use first example to probe model outputs
+        if let Some(first_batch) = dataset.batches.first() {
+            if let Some(first_example) = first_batch.examples.first() {
+                let (_, probe_hidden_states) =
+                    model.forward_with_hidden_states(&first_example.input_tokens)?;
+
+                for layer_idx in &layer_indices {
+                    for target in &targets {
+                        let layer_key = self.layer_key_for_module(target, *layer_idx);
+                        if !probe_hidden_states.contains_key(&layer_key) {
+                            // Sort keys for deterministic error message
+                            let mut available_keys: Vec<_> = probe_hidden_states.keys().collect();
+                            available_keys.sort();
+                            return Err(AosError::Training(format!(
+                                "Hidden state '{}' not available for layer {} module '{}'. \
+                                 Model may not capture this layer. Available hidden states: {:?}",
+                                layer_key, layer_idx, target, available_keys
+                            )));
+                        }
+                    }
+                }
+                debug!(
+                    "Hidden state availability validated for {} layer/module combinations",
+                    layer_indices.len() * targets.len()
+                );
+            }
+        }
+
+        let mut total_loss = 0.0;
+        let mut num_updates = 0;
+
+        const CANCEL_CHECK_INTERVAL: usize = 10;
+        let mut batch_count = 0;
+
+        for batch in dataset.batches.iter() {
+            // Check for cancellation
+            if batch_count > 0 && batch_count % CANCEL_CHECK_INTERVAL == 0 && self.is_cancelled() {
+                debug!(
+                    epoch = epoch,
+                    batch = batch_count,
+                    "Cancellation detected mid-epoch in multi-module training"
+                );
+                return Ok(if num_updates > 0 {
+                    total_loss / num_updates as f32
+                } else {
+                    0.0
+                });
+            }
+
+            for example in batch.examples.iter() {
+                // Get all hidden states from forward pass
+                let (_logits, hidden_states) =
+                    model.forward_with_hidden_states(&example.input_tokens)?;
+
+                // Train each (layer, module) combination
+                for layer_idx in &layer_indices {
+                    for target in &targets {
+                        let layer_key = self.layer_key_for_module(target, *layer_idx);
+
+                        let hidden = hidden_states.get(&layer_key).ok_or_else(|| {
+                            AosError::Training(format!(
+                                "Hidden state '{}' not found for layer {} module '{}'. Available: {:?}",
+                                layer_key,
+                                layer_idx,
+                                target,
+                                hidden_states.keys().collect::<Vec<_>>()
+                            ))
+                        })?;
+
+                        // Module key: include layer index if multi-layer mode
+                        let module_key = if is_multi_layer {
+                            format!("layer_{}.{}", layer_idx, target)
+                        } else {
+                            target.clone()
+                        };
+
+                        // Get or create module weights
+                        let module_weights =
+                            weights.get_or_create_module(&module_key, rank, hidden_dim);
+
+                        // Backward pass for this (layer, module) combination
+                        let loss = self.backward_and_update_module_gpu_ce(
+                            module_weights,
+                            hidden,
+                            &example.target_tokens,
+                            &model,
+                            epoch_seed.wrapping_add(num_updates as u64),
+                            &module_key,
+                        )?;
+
+                        total_loss += loss;
+                        num_updates += 1;
+
+                        // Step LR scheduler after each training step
+                        self.step_lr_scheduler();
+                    }
+                }
+            }
+
+            batch_count += 1;
+        }
+
+        if num_updates == 0 {
+            return Err(AosError::Training(
+                "No updates performed in multi-module training epoch".to_string(),
+            ));
+        }
+
+        Ok(total_loss / num_updates as f32)
+    }
+
     /// Train one batch with deterministic RNG (GPU-accelerated if kernels available)
     fn train_batch_deterministic(
         &mut self,
@@ -3073,7 +3450,8 @@ Use --force-resume to override (may produce incorrect results).",
                 // GPU-accelerated backward pass via MLX autograd with cross-entropy loss
                 let backward_start = Instant::now();
 
-                let model = self.base_model.as_ref().ok_or_else(|| {
+                // Clone the Arc to allow &mut self access in backward pass
+                let model = self.base_model.clone().ok_or_else(|| {
                     AosError::Training(
                         "Base model required for GPU backward pass with cross-entropy loss"
                             .to_string(),
@@ -3084,11 +3462,15 @@ Use --force-resume to override (may produce incorrect results).",
                     weights,
                     &hidden,
                     &example.target_tokens,
-                    model,
+                    &model,
                     epoch_seed,
                 )?;
 
                 gpu_time_us += backward_start.elapsed().as_micros() as u64;
+
+                // Step LR scheduler after each training step
+                self.step_lr_scheduler();
+
                 gpu_loss
             } else {
                 return Err(AosError::Training(
@@ -3243,10 +3625,12 @@ Use --force-resume to override (may produce incorrect results).",
 
         // Extract hidden state from the configured layer
         let hidden_raw = hidden_states.get(&self.hidden_state_key).ok_or_else(|| {
+            // Sort keys for deterministic error message
+            let mut available_keys: Vec<_> = hidden_states.keys().collect();
+            available_keys.sort();
             AosError::Training(format!(
                 "Hidden state layer '{}' not found in model output. Available layers: {:?}",
-                self.hidden_state_key,
-                hidden_states.keys().collect::<Vec<_>>()
+                self.hidden_state_key, available_keys
             ))
         })?;
 
@@ -3479,7 +3863,7 @@ Use --force-resume to override (may produce incorrect results).",
         // In production, use proper backpropagation
 
         let n = output.len().min(target.len());
-        let learning_rate = self.config.learning_rate;
+        let learning_rate = self.get_current_lr();
         let vocab_scale = (self.config.vocab_size.saturating_sub(1).max(1)) as f32;
 
         // Compute gradient (simplified)
@@ -3565,7 +3949,7 @@ Use --force-resume to override (may produce incorrect results).",
         let rank = self.config.rank;
         let hidden_dim = self.config.hidden_dim;
         let alpha = self.config.alpha;
-        let learning_rate = self.config.learning_rate;
+        let learning_rate = self.get_current_lr();
 
         // Convert hidden state to MLX tensor [1, hidden_dim]
         let hidden_tensor = MLXFFITensor::from_data(hidden, vec![1, hidden_dim])?;
@@ -3643,9 +4027,11 @@ Use --force-resume to override (may produce incorrect results).",
     /// Requires:
     /// - Base model loaded with `lm_head.weight` available
     /// - MLX backend selected
+    ///
+    /// Supports gradient accumulation when `gradient_accumulation_steps > 1`.
     #[cfg(feature = "multi-backend")]
     fn backward_and_update_gpu_ce(
-        &self,
+        &mut self,
         weights: &mut LoRAWeights,
         hidden: &[f32],
         target_tokens: &[u32],
@@ -3657,7 +4043,7 @@ Use --force-resume to override (may produce incorrect results).",
         let rank = self.config.rank;
         let hidden_dim = self.config.hidden_dim;
         let alpha = self.config.alpha;
-        let learning_rate = self.config.learning_rate;
+        let learning_rate = self.get_current_lr();
 
         // Get output projection (lm_head) weights from base model
         let output_proj = model.get_weight("lm_head.weight")?;
@@ -3692,15 +4078,13 @@ Use --force-resume to override (may produce incorrect results).",
         )?;
 
         let loss = result.loss;
-
-        // Create optimizer based on config (defaults to Adam)
-        let mut optimizer = self.create_optimizer(learning_rate)?;
+        let accumulation_steps = self.gradient_accumulation_steps();
 
         // Get mutable references to gradient tensors for clipping
         let mut grad_a = result.grad_a;
         let mut grad_b = result.grad_b;
 
-        // Clip gradients
+        // Clip gradients before accumulation
         use adapteros_lora_mlx_ffi::training::mlx_clip_grad_norm_gpu;
         let grad_norm =
             mlx_clip_grad_norm_gpu(&mut [grad_a.clone_tensor()?, grad_b.clone_tensor()?], 1.0);
@@ -3711,25 +4095,227 @@ Use --force-resume to override (may produce incorrect results).",
             );
         }
 
-        // Apply optimizer step
-        let mut params = [lora_a_tensor, lora_b_tensor];
-        let grads_array = [grad_a, grad_b];
-        optimizer.step(&mut params, &grads_array)?;
+        // Extract gradients to CPU for accumulation
+        let grad_a_cpu = grad_a.to_float_vec()?;
+        let grad_b_cpu = grad_b.to_float_vec()?;
 
-        // Copy updated weights back to CPU
-        let new_lora_a = params[0].to_float_vec()?;
-        let new_lora_b = params[1].to_float_vec()?;
+        // Use "default" key for legacy single-module path
+        let module_key = "default";
+        let accum_entry = self
+            .accumulated_gradients
+            .entry(module_key.to_string())
+            .or_insert_with(|| {
+                let a_size = rank * hidden_dim;
+                let b_size = hidden_dim * rank;
+                (vec![0.0; a_size], vec![0.0; b_size], 0)
+            });
 
-        // Update weights in-place
-        for r in 0..rank {
-            for h in 0..hidden_dim {
-                weights.lora_a[r][h] = new_lora_a[r * hidden_dim + h];
-            }
+        // Accumulate gradients (scale by 1/N for averaging)
+        let scale = 1.0 / accumulation_steps as f32;
+        for (i, &g) in grad_a_cpu.iter().enumerate() {
+            accum_entry.0[i] += g * scale;
         }
-        for h in 0..hidden_dim {
+        for (i, &g) in grad_b_cpu.iter().enumerate() {
+            accum_entry.1[i] += g * scale;
+        }
+        accum_entry.2 += 1;
+
+        // Only apply optimizer step when accumulation is complete
+        if accum_entry.2 >= accumulation_steps {
+            // Get optimizer state (CPU-side, checkpointable)
+            let opt_state = self
+                .multi_module_optimizer
+                .get_or_create(module_key, rank, hidden_dim);
+
+            // Get optimizer hyperparameters
+            let beta1 = self.config.optimizer_config.beta1;
+            let beta2 = self.config.optimizer_config.beta2;
+            let epsilon = self.config.optimizer_config.epsilon;
+
+            // Apply CPU-native Adam optimizer (state is checkpointable)
+            let lora_a_flat: Vec<f32> = weights.lora_a.iter().flatten().copied().collect();
+            let lora_b_flat: Vec<f32> = weights.lora_b.iter().flatten().copied().collect();
+
+            let (new_lora_a, new_lora_b) = opt_state.adam_step(
+                &lora_a_flat,
+                &lora_b_flat,
+                &accum_entry.0,
+                &accum_entry.1,
+                learning_rate,
+                beta1,
+                beta2,
+                epsilon,
+                rank,
+                hidden_dim,
+            );
+
+            // Update weights in-place
             for r in 0..rank {
-                weights.lora_b[h][r] = new_lora_b[h * rank + r];
+                for h in 0..hidden_dim {
+                    weights.lora_a[r][h] = new_lora_a[r * hidden_dim + h];
+                }
             }
+            for h in 0..hidden_dim {
+                for r in 0..rank {
+                    weights.lora_b[h][r] = new_lora_b[h * rank + r];
+                }
+            }
+
+            // Clear accumulation buffer
+            accum_entry.0.fill(0.0);
+            accum_entry.1.fill(0.0);
+            accum_entry.2 = 0;
+        }
+
+        Ok(loss)
+    }
+
+    /// GPU backward pass with cross-entropy loss for a specific module.
+    ///
+    /// This is the multi-module version that updates weights for a single target module
+    /// (e.g., q_proj, k_proj) rather than the legacy single-weight approach.
+    ///
+    /// Uses persistent per-module optimizers to maintain Adam momentum across steps.
+    #[cfg(feature = "multi-backend")]
+    fn backward_and_update_module_gpu_ce(
+        &mut self,
+        module_weights: &mut ModuleWeights,
+        hidden: &[f32],
+        target_tokens: &[u32],
+        model: &adapteros_lora_mlx_ffi::MLXFFIModel,
+        seed: u64,
+        module_key: &str, // Module key for optimizer lookup (e.g., "layer_0.q_proj")
+    ) -> Result<f32> {
+        use adapteros_lora_mlx_ffi::MLXFFITensor;
+
+        let rank = self.config.rank;
+        let hidden_dim = self.config.hidden_dim;
+        let alpha = self.config.alpha;
+        let learning_rate = self.get_current_lr();
+
+        // Get output projection (lm_head) weights from base model
+        let output_proj = model.get_weight("lm_head.weight")?;
+
+        // Convert hidden state to MLX tensor [1, hidden_dim]
+        let hidden_tensor = MLXFFITensor::from_data(hidden, vec![1, hidden_dim])?;
+
+        // Convert targets to MLX tensor [1, seq_len] as i32 for indexing
+        let targets_i32: Vec<i32> = target_tokens.iter().map(|&t| t as i32).collect();
+        let targets_tensor = MLXFFITensor::from_ints(&targets_i32, vec![1, target_tokens.len()])?;
+
+        // Convert module LoRA A weights to tensor [rank, hidden_dim]
+        let lora_a_flat: Vec<f32> = module_weights.lora_a.iter().flatten().copied().collect();
+        let lora_a_tensor = MLXFFITensor::from_data(&lora_a_flat, vec![rank, hidden_dim])?;
+
+        // Convert module LoRA B weights to tensor [hidden_dim, rank]
+        let lora_b_flat: Vec<f32> = module_weights.lora_b.iter().flatten().copied().collect();
+        let lora_b_tensor = MLXFFITensor::from_data(&lora_b_flat, vec![hidden_dim, rank])?;
+
+        // Compute loss and gradients on GPU using cross-entropy
+        let result = mlx_lora_backward_ce_gpu(
+            &hidden_tensor,
+            &output_proj,
+            &targets_tensor,
+            &lora_a_tensor,
+            &lora_b_tensor,
+            alpha,
+            rank,
+            LOSS_IGNORE_INDEX,
+            seed,
+        )?;
+
+        let loss = result.loss;
+        let accumulation_steps = self.gradient_accumulation_steps();
+
+        // Get mutable references to gradient tensors for clipping
+        let mut grad_a = result.grad_a;
+        let mut grad_b = result.grad_b;
+
+        // Clip gradients before accumulation
+        use adapteros_lora_mlx_ffi::training::mlx_clip_grad_norm_gpu;
+        let grad_norm =
+            mlx_clip_grad_norm_gpu(&mut [grad_a.clone_tensor()?, grad_b.clone_tensor()?], 1.0);
+        if grad_norm > 1.0 {
+            debug!(
+                "GPU (CE multi-module) clipped gradient norm from {:.4} to 1.0 for {}",
+                grad_norm, module_key
+            );
+        }
+
+        // Extract gradients to CPU for accumulation
+        let grad_a_cpu = grad_a.to_float_vec()?;
+        let grad_b_cpu = grad_b.to_float_vec()?;
+
+        // Get or create gradient accumulation buffer for this module
+        let accum_entry = self
+            .accumulated_gradients
+            .entry(module_key.to_string())
+            .or_insert_with(|| {
+                let a_size = rank * hidden_dim;
+                let b_size = hidden_dim * rank;
+                (vec![0.0; a_size], vec![0.0; b_size], 0)
+            });
+
+        // Accumulate gradients (scale by 1/N for averaging)
+        let scale = 1.0 / accumulation_steps as f32;
+        for (i, &g) in grad_a_cpu.iter().enumerate() {
+            accum_entry.0[i] += g * scale;
+        }
+        for (i, &g) in grad_b_cpu.iter().enumerate() {
+            accum_entry.1[i] += g * scale;
+        }
+        accum_entry.2 += 1;
+
+        // Only apply optimizer step when accumulation is complete
+        if accum_entry.2 >= accumulation_steps {
+            // Get optimizer state (CPU-side, checkpointable)
+            let opt_state = self
+                .multi_module_optimizer
+                .get_or_create(module_key, rank, hidden_dim);
+
+            // Get optimizer hyperparameters
+            let beta1 = self.config.optimizer_config.beta1;
+            let beta2 = self.config.optimizer_config.beta2;
+            let epsilon = self.config.optimizer_config.epsilon;
+
+            // Apply CPU-native Adam optimizer (state is checkpointable)
+            let lora_a_flat: Vec<f32> = module_weights.lora_a.iter().flatten().copied().collect();
+            let lora_b_flat: Vec<f32> = module_weights.lora_b.iter().flatten().copied().collect();
+
+            let (new_lora_a, new_lora_b) = opt_state.adam_step(
+                &lora_a_flat,
+                &lora_b_flat,
+                &accum_entry.0,
+                &accum_entry.1,
+                learning_rate,
+                beta1,
+                beta2,
+                epsilon,
+                rank,
+                hidden_dim,
+            );
+
+            // Update module weights in-place
+            for r in 0..rank {
+                for h in 0..hidden_dim {
+                    module_weights.lora_a[r][h] = new_lora_a[r * hidden_dim + h];
+                }
+            }
+            for h in 0..hidden_dim {
+                for r in 0..rank {
+                    module_weights.lora_b[h][r] = new_lora_b[h * rank + r];
+                }
+            }
+
+            // Clear accumulation buffer
+            accum_entry.0.fill(0.0);
+            accum_entry.1.fill(0.0);
+            accum_entry.2 = 0;
+
+            debug!(
+                "Applied accumulated gradients for {} (accumulated {} steps)",
+                module_key, accumulation_steps
+            );
         }
 
         Ok(loss)
@@ -3776,6 +4362,27 @@ Use --force-resume to override (may produce incorrect results).",
         }
     }
 
+    /// Get current learning rate from scheduler, or fallback to config
+    fn get_current_lr(&self) -> f32 {
+        self.lr_scheduler
+            .as_ref()
+            .map(|s| s.get_lr())
+            .unwrap_or(self.config.learning_rate)
+    }
+
+    /// Step the learning rate scheduler (call after each training step)
+    fn step_lr_scheduler(&mut self) {
+        if let Some(ref mut scheduler) = self.lr_scheduler {
+            scheduler.step();
+        }
+        self.global_step += 1;
+    }
+
+    /// Get gradient accumulation steps (defaults to 1 = no accumulation)
+    fn gradient_accumulation_steps(&self) -> usize {
+        self.config.gradient_accumulation_steps.unwrap_or(1).max(1) as usize
+    }
+
     /// MoE-aware backward pass with routing-weighted gradients.
     ///
     /// Gradients are scaled by the routing weights for active experts.
@@ -3808,7 +4415,7 @@ Use --force-resume to override (may produce incorrect results).",
         let routing_scale: f32 = routing_weights.iter().sum();
 
         let n = output.len().min(target.len());
-        let learning_rate = self.config.learning_rate;
+        let learning_rate = self.get_current_lr();
         let vocab_scale = (self.config.vocab_size.saturating_sub(1).max(1)) as f32;
 
         // Compute gradient with routing weight scaling

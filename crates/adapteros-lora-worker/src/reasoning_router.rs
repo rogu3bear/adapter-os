@@ -170,7 +170,11 @@ impl ReasoningScorer {
         let mut best_semantic = 0.0;
         let mut best_topology = 0.0;
 
-        for (name, centroid) in &self.clusters {
+        // Sort clusters by key for deterministic iteration order
+        let mut sorted_clusters: Vec<_> = self.clusters.iter().collect();
+        sorted_clusters.sort_by_key(|(name, _)| name.as_str());
+
+        for (name, centroid) in sorted_clusters {
             if centroid.len() != thought_vector.len() {
                 continue;
             }

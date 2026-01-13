@@ -151,6 +151,14 @@ pub enum LoraTier {
 /// CoreML is a first-class training target for LoRA-only runs. Callers may
 /// provide an explicit fallback when CoreML assets/devices are unavailable, but
 /// fallbacks must be surfaced explicitly (no silent redirects).
+///
+/// # Note on MlxBridge
+///
+/// The `MlxBridge` variant (subprocess bridge for MoE models) from the canonical
+/// `BackendKind` enum is intentionally excluded here. Training always uses the
+/// MLX FFI backend directly—`MlxBridge` is only relevant for inference of
+/// mixture-of-experts models that MLX FFI doesn't support. When converting from
+/// `BackendKind`, `MlxBridge` maps to `Mlx`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum TrainingBackendKind {
@@ -1230,6 +1238,18 @@ pub struct TrainingConfig {
     /// Force resume even when pipeline/checkpoint compatibility checks fail.
     #[serde(rename = "force_resume", default)]
     pub force_resume: bool,
+
+    /// Enable multi-module training (train separate weights per target module).
+    /// When false (default), trains a single A/B pair applied to all targets.
+    /// When true, trains separate LoRA weights for each module in `targets`.
+    #[serde(rename = "multi_module_training", default)]
+    pub multi_module_training: bool,
+
+    /// Layer indices for LoRA injection (e.g., [0, 8, 16, 24, 31]).
+    /// If empty, defaults to last layer only for backward compatibility.
+    /// When combined with multi_module_training, trains separate weights for each (layer, module) pair.
+    #[serde(rename = "lora_layer_indices", default)]
+    pub lora_layer_indices: Vec<usize>,
 }
 
 impl TrainingConfig {
@@ -1276,6 +1296,8 @@ impl TrainingConfig {
             validation_split: None,
             preprocessing: None,
             force_resume: false,
+            multi_module_training: false,
+            lora_layer_indices: Vec::new(),
         }
     }
 
@@ -1319,6 +1341,8 @@ impl TrainingConfig {
             validation_split: None,
             preprocessing: None,
             force_resume: false,
+            multi_module_training: false,
+            lora_layer_indices: Vec::new(),
         }
     }
 
@@ -1367,6 +1391,8 @@ impl TrainingConfig {
             validation_split: None,
             preprocessing: None,
             force_resume: false,
+            multi_module_training: false,
+            lora_layer_indices: Vec::new(),
         }
     }
 }

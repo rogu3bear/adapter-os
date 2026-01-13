@@ -4,16 +4,16 @@ mod common;
 mod support;
 
 use adapteros_api_types::training::UploadDatasetResponse;
+use adapteros_orchestrator::TrainingService;
 use adapteros_server_api::routes;
+use anyhow::{bail, Result};
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
-use support::e2e_harness::{E2eHarness, HarnessSetup};
-use uuid::Uuid;
-use anyhow::{bail, Result};
-use std::path::PathBuf;
-use adapteros_orchestrator::TrainingService;
 use serde::de::DeserializeOwned;
+use std::path::PathBuf;
+use support::e2e_harness::{E2eHarness, HarnessSetup};
 use tower::ServiceExt;
+use uuid::Uuid;
 
 #[tokio::test]
 async fn test_dataset_upload_auto_train_workflow() {
@@ -25,7 +25,7 @@ async fn test_dataset_upload_auto_train_workflow() {
             panic!("harness init failed");
         }
     };
-    
+
     let mut harness = match setup {
         HarnessSetup::Skip { reason } => {
             eprintln!("skipping: {}", reason);
@@ -41,7 +41,7 @@ async fn test_dataset_upload_auto_train_workflow() {
 
 async fn run_auto_train_test(harness: &mut E2eHarness) -> Result<()> {
     let (_paths, app) = prepare_harness_app(harness)?;
-    
+
     // 1. Upload with auto_train=true
     let boundary = format!("----adapteros-boundary-{}", Uuid::new_v4().simple());
     let jsonl = r#"{"prompt":"Hello","response":"Hi"}
@@ -52,11 +52,11 @@ async fn run_auto_train_test(harness: &mut E2eHarness) -> Result<()> {
     push_form_field(&mut body, &boundary, "format", "jsonl");
     push_form_field(&mut body, &boundary, "auto_train", "true");
     push_form_field(&mut body, &boundary, "adapter_name", "auto-adapter");
-    
+
     // We need a valid base model ID. Harness usually has one.
     let model_id = harness.model.registered_id.clone();
     push_form_field(&mut body, &boundary, "base_model_id", &model_id);
-    
+
     push_file_field(
         &mut body,
         &boundary,
@@ -70,12 +70,15 @@ async fn run_auto_train_test(harness: &mut E2eHarness) -> Result<()> {
     let request = Request::builder()
         .method(Method::POST)
         .uri("/v1/datasets")
-        .header("content-type", format!("multipart/form-data; boundary={}", boundary))
+        .header(
+            "content-type",
+            format!("multipart/form-data; boundary={}", boundary),
+        )
         .body(Body::from(body))
         .unwrap();
 
     let (status, upload) = send_json::<UploadDatasetResponse>(&app, request).await?;
-    
+
     if status != StatusCode::OK {
         bail!("upload failed: status {}", status);
     }
@@ -83,7 +86,7 @@ async fn run_auto_train_test(harness: &mut E2eHarness) -> Result<()> {
     if upload.training_job_id.is_none() {
         bail!("training_job_id missing from response, auto-train failed");
     }
-    
+
     let job_id = upload.training_job_id.unwrap();
     println!("Auto-train started job: {}", job_id);
 
@@ -94,14 +97,17 @@ async fn run_auto_train_test(harness: &mut E2eHarness) -> Result<()> {
     }
     let job = job.unwrap();
     if job.adapter_name.as_deref() != Some("auto-adapter") {
-        bail!("job adapter name mismatch (expected auto-adapter, got {:?})", job.adapter_name);
+        bail!(
+            "job adapter name mismatch (expected auto-adapter, got {:?})",
+            job.adapter_name
+        );
     }
-    
+
     // 3. Verify stack creation triggered (via post actions default)
     // Note: Stack creation happens AFTER training completes.
     // The upload just starts the job.
     // We don't need to wait for training completion here to verify auto-train started.
-    
+
     println!("Auto-train trigger verified successfully");
 
     Ok(())
@@ -114,7 +120,7 @@ fn prepare_harness_app(
         let config = harness.state.config.read().unwrap();
         config.paths.clone()
     };
-    
+
     for root in [
         &paths.datasets_root,
         &paths.artifacts_root,
@@ -178,7 +184,7 @@ async fn send_json<T: DeserializeOwned>(
     let response = app.clone().oneshot(request).await?;
     let status = response.status();
     let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
-    
+
     if !status.is_success() {
         // Try to parse error response
         if let Ok(err) = serde_json::from_slice::<serde_json::Value>(&bytes) {
@@ -187,7 +193,7 @@ async fn send_json<T: DeserializeOwned>(
             println!("Error body: {:?}", String::from_utf8_lossy(&bytes));
         }
     }
-    
+
     let body = serde_json::from_slice(&bytes)?;
     Ok((status, body))
 }

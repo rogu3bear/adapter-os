@@ -5,6 +5,31 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+/// Request for user self-registration
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct RegisterRequest {
+    /// User email address
+    pub email: String,
+    /// Password (minimum 12 characters)
+    pub password: String,
+    /// Display name (optional, defaults to email prefix)
+    #[serde(default)]
+    pub display_name: Option<String>,
+}
+
+/// Response from registration endpoint
+#[derive(Debug, Serialize, ToSchema)]
+pub struct RegisterResponse {
+    /// Created user ID
+    pub user_id: String,
+    /// Created tenant ID (each user gets their own tenant)
+    pub tenant_id: String,
+    /// JWT access token for immediate authentication
+    pub token: String,
+    /// Token expiration in seconds
+    pub expires_in: u64,
+}
+
 /// Request for bootstrapping initial admin user
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct BootstrapRequest {

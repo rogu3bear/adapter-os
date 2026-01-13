@@ -51,7 +51,7 @@ async fn test_codebase_ingestion_end_to_end() {
     // Skip if tokenizer is not available
     let tokenizer_path = canonical_tokenizer_path();
     if !tokenizer_path.exists() {
-        eprintln!("Skipping test: tokenizer not found at {:?}", tokenizer_path);
+        tracing::warn!("Skipping test: tokenizer not found at {:?}", tokenizer_path);
         return;
     }
 
@@ -151,12 +151,12 @@ It contains basic math utilities.
         .join("test_adapter.aos");
     assert!(adapter_path.exists(), "Adapter archive should exist");
 
-    println!("Codebase ingestion test passed");
-    println!("  Symbols extracted: {}", result.symbols_count);
-    println!("  Training examples: {}", result.examples_count);
-    println!("  Final loss: {:.6}", result.final_loss);
-    println!("  Adapter hash: {}", result.adapter_hash);
-    println!("  Content hash: {}", result.content_hash);
+    tracing::info!("Codebase ingestion test passed");
+    tracing::info!("  Symbols extracted: {}", result.symbols_count);
+    tracing::info!("  Training examples: {}", result.examples_count);
+    tracing::info!("  Final loss: {:.6}", result.final_loss);
+    tracing::info!("  Adapter hash: {}", result.adapter_hash);
+    tracing::info!("  Content hash: {}", result.content_hash);
 }
 
 /// Test determinism: same codebase should produce same hash
@@ -167,7 +167,7 @@ async fn test_determinism() {
     // Skip if tokenizer is not available
     let tokenizer_path = canonical_tokenizer_path();
     if !tokenizer_path.exists() {
-        eprintln!("Skipping test: tokenizer not found at {:?}", tokenizer_path);
+        tracing::warn!("Skipping test: tokenizer not found at {:?}", tokenizer_path);
         return;
     }
 
@@ -243,9 +243,9 @@ pub fn square(n: i32) -> i32 {{
         "Adapter hashes should match for identical codebases (deterministic training)"
     );
 
-    println!("Determinism test passed");
-    println!("  Content hash: {}", result1.content_hash);
-    println!("  Adapter hash: {}", result1.adapter_hash);
+    tracing::info!("Determinism test passed");
+    tracing::info!("  Content hash: {}", result1.content_hash);
+    tracing::info!("  Adapter hash: {}", result1.adapter_hash);
 }
 
 #[test]
@@ -308,7 +308,7 @@ fn test_seed_inputs_include_commit_dataset_training_config() {
 async fn test_no_documentation() {
     let tokenizer_path = canonical_tokenizer_path();
     if !tokenizer_path.exists() {
-        eprintln!("Skipping test: tokenizer not found");
+        tracing::warn!("Skipping test: tokenizer not found");
         return;
     }
 
@@ -362,14 +362,14 @@ pub fn undocumented_func(x: i32) -> i32 {{
                 res.examples_count > 0,
                 "Should have generated at least negative examples"
             );
-            println!(
+            tracing::info!(
                 "No documentation test passed with {} examples",
                 res.examples_count
             );
         }
         Err(e) => {
             // It's acceptable to fail if no examples can be generated
-            println!("No documentation test handled correctly: {}", e);
+            tracing::warn!("No documentation test handled correctly: {}", e);
         }
     }
 }
@@ -1064,10 +1064,10 @@ async fn test_scan_root_dataset_creation_pipeline() {
     assert_eq!(sessions[0].positive_count, 1);
     assert_eq!(sessions[0].negative_count, 1);
 
-    println!("Scan-root dataset creation pipeline test passed");
-    println!("  Dataset ID: {}", dataset_id);
-    println!("  Session ID: {}", session_id);
-    println!("  Total rows: {}", count);
+    tracing::info!("Scan-root dataset creation pipeline test passed");
+    tracing::info!("  Dataset ID: {}", dataset_id);
+    tracing::info!("  Session ID: {}", session_id);
+    tracing::info!("  Total rows: {}", count);
 }
 
 /// Integration test: Training config hash is persisted in codebase dataset rows
@@ -1483,10 +1483,10 @@ async fn test_training_job_scan_root_dataset_linkage() {
         Some("repo:test-project/packages/backend")
     );
 
-    println!("Training job scan-root dataset linkage test passed");
-    println!("  Job ID: {}", job_id);
-    println!("  Dataset ID: {}", dataset_id);
-    println!("  Source location: {:?}", linked_dataset.source_location);
+    tracing::info!("Training job scan-root dataset linkage test passed");
+    tracing::info!("  Job ID: {}", job_id);
+    tracing::info!("  Dataset ID: {}", dataset_id);
+    tracing::info!("  Source location: {:?}", linked_dataset.source_location);
 }
 
 /// Integration test: Bulk insert codebase dataset rows
@@ -1590,11 +1590,12 @@ async fn test_bulk_insert_scan_root_dataset_rows() {
     assert_eq!(sessions[0].positive_count, 33);
     assert_eq!(sessions[0].negative_count, 17);
 
-    println!("Bulk insert scan-root dataset rows test passed");
-    println!("  Inserted rows: {}", inserted_count);
-    println!(
+    tracing::info!("Bulk insert scan-root dataset rows test passed");
+    tracing::info!("  Inserted rows: {}", inserted_count);
+    tracing::info!(
         "  Positive: {}, Negative: {}",
-        sessions[0].positive_count, sessions[0].negative_count
+        sessions[0].positive_count,
+        sessions[0].negative_count
     );
 }
 
@@ -1677,7 +1678,7 @@ async fn test_delete_scan_root_dataset_rows() {
         .unwrap();
     assert_eq!(count_after, 0);
 
-    println!("Delete scan-root dataset rows test passed");
+    tracing::info!("Delete scan-root dataset rows test passed");
 }
 
 /// Test: Get rows by file path for scan-root focused queries
@@ -1752,7 +1753,7 @@ async fn test_get_scan_root_rows_by_file_path() {
 
     assert_eq!(utils_rows.len(), 1, "Should find 1 row for src/utils.rs");
 
-    println!("Get scan-root rows by file path test passed");
+    tracing::info!("Get scan-root rows by file path test passed");
 }
 
 /// Test: Get rows by qualified name for symbol lookup
@@ -1840,7 +1841,7 @@ async fn test_get_scan_root_rows_by_qualified_name() {
         "Should find 1 row for utils::format_output"
     );
 
-    println!("Get scan-root rows by qualified name test passed");
+    tracing::info!("Get scan-root rows by qualified name test passed");
 }
 
 /// Test: Training dataset rows are namespaced by dataset hash
@@ -1930,7 +1931,7 @@ async fn test_training_dataset_row_ids_use_dataset_hash() {
     assert_eq!(rows_two.len(), 1);
     assert_ne!(rows_one[0].id, rows_two[0].id);
 
-    println!("Training dataset row hash namespacing test passed");
+    tracing::info!("Training dataset row hash namespacing test passed");
 }
 
 /// Test: Record dataset hash inputs
@@ -1988,5 +1989,5 @@ async fn test_record_dataset_hash_inputs() {
     assert_eq!(count.0, 1);
     assert!(!record_id.is_empty());
 
-    println!("Dataset hash inputs record test passed");
+    tracing::info!("Dataset hash inputs record test passed");
 }

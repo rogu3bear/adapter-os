@@ -376,9 +376,6 @@ impl InferencePipeline {
         let mut router = router;
         router.set_abstain_telemetry_writer(Arc::new(telemetry.clone()));
 
-        let mut router = router;
-        router.set_abstain_telemetry_writer(Arc::new(telemetry.clone()));
-
         let tokenizer = QwenTokenizer::from_file(tokenizer_path)?;
 
         // Create deterministic generator with HKDF-derived seed
@@ -767,15 +764,15 @@ impl InferencePipeline {
         }
 
         // 3. Initialize generation state
-        let mut generated_tokens = Vec::new();
-        let mut router_decisions = Vec::new();
+        let mut generated_tokens = Vec::with_capacity(request.max_tokens);
+        let mut router_decisions = Vec::with_capacity(request.max_tokens);
         let mut current_tokens = input_tokens.clone();
         let mut total_router_time_us = 0u64;
 
         // 3.5 Initialize stop controller
         let stop_sequences_tokens = match request.stop_policy.as_ref() {
             Some(policy) => {
-                let mut sequences = Vec::new();
+                let mut sequences = Vec::with_capacity(policy.stop_sequences.len());
                 for sequence in &policy.stop_sequences {
                     if sequence.is_empty() {
                         continue;
@@ -860,7 +857,7 @@ impl InferencePipeline {
         let mut inspector =
             StreamInspector::new(initial_cluster, scorer, embedder, reasoning_config);
         let mut adapter_bias: Option<String> = None;
-        let mut rainbow_trace: Vec<Option<String>> = Vec::new();
+        let mut rainbow_trace: Vec<Option<String>> = Vec::with_capacity(request.max_tokens);
         let mut reasoning_transitions: Vec<ThoughtTransition> = Vec::new();
 
         // Review trigger detector for human-in-the-loop pause/resume
@@ -1317,15 +1314,15 @@ impl InferencePipeline {
         }
 
         // 3. Initialize generation state
-        let mut generated_tokens = Vec::new();
-        let mut router_decisions = Vec::new();
+        let mut generated_tokens = Vec::with_capacity(request.max_tokens);
+        let mut router_decisions = Vec::with_capacity(request.max_tokens);
         let mut current_tokens = input_tokens.clone();
         let mut total_router_time_us = 0u64;
 
         // 3.5 Initialize stop controller (PRD: Hard Deterministic Stop Controller)
         let stop_sequences_tokens = match request.stop_policy.as_ref() {
             Some(policy) => {
-                let mut sequences = Vec::new();
+                let mut sequences = Vec::with_capacity(policy.stop_sequences.len());
                 for sequence in &policy.stop_sequences {
                     if sequence.is_empty() {
                         continue;

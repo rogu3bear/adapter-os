@@ -179,7 +179,7 @@ pub fn WorkersList(
                             view! {
                                 <div class="flex items-center justify-center py-4 border-t">
                                     <button
-                                        class="text-sm text-primary hover:underline"
+                                        class="text-sm text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
                                         on:click=show_more
                                     >
                                         {format!("Show more ({} remaining)", remaining)}
@@ -248,7 +248,7 @@ pub fn WorkerRow(
         <TableRow class="cursor-pointer hover:bg-muted/50">
             <TableCell>
                 <button
-                    class="font-mono text-sm text-primary hover:underline"
+                    class="font-mono text-sm text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
                     title=worker.id.clone()
                     on:click=move |_| on_select.run(())
                 >
@@ -279,7 +279,7 @@ pub fn WorkerRow(
                 <div class="flex items-center justify-end gap-1">
                     {show_drain.then(|| view! {
                         <button
-                            class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium hover:bg-accent"
+                            class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                             on:click=move |_| on_drain.run(())
                         >
                             <PauseIcon/>
@@ -288,7 +288,7 @@ pub fn WorkerRow(
                     })}
                     {show_stop.then(|| view! {
                         <button
-                            class="inline-flex items-center gap-1 rounded-md bg-destructive px-2 py-1 text-xs font-medium text-destructive-foreground hover:bg-destructive/90"
+                            class="inline-flex items-center gap-1 rounded-md bg-destructive px-2 py-1 text-xs font-medium text-destructive-foreground hover:bg-destructive/90 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                             on:click=move |_| on_stop.run(())
                         >
                             <StopIcon/>
@@ -332,7 +332,7 @@ pub fn WorkerDetailPanel(worker: WorkerResponse, on_close: Callback<()>) -> impl
                     </div>
                     <div class="flex items-center gap-2">
                         <button
-                            class="inline-flex items-center gap-2 rounded-md border border-input bg-background px-3 py-1 text-sm font-medium hover:bg-accent"
+                            class="inline-flex items-center gap-2 rounded-md border border-input bg-background px-3 py-1 text-sm font-medium hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                             on:click={
                                 let worker_id = worker_id.clone();
                                 move |_| navigate(&format!("/workers/{}", worker_id))
@@ -341,7 +341,8 @@ pub fn WorkerDetailPanel(worker: WorkerResponse, on_close: Callback<()>) -> impl
                             "View Full Details"
                         </button>
                         <button
-                            class="p-2 hover:bg-muted rounded"
+                            class="p-2 hover:bg-muted rounded focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                            aria-label="Close details"
                             on:click=move |_| on_close.run(())
                         >
                             <CloseIcon/>
@@ -469,7 +470,7 @@ pub fn WorkerDetailView(
                 </div>
                 <div class="flex items-center gap-2">
                     <button
-                        class="inline-flex items-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent"
+                        class="inline-flex items-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                         on:click=move |_| on_refresh.run(())
                     >
                         <RefreshIcon/>
@@ -480,7 +481,7 @@ pub fn WorkerDetailView(
                         let on_refresh = on_refresh.clone();
                         view! {
                             <button
-                                class="inline-flex items-center gap-2 rounded-md bg-secondary px-4 py-2 text-sm font-medium text-secondary-foreground hover:bg-secondary/80"
+                                class="inline-flex items-center gap-2 rounded-md bg-secondary px-4 py-2 text-sm font-medium text-secondary-foreground hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                                 disabled=action_loading.get()
                                 on:click=move |_| {
                                     action_loading.set(true);
@@ -510,7 +511,7 @@ pub fn WorkerDetailView(
                         let worker_id = worker.id.clone();
                         view! {
                             <button
-                                class="inline-flex items-center gap-2 rounded-md bg-destructive px-4 py-2 text-sm font-medium text-destructive-foreground hover:bg-destructive/90"
+                                class="inline-flex items-center gap-2 rounded-md bg-destructive px-4 py-2 text-sm font-medium text-destructive-foreground hover:bg-destructive/90 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                                 disabled=action_loading.get()
                                 on:click=move |_| {
                                     action_loading.set(true);
@@ -621,7 +622,7 @@ pub fn WorkerDetailView(
                 {worker.cache_used_mb.zip(worker.cache_max_mb).map(|(used, max)| {
                     let pct = if max > 0 { (used as f64 / max as f64) * 100.0 } else { 0.0 };
                     let color = if pct > 90.0 { "bg-destructive" }
-                        else if pct > 70.0 { "bg-yellow-500" }
+                        else if pct > 70.0 { "bg-status-warning" }
                         else { "bg-primary" };
                     view! {
                         <div class="mt-6">
@@ -812,7 +813,7 @@ pub fn ResourceBar(label: &'static str, value: String, percentage: f64) -> impl 
     let color = if percentage > 90.0 {
         "bg-destructive"
     } else if percentage > 70.0 {
-        "bg-yellow-500"
+        "bg-status-warning"
     } else {
         "bg-primary"
     };

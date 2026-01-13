@@ -48,14 +48,17 @@ impl ButtonSize {
 }
 
 /// Button component
+///
+/// Supports both static and reactive `disabled` and `loading` props via `Signal<bool>`.
+/// When `loading` is true, a spinner is shown and the button is disabled.
 #[component]
 pub fn Button(
     #[prop(optional)] variant: ButtonVariant,
     #[prop(optional)] size: ButtonSize,
-    #[prop(optional)] disabled: bool,
-    #[prop(optional)] loading: bool,
+    #[prop(optional, into)] disabled: Signal<bool>,
+    #[prop(optional, into)] loading: Signal<bool>,
     #[prop(optional, into)] class: String,
-    #[prop(optional, into)] aria_label: Option<String>,
+    #[prop(optional, into)] aria_label: String,
     #[prop(optional)] on_click: Option<Callback<()>>,
     children: Children,
 ) -> impl IntoView {
@@ -72,8 +75,8 @@ pub fn Button(
     view! {
         <button
             class=full_class
-            disabled=disabled || loading
-            aria-label=aria_label
+            disabled=move || disabled.get() || loading.get()
+            aria-label=move || (!aria_label.is_empty()).then(|| aria_label.clone())
             on:click=move |_| {
                 if let Some(ref cb) = on_click {
                     cb.run(());
@@ -81,7 +84,7 @@ pub fn Button(
             }
         >
             {move || {
-                if loading {
+                if loading.get() {
                     view! {
                         <Spinner size=SpinnerSize::Sm class="mr-2".to_string()/>
                     }.into_any()

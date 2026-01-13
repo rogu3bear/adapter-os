@@ -38,6 +38,16 @@
     --color-status-warning: hsl(38 92% 50%);
     --color-status-error: hsl(0 84% 60%);
 
+    /* Chart palette colors (for charts, graphs, and data visualization) */
+    --color-green-500: hsl(142 71% 45%);
+    --color-yellow-500: hsl(38 92% 50%);
+    --color-red-500: hsl(0 84% 60%);
+    --color-blue-500: hsl(221 83% 53%);
+    --color-orange-500: hsl(25 95% 53%);
+    --color-pink-500: hsl(330 81% 60%);
+    --color-cyan-500: hsl(189 94% 43%);
+    --color-purple-500: hsl(271 81% 56%);
+
     /* Disabled state colors (WCAG AA compliant - maintains ~4:1 contrast) */
     --color-disabled: hsl(215 16% 78%);
     --color-disabled-foreground: hsl(215 10% 53%);
@@ -70,6 +80,16 @@
     --color-status-success: hsl(142 76% 46%);
     --color-status-warning: hsl(38 92% 55%);
     --color-status-error: hsl(0 84% 65%);
+
+    /* Chart palette colors (brighter for dark backgrounds) */
+    --color-green-500: hsl(142 71% 55%);
+    --color-yellow-500: hsl(38 92% 55%);
+    --color-red-500: hsl(0 84% 65%);
+    --color-blue-500: hsl(221 83% 63%);
+    --color-orange-500: hsl(25 95% 58%);
+    --color-pink-500: hsl(330 81% 65%);
+    --color-cyan-500: hsl(189 94% 50%);
+    --color-purple-500: hsl(271 81% 65%);
 
     /* Disabled state colors (WCAG AA compliant - maintains ~4:1 contrast) */
     --color-disabled: hsl(217 20% 24%);

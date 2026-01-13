@@ -2,7 +2,7 @@
 
 use crate::gates::DependencyCheckResult;
 use adapteros_core::time;
-use anyhow::Result;
+use adapteros_core::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;

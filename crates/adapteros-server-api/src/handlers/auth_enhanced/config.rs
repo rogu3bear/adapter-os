@@ -35,7 +35,7 @@ pub async fn get_auth_config_handler(
     let auth_cfg = AuthConfig::from_state(&state);
 
     let response = AuthConfigResponse {
-        allow_registration: false, // Registration not implemented yet
+        allow_registration: config.security.allow_registration.unwrap_or(false),
         require_email_verification: false,
         access_token_ttl_minutes: (auth_cfg.access_ttl() / 60) as u32,
         session_timeout_minutes: (auth_cfg.effective_ttl() / 60) as u32,

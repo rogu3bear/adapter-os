@@ -27,9 +27,16 @@ pub fn Safe() -> impl IntoView {
                         <Button on_click=Callback::new(go_login)>
                             "Go to Login"
                         </Button>
-                        <a class="btn btn-outline btn-md" href="/">
+                        <Button
+                            variant=crate::components::ButtonVariant::Outline
+                            on_click=Callback::new(move |_| {
+                                if let Some(window) = web_sys::window() {
+                                    let _ = window.location().set_href("/");
+                                }
+                            })
+                        >
                             "Try Main App"
-                        </a>
+                        </Button>
                     </div>
                 </div>
             </Card>
