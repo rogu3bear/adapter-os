@@ -421,6 +421,7 @@ ed25519-dalek = { workspace = true }
 rand = { workspace = true }
 rand_chacha = { workspace = true }
 tempfile = { workspace = true }
+hkdf = { workspace = true }
 adapteros-server = { path = "crates/adapteros-server" }
 adapteros-server-api = { path = "crates/adapteros-server-api" }
 adapteros-db = { path = "crates/adapteros-db" }

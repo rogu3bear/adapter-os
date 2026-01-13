@@ -558,6 +558,7 @@ impl Default for ApiConfig {
                 plan_dir: "var/plan".to_string(),
                 datasets_root: "var/datasets".to_string(),
                 documents_root: "var/documents".to_string(),
+                synthesis_model_path: None,
             },
             chat_context: Default::default(),
             seed_mode: if cfg!(debug_assertions) {

@@ -1,0 +1,137 @@
+# Synthesis Model Training Configuration
+# Fine-tunes Qwen2.5-1.5B-Instruct to generate training data from document chunks
+
+model:
+  # Base model to fine-tune (HuggingFace ID - will use cached version)
+  name: "mlx-community/Qwen2.5-1.5B-Instruct-4bit"
+
+  # Maximum sequence length for input + output
+  max_seq_length: 2048
+
+  # Tokenizer settings
+  tokenizer:
+    padding_side: "right"
+    truncation_side: "right"
+
+# LoRA configuration
+lora:
+  rank: 16
+  alpha: 32
+  dropout: 0.05
+  # Target modules for Qwen architecture
+  target_modules:
+    - "q_proj"
+    - "k_proj"
+    - "v_proj"
+    - "o_proj"
+    - "gate_proj"
+    - "up_proj"
+    - "down_proj"
+
+# Training hyperparameters
+training:
+  # Learning rate with warmup
+  learning_rate: 2.0e-4
+  lr_scheduler: "cosine"
+  warmup_steps: 100
+
+  # Batch configuration
+  batch_size: 4
+  gradient_accumulation_steps: 4
+  # Effective batch size: 4 * 4 = 16
+
+  # Training duration
+  num_epochs: 1
+  max_steps: 5000 # ~5K examples
+
+  # Optimization
+  optimizer: "adamw"
+  weight_decay: 0.01
+  max_grad_norm: 1.0
+
+  # Mixed precision (MLX uses bfloat16 by default)
+  dtype: "bfloat16"
+
+  # Checkpointing
+  save_steps: 500
+  eval_steps: 250
+  logging_steps: 50
+
+# Data configuration
+data:
+  # Prompt template for synthesis task
+  system_prompt: |
+    You are a training data synthesis expert. Given a document chunk, generate high-quality training examples in JSON format.
+
+    Output format:
+    {
+      "qa_pairs": [{"question": "...", "answer": "..."}],
+      "instructions": [{"instruction": "...", "response": "..."}],
+      "completions": [{"context": "...", "continuation": "..."}]
+    }
+
+    Guidelines:
+    - Generate 2-4 Q&A pairs that test understanding of the content
+    - Generate 1-2 instruction-following examples (explain, summarize, compare, etc.)
+    - Generate 1-2 completion examples (context + continuation)
+    - Ensure answers are grounded in the source text
+    - Use varied question types and instruction verbs
+    - Output valid JSON only
+
+  user_template: |
+    Document chunk:
+    ```
+    {chunk}
+    ```
+
+    Generate training examples:
+
+  # Validation split
+  val_split: 0.1
+
+# Output configuration
+output:
+  # Directory for checkpoints and final model
+  dir: "output/synthesis_model_mlx"
+
+  # Model export settings
+  export:
+    # Save adapter weights separately
+    save_adapter: true
+    # Merge adapter into base for inference
+    merge_weights: true
+
+# MLX-specific settings
+mlx:
+  # Use Metal Performance Shaders
+  use_mps: true
+  # Gradient checkpointing for memory efficiency
+  gradient_checkpointing: false
+  # Compile model for faster training
+  compile: true
+
+# Evaluation settings
+evaluation:
+  # Metrics to compute
+  metrics:
+    - "json_parse_rate" # % of outputs that are valid JSON
+    - "qa_relevance" # Semantic similarity of answers to source
+    - "instruction_diversity" # Unique instruction types
+    - "factual_accuracy" # Answer grounded in chunk
+
+  # Number of samples for evaluation
+  num_samples: 100
+
+  # Generation settings for eval
+  generation:
+    max_new_tokens: 1024
+    temperature: 0.7
+    top_p: 0.9
+    do_sample: true
+
+# CoreML export settings (post-training)
+coreml:
+  compute_units: "cpu_and_ne" # Use Neural Engine
+  precision: "float16"
+  # Sequence length for static shape
+  static_seq_length: 2048

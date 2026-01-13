@@ -363,6 +363,53 @@ pub async fn infer(
         ));
     }
 
+    // AARA Lifecycle: Log inference decision for audit trail
+    {
+        let abstained = result.abstention.is_some();
+        let abstention_reason = result
+            .abstention
+            .as_ref()
+            .map(|a| format!("{:?}", a.reason));
+        let max_gate = result
+            .router_decisions
+            .iter()
+            .flat_map(|d| d.candidates.iter())
+            .map(|c| c.raw_score)
+            .fold(0.0_f32, f32::max);
+
+        // Get candidate adapters from routing decisions
+        let adapters_considered: Vec<String> = result
+            .router_decisions
+            .iter()
+            .flat_map(|d| d.candidates.iter())
+            .map(|c| format!("adapter_{}", c.adapter_idx))
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+
+        if let Err(e) = state
+            .db
+            .log_inference_decision(
+                &request_id_str,
+                &claims.tenant_id,
+                &claims.sub,
+                &adapters_considered,
+                &result.adapters_used,
+                max_gate,
+                abstained,
+                abstention_reason.as_deref(),
+                result.latency_ms,
+            )
+            .await
+        {
+            tracing::warn!(
+                request_id = %request_id_str,
+                error = %e,
+                "Failed to log inference decision to audit trail"
+            );
+        }
+    }
+
     // Convert result to API response format
     let response: InferResponse = result.into();
 
@@ -392,6 +439,139 @@ pub async fn infer(
                 ),
             )
         })?;
+
+    Ok(Json(response))
+}
+
+// =============================================================================
+// Provenance Endpoint (AUDIT)
+// =============================================================================
+
+/// Response for provenance chain query
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct ProvenanceResponse {
+    /// Inference trace ID
+    pub trace_id: String,
+    /// Tenant that owns this trace
+    pub tenant_id: String,
+    /// Request ID if available
+    pub request_id: Option<String>,
+    /// When the inference occurred
+    pub created_at: Option<String>,
+    /// Adapters that contributed to this inference
+    pub adapters: Vec<AdapterProvenanceInfo>,
+    /// Source documents traced back from adapters
+    pub source_documents: Vec<DocumentProvenanceInfo>,
+    /// Whether full provenance could be resolved
+    pub is_complete: bool,
+    /// Any warnings about missing provenance links
+    pub warnings: Vec<String>,
+    /// Total confidence score
+    pub confidence: f32,
+}
+
+/// Adapter provenance in API response
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct AdapterProvenanceInfo {
+    /// Adapter ID
+    pub adapter_id: String,
+    /// Normalized gate value (0.0-1.0)
+    pub gate: f32,
+    /// Training job that created this adapter
+    pub training_job_id: Option<String>,
+    /// Dataset version used for training
+    pub dataset_version_id: Option<String>,
+}
+
+/// Document provenance in API response
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct DocumentProvenanceInfo {
+    /// Source file path
+    pub source_file: String,
+    /// BLAKE3 content hash
+    pub content_hash: String,
+    /// Line range if known
+    pub lines: Option<String>,
+}
+
+/// Get provenance chain for an inference trace
+///
+/// Traces the inference back through adapters to source documents,
+/// enabling audit of which training data influenced the response.
+#[utoipa::path(
+    tag = "inference",
+    get,
+    path = "/v1/inference/{trace_id}/provenance",
+    params(
+        ("trace_id" = String, Path, description = "Inference trace ID to query provenance for")
+    ),
+    responses(
+        (status = 200, description = "Provenance chain retrieved", body = ProvenanceResponse),
+        (status = 404, description = "Trace not found", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    )
+)]
+pub async fn get_inference_provenance(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    axum::extract::Path(trace_id): axum::extract::Path<String>,
+) -> Result<Json<ProvenanceResponse>, (StatusCode, Json<ErrorResponse>)> {
+    use crate::error_helpers::internal_error;
+
+    // Permission check - allow audit/view access
+    crate::permissions::require_permission(&claims, Permission::AuditView)?;
+
+    // Get provenance chain from DB
+    let chain = adapteros_db::inference_trace::get_provenance_chain(&state.db, &trace_id)
+        .await
+        .map_err(|e| {
+            if e.to_string().contains("not found") {
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(ErrorResponse::new("Inference trace not found").with_code("NOT_FOUND")),
+                )
+            } else {
+                internal_error(e)
+            }
+        })?;
+
+    // Convert to API response
+    let confidence = chain.total_confidence();
+    let response = ProvenanceResponse {
+        trace_id: chain.trace_id,
+        tenant_id: chain.tenant_id,
+        request_id: chain.request_id,
+        created_at: chain.created_at.map(|dt| dt.to_rfc3339()),
+        adapters: chain
+            .adapters_used
+            .into_iter()
+            .map(|a| AdapterProvenanceInfo {
+                adapter_id: a.adapter_id,
+                gate: a.gate_normalized,
+                training_job_id: a.training_job_id,
+                dataset_version_id: a.dataset_version_id,
+            })
+            .collect(),
+        source_documents: chain
+            .source_documents
+            .into_iter()
+            .map(|d| {
+                let lines = match (d.line_start, d.line_end) {
+                    (Some(s), Some(e)) => Some(format!("{}-{}", s, e)),
+                    (Some(s), None) => Some(format!("{}+", s)),
+                    _ => None,
+                };
+                DocumentProvenanceInfo {
+                    source_file: d.source_file,
+                    content_hash: d.source_hash_b3,
+                    lines,
+                }
+            })
+            .collect(),
+        is_complete: chain.is_complete,
+        warnings: chain.warnings,
+        confidence,
+    };
 
     Ok(Json(response))
 }

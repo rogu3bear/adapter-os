@@ -136,6 +136,9 @@ pub struct PathsConfig {
     pub datasets_root: String,
     #[serde(default = "default_documents_root")]
     pub documents_root: String,
+    /// Path to synthesis model for training data generation
+    #[serde(default)]
+    pub synthesis_model_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

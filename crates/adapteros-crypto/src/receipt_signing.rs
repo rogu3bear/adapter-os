@@ -205,6 +205,160 @@ pub fn sign_receipt_digest_bytes(
     sign_receipt_digest(&digest, keypair, mode)
 }
 
+// =============================================================================
+// Tenant-Bound Receipts (Patent 3535886.0002 Multi-tenant isolation)
+// =============================================================================
+
+/// A tenant-bound receipt with cryptographic binding.
+///
+/// This extends `SignedReceipt` with tenant-specific HMAC binding to ensure
+/// that receipts are cryptographically tied to a specific tenant.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TenantBoundReceipt {
+    /// Base signed receipt
+    pub receipt: SignedReceipt,
+    /// Tenant identifier
+    pub tenant_id: String,
+    /// HMAC-SHA256 of (receipt_digest || tenant_id) using tenant-specific key
+    /// Hex-encoded 32 bytes
+    pub tenant_binding_mac: String,
+    /// Timestamp when binding was created (ISO 8601)
+    pub bound_at: String,
+}
+
+impl TenantBoundReceipt {
+    /// Create a tenant-bound receipt.
+    ///
+    /// # Arguments
+    /// * `receipt` - The base signed receipt
+    /// * `tenant_id` - Tenant identifier
+    /// * `tenant_key` - 32-byte tenant-specific HMAC key
+    ///
+    /// # Returns
+    /// A tenant-bound receipt with HMAC binding.
+    pub fn create(receipt: SignedReceipt, tenant_id: &str, tenant_key: &[u8; 32]) -> Self {
+        let tenant_binding_mac = compute_tenant_binding_mac(&receipt.digest, tenant_id, tenant_key);
+        let bound_at = chrono::Utc::now().to_rfc3339();
+
+        Self {
+            receipt,
+            tenant_id: tenant_id.to_string(),
+            tenant_binding_mac: hex::encode(tenant_binding_mac),
+            bound_at,
+        }
+    }
+
+    /// Verify the tenant binding MAC.
+    ///
+    /// # Arguments
+    /// * `tenant_key` - The tenant-specific HMAC key
+    ///
+    /// # Returns
+    /// `true` if the MAC is valid, `false` otherwise.
+    pub fn verify_binding(&self, tenant_key: &[u8; 32]) -> bool {
+        let expected =
+            compute_tenant_binding_mac(&self.receipt.digest, &self.tenant_id, tenant_key);
+        let actual = match hex::decode(&self.tenant_binding_mac) {
+            Ok(bytes) => bytes,
+            Err(_) => return false,
+        };
+
+        // Constant-time comparison
+        if expected.len() != actual.len() {
+            return false;
+        }
+        let mut diff = 0u8;
+        for (a, b) in expected.iter().zip(actual.iter()) {
+            diff |= a ^ b;
+        }
+        diff == 0
+    }
+
+    /// Verify both the receipt signature and tenant binding.
+    pub fn verify_full(&self, tenant_key: &[u8; 32]) -> Result<bool> {
+        // Verify receipt signature first
+        let sig_valid = self.receipt.verify()?;
+        if !sig_valid && self.receipt.is_signed() {
+            return Ok(false);
+        }
+
+        // Verify tenant binding
+        Ok(self.verify_binding(tenant_key))
+    }
+
+    /// Get the receipt digest.
+    pub fn digest(&self) -> &B3Hash {
+        &self.receipt.digest
+    }
+}
+
+/// Compute HMAC-SHA256 for tenant binding.
+fn compute_tenant_binding_mac(digest: &B3Hash, tenant_id: &str, tenant_key: &[u8; 32]) -> [u8; 32] {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+
+    type HmacSha256 = Hmac<Sha256>;
+
+    let mut mac = HmacSha256::new_from_slice(tenant_key).expect("HMAC can take key of any size");
+    mac.update(digest.as_bytes());
+    mac.update(b"\x00"); // separator
+    mac.update(tenant_id.as_bytes());
+
+    let result = mac.finalize();
+    let mut output = [0u8; 32];
+    output.copy_from_slice(&result.into_bytes());
+    output
+}
+
+/// Derive a tenant-specific key from a master key.
+///
+/// Uses HKDF-SHA256 with the tenant ID as the info parameter.
+/// This ensures each tenant has a unique key derived from the master.
+///
+/// # Arguments
+/// * `master_key` - 32-byte master key
+/// * `tenant_id` - Tenant identifier
+///
+/// # Returns
+/// 32-byte tenant-specific key
+pub fn derive_tenant_key(master_key: &[u8; 32], tenant_id: &str) -> [u8; 32] {
+    use hkdf::Hkdf;
+    use sha2::Sha256;
+
+    let hkdf = Hkdf::<Sha256>::new(None, master_key);
+    let mut tenant_key = [0u8; 32];
+    hkdf.expand(tenant_id.as_bytes(), &mut tenant_key)
+        .expect("32 bytes is valid HKDF output length");
+    tenant_key
+}
+
+/// Derive a tenant-specific key with additional context.
+///
+/// # Arguments
+/// * `master_key` - 32-byte master key
+/// * `tenant_id` - Tenant identifier
+/// * `purpose` - Key purpose (e.g., "receipts", "adapters")
+///
+/// # Returns
+/// 32-byte tenant-specific key for the given purpose
+pub fn derive_tenant_key_with_purpose(
+    master_key: &[u8; 32],
+    tenant_id: &str,
+    purpose: &str,
+) -> [u8; 32] {
+    use hkdf::Hkdf;
+    use sha2::Sha256;
+
+    // Combine tenant_id and purpose
+    let info = format!("{}:{}", tenant_id, purpose);
+
+    let hkdf = Hkdf::<Sha256>::new(None, master_key);
+    let mut derived_key = [0u8; 32];
+    hkdf.expand(info.as_bytes(), &mut derived_key)
+        .expect("32 bytes is valid HKDF output length");
+    derived_key
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -275,5 +429,90 @@ mod tests {
     fn test_signing_mode_default() {
         // Default should be Production (fail-closed)
         assert_eq!(SigningMode::default(), SigningMode::Production);
+    }
+
+    // Tenant binding tests (Patent 3535886.0002)
+
+    #[test]
+    fn test_tenant_key_derivation() {
+        let master_key = [0x42u8; 32];
+        let tenant1 = derive_tenant_key(&master_key, "tenant-1");
+        let tenant2 = derive_tenant_key(&master_key, "tenant-2");
+
+        // Different tenants should get different keys
+        assert_ne!(tenant1, tenant2);
+
+        // Same tenant should get same key
+        let tenant1_again = derive_tenant_key(&master_key, "tenant-1");
+        assert_eq!(tenant1, tenant1_again);
+    }
+
+    #[test]
+    fn test_tenant_key_with_purpose() {
+        let master_key = [0x42u8; 32];
+        let receipts_key = derive_tenant_key_with_purpose(&master_key, "tenant-1", "receipts");
+        let adapters_key = derive_tenant_key_with_purpose(&master_key, "tenant-1", "adapters");
+
+        // Different purposes should get different keys
+        assert_ne!(receipts_key, adapters_key);
+    }
+
+    #[test]
+    fn test_tenant_bound_receipt_creation() {
+        let digest = B3Hash::hash(b"test receipt");
+        let keypair = Keypair::generate();
+        let tenant_key = [0x42u8; 32];
+
+        let signed = sign_receipt_digest(&digest, Some(&keypair), SigningMode::Production).unwrap();
+        let bound = TenantBoundReceipt::create(signed, "tenant-123", &tenant_key);
+
+        assert_eq!(bound.tenant_id, "tenant-123");
+        assert!(!bound.tenant_binding_mac.is_empty());
+    }
+
+    #[test]
+    fn test_tenant_bound_receipt_verification() {
+        let digest = B3Hash::hash(b"test receipt");
+        let keypair = Keypair::generate();
+        let tenant_key = [0x42u8; 32];
+
+        let signed = sign_receipt_digest(&digest, Some(&keypair), SigningMode::Production).unwrap();
+        let bound = TenantBoundReceipt::create(signed, "tenant-123", &tenant_key);
+
+        // Verification with correct key should pass
+        assert!(bound.verify_binding(&tenant_key));
+
+        // Verification with wrong key should fail
+        let wrong_key = [0x43u8; 32];
+        assert!(!bound.verify_binding(&wrong_key));
+    }
+
+    #[test]
+    fn test_tenant_bound_receipt_full_verification() {
+        let digest = B3Hash::hash(b"test receipt");
+        let keypair = Keypair::generate();
+        let tenant_key = [0x42u8; 32];
+
+        let signed = sign_receipt_digest(&digest, Some(&keypair), SigningMode::Production).unwrap();
+        let bound = TenantBoundReceipt::create(signed, "tenant-123", &tenant_key);
+
+        // Full verification should pass
+        assert!(bound.verify_full(&tenant_key).unwrap());
+    }
+
+    #[test]
+    fn test_tenant_binding_tamper_detection() {
+        let digest = B3Hash::hash(b"test receipt");
+        let keypair = Keypair::generate();
+        let tenant_key = [0x42u8; 32];
+
+        let signed = sign_receipt_digest(&digest, Some(&keypair), SigningMode::Production).unwrap();
+        let mut bound = TenantBoundReceipt::create(signed, "tenant-123", &tenant_key);
+
+        // Tamper with tenant ID
+        bound.tenant_id = "tenant-evil".to_string();
+
+        // Verification should fail
+        assert!(!bound.verify_binding(&tenant_key));
     }
 }

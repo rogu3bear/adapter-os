@@ -101,6 +101,7 @@ pub fn build_api_config(server_config: Arc<RwLock<Config>>) -> Result<Arc<RwLock
             plan_dir: cfg.paths.plan_dir.clone(),
             datasets_root: cfg.paths.datasets_root.clone(),
             documents_root: cfg.paths.documents_root.clone(),
+            synthesis_model_path: cfg.paths.synthesis_model_path.clone(),
         },
         chat_context: Default::default(),
         seed_mode: SeedMode::default(),

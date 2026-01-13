@@ -6,6 +6,7 @@ use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
+pub mod anchor;
 pub mod behavior_training;
 pub mod code_ingestion;
 pub mod code_jobs;
@@ -13,8 +14,10 @@ pub mod codebase_ingestion;
 pub mod dataset_cleanup;
 pub mod federation_daemon;
 pub mod gates;
+pub mod rectify;
 pub mod report;
 pub mod supervisor;
+pub mod synthesis;
 pub mod training;
 pub mod training_dataset_integration;
 
@@ -39,6 +42,10 @@ pub use federation_daemon::{
 };
 pub use gates::*;
 pub use report::{GateReport, GateResult, ReportFormat};
+pub use synthesis::{
+    create_synthesis_request, SynthesisBatchStats, SynthesisEngine, SynthesisEngineConfig,
+    SynthesisOutput, SynthesisRequest, SynthesisResult,
+};
 pub use training::{
     TrainingConfig, TrainingJob, TrainingJobStatus, TrainingService, TrainingTemplate,
 };

@@ -35,6 +35,8 @@ adapters_root = "var/adapters"
 plan_dir = "plan"
 datasets_root = "var/datasets"
 documents_root = "var/documents"
+# Optional: Path to synthesis model for training data generation
+# synthesis_model_path = "var/models/synthesis_model"
 
 [model.cache]
 # Explicit budget required for worker model cache (MB)

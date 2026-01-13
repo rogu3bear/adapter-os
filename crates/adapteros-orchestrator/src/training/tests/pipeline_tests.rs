@@ -30,6 +30,7 @@ fn sample_training_result() -> TrainingResult {
         final_loss: 0.1,
         training_time_us: 1234,
         weights: LoRAWeights {
+            modules: std::collections::HashMap::new(),
             lora_a: vec![vec![0.1, 0.2]],
             lora_b: vec![vec![0.3, 0.4]],
             moe_config: None,
