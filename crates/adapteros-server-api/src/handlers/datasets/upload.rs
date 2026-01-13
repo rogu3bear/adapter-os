@@ -29,14 +29,16 @@ use crate::middleware::request_id::RequestId;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::storage_usage::{compute_tenant_storage_usage, compute_workspace_storage_usage};
-use crate::types::{ErrorResponse, PostActionsRequest, TrainingConfigRequest, UploadDatasetResponse};
-use adapteros_types::training::DataLineageMode;
+use crate::types::{
+    ErrorResponse, PostActionsRequest, TrainingConfigRequest, UploadDatasetResponse,
+};
 use adapteros_db::training_datasets::{
     validate_format, validate_hash_b3, CreateDatasetParams, CreateTrainingDatasetRowParams,
     DatasetFile,
 };
 use adapteros_secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
 use adapteros_storage::{ByteStorage, DatasetCategory, FsByteStorage, StorageKey};
+use adapteros_types::training::DataLineageMode;
 use axum::{
     extract::{Multipart, State},
     http::StatusCode,
@@ -577,6 +579,8 @@ pub async fn upload_dataset(
                         .or_else(|| resolved_workspace_id.clone()),
                     reused: true,
                     created_at: existing.created_at,
+                    training_job_id: None,
+                    stack_id: None,
                 }));
             }
         }
@@ -836,7 +840,12 @@ pub async fn upload_dataset(
 
     state
         .db
-        .update_dataset_validation(&dataset_id, validation_status, validation_errors.as_deref(), None)
+        .update_dataset_validation(
+            &dataset_id,
+            validation_status,
+            validation_errors.as_deref(),
+            None,
+        )
         .await
         .map_err(|e| db_error(format!("Failed to update validation status: {}", e)))?;
 
@@ -1106,15 +1115,33 @@ async fn start_training_from_upload(
         rank: 16,
         alpha: 32,
         batch_size: 2,
-        ..Default::default()
+        targets: vec!["q_proj".to_string(), "v_proj".to_string()],
+        training_contract_version: "1.0".to_string(),
+        pad_token_id: 0,
+        ignore_index: -100,
+        warmup_steps: None,
+        max_seq_length: None,
+        gradient_accumulation_steps: None,
+        validation_split: None,
+        preferred_backend: None,
+        backend_policy: None,
+        coreml_training_fallback: None,
+        coreml_placement: None,
+        enable_coreml_export: None,
+        require_gpu: None,
+        max_gpu_memory_mb: None,
+        base_model_path: None,
+        preprocessing: None,
+        force_resume: None,
+        multi_module_training: None,
+        lora_layer_indices: None,
     });
 
     // 3. Prepare post actions
-    let post_actions = post_actions.unwrap_or_else(|| PostActionsRequest {
-        package: true,
-        register: true,
-        create_stack: true,
-        activate_stack: false,
+    let post_actions = post_actions.unwrap_or(PostActionsRequest {
+        package: Some(true),
+        register: Some(true),
+        create_stack: Some(true),
         tier: None,
         adapters_root: None,
     });
@@ -1133,7 +1160,7 @@ async fn start_training_from_upload(
         .training_service
         .start_training(
             adapter_name,
-            config,
+            config.into(),
             None,                           // template_id
             None,                           // repo_id
             None,                           // target_branch

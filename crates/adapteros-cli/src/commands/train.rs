@@ -203,6 +203,9 @@ impl TrainArgs {
                 hidden_state_layer: None,
                 validation_split: 0.0,
                 preprocessing: None,
+                targets: vec!["q_proj".to_string(), "v_proj".to_string()],
+                multi_module_training: false,
+                lora_layer_indices: Vec::new(),
             };
 
             info!("Using command-line training configuration");
