@@ -16,6 +16,40 @@ pub(crate) fn validate_quantized_shapes(
     weights: &QuantizedLoRAWeights,
     config: &TrainingConfig,
 ) -> Result<(usize, usize, usize, usize)> {
+    // Handle multi-module weights
+    if weights.is_multi_module() {
+        // Get dimensions from first module
+        let first_module = weights
+            .modules
+            .values()
+            .next()
+            .ok_or_else(|| AosError::Validation("Multi-module weights have no modules".to_string()))?;
+
+        let a_rows = first_module.lora_a_q15.len();
+        let a_cols = first_module
+            .lora_a_q15
+            .first()
+            .map(|r| r.len())
+            .unwrap_or_default();
+        let b_rows = first_module.lora_b_q15.len();
+        let b_cols = first_module
+            .lora_b_q15
+            .first()
+            .map(|r| r.len())
+            .unwrap_or_default();
+
+        if a_rows == 0 || a_cols == 0 || b_rows == 0 || b_cols == 0 {
+            return Err(AosError::Validation(
+                "Quantized multi-module weights are empty; aborting packaging".to_string(),
+            ));
+        }
+
+        // For multi-module, rank is in the columns of lora_a (rows x rank)
+        // and hidden_dim validation is optional since modules may have different dims
+        return Ok((a_rows, a_cols, b_rows, b_cols));
+    }
+
+    // Legacy single-module path
     let a_rows = weights.lora_a_q15.len();
     let a_cols = weights
         .lora_a_q15

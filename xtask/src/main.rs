@@ -6,6 +6,7 @@ use std::env;
 mod check_all;
 mod check_cache;
 mod code2db_dataset;
+mod convert_mlx_adapter;
 mod determinism_report;
 mod openapi_docs;
 mod pack_lora;
@@ -52,6 +53,18 @@ async fn main() -> Result<()> {
                 pack_lora::PackLoraArgs::parse()
             };
             pack_lora::run(parsed).await?;
+        }
+        Some("convert-mlx-adapter") => {
+            use clap::Parser;
+            let args_vec: Vec<String> = env::args().collect();
+            let parsed = if args_vec.len() > 1 {
+                let mut new_args = vec![args_vec[0].clone()];
+                new_args.extend(args_vec[2..].to_vec());
+                convert_mlx_adapter::ConvertMlxAdapterArgs::parse_from(new_args)
+            } else {
+                convert_mlx_adapter::ConvertMlxAdapterArgs::parse()
+            };
+            convert_mlx_adapter::run(parsed)?;
         }
         Some("test-orchestrator") => {
             use clap::Parser;
@@ -125,6 +138,7 @@ fn print_help() {
     println!("  test-orchestrator   Plan/run tests with inventory + capability gating");
     println!("  code2db-dataset     Build JSON training dataset for code→DB tasks");
     println!("  pack-lora           Quantize and package trained LoRA weights");
+    println!("  convert-mlx-adapter Convert mlx-lm adapter to LoRAWeights JSON");
     println!("  train-base-adapter  Train base adapter from manifest");
     println!();
     println!("For check-all options:");
