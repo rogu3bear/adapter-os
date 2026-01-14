@@ -175,3 +175,35 @@ pub mod glass {
     pub const BLUR_2: &str = "var(--glass-blur-2)";
     pub const BLUR_3: &str = "var(--glass-blur-3)";
 }
+
+/// Letter spacing tokens
+pub mod letter_spacing {
+    pub const TIGHTER: &str = "var(--tracking-tighter)";
+    pub const TIGHT: &str = "var(--tracking-tight)";
+    pub const NORMAL: &str = "var(--tracking-normal)";
+    pub const WIDE: &str = "var(--tracking-wide)";
+    pub const WIDER: &str = "var(--tracking-wider)";
+}
+
+/// Font family tokens
+pub mod font_family {
+    pub const SANS: &str = "var(--font-sans)";
+    pub const MONO: &str = "var(--font-mono)";
+}
+
+/// Animation duration tokens
+pub mod animation {
+    pub const DURATION_FAST: &str = "150ms";
+    pub const DURATION_NORMAL: &str = "200ms";
+    pub const DURATION_SLOW: &str = "300ms";
+    pub const SHIMMER_DURATION: &str = "1.5s";
+    pub const STAGGER_DELAY: &str = "50ms";
+}
+
+/// Visual emphasis levels for content hierarchy
+pub mod emphasis {
+    pub const HIGH: &str = "1";
+    pub const MEDIUM: &str = "0.85";
+    pub const LOW: &str = "0.6";
+    pub const DISABLED: &str = "0.38";
+}
