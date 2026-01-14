@@ -258,7 +258,43 @@ pub fn ErrorDisplay(
     }
 }
 
-/// Empty state display with optional guidance
+/// Empty state variants for different contexts
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub enum EmptyStateVariant {
+    /// Default empty state - no data exists yet (folder/inbox icon)
+    #[default]
+    Empty,
+    /// Search/filter returned no results (search icon, warning color)
+    NoResults,
+    /// User lacks permission to view content (lock icon, error color)
+    NoPermission,
+    /// Content is not available (slash-circle icon, muted)
+    Unavailable,
+}
+
+impl EmptyStateVariant {
+    /// Default icon path for each variant
+    fn default_icon(&self) -> &'static str {
+        match self {
+            Self::Empty => "M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4",
+            Self::NoResults => "M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z",
+            Self::NoPermission => "M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z",
+            Self::Unavailable => "M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636",
+        }
+    }
+
+    /// CSS class for variant-specific styling
+    fn css_class(&self) -> &'static str {
+        match self {
+            Self::Empty => "empty-state-empty",
+            Self::NoResults => "empty-state-no-results",
+            Self::NoPermission => "empty-state-no-permission",
+            Self::Unavailable => "empty-state-unavailable",
+        }
+    }
+}
+
+/// Empty state display with variants, icons, and action support
 #[component]
 pub fn EmptyState(
     /// Title for the empty state
@@ -267,18 +303,35 @@ pub fn EmptyState(
     /// Optional description/guidance
     #[prop(optional, into)]
     description: Option<String>,
-    /// Optional icon (SVG path)
+    /// Empty state variant (determines default icon and styling)
+    #[prop(optional)]
+    variant: EmptyStateVariant,
+    /// Optional custom icon SVG path (overrides variant default)
     #[prop(optional)]
     icon: Option<&'static str>,
+    /// Optional action button label
+    #[prop(optional, into)]
+    action_label: Option<String>,
+    /// Optional action button callback
+    #[prop(optional)]
+    on_action: Option<Callback<()>>,
+    /// Optional secondary action label (e.g., "Learn more")
+    #[prop(optional, into)]
+    secondary_label: Option<String>,
+    /// Optional secondary action href (renders as link)
+    #[prop(optional, into)]
+    secondary_href: Option<String>,
 ) -> impl IntoView {
-    let icon_path = icon.unwrap_or("M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4");
+    let icon_path = icon.unwrap_or_else(|| variant.default_icon());
+    let variant_class = variant.css_class();
+    let has_actions = action_label.is_some() || secondary_label.is_some();
 
     view! {
-        <div class="flex flex-col items-center justify-center py-12 text-center">
-            <div class="rounded-full bg-muted p-3 mb-4">
+        <div class=format!("empty-state {}", variant_class)>
+            <div class="empty-state-icon-wrapper">
                 <svg
                     xmlns="http://www.w3.org/2000/svg"
-                    class="h-8 w-8 text-muted-foreground"
+                    class="empty-state-icon"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
@@ -289,9 +342,49 @@ pub fn EmptyState(
                     <path d=icon_path/>
                 </svg>
             </div>
-            <h3 class="text-lg font-medium text-foreground mb-1">{title}</h3>
+            <h3 class="empty-state-title">{title}</h3>
             {description.map(|desc| view! {
-                <p class="text-sm text-muted-foreground max-w-sm">{desc}</p>
+                <p class="empty-state-description">{desc}</p>
+            })}
+
+            // Action buttons
+            {has_actions.then(|| {
+                let action_label_clone = action_label.clone();
+                let secondary_label_clone = secondary_label.clone();
+                let secondary_href_clone = secondary_href.clone();
+
+                view! {
+                    <div class="empty-state-actions">
+                        {action_label_clone.map(|label| {
+                            let cb = on_action.clone();
+                            view! {
+                                <button
+                                    class="btn btn-primary btn-md"
+                                    on:click=move |_| {
+                                        if let Some(ref callback) = cb {
+                                            callback.run(());
+                                        }
+                                    }
+                                >
+                                    {label}
+                                </button>
+                            }
+                        })}
+                        {secondary_label_clone.map(|label| {
+                            if let Some(href) = secondary_href_clone.clone() {
+                                view! {
+                                    <a href=href class="btn btn-ghost btn-md">
+                                        {label}
+                                    </a>
+                                }.into_any()
+                            } else {
+                                view! {
+                                    <span class="text-sm text-muted-foreground">{label}</span>
+                                }.into_any()
+                            }
+                        })}
+                    </div>
+                }
             })}
         </div>
     }

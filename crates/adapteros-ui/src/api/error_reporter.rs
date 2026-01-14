@@ -114,14 +114,28 @@ fn build_report(error: &ApiError, page: Option<&str>) -> ClientErrorReport {
 
 /// Get the current user agent string
 fn get_user_agent() -> String {
-    web_sys::window()
-        .and_then(|w| w.navigator().user_agent().ok())
-        .unwrap_or_else(|| "Unknown".to_string())
+    #[cfg(target_arch = "wasm32")]
+    {
+        web_sys::window()
+            .and_then(|w| w.navigator().user_agent().ok())
+            .unwrap_or_else(|| "Unknown".to_string())
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        "Unknown".to_string()
+    }
 }
 
 /// Get the current timestamp in ISO 8601 format
 fn current_timestamp() -> String {
-    js_sys::Date::new_0().to_iso_string().into()
+    #[cfg(target_arch = "wasm32")]
+    {
+        js_sys::Date::new_0().to_iso_string().into()
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        chrono::Utc::now().to_rfc3339()
+    }
 }
 
 #[cfg(test)]
