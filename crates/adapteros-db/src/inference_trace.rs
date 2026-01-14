@@ -1,7 +1,9 @@
 use crate::Db;
 use adapteros_core::{
-    compute_input_digest_v2, emit_observability_event, receipt_mismatch_event, AosError, B3Hash,
-    EquipmentProfile, Result,
+    compute_input_digest_v2, compute_output_digest, emit_observability_event,
+    hash_token_decision, receipt_mismatch_event,
+    receipt_digest::{compute_receipt_digest, ReceiptDigestInput, RECEIPT_SCHEMA_V4},
+    update_run_head, AosError, B3Hash, EquipmentProfile, Result,
 };
 use async_trait::async_trait;
 use serde_json;
@@ -299,6 +301,10 @@ impl SqlTraceSink {
         .transpose()
     }
 
+    /// Compute hash of a token decision using the canonical algorithm.
+    ///
+    /// This delegates to `receipt_digest::hash_token_decision` to ensure
+    /// parity with offline verification and crypto_receipt module.
     fn hash_decision(
         context_digest: &[u8; 32],
         token_index: u32,
@@ -310,123 +316,36 @@ impl SqlTraceSink {
         backend_id: Option<&str>,
         kernel_version_id: Option<&str>,
     ) -> B3Hash {
-        let policy_bytes = policy_mask_digest.map(|d| d.to_vec()).unwrap_or_default();
-        let allowed_bytes = allowed_mask_blob.unwrap_or(&[]);
-        let overrides_bytes = policy_overrides_json
-            .map(|s| s.as_bytes().to_vec())
-            .unwrap_or_default();
-        let backend_bytes = backend_id.unwrap_or("").as_bytes().to_vec();
-        let kernel_bytes = kernel_version_id.unwrap_or("").as_bytes().to_vec();
-
-        B3Hash::hash_multi(&[
-            &context_digest[..],
-            &token_index.to_le_bytes(),
-            &(adapter_blob.len() as u32).to_le_bytes(),
-            adapter_blob,
-            &(gates_blob.len() as u32).to_le_bytes(),
-            gates_blob,
-            &(policy_bytes.len() as u32).to_le_bytes(),
-            &policy_bytes,
-            &(allowed_bytes.len() as u32).to_le_bytes(),
-            allowed_bytes,
-            &(overrides_bytes.len() as u32).to_le_bytes(),
-            &overrides_bytes,
-            &(backend_bytes.len() as u32).to_le_bytes(),
-            &backend_bytes,
-            &(kernel_bytes.len() as u32).to_le_bytes(),
-            &kernel_bytes,
-        ])
-    }
-
-    fn update_head(prev: &B3Hash, token_index: u32, decision_hash: &B3Hash) -> B3Hash {
-        B3Hash::hash_multi(&[
-            prev.as_bytes(),
-            decision_hash.as_bytes(),
-            &token_index.to_le_bytes(),
-        ])
-    }
-
-    fn output_digest(output_tokens: &[u32]) -> B3Hash {
-        let mut buf = Vec::with_capacity(4 + output_tokens.len() * 4);
-        buf.extend_from_slice(&(output_tokens.len() as u32).to_le_bytes());
-        for t in output_tokens {
-            buf.extend_from_slice(&t.to_le_bytes());
-        }
-        B3Hash::hash(&buf)
-    }
-
-    fn compute_receipt_digest(
-        context_digest: &[u8; 32],
-        run_head_hash: &B3Hash,
-        output_digest: &B3Hash,
-        logical_prompt_tokens: u32,
-        prefix_cached_token_count: u32,
-        billed_input_tokens: u32,
-        logical_output_tokens: u32,
-        billed_output_tokens: u32,
-        stop_reason_code: Option<&str>,
-        stop_reason_token_index: Option<u32>,
-        stop_policy_digest_b3: Option<&B3Hash>,
-        tenant_kv_quota_bytes: u64,
-        tenant_kv_bytes_used: u64,
-        kv_evictions: u32,
-        kv_residency_policy_id: Option<&str>,
-        kv_quota_enforced: bool,
-        prefix_kv_key_b3: Option<&B3Hash>,
-        prefix_cache_hit: bool,
-        prefix_kv_bytes: u64,
-        model_cache_identity_v2_digest_b3: Option<&B3Hash>, // PRD-06
-    ) -> B3Hash {
-        // Stop fields are serialized deterministically:
-        // - Empty string if None for stop_reason_code
-        // - 0xFFFFFFFF sentinel if None for stop_reason_token_index
-        // - 32 zero bytes if None for stop_policy_digest_b3
-        let stop_reason_bytes = stop_reason_code.unwrap_or("").as_bytes();
-        let stop_token_index_bytes = stop_reason_token_index.unwrap_or(0xFFFFFFFF).to_le_bytes();
-        let stop_policy_bytes = stop_policy_digest_b3
-            .map(|d| d.as_bytes().to_vec())
-            .unwrap_or_else(|| vec![0u8; 32]);
-
-        // Prefix KV cache fields serialized deterministically:
-        // - 32 zero bytes if None for prefix_kv_key_b3
-        let prefix_kv_key_bytes = prefix_kv_key_b3
-            .map(|d| d.as_bytes().to_vec())
-            .unwrap_or_else(|| vec![0u8; 32]);
-
-        // Model cache identity V2 digest (PRD-06):
-        // - 32 zero bytes if None (backward compatibility)
-        let model_cache_identity_bytes = model_cache_identity_v2_digest_b3
-            .map(|d| d.as_bytes().to_vec())
-            .unwrap_or_else(|| vec![0u8; 32]);
-
-        B3Hash::hash_multi(&[
+        // Use canonical implementation from receipt_digest
+        hash_token_decision(
             context_digest,
-            run_head_hash.as_bytes(),
-            output_digest.as_bytes(),
-            &logical_prompt_tokens.to_le_bytes(),
-            &prefix_cached_token_count.to_le_bytes(),
-            &billed_input_tokens.to_le_bytes(),
-            &logical_output_tokens.to_le_bytes(),
-            &billed_output_tokens.to_le_bytes(),
-            // Stop controller fields (PRD: Hard Deterministic Stop Controller)
-            &(stop_reason_bytes.len() as u32).to_le_bytes(),
-            stop_reason_bytes,
-            &stop_token_index_bytes,
-            &stop_policy_bytes,
-            // KV quota/residency fields (PRD: KvResidencyAndQuotas v1)
-            &tenant_kv_quota_bytes.to_le_bytes(),
-            &tenant_kv_bytes_used.to_le_bytes(),
-            &kv_evictions.to_le_bytes(),
-            &(kv_residency_policy_id.map(|s| s.len() as u32).unwrap_or(0)).to_le_bytes(),
-            kv_residency_policy_id.map(|s| s.as_bytes()).unwrap_or(&[]),
-            &[if kv_quota_enforced { 1u8 } else { 0u8 }],
-            // Prefix KV cache fields (PRD: PrefixKvCache v1)
-            &prefix_kv_key_bytes,
-            &[if prefix_cache_hit { 1u8 } else { 0u8 }],
-            &prefix_kv_bytes.to_le_bytes(),
-            // Model cache identity V2 (PRD-06)
-            &model_cache_identity_bytes,
-        ])
+            token_index,
+            adapter_blob,
+            gates_blob,
+            policy_mask_digest,
+            allowed_mask_blob,
+            policy_overrides_json,
+            backend_id,
+            kernel_version_id,
+        )
+    }
+
+    /// Update run_head chain with a new token decision using canonical algorithm.
+    ///
+    /// This delegates to `receipt_digest::update_run_head` to ensure
+    /// parity with offline verification and crypto_receipt module.
+    fn update_head(prev: &B3Hash, token_index: u32, decision_hash: &B3Hash) -> B3Hash {
+        // Use canonical implementation from receipt_digest
+        update_run_head(prev, token_index, decision_hash)
+    }
+
+    /// Compute output digest from tokens using canonical algorithm.
+    ///
+    /// This delegates to `receipt_digest::compute_output_digest` to ensure
+    /// parity with offline verification and crypto_receipt module.
+    fn output_digest(output_tokens: &[u32]) -> B3Hash {
+        // Use canonical implementation from receipt_digest
+        compute_output_digest(output_tokens)
     }
 
     fn to_digest(bytes: Vec<u8>) -> Result<[u8; 32]> {
@@ -556,28 +475,41 @@ impl TraceSink for SqlTraceSink {
         }
 
         let output_digest = Self::output_digest(finalization.output_tokens);
-        let receipt_digest = Self::compute_receipt_digest(
-            &self.start.context_digest,
-            &self.run_head_hash,
-            &output_digest,
+
+        // Use canonical receipt digest computation (V4 schema)
+        let receipt_input = ReceiptDigestInput::new(
+            self.start.context_digest,
+            *self.run_head_hash.as_bytes(),
+            *output_digest.as_bytes(),
             finalization.logical_prompt_tokens,
             finalization.prefix_cached_token_count,
             finalization.billed_input_tokens,
             finalization.logical_output_tokens,
             finalization.billed_output_tokens,
-            finalization.stop_reason_code.as_deref(),
+        )
+        .with_stop_controller(
+            finalization.stop_reason_code.clone(),
             finalization.stop_reason_token_index,
-            finalization.stop_policy_digest_b3.as_ref(),
+            finalization.stop_policy_digest_b3.map(|h| *h.as_bytes()),
+        )
+        .with_kv_quota(
             finalization.tenant_kv_quota_bytes,
             finalization.tenant_kv_bytes_used,
             finalization.kv_evictions,
-            finalization.kv_residency_policy_id.as_deref(),
+            finalization.kv_residency_policy_id.clone(),
             finalization.kv_quota_enforced,
-            finalization.prefix_kv_key_b3.as_ref(),
+        )
+        .with_prefix_cache(
+            finalization.prefix_kv_key_b3.map(|h| *h.as_bytes()),
             finalization.prefix_cache_hit,
             finalization.prefix_kv_bytes,
-            finalization.model_cache_identity_v2_digest_b3.as_ref(),
+        )
+        .with_model_cache_identity(
+            finalization.model_cache_identity_v2_digest_b3.map(|h| *h.as_bytes()),
         );
+
+        let receipt_digest = compute_receipt_digest(&receipt_input, RECEIPT_SCHEMA_V4)
+            .expect("V4 schema is always supported");
 
         // Serialize stop_policy_digest_b3 to bytes for storage
         let stop_policy_digest_bytes = finalization
@@ -950,28 +882,40 @@ pub async fn recompute_receipt(db: &Db, trace_id: &str) -> Result<TraceReceiptVe
         .as_ref()
         .and_then(|s| s.model_cache_identity_v2_digest_b3);
 
-    let recomputed_receipt_digest = SqlTraceSink::compute_receipt_digest(
-        &context_digest,
-        &run_head,
-        &output_digest,
+    // Use canonical receipt digest computation (V4 schema)
+    let receipt_input = ReceiptDigestInput::new(
+        context_digest,
+        *run_head.as_bytes(),
+        *output_digest.as_bytes(),
         logical_prompt_tokens,
         prefix_cached_token_count,
         billed_input_tokens,
         logical_output_tokens,
         billed_output_tokens,
-        stop_reason_code.as_deref(),
+    )
+    .with_stop_controller(
+        stop_reason_code.clone(),
         stop_reason_token_index,
-        stop_policy_digest_b3.as_ref(),
+        stop_policy_digest_b3.map(|h| *h.as_bytes()),
+    )
+    .with_kv_quota(
         tenant_kv_quota_bytes,
         tenant_kv_bytes_used,
         kv_evictions,
-        kv_residency_policy_id.as_deref(),
+        kv_residency_policy_id.clone(),
         kv_quota_enforced,
-        prefix_kv_key_b3.as_ref(),
+    )
+    .with_prefix_cache(
+        prefix_kv_key_b3.map(|h| *h.as_bytes()),
         prefix_cache_hit,
         prefix_kv_bytes,
-        model_cache_identity_v2_digest_b3.as_ref(),
+    )
+    .with_model_cache_identity(
+        model_cache_identity_v2_digest_b3.map(|h| *h.as_bytes()),
     );
+
+    let recomputed_receipt_digest = compute_receipt_digest(&receipt_input, RECEIPT_SCHEMA_V4)
+        .expect("V4 schema is always supported");
 
     // For recomputation, carry over input_digest and equipment_profile from stored receipt
     let (recomputed_input_digest_b3, recomputed_equipment_profile) =
