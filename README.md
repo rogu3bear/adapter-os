@@ -9,7 +9,7 @@
 
 **Deterministic ML Inference Platform** — High-performance inference with K-sparse LoRA routing, Metal-optimized kernels, and comprehensive policy enforcement for production environments.
 
-AdapterOS (alpha-v0.11-unstable-pre-release) is a Rust-based ML inference platform optimized for Apple Silicon, delivered as licensed local software for on-prem or air-gapped deployments. Features deterministic execution across multiple backends (CoreML, MLX, Metal), modular Metal kernels, centralized policy enforcement, and memory-efficient adapter management with zero network egress during serving.
+AdapterOS (0.12.0) is a Rust-based ML inference platform optimized for Apple Silicon, delivered as licensed local software for on-prem or air-gapped deployments. Features deterministic execution across multiple backends (CoreML, MLX, Metal), modular Metal kernels, centralized policy enforcement, and memory-efficient adapter management with zero network egress during serving.
 
 ---
 
@@ -23,7 +23,7 @@ AdapterOS is an ML inference platform that enables **deterministic multi-adapter
 - **Token Artifact System (TAS)**: Transforms inference outputs into persistent, reusable artifacts that can be referenced and composed
 - **K-Sparse LoRA Routing**: Dynamic gating with Q15 quantized gates and entropy floor
 - **Modular Metal Kernels**: Precompiled `.metallib` kernels with deterministic compilation
-- **Policy Enforcement**: 28 canonical policy packs for compliance, security, and quality
+- **Policy Enforcement**: 25 canonical policy packs for compliance, security, and quality
 - **Environment Fingerprinting**: Cryptographically signed drift detection with automatic baseline creation
 - **Deterministic Execution**: Reproducible outputs with HKDF seeding and canonical JSON
 - **Zero Network Egress**: Air-gapped serving with Unix domain sockets only
@@ -100,7 +100,7 @@ graph TB
 ```
 
 **Key Components:**
-- **Policy Registry**: 28 canonical policy packs (egress, determinism, router, evidence, etc.)
+- **Policy Registry**: 25 canonical policy packs (egress, determinism, router, evidence, etc.)
 - **K-Sparse Router**: Top-K adapter selection with Q15 quantized gates
 - **Modular Kernels**: Precompiled `.metallib` kernels for deterministic execution
 - **Adapter Registry**: Content-addressed LoRA adapter storage
@@ -319,7 +319,7 @@ kernel void fused_attention_lora(
 
 ### 3. **Policy Enforcement**
 
-28 canonical policy packs ensure compliance:
+25 canonical policy packs ensure compliance:
 - **Egress Ruleset**: Zero network during serving, PF enforcement
 - **Determinism Ruleset**: Precompiled kernels, HKDF seeding
 - **Router Ruleset**: K bounds, entropy floor, Q15 gates
@@ -354,13 +354,13 @@ Unloaded -> Cold -> Warm -> Hot -> Resident
 
 See [docs/LIFECYCLE.md](docs/LIFECYCLE.md) for detailed state machine documentation.
 
-## 📊 Current Status (alpha-v0.11-unstable-pre-release)
+## 📊 Current Status (0.12.0)
 
 ### ✅ **Implemented Features**
 - **Multi-Backend Support**: MLX (primary inference/training), CoreML (ANE acceleration layer), Metal (GPU kernels)
 - **K-Sparse LoRA Routing**: Dynamic adapter selection with Q15 quantization
 - **Deterministic Execution**: HKDF seeding, reproducible results
-- **Policy Enforcement**: 28 canonical policy packs with runtime validation
+- **Policy Enforcement**: 25 canonical policy packs with runtime validation
 - **Adapter Lifecycle**: Hot-swap, pinning, TTL management, memory optimization
 - **REST API**: Complete inference endpoints with streaming support
 - **Database**: SQLite with migrations, adapter registry, telemetry
@@ -456,7 +456,7 @@ cargo clippy --workspace -- -D warnings
 
 ## Performance
 
-Benchmarked on **M3 Max (128GB unified memory)** with alpha-v0.11:
+Benchmarked on **M3 Max (128GB unified memory)** with 0.12.0:
 
 | Configuration | Tokens/sec | Latency (p95) | Memory | Determinism |
 |--------------|-----------|---------------|---------|-------------|
@@ -501,11 +501,11 @@ evict_order = ["ephemeral_ttl", "cold_lru", "warm_lru"]
 
 ## 🛠️ Alpha Release Features
 
-AdapterOS alpha-v0.11 includes:
+AdapterOS 0.12.0 includes:
 
 ### Completed Features
 - ✅ **Naming Unification**: All crates renamed to `adapteros-*` with compatibility shims
-- ✅ **Policy Registry**: 28 canonical policy packs with CLI commands
+- ✅ **Policy Registry**: 25 canonical policy packs with CLI commands
 - ✅ **Adapter Taxonomy**: Semantic naming with lineage tracking and fork semantics
 - ✅ **Metal Kernel Refactor**: Modular kernels with parameter structs
 - ✅ **Deterministic Config**: Precedence rules with freeze mechanism
@@ -529,7 +529,7 @@ AdapterOS alpha-v0.11 includes:
 - **[Quick Start Guide](docs/QUICKSTART.md)** - Get running in 10 minutes
 - **[Documentation Index](docs/README.md)** - Complete documentation navigation
 - **[System Architecture](docs/ARCHITECTURE.md)** - High-level design and components
-- **[Policy Registry](docs/POLICIES.md)** - 28 canonical policy packs
+- **[Policy Registry](docs/POLICIES.md)** - 25 canonical policy packs
 - **[Security Guide](docs/SECURITY.md)** - Security architecture and practices
 - **[Stability Log (Last Two Weeks)](docs/stability/RECENT_ISSUES.md)** - Point-in-time risk tracking
 
@@ -629,7 +629,7 @@ See [LICENSE](LICENSE) for the complete license text.
 
 ---
 
-**AdapterOS alpha-v0.11-unstable-pre-release - Built with ❤️ for Apple Silicon**
+**AdapterOS 0.12.0 - Built with ❤️ for Apple Silicon**
 
 *Deterministic ML inference with policy enforcement and zero network egress*
 

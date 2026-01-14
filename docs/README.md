@@ -13,7 +13,7 @@
 
 | Category | Links |
 |----------|-------|
-| **Getting Started** | [Quickstart](QUICKSTART.md) • [Authentication](AUTHENTICATION.md) • [Configuration](CONFIGURATION.md) |
+| **Getting Started** | [Quickstart](getting-started.md) • [Authentication](AUTHENTICATION.md) • [Configuration](CONFIGURATION.md) |
 | **Development** | [CLI Guide](CLI_GUIDE.md) • [API Reference](API_REFERENCE.md) • [Testing](TESTING.md) |
 | **Operations** | [Deployment](DEPLOYMENT.md) • [Troubleshooting](TROUBLESHOOTING.md) • [Operations](OPERATIONS.md) |
 | **Security** | [Security Guide](SECURITY.md) • [Policies](POLICIES.md) • [Access Control](ACCESS_CONTROL.md) |
@@ -100,7 +100,7 @@ graph TB
 - **Deterministic Replay**: HKDF-SHA256 seed derivation, reproducible outputs
 - **Zero Network Egress**: All serving happens locally via Unix Domain Sockets
 - **Hot-Swap Adapters**: Load/unload adapters without restarting workers
-- **Policy Enforcement**: 28 policy packs with audit trails and Merkle chains
+- **Policy Enforcement**: 25 policy packs with audit trails and Merkle chains
 - **Multi-Tenant**: Full tenant isolation with JWT authentication
 
 ---
@@ -141,7 +141,8 @@ open http://localhost:3200
 
 **Detailed Guides:**
 
-- [**QUICKSTART.md**](QUICKSTART.md) — Complete setup guide with troubleshooting
+- [**getting-started.md**](getting-started.md) — Quick backend setup (5 minutes)
+- [**QUICKSTART.md**](QUICKSTART.md) — Complete setup guide with UI and troubleshooting
 - [**ENVIRONMENT_SETUP.md**](ENVIRONMENT_SETUP.md) — Environment configuration
 - [**AUTHENTICATION.md**](AUTHENTICATION.md) — Auth setup and JWT configuration
 
@@ -153,8 +154,6 @@ open http://localhost:3200
 
 | Document | Description |
 |----------|-------------|
-| [**CONCEPTS.md**](CONCEPTS.md) | Core concepts: Adapters, Router, Plans, Control Points |
-| [**INFERENCE_FLOW.md**](INFERENCE_FLOW.md) | End-to-end inference pipeline walkthrough |
 | [**LIFECYCLE.md**](LIFECYCLE.md) | Adapter lifecycle management and hot-swap |
 | [**Control Plane**](ARCHITECTURE.md#architecture-components) | Control plane architecture and APIs |
 
@@ -181,19 +180,8 @@ open http://localhost:3200
 | Document | Description |
 |----------|-------------|
 | [**DEPLOYMENT.md**](DEPLOYMENT.md) | Deployment guide for production environments |
-| [**deployment-guide.md**](deployment-guide.md) | Step-by-step deployment procedures |
-| [**PRODUCTION_OPERATIONS.md**](PRODUCTION_OPERATIONS.md) | Production operations and maintenance |
-| [**PRODUCTION_BACKUP_RESTORE.md**](PRODUCTION_BACKUP_RESTORE.md) | Backup and disaster recovery |
 
 ### Monitoring & Troubleshooting
-
-#### Monitoring
-| Document | Description |
-|----------|-------------|
-| [**PRODUCTION_MONITORING.md**](PRODUCTION_MONITORING.md) | Production monitoring setup and dashboards |
-| [**MONITORING_SETUP_README.md**](MONITORING_SETUP_README.md) | Monitoring configuration guide |
-| [**monitoring.md**](monitoring.md) | Monitoring architecture and metrics |
-| [**system-metrics.md**](system-metrics.md) | System metrics reference |
 
 #### Troubleshooting Guides
 | Document | Description |
@@ -230,10 +218,6 @@ open http://localhost:3200
 
 | Document | Description |
 |----------|-------------|
-| [**TEST_QUICK_REFERENCE.md**](TEST_QUICK_REFERENCE.md) | Testing quick reference and best practices |
-| [**SECURITY_TESTING.md**](SECURITY_TESTING.md) | Security testing guide |
-| [**SECURITY_TEST_README.md**](SECURITY_TEST_README.md) | Security test suite documentation |
-| [**DEMO_GUIDE.md**](DEMO_GUIDE.md) | Demo scenarios and test cases |
 
 ### Error Handling
 
@@ -310,7 +294,7 @@ open http://localhost:3200
 
 | Document | Description |
 |----------|-------------|
-| [**POLICIES.md**](POLICIES.md) | Policy system overview (28 policy packs) |
+| [**POLICIES.md**](POLICIES.md) | Policy system overview (25 policy packs) |
 | [**POLICY_ENFORCEMENT.md**](POLICY_ENFORCEMENT.md) | Policy enforcement architecture |
 | [**POLICY_ENFORCEMENT_MIDDLEWARE.md**](POLICY_ENFORCEMENT_MIDDLEWARE.md) | Policy middleware implementation |
 | [**POLICY_ENFORCEMENT_MIDDLEWARE_IMPLEMENTATION_GUIDE.md**](POLICY_ENFORCEMENT_MIDDLEWARE_IMPLEMENTATION_GUIDE.md) | Middleware implementation guide |
@@ -431,7 +415,8 @@ Upload → Validation → Storage (BLAKE3) → Registry → Loading
 
 ### For Developers
 
-1. [QUICKSTART.md](QUICKSTART.md) — Get running in 10 minutes
+1. [getting-started.md](getting-started.md) — Get running in 5 minutes (backend only)
+2. [QUICKSTART.md](QUICKSTART.md) — Complete setup with UI (10 minutes)
 2. [CLI_GUIDE.md](CLI_GUIDE.md) — Master the `aosctl` CLI
 3. [API_REFERENCE.md](API_REFERENCE.md) — Browse all 225 API endpoints
 4. [CONCEPTS.md](CONCEPTS.md) — Understand core abstractions
@@ -489,7 +474,7 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md) in the project root for general contri
 
 ## Getting Help
 
-- **Quick Questions**: Check [QUICKSTART.md](QUICKSTART.md) or [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+- **Quick Questions**: Check [getting-started.md](getting-started.md) or [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
 - **API Questions**: See [API_REFERENCE.md](API_REFERENCE.md)
 - **CLI Help**: Run `./aosctl --help` or see [CLI_GUIDE.md](CLI_GUIDE.md)
 - **Rust API Docs**: Run `cargo doc --no-deps --open`
@@ -507,6 +492,6 @@ AdapterOS is dual-licensed under Apache 2.0 or MIT at your option.
 ---
 
 **Last Updated**: December 11, 2025
-**AdapterOS Version**: alpha-v0.11-unstable-pre-release
+**AdapterOS Version**: 0.12.0
 **Maintained by**: [@rogu3bear](https://github.com/rogu3bear)
 **MLNavigator Inc**

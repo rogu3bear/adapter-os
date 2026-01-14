@@ -129,7 +129,7 @@ AOS_PANEL_PORT=3501
 
 ### Alpha Release Considerations
 
-**Important**: AdapterOS is currently in alpha-v0.11-unstable-pre-release. This means:
+**Important**: AdapterOS is currently in 0.12.0. This means:
 
 - **Breaking Changes**: May occur without notice
 - **API Stability**: Not guaranteed
@@ -172,7 +172,7 @@ AOS_PANEL_PORT=3501
 - Add tests for new functionality
 
 #### Policy Compliance
-- All changes must comply with the 28 canonical policy packs
+- All changes must comply with the 25 canonical policy packs
 - Security-sensitive code requires review
 - Performance changes need benchmarks
 - Breaking changes need migration guides
@@ -340,7 +340,7 @@ Brief description of changes
 - [ ] Performance benchmarks updated (if applicable)
 
 ## Policy Compliance
-- [ ] Changes comply with all 28 canonical policy packs
+- [ ] Changes comply with all 25 canonical policy packs
 - [ ] Security implications reviewed
 - [ ] Performance impact assessed
 - [ ] Breaking changes documented
@@ -394,7 +394,7 @@ What actually happens
 - OS: macOS 13.0+
 - Hardware: Apple Silicon (M1/M2/M3/M4)
 - Rust Version: 1.75+
-- AdapterOS Version: alpha-v0.11-unstable-pre-release
+- AdapterOS Version: 0.12.0
 
 ## Additional Context
 Any other relevant information
@@ -432,7 +432,7 @@ For security vulnerabilities:
 
 ## Alpha Release Status
 
-### Current Status: alpha-v0.11-unstable-pre-release
+### Current Status: 0.12.0
 
 #### What's Working
 - Core inference engine with policy enforcement

@@ -154,7 +154,7 @@ Apple's GPU programming framework for Mac. AdapterOS uses Metal for high-perform
 ## P
 
 ### Policy Pack
-A set of rules the system must follow. AdapterOS enforces 28 canonical policy packs covering:
+A set of rules the system must follow. AdapterOS enforces 25 canonical policy packs covering:
 - Security (Egress, Isolation, Secrets)
 - Quality (Determinism, Performance, Memory)
 - Compliance (Evidence, Refusal, Compliance)

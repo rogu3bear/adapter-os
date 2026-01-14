@@ -2,7 +2,7 @@
 
 **Canonical reference for AdapterOS system architecture, concepts, and workflows**
 
-**Last Updated:** 2025-12-11
+**Last Updated:** 2026-01-13
 
 ---
 
@@ -11,10 +11,11 @@
 1. [System Overview](#system-overview)
 2. [Core Concepts](#core-concepts)
 3. [Architecture Components](#architecture-components)
-4. [Inference Flow](#inference-flow)
-5. [Adapter Lifecycle](#adapter-lifecycle)
-6. [User Flows](#user-flows)
-7. [Glossary](#glossary)
+4. [Cryptographic Receipts & Sealed Adapters](#cryptographic-receipts--sealed-adapters)
+5. [Inference Flow](#inference-flow)
+6. [Adapter Lifecycle](#adapter-lifecycle)
+7. [User Flows](#user-flows)
+8. [Glossary](#glossary)
 
 ---
 
@@ -439,7 +440,7 @@ The control plane (`adapteros-server`) is the orchestration hub for AdapterOS.
 **Responsibilities:**
 - HTTP API server (port 8080)
 - Authentication and authorization (JWT + RBAC)
-- Policy enforcement (28 policy packs)
+- Policy enforcement (25 policy packs)
 - Training orchestration
 - Worker management
 - Telemetry indexing
@@ -669,6 +670,131 @@ if !updated {
 ```
 
 **Location:** `crates/adapteros-lora-lifecycle/src/lib.rs`
+
+---
+
+## Cryptographic Receipts & Sealed Adapters
+
+AdapterOS implements **cryptographic receipts** and **sealed adapters** for verifiable, tamper-proof ML operations.
+
+### Cryptographic Receipts
+
+**Purpose:** Create verifiable proofs that specific inferences were executed under specific conditions, enabling third-party verification without system access.
+
+**Architecture:**
+
+```mermaid
+graph TD
+    subgraph "Receipt Generation"
+        A[Input Tokens] --> B[BLAKE3 Input Digest]
+        C[Model + Adapters] --> D[Context ID Digest]
+        E[Routing Decisions] --> F[Routing Digest]
+        G[Output Tokens] --> H[Output Digest]
+        I[Hardware Profile] --> J[Equipment Digest]
+
+        B --> K[Final Receipt]
+        D --> K
+        F --> K
+        H --> K
+        J --> K
+        K --> L[BLAKE3 Final Digest]
+    end
+
+    subgraph "Verification"
+        M[Receipt Digest] --> N[Third-Party Verification]
+        O[Input Tokens] --> N
+        P[Expected Output] --> N
+    end
+```
+
+**Key Properties:**
+- **Deterministic**: Same inputs → same digest (across identical hardware)
+- **Tamper-proof**: Any modification → completely different digest
+- **Third-party verifiable**: No access to inference system needed
+- **Cryptographic binding**: All execution parameters are bound
+
+**Integration Points:**
+- Generated during inference in `ReceiptGenerator`
+- Stored in database alongside inference traces
+- Exposed via API for verification
+- Used for compliance and audit trails
+
+### Sealed Adapters
+
+**Purpose:** Cryptographically secure adapter distribution with integrity guarantees and tamper detection.
+
+**Architecture:**
+
+```mermaid
+graph TD
+    subgraph "Sealing Process"
+        A[Adapter Bundle] --> B[Extract Weights Hash]
+        A --> C[Extract Config Hash]
+        B --> D[Create Signed Manifest]
+        C --> D
+        D --> E[Ed25519 Signature]
+        E --> F[Build Container]
+        F --> G[BLAKE3 Integrity Hash]
+        G --> H[.sealed.aos File]
+    end
+
+    subgraph "Loading Process"
+        I[.sealed.aos File] --> J[Verify Integrity Hash]
+        J --> K[Verify Ed25519 Signature]
+        K --> L[Extract Weights]
+        L --> M[Load Adapter]
+        M --> N[Bind to Receipt Context]
+    end
+```
+
+**Security Properties:**
+- **Integrity**: BLAKE3 hash covers entire container
+- **Authenticity**: Ed25519 signatures from trusted authorities
+- **Tamper detection**: Any modification invalidates signatures
+- **Receipt binding**: Weights hash included in cryptographic receipts
+
+**File Format:**
+- **Magic bytes**: "SEAL" identifier
+- **Version**: Format version for compatibility
+- **Integrity hash**: BLAKE3 of entire file
+- **Signed manifest**: Metadata with Ed25519 signature
+- **Adapter payload**: Weights and configuration data
+
+**Integration Points:**
+- Created using `aosctl adapter seal`
+- Loaded via `aosctl adapter load-sealed`
+- Verified against trusted public keys
+- Weights hash bound to inference receipts
+
+### Combined Security Architecture
+
+```mermaid
+graph TD
+    subgraph "Adapter Supply Chain"
+        A[Adapter Author] --> B[Seal with Private Key]
+        B --> C[Distribute .sealed.aos]
+        C --> D[Recipient Loads]
+        D --> E[Verify Signature]
+        E --> F[Extract Weights Hash]
+    end
+
+    subgraph "Inference Execution"
+        F --> G[Include in Receipt Context]
+        H[Execute Inference] --> I[Generate Cryptographic Receipt]
+        I --> J[Receipt proves adapter legitimacy]
+    end
+
+    subgraph "Verification"
+        K[Third Party] --> L[Verify Receipt Digest]
+        L --> M[Confirms authentic adapter + correct execution]
+    end
+```
+
+**End-to-End Guarantees:**
+1. **Adapter integrity**: Sealed containers prove adapters haven't been tampered with
+2. **Execution authenticity**: Receipts prove specific adapters were used
+3. **Third-party verifiability**: Anyone can verify without system access
+4. **Chain of custody**: From adapter creation to inference result
 
 ---
 

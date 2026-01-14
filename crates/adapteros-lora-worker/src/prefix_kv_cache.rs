@@ -1118,7 +1118,7 @@ mod tests {
             // In production, corruption would come from memory errors
             let entry_ptr = Arc::as_ptr(entry) as *mut PrefixKvEntry;
             unsafe {
-                (*entry_ptr).keys[0][0] = 999.0;
+                (&mut (*entry_ptr).keys)[0][0] = 999.0;
             }
         }
 
