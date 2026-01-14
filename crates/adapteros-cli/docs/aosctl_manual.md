@@ -259,7 +259,241 @@ aosctl infer --adapter my_adapter \
 
 ---
 
-## 6a. Chat Sessions
+## 6a. Interactive Chat
+
+**What is Interactive Chat?** The `chat` command provides an interactive REPL-style interface for chatting with the AdapterOS inference runtime, with support for streaming responses, model/stack selection, and session management.
+
+**Commands:**
+
+- `aosctl chat interactive` - Start interactive chat REPL
+  - Key flags:
+    - `--stack <id>` - Use specific adapter stack
+    - `--model <id>` - Use specific model
+    - `--server-url <url>` - Custom server URL (default: http://127.0.0.1:8080/api)
+    - `--timeout <secs>` - Request timeout (default: 30)
+  
+- `aosctl chat prompt` - Send a single prompt and exit
+  - Key flags:
+    - `--text <prompt>` - Prompt text (required)
+    - `--stack <id>` - Use specific adapter stack
+    - `--model <id>` - Use specific model
+    - `--max-tokens <n>` - Maximum tokens in response
+    - `--temperature <f>` - Sampling temperature (0.0-2.0)
+  
+- `aosctl chat list` - List chat sessions
+  - Key flags:
+    - `--json` - JSON output format
+  
+- `aosctl chat history <session-id>` - View chat session history
+  - Key flags:
+    - `--json` - JSON output format
+
+**REPL Commands (in interactive mode):**
+- `exit`, `quit`, `Ctrl+D` - Exit chat
+- `/help` - Show available commands
+- `/clear` - Clear screen
+- `/stack <id>` - Switch adapter stack
+- `/model <id>` - Switch model
+- `/status` - Show current configuration
+
+**Examples:**
+
+```bash
+# Start interactive chat
+aosctl chat interactive --stack my-stack
+
+# Send single prompt
+aosctl chat prompt --text "Explain async in Rust" --stack my-stack
+
+# List sessions
+aosctl chat list --json
+```
+
+## 6b. Development Commands
+
+**What are Development Commands?** The `dev` command provides utilities for managing the local development environment, including starting/stopping services, viewing logs, and checking status.
+
+**Commands:**
+
+- `aosctl dev up` - Start development services
+  - Key flags:
+    - `--ui` - Start UI dev server
+    - `--db-reset` - Reset database before starting
+    - `--skip-migrations` - Skip database migrations
+  
+- `aosctl dev down` - Stop development services
+  
+- `aosctl dev status` - Show development service status
+  - Key flags:
+    - `--json` - JSON output format
+  
+- `aosctl dev logs` - Tail development service logs
+  - Key flags:
+    - `--service <name>` - Service name (api or ui)
+    - `--lines <n>` - Number of lines to show (default: 50)
+
+**Examples:**
+
+```bash
+# Start all services
+aosctl dev up
+
+# Start with UI
+aosctl dev up --ui
+
+# Check status
+aosctl dev status --json
+
+# View API logs
+aosctl dev logs --service api --lines 100
+```
+
+## 6c. Scenario Utilities
+
+**What are Scenario Utilities?** The `scenario` command provides utilities for managing and testing scenarios in AdapterOS.
+
+**Commands:**
+
+- `aosctl scenario <subcommand>` - Various scenario management commands
+  - See `aosctl scenario --help` for available subcommands
+
+**Examples:**
+
+```bash
+# List available scenario commands
+aosctl scenario --help
+```
+
+## 6d. Documentation Training
+
+**What is Documentation Training?** The `train-docs` command trains adapters using documentation as the training dataset.
+
+**Commands:**
+
+- `aosctl train-docs` - Train adapter from documentation
+  - Key flags:
+    - `--docs-dir <path>` - Documentation directory
+    - `--revision <version>` - Training revision/version
+    - `--dry-run` - Preview training without executing
+
+**Examples:**
+
+```bash
+# Train from documentation
+aosctl train-docs --docs-dir ./my-docs --revision v2
+
+# Preview training plan
+aosctl train-docs --docs-dir ./my-docs --dry-run
+```
+
+## 6e. Bootstrap Workflow
+
+**What is Bootstrap?** The `bootstrap` command initializes a new AdapterOS installation with required configuration and setup.
+
+**Commands:**
+
+- `aosctl bootstrap` - Bootstrap AdapterOS installation
+  - Key flags:
+    - `--mode <mode>` - Bootstrap mode: `full` or `minimal`
+    - `--air-gapped` - Air-gapped installation mode
+    - `--checkpoint-file <path>` - Checkpoint file for resumable bootstrap
+    - `--json` - JSON output format
+
+**Examples:**
+
+```bash
+# Full bootstrap
+aosctl bootstrap --mode full
+
+# Minimal bootstrap
+aosctl bootstrap --mode minimal
+
+# Air-gapped bootstrap
+aosctl bootstrap --mode full --air-gapped
+
+# Bootstrap with checkpoint
+aosctl bootstrap --mode full --checkpoint-file ./checkpoint.json
+```
+
+## 6f. Backend Status
+
+**What is Backend Status?** The `backend-status` command checks the status and health of configured backends (MLX, CoreML, Metal).
+
+**Commands:**
+
+- `aosctl backend-status` - Check backend status
+  - Key flags:
+    - `--detailed` - Show detailed backend information
+    - `--json` - JSON output format
+
+**Examples:**
+
+```bash
+# Check backend status
+aosctl backend-status
+
+# Detailed status
+aosctl backend-status --detailed --json
+```
+
+## 6g. Terminal UI Dashboard
+
+**What is the TUI?** The `tui` command launches an interactive terminal UI dashboard for monitoring AdapterOS services, logs, and configuration (requires `--features tui` build).
+
+**Commands:**
+
+- `aosctl tui` - Launch interactive TUI dashboard
+  - Key flags:
+    - `--server-url <url>` - Server URL (default: http://localhost:8080)
+
+**Quick Keys:**
+- `b` - Boot services
+- `s` - Services view
+- `l` - Logs view
+- `m` - Metrics view
+- `c` - Config view
+- `q` - Quit
+
+**Examples:**
+
+```bash
+# Launch TUI
+aosctl tui
+
+# TUI with custom server
+aosctl tui --server-url http://localhost:9000
+```
+
+**Note:** TUI requires building with `--features tui`:
+```bash
+cargo build --release -p adapteros-cli --features tui
+```
+
+## 6h. Offline Manual
+
+**What is the Manual Command?** The `manual` command displays offline documentation directly in the terminal.
+
+**Commands:**
+
+- `aosctl manual` - Display offline manual
+  - Key flags:
+    - `--format <format>` - Output format: `man` or `md` (default: md)
+    - `--search <term>` - Search for specific terms
+
+**Examples:**
+
+```bash
+# Display manual
+aosctl manual
+
+# Manual in man format
+aosctl manual --format man
+
+# Search manual
+aosctl manual --format md --search "error codes"
+```
+
+## 6i. Chat Sessions
 
 **What is a Chat Session?** A chat session is a persistent conversation context that maintains message history across multiple prompts. Sessions enable multi-turn conversations with adapters and stacks.
 

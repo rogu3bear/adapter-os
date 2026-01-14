@@ -310,6 +310,7 @@ dependencies = [
  "dialoguer",
  "dirs",
  "dotenvy",
+ "ed25519-dalek",
  "fs_extra",
  "glob",
  "half",
