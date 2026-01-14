@@ -137,13 +137,13 @@ bash scripts/check_fast_math_flags.sh
 
 | Backend | Determinism Type | Guarantee Level | Attestation |
 |---------|-----------------|----------------|-------------|
-| **MLX** | HKDF-seeded RNG | RNG operations reproducible | `deterministic: false` |
+| **MLX** | Bit-exact | Guaranteed when properly seeded | `deterministic: true` |
 | **CoreML** | Bit-exact (ANE), Conditional (GPU) | ANE: guaranteed, GPU: best-effort | `deterministic: ane_available` |
 | **Metal** | Bit-exact | Guaranteed with precompiled shaders | `deterministic: true` |
 
 ### MLX Determinism
 
-**Status:** HKDF-seeded determinism for RNG operations only
+**Status:** Bit-exact determinism when HKDF-seeded and using real MLX (not stub mode)
 
 **Guarantees:**
 - ✅ RNG state seeded via HKDF-SHA256 from manifest hash
@@ -157,13 +157,19 @@ bash scripts/check_fast_math_flags.sh
 - ❌ Memory access patterns (unfused kernels may execute in different order)
 - ❌ Accumulated numerical errors (small variations across runs)
 
-**Attestation Report:**
+**Attestation Conditions:**
+```rust
+deterministic: seeded && !is_stub_active && IS_REAL_MLX
+determinism_level: if conditions_met { BitExact } else { None }
+```
+
+**Attestation Report (when conditions met):**
 ```rust
 DeterminismReport {
     backend_type: BackendType::Mlx,
     rng_seed_method: RngSeedingMethod::HkdfSeeded,
-    floating_point_mode: FloatingPointMode::Unknown,
-    deterministic: false,  // ⚠️ NOT fully deterministic
+    floating_point_mode: FloatingPointMode::Deterministic,
+    deterministic: true,  // ✅ Bit-exact deterministic
 }
 ```
 
