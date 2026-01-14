@@ -48,6 +48,7 @@ members = [
     "crates/adapteros-metrics-exporter",
     "crates/adapteros-orchestrator",
     "crates/adapteros-profiler",
+    "tests/benchmark",  # Performance benchmark suite
     "crates/adapteros-lora-lifecycle",
     "crates/adapteros-scenarios",
     "crates/adapteros-git",
