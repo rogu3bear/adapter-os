@@ -176,9 +176,9 @@ pub(crate) fn mlx_set_seed_from_bytes_ffi(seed: &[u8]) -> Result<()> {
 
     // Check if there was an error during seed setting
     if let Some(error_str) = ffi_error::get_and_clear_ffi_error() {
-        // FFI errors are always propagated - no string matching
-        return Err(AosError::Mlx(format!(
-            "Failed to set MLX seed: {}",
+        // Seed failures are determinism violations - they break reproducibility
+        return Err(AosError::DeterminismViolation(format!(
+            "MLX RNG seeding failed: {}",
             error_str
         )));
     }
@@ -218,6 +218,17 @@ fn sample_token_impl(
 
     if !success {
         let error = ffi_error::get_ffi_error_or("Unknown error");
+        // Classify error: RNG/sampling failures are determinism violations
+        let error_lower = error.to_lowercase();
+        if error_lower.contains("rng")
+            || error_lower.contains("seed")
+            || error_lower.contains("random")
+        {
+            return Err(AosError::DeterminismViolation(format!(
+                "Token sampling RNG failure: {}",
+                error
+            )));
+        }
         return Err(AosError::Mlx(format!("Token sampling failed: {}", error)));
     }
 

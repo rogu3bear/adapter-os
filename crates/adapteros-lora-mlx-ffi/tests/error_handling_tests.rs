@@ -33,9 +33,9 @@ mod ffi_error_tests {
     fn test_seed_short_buffer() {
         let seed = vec![1, 2, 3, 4]; // Short seed
 
-        // Should still work (MLX accepts variable length)
+        // Deterministic seeding requires exactly 32-byte HKDF seeds
         let result = mlx_set_seed_from_bytes(&seed);
-        assert!(result.is_ok());
+        assert!(result.is_err());
     }
 }
 
