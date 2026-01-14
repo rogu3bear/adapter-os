@@ -1033,6 +1033,32 @@ pub enum AdapterCommand {
         #[arg(long)]
         json: bool,
     },
+
+    /// Load and verify a sealed adapter container (.sealed.aos)
+    ///
+    /// Loads a cryptographically sealed adapter, verifies its integrity hash
+    /// and signature against trusted public keys, then displays verification results.
+    #[command(
+        name = "load-sealed",
+        after_help = "Examples:\n  aosctl adapter load-sealed ./adapter.sealed.aos --trusted-key ./keys/trusted.pub\n  aosctl adapter load-sealed ./adapter.sealed.aos --trusted-key-hex 0123456789abcdef...\n  aosctl adapter load-sealed ./adapter.sealed.aos --trusted-key ./keys/trusted.pub --json"
+    )]
+    LoadSealed {
+        /// Path to .sealed.aos file
+        #[arg()]
+        path: PathBuf,
+
+        /// Path to trusted public key file (32-byte binary or 64-char hex)
+        #[arg(long)]
+        trusted_key: Option<PathBuf>,
+
+        /// Trusted public key as hex string (64 characters)
+        #[arg(long, conflicts_with = "trusted_key")]
+        trusted_key_hex: Option<String>,
+
+        /// Output JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// Get adapter command name for telemetry
@@ -1064,6 +1090,7 @@ fn get_adapter_command_name(cmd: &AdapterCommand) -> String {
         AdapterCommand::Unload { .. } => "adapter_unload".to_string(),
         AdapterCommand::RepairHashes { .. } => "adapter_repair_hashes".to_string(),
         AdapterCommand::MigrateHashes { .. } => "adapter_migrate_hashes".to_string(),
+        AdapterCommand::LoadSealed { .. } => "adapter_load_sealed".to_string(),
     }
 }
 
@@ -1096,6 +1123,7 @@ fn extract_tenant_from_adapter_command(cmd: &AdapterCommand) -> Option<String> {
         AdapterCommand::Unload { .. } => None, // Unload uses server auth
         AdapterCommand::RepairHashes { tenant_id, .. } => tenant_id.clone(),
         AdapterCommand::MigrateHashes { tenant_id, .. } => tenant_id.clone(),
+        AdapterCommand::LoadSealed { .. } => None, // No tenant parameter
     }
 }
 
@@ -1317,6 +1345,12 @@ pub async fn handle_adapter_command(cmd: AdapterCommand, output: &OutputWriter) 
             )
             .await
         }
+        AdapterCommand::LoadSealed {
+            path,
+            trusted_key,
+            trusted_key_hex,
+            json,
+        } => load_sealed_adapter_cmd(&path, trusted_key.as_ref(), trusted_key_hex.as_deref(), json, output).await,
     }
 }
 
@@ -1410,6 +1444,155 @@ async fn unload_adapter_cmd(
     }
 
     Ok(())
+}
+
+/// Load and verify a sealed adapter container
+async fn load_sealed_adapter_cmd(
+    path: &Path,
+    trusted_key_path: Option<&PathBuf>,
+    trusted_key_hex: Option<&str>,
+    json: bool,
+    output: &OutputWriter,
+) -> Result<()> {
+    use adapteros_aos::{LoadResult, RejectionReason, SealedAdapterLoader};
+    use ed25519_dalek::VerifyingKey;
+
+    // Parse trusted public key
+    let trusted_pubkey = match (trusted_key_path, trusted_key_hex) {
+        (Some(key_path), None) => {
+            // Read from file - try hex first, then raw bytes
+            let contents = fs::read(key_path).map_err(|e| {
+                AosError::Io(format!("Failed to read trusted key file: {}", e))
+            })?;
+
+            // Try to parse as hex string (64 chars = 32 bytes)
+            let key_bytes: [u8; 32] = if contents.len() == 64 || contents.len() == 65 {
+                // Hex string (possibly with newline)
+                let hex_str = String::from_utf8_lossy(&contents);
+                let hex_str = hex_str.trim();
+                hex::decode(hex_str)
+                    .map_err(|e| AosError::Crypto(format!("Invalid hex in key file: {}", e)))?
+                    .try_into()
+                    .map_err(|_| AosError::Crypto("Key file must contain 32 bytes".to_string()))?
+            } else if contents.len() == 32 {
+                // Raw 32-byte key
+                contents
+                    .try_into()
+                    .map_err(|_| AosError::Crypto("Key file must contain 32 bytes".to_string()))?
+            } else {
+                return Err(AosError::Crypto(format!(
+                    "Invalid key file size: expected 32 bytes or 64 hex chars, got {} bytes",
+                    contents.len()
+                )));
+            };
+
+            VerifyingKey::from_bytes(&key_bytes)
+                .map_err(|e| AosError::Crypto(format!("Invalid Ed25519 public key: {}", e)))?
+        }
+        (None, Some(hex_str)) => {
+            let key_bytes: [u8; 32] = hex::decode(hex_str)
+                .map_err(|e| AosError::Crypto(format!("Invalid hex string: {}", e)))?
+                .try_into()
+                .map_err(|_| AosError::Crypto("Hex string must be 64 characters (32 bytes)".to_string()))?;
+
+            VerifyingKey::from_bytes(&key_bytes)
+                .map_err(|e| AosError::Crypto(format!("Invalid Ed25519 public key: {}", e)))?
+        }
+        (None, None) => {
+            return Err(AosError::Crypto(
+                "Must provide either --trusted-key or --trusted-key-hex".to_string(),
+            ));
+        }
+        (Some(_), Some(_)) => {
+            // This case is prevented by clap's conflicts_with, but handle it anyway
+            return Err(AosError::Crypto(
+                "Cannot specify both --trusted-key and --trusted-key-hex".to_string(),
+            ));
+        }
+    };
+
+    if !json {
+        output.info(format!("Loading sealed adapter from: {}", path.display()));
+    }
+
+    // Create loader with trusted key
+    let loader = SealedAdapterLoader::new(vec![trusted_pubkey]);
+
+    // Load and verify
+    let result = loader.load_from_file(path);
+
+    match result {
+        LoadResult::Verified(adapter) => {
+            if json {
+                let json_output = serde_json::json!({
+                    "status": "verified",
+                    "adapter_id": adapter.adapter_id(),
+                    "integrity_hash": adapter.integrity_hash().to_hex(),
+                    "weights_hash": adapter.weights_hash_for_receipt().to_hex(),
+                    "signer_pubkey": hex::encode(adapter.signer_pubkey),
+                    "available": adapter.available,
+                    "metadata": {
+                        "name": adapter.bundle.metadata.name,
+                        "version": adapter.bundle.metadata.version,
+                        "description": adapter.bundle.metadata.description,
+                        "tier": adapter.bundle.metadata.tier,
+                        "lora_rank": adapter.bundle.metadata.lora_rank,
+                    }
+                });
+                output.result(serde_json::to_string_pretty(&json_output).unwrap());
+            } else {
+                output.success("Sealed adapter verified successfully");
+                output.kv("Adapter ID", adapter.adapter_id());
+                output.kv("Integrity Hash", &adapter.integrity_hash().to_hex());
+                output.kv("Weights Hash", &adapter.weights_hash_for_receipt().to_hex());
+                output.kv("Signer", &hex::encode(adapter.signer_pubkey));
+                output.kv("Available", if adapter.available { "yes" } else { "no" });
+
+                if !adapter.bundle.metadata.name.is_empty() {
+                    output.kv("Name", &adapter.bundle.metadata.name);
+                }
+                if !adapter.bundle.metadata.version.is_empty() {
+                    output.kv("Version", &adapter.bundle.metadata.version);
+                }
+                if let Some(rank) = adapter.bundle.metadata.lora_rank {
+                    output.kv("LoRA Rank", &rank.to_string());
+                }
+            }
+            Ok(())
+        }
+        LoadResult::Rejected {
+            reason,
+            message,
+            expected,
+            actual,
+        } => {
+            if json {
+                let json_output = serde_json::json!({
+                    "status": "rejected",
+                    "reason": reason.as_str(),
+                    "message": message,
+                    "expected_hash": expected.map(|h| h.to_hex()),
+                    "actual_hash": actual.map(|h| h.to_hex()),
+                });
+                output.result(serde_json::to_string_pretty(&json_output).unwrap());
+            } else {
+                output.error(format!("Sealed adapter verification failed: {}", reason.as_str()));
+                output.kv("Reason", reason.as_str());
+                output.kv("Details", &message);
+                if let Some(exp) = expected {
+                    output.kv("Expected Hash", &exp.to_hex());
+                }
+                if let Some(act) = actual {
+                    output.kv("Actual Hash", &act.to_hex());
+                }
+            }
+            Err(AosError::Crypto(format!(
+                "Sealed adapter rejected: {} - {}",
+                reason.as_str(),
+                message
+            )))
+        }
+    }
 }
 
 fn adapter_runtime_ready(adapter: &adapteros_api_types::adapters::AdapterResponse) -> bool {
