@@ -589,7 +589,7 @@ impl Default for TrainingConfig {
             hidden_state_layer: None,
             validation_split: default_validation_split(),
             preprocessing: None,
-            targets: Vec::new(),
+            targets: default_targets(),
             multi_module_training: false,
             lora_layer_indices: Vec::new(),
         }
