@@ -7,7 +7,7 @@
 
 -- Input token sequence digest (BLAKE3 of input token IDs)
 ALTER TABLE inference_trace_receipts
-    ADD COLUMN IF NOT EXISTS input_digest_b3 BYTEA;
+    ADD COLUMN input_digest_b3 BLOB;
 
 -- Index for verification queries
 CREATE INDEX IF NOT EXISTS idx_receipts_input_digest

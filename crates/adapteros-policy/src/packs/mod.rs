@@ -1,4 +1,4 @@
-//! Policy Packs - Complete implementation of all 29 policy packs
+//! Policy Packs - Complete implementation of all 25 policy packs
 //!
 //! This module contains the complete implementation of all policy packs
 //! for AdapterOS, including configuration, validation, and enforcement logic.

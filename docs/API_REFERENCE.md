@@ -441,6 +441,12 @@ Content-Type: application/json
 }
 ```
 
+**Sealed Adapters:**
+- `POST /v1/adapters/seal` - Seal adapter into cryptographically secure container (admin)
+- `POST /v1/adapters/sealed/verify` - Verify sealed adapter integrity
+- `POST /v1/adapters/sealed/load` - Load and verify sealed adapter
+- `GET /v1/adapters/sealed/{adapter_id}` - Get sealed adapter metadata
+
 **Adapter Operations:**
 - `POST /v1/adapters/{adapter_id}/load` - Load adapter into memory
 - `POST /v1/adapters/{adapter_id}/unload` - Unload adapter
@@ -459,6 +465,106 @@ Content-Type: application/json
 - `GET /v1/adapters/{adapter_id}/pin` - Get pin status
 - `POST /v1/adapters/{adapter_id}/pin` - Pin adapter (prevent eviction)
 - `DELETE /v1/adapters/{adapter_id}/pin` - Unpin adapter
+
+**Seal Adapter (Admin):**
+```http
+POST /v1/adapters/seal
+Authorization: Bearer <admin_token>
+Content-Type: multipart/form-data
+
+adapter_bundle=@adapter.tar.gz
+signing_key=sealing_key.pem
+metadata={"version": "1.0", "author": "org"}
+```
+
+**Response:**
+```json
+{
+  "sealed_adapter_id": "sealed-adapter-123",
+  "container_hash": "b3_container_hash",
+  "weights_hash": "b3_weights_hash",
+  "sealer_pubkey": "ed25519_public_key_hex",
+  "created_at": "2026-01-13T12:34:56Z",
+  "download_url": "/v1/adapters/sealed/sealed-adapter-123/download"
+}
+```
+
+**Verify Sealed Adapter:**
+```http
+POST /v1/adapters/sealed/verify
+Authorization: Bearer <token>
+Content-Type: multipart/form-data
+
+sealed_adapter=@adapter.sealed.aos
+trusted_keys=["ed25519_pubkey1", "ed25519_pubkey2"]
+```
+
+**Response:**
+```json
+{
+  "valid": true,
+  "verified_at": "2026-01-13T12:34:56Z",
+  "container_integrity": true,
+  "signature_valid": true,
+  "weights_hash": "b3_weights_hash",
+  "sealer_pubkey": "ed25519_public_key_hex",
+  "metadata": {
+    "version": "1.0",
+    "author": "org"
+  }
+}
+```
+
+**Load Sealed Adapter:**
+```http
+POST /v1/adapters/sealed/load
+Authorization: Bearer <token>
+Content-Type: multipart/form-data
+
+sealed_adapter=@adapter.sealed.aos
+trusted_keys=["ed25519_pubkey1"]
+tenant_id=tenant-123
+```
+
+**Response:**
+```json
+{
+  "adapter_id": "adapter-456",
+  "load_state": "loaded",
+  "verification": {
+    "container_integrity": true,
+    "signature_valid": true,
+    "weights_hash_bound": true
+  },
+  "metadata": {
+    "adapter_id": "original-adapter-id",
+    "base_model_hash": "b3_model_hash",
+    "weights_hash": "b3_weights_hash"
+  }
+}
+```
+
+**Get Sealed Adapter Metadata:**
+```http
+GET /v1/adapters/sealed/{adapter_id}
+Authorization: Bearer <token>
+```
+
+**Response:**
+```json
+{
+  "adapter_id": "sealed-adapter-123",
+  "container_hash": "b3_container_hash",
+  "weights_hash": "b3_weights_hash",
+  "config_hash": "b3_config_hash",
+  "sealer_pubkey": "ed25519_public_key_hex",
+  "created_at": "2026-01-13T12:34:56Z",
+  "metadata": {
+    "version": "1.0",
+    "author": "org"
+  }
+}
+```
 
 **Adapter Stacks:**
 - `POST /v1/adapter-stacks` - Create adapter stack
@@ -1988,6 +2094,12 @@ Content-Type: application/json
 }
 ```
 
+**Cryptographic Receipts:**
+- `GET /v1/receipts/{trace_id}` - Get cryptographic receipt details
+- `GET /v1/receipts/{trace_id}/verify` - Verify receipt integrity
+- `POST /v1/receipts/verify` - Verify receipt from data (third-party)
+- `GET /v1/receipts` - List receipts (admin)
+
 **Replay Sessions:**
 - `GET /v1/replay/sessions` - List replay sessions
 - `POST /v1/replay/sessions` - Create replay session
@@ -2032,6 +2144,82 @@ Authorization: Bearer <token>
     }
   ],
   "total_quarantined": 1
+}
+```
+
+**Get Cryptographic Receipt:**
+```http
+GET /v1/receipts/{trace_id}
+Authorization: Bearer <token>
+```
+
+**Response:**
+```json
+{
+  "schema_version": 1,
+  "metadata": {
+    "tenant_id": "tenant-123",
+    "trace_id": "trace-456",
+    "created_at": "2026-01-13T12:34:56Z"
+  },
+  "execution": {
+    "context_id": {
+      "model_hash": "b3_model_hash",
+      "adapter_config_hash": "b3_adapter_hash",
+      "digest": "b3_context_digest"
+    },
+    "input_digest": "b3_input_digest",
+    "routing_digest": "b3_routing_digest",
+    "output_digest": "b3_output_digest",
+    "equipment_profile_digest": "b3_equipment_digest"
+  },
+  "digest": "b3_final_receipt_digest"
+}
+```
+
+**Verify Receipt Integrity:**
+```http
+GET /v1/receipts/{trace_id}/verify
+Authorization: Bearer <token>
+```
+
+**Response:**
+```json
+{
+  "valid": true,
+  "verified_at": "2026-01-13T12:34:56Z",
+  "schema_version": 1,
+  "digest_matches": true,
+  "context_integrity": true,
+  "equipment_profile_valid": true
+}
+```
+
+**Third-Party Receipt Verification:**
+```http
+POST /v1/receipts/verify
+Content-Type: application/json
+
+{
+  "receipt": {
+    "schema_version": 1,
+    "metadata": {...},
+    "execution": {...},
+    "digest": "b3_digest"
+  },
+  "expected_input_tokens": [123, 456, 789],
+  "expected_output_tokens": [987, 654, 321]
+}
+```
+
+**Response:**
+```json
+{
+  "valid": true,
+  "input_digest_matches": true,
+  "output_digest_matches": true,
+  "context_integrity": true,
+  "third_party_verified": true
 }
 ```
 

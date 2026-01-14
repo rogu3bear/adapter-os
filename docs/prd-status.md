@@ -25,6 +25,6 @@
 
 ## Notes
 
-- All Phase 1-4 PRDs completed as of alpha-v0.11
+- All Phase 1-4 PRDs completed as of 0.12.0
 - See CHANGELOG.md for release history
 - See AOS_FUTURE_FEATURES.md for post-MVP features (require approval)

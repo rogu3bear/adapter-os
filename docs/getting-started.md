@@ -1,6 +1,6 @@
 # Getting Started with AdapterOS
 
-> **This is the canonical getting started guide.** All other documentation should link here for initial setup.
+> **This is the canonical getting started guide for basic backend setup.** For complete setup with UI, see [QUICKSTART.md](QUICKSTART.md).
 
 Get AdapterOS running in 5 minutes on your Apple Silicon Mac.
 

@@ -6,16 +6,16 @@ We actively support the following versions with security updates:
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 0.8.x   | :white_check_mark: |
-| 0.7.x   | :x:                |
-| < 0.7   | :x:                |
+| 0.12.x  | :white_check_mark: |
+| 0.11.x  | :white_check_mark: |
+| < 0.11  | :x:                |
 
 ## Reporting a Vulnerability
 
 If you discover a security vulnerability in AdapterOS, please report it to us as follows:
 
 ### Contact
-- **Email**: [security contact email]
+- **Email**: security@adapteros.ai
 - **Response Time**: We will acknowledge receipt within 48 hours
 - **Updates**: We will provide regular updates on the progress of fixing the vulnerability
 
@@ -42,7 +42,7 @@ AdapterOS implements several security measures:
 - HKDF key derivation for all randomness
 
 ### Policy Enforcement
-- 28 canonical security policies
+- 25 canonical security policies
 - Runtime policy validation
 - Audit logging for all operations
 

@@ -2,7 +2,7 @@
 
 **Purpose**: Comprehensive guide to understanding and using the AdapterOS CLI (`aosctl`)
 **Last Updated**: January 2026
-**Version**: alpha-v0.11-unstable-pre-release
+**Version**: 0.12.0
 
 ---
 
@@ -694,6 +694,230 @@ aosctl adapter-info <ADAPTER_ID>
 
 **Parameters**:
 - `ADAPTER_ID` (required): Adapter ID
+
+### `adapter seal`
+
+Seal an adapter into a cryptographically secure container
+
+**Usage**:
+```bash
+aosctl adapter seal [OPTIONS]
+```
+
+**Parameters**:
+- `--input-bundle` (required): Path to adapter bundle directory
+- `--signing-key` (required): Path to Ed25519 signing key (.pem file)
+- `--output` (required): Output path for .sealed.aos file
+- `--metadata` (optional): JSON metadata string
+- `--name` (optional): Adapter name override
+
+**Examples**:
+```bash
+# Seal an adapter with signing key
+aosctl adapter seal \
+  --input-bundle ./my-adapter/ \
+  --signing-key ./sealing-key.pem \
+  --output my-adapter.sealed.aos \
+  --metadata '{"version": "1.0", "author": "research-team"}'
+
+# Seal with custom name
+aosctl adapter seal \
+  --input-bundle ./adapter-bundle/ \
+  --signing-key ./key.pem \
+  --output sealed.aos \
+  --name "production-model-v1"
+```
+
+### `adapter load-sealed`
+
+Load and verify a sealed adapter
+
+**Usage**:
+```bash
+aosctl adapter load-sealed <SEALED_FILE> [OPTIONS]
+```
+
+**Parameters**:
+- `SEALED_FILE` (required): Path to .sealed.aos file
+- `--trusted-key` (required): Path to trusted public key or hex string
+- `--trusted-key-hex` (optional): Hex-encoded Ed25519 public key
+- `--tenant` (optional): Target tenant ID
+- `--json` (optional): Output in JSON format
+
+**Examples**:
+```bash
+# Load with public key file
+aosctl adapter load-sealed model.sealed.aos --trusted-key trusted.pub
+
+# Load with hex-encoded key
+aosctl adapter load-sealed model.sealed.aos \
+  --trusted-key-hex "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"
+
+# Load for specific tenant
+aosctl adapter load-sealed model.sealed.aos \
+  --trusted-key trusted.pub \
+  --tenant production-tenant
+
+# JSON output for scripting
+aosctl adapter load-sealed model.sealed.aos \
+  --trusted-key trusted.pub \
+  --json > load_result.json
+```
+
+### `adapter verify-seal`
+
+Verify sealed adapter integrity without loading
+
+**Usage**:
+```bash
+aosctl adapter verify-seal <SEALED_FILE> [OPTIONS]
+```
+
+**Parameters**:
+- `SEALED_FILE` (required): Path to .sealed.aos file
+- `--trusted-key` (required): Path to trusted public key or hex string
+- `--trusted-key-hex` (optional): Hex-encoded Ed25519 public key
+- `--json` (optional): Output in JSON format
+
+**Examples**:
+```bash
+# Verify seal integrity
+aosctl adapter verify-seal model.sealed.aos --trusted-key trusted.pub
+
+# Verify with hex key and JSON output
+aosctl adapter verify-seal model.sealed.aos \
+  --trusted-key-hex "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a" \
+  --json
+```
+
+### `keygen create-sealing-key`
+
+Generate Ed25519 keypair for adapter sealing
+
+**Usage**:
+```bash
+aosctl keygen create-sealing-key [OPTIONS]
+```
+
+**Parameters**:
+- `--name` (required): Key name identifier
+- `--protected` (optional): Require passphrase for private key
+
+**Examples**:
+```bash
+# Create unprotected keypair
+aosctl keygen create-sealing-key --name production-sealing
+
+# Create protected keypair
+aosctl keygen create-sealing-key --name secure-sealing --protected
+```
+
+### `keygen export-public`
+
+Export public key for distribution
+
+**Usage**:
+```bash
+aosctl keygen export-public --key <KEY_NAME>
+```
+
+**Parameters**:
+- `--key` (required): Key name to export
+
+**Examples**:
+```bash
+# Export public key for sharing
+aosctl keygen export-public --key production-sealing > production.pub
+```
+
+### `receipt verify`
+
+Verify cryptographic receipt integrity
+
+**Usage**:
+```bash
+aosctl receipt verify [OPTIONS]
+```
+
+**Parameters**:
+- `--digest` (optional): Receipt digest to verify
+- `--trace-id` (optional): Trace ID to lookup receipt
+- `--input-tokens` (optional): Expected input tokens (comma-separated)
+- `--allow-equipment-mismatch` (optional): Allow equipment profile mismatch
+- `--json` (optional): Output in JSON format
+
+**Examples**:
+```bash
+# Verify receipt by digest
+aosctl receipt verify --digest b3abc123...
+
+# Verify with input validation
+aosctl receipt verify \
+  --digest b3abc123... \
+  --input-tokens 123,456,789
+
+# Verify by trace ID
+aosctl receipt verify --trace-id trace-456
+
+# JSON output for automation
+aosctl receipt verify --digest b3abc123... --json
+```
+
+### `receipt list`
+
+List cryptographic receipts
+
+**Usage**:
+```bash
+aosctl receipt list [OPTIONS]
+```
+
+**Parameters**:
+- `--tenant` (optional): Filter by tenant ID
+- `--since` (optional): Filter receipts since date (ISO 8601)
+- `--limit` (optional): Maximum results (default: 50)
+- `--json` (optional): Output in JSON format
+
+**Examples**:
+```bash
+# List recent receipts
+aosctl receipt list
+
+# List receipts for specific tenant
+aosctl receipt list --tenant production
+
+# List receipts since date
+aosctl receipt list --since 2026-01-01
+
+# JSON output for processing
+aosctl receipt list --tenant dev --json > receipts.json
+```
+
+### `receipt inspect`
+
+Inspect receipt details and metadata
+
+**Usage**:
+```bash
+aosctl receipt inspect <RECEIPT_DIGEST> [OPTIONS]
+```
+
+**Parameters**:
+- `RECEIPT_DIGEST` (required): Receipt digest to inspect
+- `--verbose` (optional): Show detailed information
+- `--json` (optional): Output in JSON format
+
+**Examples**:
+```bash
+# Basic receipt inspection
+aosctl receipt inspect b3abc123...
+
+# Detailed inspection with all fields
+aosctl receipt inspect b3abc123... --verbose
+
+# JSON output for analysis
+aosctl receipt inspect b3abc123... --json > receipt_details.json
+```
 
 ---
 
