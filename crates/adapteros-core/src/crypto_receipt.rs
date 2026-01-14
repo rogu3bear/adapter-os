@@ -174,6 +174,11 @@ pub struct RoutingRecord {
 impl RoutingRecord {
     /// Compute hash of this routing record for chain accumulation.
     ///
+    /// **IMPORTANT**: This method uses a standalone serialization format that is
+    /// NOT compatible with the production trace system (`SqlTraceSink`). For
+    /// replay verification compatibility, use [`compute_hash_canonical`] instead,
+    /// which matches the `receipt_digest::hash_token_decision` algorithm.
+    ///
     /// The hash includes all fields that affect routing determinism:
     /// - Step index and input token
     /// - Adapter indices and string IDs
@@ -182,6 +187,10 @@ impl RoutingRecord {
     /// - Policy mask digest
     /// - Backend and kernel version
     /// - Allowed mask (if policy filtering applied)
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use compute_hash_canonical() for replay verification compatibility"
+    )]
     pub fn compute_hash(&self) -> B3Hash {
         let mut hasher = blake3::Hasher::new();
 
@@ -276,6 +285,46 @@ impl RoutingRecord {
         B3Hash::from_bytes(hasher.finalize().into())
     }
 
+    /// Compute hash of this routing record using the canonical algorithm.
+    ///
+    /// This method produces hashes compatible with the production trace system
+    /// (`SqlTraceSink::hash_decision`) and replay verification. It uses the
+    /// canonical `receipt_digest::hash_token_decision` function internally.
+    ///
+    /// # Arguments
+    /// * `context_digest` - The context digest (model + adapter config hash) that
+    ///   binds this routing decision to its inference context.
+    ///
+    /// # Compatibility
+    ///
+    /// This method produces identical hashes to `SqlTraceSink::hash_decision`
+    /// when given the same inputs, enabling cross-system verification.
+    pub fn compute_hash_canonical(&self, context_digest: &[u8; 32]) -> B3Hash {
+        use crate::receipt_digest::{encode_adapter_ids, encode_allowed_mask, encode_gates_q15, hash_token_decision};
+
+        // Encode fields to canonical blob format
+        let adapter_ids_blob = encode_adapter_ids(&self.adapter_ids);
+        let gates_blob = encode_gates_q15(&self.gates_q15);
+        let allowed_mask_blob = self.allowed_mask.as_ref().map(|m| encode_allowed_mask(m));
+
+        // Convert policy_mask_digest to [u8; 32] if present
+        let policy_mask_digest = self.policy_mask_digest.map(|h| *h.as_bytes());
+
+        // Note: policy_overrides_json is not present in RoutingRecord,
+        // so we pass None for compatibility with traces that don't have it.
+        hash_token_decision(
+            context_digest,
+            self.step,
+            &adapter_ids_blob,
+            &gates_blob,
+            policy_mask_digest,
+            allowed_mask_blob.as_deref(),
+            None, // policy_overrides_json not in RoutingRecord
+            self.backend_id.as_deref(),
+            self.kernel_version_id.as_deref(),
+        )
+    }
+
     /// Create a new routing record with minimal required fields.
     pub fn new(step: u32, adapter_indices: Vec<u16>, gates_q15: Vec<i16>, entropy: f32) -> Self {
         Self {
@@ -344,9 +393,18 @@ impl RoutingDigest {
         }
     }
 
-    /// Accumulate a routing record into the chain.
+    /// Accumulate a routing record into the chain (legacy format).
+    ///
+    /// **IMPORTANT**: This method uses a non-canonical chain order that is
+    /// NOT compatible with the production trace system. For replay verification
+    /// compatibility, use [`accumulate_canonical`] instead.
     ///
     /// Formula: `new_digest = BLAKE3(prev_digest || step || record_hash)`
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use accumulate_canonical() for replay verification compatibility"
+    )]
+    #[allow(deprecated)]
     pub fn accumulate(&mut self, record: &RoutingRecord) {
         let record_hash = record.compute_hash();
         self.digest = B3Hash::hash_multi(&[
@@ -354,6 +412,30 @@ impl RoutingDigest {
             &record.step.to_le_bytes(),
             record_hash.as_bytes(),
         ]);
+        self.decision_count += 1;
+    }
+
+    /// Accumulate a routing record into the chain using the canonical algorithm.
+    ///
+    /// This method produces chain hashes compatible with the production trace
+    /// system (`SqlTraceSink::update_head`) and replay verification. It uses
+    /// the canonical `receipt_digest::update_run_head` function internally.
+    ///
+    /// Formula: `new_digest = BLAKE3(prev_digest || decision_hash || token_index)`
+    ///
+    /// # Arguments
+    /// * `record` - The routing record for this token
+    /// * `context_digest` - The context digest that binds this to its inference context
+    ///
+    /// # Compatibility
+    ///
+    /// This method produces identical chain hashes to `SqlTraceSink::update_head`
+    /// when given the same inputs, enabling cross-system verification.
+    pub fn accumulate_canonical(&mut self, record: &RoutingRecord, context_digest: &[u8; 32]) {
+        use crate::receipt_digest::update_run_head;
+
+        let record_hash = record.compute_hash_canonical(context_digest);
+        self.digest = update_run_head(&self.digest, record.step, &record_hash);
         self.decision_count += 1;
     }
 
@@ -622,10 +704,12 @@ impl ReceiptGenerator {
 
     /// Record a routing decision for a single token generation step.
     ///
-    /// This accumulates the routing record into the routing_digest chain.
+    /// This accumulates the routing record into the routing_digest chain
+    /// using the canonical algorithm that matches `SqlTraceSink`.
     /// Records should be added in step order (0, 1, 2, ...).
     pub fn record_routing_decision(&mut self, record: RoutingRecord) {
-        self.routing_digest.accumulate(&record);
+        let context_digest = self.context_id.digest.as_bytes();
+        self.routing_digest.accumulate_canonical(&record, context_digest);
     }
 
     /// Record a routing decision with direct parameters.
@@ -749,8 +833,8 @@ impl ReceiptGenerator {
         let output_digest = compute_output_digest(output_tokens);
         self.metadata.output_token_count = output_tokens.len() as u32;
 
-        // Set creation timestamp
-        self.metadata.created_at = Some(chrono::Utc::now().to_rfc3339());
+        // Note: created_at is left as-is (caller can set via metadata if needed)
+        // This avoids coupling to chrono and maintains testability
 
         // Compute final receipt digest
         let receipt_digest = CryptographicReceipt::compute_receipt_digest(
@@ -1058,6 +1142,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)] // Testing deprecated API for backward compatibility
     fn test_routing_record_hash_deterministic() {
         let record = sample_routing_record(0);
 
@@ -1068,6 +1153,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)] // Testing deprecated API for backward compatibility
     fn test_routing_digest_accumulation() {
         let mut digest1 = RoutingDigest::new();
         let mut digest2 = RoutingDigest::new();
@@ -1084,6 +1170,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)] // Testing deprecated API for backward compatibility
     fn test_routing_digest_order_matters() {
         let record0 = sample_routing_record(0);
         let record1 = sample_routing_record(1);
@@ -1306,6 +1393,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)] // Testing deprecated API for backward compatibility
     fn test_routing_record_backend_changes_hash() {
         let record1 = RoutingRecord::new(0, vec![0], vec![16384], 0.5);
         let record2 = record1.clone().with_backend("mlx", Some("v1"));
@@ -1321,6 +1409,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)] // Testing deprecated API for backward compatibility
     fn test_routing_record_allowed_mask_changes_hash() {
         let record1 = RoutingRecord::new(0, vec![0, 1], vec![16384, 16383], 0.5);
         let record2 = record1.clone().with_allowed_mask(vec![true, false]);
@@ -1435,5 +1524,132 @@ mod tests {
         assert_eq!(profile.processor_id, "unknown");
         assert_eq!(profile.engine_version, "unknown");
         assert_eq!(profile.ane_version, None);
+    }
+
+    // ========================================================================
+    // Canonical Hash Parity Tests (Gap 3.2 Fix)
+    // ========================================================================
+
+    /// Verifies that `RoutingRecord::compute_hash_canonical` produces the same
+    /// hash as `receipt_digest::hash_token_decision` for identical inputs.
+    ///
+    /// This is a critical test for replay verification: if these hashes diverge,
+    /// receipts generated via `crypto_receipt` will not match receipts stored
+    /// by `SqlTraceSink`, breaking offline verification.
+    #[test]
+    fn test_canonical_hash_parity_with_receipt_digest() {
+        use crate::receipt_digest::{encode_adapter_ids, encode_allowed_mask, encode_gates_q15, hash_token_decision};
+
+        let context_digest = [0x42u8; 32];
+        let step = 5u32;
+        let adapter_ids = vec!["adapter-a".to_string(), "adapter-b".to_string()];
+        let gates_q15 = vec![16384i16, 16383];
+        let policy_mask_digest = Some(B3Hash::hash(b"policy-mask"));
+        let backend_id = Some("mlx".to_string());
+        let kernel_version_id = Some("mlx-v1.0".to_string());
+        let allowed_mask = Some(vec![true, false, true]);
+
+        // Create a RoutingRecord with these fields
+        let record = RoutingRecord {
+            step,
+            input_token_id: None, // Not included in canonical hash
+            adapter_indices: vec![0, 1], // Not included in canonical hash
+            adapter_ids: adapter_ids.clone(),
+            gates_q15: gates_q15.clone(),
+            entropy: 0.5, // Not included in canonical hash
+            policy_mask_digest,
+            backend_id: backend_id.clone(),
+            kernel_version_id: kernel_version_id.clone(),
+            allowed_mask: allowed_mask.clone(),
+        };
+
+        // Compute using the canonical method
+        let record_hash = record.compute_hash_canonical(&context_digest);
+
+        // Compute directly using receipt_digest functions (as SqlTraceSink does)
+        let adapter_blob = encode_adapter_ids(&adapter_ids);
+        let gates_blob = encode_gates_q15(&gates_q15);
+        let allowed_mask_blob = allowed_mask.as_ref().map(|m| encode_allowed_mask(m));
+        let policy_bytes = policy_mask_digest.map(|h| *h.as_bytes());
+
+        let direct_hash = hash_token_decision(
+            &context_digest,
+            step,
+            &adapter_blob,
+            &gates_blob,
+            policy_bytes,
+            allowed_mask_blob.as_deref(),
+            None, // policy_overrides_json not in RoutingRecord
+            backend_id.as_deref(),
+            kernel_version_id.as_deref(),
+        );
+
+        assert_eq!(
+            record_hash, direct_hash,
+            "RoutingRecord::compute_hash_canonical must produce identical hash to hash_token_decision.\n\
+            Record hash: {}\n\
+            Direct hash: {}",
+            record_hash.to_hex(),
+            direct_hash.to_hex()
+        );
+    }
+
+    /// Verifies that `RoutingDigest::accumulate_canonical` produces the same
+    /// chain hash as `receipt_digest::update_run_head` for identical inputs.
+    ///
+    /// This ensures the chaining order matches the production trace system.
+    #[test]
+    fn test_canonical_chain_parity_with_receipt_digest() {
+        use crate::receipt_digest::update_run_head;
+
+        let context_digest = [0x42u8; 32];
+
+        // Create two routing records
+        let record0 = RoutingRecord {
+            step: 0,
+            input_token_id: None,
+            adapter_indices: vec![0],
+            adapter_ids: vec!["adapter-a".to_string()],
+            gates_q15: vec![16384],
+            entropy: 0.5,
+            policy_mask_digest: None,
+            backend_id: Some("mlx".to_string()),
+            kernel_version_id: None,
+            allowed_mask: None,
+        };
+        let record1 = RoutingRecord {
+            step: 1,
+            input_token_id: None,
+            adapter_indices: vec![1],
+            adapter_ids: vec!["adapter-b".to_string()],
+            gates_q15: vec![16383],
+            entropy: 0.6,
+            policy_mask_digest: None,
+            backend_id: Some("mlx".to_string()),
+            kernel_version_id: None,
+            allowed_mask: None,
+        };
+
+        // Accumulate using canonical method
+        let mut digest = RoutingDigest::new();
+        digest.accumulate_canonical(&record0, &context_digest);
+        digest.accumulate_canonical(&record1, &context_digest);
+
+        // Compute manually using receipt_digest functions
+        let hash0 = record0.compute_hash_canonical(&context_digest);
+        let expected_head0 = update_run_head(&B3Hash::zero(), 0, &hash0);
+
+        let hash1 = record1.compute_hash_canonical(&context_digest);
+        let expected_head1 = update_run_head(&expected_head0, 1, &hash1);
+
+        assert_eq!(
+            digest.digest, expected_head1,
+            "RoutingDigest::accumulate_canonical must produce identical chain to update_run_head.\n\
+            Accumulated: {}\n\
+            Expected: {}",
+            digest.digest.to_hex(),
+            expected_head1.to_hex()
+        );
+        assert_eq!(digest.decision_count, 2);
     }
 }
