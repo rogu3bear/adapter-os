@@ -3056,6 +3056,27 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 }
             }
 
+            // Phase 3: Finalize ReceiptGenerator FIRST to get crypto receipt digest for dual-write
+            let crypto_receipt_digest_b3 = if let Some(gen) = receipt_generator.take() {
+                let mut gen = gen;
+                if let Some(stop_code) = stop_reason_code {
+                    gen.set_stop_reason(&stop_code.to_string());
+                }
+                match gen.finalize(&output_token_ids) {
+                    Ok(crypto_receipt) => Some(crypto_receipt.receipt_digest),
+                    Err(e) => {
+                        warn!(
+                            error = %e,
+                            trace_id = %trace_id,
+                            "ReceiptGenerator finalization failed"
+                        );
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
             if let Some(sink) = trace_sink.as_mut() {
                 // model_cache_identity_v2_digest already computed earlier for cache lookup
                 match sink
@@ -3082,10 +3103,31 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                         attestation: None,
                         // Patent 3535886.0002: Equipment profile from worker initialization
                         equipment_profile: self.equipment_profile.clone(),
+                        // Phase 3: Crypto receipt dual-write for parity validation
+                        crypto_receipt_digest_b3,
+                        receipt_parity_verified: None, // Computed post-hoc by comparing stored values
+                        tenant_id: Some(request.cpid.clone()),
                     })
                     .await
                 {
                     Ok(receipt) => {
+                        // Phase 3: Validate parity between crypto and legacy receipt digests
+                        if let Some(crypto_digest) = crypto_receipt_digest_b3 {
+                            if crypto_digest != receipt.receipt_digest {
+                                warn!(
+                                    crypto = %crypto_digest.to_hex(),
+                                    legacy = %receipt.receipt_digest.to_hex(),
+                                    trace_id = %trace_id,
+                                    "Receipt digest mismatch between ReceiptGenerator and SqlTraceSink"
+                                );
+                            } else {
+                                debug!(
+                                    trace_id = %trace_id,
+                                    "ReceiptGenerator parity check passed"
+                                );
+                            }
+                        }
+
                         run_receipt = Some(RunReceipt {
                             trace_id: receipt.trace_id.clone(),
                             run_head_hash: receipt.run_head_hash,
@@ -3122,41 +3164,6 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                     }
                     Err(e) => {
                         return Err(e);
-                    }
-                }
-            }
-
-            // Finalize ReceiptGenerator and validate parity with SqlTraceSink
-            if let Some(gen) = receipt_generator.take() {
-                if let Some(stop_code) = stop_reason_code {
-                    let mut gen = gen;
-                    gen.set_stop_reason(&stop_code.to_string());
-                    match gen.finalize(&output_token_ids) {
-                        Ok(crypto_receipt) => {
-                            // Compare receipt digests for parity validation
-                            if let Some(ref legacy_receipt) = run_receipt {
-                                if crypto_receipt.receipt_digest != legacy_receipt.receipt_digest {
-                                    warn!(
-                                        crypto = %crypto_receipt.receipt_digest.to_hex(),
-                                        legacy = %legacy_receipt.receipt_digest.to_hex(),
-                                        trace_id = %trace_id,
-                                        "Receipt digest mismatch between ReceiptGenerator and SqlTraceSink"
-                                    );
-                                } else {
-                                    debug!(
-                                        trace_id = %trace_id,
-                                        "ReceiptGenerator parity check passed"
-                                    );
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            warn!(
-                                error = %e,
-                                trace_id = %trace_id,
-                                "ReceiptGenerator finalization failed"
-                            );
-                        }
                     }
                 }
             }
@@ -3821,6 +3828,27 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
 
         // PRD-06: model_cache_identity_v2_digest already computed earlier for cache lookup
 
+        // Phase 3: Finalize ReceiptGenerator FIRST to get crypto receipt digest for dual-write
+        let crypto_receipt_digest_b3 = if let Some(gen) = receipt_generator.take() {
+            let mut gen = gen;
+            if let Some(stop_code) = stop_reason_code {
+                gen.set_stop_reason(&stop_code.to_string());
+            }
+            match gen.finalize(&generated_tokens) {
+                Ok(crypto_receipt) => Some(crypto_receipt.receipt_digest),
+                Err(e) => {
+                    warn!(
+                        error = %e,
+                        trace_id = %trace_id,
+                        "ReceiptGenerator finalization failed"
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         if let Some(sink) = trace_sink.as_mut() {
             match sink
                 .finalize(TraceFinalization {
@@ -3847,10 +3875,31 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                     attestation: determinism_attestation.clone(),
                     // Patent 3535886.0002: Equipment profile from worker initialization
                     equipment_profile: self.equipment_profile.clone(),
+                    // Phase 3: Crypto receipt dual-write for parity validation
+                    crypto_receipt_digest_b3,
+                    receipt_parity_verified: None, // Computed post-hoc by comparing stored values
+                    tenant_id: Some(request.cpid.clone()),
                 })
                 .await
             {
                 Ok(receipt) => {
+                    // Phase 3: Validate parity between crypto and legacy receipt digests
+                    if let Some(crypto_digest) = crypto_receipt_digest_b3 {
+                        if crypto_digest != receipt.receipt_digest {
+                            warn!(
+                                crypto = %crypto_digest.to_hex(),
+                                legacy = %receipt.receipt_digest.to_hex(),
+                                trace_id = %trace_id,
+                                "Receipt digest mismatch between ReceiptGenerator and SqlTraceSink"
+                            );
+                        } else {
+                            debug!(
+                                trace_id = %trace_id,
+                                "ReceiptGenerator parity check passed"
+                            );
+                        }
+                    }
+
                     run_receipt = Some(RunReceipt {
                         trace_id: receipt.trace_id.clone(),
                         run_head_hash: receipt.run_head_hash,
@@ -3888,41 +3937,6 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 }
                 Err(e) => {
                     return Err(e);
-                }
-            }
-        }
-
-        // Finalize ReceiptGenerator and validate parity with SqlTraceSink
-        if let Some(gen) = receipt_generator.take() {
-            let mut gen = gen;
-            if let Some(stop_code) = stop_reason_code {
-                gen.set_stop_reason(&stop_code.to_string());
-            }
-            match gen.finalize(&generated_tokens) {
-                Ok(crypto_receipt) => {
-                    // Compare receipt digests for parity validation
-                    if let Some(ref legacy_receipt) = run_receipt {
-                        if crypto_receipt.receipt_digest != legacy_receipt.receipt_digest {
-                            warn!(
-                                crypto = %crypto_receipt.receipt_digest.to_hex(),
-                                legacy = %legacy_receipt.receipt_digest.to_hex(),
-                                trace_id = %trace_id,
-                                "Receipt digest mismatch between ReceiptGenerator and SqlTraceSink"
-                            );
-                        } else {
-                            debug!(
-                                trace_id = %trace_id,
-                                "ReceiptGenerator parity check passed"
-                            );
-                        }
-                    }
-                }
-                Err(e) => {
-                    warn!(
-                        error = %e,
-                        trace_id = %trace_id,
-                        "ReceiptGenerator finalization failed"
-                    );
                 }
             }
         }

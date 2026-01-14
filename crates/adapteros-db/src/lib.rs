@@ -2549,8 +2549,9 @@ pub use inference_write_bundle::{
 };
 pub mod inference_trace;
 pub use inference_trace::{
-    recompute_receipt, SqlTraceSink, TraceFinalization, TraceReceipt, TraceReceiptVerification,
-    TraceSink, TraceStart, TraceTokenInput,
+    backfill_receipt_digests, count_pending_receipt_backfill, get_provenance_chain,
+    get_receipt_parity_stats, recompute_receipt, BackfillResult, SqlTraceSink, TraceFinalization,
+    TraceReceipt, TraceReceiptVerification, TraceSink, TraceStart, TraceTokenInput,
 };
 pub mod batch_jobs;
 pub use batch_jobs::{

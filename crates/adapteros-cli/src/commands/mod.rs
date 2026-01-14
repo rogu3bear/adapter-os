@@ -74,6 +74,7 @@ pub mod preflight_fix;
 pub mod preflight_readiness;
 pub mod profile;
 pub mod quantize_qwen;
+pub mod receipt_backfill;
 pub mod recover;
 pub mod register_adapter;
 pub mod registry;
