@@ -118,6 +118,11 @@ fn test_sealed_adapter_weights_hash_flows_to_context_manifest() {
         router_version: "1.0.0".to_string(),
         fusion_interval: FusionInterval::PerRequest,
         seed_mode: SeedMode::Strict,
+        seed_inputs_digest: B3Hash::hash(b"seed-inputs"),
+        policy_digest: B3Hash::hash(b"test-policy"),
+        sampler_params_digest: B3Hash::hash(b"sampler-params"),
+        build_id: "test-build-001".to_string(),
+        build_git_sha: "abcd1234".to_string(),
     };
 
     let context_digest = manifest.digest();
@@ -212,6 +217,11 @@ fn test_different_adapters_produce_different_receipts() {
         router_version: "1.0.0".to_string(),
         fusion_interval: FusionInterval::PerRequest,
         seed_mode: SeedMode::Strict,
+        seed_inputs_digest: B3Hash::hash(b"seed-inputs"),
+        policy_digest: B3Hash::hash(b"test-policy"),
+        sampler_params_digest: B3Hash::hash(b"sampler-params"),
+        build_id: "test-build-001".to_string(),
+        build_git_sha: "abcd1234".to_string(),
     };
 
     let manifest_b = ContextManifestV1 {
@@ -222,6 +232,11 @@ fn test_different_adapters_produce_different_receipts() {
         router_version: "1.0.0".to_string(),
         fusion_interval: FusionInterval::PerRequest,
         seed_mode: SeedMode::Strict,
+        seed_inputs_digest: B3Hash::hash(b"seed-inputs"),
+        policy_digest: B3Hash::hash(b"test-policy"),
+        sampler_params_digest: B3Hash::hash(b"sampler-params"),
+        build_id: "test-build-001".to_string(),
+        build_git_sha: "abcd1234".to_string(),
     };
 
     // Different adapters should produce different context digests
