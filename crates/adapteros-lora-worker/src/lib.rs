@@ -72,10 +72,12 @@ use adapteros_config::{
 use adapteros_core::constants::DEFAULT_ADAPTER_CACHE_SIZE;
 use adapteros_core::prefix_kv_key::compute_tokenizer_manifest_hash;
 use adapteros_core::{
+    compute_adapter_config_hash,
     determinism::{DeterminismContext, DeterminismSource},
     determinism_violation_event, emit_observability_event, AosError, B3Hash, BackendKind,
     CircuitBreaker as CircuitBreakerTrait, CircuitBreakerConfig, DeterminismViolationKind,
-    FusionInterval, RepoAdapterPaths, Result, SeedMode, StandardCircuitBreaker,
+    EquipmentProfile, FusionInterval, ReceiptGenerator, RepoAdapterPaths, Result, RoutingRecord,
+    SeedMode, StandardCircuitBreaker,
 };
 use adapteros_db::{Db, SqlTraceSink, TraceFinalization, TraceSink, TraceStart, TraceTokenInput};
 use adapteros_lora_kernel_api::{attestation::DeterminismLevel, FusedKernels, IoBuffers};
@@ -116,6 +118,92 @@ fn encode_determinism_attestation(
         report: report.clone(),
     };
     Ok(serde_json::to_vec(&payload)?)
+}
+
+/// Capture equipment profile at worker initialization.
+///
+/// This captures processor ID, MLX version, and ANE version for binding
+/// into cryptographic receipts per Patent 3535886.0002.
+fn capture_equipment_profile() -> Option<EquipmentProfile> {
+    let processor_id = detect_processor_id().unwrap_or_else(|| "unknown".to_string());
+    let mlx_version = detect_mlx_version().unwrap_or_else(|| "unknown".to_string());
+    let ane_version = detect_ane_version();
+
+    Some(EquipmentProfile::compute(
+        &processor_id,
+        &mlx_version,
+        ane_version.as_deref(),
+    ))
+}
+
+/// Detect processor identifier (chip model + stepping).
+fn detect_processor_id() -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        use std::process::Command;
+        let output = Command::new("sysctl")
+            .arg("-n")
+            .arg("machdep.cpu.brand_string")
+            .output()
+            .ok()?;
+
+        if output.status.success() {
+            let chip = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !chip.is_empty() {
+                return Some(chip);
+            }
+        }
+        None
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
+
+/// Detect MLX framework version.
+fn detect_mlx_version() -> Option<String> {
+    // Check environment variable first (set by boot sequence or config)
+    if let Ok(version) = std::env::var("MLX_VERSION") {
+        return Some(version);
+    }
+
+    // Use compile-time version from adapteros-core
+    Some(adapteros_core::version::VERSION.to_string())
+}
+
+/// Detect Apple Neural Engine version based on chip generation.
+fn detect_ane_version() -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        use std::process::Command;
+        let output = Command::new("sysctl")
+            .arg("-n")
+            .arg("machdep.cpu.brand_string")
+            .output()
+            .ok()?;
+
+        if output.status.success() {
+            let soc = String::from_utf8_lossy(&output.stdout);
+            let ane_gen = if soc.contains("M4") {
+                "ANEv4-38core"
+            } else if soc.contains("M3") {
+                "ANEv3-16core"
+            } else if soc.contains("M2") {
+                "ANEv2-16core"
+            } else if soc.contains("M1") {
+                "ANEv1-16core"
+            } else {
+                return None;
+            };
+            return Some(ane_gen.to_string());
+        }
+        None
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
 }
 
 pub mod active_learning;
@@ -1016,6 +1104,8 @@ pub struct Worker<K: FusedKernels + StrictnessControl + Send + Sync + 'static> {
     critical_metrics: Option<Arc<CriticalComponentMetrics>>,
     /// Inference pause registry for human-in-the-loop review protocol
     pause_registry: Option<Arc<inference_pause::InferencePauseRegistry>>,
+    /// Equipment profile for cryptographic receipt binding (Patent 3535886.0002)
+    equipment_profile: Option<EquipmentProfile>,
 }
 
 impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
@@ -1393,6 +1483,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             worker_id,
             critical_metrics,
             pause_registry: None,
+            equipment_profile: capture_equipment_profile(),
         })
     }
 
@@ -2431,6 +2522,38 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             ));
             self.trace_sink_missing_warned = true;
         }
+
+        // Phase 2: Create ReceiptGenerator for crypto receipt validation (Patent 3535886.0002)
+        // Runs parallel to SqlTraceSink for parity validation before full migration
+        let mut receipt_generator = if trace_sink.is_some() {
+            // Compute adapter config hash from manifest
+            let adapter_configs: Vec<(String, B3Hash, u32, f32)> = self
+                .manifest
+                .adapters
+                .iter()
+                .map(|a| (a.id.clone(), a.hash, a.rank, a.alpha))
+                .collect();
+            let adapter_config_hash = compute_adapter_config_hash(&adapter_configs);
+
+            let mut gen = ReceiptGenerator::new(self.manifest.base.model_hash, adapter_config_hash);
+
+            // Set equipment profile from worker initialization
+            if let Some(ref profile) = self.equipment_profile {
+                gen = gen.with_equipment_profile(profile.clone());
+            }
+
+            // Bind input tokens
+            gen.bind_input_tokens(&prompt_tokens);
+
+            // Set metadata
+            gen.set_tenant_id(&request.cpid);
+            gen.set_trace_id(&trace_id);
+
+            Some(gen)
+        } else {
+            None
+        };
+
         let mut active_entries: Vec<(usize, _)> = self
             .manifest
             .adapters
@@ -2957,8 +3080,8 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                         prefix_kv_bytes,
                         model_cache_identity_v2_digest_b3: Some(model_cache_identity_v2_digest),
                         attestation: None,
-                        // Patent 3535886.0002: Equipment profile (to be wired from worker state)
-                        equipment_profile: None,
+                        // Patent 3535886.0002: Equipment profile from worker initialization
+                        equipment_profile: self.equipment_profile.clone(),
                     })
                     .await
                 {
@@ -2999,6 +3122,41 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                     }
                     Err(e) => {
                         return Err(e);
+                    }
+                }
+            }
+
+            // Finalize ReceiptGenerator and validate parity with SqlTraceSink
+            if let Some(gen) = receipt_generator.take() {
+                if let Some(stop_code) = stop_reason_code {
+                    let mut gen = gen;
+                    gen.set_stop_reason(&stop_code.to_string());
+                    match gen.finalize(&output_token_ids) {
+                        Ok(crypto_receipt) => {
+                            // Compare receipt digests for parity validation
+                            if let Some(ref legacy_receipt) = run_receipt {
+                                if crypto_receipt.receipt_digest != legacy_receipt.receipt_digest {
+                                    warn!(
+                                        crypto = %crypto_receipt.receipt_digest.to_hex(),
+                                        legacy = %legacy_receipt.receipt_digest.to_hex(),
+                                        trace_id = %trace_id,
+                                        "Receipt digest mismatch between ReceiptGenerator and SqlTraceSink"
+                                    );
+                                } else {
+                                    debug!(
+                                        trace_id = %trace_id,
+                                        "ReceiptGenerator parity check passed"
+                                    );
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            warn!(
+                                error = %e,
+                                trace_id = %trace_id,
+                                "ReceiptGenerator finalization failed"
+                            );
+                        }
                     }
                 }
             }
@@ -3340,9 +3498,25 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                         },
                     ),
                     backend_id: Some(backend_label.clone()),
-                    kernel_version_id: Some(kernel_version_for_trace),
+                    kernel_version_id: Some(kernel_version_for_trace.clone()),
                 };
-                sink.record_token(token_input).await?
+                sink.record_token(token_input).await?;
+
+                // Record to ReceiptGenerator for parity validation
+                if let Some(ref mut gen) = receipt_generator {
+                    gen.record_routing_step_full(
+                        step_with_free as u32,
+                        input_token_id,
+                        decision.indices.iter().map(|&i| i as u16).collect(),
+                        adapter_ids_for_trace.clone(),
+                        decision.gates_q15.iter().copied().collect(),
+                        decision.entropy,
+                        policy_mask_digest_b3.map(B3Hash::from_bytes),
+                        Some(backend_label.clone()),
+                        Some(kernel_version_for_trace),
+                        Some(policy_mask.allowed.clone()),
+                    );
+                }
             }
 
             // Convert Decision to RouterRing
@@ -3671,8 +3845,8 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                     // PRD-06: Model cache identity v2 digest
                     model_cache_identity_v2_digest_b3: Some(model_cache_identity_v2_digest),
                     attestation: determinism_attestation.clone(),
-                    // Patent 3535886.0002: Equipment profile (to be wired from worker state)
-                    equipment_profile: None,
+                    // Patent 3535886.0002: Equipment profile from worker initialization
+                    equipment_profile: self.equipment_profile.clone(),
                 })
                 .await
             {
@@ -3714,6 +3888,41 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 }
                 Err(e) => {
                     return Err(e);
+                }
+            }
+        }
+
+        // Finalize ReceiptGenerator and validate parity with SqlTraceSink
+        if let Some(gen) = receipt_generator.take() {
+            let mut gen = gen;
+            if let Some(stop_code) = stop_reason_code {
+                gen.set_stop_reason(&stop_code.to_string());
+            }
+            match gen.finalize(&generated_tokens) {
+                Ok(crypto_receipt) => {
+                    // Compare receipt digests for parity validation
+                    if let Some(ref legacy_receipt) = run_receipt {
+                        if crypto_receipt.receipt_digest != legacy_receipt.receipt_digest {
+                            warn!(
+                                crypto = %crypto_receipt.receipt_digest.to_hex(),
+                                legacy = %legacy_receipt.receipt_digest.to_hex(),
+                                trace_id = %trace_id,
+                                "Receipt digest mismatch between ReceiptGenerator and SqlTraceSink"
+                            );
+                        } else {
+                            debug!(
+                                trace_id = %trace_id,
+                                "ReceiptGenerator parity check passed"
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        error = %e,
+                        trace_id = %trace_id,
+                        "ReceiptGenerator finalization failed"
+                    );
                 }
             }
         }

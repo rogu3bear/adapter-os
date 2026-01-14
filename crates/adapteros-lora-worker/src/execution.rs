@@ -26,9 +26,10 @@
 //! - Kahan summation for softmax stability
 //! - Per-token decision hashing for run_head chain
 
+use adapteros_core::compute_input_digest_v2;
 use adapteros_core::receipt_digest::{
     self, encode_adapter_ids, encode_allowed_mask, encode_gates_q15, ReceiptDigestInput,
-    RECEIPT_SCHEMA_V4,
+    RECEIPT_SCHEMA_V4, RECEIPT_SCHEMA_V5,
 };
 use adapteros_core::{B3Hash, Result};
 use adapteros_lora_router::policy_mask::PolicyMask;
@@ -231,7 +232,7 @@ impl CommittedDecision {
 /// Result of pipeline execution containing output and receipt.
 ///
 /// Uses `ReceiptDigestInput` from `receipt_digest` for schema-versioned
-/// receipt computation.
+/// receipt computation. Supports V4 (default) and V5 (with equipment profile).
 #[derive(Debug)]
 pub struct ExecutionResult {
     /// Generated output tokens
@@ -260,11 +261,23 @@ pub struct ExecutionResult {
     pub stop_reason: Option<StopReason>,
     /// Full receipt input for verification/re-computation
     pub receipt_input: ReceiptDigestInput,
+    /// Input digest (BLAKE3 of input tokens) for cryptographic binding
+    pub input_digest_b3: Option<B3Hash>,
+}
+
+/// Equipment profile fields for V5 receipts.
+#[derive(Debug, Clone, Default)]
+pub struct EquipmentFields {
+    pub equipment_profile_digest_b3: Option<B3Hash>,
+    pub processor_id: Option<String>,
+    pub mlx_version: Option<String>,
+    pub ane_version: Option<String>,
 }
 
 impl ExecutionResult {
-    /// Create a new execution result with V4 schema (production default).
+    /// Create a new execution result with V4 or V5 schema.
     ///
+    /// Uses V5 when equipment_fields is provided, V4 otherwise.
     /// Uses canonical `ReceiptDigestInput` and `compute_receipt_digest` from
     /// `adapteros_core::receipt_digest`.
     #[allow(clippy::too_many_arguments)]
@@ -281,6 +294,8 @@ impl ExecutionResult {
         kv_fields: Option<KvFields>,
         prefix_cache_fields: Option<PrefixCacheFields>,
         model_cache_identity: Option<B3Hash>,
+        equipment_fields: Option<EquipmentFields>,
+        input_tokens: Option<&[u32]>,
     ) -> Self {
         let output_digest = receipt_digest::compute_output_digest(&output_tokens);
         let logical_output_tokens = output_tokens.len() as u32;
@@ -333,10 +348,26 @@ impl ExecutionResult {
             input = input.with_model_cache_identity(Some(*mci.as_bytes()));
         }
 
-        // Compute V4 receipt digest using canonical function
-        let receipt_digest = receipt_digest::compute_receipt_digest(&input, RECEIPT_SCHEMA_V4)
+        // Compute input digest if tokens provided
+        let input_digest_b3 = input_tokens.map(compute_input_digest_v2);
+
+        // Add equipment profile fields if provided (enables V5)
+        let schema_version = if let Some(eq) = &equipment_fields {
+            input = input.with_equipment_profile(
+                eq.equipment_profile_digest_b3.map(|h| *h.as_bytes()),
+                eq.processor_id.clone(),
+                eq.mlx_version.clone(),
+                eq.ane_version.clone(),
+            );
+            RECEIPT_SCHEMA_V5
+        } else {
+            RECEIPT_SCHEMA_V4
+        };
+
+        // Compute receipt digest using canonical function
+        let receipt_digest = receipt_digest::compute_receipt_digest(&input, schema_version)
             .unwrap_or_else(|| {
-                // Fallback to manual V1 if V4 fails (shouldn't happen)
+                // Fallback to manual V1 if computation fails (shouldn't happen)
                 B3Hash::hash_multi(&[
                     context_digest.as_bytes(),
                     run_head_hash.as_bytes(),
@@ -355,7 +386,7 @@ impl ExecutionResult {
             run_head_hash,
             output_digest,
             receipt_digest,
-            receipt_schema_version: RECEIPT_SCHEMA_V4,
+            receipt_schema_version: schema_version,
             latency_ms,
             logical_prompt_tokens,
             prefix_cached_token_count,
@@ -363,6 +394,7 @@ impl ExecutionResult {
             logical_output_tokens,
             stop_reason,
             receipt_input: input,
+            input_digest_b3,
         }
     }
 
@@ -640,7 +672,7 @@ pub fn execute_pipeline<E: StepExecutor>(
     // Build stop fields for receipt
     let stop_fields = stop_reason.map(|r| r.to_stop_fields(stop_token_index.unwrap_or(0), None));
 
-    // Build result with V4 receipt
+    // Build result (V4 by default, V5 if equipment fields provided)
     let result = ExecutionResult::new(
         output_tokens,
         decisions,
@@ -654,6 +686,8 @@ pub fn execute_pipeline<E: StepExecutor>(
         None, // KV fields - caller can provide via builder pattern
         None, // Prefix cache fields
         None, // Model cache identity
+        None, // Equipment fields (enables V5)
+        Some(input_tokens), // Input tokens for input_digest
     );
 
     Ok(result)
@@ -881,6 +915,8 @@ mod tests {
             None,
             None,
             None,
+            None, // Equipment fields
+            None, // Input tokens
         );
 
         assert!(result.verify_integrity());
