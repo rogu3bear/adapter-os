@@ -644,6 +644,20 @@ pub enum Commands {
     #[command(subcommand)]
     Verify(commands::verify::VerifyCommand),
 
+    /// Receipt management commands (backfill)
+    #[command(subcommand)]
+    #[command(after_help = r#"Examples:
+  # Backfill crypto receipt digests (dry-run)
+  aosctl receipt backfill --dry-run
+
+  # Backfill all pending receipts
+  aosctl receipt backfill
+
+  # Process specific number with batch size
+  aosctl receipt backfill --limit 1000 --batch-size 100
+"#)]
+    Receipt(commands::receipt_backfill::ReceiptCommand),
+
     // ============================================================
     // Policy Management
     // ============================================================
@@ -1720,6 +1734,9 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         Commands::Verify(cmd) => {
             commands::verify::handle_verify_command(cmd.clone(), output).await?;
         }
+        Commands::Receipt(cmd) => {
+            commands::receipt_backfill::handle_receipt_command(cmd.clone(), output).await?;
+        }
 
         // Policy Management
         Commands::Policy(cmd) => {
@@ -2011,6 +2028,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Import { .. } => "import",
         Commands::Dataset { .. } => "dataset",
         Commands::Verify { .. } => "verify",
+        Commands::Receipt(_) => "receipt",
         Commands::Policy(_) => "policy",
         Commands::Serve { .. } => "serve",
         Commands::Audit { .. } => "audit",
