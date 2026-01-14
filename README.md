@@ -548,7 +548,8 @@ AdapterOS alpha-v0.11 includes:
 
 ### Web UI Ports / Boot Entrypoint
 
-- Canonical boot: `./start` (backend + UI via `scripts/service-manager.sh`), UI on port 3200 by default with health waits and drift checks.
+- Canonical boot: `./start` (backend + UI via `scripts/service-manager.sh`), UI served from `static/` directory on port 8080 (same port as API) with health waits and drift checks.
+- Development UI: Run `trunk serve` in `crates/adapteros-ui` for hot-reload development on port 3200.
 - Legacy launchers (`launch.sh`, `scripts/run_complete_system.sh`, `scripts/start.sh`) are deprecated; they prompt/redirect or should be avoided. Menu bar helper is optional and currently not maintained.
 
 ---
