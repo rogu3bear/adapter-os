@@ -38,12 +38,12 @@
 //! - Failed count (errors during processing)
 
 use crate::output::OutputWriter;
-use crate::progress::{Progress, ProgressTemplate};
 use adapteros_core::{AosError, Result};
 use adapteros_db::{
     backfill_receipt_digests, count_pending_receipt_backfill, BackfillResult, Db,
 };
 use clap::Subcommand;
+use indicatif::{ProgressBar, ProgressStyle};
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
@@ -196,17 +196,27 @@ pub async fn run_backfill(
     let mut total_result = BackfillResult::default();
     let mut processed = 0u32;
 
-    // Create progress bar
-    let progress = Progress::new(
-        output,
-        records_to_process as u64,
-        ProgressTemplate::Verification,
-    );
+    // Create progress bar (only if not in JSON/quiet mode)
+    let progress = if !output.is_json() && !output.is_quiet() {
+        let pb = ProgressBar::new(records_to_process as u64);
+        pb.set_style(
+            ProgressStyle::default_bar()
+                .template("{spinner:.yellow} [{elapsed_precise}] {bar:40.yellow/blue} {pos}/{len} receipts ({msg})")
+                .expect("valid template")
+                .progress_chars("=>-"),
+        );
+        pb.enable_steady_tick(std::time::Duration::from_millis(100));
+        Some(pb)
+    } else {
+        None
+    };
 
     while processed < records_to_process {
         let batch_limit = std::cmp::min(batch_size, records_to_process - processed);
 
-        progress.set_message(format!("Processing batch ({} done)", processed));
+        if let Some(ref pb) = progress {
+            pb.set_message(format!("batch at {}", processed));
+        }
 
         let batch_result = backfill_receipt_digests(&db, Some(batch_limit), dry_run)
             .await
@@ -230,7 +240,9 @@ pub async fn run_backfill(
             .extend(batch_result.mismatched_trace_ids);
 
         processed += batch_result.processed;
-        progress.set_position(processed as u64);
+        if let Some(ref pb) = progress {
+            pb.set_position(processed as u64);
+        }
 
         // In dry-run mode, we can't continue because records aren't updated
         // and we'd process the same records again
@@ -239,7 +251,10 @@ pub async fn run_backfill(
         }
     }
 
-    progress.finish("Backfill complete");
+    if let Some(pb) = progress {
+        pb.finish_with_message("complete");
+    }
+    output.success("Backfill complete");
 
     // Build summary for output
     let mut summary = BackfillSummary::from(total_result.clone());

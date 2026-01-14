@@ -116,6 +116,10 @@ async fn evidence_bundle_contains_required_files() -> anyhow::Result<()> {
         model_cache_identity_v2_digest_b3: None,
         attestation: None,
         equipment_profile: None,
+        // Phase 3: Crypto Receipt Dual-Write
+        crypto_receipt_digest_b3: None,
+        receipt_parity_verified: None,
+        tenant_id: None,
     };
     sink.finalize(finalization).await?;
     sink.flush().await?;

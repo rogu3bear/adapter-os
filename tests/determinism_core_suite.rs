@@ -389,6 +389,10 @@ async fn run_reasoning_trace(
             model_cache_identity_v2_digest_b3: None,
             attestation: None,
             equipment_profile: None,
+            // Phase 3: Crypto Receipt Dual-Write
+            crypto_receipt_digest_b3: None,
+            receipt_parity_verified: None,
+            tenant_id: None,
         })
         .await?;
 
