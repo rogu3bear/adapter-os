@@ -38,6 +38,7 @@ pub mod codebase_versioning;
 pub mod constants;
 pub mod context_hash;
 pub mod context_manifest;
+pub mod crypto_receipt;
 pub mod defaults;
 pub mod deployment_verification;
 pub mod determinism;
@@ -125,6 +126,13 @@ pub use constants::{
 pub use context_hash::{compute_context_hash, ChunkRef};
 pub use context_manifest::{
     ContextAdapterEntry, ContextAdapterEntryV1, ContextManifest, ContextManifestV1,
+};
+pub use crypto_receipt::{
+    compute_adapter_config_hash, compute_input_digest as compute_input_digest_v2,
+    compute_output_digest as compute_output_digest_v2, equipment_profile_from_fingerprint,
+    receipt_generator_from_manifest, routing_record_from_decision, ContextId, CryptographicReceipt,
+    EquipmentProfile, ReceiptGenerator, ReceiptMetadata, RoutingDigest, RoutingRecord,
+    CRYPTO_RECEIPT_SCHEMA_VERSION,
 };
 pub use deployment_verification::{
     check_coreml_hash, check_manifest_hash, check_no_session_conflict, check_repo_clean,
@@ -256,6 +264,12 @@ pub mod prelude {
         TransitionReason, VersionInfo, WorkerStatus, WorkerStatusTransition, BYTES_PER_GB,
         BYTES_PER_KB, BYTES_PER_MB, CPID, DEFAULT_TIMEOUT_SECS, DETERMINISM_VIOLATION_METRIC,
         SLOW_TIMEOUT_SECS,
+    };
+
+    // Cryptographic receipt types for verifiable inference
+    pub use crate::crypto_receipt::{
+        CryptographicReceipt, EquipmentProfile, ReceiptGenerator, ReceiptMetadata, RoutingDigest,
+        RoutingRecord,
     };
 
     // Recovery orchestrator types

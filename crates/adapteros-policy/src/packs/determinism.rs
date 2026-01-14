@@ -2,9 +2,64 @@
 //!
 //! Enforces reproducible outputs through precompiled kernels, HKDF seeding,
 //! deterministic retrieval ordering, and epsilon bounds validation.
+//!
+//! ## Enforcement Modes (Patent 3535886.0002 Claim 5)
+//!
+//! The policy supports two enforcement modes:
+//!
+//! | Mode       | Behavior                                                    |
+//! |------------|-------------------------------------------------------------|
+//! | `Strict`   | Non-deterministic operations are rejected immediately       |
+//! | `BestEffort` | Warns and substitutes deterministic fallback if available |
+//!
+//! ## Kernel Allow List
+//!
+//! Operations are validated against the kernel allow list before execution:
+//! - If `kernel_allow_list` is `Some(...)`, only listed kernels are permitted
+//! - If `kernel_allow_list` is `None`, all kernels except those in `kernel_deny_list` are allowed
+//! - `kernel_deny_list` always takes precedence over `kernel_allow_list`
+//!
+//! ## Policy Digest Binding
+//!
+//! The policy configuration is hashed and bound to inference receipts via
+//! `policy_digest_b3`, enabling verification that the same determinism
+//! constraints were active during replay.
+//!
+//! ## Integration Example
+//!
+//! ```ignore
+//! // In the inference pipeline, before kernel dispatch:
+//! use adapteros_policy::packs::determinism::{DeterminismPolicy, DeterminismConfig, OperationValidation};
+//!
+//! let policy = DeterminismPolicy::new(DeterminismConfig::default());
+//!
+//! // Validate the requested kernel
+//! let requested_kernel = "gemm_f16_deterministic";
+//! match policy.enforce_operation(requested_kernel)? {
+//!     OperationValidation::Allowed => {
+//!         // Use requested_kernel as-is
+//!         dispatch_kernel(requested_kernel);
+//!     }
+//!     OperationValidation::Fallback { fallback, reason, .. } => {
+//!         // Log warning and use fallback kernel
+//!         tracing::warn!(original = requested_kernel, fallback = %fallback, %reason, "using fallback");
+//!         dispatch_kernel(&fallback);
+//!     }
+//! }
+//!
+//! // When building receipt (use V6 schema for policy binding):
+//! use adapteros_core::receipt_digest::{ReceiptDigestInput, RECEIPT_SCHEMA_V6};
+//!
+//! let receipt_input = ReceiptDigestInput::new(/* ... */)
+//!     .with_determinism_policy(
+//!         Some(policy.compute_policy_digest().to_bytes()),
+//!         Some(policy.enforcement_mode().as_str().to_string()),
+//!     );
+//! let digest = compute_receipt_digest(&receipt_input, RECEIPT_SCHEMA_V6);
+//! ```
 
 use crate::{Audit, Policy, PolicyContext, PolicyId, Severity};
-use adapteros_core::{AosError, Result};
+use adapteros_core::{AosError, B3Hash, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -15,6 +70,126 @@ pub const FORBIDDEN_COMPILER_FLAGS: &[&str] = &[
     "-fno-math-errno",
     "-ffinite-math-only",
 ];
+
+// =============================================================================
+// Enforcement Mode (Patent 3535886.0002 Claim 5)
+// =============================================================================
+
+/// Enforcement mode for determinism policy violations.
+///
+/// Determines how the system responds when a non-deterministic kernel/operation
+/// is requested. This is distinct from `SeedMode` (in `adapteros_core::seed`):
+///
+/// | Concept        | Controls                          | Layer              |
+/// |----------------|-----------------------------------|--------------------|
+/// | `SeedMode`     | RNG seed derivation requirements  | Seed/entropy layer |
+/// | `EnforcementMode` | Kernel allow/deny list handling | Kernel dispatch    |
+///
+/// Typical configurations:
+/// - **Full determinism**: `SeedMode::Strict` + `EnforcementMode::Strict`
+/// - **Best-effort replay**: `SeedMode::BestEffort` + `EnforcementMode::BestEffort`
+/// - **Development**: `SeedMode::NonDeterministic` + `EnforcementMode::BestEffort`
+///
+/// # Integration Point
+///
+/// Callers should invoke `DeterminismPolicy::enforce_operation()` before kernel
+/// dispatch in the inference pipeline. See `crates/adapteros-lora-worker/src/lib.rs`
+/// for the integration location.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum EnforcementMode {
+    /// Reject non-deterministic operations immediately.
+    /// The operation fails with `AosError::DeterminismViolation`.
+    #[default]
+    Strict,
+
+    /// Warn about non-deterministic operations and attempt fallback.
+    /// If a deterministic fallback is available, use it with degraded performance.
+    /// If no fallback exists, still reject the operation.
+    BestEffort,
+}
+
+impl EnforcementMode {
+    /// Returns true if this mode rejects violations without attempting fallback.
+    pub fn is_strict(&self) -> bool {
+        matches!(self, EnforcementMode::Strict)
+    }
+
+    /// Returns true if this mode allows fallback to deterministic alternatives.
+    pub fn allows_fallback(&self) -> bool {
+        matches!(self, EnforcementMode::BestEffort)
+    }
+
+    /// Human-readable description for logging.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            EnforcementMode::Strict => "strict",
+            EnforcementMode::BestEffort => "best_effort",
+        }
+    }
+
+    /// Derive enforcement mode from seed mode for consistent configuration.
+    ///
+    /// Maps `SeedMode::Strict` → `EnforcementMode::Strict` and all others
+    /// to `EnforcementMode::BestEffort`. This ensures kernel enforcement
+    /// aligns with seed strictness when desired.
+    pub fn from_seed_mode(seed_mode: adapteros_core::seed::SeedMode) -> Self {
+        use adapteros_core::seed::SeedMode;
+        match seed_mode {
+            SeedMode::Strict => EnforcementMode::Strict,
+            SeedMode::BestEffort | SeedMode::NonDeterministic => EnforcementMode::BestEffort,
+        }
+    }
+}
+
+impl std::fmt::Display for EnforcementMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+/// Result of validating an operation against the determinism policy.
+///
+/// Note: Rejections return `Err(AosError::DeterminismViolation)` rather than
+/// an `Ok(Rejected)` variant because rejection is an error condition that
+/// should propagate up the call stack.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OperationValidation {
+    /// Operation is allowed as-is (kernel in allow list, not in deny list).
+    Allowed,
+
+    /// Operation required fallback substitution (BestEffort mode only).
+    /// The caller should use `fallback` kernel instead of `original`.
+    /// This enables degraded-but-deterministic execution.
+    Fallback {
+        /// The originally requested kernel name
+        original: String,
+        /// The deterministic fallback to use instead
+        fallback: String,
+        /// Why the original was not allowed
+        reason: String,
+    },
+}
+
+impl OperationValidation {
+    /// Returns true if this is an allowed operation (no fallback needed)
+    pub fn is_allowed(&self) -> bool {
+        matches!(self, OperationValidation::Allowed)
+    }
+
+    /// Returns the kernel name to actually use (original if allowed, fallback if substituted)
+    pub fn effective_kernel<'a>(&'a self, original: &'a str) -> &'a str {
+        match self {
+            OperationValidation::Allowed => original,
+            OperationValidation::Fallback { fallback, .. } => fallback,
+        }
+    }
+
+    /// Returns true if a fallback was substituted
+    pub fn is_fallback(&self) -> bool {
+        matches!(self, OperationValidation::Fallback { .. })
+    }
+}
 
 /// Determinism policy configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,6 +217,14 @@ pub struct DeterminismConfig {
     /// Kernel version requirements (kernel_name -> required_version)
     #[serde(default)]
     pub kernel_version_requirements: HashMap<String, String>,
+
+    // Enforcement mode (Patent 3535886.0002 Claim 5)
+    /// Enforcement mode: Strict rejects violations, BestEffort attempts fallback
+    #[serde(default)]
+    pub enforcement_mode: EnforcementMode,
+    /// Deterministic fallback mappings (non-deterministic -> deterministic kernel)
+    #[serde(default)]
+    pub fallback_mappings: HashMap<String, String>,
 }
 
 /// RNG seeding method
@@ -94,6 +277,37 @@ pub struct ToolchainRequirements {
     pub allowed_compiler_flags: Vec<String>,
 }
 
+/// Default deterministic fallback mappings.
+///
+/// Maps non-deterministic kernels to their deterministic equivalents.
+/// Used in BestEffort mode when a non-deterministic kernel is requested.
+pub fn default_fallback_mappings() -> HashMap<String, String> {
+    let mut mappings = HashMap::new();
+    // Flash attention -> standard deterministic attention
+    mappings.insert(
+        "flash_attention_v1".to_string(),
+        "attention_deterministic".to_string(),
+    );
+    // Fast GEMM variants -> deterministic GEMM
+    mappings.insert(
+        "gemm_tensorcore_async".to_string(),
+        "gemm_f16_deterministic".to_string(),
+    );
+    // Fused attention -> standard attention
+    mappings.insert(
+        "attention_fused_fast".to_string(),
+        "attention_deterministic".to_string(),
+    );
+    // Fast softmax -> stable softmax
+    mappings.insert("softmax_fast".to_string(), "softmax_stable".to_string());
+    // Fast layer norm -> deterministic layer norm
+    mappings.insert(
+        "layer_norm_fast".to_string(),
+        "layer_norm_deterministic".to_string(),
+    );
+    mappings
+}
+
 impl Default for DeterminismConfig {
     fn default() -> Self {
         Self {
@@ -120,6 +334,9 @@ impl Default for DeterminismConfig {
                 .map(|s| s.to_string())
                 .collect(),
             kernel_version_requirements: HashMap::new(),
+            // Enforcement mode defaults to Strict for maximum reproducibility
+            enforcement_mode: EnforcementMode::Strict,
+            fallback_mappings: default_fallback_mappings(),
         }
     }
 }
@@ -259,6 +476,217 @@ impl DeterminismPolicy {
     /// Get the list of denied kernels (for reporting)
     pub fn denied_kernels(&self) -> &[String] {
         &self.config.kernel_deny_list
+    }
+
+    /// Get the current enforcement mode
+    pub fn enforcement_mode(&self) -> EnforcementMode {
+        self.config.enforcement_mode
+    }
+
+    // =========================================================================
+    // Operation Enforcement (Patent 3535886.0002 Claim 5)
+    // =========================================================================
+
+    /// Enforce determinism policy on an operation before execution.
+    ///
+    /// This is the main entry point for pre-execution validation. It checks
+    /// the operation against the kernel allow/deny lists and applies the
+    /// configured enforcement mode.
+    ///
+    /// # Arguments
+    /// * `operation_name` - Name of the kernel/operation to validate
+    ///
+    /// # Returns
+    /// * `Ok(OperationValidation::Allowed)` - Operation is permitted
+    /// * `Ok(OperationValidation::Fallback{..})` - BestEffort mode substituted a fallback
+    /// * `Err(AosError::DeterminismViolation)` - Operation rejected
+    ///
+    /// # Stop Conditions
+    /// * All operations complete within policy constraints
+    /// * Strict policy violation encountered (immediate rejection)
+    /// * No deterministic fallback available (rejection even in BestEffort)
+    pub fn enforce_operation(&self, operation_name: &str) -> Result<OperationValidation> {
+        // Step 1: Check deny list first (always takes precedence)
+        if self
+            .config
+            .kernel_deny_list
+            .contains(&operation_name.to_string())
+        {
+            return self.handle_violation(operation_name, "operation is in deny list");
+        }
+
+        // Step 2: Check allow list if configured
+        if let Some(ref allow_list) = self.config.kernel_allow_list {
+            if !allow_list.contains(&operation_name.to_string()) {
+                return self.handle_violation(
+                    operation_name,
+                    &format!(
+                        "operation not in allow list (allowed: {:?})",
+                        allow_list.iter().take(5).collect::<Vec<_>>()
+                    ),
+                );
+            }
+        }
+
+        // Step 3: Check if operation is known non-deterministic (belt and suspenders)
+        if Self::is_known_non_deterministic(operation_name) {
+            return self.handle_violation(operation_name, "operation is known non-deterministic");
+        }
+
+        Ok(OperationValidation::Allowed)
+    }
+
+    /// Handle a policy violation according to enforcement mode.
+    fn handle_violation(&self, operation_name: &str, reason: &str) -> Result<OperationValidation> {
+        match self.config.enforcement_mode {
+            EnforcementMode::Strict => {
+                // Strict mode: reject immediately
+                tracing::error!(
+                    operation = %operation_name,
+                    reason = %reason,
+                    mode = "strict",
+                    "Determinism policy violation: rejecting operation"
+                );
+                Err(AosError::DeterminismViolation(format!(
+                    "Operation '{}' violates determinism policy ({}). \
+                     Strict mode does not allow fallback.",
+                    operation_name, reason
+                )))
+            }
+            EnforcementMode::BestEffort => {
+                // BestEffort mode: try to find a fallback
+                if let Some(fallback) = self.config.fallback_mappings.get(operation_name) {
+                    // Validate the fallback is actually allowed
+                    if !self.is_fallback_valid(fallback) {
+                        tracing::error!(
+                            operation = %operation_name,
+                            fallback = %fallback,
+                            "Fallback kernel is also not allowed"
+                        );
+                        return Err(AosError::DeterminismViolation(format!(
+                            "Operation '{}' violates determinism policy ({}) and \
+                             fallback '{}' is also not permitted.",
+                            operation_name, reason, fallback
+                        )));
+                    }
+
+                    tracing::warn!(
+                        operation = %operation_name,
+                        fallback = %fallback,
+                        reason = %reason,
+                        mode = "best_effort",
+                        "Determinism policy: using fallback kernel (degraded performance)"
+                    );
+                    Ok(OperationValidation::Fallback {
+                        original: operation_name.to_string(),
+                        fallback: fallback.clone(),
+                        reason: reason.to_string(),
+                    })
+                } else {
+                    // No fallback available - must reject
+                    tracing::error!(
+                        operation = %operation_name,
+                        reason = %reason,
+                        mode = "best_effort",
+                        "No deterministic fallback available"
+                    );
+                    Err(AosError::DeterminismViolation(format!(
+                        "Operation '{}' violates determinism policy ({}) and \
+                         no deterministic fallback is available.",
+                        operation_name, reason
+                    )))
+                }
+            }
+        }
+    }
+
+    /// Check if a fallback kernel is valid (not in deny list and in allow list if set)
+    fn is_fallback_valid(&self, fallback: &str) -> bool {
+        // Check deny list
+        if self.config.kernel_deny_list.contains(&fallback.to_string()) {
+            return false;
+        }
+
+        // Check allow list if configured
+        if let Some(ref allow_list) = self.config.kernel_allow_list {
+            if !allow_list.contains(&fallback.to_string()) {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    // =========================================================================
+    // Policy Digest (Receipt Binding)
+    // =========================================================================
+
+    /// Compute the policy digest for receipt binding.
+    ///
+    /// The policy digest is a BLAKE3 hash of the canonicalized policy
+    /// configuration, enabling verification that the same determinism
+    /// constraints were active during replay.
+    ///
+    /// # Returns
+    /// A 32-byte BLAKE3 hash of the policy configuration.
+    pub fn compute_policy_digest(&self) -> B3Hash {
+        // Canonicalize the policy to JSON for hashing
+        // We include all determinism-relevant fields
+        let mut hasher = blake3::Hasher::new();
+
+        // Hash enforcement mode
+        hasher.update(self.config.enforcement_mode.as_str().as_bytes());
+        hasher.update(&[0u8]); // separator
+
+        // Hash RNG seeding method
+        let rng_str = match &self.config.rng {
+            RngSeedingMethod::HkdfSeeded => "hkdf_seeded",
+            RngSeedingMethod::FixedSeed(s) => {
+                hasher.update(&s.to_le_bytes());
+                "fixed_seed"
+            }
+            RngSeedingMethod::SystemEntropy => "system_entropy",
+        };
+        hasher.update(rng_str.as_bytes());
+        hasher.update(&[0u8]);
+
+        // Hash boolean flags
+        hasher.update(&[self.config.require_metallib_embed as u8]);
+        hasher.update(&[self.config.require_kernel_hash_match as u8]);
+
+        // Hash kernel allow list (sorted for determinism)
+        if let Some(ref allow_list) = self.config.kernel_allow_list {
+            let mut sorted: Vec<_> = allow_list.iter().collect();
+            sorted.sort();
+            for kernel in sorted {
+                hasher.update(kernel.as_bytes());
+                hasher.update(&[0u8]);
+            }
+        }
+        hasher.update(&[0xFF]); // end marker
+
+        // Hash kernel deny list (sorted for determinism)
+        let mut sorted_deny: Vec<_> = self.config.kernel_deny_list.iter().collect();
+        sorted_deny.sort();
+        for kernel in sorted_deny {
+            hasher.update(kernel.as_bytes());
+            hasher.update(&[0u8]);
+        }
+        hasher.update(&[0xFF]); // end marker
+
+        // Hash epsilon bounds
+        hasher.update(&self.config.epsilon_bounds.logits_epsilon.to_le_bytes());
+        hasher.update(&self.config.epsilon_bounds.embeddings_epsilon.to_le_bytes());
+        hasher.update(&self.config.epsilon_bounds.attention_epsilon.to_le_bytes());
+        hasher.update(&self.config.epsilon_bounds.gates_epsilon.to_le_bytes());
+
+        let hash = hasher.finalize();
+        B3Hash::new(*hash.as_bytes())
+    }
+
+    /// Get the configuration for inspection
+    pub fn config(&self) -> &DeterminismConfig {
+        &self.config
     }
 
     /// Validate RNG seeding
@@ -880,5 +1308,305 @@ mod tests {
         assert!(!DeterminismPolicy::is_known_non_deterministic(
             "gemm_f16_deterministic"
         ));
+    }
+
+    // =========================================================================
+    // Enforcement Mode Tests (Patent 3535886.0002 Claim 5)
+    // =========================================================================
+
+    #[test]
+    fn test_enforcement_mode_default_is_strict() {
+        let config = DeterminismConfig::default();
+        assert_eq!(config.enforcement_mode, EnforcementMode::Strict);
+        assert!(config.enforcement_mode.is_strict());
+        assert!(!config.enforcement_mode.allows_fallback());
+    }
+
+    #[test]
+    fn test_enforcement_mode_best_effort_allows_fallback() {
+        let mode = EnforcementMode::BestEffort;
+        assert!(!mode.is_strict());
+        assert!(mode.allows_fallback());
+        assert_eq!(mode.as_str(), "best_effort");
+    }
+
+    #[test]
+    fn test_enforce_operation_allows_deterministic_kernel() {
+        let mut config = DeterminismConfig::default();
+        config.kernel_deny_list.clear();
+        let policy = DeterminismPolicy::new(config);
+
+        let result = policy.enforce_operation("gemm_f16_deterministic");
+        assert!(result.is_ok());
+        assert!(matches!(result.unwrap(), OperationValidation::Allowed));
+    }
+
+    #[test]
+    fn test_enforce_operation_strict_rejects_denied_kernel() {
+        let config = DeterminismConfig::default(); // Strict mode by default
+        let policy = DeterminismPolicy::new(config);
+
+        // flash_attention_v1 is in deny list
+        let result = policy.enforce_operation("flash_attention_v1");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("flash_attention_v1"));
+        assert!(err.contains("Strict mode"));
+    }
+
+    #[test]
+    fn test_enforce_operation_best_effort_uses_fallback() {
+        let mut config = DeterminismConfig::default();
+        config.enforcement_mode = EnforcementMode::BestEffort;
+        let policy = DeterminismPolicy::new(config);
+
+        // flash_attention_v1 has a fallback to attention_deterministic
+        let result = policy.enforce_operation("flash_attention_v1");
+        assert!(result.is_ok());
+        match result.unwrap() {
+            OperationValidation::Fallback {
+                original,
+                fallback,
+                reason: _,
+            } => {
+                assert_eq!(original, "flash_attention_v1");
+                assert_eq!(fallback, "attention_deterministic");
+            }
+            other => panic!("Expected Fallback, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_enforce_operation_best_effort_rejects_when_no_fallback() {
+        let mut config = DeterminismConfig::default();
+        config.enforcement_mode = EnforcementMode::BestEffort;
+        // Add a kernel to deny list without a fallback
+        config
+            .kernel_deny_list
+            .push("custom_bad_kernel".to_string());
+        let policy = DeterminismPolicy::new(config);
+
+        let result = policy.enforce_operation("custom_bad_kernel");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("no deterministic fallback"));
+    }
+
+    #[test]
+    fn test_enforce_operation_with_allow_list() {
+        let mut config = DeterminismConfig::default();
+        config.kernel_deny_list.clear();
+        config.kernel_allow_list = Some(vec![
+            "gemm_f16_deterministic".to_string(),
+            "attention_deterministic".to_string(),
+        ]);
+        let policy = DeterminismPolicy::new(config);
+
+        // Allowed kernel should pass
+        assert!(matches!(
+            policy.enforce_operation("gemm_f16_deterministic").unwrap(),
+            OperationValidation::Allowed
+        ));
+
+        // Non-allowed kernel should fail (strict mode)
+        assert!(policy.enforce_operation("custom_kernel").is_err());
+    }
+
+    #[test]
+    fn test_default_fallback_mappings() {
+        let mappings = default_fallback_mappings();
+
+        assert_eq!(
+            mappings.get("flash_attention_v1"),
+            Some(&"attention_deterministic".to_string())
+        );
+        assert_eq!(
+            mappings.get("gemm_tensorcore_async"),
+            Some(&"gemm_f16_deterministic".to_string())
+        );
+        assert_eq!(
+            mappings.get("softmax_fast"),
+            Some(&"softmax_stable".to_string())
+        );
+        assert_eq!(
+            mappings.get("layer_norm_fast"),
+            Some(&"layer_norm_deterministic".to_string())
+        );
+    }
+
+    // =========================================================================
+    // Policy Digest Tests
+    // =========================================================================
+
+    #[test]
+    fn test_policy_digest_is_deterministic() {
+        let config = DeterminismConfig::default();
+        let policy = DeterminismPolicy::new(config.clone());
+
+        let digest1 = policy.compute_policy_digest();
+        let digest2 = policy.compute_policy_digest();
+
+        assert_eq!(
+            digest1, digest2,
+            "Policy digest must be deterministic for same config"
+        );
+    }
+
+    #[test]
+    fn test_policy_digest_changes_with_enforcement_mode() {
+        let mut config1 = DeterminismConfig::default();
+        config1.enforcement_mode = EnforcementMode::Strict;
+        let policy1 = DeterminismPolicy::new(config1);
+
+        let mut config2 = DeterminismConfig::default();
+        config2.enforcement_mode = EnforcementMode::BestEffort;
+        let policy2 = DeterminismPolicy::new(config2);
+
+        assert_ne!(
+            policy1.compute_policy_digest(),
+            policy2.compute_policy_digest(),
+            "Different enforcement modes must produce different digests"
+        );
+    }
+
+    #[test]
+    fn test_policy_digest_changes_with_kernel_allow_list() {
+        let mut config1 = DeterminismConfig::default();
+        config1.kernel_allow_list = None;
+
+        let mut config2 = DeterminismConfig::default();
+        config2.kernel_allow_list = Some(vec!["gemm_f16_deterministic".to_string()]);
+
+        let policy1 = DeterminismPolicy::new(config1);
+        let policy2 = DeterminismPolicy::new(config2);
+
+        assert_ne!(
+            policy1.compute_policy_digest(),
+            policy2.compute_policy_digest(),
+            "Different allow lists must produce different digests"
+        );
+    }
+
+    #[test]
+    fn test_policy_digest_changes_with_epsilon_bounds() {
+        let mut config1 = DeterminismConfig::default();
+        config1.epsilon_bounds.logits_epsilon = 1e-6;
+
+        let mut config2 = DeterminismConfig::default();
+        config2.epsilon_bounds.logits_epsilon = 1e-5; // Different
+
+        let policy1 = DeterminismPolicy::new(config1);
+        let policy2 = DeterminismPolicy::new(config2);
+
+        assert_ne!(
+            policy1.compute_policy_digest(),
+            policy2.compute_policy_digest(),
+            "Different epsilon bounds must produce different digests"
+        );
+    }
+
+    #[test]
+    fn test_policy_digest_independent_of_deny_list_order() {
+        let mut config1 = DeterminismConfig::default();
+        config1.kernel_deny_list = vec!["kernel_a".to_string(), "kernel_b".to_string()];
+
+        let mut config2 = DeterminismConfig::default();
+        config2.kernel_deny_list = vec!["kernel_b".to_string(), "kernel_a".to_string()];
+
+        let policy1 = DeterminismPolicy::new(config1);
+        let policy2 = DeterminismPolicy::new(config2);
+
+        assert_eq!(
+            policy1.compute_policy_digest(),
+            policy2.compute_policy_digest(),
+            "Deny list order should not affect digest (sorted internally)"
+        );
+    }
+
+    #[test]
+    fn test_enforcement_mode_display() {
+        assert_eq!(format!("{}", EnforcementMode::Strict), "strict");
+        assert_eq!(format!("{}", EnforcementMode::BestEffort), "best_effort");
+    }
+
+    #[test]
+    fn test_enforcement_mode_from_seed_mode() {
+        use adapteros_core::seed::SeedMode;
+
+        // Strict seed mode → Strict enforcement
+        assert_eq!(
+            EnforcementMode::from_seed_mode(SeedMode::Strict),
+            EnforcementMode::Strict
+        );
+
+        // BestEffort seed mode → BestEffort enforcement
+        assert_eq!(
+            EnforcementMode::from_seed_mode(SeedMode::BestEffort),
+            EnforcementMode::BestEffort
+        );
+
+        // NonDeterministic seed mode → BestEffort enforcement (lenient)
+        assert_eq!(
+            EnforcementMode::from_seed_mode(SeedMode::NonDeterministic),
+            EnforcementMode::BestEffort
+        );
+    }
+
+    #[test]
+    fn test_operation_validation_variants() {
+        // Test Allowed variant
+        let allowed = OperationValidation::Allowed;
+        assert!(matches!(allowed, OperationValidation::Allowed));
+
+        // Test Fallback variant
+        let fallback = OperationValidation::Fallback {
+            original: "fast_op".to_string(),
+            fallback: "deterministic_op".to_string(),
+            reason: "test".to_string(),
+        };
+        if let OperationValidation::Fallback {
+            original,
+            fallback: f,
+            ..
+        } = fallback
+        {
+            assert_eq!(original, "fast_op");
+            assert_eq!(f, "deterministic_op");
+        }
+
+        // Test helper methods
+        assert!(allowed.is_allowed());
+        assert!(!allowed.is_fallback());
+        assert_eq!(allowed.effective_kernel("gemm_fast"), "gemm_fast");
+
+        let fallback_val = OperationValidation::Fallback {
+            original: "fast_op".to_string(),
+            fallback: "deterministic_op".to_string(),
+            reason: "test".to_string(),
+        };
+        assert!(!fallback_val.is_allowed());
+        assert!(fallback_val.is_fallback());
+        assert_eq!(fallback_val.effective_kernel("fast_op"), "deterministic_op");
+    }
+
+    #[test]
+    fn test_fallback_validity_check() {
+        let mut config = DeterminismConfig::default();
+        config.enforcement_mode = EnforcementMode::BestEffort;
+        // Add a fallback that maps to a denied kernel (invalid fallback)
+        config.fallback_mappings.insert(
+            "bad_kernel".to_string(),
+            "flash_attention_v1".to_string(), // This is in deny list!
+        );
+        config.kernel_deny_list.push("bad_kernel".to_string());
+
+        let policy = DeterminismPolicy::new(config);
+
+        // Should fail because fallback is also denied
+        let result = policy.enforce_operation("bad_kernel");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("fallback"));
+        assert!(err.contains("not permitted"));
     }
 }

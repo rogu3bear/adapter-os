@@ -51,9 +51,8 @@ cargo build -p adapteros-lora-mlx-ffi --features mlx 2>&1 | grep "MLX FFI build"
 # If you see stub, MLX headers weren't found or MLX_FORCE_STUB=1 is set
 ```
 
-If the FFI runtime fails to initialize and you compiled with `mlx-rs-backend`,
-the system can fall back to the Rust bindings. Use `AOS_MLX_IMPL=rs` to force
-the fallback for debugging.
+If the FFI runtime fails to initialize, check that MLX is installed correctly
+(`brew install mlx`) and that the library is accessible.
 
 ### Runtime Health Check
 
@@ -75,6 +74,7 @@ curl -s http://localhost:8080/healthz/backend | jq
 ### Error: MLX Headers Not Found
 
 **Symptom:**
+
 ```
 error: could not find mlx/mlx.h
 ```
@@ -82,6 +82,7 @@ error: could not find mlx/mlx.h
 **Cause:** MLX include directory not in search path
 
 **Solution:**
+
 ```bash
 # Set MLX include directory
 export MLX_INCLUDE_DIR=/opt/homebrew/include
@@ -101,6 +102,7 @@ ls -la $MLX_LIB_DIR/libmlx.*
 ### Error: libmlx.dylib Missing
 
 **Symptom:**
+
 ```
 error: linking with 'cc' failed
 ld: library not found for -lmlx
@@ -109,6 +111,7 @@ ld: library not found for -lmlx
 **Cause:** MLX library not in linker search path
 
 **Solution:**
+
 ```bash
 # Set MLX library directory
 export MLX_LIB_DIR=/opt/homebrew/lib
@@ -127,6 +130,7 @@ brew reinstall mlx
 ### Error: Swift/Metal Toolchain Missing
 
 **Symptom:**
+
 ```
 error: xcrun: error: unable to find utility "metal"
 ```
@@ -134,6 +138,7 @@ error: xcrun: error: unable to find utility "metal"
 **Cause:** Xcode Command Line Tools not installed
 
 **Solution:**
+
 ```bash
 # Install Xcode Command Line Tools
 xcode-select --install
@@ -153,6 +158,7 @@ cargo build -p adapteros-lora-mlx-ffi --features mlx --release
 **Cause:** Built without `mlx` feature or with `MLX_FORCE_STUB=1`
 
 **Solution:**
+
 ```bash
 # Ensure correct features
 cargo build -p adapteros-lora-mlx-ffi --features mlx --release
@@ -174,6 +180,7 @@ cargo clean
 **Cause:** Mismatch between build-time and runtime MLX versions
 
 **Solution:**
+
 ```bash
 # Check MLX version
 brew info mlx | grep -E "mlx:"
@@ -196,6 +203,7 @@ cargo build -p adapteros-lora-mlx-ffi --features mlx --release
 **Symptom:** Backend status shows `mode=stub` or warnings about stub implementation
 
 **Diagnosis:**
+
 ```bash
 # Check build output
 cargo build -p adapteros-lora-mlx-ffi --features mlx 2>&1 | grep "MLX FFI build"
@@ -205,6 +213,7 @@ nm target/release/libadapteros_lora_mlx_ffi.a | grep mlx_wrapper_is_real
 ```
 
 **Solution:**
+
 ```bash
 # Build with mlx feature
 cargo build -p adapteros-lora-mlx-ffi --features multi-backend,mlx --release
@@ -219,6 +228,7 @@ cargo build -p adapteros-lora-mlx-ffi --features multi-backend,mlx --release
 ### Model Path Validation Fails
 
 **Symptom:**
+
 ```
 Error: Model path validation failed
 Please set AOS_MODEL_PATH to a directory containing config.json
@@ -227,6 +237,7 @@ Please set AOS_MODEL_PATH to a directory containing config.json
 **Cause:** Model path not set or points to invalid directory
 
 **Solution:**
+
 ```bash
 # Set model path
 export AOS_MODEL_PATH=./models/qwen2.5-7b-mlx
@@ -246,6 +257,7 @@ python -m mlx_lm.convert \
 **Symptom:** Backend becomes unavailable after multiple failures
 
 **Diagnosis:**
+
 ```bash
 # Check backend status
 curl http://localhost:8080/v1/backends/mlx/status | jq '.circuit_breaker'
@@ -255,6 +267,7 @@ journalctl -u aos-mlx.service --since "1h ago" | grep -i error
 ```
 
 **Solution:**
+
 ```bash
 # Increase circuit breaker timeout in config
 # Edit configs/mlx.toml:
@@ -275,6 +288,7 @@ curl http://localhost:8080/v1/metrics | grep mlx_backend_memory
 **Symptom:** Out-of-memory errors or system becomes unresponsive
 
 **Diagnosis:**
+
 ```bash
 # Monitor memory usage
 watch -n 1 'ps aux | grep aosctl | grep -v grep'
@@ -284,6 +298,7 @@ curl http://localhost:8080/v1/backends/mlx/memory | jq
 ```
 
 **Solution:**
+
 ```bash
 # Lower max_memory_mb in config
 # Edit configs/mlx.toml:
@@ -310,12 +325,13 @@ vm_stat | grep "Pages active"
 **Symptom:** Inference slower than expected
 
 **Diagnosis:**
+
 ```bash
 # Enable trace logging
 export RUST_LOG=trace,adapteros_lora_mlx_ffi=trace
 
 # Run inference and check logs
-./target/release/aosctl infer \
+./aosctl infer \
   --model ./models/qwen2.5-7b-mlx \
   --prompt "test" \
   --max-tokens 10
@@ -326,6 +342,7 @@ cargo bench -p adapteros-lora-kernel-mtl --bench kernel_benchmarks
 ```
 
 **Solution:**
+
 ```bash
 # Enable HKDF-seeded determinism in configs
 [mlx.determinism]
@@ -348,12 +365,14 @@ grep -i "cpu fallback" logs/aos-mlx.log
 **Expected Behavior:** This is **correct** for MLX backend
 
 **Explanation:**
+
 - MLX does NOT provide full execution-order determinism
 - HKDF seeding ensures RNG operations (dropout, sampling) are deterministic
 - GPU scheduling and floating-point rounding are non-deterministic
 - This is documented behavior, not a bug
 
 **Verification:**
+
 ```bash
 # Ensure manifest hash is passed to backend
 # Check worker initialization logs
@@ -368,11 +387,13 @@ cargo build -p adapteros-lora-mlx-ffi --features mlx 2>&1 | grep "MLX FFI build:
 ```
 
 **When to Use MLX Despite Non-Determinism:**
+
 - Production inference where small numerical variations are acceptable
 - Training workloads (determinism less critical)
 - Research/experimentation
 
 **When to Use Different Backend:**
+
 - Use **Metal** for guaranteed determinism in production
 - Use **CoreML** for ANE acceleration with conditional determinism
 
@@ -649,7 +670,7 @@ cargo bench -p adapteros-lora-kernel-mtl --bench kernel_benchmarks
 
 ```bash
 # Start server with MLX backend
-./target/release/aosctl serve \
+./aosctl serve \
   --backend mlx \
   --model-path /data/models/qwen2.5-7b-mlx
 
@@ -687,9 +708,10 @@ sudo systemctl restart aos-mlx.service
 ### Slow Forward Passes
 
 **Diagnosis:**
+
 ```bash
 # Profile inference
-RUST_LOG=trace ./target/release/aosctl infer \
+RUST_LOG=trace ./aosctl infer \
   --model ./models/qwen2.5-7b-mlx \
   --prompt "test" \
   --max-tokens 10
@@ -700,6 +722,7 @@ ps aux | grep aosctl  # Check CPU %
 ```
 
 **Solutions:**
+
 ```bash
 # Enable KV cache
 [mlx.performance]
@@ -716,6 +739,7 @@ grep -i "cpu fallback" logs/aos-mlx.log
 ### High Memory Usage
 
 **Diagnosis:**
+
 ```bash
 # Monitor memory
 watch -n 1 'ps aux | grep aosctl | grep -v grep | awk "{print \$6}"'
@@ -725,6 +749,7 @@ curl http://localhost:8080/v1/backends/mlx/memory | jq
 ```
 
 **Solutions:**
+
 ```bash
 # Reduce batch size in config
 [mlx.performance]
@@ -744,6 +769,7 @@ python -m mlx_lm.convert \
 ### Adapter Loading Failures
 
 **Diagnosis:**
+
 ```bash
 # Verify adapter format
 ls -la adapter.safetensors
@@ -758,6 +784,7 @@ with safe_open('adapter.safetensors', framework='numpy') as f:
 ```
 
 **Solution:**
+
 ```bash
 # Check adapter compatibility with model
 # Model hidden_size must match adapter dimensions
@@ -880,6 +907,7 @@ grep "DeterminismViolation" logs/aos-mlx.log
 **Cause:** tokenizer.json missing from model directory
 
 **Solution:**
+
 ```bash
 # Verify tokenizer exists
 ls -la $AOS_MODEL_PATH/tokenizer.json
@@ -895,6 +923,7 @@ python -m mlx_lm.convert \
 **Cause:** Model path wrong or corrupted files
 
 **Solution:**
+
 ```bash
 # Verify all files exist
 ls -la $AOS_MODEL_PATH/
@@ -911,6 +940,7 @@ md5sum $AOS_MODEL_PATH/*.safetensors
 **Cause:** 3+ consecutive inference failures
 
 **Solution:**
+
 ```bash
 # Check health status
 curl http://localhost:8080/v1/backends/mlx/status | jq '.health_status'
@@ -951,7 +981,7 @@ ls -la /opt/homebrew/include/mlx/
 cargo build -p adapteros-lora-mlx-ffi --features mlx 2>&1 | tee build.log
 
 # Runtime logs
-RUST_LOG=debug ./target/release/aosctl serve --backend mlx 2>&1 | tee runtime.log
+RUST_LOG=debug ./aosctl serve --backend mlx 2>&1 | tee runtime.log
 
 # Health status
 curl http://localhost:8080/v1/backends/mlx/status | jq > backend-status.json

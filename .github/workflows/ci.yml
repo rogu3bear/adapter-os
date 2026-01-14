@@ -391,9 +391,6 @@ jobs:
           - name: mlx-ffi
             os: ubuntu-latest
             features: "mlx"
-          - name: mlx-rs-backend
-            os: macos-14
-            features: "mlx-rs-backend"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

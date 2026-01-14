@@ -1,30 +1,15 @@
 //! MLX Array abstraction layer
 //!
-//! This module provides a unified array interface. The mlx-rs backend is an
-//! experimental fallback; C++ FFI is the primary/production path.
-//!
-//! When the `mlx-rs-backend` feature is enabled (experimental), this re-exports from `adapteros-mlx`.
-//! When disabled, a stub implementation is provided for testing on non-MLX builds.
+//! This module provides a unified array interface with stub implementations
+//! for testing on non-MLX builds.
 
-#[cfg(not(feature = "mlx-rs-backend"))]
 use adapteros_core::{AosError, Result};
 
 // =========================================================================
-// mlx-rs backend implementation via adapteros-mlx
+// Stub implementation for array operations
 // =========================================================================
 
-#[cfg(feature = "mlx-rs-backend")]
-pub use adapteros_mlx::Dtype;
-
-#[cfg(feature = "mlx-rs-backend")]
-pub use adapteros_mlx::Array as MlxArray;
-
-// =========================================================================
-// Stub implementation when mlx-rs-backend is not enabled
-// =========================================================================
-
-/// Data types for MLX arrays (stub version)
-#[cfg(not(feature = "mlx-rs-backend"))]
+/// Data types for MLX arrays
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Dtype {
     Float32,
@@ -37,7 +22,6 @@ pub enum Dtype {
     Bool,
 }
 
-#[cfg(not(feature = "mlx-rs-backend"))]
 impl Dtype {
     pub fn size_bytes(&self) -> usize {
         match self {
@@ -49,7 +33,6 @@ impl Dtype {
     }
 }
 
-#[cfg(not(feature = "mlx-rs-backend"))]
 #[derive(Debug, Clone)]
 pub struct MlxArray {
     data: Vec<f32>,
@@ -57,7 +40,6 @@ pub struct MlxArray {
     dtype: Dtype,
 }
 
-#[cfg(not(feature = "mlx-rs-backend"))]
 impl MlxArray {
     pub fn from_slice_f32(data: &[f32], shape: &[i32]) -> Result<Self> {
         Ok(Self {
@@ -501,7 +483,7 @@ impl MlxArray {
 }
 
 // Tests for stub implementation (no GPU required)
-#[cfg(all(test, not(feature = "mlx-rs-backend")))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -575,32 +557,6 @@ mod tests {
         assert_eq!(expanded.shape(), vec![1, 4]);
 
         let squeezed = expanded.squeeze(Some(0)).unwrap();
-        assert_eq!(squeezed.shape(), vec![4]);
-    }
-}
-
-// Tests for mlx-rs backend via adapteros-mlx
-#[cfg(all(test, feature = "mlx-rs-backend"))]
-mod mlx_rs_tests {
-    use super::*;
-
-    // Shape-only tests work in test harness
-    #[test]
-    fn test_array_transpose() {
-        let arr = MlxArray::from_f32(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3]).unwrap();
-        let transposed = arr.transpose().unwrap();
-        assert_eq!(transposed.shape(), vec![3, 2]);
-    }
-
-    #[test]
-    fn test_array_expand_squeeze() {
-        let arr = MlxArray::from_f32(&[1.0, 2.0, 3.0, 4.0], &[4]).unwrap();
-
-        let expanded = arr.expand_dims(0).unwrap();
-        assert_eq!(expanded.shape(), vec![1, 4]);
-
-        // Use squeeze_axis for specific axis, or squeeze() for all size-1 dims
-        let squeezed = expanded.squeeze_axis(0).unwrap();
         assert_eq!(squeezed.shape(), vec![4]);
     }
 }

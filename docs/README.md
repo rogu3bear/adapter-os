@@ -100,7 +100,7 @@ graph TB
 - **Deterministic Replay**: HKDF-SHA256 seed derivation, reproducible outputs
 - **Zero Network Egress**: All serving happens locally via Unix Domain Sockets
 - **Hot-Swap Adapters**: Load/unload adapters without restarting workers
-- **Policy Enforcement**: 25 policy packs with audit trails and Merkle chains
+- **Policy Enforcement**: 28 policy packs with audit trails and Merkle chains
 - **Multi-Tenant**: Full tenant isolation with JWT authentication
 
 ---
@@ -110,7 +110,7 @@ graph TB
 ### Prerequisites
 
 - macOS with Apple Silicon (M1/M2/M3/M4)
-- Rust nightly (see `rust-toolchain.toml`)
+- Rust stable (see `rust-toolchain.toml`)
 - Xcode Command Line Tools
 - Trunk (for Leptos UI): `cargo install trunk`
 
@@ -256,7 +256,7 @@ open http://localhost:3200
 
 | Document | Description |
 |----------|-------------|
-| [**MLX_INTEGRATION.md**](MLX_INTEGRATION.md) | MLX backend integration guide |
+| [**MLX_GUIDE.md**](MLX_GUIDE.md) | MLX backend integration guide |
 | [**MLX_BACKEND_DEPLOYMENT_GUIDE.md**](MLX_BACKEND_DEPLOYMENT_GUIDE.md) | MLX deployment and configuration |
 | [**MLX_INSTALLATION_GUIDE.md**](MLX_INSTALLATION_GUIDE.md) | MLX installation steps |
 | [**MLX_QUICK_REFERENCE.md**](MLX_QUICK_REFERENCE.md) | MLX quick reference |
@@ -272,7 +272,7 @@ open http://localhost:3200
 
 | Document | Description |
 |----------|-------------|
-| [**COREML_INTEGRATION.md**](COREML_INTEGRATION.md) | CoreML backend with ANE acceleration |
+| [**COREML_BACKEND.md**](COREML_BACKEND.md) | CoreML backend with ANE acceleration |
 | [**COREML_ATTESTATION_DETAILS.md**](COREML_ATTESTATION_DETAILS.md) | CoreML attestation and verification |
 | [**coreml_training_backend.md**](coreml_training_backend.md) | CoreML training backend guide |
 
@@ -310,7 +310,7 @@ open http://localhost:3200
 
 | Document | Description |
 |----------|-------------|
-| [**POLICIES.md**](POLICIES.md) | Policy system overview (25 policy packs) |
+| [**POLICIES.md**](POLICIES.md) | Policy system overview (28 policy packs) |
 | [**POLICY_ENFORCEMENT.md**](POLICY_ENFORCEMENT.md) | Policy enforcement architecture |
 | [**POLICY_ENFORCEMENT_MIDDLEWARE.md**](POLICY_ENFORCEMENT_MIDDLEWARE.md) | Policy middleware implementation |
 | [**POLICY_ENFORCEMENT_MIDDLEWARE_IMPLEMENTATION_GUIDE.md**](POLICY_ENFORCEMENT_MIDDLEWARE_IMPLEMENTATION_GUIDE.md) | Middleware implementation guide |
@@ -447,8 +447,8 @@ Upload → Validation → Storage (BLAKE3) → Registry → Loading
 
 ### For Researchers
 
-1. [MLX_INTEGRATION.md](MLX_INTEGRATION.md) — MLX backend deep dive
-2. [COREML_INTEGRATION.md](COREML_INTEGRATION.md) — CoreML/ANE acceleration
+1. [MLX_GUIDE.md](MLX_GUIDE.md) — MLX backend deep dive
+2. [COREML_BACKEND.md](COREML_BACKEND.md) — CoreML/ANE acceleration
 3. [TRAINING_PIPELINE.md](TRAINING_PIPELINE.md) — Training architecture
 4. [TRAINING_METRICS.md](TRAINING_METRICS.md) — Evaluation metrics
 5. [FFI_GUIDE.md](FFI_GUIDE.md) — Low-level FFI patterns

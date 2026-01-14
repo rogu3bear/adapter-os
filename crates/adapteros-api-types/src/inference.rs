@@ -33,6 +33,11 @@ fn default_repetition_window() -> u16 {
     32
 }
 
+/// Default threshold for repetition detection (count must exceed this)
+fn default_repetition_threshold() -> u8 {
+    1
+}
+
 /// Stop policy specification for deterministic stopping behavior.
 ///
 /// Configures thresholds and parameters for the stop controller.
@@ -54,7 +59,8 @@ pub struct StopPolicySpec {
     #[serde(default = "default_completion_threshold_q15")]
     pub completion_threshold_q15: i16,
 
-    /// N-gram size for repetition detection (minimum 3).
+    /// Minimum n-gram size for repetition detection.
+    /// The detector scans all n-gram sizes from this minimum to window_size/2.
     /// Default: 3
     #[serde(default = "default_repetition_ngram")]
     pub repetition_ngram: u8,
@@ -63,6 +69,12 @@ pub struct StopPolicySpec {
     /// Default: 32
     #[serde(default = "default_repetition_window")]
     pub repetition_window: u16,
+
+    /// Threshold count for repetition detection. If any n-gram in the window
+    /// appears more than this many times, repetition is flagged.
+    /// Default: 1 (triggers when any n-gram appears > 1 time, i.e., 2+ occurrences)
+    #[serde(default = "default_repetition_threshold")]
+    pub repetition_threshold: u8,
 
     /// Explicit stop sequences to terminate generation (matched on tokenized output).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -77,6 +89,7 @@ impl Default for StopPolicySpec {
             completion_threshold_q15: default_completion_threshold_q15(),
             repetition_ngram: default_repetition_ngram(),
             repetition_window: default_repetition_window(),
+            repetition_threshold: default_repetition_threshold(),
             stop_sequences: Vec::new(),
         }
     }
@@ -106,6 +119,7 @@ impl StopPolicySpec {
         bytes.extend_from_slice(&self.completion_threshold_q15.to_le_bytes());
         bytes.push(self.repetition_ngram);
         bytes.extend_from_slice(&self.repetition_window.to_le_bytes());
+        bytes.push(self.repetition_threshold);
         bytes.extend_from_slice(&(self.stop_sequences.len() as u32).to_le_bytes());
         for sequence in &self.stop_sequences {
             let seq_bytes = sequence.as_bytes();

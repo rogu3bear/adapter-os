@@ -475,17 +475,17 @@ fn create_mlx_backend(
     manifest_hash: Option<&B3Hash>,
     model_weights_hash: Option<&B3Hash>,
 ) -> Result<KernelBox> {
-    // FAIL-FAST: Ensure at least one MLX implementation is compiled in.
-    #[cfg(all(not(feature = "mlx"), not(feature = "mlx-rs-backend")))]
+    // FAIL-FAST: Ensure MLX implementation is compiled in.
+    #[cfg(not(feature = "mlx"))]
     {
         let _ = (model_path, manifest_hash, model_weights_hash);
         Err(AosError::Config(
-            "MLX backend selected but no MLX implementation is enabled. Rebuild with --features mlx or --features mlx-rs-backend"
+            "MLX backend selected but 'mlx' feature not enabled. Rebuild with --features mlx"
                 .to_string(),
         ))
     }
 
-    #[cfg(any(feature = "mlx", feature = "mlx-rs-backend"))]
+    #[cfg(feature = "mlx")]
     {
         let selected_impl = adapteros_lora_mlx_ffi::select_mlx_implementation()
             .map_err(|e| AosError::Config(format!("MLX backend selection failed: {}", e)))?;
@@ -498,19 +498,6 @@ fn create_mlx_backend(
         match selected_impl {
             adapteros_lora_mlx_ffi::MlxImplementation::Ffi => {
                 create_mlx_ffi_backend(model_path, manifest_hash, model_weights_hash)
-            }
-            adapteros_lora_mlx_ffi::MlxImplementation::Rs => {
-                let allow_rs = std::env::var("AOS_ALLOW_MLX_RS")
-                    .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-                    .unwrap_or(false);
-                if !allow_rs {
-                    return Err(AosError::Config(
-                        "mlx-rs backend is experimental (no LoRA fusion/cache). Set AOS_ALLOW_MLX_RS=1 to opt in."
-                            .to_string(),
-                    ));
-                }
-
-                create_mlx_rs_backend(model_path, manifest_hash, model_weights_hash)
             }
         }
     }
@@ -646,67 +633,6 @@ fn create_mlx_ffi_backend(
         );
 
         Ok(backend)
-    }
-}
-
-#[cfg(feature = "multi-backend")]
-fn create_mlx_rs_backend(
-    model_path: &Path,
-    manifest_hash: Option<&B3Hash>,
-    model_weights_hash: Option<&B3Hash>,
-) -> Result<KernelBox> {
-    #[cfg(not(feature = "mlx-rs-backend"))]
-    {
-        let _ = (model_path, manifest_hash, model_weights_hash);
-        Err(AosError::Config(
-            "mlx-rs backend selected but not compiled. Rebuild with --features mlx-rs-backend"
-                .to_string(),
-        ))
-    }
-
-    #[cfg(feature = "mlx-rs-backend")]
-    {
-        use adapteros_lora_mlx_ffi::{MlxRsBackend, MlxRsModel};
-
-        let model_path = validate_mlx_model_dir(model_path)?;
-        let model_path_str = model_path.to_string_lossy();
-
-        info!(
-            model_path = %model_path_str,
-            has_manifest_hash = manifest_hash.is_some(),
-            has_model_weights_hash = model_weights_hash.is_some(),
-            "Creating MLX (mlx-rs) kernel backend (experimental)"
-        );
-
-        let manifest_hash = manifest_hash.ok_or_else(|| {
-            AosError::Config(
-                "Manifest hash is required for MLX backend identity; pass manifest hash to backend factory"
-                    .to_string(),
-            )
-        })?;
-
-        verify_model_integrity(&model_path, model_weights_hash, "MLX (mlx-rs)")?;
-
-        tracing::warn!(
-            "mlx-rs backend is experimental: LoRA adapters are not applied and model cache is bypassed"
-        );
-
-        let model = MlxRsModel::load(&model_path).map_err(|e| {
-            AosError::Config(format!(
-                "Failed to load mlx-rs model from '{}': {}",
-                model_path_str, e
-            ))
-        })?;
-
-        let backend =
-            MlxRsBackend::with_manifest_hash(model, manifest_hash.clone()).map_err(|e| {
-                AosError::Config(format!(
-                    "Failed to create mlx-rs backend with manifest hash: {}",
-                    e
-                ))
-            })?;
-
-        Ok(Box::new(backend))
     }
 }
 

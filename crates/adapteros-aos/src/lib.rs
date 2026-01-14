@@ -42,8 +42,9 @@ pub use implementation::{
 #[cfg(feature = "mmap")]
 pub use manager::{AosManager, AosManagerBuilder};
 pub use sealed::{
-    AdapterBundle, AdapterMetadata, AdapterPayload, SealedAdapterContainer, SignedManifest,
-    SEALED_CONTAINER_VERSION, SEALED_MAGIC,
+    AdapterBundle, AdapterMetadata, AdapterPayload, LoadResult, RejectionReason,
+    SealedAdapterContainer, SealedAdapterLoader, SealedContainerHeader, SignedManifest,
+    VerifiedAdapter, SEALED_CONTAINER_VERSION, SEALED_HEADER_SIZE, SEALED_MAGIC,
 };
 pub use types::{CombinationStrategy, WeightGroupConfig};
 pub use writer::{

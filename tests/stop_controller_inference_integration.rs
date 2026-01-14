@@ -192,6 +192,7 @@ async fn test_stop_controller_budget_max_persisted_to_receipt() -> Result<()> {
         completion_threshold_q15: 32767, // Won't trigger
         repetition_ngram: 3,
         repetition_window: 32,
+        repetition_threshold: 1,
         stop_sequences: vec![],
     };
 
@@ -254,6 +255,7 @@ async fn test_stop_controller_budget_max_persisted_to_receipt() -> Result<()> {
         prefix_kv_bytes: 0,
         model_cache_identity_v2_digest_b3: None,
         attestation: None,
+        equipment_profile: None,
     };
 
     let receipt = sink.finalize(finalization).await?;
@@ -291,6 +293,7 @@ async fn test_stop_controller_completion_confident_persisted() -> Result<()> {
         completion_threshold_q15: 16384, // ~0.5 threshold
         repetition_ngram: 3,
         repetition_window: 32,
+        repetition_threshold: 1,
         stop_sequences: vec![],
     };
 
@@ -346,6 +349,7 @@ async fn test_stop_controller_completion_confident_persisted() -> Result<()> {
         prefix_kv_bytes: 0,
         model_cache_identity_v2_digest_b3: None,
         attestation: None,
+        equipment_profile: None,
     };
 
     sink.finalize(finalization).await?;
@@ -375,6 +379,7 @@ async fn test_stop_controller_repetition_guard_persisted() -> Result<()> {
         completion_threshold_q15: 32767, // Won't trigger
         repetition_ngram: 3,
         repetition_window: 32,
+        repetition_threshold: 1,
         stop_sequences: vec![],
     };
 
@@ -430,6 +435,7 @@ async fn test_stop_controller_repetition_guard_persisted() -> Result<()> {
         prefix_kv_bytes: 0,
         model_cache_identity_v2_digest_b3: None,
         attestation: None,
+        equipment_profile: None,
     };
 
     sink.finalize(finalization).await?;
@@ -455,6 +461,7 @@ async fn test_stop_controller_length_eos_persisted() -> Result<()> {
         completion_threshold_q15: 32767,
         repetition_ngram: 3,
         repetition_window: 32,
+        repetition_threshold: 1,
         stop_sequences: vec![],
     };
 
@@ -511,6 +518,7 @@ async fn test_stop_controller_length_eos_persisted() -> Result<()> {
         prefix_kv_bytes: 0,
         model_cache_identity_v2_digest_b3: None,
         attestation: None,
+        equipment_profile: None,
     };
 
     sink.finalize(finalization).await?;
@@ -540,6 +548,7 @@ async fn test_determinism_same_policy_same_receipt_digest() -> Result<()> {
         completion_threshold_q15: 24576,
         repetition_ngram: 3,
         repetition_window: 32,
+        repetition_threshold: 1,
         stop_sequences: vec![],
     };
 
@@ -599,6 +608,7 @@ async fn test_determinism_same_policy_same_receipt_digest() -> Result<()> {
         prefix_kv_bytes: 0,
         model_cache_identity_v2_digest_b3: None,
         attestation: None,
+        equipment_profile: None,
     };
     let receipt1 = sink1.finalize(finalization1).await?;
 
@@ -640,6 +650,7 @@ async fn test_determinism_same_policy_same_receipt_digest() -> Result<()> {
         prefix_kv_bytes: 0,
         model_cache_identity_v2_digest_b3: None,
         attestation: None,
+        equipment_profile: None,
     };
     let receipt2 = sink2.finalize(finalization2).await?;
 
@@ -661,6 +672,7 @@ async fn test_different_policies_different_digests() -> Result<()> {
         completion_threshold_q15: 24576,
         repetition_ngram: 3,
         repetition_window: 32,
+        repetition_threshold: 1,
         stop_sequences: vec![],
     };
 
@@ -670,6 +682,7 @@ async fn test_different_policies_different_digests() -> Result<()> {
         completion_threshold_q15: 24576,
         repetition_ngram: 3,
         repetition_window: 32,
+        repetition_threshold: 1,
         stop_sequences: vec![],
     };
 
@@ -696,6 +709,7 @@ async fn test_stop_policy_override_from_request() -> Result<()> {
         completion_threshold_q15: 16384,
         repetition_ngram: 2,
         repetition_window: 16,
+        repetition_threshold: 1,
         stop_sequences: vec![],
     };
 
@@ -735,6 +749,7 @@ async fn test_stop_decision_token_index_accuracy() -> Result<()> {
         completion_threshold_q15: 32767,
         repetition_ngram: 3,
         repetition_window: 32,
+        repetition_threshold: 1,
         stop_sequences: vec![],
     };
 
@@ -767,6 +782,7 @@ async fn test_stop_policy_digest_committed_to_merkle_bundle() -> Result<()> {
         completion_threshold_q15: 24576,
         repetition_ngram: 3,
         repetition_window: 32,
+        repetition_threshold: 1,
         stop_sequences: vec![],
     };
 
@@ -817,6 +833,7 @@ async fn test_stop_policy_digest_committed_to_merkle_bundle() -> Result<()> {
         prefix_kv_bytes: 0,
         model_cache_identity_v2_digest_b3: None,
         attestation: None,
+        equipment_profile: None,
     };
 
     let receipt = sink.finalize(finalization).await?;
@@ -844,6 +861,7 @@ async fn test_stop_policy_digest_committed_to_merkle_bundle() -> Result<()> {
         completion_threshold_q15: 24576,
         repetition_ngram: 3,
         repetition_window: 32,
+        repetition_threshold: 1,
         stop_sequences: vec![],
     };
     let different_policy_digest = different_policy.digest();
@@ -895,6 +913,7 @@ async fn test_stop_policy_digest_committed_to_merkle_bundle() -> Result<()> {
         prefix_kv_bytes: 0,
         model_cache_identity_v2_digest_b3: None,
         attestation: None,
+        equipment_profile: None,
     };
 
     sink2.finalize(finalization2).await?;
@@ -934,6 +953,7 @@ async fn test_all_stop_reasons_trigger_correctly_in_integration() -> Result<()> 
             completion_threshold_q15: 32767,
             repetition_ngram: 3,
             repetition_window: 32,
+            repetition_threshold: 1,
             stop_sequences: vec![],
         };
         let mut sim = InferenceSimulation::new(policy, 100, 200);
@@ -949,6 +969,7 @@ async fn test_all_stop_reasons_trigger_correctly_in_integration() -> Result<()> 
             completion_threshold_q15: 16384, // ~0.5
             repetition_ngram: 3,
             repetition_window: 32,
+            repetition_threshold: 1,
             stop_sequences: vec![],
         };
         let mut sim = InferenceSimulation::new(policy, 10, 100);
@@ -964,6 +985,7 @@ async fn test_all_stop_reasons_trigger_correctly_in_integration() -> Result<()> 
             completion_threshold_q15: 32767,
             repetition_ngram: 3,
             repetition_window: 32,
+            repetition_threshold: 1,
             stop_sequences: vec![],
         };
         let mut sim = InferenceSimulation::new(policy, 999, 1000);
@@ -979,6 +1001,7 @@ async fn test_all_stop_reasons_trigger_correctly_in_integration() -> Result<()> 
             completion_threshold_q15: 32767,
             repetition_ngram: 3,
             repetition_window: 32,
+            repetition_threshold: 1,
             stop_sequences: vec![],
         };
         let mut sim = InferenceSimulation::new(policy, 42, 100);

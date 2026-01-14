@@ -586,7 +586,7 @@ fn test1() { /* ... */ }
 
 ## Related Documentation
 
-- **[docs/LOCAL_BUILD.md](../docs/LOCAL_BUILD.md)** - Build and test execution
+- **[docs/CONFIGURATION.md](../docs/CONFIGURATION.md)** - Build and configuration
 - **[docs/HOT_SWAP.md](../docs/HOT_SWAP.md)** - Hot-swap testing details
 - **[AGENTS.md](../AGENTS.md)** - Testing conventions and standards
 

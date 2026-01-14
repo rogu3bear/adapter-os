@@ -13,6 +13,13 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 pub const STOP_Q15_DENOM: f32 = 32767.0;
 
 /// Exhaustive stop reason codes for inference termination.
+///
+/// This enum forms a complete partition of all possible termination states:
+/// - Normal completion: Length, BudgetMax, CompletionConfident, RepetitionGuard, StopSequence
+/// - Abnormal termination: Cancelled, SystemError
+///
+/// Every generation run MUST terminate with one of these codes, which is then
+/// bound into the receipt for verifiable proof of why generation ended.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -27,6 +34,10 @@ pub enum StopReasonCode {
     RepetitionGuard,
     /// Explicit stop sequence detected
     StopSequence,
+    /// Generation was cancelled by client or system request
+    Cancelled,
+    /// Hardware or system error interrupted generation
+    SystemError,
 }
 
 impl std::fmt::Display for StopReasonCode {
@@ -37,6 +48,8 @@ impl std::fmt::Display for StopReasonCode {
             Self::CompletionConfident => write!(f, "COMPLETION_CONFIDENT"),
             Self::RepetitionGuard => write!(f, "REPETITION_GUARD"),
             Self::StopSequence => write!(f, "STOP_SEQUENCE"),
+            Self::Cancelled => write!(f, "CANCELLED"),
+            Self::SystemError => write!(f, "SYSTEM_ERROR"),
         }
     }
 }
@@ -51,6 +64,8 @@ impl std::str::FromStr for StopReasonCode {
             "COMPLETION_CONFIDENT" => Ok(Self::CompletionConfident),
             "REPETITION_GUARD" => Ok(Self::RepetitionGuard),
             "STOP_SEQUENCE" => Ok(Self::StopSequence),
+            "CANCELLED" => Ok(Self::Cancelled),
+            "SYSTEM_ERROR" => Ok(Self::SystemError),
             _ => Err(format!("Unknown stop reason code: {}", s)),
         }
     }

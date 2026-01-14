@@ -1,8 +1,8 @@
 # AdapterOS CLI Guide
 
 **Purpose**: Comprehensive guide to understanding and using the AdapterOS CLI (`aosctl`)
-**Last Updated**: 2025-12-29
-**Version**: alpha-v0.12-unstable-pre-release
+**Last Updated**: January 2026
+**Version**: alpha-v0.11-unstable-pre-release
 
 ---
 
@@ -2969,4 +2969,4 @@ Draft → Training → Ready → Active → Deprecated → Retired
 - [API Reference](API_REFERENCE.md) - REST API documentation
 - [AGENTS.md](../AGENTS.md) - Complete developer reference
 
-MLNavigator Inc 2025-12-29.
+MLNavigator Inc January 2026.

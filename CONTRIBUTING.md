@@ -21,7 +21,7 @@ This project adheres to a code of conduct. By participating, you are expected to
 ### Prerequisites
 
 - **macOS 13.0+** with Apple Silicon (M1/M2/M3/M4)
-- **Rust nightly** (see `rust-toolchain.toml`): `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
+- **Rust stable** (see `rust-toolchain.toml`): `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
 - **Git**: For version control
 - **GitHub CLI**: For repository operations (`gh`)
 
@@ -59,7 +59,7 @@ For keychain testing, use environment variables like `ADAPTEROS_KEYCHAIN_FALLBAC
 cargo build --release
 
 # Build specific crate
-cargo build -p adapteros-worker
+cargo build -p adapteros-lora-worker
 
 # Run tests
 cargo test --workspace
@@ -87,11 +87,11 @@ cargo bench
 ### Database Setup
 
 ```bash
-# Initialize the database
-./target/release/aosctl init-tenant --id default --uid 1000 --gid 1000
-
 # Run migrations
-./target/release/aosctl db migrate
+./aosctl db migrate
+
+# Initialize the database
+./aosctl init-tenant --id default --uid 1000 --gid 1000
 ```
 
 ### Port Configuration (Multi-Developer)
@@ -172,7 +172,7 @@ AOS_PANEL_PORT=3501
 - Add tests for new functionality
 
 #### Policy Compliance
-- All changes must comply with the 25 canonical policy packs
+- All changes must comply with the 28 canonical policy packs
 - Security-sensitive code requires review
 - Performance changes need benchmarks
 - Breaking changes need migration guides
@@ -340,7 +340,7 @@ Brief description of changes
 - [ ] Performance benchmarks updated (if applicable)
 
 ## Policy Compliance
-- [ ] Changes comply with all 25 canonical policy packs
+- [ ] Changes comply with all 28 canonical policy packs
 - [ ] Security implications reviewed
 - [ ] Performance impact assessed
 - [ ] Breaking changes documented
@@ -511,4 +511,4 @@ You can choose either license for your contributions.
 
 **Thank you for contributing to AdapterOS!**
 
-*Last updated: November 13, 2025*
+*Last updated: January 2026*

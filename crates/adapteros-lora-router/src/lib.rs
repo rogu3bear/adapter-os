@@ -30,7 +30,9 @@ pub use calibration::{
 };
 pub use code_features::{CodeFeatureExtractor, CodeFeatures as CodeFeaturesExt};
 pub use constants::*;
-pub use features::{extract_attn_entropy, CodeFeatures, PromptVerb};
+pub use features::{
+    extract_attn_entropy, CodeFeatures, PromptVerb, FEATURE_SCHEMA_VERSION, MIN_INPUT_LENGTH,
+};
 pub use framework_routing::{
     compute_framework_scores, FrameworkRoutingContext, FrameworkRoutingScore,
 };
@@ -47,7 +49,7 @@ pub(crate) use quantization::quantize_gate;
 pub use quantization::{
     GateQuantFormat, Q15_FORMAT_NAME, ROUTER_GATE_Q15_DENOM, ROUTER_GATE_Q15_MAX,
 };
-pub use router::{AbstainContext, Router};
+pub use router::{sort_scores_deterministic, AbstainContext, Router, TieEvent};
 pub use router_diag::{NoopRouterDiagEmitter, RouterDiag, RouterDiagEmitter};
 pub use types::{
     AdapterInfo, Decision, DecisionCandidate, DecisionHash, RouterAbstainReason,

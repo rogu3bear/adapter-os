@@ -116,9 +116,9 @@ pub fn detect_capabilities() -> BackendCapabilities {
     // to avoid resource conflicts
     #[cfg(feature = "multi-backend")]
     {
-        #[cfg(any(feature = "mlx", feature = "mlx-rs-backend"))]
+        #[cfg(feature = "mlx")]
         {
-            // MLX available - check if runtime can be initialized (auto-select impl)
+            // MLX available - check if runtime can be initialized
             use adapteros_lora_mlx_ffi::{
                 mlx_runtime_init, mlx_runtime_is_initialized, mlx_selected_implementation,
             };
@@ -134,11 +134,11 @@ pub fn detect_capabilities() -> BackendCapabilities {
                 debug!("MLX backend not available: runtime initialization failed");
             }
         }
-        #[cfg(not(any(feature = "mlx", feature = "mlx-rs-backend")))]
+        #[cfg(not(feature = "mlx"))]
         {
             // Only stub available - be honest about it
             caps.has_mlx = false;
-            debug!("MLX backend not available: MLX features not enabled (stub mode only)");
+            debug!("MLX backend not available: 'mlx' feature not enabled");
         }
     }
 

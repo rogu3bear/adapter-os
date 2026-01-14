@@ -256,7 +256,7 @@ mod tests {
 
 ## Related Documentation
 
-- [Database Schema](../../../../docs/DATABASE_REFERENCE.md)
+- [Database Schema](../../../../docs/DATABASE.md)
 - [Adapter Lifecycle](../../../../docs/LIFECYCLE.md)
 - [Migration Strategy](../migration/README.md)
 - [KV Backend Trait](../kv/backend.rs)

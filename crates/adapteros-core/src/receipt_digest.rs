@@ -525,9 +525,75 @@ fn compute_v5_digest(input: &ReceiptDigestInput) -> B3Hash {
     ])
 }
 
+// =============================================================================
+// Output Digest Computation
+// =============================================================================
+//
+// The output digest captures the exact generated output token sequence,
+// including any special tokens like EOS. Identical outputs produce identical
+// digests, binding the complete generation result into the receipt.
+//
+// # Algorithm
+//
+// 1. Collect all generated tokens including EOS if present
+// 2. Serialize output tokens as length-prefixed byte array:
+//    - Token count as u32 LE (4 bytes)
+//    - Each token as u32 LE (4 bytes per token)
+// 3. Compute BLAKE3 hash over the serialized buffer
+//
+// # Stop Conditions
+//
+// - Generation has terminated (EOS, max tokens, stop sequence, etc.)
+// - All output tokens have been hashed
+//
+// # Next Conditions
+//
+// - Proceed to receipt finalization
+// - Include output_digest in receipt generation
+//
+// =============================================================================
+
 /// Compute output digest from output tokens.
 ///
-/// This is the canonical algorithm: length-prefixed array of u32 LE bytes.
+/// This is the canonical algorithm for computing a cryptographic digest over
+/// the generated output token sequence. The digest captures the exact output
+/// including any special tokens (e.g., EOS). Identical outputs produce identical
+/// digests, binding the complete generation result into the receipt.
+///
+/// # Algorithm
+///
+/// Serialization format: `[token_count: u32 LE] [token_0: u32 LE] ... [token_n: u32 LE]`
+///
+/// 1. Write token count as 4-byte little-endian u32
+/// 2. Write each token as 4-byte little-endian u32
+/// 3. Hash the entire buffer with BLAKE3
+///
+/// # Arguments
+///
+/// * `output_tokens` - All generated tokens including EOS if present
+///
+/// # Returns
+///
+/// BLAKE3 hash of the length-prefixed token array
+///
+/// # Example
+///
+/// ```ignore
+/// use adapteros_core::compute_output_digest;
+///
+/// // Tokens including EOS (token 2)
+/// let tokens = vec![101, 42, 2]; // EOS = 2
+/// let digest = compute_output_digest(&tokens);
+///
+/// // Identical tokens always produce identical digest
+/// let digest2 = compute_output_digest(&tokens);
+/// assert_eq!(digest, digest2);
+/// ```
+///
+/// # Determinism
+///
+/// This function is fully deterministic: given the same token sequence,
+/// it always produces the same digest across all platforms and versions.
 pub fn compute_output_digest(output_tokens: &[u32]) -> B3Hash {
     let mut buf = Vec::with_capacity(4 + output_tokens.len() * 4);
     buf.extend_from_slice(&(output_tokens.len() as u32).to_le_bytes());
@@ -536,6 +602,7 @@ pub fn compute_output_digest(output_tokens: &[u32]) -> B3Hash {
     }
     B3Hash::hash(&buf)
 }
+
 
 /// Hash a single token decision for the run_head chain.
 ///
@@ -690,6 +757,8 @@ mod tests {
             prefix_kv_bytes: 256 * 1024,
             // Model cache identity
             model_cache_identity_v2_digest_b3: Some([0x06u8; 32]),
+            // V5 fields default
+            ..Default::default()
         };
 
         // Compute digest using canonical V4
@@ -940,6 +1009,45 @@ mod tests {
         let d1 = compute_output_digest(&tokens);
         let d2 = compute_output_digest(&tokens);
         assert_eq!(d1, d2);
+    }
+
+    #[test]
+    fn test_output_digest_different_tokens_different_digest() {
+        let tokens1 = vec![1u32, 2, 3];
+        let tokens2 = vec![1u32, 2, 4];
+        let d1 = compute_output_digest(&tokens1);
+        let d2 = compute_output_digest(&tokens2);
+        assert_ne!(d1, d2, "Different tokens must produce different digest");
+    }
+
+    #[test]
+    fn test_output_digest_length_sensitive() {
+        // Tokens [1, 2] vs [1, 2, 0] should differ
+        let tokens1 = vec![1u32, 2];
+        let tokens2 = vec![1u32, 2, 0];
+        let d1 = compute_output_digest(&tokens1);
+        let d2 = compute_output_digest(&tokens2);
+        assert_ne!(d1, d2, "Different lengths must produce different digest");
+    }
+
+    #[test]
+    fn test_output_digest_empty_tokens() {
+        let tokens: Vec<u32> = vec![];
+        let digest = compute_output_digest(&tokens);
+        // Empty tokens should produce a valid, deterministic digest
+        let digest2 = compute_output_digest(&tokens);
+        assert_eq!(digest, digest2);
+        assert_ne!(digest, B3Hash::zero(), "Empty tokens should not produce zero hash");
+    }
+
+    #[test]
+    fn test_output_digest_includes_eos() {
+        // Verify EOS token (typically 2 or similar) affects digest
+        let tokens_no_eos = vec![101u32, 42, 100];
+        let tokens_with_eos = vec![101u32, 42, 100, 2]; // EOS = 2
+        let d1 = compute_output_digest(&tokens_no_eos);
+        let d2 = compute_output_digest(&tokens_with_eos);
+        assert_ne!(d1, d2, "EOS token must affect digest");
     }
 
     #[test]

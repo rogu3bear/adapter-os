@@ -99,9 +99,15 @@ impl ReplayInferenceResult {
         B3Hash::hash(&buf)
     }
 
-    /// Compute the output digest from tokens
+    /// Compute the output digest from tokens.
+    ///
+    /// Uses the canonical length-prefixed algorithm from `adapteros_core::compute_output_digest`.
+    /// Format: [token_count: u32 LE] [token_0: u32 LE] ... [token_n: u32 LE]
     pub fn compute_output_digest(tokens: &[u32]) -> B3Hash {
-        let mut buf = Vec::new();
+        // CRITICAL: Must match production algorithm in adapteros_core::receipt_digest
+        // and adapteros_db::inference_trace. Length prefix is required.
+        let mut buf = Vec::with_capacity(4 + tokens.len() * 4);
+        buf.extend_from_slice(&(tokens.len() as u32).to_le_bytes());
         for token in tokens {
             buf.extend_from_slice(&token.to_le_bytes());
         }

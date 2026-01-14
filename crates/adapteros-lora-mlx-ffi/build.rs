@@ -72,26 +72,9 @@ fn main() {
     println!("cargo:rerun-if-env-changed=MLX_FORCE_STUB");
     println!("cargo:rerun-if-env-changed=PKG_CONFIG_PATH");
 
-    // Check if mlx-rs-backend is enabled (pure Rust, deprecated/unsupported)
-    let mlx_rs_backend = env::var("CARGO_FEATURE_MLX_RS_BACKEND").is_ok();
-
     // Check if C++ MLX feature is enabled
     let real_mlx_enabled =
         env::var("CARGO_FEATURE_MLX").is_ok() || env::var("CARGO_FEATURE_REAL_MLX").is_ok();
-
-    // If using pure Rust mlx-rs backend, still compile C++ stub for FFI compatibility
-    // but the actual ML operations go through mlx-rs
-    if mlx_rs_backend {
-        println!("cargo:warning==========================================================");
-        println!("cargo:warning=MLX BACKEND: mlx-rs (deprecated)");
-        println!("cargo:warning=Using Rust mlx-rs bindings with C++ stub for FFI compat");
-        println!("cargo:warning==========================================================");
-        write_build_info(&MlxBuildInfo::stub("mlx-rs"));
-        compile_stub_wrapper();
-        println!("cargo:rustc-link-lib=static=mlx_wrapper_stub");
-        println!("cargo:rustc-cfg=mlx_stub");
-        return;
-    }
 
     // C++ FFI path
     if real_mlx_enabled {

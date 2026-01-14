@@ -20,6 +20,9 @@ fn default_repetition_ngram() -> u8 {
 fn default_repetition_window() -> u16 {
     32
 }
+fn default_repetition_threshold() -> u8 {
+    1
+}
 
 fn make_test_policy() -> StopPolicySpec {
     StopPolicySpec {
@@ -28,6 +31,7 @@ fn make_test_policy() -> StopPolicySpec {
         completion_threshold_q15: default_completion_threshold_q15(),
         repetition_ngram: default_repetition_ngram(),
         repetition_window: default_repetition_window(),
+        repetition_threshold: default_repetition_threshold(),
         stop_sequences: Vec::new(),
     }
 }
@@ -79,6 +83,8 @@ fn test_stop_reason_code_serialization() {
     let completion_confident = StopReasonCode::CompletionConfident;
     let repetition_guard = StopReasonCode::RepetitionGuard;
     let stop_sequence = StopReasonCode::StopSequence;
+    let cancelled = StopReasonCode::Cancelled;
+    let system_error = StopReasonCode::SystemError;
 
     // JSON serialization should use SCREAMING_SNAKE_CASE
     assert_eq!(
@@ -105,6 +111,16 @@ fn test_stop_reason_code_serialization() {
         serde_json::to_string(&stop_sequence).unwrap(),
         "\"STOP_SEQUENCE\"",
         "StopSequence should serialize to STOP_SEQUENCE"
+    );
+    assert_eq!(
+        serde_json::to_string(&cancelled).unwrap(),
+        "\"CANCELLED\"",
+        "Cancelled should serialize to CANCELLED"
+    );
+    assert_eq!(
+        serde_json::to_string(&system_error).unwrap(),
+        "\"SYSTEM_ERROR\"",
+        "SystemError should serialize to SYSTEM_ERROR"
     );
 }
 
@@ -174,6 +190,7 @@ fn test_stop_controller_determinism_no_rng() {
         completion_threshold_q15: 24576,
         repetition_ngram: 3,
         repetition_window: 32,
+        repetition_threshold: 1,
         stop_sequences: Vec::new(),
     };
 
@@ -238,6 +255,7 @@ fn test_stop_policy_spec_serialization_roundtrip() {
         completion_threshold_q15: 24576,
         repetition_ngram: 3,
         repetition_window: 32,
+        repetition_threshold: 1,
         stop_sequences: vec!["</s>".to_string(), "\n\n".to_string()],
     };
 
@@ -256,6 +274,7 @@ fn test_stop_policy_spec_serialization_roundtrip() {
     );
     assert_eq!(policy.repetition_ngram, deserialized.repetition_ngram);
     assert_eq!(policy.repetition_window, deserialized.repetition_window);
+    assert_eq!(policy.repetition_threshold, deserialized.repetition_threshold);
     assert_eq!(policy.stop_sequences, deserialized.stop_sequences);
 
     // Verify digest is stable after round-trip
@@ -282,6 +301,7 @@ fn test_all_stop_reason_codes_are_reachable() {
             completion_threshold_q15: 32767, // Max threshold, won't trigger
             repetition_ngram: 3,
             repetition_window: 32,
+            repetition_threshold: 1,
             stop_sequences: Vec::new(),
         };
         let mut controller = StopController::new(policy);
@@ -304,6 +324,7 @@ fn test_all_stop_reason_codes_are_reachable() {
             completion_threshold_q15: 32767,
             repetition_ngram: 3,
             repetition_window: 32,
+            repetition_threshold: 1,
             stop_sequences: Vec::new(),
         };
         let mut controller = StopController::new(policy);
@@ -328,6 +349,7 @@ fn test_all_stop_reason_codes_are_reachable() {
             completion_threshold_q15: 16384, // ~0.5 threshold
             repetition_ngram: 3,
             repetition_window: 32,
+            repetition_threshold: 1,
             stop_sequences: Vec::new(),
         };
         let mut controller = StopController::new(policy);
@@ -354,6 +376,7 @@ fn test_all_stop_reason_codes_are_reachable() {
             completion_threshold_q15: 32767, // Max, won't trigger
             repetition_ngram: 3,
             repetition_window: 32,
+            repetition_threshold: 1,
             stop_sequences: Vec::new(),
         };
         let mut controller = StopController::new(policy);
@@ -383,6 +406,7 @@ fn test_all_stop_reason_codes_are_reachable() {
             completion_threshold_q15: 32767,
             repetition_ngram: 3,
             repetition_window: 32,
+            repetition_threshold: 1,
             stop_sequences: vec!["END".to_string()],
         };
         let mut controller =
@@ -412,6 +436,7 @@ fn test_stop_controller_priority_order() {
         completion_threshold_q15: 0, // Would trigger COMPLETION_CONFIDENT
         repetition_ngram: 1,         // Would trigger REPETITION_GUARD immediately
         repetition_window: 2,
+        repetition_threshold: 1,
         stop_sequences: Vec::new(),
     };
     let mut controller = StopController::new(policy);
@@ -439,6 +464,7 @@ fn test_stop_policy_digest_changes_with_any_field() {
         completion_threshold_q15: 24576,
         repetition_ngram: 3,
         repetition_window: 32,
+        repetition_threshold: 1,
         stop_sequences: vec!["END".to_string()],
     };
     let base_digest = StopController::new(base_policy.clone())
@@ -480,6 +506,13 @@ fn test_stop_policy_digest_changes_with_any_field() {
     };
     assert_ne!(*StopController::new(p5).policy_digest(), base_digest);
 
+    // Changing repetition_threshold
+    let p5b = StopPolicySpec {
+        repetition_threshold: 2,
+        ..base_policy.clone()
+    };
+    assert_ne!(*StopController::new(p5b).policy_digest(), base_digest);
+
     // Changing eos_token_id to None
     let p6 = StopPolicySpec {
         eos_token_id: None,
@@ -506,6 +539,8 @@ fn test_stop_reason_code_from_string_roundtrip() {
         (StopReasonCode::CompletionConfident, "COMPLETION_CONFIDENT"),
         (StopReasonCode::RepetitionGuard, "REPETITION_GUARD"),
         (StopReasonCode::StopSequence, "STOP_SEQUENCE"),
+        (StopReasonCode::Cancelled, "CANCELLED"),
+        (StopReasonCode::SystemError, "SYSTEM_ERROR"),
     ];
 
     for (code, expected_str) in codes {
@@ -524,5 +559,210 @@ fn test_stop_reason_code_from_string_roundtrip() {
         // JSON deserialization should work
         let deserialized: StopReasonCode = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized, code);
+    }
+}
+
+#[test]
+fn test_repetition_detection_threshold_behavior() {
+    // Test that repetition_threshold controls when detection triggers
+    let vocab_size = 1000;
+
+    // Sequence where bigram [1,2] appears 3 times: [1,2,3,1,2,4,1,2]
+    let tokens = [1u32, 2, 3, 1, 2, 4, 1, 2];
+
+    // With threshold=1 (default): triggers when count > 1 (i.e., 2+ occurrences)
+    // The bigram [1,2] appears at positions 0, 3, and 6 (3 times)
+    // Should trigger after the second occurrence
+    {
+        let policy = StopPolicySpec {
+            output_max_tokens: 100,
+            eos_token_id: Some(999),
+            completion_threshold_q15: 32767,
+            repetition_ngram: 2, // minimum n-gram size
+            repetition_window: 32,
+            repetition_threshold: 1, // triggers when count > 1
+            stop_sequences: Vec::new(),
+        };
+        let mut controller = StopController::new(policy);
+        let logits = vec![0.0; vocab_size];
+
+        let mut triggered_at = None;
+        for (i, &token) in tokens.iter().enumerate() {
+            if let Some(decision) = controller.check_stop(token, 999, &logits) {
+                assert_eq!(decision.reason, StopReasonCode::RepetitionGuard);
+                triggered_at = Some(i);
+                break;
+            }
+        }
+        assert!(
+            triggered_at.is_some(),
+            "Repetition should be detected with threshold=1"
+        );
+    }
+
+    // With threshold=2: triggers when count > 2 (i.e., 3+ occurrences)
+    // Should trigger after the third occurrence of [1,2]
+    {
+        let policy = StopPolicySpec {
+            output_max_tokens: 100,
+            eos_token_id: Some(999),
+            completion_threshold_q15: 32767,
+            repetition_ngram: 2,
+            repetition_window: 32,
+            repetition_threshold: 2, // triggers when count > 2
+            stop_sequences: Vec::new(),
+        };
+        let mut controller = StopController::new(policy);
+        let logits = vec![0.0; vocab_size];
+
+        let mut triggered_at = None;
+        for (i, &token) in tokens.iter().enumerate() {
+            if let Some(decision) = controller.check_stop(token, 999, &logits) {
+                assert_eq!(decision.reason, StopReasonCode::RepetitionGuard);
+                triggered_at = Some(i);
+                break;
+            }
+        }
+        assert!(
+            triggered_at.is_some(),
+            "Repetition should be detected with threshold=2 after 3 occurrences"
+        );
+    }
+
+    // With threshold=3: triggers when count > 3 (i.e., 4+ occurrences)
+    // The bigram [1,2] only appears 3 times, so should NOT trigger
+    {
+        let policy = StopPolicySpec {
+            output_max_tokens: 100,
+            eos_token_id: Some(999),
+            completion_threshold_q15: 32767,
+            repetition_ngram: 2,
+            repetition_window: 32,
+            repetition_threshold: 3, // triggers when count > 3
+            stop_sequences: Vec::new(),
+        };
+        let mut controller = StopController::new(policy);
+        let logits = vec![0.0; vocab_size];
+
+        let mut triggered = false;
+        for &token in &tokens {
+            if controller.check_stop(token, 999, &logits).is_some() {
+                triggered = true;
+                break;
+            }
+        }
+        assert!(
+            !triggered,
+            "Repetition should NOT trigger with threshold=3 when count is only 3"
+        );
+    }
+}
+
+#[test]
+fn test_repetition_detection_bit_for_bit_determinism() {
+    // Verify that the same input sequence produces identical results across runs
+    // This tests that there's no HashMap iteration order non-determinism
+    let vocab_size = 1000;
+    let tokens = [1u32, 2, 3, 4, 1, 2, 3, 4, 5, 6, 1, 2, 3, 4]; // Multiple overlapping n-grams
+
+    let policy = StopPolicySpec {
+        output_max_tokens: 100,
+        eos_token_id: Some(999),
+        completion_threshold_q15: 32767,
+        repetition_ngram: 2,
+        repetition_window: 32,
+        repetition_threshold: 1,
+        stop_sequences: Vec::new(),
+    };
+
+    // Run 100 times to catch any non-determinism
+    let mut first_result: Option<(usize, StopReasonCode, u32)> = None;
+
+    for run in 0..100 {
+        let mut controller = StopController::new(policy.clone());
+        let logits = vec![0.0; vocab_size];
+
+        for (i, &token) in tokens.iter().enumerate() {
+            if let Some(decision) = controller.check_stop(token, 999, &logits) {
+                let result = (i, decision.reason, decision.token_index);
+                if let Some(ref first) = first_result {
+                    assert_eq!(
+                        &result, first,
+                        "Run {} produced different result: {:?} vs {:?}",
+                        run, result, first
+                    );
+                } else {
+                    first_result = Some(result);
+                }
+                break;
+            }
+        }
+    }
+
+    assert!(first_result.is_some(), "Should have detected repetition");
+}
+
+#[test]
+fn test_repetition_detection_scans_multiple_ngram_sizes() {
+    // Verify that detection scans n-grams from min to window/2
+    let vocab_size = 1000;
+
+    // Sequence with a repeated 4-gram but no repeated 2-gram or 3-gram
+    // [1,2,3,4,5,6,1,2,3,4] - 4-gram [1,2,3,4] appears twice
+    let tokens = [1u32, 2, 3, 4, 5, 6, 1, 2, 3, 4];
+
+    // With min_ngram=4, should detect the repeated 4-gram
+    {
+        let policy = StopPolicySpec {
+            output_max_tokens: 100,
+            eos_token_id: Some(999),
+            completion_threshold_q15: 32767,
+            repetition_ngram: 4, // minimum n-gram size
+            repetition_window: 32,
+            repetition_threshold: 1,
+            stop_sequences: Vec::new(),
+        };
+        let mut controller = StopController::new(policy);
+        let logits = vec![0.0; vocab_size];
+
+        let mut triggered = false;
+        for &token in &tokens {
+            if let Some(decision) = controller.check_stop(token, 999, &logits) {
+                assert_eq!(decision.reason, StopReasonCode::RepetitionGuard);
+                triggered = true;
+                break;
+            }
+        }
+        assert!(
+            triggered,
+            "Should detect 4-gram repetition when min_ngram=4"
+        );
+    }
+
+    // With min_ngram=5, should NOT detect (4-gram doesn't meet minimum)
+    {
+        let policy = StopPolicySpec {
+            output_max_tokens: 100,
+            eos_token_id: Some(999),
+            completion_threshold_q15: 32767,
+            repetition_ngram: 5, // minimum n-gram size > the repeated n-gram
+            repetition_window: 32,
+            repetition_threshold: 1,
+            stop_sequences: Vec::new(),
+        };
+        let mut controller = StopController::new(policy);
+        let logits = vec![0.0; vocab_size];
+
+        let mut triggered = false;
+        for &token in &tokens {
+            if controller.check_stop(token, 999, &logits).is_some() {
+                triggered = true;
+                break;
+            }
+        }
+        assert!(
+            !triggered,
+            "Should NOT detect when min_ngram=5 and only 4-gram repeats"
+        );
     }
 }

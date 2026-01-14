@@ -87,6 +87,7 @@ fuzz_target!(|data: &[u8]| {
                 prefix_kv_bytes: 0,
                 model_cache_identity_v2_digest_b3,
                 attestation: None,
+                equipment_profile: None,
             })
             .await;
 
