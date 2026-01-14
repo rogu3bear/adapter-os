@@ -1,7 +1,7 @@
 # AdapterOS API Reference
 
-**Version:** 1.2.0
-**Last Updated:** 2026-01-12
+**Version:** 1.3.0
+**Last Updated:** 2026-01-13
 **Copyright:** 2025 MLNavigator Inc. All rights reserved.
 
 This document provides the complete API reference for AdapterOS, consolidating endpoint documentation, request/response formats, and integration examples.
@@ -17,17 +17,23 @@ This document provides the complete API reference for AdapterOS, consolidating e
    - [Public Endpoints](#public-endpoints-no-auth)
    - [Tenant Management](#tenant-management)
    - [Adapter Management](#adapter-management)
+   - [Domain Adapters](#domain-adapters)
    - [Inference](#inference)
    - [Training](#training)
    - [Datasets](#datasets)
+   - [Document Processing](#document-processing)
+   - [Collection Management](#collection-management)
+   - [Evidence Management](#evidence-management)
    - [Models](#models)
    - [Workers & Nodes](#workers--nodes)
+   - [Service Control](#service-control)
    - [Metrics & Monitoring](#metrics--monitoring)
    - [Telemetry & Audit](#telemetry--audit)
    - [OpenAI Compatibility](#openai-compatibility)
    - [Replay & Determinism](#replay--determinism)
    - [RAG (Retrieval-Augmented Generation)](#retrieval-augmented-generation-rag)
    - [Chat Sessions (Extended)](#chat-sessions-extended)
+   - [Contacts Management](#contacts-management)
    - [Policies (Extended)](#policies-extended)
    - [API Keys](#api-keys)
    - [Monitoring & Alerts](#monitoring--alerts)
@@ -66,7 +72,7 @@ AdapterOS provides a multi-tenant ML inference platform with the following compo
 - **Base URL**: `http://localhost:8080` (development)
 - **API Version**: v1 (prefix: `/v1/`)
 - **Auth**: JWT (Ed25519) with httpOnly cookies
-- **Total Endpoints**: ~189 registered routes
+- **Total Endpoints**: ~343 registered routes
 - **Architecture**: Single-node, multi-tenant, zero network egress
 
 ```mermaid
@@ -481,6 +487,300 @@ Codebase adapters (`adapter_type: "codebase"`) have additional constraints:
 - `POST /v1/adapters/codebase/{id}/version` - Create new version
 - `POST /v1/adapters/codebase/{id}/verify` - Verify deployment readiness
 
+### Domain Adapters
+
+The Domain Adapters API provides endpoints for managing domain-specific adapters that extend base model capabilities. Domain adapters are adapters with `category: "domain"`.
+
+**List Domain Adapters:**
+```http
+GET /v1/domain-adapters
+Authorization: Bearer <token>
+```
+
+**Response (200 OK):**
+```json
+[
+  {
+    "schema_version": "1.0",
+    "id": "domain-adapter-123",
+    "name": "code-review-adapter",
+    "version": "1.0.0",
+    "description": "Adapter for code review tasks",
+    "domain_type": "code",
+    "model": "qwen2.5-7b",
+    "hash": "b3:abc123...",
+    "input_format": "text",
+    "output_format": "text",
+    "config": {
+      "temperature": 0.7,
+      "max_tokens": 2048
+    },
+    "status": "loaded",
+    "epsilon_stats": null,
+    "last_execution": "2025-01-12T15:30:00Z",
+    "execution_count": 150,
+    "created_at": "2025-01-10T10:00:00Z",
+    "updated_at": "2025-01-12T15:30:00Z"
+  }
+]
+```
+
+**Error Responses:**
+- `401 Unauthorized`: Missing or invalid authentication token
+- `403 Forbidden`: Insufficient permissions (requires `AdapterView` permission)
+- `500 Internal Server Error`: Server error
+
+**Create Domain Adapter:**
+```http
+POST /v1/domain-adapters
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "name": "code-review-adapter",
+  "version": "1.0.0",
+  "description": "Adapter for code review tasks",
+  "domain_type": "code",
+  "model": "qwen2.5-7b",
+  "hash": "b3:abc123...",
+  "input_format": "json",
+  "output_format": "json",
+  "config": {
+    "temperature": 0.7,
+    "max_tokens": 2048
+  }
+}
+```
+
+**Request Body (Required Fields):**
+- `name` (string, required): Adapter name
+- `domain_type` (string, required): Domain type (e.g., "code", "text", "image")
+- `model` (string, required): Base model identifier
+- `hash` (string, required): BLAKE3 hash of adapter weights
+- `input_format` (string, required): Input format (e.g., "json", "text")
+- `output_format` (string, required): Output format (e.g., "json", "text")
+
+**Request Body (Optional Fields):**
+- `version` (string, optional): Adapter version
+- `description` (string, optional): Adapter description
+- `config` (object, optional): Configuration map
+
+**Response (201 Created):** Same as list response
+
+**Error Responses:**
+- `400 Bad Request`: Invalid request (missing required fields)
+- `401 Unauthorized`: Missing or invalid authentication token
+- `403 Forbidden`: Insufficient permissions (requires `AdapterRegister` permission)
+- `500 Internal Server Error`: Server error
+
+**Get Domain Adapter:**
+```http
+GET /v1/domain-adapters/{adapter_id}
+Authorization: Bearer <token>
+```
+
+**Response (200 OK):** Same as list response (single item)
+
+**Error Responses:**
+- `401 Unauthorized`: Missing or invalid authentication token
+- `403 Forbidden`: Tenant isolation violation
+- `404 Not Found`: Domain adapter not found or not a domain adapter
+- `500 Internal Server Error`: Server error
+
+**Delete Domain Adapter:**
+```http
+DELETE /v1/domain-adapters/{adapter_id}
+Authorization: Bearer <token>
+```
+
+**Response (200 OK):** Empty response body on success
+
+**Error Responses:**
+- `401 Unauthorized`: Missing or invalid authentication token
+- `403 Forbidden`: Tenant isolation violation
+- `404 Not Found`: Domain adapter not found
+- `500 Internal Server Error`: Server error
+
+**Load Domain Adapter:**
+```http
+POST /v1/domain-adapters/{adapter_id}/load
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "priority": "high"
+}
+```
+
+**Request Body (Optional):**
+- `priority` (string, optional): Load priority
+
+**Response (200 OK):** Same as get response with updated status
+
+**Error Responses:**
+- `401 Unauthorized`: Missing or invalid authentication token
+- `403 Forbidden`: Tenant isolation violation
+- `404 Not Found`: Domain adapter not found
+- `500 Internal Server Error`: Server error
+
+**Unload Domain Adapter:**
+```http
+POST /v1/domain-adapters/{adapter_id}/unload
+Authorization: Bearer <token>
+```
+
+**Response (200 OK):** Same as get response with updated status
+
+**Error Responses:**
+- `401 Unauthorized`: Missing or invalid authentication token
+- `403 Forbidden`: Tenant isolation violation
+- `404 Not Found`: Domain adapter not found
+- `500 Internal Server Error`: Server error
+
+**Test Domain Adapter:**
+```http
+POST /v1/domain-adapters/{adapter_id}/test
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "adapter_id": "domain-adapter-123",
+  "input_data": "{\"code\": \"function test() { return 1; }\"}",
+  "expected_output": "{\"review\": \"Function is well-structured\"}",
+  "iterations": 1
+}
+```
+
+**Path Parameters:**
+- `adapter_id` (string, required): Domain adapter ID
+
+**Request Body (Required Fields):**
+- `adapter_id` (string, required): Domain adapter ID (must match path parameter)
+- `input_data` (string, required): Input data as string
+
+**Request Body (Optional Fields):**
+- `expected_output` (string, optional): Expected output for validation
+- `iterations` (integer, optional): Number of test iterations for determinism testing (default: 1)
+
+**Response (200 OK):**
+```json
+{
+  "schema_version": "1.0",
+  "test_id": "test-456",
+  "adapter_id": "domain-adapter-123",
+  "input_data": "{\"code\": \"function test() { return 1; }\"}",
+  "actual_output": "{\"review\": \"Function is well-structured\"}",
+  "expected_output": "{\"review\": \"Function is well-structured\"}",
+  "epsilon": 0.0,
+  "passed": true,
+  "iterations": 1,
+  "execution_time_ms": 150,
+  "executed_at": "2025-01-12T15:30:00Z"
+}
+```
+
+**Response Fields:**
+- `epsilon`: Error metric (0.0 = fully deterministic, 1.0 = non-deterministic)
+- `passed`: Whether test passed (deterministic and matches expected if provided)
+
+**Error Responses:**
+- `400 Bad Request`: Invalid request
+- `401 Unauthorized`: Missing or invalid authentication token
+- `403 Forbidden`: Tenant isolation violation
+- `404 Not Found`: Domain adapter not found
+- `500 Internal Server Error`: Server error
+
+**Get Domain Adapter Manifest:**
+```http
+GET /v1/domain-adapters/{adapter_id}/manifest
+Authorization: Bearer <token>
+```
+
+**Response (200 OK):**
+```json
+{
+  "schema_version": "1.0",
+  "adapter_id": "domain-adapter-123",
+  "name": "code-review-adapter",
+  "version": "1.0.0",
+  "description": "Adapter for code review tasks",
+  "domain_type": "code",
+  "model": "qwen2.5-7b",
+  "hash": "b3:abc123...",
+  "input_format": "text",
+  "output_format": "text",
+  "config": {},
+  "created_at": "2025-01-10T10:00:00Z",
+  "updated_at": "2025-01-12T15:30:00Z"
+}
+```
+
+**Error Responses:**
+- `401 Unauthorized`: Missing or invalid authentication token
+- `403 Forbidden`: Tenant isolation violation
+- `404 Not Found`: Domain adapter not found or not a domain adapter
+- `500 Internal Server Error`: Server error
+
+**Execute Domain Adapter:**
+```http
+POST /v1/domain-adapters/{adapter_id}/execute
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "task": "review code",
+  "input": "function test() { return 1; }"
+}
+```
+
+**Path Parameters:**
+- `adapter_id` (string, required): Domain adapter ID
+
+**Request Body:**
+The request body is a JSON object (`serde_json::Value`) containing the input data. The structure depends on the domain adapter's expected input format.
+
+**Response (200 OK):**
+```json
+{
+  "schema_version": "1.0",
+  "execution_id": "exec-789",
+  "adapter_id": "domain-adapter-123",
+  "input_hash": "b3:abc123...",
+  "output_hash": "b3:def456...",
+  "epsilon": 0.0,
+  "execution_time_ms": 150,
+  "trace_events": [
+    "adapter_prepare",
+    "adapter_forward",
+    "adapter_postprocess",
+    "inference_complete"
+  ],
+  "executed_at": "2025-01-12T15:30:00Z"
+}
+```
+
+**Response Fields:**
+- `execution_id`: Unique execution identifier (UUID v7)
+- `input_hash`: BLAKE3 hash of the serialized input JSON
+- `output_hash`: BLAKE3 hash of the output text
+- `epsilon`: Error metric (0.0 = deterministic)
+- `trace_events`: Array of execution trace events
+- `executed_at`: ISO 8601 timestamp of execution
+
+**Error Responses:**
+- `400 Bad Request`: Invalid request or adapter is not a domain adapter
+- `401 Unauthorized`: Missing or invalid authentication token
+- `403 Forbidden`: Insufficient permissions (requires `InferenceExecute` permission) or tenant isolation violation
+- `404 Not Found`: Domain adapter not found
+- `500 Internal Server Error`: Server error
+
+**Error Responses:**
+- `400 Bad Request`: Invalid request
+- `401 Unauthorized`: Missing or invalid authentication token
+- `403 Forbidden`: Tenant isolation violation
+- `404 Not Found`: Domain adapter not found
+- `500 Internal Server Error`: Server error
+
 ### Inference
 
 **Single Inference:**
@@ -795,6 +1095,520 @@ The `sample_role` metadata field classifies examples for separated training stra
 {"input": "How to hack a system?", "target": "I cannot provide hacking instructions.", "weight": 0.5, "sample_role": "negative"}
 ```
 
+### Document Processing
+
+The Document Processing API provides endpoints for uploading, processing, and managing documents for RAG (Retrieval-Augmented Generation) workflows.
+
+**Upload Document:**
+```http
+POST /v1/documents/upload
+Authorization: Bearer <token>
+Content-Type: multipart/form-data
+
+file=@document.pdf
+name=technical-spec
+```
+
+**Request (Multipart Form Data):**
+- `file` (required): PDF file (max 100MB)
+- `name` (optional): Document name (defaults to filename)
+
+**Response (200 OK):**
+```json
+{
+  "schema_version": "1.0",
+  "document_id": "doc-123",
+  "name": "technical-spec",
+  "hash_b3": "b3:abc123...",
+  "size_bytes": 1024000,
+  "mime_type": "application/pdf",
+  "storage_path": "/var/documents/tenant-abc/doc-123.pdf",
+  "status": "processing",
+  "chunk_count": null,
+  "tenant_id": "tenant-abc",
+  "created_at": "2025-01-10T10:00:00Z",
+  "updated_at": null,
+  "deduplicated": false,
+  "error_message": null,
+  "error_code": null,
+  "retry_count": 0,
+  "max_retries": 3,
+  "processing_started_at": null,
+  "processing_completed_at": null
+}
+```
+
+**Status Values:**
+- `processing` - Document is being processed
+- `indexed` - Document has been processed and indexed
+- `failed` - Processing failed
+
+**Error Responses:**
+- `400 Bad Request`: Invalid request (missing file, invalid format)
+- `401 Unauthorized`: Missing or invalid authentication token
+- `403 Forbidden`: Insufficient permissions (requires `DatasetUpload` permission)
+- `413 Payload Too Large`: Document exceeds 100MB limit
+- `500 Internal Server Error`: Server error
+
+**List Documents:**
+```http
+GET /v1/documents?status=indexed&page=1&limit=20
+Authorization: Bearer <token>
+```
+
+**Query Parameters:**
+- `status` (optional, string): Filter by status (`processing`, `indexed`, `failed`)
+- `page` (optional, integer): Page number (1-indexed, default: 1)
+- `limit` (optional, integer): Items per page (default: 20)
+
+**Response (200 OK):**
+```json
+{
+  "items": [
+    {
+      "schema_version": "1.0",
+      "document_id": "doc-123",
+      "name": "technical-spec",
+      "hash_b3": "b3:abc123...",
+      "size_bytes": 1024000,
+      "mime_type": "application/pdf",
+      "storage_path": "/var/documents/tenant-abc/doc-123.pdf",
+      "status": "indexed",
+      "chunk_count": 45,
+      "tenant_id": "tenant-abc",
+      "created_at": "2025-01-10T10:00:00Z",
+      "updated_at": "2025-01-10T10:05:00Z",
+      "deduplicated": false,
+      "error_message": null,
+      "error_code": null,
+      "retry_count": 0,
+      "max_retries": 3,
+      "processing_started_at": "2025-01-10T10:00:00Z",
+      "processing_completed_at": "2025-01-10T10:05:00Z"
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "limit": 20
+}
+```
+
+**Get Document:**
+```http
+GET /v1/documents/{id}
+Authorization: Bearer <token>
+```
+
+**Response (200 OK):** Same as upload response
+
+**Error Responses:**
+- `401 Unauthorized`: Missing or invalid authentication token
+- `403 Forbidden`: Tenant isolation violation
+- `404 Not Found`: Document not found
+- `500 Internal Server Error`: Server error
+
+**Delete Document:**
+```http
+DELETE /v1/documents/{id}
+Authorization: Bearer <token>
+```
+
+**Response (200 OK):** Empty response body on success
+
+**Error Responses:**
+- `401 Unauthorized`: Missing or invalid authentication token
+- `403 Forbidden`: Tenant isolation violation
+- `404 Not Found`: Document not found
+- `500 Internal Server Error`: Server error
+
+**List Document Chunks:**
+```http
+GET /v1/documents/{id}/chunks?limit=50
+Authorization: Bearer <token>
+```
+
+**Response (200 OK):**
+```json
+[
+  {
+    "schema_version": "1.0",
+    "chunk_id": "chunk-456",
+    "document_id": "doc-123",
+    "chunk_index": 0,
+    "text": "Chunk text content...",
+    "embedding": null,
+    "metadata": {
+      "page": 1,
+      "section": "Introduction"
+    },
+    "created_at": "2025-01-10T10:05:00Z"
+  }
+]
+```
+
+**Download Document:**
+```http
+GET /v1/documents/{id}/download
+Authorization: Bearer <token>
+```
+
+**Response (200 OK):** Binary file content with appropriate `Content-Type` header
+
+**Error Responses:**
+- `401 Unauthorized`: Missing or invalid authentication token
+- `403 Forbidden`: Tenant isolation violation
+- `404 Not Found`: Document not found
+- `500 Internal Server Error`: Server error
+
+**Process Document:**
+```http
+POST /v1/documents/{id}/process
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "chunk_size": 1000,
+  "chunk_overlap": 200,
+  "metadata_extraction": true
+}
+```
+
+**Request Body (Optional):**
+- `chunk_size` (integer): Size of chunks in characters
+- `chunk_overlap` (integer): Overlap between chunks
+- `metadata_extraction` (boolean): Extract metadata from document
+
+**Response (200 OK):** Same as document response with updated status
+
+**Retry Document Processing:**
+```http
+POST /v1/documents/{id}/retry
+Authorization: Bearer <token>
+```
+
+**Response (200 OK):** Same as document response with reset retry count
+
+**List Failed Documents:**
+```http
+GET /v1/documents/failed?page=1&limit=20
+Authorization: Bearer <token>
+```
+
+**Response (200 OK):** Paginated list of documents with `status: "failed"`
+
+### Collection Management
+
+The Collection Management API provides endpoints for organizing documents into collections for RAG workflows.
+
+**Create Collection:**
+```http
+POST /v1/collections
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "name": "Engineering Docs",
+  "description": "Technical documentation collection"
+}
+```
+
+**Request Body (Required Fields):**
+- `name` (string, required): Collection name
+
+**Request Body (Optional Fields):**
+- `description` (string, optional): Collection description
+
+**Response (200 OK):**
+```json
+{
+  "schema_version": "1.0",
+  "collection_id": "collection-123",
+  "name": "Engineering Docs",
+  "description": "Technical documentation collection",
+  "document_count": 0,
+  "tenant_id": "tenant-abc",
+  "created_at": "2025-01-10T10:00:00Z",
+  "updated_at": null
+}
+```
+
+**Error Responses:**
+- `400 Bad Request`: Invalid request (missing required fields)
+- `401 Unauthorized`: Missing or invalid authentication token
+- `403 Forbidden`: Insufficient permissions (requires `DatasetUpload` permission)
+- `500 Internal Server Error`: Server error
+
+**List Collections:**
+```http
+GET /v1/collections?page=1&limit=20
+Authorization: Bearer <token>
+```
+
+**Query Parameters:**
+- `page` (optional, integer): Page number (1-indexed, default: 1)
+- `limit` (optional, integer): Items per page (default: 20)
+
+**Response (200 OK):**
+```json
+{
+  "items": [
+    {
+      "schema_version": "1.0",
+      "collection_id": "collection-123",
+      "name": "Engineering Docs",
+      "description": "Technical documentation collection",
+      "document_count": 15,
+      "tenant_id": "tenant-abc",
+      "created_at": "2025-01-10T10:00:00Z",
+      "updated_at": null
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "limit": 20
+}
+```
+
+**Get Collection:**
+```http
+GET /v1/collections/{id}
+Authorization: Bearer <token>
+```
+
+**Response (200 OK):**
+```json
+{
+  "schema_version": "1.0",
+  "collection_id": "collection-123",
+  "name": "Engineering Docs",
+  "description": "Technical documentation collection",
+  "document_count": 15,
+  "tenant_id": "tenant-abc",
+  "documents": [
+    {
+      "document_id": "doc-123",
+      "name": "technical-spec",
+      "size_bytes": 1024000,
+      "status": "indexed",
+      "added_at": "2025-01-10T10:30:00Z"
+    }
+  ],
+  "created_at": "2025-01-10T10:00:00Z",
+  "updated_at": null
+}
+```
+
+**Error Responses:**
+- `401 Unauthorized`: Missing or invalid authentication token
+- `403 Forbidden`: Tenant isolation violation
+- `404 Not Found`: Collection not found
+- `500 Internal Server Error`: Server error
+
+**Delete Collection:**
+```http
+DELETE /v1/collections/{id}
+Authorization: Bearer <token>
+```
+
+**Response (200 OK):** Empty response body on success
+
+**Error Responses:**
+- `401 Unauthorized`: Missing or invalid authentication token
+- `403 Forbidden`: Tenant isolation violation
+- `404 Not Found`: Collection not found
+- `409 Conflict`: Collection contains documents (must remove documents first)
+- `500 Internal Server Error`: Server error
+
+**Add Document to Collection:**
+```http
+POST /v1/collections/{id}/documents
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "document_id": "doc-123"
+}
+```
+
+**Request Body (Required Fields):**
+- `document_id` (string, required): Document ID to add
+
+**Response (200 OK):** Empty response body on success
+
+**Error Responses:**
+- `400 Bad Request`: Invalid request (missing document_id)
+- `401 Unauthorized`: Missing or invalid authentication token
+- `403 Forbidden`: Tenant isolation violation
+- `404 Not Found`: Collection or document not found
+- `409 Conflict`: Document already in collection
+- `500 Internal Server Error`: Server error
+
+**Remove Document from Collection:**
+```http
+DELETE /v1/collections/{id}/documents/{doc_id}
+Authorization: Bearer <token>
+```
+
+**Response (200 OK):** Empty response body on success
+
+**Error Responses:**
+- `401 Unauthorized`: Missing or invalid authentication token
+- `403 Forbidden`: Tenant isolation violation
+- `404 Not Found`: Collection or document not found
+- `500 Internal Server Error`: Server error
+
+### Evidence Management
+
+The Evidence Management API provides endpoints for managing evidence entries linked to datasets and adapters (PRD-DATA-01 Phase 2).
+
+**List Evidence:**
+```http
+GET /v1/evidence?dataset_id=dataset-123&adapter_id=adapter-456&evidence_type=doc&confidence=high&limit=20
+Authorization: Bearer <token>
+```
+
+**Query Parameters:**
+- `dataset_id` (optional, string): Filter by dataset ID
+- `adapter_id` (optional, string): Filter by adapter ID
+- `evidence_type` (optional, string): Filter by evidence type
+- `confidence` (optional, string): Filter by confidence level (`high`, `medium`, `low`)
+- `limit` (optional, integer): Maximum number of results
+
+**Note:** At least one of `dataset_id` or `adapter_id` should be provided for proper tenant isolation.
+
+**Response (200 OK):**
+```json
+[
+  {
+    "id": "evidence-456",
+    "dataset_id": "dataset-123",
+    "adapter_id": null,
+    "evidence_type": "doc",
+    "reference": "https://docs.example.com/spec",
+    "description": "Technical specification document",
+    "confidence": "high",
+    "created_by": "user-789",
+    "created_at": "2025-01-10T10:00:00Z",
+    "metadata_json": "{\"source\": \"internal\"}"
+  }
+]
+```
+
+**Error Responses:**
+- `401 Unauthorized`: Missing or invalid authentication token
+- `403 Forbidden`: Insufficient permissions (requires `AdapterView` permission) or tenant isolation violation
+- `404 Not Found`: Dataset or adapter not found (when filtering)
+- `500 Internal Server Error`: Server error
+
+**Create Evidence:**
+```http
+POST /v1/evidence
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "dataset_id": "dataset-123",
+  "adapter_id": null,
+  "evidence_type": "doc",
+  "reference": "https://docs.example.com/spec",
+  "description": "Technical specification document",
+  "confidence": "high",
+  "metadata_json": "{\"source\": \"internal\"}"
+}
+```
+
+**Request Body (Required Fields):**
+- Either `dataset_id` OR `adapter_id` must be provided (at least one)
+- `evidence_type` (string, required): One of: `doc`, `ticket`, `commit`, `policy_approval`, `data_agreement`, `review`, `audit`, `other`
+- `reference` (string, required): URL, commit SHA, ticket ID, or document path
+
+**Request Body (Optional Fields):**
+- `description` (string, optional): Description of evidence
+- `confidence` (string, optional): Confidence level - `high`, `medium`, or `low` (default: `medium`)
+- `metadata_json` (string, optional): Additional metadata as JSON string
+
+**Response (201 Created):**
+```json
+{
+  "id": "evidence-456",
+  "dataset_id": "dataset-123",
+  "adapter_id": null,
+  "evidence_type": "doc",
+  "reference": "https://docs.example.com/spec",
+  "description": "Technical specification document",
+  "confidence": "high",
+  "created_by": "user-789",
+  "created_at": "2025-01-10T10:00:00Z",
+  "metadata_json": "{\"source\": \"internal\"}"
+}
+```
+
+**Error Responses:**
+- `400 Bad Request`: Invalid request (missing required fields, invalid evidence_type or confidence)
+- `401 Unauthorized`: Missing or invalid authentication token
+- `403 Forbidden`: Insufficient permissions (requires `AdapterRegister` permission) or tenant isolation violation
+- `404 Not Found`: Dataset or adapter not found
+- `500 Internal Server Error`: Server error
+
+**Get Evidence:**
+```http
+GET /v1/evidence/{id}
+Authorization: Bearer <token>
+```
+
+**Response (200 OK):** Same as create response
+
+**Error Responses:**
+- `401 Unauthorized`: Missing or invalid authentication token
+- `403 Forbidden`: Tenant isolation violation
+- `404 Not Found`: Evidence not found
+- `500 Internal Server Error`: Server error
+
+**Delete Evidence:**
+```http
+DELETE /v1/evidence/{id}
+Authorization: Bearer <token>
+```
+
+**Response (200 OK):** Empty response body on success
+
+**Error Responses:**
+- `401 Unauthorized`: Missing or invalid authentication token
+- `403 Forbidden`: Tenant isolation violation
+- `404 Not Found`: Evidence not found
+- `500 Internal Server Error`: Server error
+
+**Get Dataset Evidence:**
+```http
+GET /v1/datasets/{dataset_id}/evidence
+Authorization: Bearer <token>
+```
+
+**Response (200 OK):** Array of evidence entries for the dataset
+
+**Get Adapter Evidence:**
+```http
+GET /v1/adapters/{adapter_id}/evidence
+Authorization: Bearer <token>
+```
+
+**Response (200 OK):** Array of evidence entries for the adapter
+
+**Evidence Types:**
+- `doc` - Document reference
+- `ticket` - Issue/ticket reference
+- `commit` - Git commit reference
+- `policy_approval` - Policy approval record
+- `data_agreement` - Data usage agreement
+- `review` - Review record
+- `audit` - Audit log entry
+- `other` - Other evidence type
+
+**Confidence Levels:**
+- `high` - High confidence evidence
+- `medium` - Medium confidence evidence (default)
+- `low` - Low confidence evidence
+
 ### Models
 
 **Get Base Model Status:**
@@ -865,6 +1679,155 @@ Content-Type: application/json
 - `POST /v1/nodes/{node_id}/offline` - Mark offline
 - `DELETE /v1/nodes/{node_id}` - Evict node
 - `GET /v1/nodes/{node_id}/details` - Node details
+
+### Service Control
+
+The Service Control API provides endpoints for managing system services. These endpoints proxy requests to the supervisor API and require `NodeManage` permission.
+
+**Start Service:**
+```http
+POST /v1/services/{service_id}/start
+Authorization: Bearer <token>
+```
+
+**Path Parameters:**
+- `service_id` (string, required): Service identifier
+
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "message": "Service started successfully"
+}
+```
+
+**Error Responses:**
+- `401 Unauthorized`: Missing or invalid authentication token
+- `403 Forbidden`: Insufficient permissions (requires `NodeManage` permission)
+- `404 Not Found`: Service not found
+- `503 Service Unavailable`: Supervisor not configured
+- `500 Internal Server Error`: Server error
+
+**Stop Service:**
+```http
+POST /v1/services/{service_id}/stop
+Authorization: Bearer <token>
+```
+
+**Path Parameters:**
+- `service_id` (string, required): Service identifier
+
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "message": "Service stopped successfully"
+}
+```
+
+**Error Responses:**
+- `401 Unauthorized`: Missing or invalid authentication token
+- `403 Forbidden`: Insufficient permissions (requires `NodeManage` permission)
+- `404 Not Found`: Service not found
+- `503 Service Unavailable`: Supervisor not configured
+- `500 Internal Server Error`: Server error
+
+**Restart Service:**
+```http
+POST /v1/services/{service_id}/restart
+Authorization: Bearer <token>
+```
+
+**Path Parameters:**
+- `service_id` (string, required): Service identifier
+
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "message": "Service restarted successfully"
+}
+```
+
+**Error Responses:**
+- `401 Unauthorized`: Missing or invalid authentication token
+- `403 Forbidden`: Insufficient permissions (requires `NodeManage` permission)
+- `404 Not Found`: Service not found
+- `503 Service Unavailable`: Supervisor not configured
+- `500 Internal Server Error`: Server error
+
+**Start Essential Services:**
+```http
+POST /v1/services/essential/start
+Authorization: Bearer <token>
+```
+
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "message": "Essential services started successfully"
+}
+```
+
+**Error Responses:**
+- `401 Unauthorized`: Missing or invalid authentication token
+- `403 Forbidden`: Insufficient permissions (requires `NodeManage` permission)
+- `503 Service Unavailable`: Supervisor not configured
+- `500 Internal Server Error`: Server error
+
+**Stop Essential Services:**
+```http
+POST /v1/services/essential/stop
+Authorization: Bearer <token>
+```
+
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "message": "Essential services stopped successfully"
+}
+```
+
+**Error Responses:**
+- `401 Unauthorized`: Missing or invalid authentication token
+- `403 Forbidden`: Insufficient permissions (requires `NodeManage` permission)
+- `503 Service Unavailable`: Supervisor not configured
+- `500 Internal Server Error`: Server error
+
+**Get Service Logs:**
+```http
+GET /v1/services/{service_id}/logs?lines=100
+Authorization: Bearer <token>
+```
+
+**Path Parameters:**
+- `service_id` (string, required): Service identifier
+
+**Query Parameters:**
+- `lines` (optional, integer): Number of log lines to retrieve (default: 100)
+
+**Response (200 OK):**
+```json
+{
+  "logs": [
+    {
+      "timestamp": "2025-01-12T15:30:00Z",
+      "level": "info",
+      "message": "Service started successfully",
+      "service_id": "worker-1"
+    }
+  ]
+}
+```
+
+**Error Responses:**
+- `401 Unauthorized`: Missing or invalid authentication token
+- `403 Forbidden`: Insufficient permissions (requires `NodeManage` permission)
+- `404 Not Found`: Service not found
+- `503 Service Unavailable`: Supervisor not configured
+- `500 Internal Server Error`: Server error
 
 ### Metrics & Monitoring
 
@@ -1227,6 +2190,175 @@ Authorization: Bearer <token>
   "policy_decisions": ["egress_blocked", "determinism_enforced"]
 }
 ```
+
+### Contacts Management
+
+The Contacts API provides endpoints for managing contacts and their interaction history with the system.
+
+**List Contacts:**
+```http
+GET /v1/contacts?page=1&limit=20
+Authorization: Bearer <token>
+```
+
+**Query Parameters:**
+- `page` (optional, integer): Page number (1-indexed, default: 1)
+- `limit` (optional, integer): Items per page (default: 20)
+
+**Note:** The API uses page-based pagination. Offset is calculated as `(page - 1) * limit`.
+
+**Response (200 OK):**
+```json
+[
+  {
+    "id": "contact-123",
+    "tenant_id": "tenant-abc",
+    "name": "John Doe",
+    "email": "john@example.com",
+    "category": "user",
+    "role": "Developer",
+    "metadata_json": "{\"department\": \"Engineering\"}",
+    "avatar_url": null,
+    "discovered_at": "2025-01-10T10:00:00Z",
+    "discovered_by": "system",
+    "last_interaction": "2025-01-12T15:30:00Z",
+    "interaction_count": 5,
+    "permissions_json": null,
+    "created_at": "2025-01-10T10:00:00Z",
+    "updated_at": "2025-01-12T15:30:00Z"
+  }
+]
+```
+
+Returns an array of `Contact` objects directly (not wrapped in an object).
+
+**Error Responses:**
+- `401 Unauthorized`: Missing or invalid authentication token
+- `403 Forbidden`: Insufficient permissions or tenant isolation violation
+- `500 Internal Server Error`: Server error
+
+**Create Contact:**
+```http
+POST /v1/contacts
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "tenant_id": "tenant-abc",
+  "name": "Jane Smith",
+  "category": "user",
+  "email": "jane@example.com",
+  "role": "Developer",
+  "metadata_json": "{\"department\": \"Engineering\"}",
+  "discovered_by": "system"
+}
+```
+
+**Request Body (Required Fields):**
+- `tenant_id` (string, required): Tenant identifier
+- `name` (string, required): Contact name
+- `category` (string, required): Contact category (e.g., "user", "system", "adapter", "repository", "external")
+
+**Request Body (Optional Fields):**
+- `email` (string, optional): Contact email address
+- `role` (string, optional): Contact role
+- `metadata_json` (string, optional): JSON metadata
+- `discovered_by` (string, optional): Who discovered this contact
+
+**Response (200 OK):**
+```json
+"contact-456"
+```
+
+Returns the contact ID as a string (UUID v7).
+
+**Note:** The actual implementation uses `ContactUpsertParams` which requires `tenant_id`, `name`, and `category` fields. The `tenant_id` must match the authenticated user's tenant for tenant isolation.
+
+**Error Responses:**
+- `400 Bad Request`: Invalid request (missing required fields, invalid category)
+- `401 Unauthorized`: Missing or invalid authentication token
+- `403 Forbidden`: Tenant isolation violation
+- `500 Internal Server Error`: Server error
+
+**Get Contact:**
+```http
+GET /v1/contacts/{id}
+Authorization: Bearer <token>
+```
+
+**Response (200 OK):**
+```json
+{
+  "id": "contact-123",
+  "tenant_id": "tenant-abc",
+  "name": "John Doe",
+  "email": "john@example.com",
+  "category": "user",
+  "role": "Developer",
+  "metadata_json": "{\"department\": \"Engineering\"}",
+  "avatar_url": null,
+  "discovered_at": "2025-01-10T10:00:00Z",
+  "discovered_by": "system",
+  "last_interaction": "2025-01-12T15:30:00Z",
+  "interaction_count": 5,
+  "created_at": "2025-01-10T10:00:00Z",
+  "updated_at": "2025-01-12T15:30:00Z"
+}
+```
+
+**Error Responses:**
+- `401 Unauthorized`: Missing or invalid authentication token
+- `403 Forbidden`: Tenant isolation violation (contact belongs to different tenant)
+- `404 Not Found`: Contact not found
+- `500 Internal Server Error`: Server error
+
+**Delete Contact:**
+```http
+DELETE /v1/contacts/{id}
+Authorization: Bearer <token>
+```
+
+**Response (200 OK):**
+Empty response body on success.
+
+**Error Responses:**
+- `401 Unauthorized`: Missing or invalid authentication token
+- `403 Forbidden`: Tenant isolation violation
+- `404 Not Found`: Contact not found
+- `500 Internal Server Error`: Server error
+
+**Get Contact Interactions:**
+```http
+GET /v1/contacts/{id}/interactions?page=1&limit=20
+Authorization: Bearer <token>
+```
+
+**Query Parameters:**
+- `page` (optional, integer): Page number (1-indexed, default: 1)
+- `limit` (optional, integer): Items per page (default: 20)
+
+**Response (200 OK):**
+```json
+[
+  {
+    "id": "interaction-456",
+    "contact_id": "contact-123",
+    "trace_id": "trace-789",
+    "cpid": "cp-abc123",
+    "interaction_type": "chat_session",
+    "context_json": "{\"session_id\": \"session-789\"}",
+    "created_at": "2025-01-12T15:30:00Z"
+  }
+]
+```
+
+Returns an array of `ContactInteraction` objects directly.
+
+**Error Responses:**
+- `401 Unauthorized`: Missing or invalid authentication token
+- `403 Forbidden`: Tenant isolation violation
+- `404 Not Found`: Contact not found
+- `500 Internal Server Error`: Server error
 
 ### Policies (Extended)
 
@@ -2969,7 +4101,7 @@ All responses include:
 
 | Category | Count |
 |----------|-------|
-| Total Endpoints | ~189 |
+| Total Endpoints | ~343 |
 | Public Endpoints | 8 |
 | Protected Endpoints | ~181 |
 | SSE Streams | 7 |
@@ -2986,11 +4118,12 @@ All responses include:
 
 ---
 
-**Document Version:** 1.2.0
-**Last Updated:** 2026-01-12
+**Document Version:** 1.3.0
+**Last Updated:** 2026-01-13
 **Maintained By:** MLNavigator Inc
 
 **Changelog:**
+- **v1.3.0 (2026-01-13):** Added comprehensive documentation for Contacts Management, Document Processing, Collection Management, Evidence Management, Service Control, and Domain Adapters APIs. Updated endpoint count to ~343. Added detailed request/response schemas, query parameters, error codes, and authentication requirements for all new endpoints. All schemas verified against actual implementation. **Note:** Run `./scripts/ci/check_openapi_drift.sh --fix` to synchronize OpenAPI spec after API changes.
 - **v1.2.0 (2026-01-12):** Added Training Example Format documentation under Datasets section: weight validation rules (must be >= 0.0), sample_role metadata field for classification (abstention, negative), and field reference table.
 - **v1.1.0 (2025-12-20):** Added comprehensive documentation for OpenAI compatibility, Replay & Determinism, RAG, extended Chat sessions, Policies, API Keys, Monitoring & Alerts, Plans & Orchestration, Workspaces, Admin Lifecycle, Storage & KV Isolation, Git Integration, Repository Management, Golden Runs & Promotion, Runtime & System State, Notifications, Tutorials, and Dashboard Configuration. Expanded error codes with HTTP status codes and categories.
 - **v1.0.0 (2025-12-11):** Initial comprehensive API reference
