@@ -74,43 +74,66 @@ where
         let fetch_version = Arc::clone(&fetch_version_clone);
         let version = fetch_version.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
 
-        // Defer state update to next microtask to avoid RefCell re-entrancy
-        // when called from click handlers while async tasks complete
+        // Defer ENTIRE refetch to next microtask to avoid RefCell re-entrancy
+        // when called from click handlers. Moving spawn_local inside the timeout
+        // ensures the click handler's borrow is released before any signal mutations.
         #[cfg(target_arch = "wasm32")]
         {
-            let set_state = set_state.clone();
+            let set_state_loading = set_state.clone();
+            let set_state_result = set_state.clone();
+            let fetch_version_check = Arc::clone(&fetch_version);
             gloo_timers::callback::Timeout::new(0, move || {
-                set_state.set(LoadingState::Loading);
+                set_state_loading.set(LoadingState::Loading);
+
+                wasm_bindgen_futures::spawn_local(async move {
+                    match fetch(client).await {
+                        Ok(data) => {
+                            if fetch_version_check.load(std::sync::atomic::Ordering::SeqCst)
+                                == version
+                            {
+                                set_state_result.set(LoadingState::Loaded(data));
+                            }
+                        }
+                        Err(e) => {
+                            if e.is_aborted() {
+                                return;
+                            }
+                            if fetch_version_check.load(std::sync::atomic::Ordering::SeqCst)
+                                == version
+                            {
+                                let page = get_current_path();
+                                report_error(&e, page.as_deref(), is_authenticated);
+                                set_state_result.set(LoadingState::Error(e));
+                            }
+                        }
+                    }
+                });
             })
             .forget();
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
             set_state.set(LoadingState::Loading);
+            wasm_bindgen_futures::spawn_local(async move {
+                match fetch(client).await {
+                    Ok(data) => {
+                        if fetch_version.load(std::sync::atomic::Ordering::SeqCst) == version {
+                            set_state.set(LoadingState::Loaded(data));
+                        }
+                    }
+                    Err(e) => {
+                        if e.is_aborted() {
+                            return;
+                        }
+                        if fetch_version.load(std::sync::atomic::Ordering::SeqCst) == version {
+                            let page = get_current_path();
+                            report_error(&e, page.as_deref(), is_authenticated);
+                            set_state.set(LoadingState::Error(e));
+                        }
+                    }
+                }
+            });
         }
-
-        wasm_bindgen_futures::spawn_local(async move {
-            match fetch(client).await {
-                Ok(data) => {
-                    // Ignore stale responses from earlier refetches
-                    if fetch_version.load(std::sync::atomic::Ordering::SeqCst) == version {
-                        set_state.set(LoadingState::Loaded(data));
-                    }
-                }
-                Err(e) => {
-                    if e.is_aborted() {
-                        return;
-                    }
-                    if fetch_version.load(std::sync::atomic::Ordering::SeqCst) == version {
-                        // Report error to server (fire-and-forget)
-                        let page = get_current_path();
-                        report_error(&e, page.as_deref(), is_authenticated);
-
-                        set_state.set(LoadingState::Error(e));
-                    }
-                }
-            }
-        });
     };
 
     // Initial fetch - use untracked to avoid reactive re-runs causing RefCell re-entrancy
