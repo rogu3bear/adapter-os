@@ -3,7 +3,8 @@
 use crate::api::{use_sse_json_events, ApiClient, SseState};
 use crate::boot_log;
 use crate::components::{
-    Badge, BadgeVariant, Card, ChartPoint, DataSeries, LineChart, SparklineMetric, Spinner,
+    Badge, BadgeVariant, Card, ChartPoint, DataSeries, EmptyState, EmptyStateVariant,
+    IconCheckCircle, IconCog, IconPlay, IconServer, LineChart, SparklineMetric, Spinner,
     StatusColor, StatusIndicator, TimeSeriesData,
 };
 use crate::hooks::{use_api_resource, use_sse_notifications, LoadingState};
@@ -301,7 +302,13 @@ fn DashboardContent(
         <div class="grid gap-4 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-4">
             // System Status Card
             <Card title="System Status".to_string()>
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-3">
+                    <div class=format!(
+                        "flex items-center justify-center w-10 h-10 rounded-lg {}",
+                        if is_ready { "bg-green-500/10 text-green-500" } else { "bg-red-500/10 text-red-500" }
+                    )>
+                        <IconCheckCircle class="h-5 w-5".to_string() />
+                    </div>
                     <StatusIndicator
                         color=if is_ready { StatusColor::Green } else { StatusColor::Red }
                         pulsing=is_ready
@@ -312,26 +319,58 @@ fn DashboardContent(
 
             // Inference Status
             <Card title="Inference".to_string()>
-                <div class="text-2xl font-bold">
-                    {inference_text}
+                <div class="flex items-center gap-3">
+                    <div class=format!(
+                        "flex items-center justify-center w-10 h-10 rounded-lg {}",
+                        match status.inference_ready {
+                            InferenceReadyState::True => "bg-green-500/10 text-green-500",
+                            InferenceReadyState::False => "bg-red-500/10 text-red-500",
+                            InferenceReadyState::Unknown => "bg-yellow-500/10 text-yellow-500",
+                        }
+                    )>
+                        <IconPlay class="h-5 w-5".to_string() />
+                    </div>
+                    <div>
+                        <div class="text-2xl font-bold">{inference_text}</div>
+                        <p class="text-xs text-muted-foreground">"Inference status"</p>
+                    </div>
                 </div>
-                <p class="text-xs text-muted-foreground">"Inference status"</p>
             </Card>
 
             // Database Status
             <Card title="Database".to_string()>
-                <div class="text-2xl font-bold">
-                    {if db_status { "Connected" } else { "Disconnected" }}
+                <div class="flex items-center gap-3">
+                    <div class=format!(
+                        "flex items-center justify-center w-10 h-10 rounded-lg {}",
+                        if db_status { "bg-green-500/10 text-green-500" } else { "bg-red-500/10 text-red-500" }
+                    )>
+                        <IconServer class="h-5 w-5".to_string() />
+                    </div>
+                    <div>
+                        <div class="text-2xl font-bold">
+                            {if db_status { "Connected" } else { "Disconnected" }}
+                        </div>
+                        <p class="text-xs text-muted-foreground">"Database connection"</p>
+                    </div>
                 </div>
-                <p class="text-xs text-muted-foreground">"Database connection"</p>
             </Card>
 
             // Workers Status
             <Card title="Workers".to_string()>
-                <div class="text-2xl font-bold">
-                    {format!("{} / {}", healthy_workers, total_workers)}
+                <div class="flex items-center gap-3">
+                    <div class=format!(
+                        "flex items-center justify-center w-10 h-10 rounded-lg {}",
+                        if healthy_workers > 0 { "bg-green-500/10 text-green-500" } else { "bg-muted text-muted-foreground" }
+                    )>
+                        <IconCog class="h-5 w-5".to_string() />
+                    </div>
+                    <div>
+                        <div class="text-2xl font-bold">
+                            {format!("{} / {}", healthy_workers, total_workers)}
+                        </div>
+                        <p class="text-xs text-muted-foreground">"Healthy workers"</p>
+                    </div>
                 </div>
-                <p class="text-xs text-muted-foreground">"Healthy workers"</p>
             </Card>
         </div>
 
@@ -342,7 +381,11 @@ fn DashboardContent(
         <Card title="Workers".to_string() class="mt-6".to_string()>
             {if workers.is_empty() {
                 view! {
-                    <p class="text-muted-foreground">"No workers registered"</p>
+                    <EmptyState
+                        variant=EmptyStateVariant::Empty
+                        title="No Workers Registered".to_string()
+                        description="Workers handle inference requests. Start a worker to begin processing.".to_string()
+                    />
                 }.into_any()
             } else {
                 view! {
@@ -449,24 +492,28 @@ fn LiveMetricsSection(
                                 />
 
                                 // Active Workers (no sparkline needed)
-                                <MetricCard
-                                    label="Active Workers".to_string()
-                                    value=m.active_workers.to_string()
-                                    trend=m.active_sessions.map(|s| format!("{} sessions", s))
-                                />
+                                {
+                                    let sessions_trend = m.active_sessions.map(|s| format!("{} sessions", s));
+                                    view! {
+                                        <MetricCard
+                                            label="Active Workers".to_string()
+                                            value=m.active_workers.to_string()
+                                            trend=sessions_trend
+                                        />
+                                    }
+                                }
 
                                 // Uptime
                                 <MetricCard
                                     label="Uptime".to_string()
                                     value=format_uptime(m.uptime_seconds)
-                                    trend=None
                                 />
 
                                 // Load Average
                                 <MetricCard
                                     label="Load Average".to_string()
                                     value=format!("{:.2}", m.load_1min)
-                                    trend=Some(format!("5m: {:.2} 15m: {:.2}", m.load_5min, m.load_15min))
+                                    trend=format!("5m: {:.2} 15m: {:.2}", m.load_5min, m.load_15min)
                                 />
                             </div>
                         }.into_any(),
@@ -506,15 +553,53 @@ fn LiveMetricsSection(
     }
 }
 
+/// Trend direction for metric cards
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub enum TrendDirection {
+    #[default]
+    Neutral,
+    Up,
+    Down,
+}
+
 /// Individual metric card for live metrics display
 #[component]
-fn MetricCard(label: String, value: String, trend: Option<String>) -> impl IntoView {
+fn MetricCard(
+    label: String,
+    value: String,
+    #[prop(optional, into)] trend: MaybeProp<String>,
+    #[prop(optional)] trend_direction: TrendDirection,
+) -> impl IntoView {
+    let trend = trend.get();
+    let trend_class = match trend_direction {
+        TrendDirection::Up => "trend-up",
+        TrendDirection::Down => "trend-down",
+        TrendDirection::Neutral => "trend-neutral",
+    };
+
+    let trend_icon = match trend_direction {
+        TrendDirection::Up => Some(view! {
+            <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M7 17l5-5 5 5M7 7l5 5 5-5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+        }),
+        TrendDirection::Down => Some(view! {
+            <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M7 7l5 5 5-5M7 17l5-5 5 5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+        }),
+        TrendDirection::Neutral => None,
+    };
+
     view! {
         <div class="rounded-lg border p-4 bg-card">
             <p class="text-xs text-muted-foreground mb-1">{label}</p>
             <p class="text-2xl font-bold">{value}</p>
             {trend.map(|t| view! {
-                <p class="text-xs text-muted-foreground mt-1">{t}</p>
+                <div class=format!("flex items-center gap-1 text-xs mt-1 {}", trend_class)>
+                    {trend_icon.clone()}
+                    <span>{t}</span>
+                </div>
             })}
         </div>
     }
