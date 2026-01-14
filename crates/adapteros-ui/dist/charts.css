@@ -169,3 +169,135 @@
     background-color: var(--color-muted-foreground);
     opacity: 1;
 }
+
+/* ===== Chart Legend ===== */
+.chart-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    padding-top: 0.75rem;
+    justify-content: center;
+}
+
+.chart-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+    color: var(--color-muted-foreground);
+}
+
+.chart-legend-color {
+    width: 0.75rem;
+    height: 0.75rem;
+    border-radius: 0.125rem;
+    flex-shrink: 0;
+}
+
+.chart-legend-label {
+    font-weight: 500;
+}
+
+/* ===== Chart Tooltip ===== */
+.chart-tooltip {
+    position: absolute;
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--radius);
+    font-size: 0.75rem;
+    background-color: var(--color-popover);
+    border: 1px solid var(--color-border);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    pointer-events: none;
+    z-index: 50;
+}
+
+.chart-tooltip-inner {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.chart-tooltip-color {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.chart-tooltip-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+}
+
+.chart-tooltip-label {
+    font-size: 0.6875rem;
+    color: var(--color-muted-foreground);
+}
+
+.chart-tooltip-value {
+    font-weight: 600;
+    color: var(--color-foreground);
+}
+
+.chart-tooltip-secondary {
+    font-size: 0.625rem;
+    color: var(--color-muted-foreground);
+}
+
+/* Sparkline tooltip */
+.sparkline-tooltip-text {
+    fill: var(--color-foreground);
+    font-size: 0.625rem;
+    font-weight: 500;
+}
+
+/* ===== Chart Grid ===== */
+.chart-grid-line {
+    stroke: var(--color-border);
+    stroke-width: 1;
+    stroke-dasharray: 4 4;
+    opacity: 0.5;
+}
+
+.chart-grid-line-h {
+    opacity: 0.6;
+}
+
+/* ===== Chart Axes ===== */
+.chart-axis-line {
+    stroke: var(--color-muted-foreground);
+    stroke-width: 1;
+}
+
+.chart-tick-line {
+    stroke: var(--color-muted-foreground);
+    stroke-width: 1;
+}
+
+.chart-tick-label {
+    font-size: 0.625rem;
+    fill: var(--color-muted-foreground);
+    font-family: var(--font-sans);
+}
+
+.chart-axis-label {
+    font-size: 0.6875rem;
+    fill: var(--color-muted-foreground);
+    font-weight: 500;
+}
+
+/* ===== Chart Container ===== */
+.chart-container {
+    position: relative;
+    padding: 1rem;
+    border-radius: var(--radius);
+    border: 1px solid var(--color-border);
+    background-color: var(--color-card);
+}
+
+.chart-svg {
+    display: block;
+    width: 100%;
+    height: auto;
+}
