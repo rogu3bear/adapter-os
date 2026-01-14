@@ -59,7 +59,7 @@ dependencies = [
  "futures-util",
  "hex",
  "hkdf",
- "metal",
+ "metal 0.30.0",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
  "reqwest",
@@ -121,7 +121,7 @@ dependencies = [
  "libc",
  "lru 0.16.2",
  "memmap2",
- "metal",
+ "metal 0.30.0",
  "parking_lot",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
@@ -219,6 +219,37 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "adapteros-benchmarks"
+version = "0.12.0"
+dependencies = [
+ "adapteros-core",
+ "adapteros-deterministic-exec",
+ "adapteros-lora-kernel-api",
+ "adapteros-lora-kernel-mtl",
+ "adapteros-lora-router",
+ "adapteros-memory",
+ "adapteros-policy",
+ "adapteros-system-metrics",
+ "adapteros-telemetry",
+ "anyhow",
+ "bytemuck",
+ "chrono",
+ "criterion",
+ "futures-util",
+ "metal 0.28.0",
+ "objc",
+ "rand 0.8.5",
+ "rand_pcg",
+ "serde",
+ "serde_json",
+ "smallvec",
+ "sysinfo 0.30.13",
+ "thiserror 1.0.69",
+ "tokio",
  "uuid",
 ]
 
@@ -863,7 +894,7 @@ dependencies = [
  "half",
  "hex",
  "memmap2",
- "metal",
+ "metal 0.30.0",
  "objc",
  "parking_lot",
  "rand 0.8.5",
@@ -1081,7 +1112,7 @@ dependencies = [
  "lru 0.16.2",
  "mach",
  "memmap2",
- "metal",
+ "metal 0.30.0",
  "nix 0.29.0",
  "once_cell",
  "parking_lot",
@@ -1149,7 +1180,7 @@ dependencies = [
  "hex",
  "libc",
  "lru 0.16.2",
- "metal",
+ "metal 0.30.0",
  "objc",
  "parking_lot",
  "proptest",
@@ -1762,7 +1793,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "hkdf",
- "metal",
+ "metal 0.30.0",
  "parking_lot",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
@@ -1971,7 +2002,7 @@ dependencies = [
  "chrono",
  "clap",
  "hex",
- "metal",
+ "metal 0.30.0",
  "serde",
  "serde_json",
  "sysinfo 0.31.4",
@@ -7293,6 +7324,21 @@ dependencies = [
 
 [[package]]
 name = "metal"
+version = "0.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5637e166ea14be6063a3f8ba5ccb9a4159df7d8f6d61c02fc3d480b1f90dcfcb"
+dependencies = [
+ "bitflags 2.10.0",
+ "block",
+ "core-graphics-types 0.1.3",
+ "foreign-types 0.5.0",
+ "log",
+ "objc",
+ "paste",
+]
+
+[[package]]
+name = "metal"
 version = "0.30.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9c3572083504c43e14aec05447f8a3d57cce0f66d7a3c1b9058572eca4d70ab9"
@@ -9034,6 +9080,15 @@ checksum = "32cb0b9bc82b0a0876c2dd994a7e7a2683d3e7390ca40e6886785ef0c7e3ee31"
 dependencies = [
  "num-traits",
  "rand 0.8.5",
+]
+
+[[package]]
+name = "rand_pcg"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "59cad018caf63deb318e5a4586d99a24424a364f40f1e5778c29aca23f4fc73e"
+dependencies = [
+ "rand_core 0.6.4",
 ]
 
 [[package]]
