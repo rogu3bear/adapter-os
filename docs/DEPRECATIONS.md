@@ -207,7 +207,7 @@ The CI guardrail fails the build if any `scripts/*.sh` file is not referenced by
 
 ### Utility Scripts (Redundant/Unused)
 
-- `scripts/download_model.sh`
+- `scripts/download_model.sh` (deprecated - use `aosctl models seed` instead)
   - Status: **DEPRECATED**
   - Replacement: `scripts/download-model.sh` (hyphenated version)
   - Notes: Duplicate of download-model.sh. Use the hyphenated version as canonical (more references).

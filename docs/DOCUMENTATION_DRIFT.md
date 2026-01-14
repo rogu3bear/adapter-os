@@ -282,4 +282,67 @@ Documentation drift validation was implemented to prevent silent divergence betw
 
 ---
 
+---
+
+## General Documentation Freshness Tracking
+
+### Overview
+
+Beyond security invariants, this framework also tracks general documentation freshness to ensure API documentation, CLI documentation, and operational guides stay current with implementation.
+
+### API Documentation Drift Detection
+
+**Rule:** All registered API endpoints in `crates/adapteros-server-api/src/routes/mod.rs` must be documented in `docs/API_REFERENCE.md`.
+
+**Validation Process:**
+1. Extract all route registrations from `routes/mod.rs`
+2. Compare against documented endpoints in `API_REFERENCE.md`
+3. Flag missing endpoints for documentation
+4. Verify OpenAPI spec alignment via `./scripts/ci/check_openapi_drift.sh`
+
+**Status:** Active monitoring required. Last verified: 2026-01-13
+
+### CLI Documentation Drift Detection
+
+**Rule:** All CLI commands in `crates/adapteros-cli/src/main.rs` and `crates/adapteros-cli/src/app.rs` must be documented in `crates/adapteros-cli/docs/aosctl_manual.md`.
+
+**Validation Process:**
+1. Extract all command definitions from CLI source files
+2. Compare against documented commands in `aosctl_manual.md`
+3. Flag missing commands for documentation
+4. Verify command examples match current implementation
+
+**Status:** Active monitoring required. Last verified: 2026-01-13
+
+### Operational Documentation Freshness
+
+**Rule:** Operational procedures in `docs/OPERATIONS.md`, `docs/TROUBLESHOOTING.md`, and `docs/DEPLOYMENT.md` must reference existing scripts and current CLI commands.
+
+**Validation Process:**
+1. Verify all script paths referenced in docs exist
+2. Verify CLI command syntax matches current implementation
+3. Update examples with verified command syntax
+4. Remove or mark deprecated script references
+
+**Status:** Active monitoring required. Last verified: 2026-01-13
+
+### Documentation Audit Process
+
+**Frequency:** Monthly or before major releases
+
+**Steps:**
+1. Run API endpoint verification (compare routes to API_REFERENCE.md)
+2. Run CLI command verification (compare commands to aosctl_manual.md)
+3. Verify script paths and update references
+4. Check UI deployment instructions for consistency
+5. Update endpoint/command counts in documentation
+6. Run OpenAPI drift check: `./scripts/ci/check_openapi_drift.sh --fix`
+
+**Automation:**
+- OpenAPI drift check: `./scripts/ci/check_openapi_drift.sh --fix` (automated in CI, run manually after API changes)
+- Manual verification scripts recommended for API/CLI drift detection
+
+**Note:** After updating API documentation, run `./scripts/ci/check_openapi_drift.sh --fix` to ensure the OpenAPI spec (`docs/api/openapi.json`) is synchronized with the codebase. This should be done before committing documentation changes.
+
 **MLNavigator Inc 2025-12-13**
+**Last Updated:** 2026-01-13 (Added general documentation freshness tracking)

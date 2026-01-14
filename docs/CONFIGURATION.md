@@ -47,7 +47,7 @@ vim .env
 
 - [ ] Clone repository: `git clone https://github.com/rogu3bear/adapter-os.git`
 - [ ] Copy environment: `cp .env.example .env`
-- [ ] Download model: `./scripts/download_model.sh`
+- [ ] Download model: Use `aosctl models seed` or import via API
 - [ ] Initialize database: `./aosctl db migrate`
 - [ ] Create default tenant: `./aosctl init-tenant --id default --uid 1000 --gid 1000`
 - [ ] Verify configuration: `./aosctl config show`
@@ -1050,7 +1050,8 @@ mkdir -p var
 echo $AOS_MODEL_PATH
 
 # Download model
-./scripts/download_model.sh
+# Use aosctl to seed models
+aosctl models seed --model-path <path>
 
 # Check model directory
 ls -la var/models/Qwen2.5-7B-Instruct-4bit/
