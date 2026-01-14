@@ -51,6 +51,15 @@
     /* Disabled state colors (WCAG AA compliant - maintains ~4:1 contrast) */
     --color-disabled: hsl(215 16% 78%);
     --color-disabled-foreground: hsl(215 10% 53%);
+
+    /* Typography tokens */
+    --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+    --tracking-tighter: -0.05em;
+    --tracking-tight: -0.025em;
+    --tracking-normal: 0;
+    --tracking-wide: 0.025em;
+    --tracking-wider: 0.05em;
 }
 
 /* Dark mode */
@@ -162,6 +171,34 @@ p, h1, h2, h3, h4, h5, h6 {
     }
 }
 
+/* Skeleton shimmer animation */
+@keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+}
+
+/* Content reveal animation */
+@keyframes fade-in {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Card lift animation */
+@keyframes card-lift {
+    from {
+        transform: translateY(0);
+    }
+    to {
+        transform: translateY(-2px);
+    }
+}
+
 /* ===== Utility Classes ===== */
 .animate-spin {
     animation: spin 1s linear infinite;
@@ -177,6 +214,39 @@ p, h1, h2, h3, h4, h5, h6 {
 
 .animate-bounce {
     animation: bounce 1s infinite;
+}
+
+.animate-shimmer {
+    animation: shimmer 1.5s ease-in-out infinite;
+}
+
+.animate-fade-in {
+    animation: fade-in 200ms ease-out forwards;
+}
+
+/* Stagger animations for list items */
+.animate-stagger > * {
+    opacity: 0;
+    animation: fade-in 200ms ease-out forwards;
+}
+.animate-stagger > *:nth-child(1) { animation-delay: 0ms; }
+.animate-stagger > *:nth-child(2) { animation-delay: 50ms; }
+.animate-stagger > *:nth-child(3) { animation-delay: 100ms; }
+.animate-stagger > *:nth-child(4) { animation-delay: 150ms; }
+.animate-stagger > *:nth-child(5) { animation-delay: 200ms; }
+.animate-stagger > *:nth-child(6) { animation-delay: 250ms; }
+.animate-stagger > *:nth-child(7) { animation-delay: 300ms; }
+.animate-stagger > *:nth-child(8) { animation-delay: 350ms; }
+.animate-stagger > *:nth-child(9) { animation-delay: 400ms; }
+.animate-stagger > *:nth-child(10) { animation-delay: 450ms; }
+.animate-stagger > *:nth-child(n+11) { animation-delay: 500ms; }
+
+/* Card hover lift effect */
+.hover-lift {
+    transition: transform 200ms ease, box-shadow 200ms ease;
+}
+.hover-lift:hover {
+    transform: translateY(-2px);
 }
 
 /* Screen reader only */
