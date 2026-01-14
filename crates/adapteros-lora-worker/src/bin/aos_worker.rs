@@ -23,7 +23,7 @@ fn main() -> Result<()> {
     // CRITICAL: Initialize MLX BEFORE tokio runtime starts
     // This ensures the MLX C library's Metal device is initialized before any
     // other Metal operations that might come from tokio or other async code.
-    #[cfg(any(feature = "mlx", feature = "mlx-rs-backend"))]
+    #[cfg(feature = "mlx")]
     {
         // Try to initialize MLX early, but don't fail the worker if it doesn't work
         // The backend selection logic will handle unavailability gracefully

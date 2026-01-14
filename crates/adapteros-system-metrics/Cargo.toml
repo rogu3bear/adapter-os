@@ -9,7 +9,6 @@ description = "System resource monitoring and metrics collection for AdapterOS"
 
 [features]
 mlx = ["dep:adapteros-lora-mlx-ffi"]
-mlx-rs-backend = ["mlx", "adapteros-lora-mlx-ffi/mlx-rs-backend"]
 coreml = []
 
 [dependencies]

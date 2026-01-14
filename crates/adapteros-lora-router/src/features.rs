@@ -1,6 +1,53 @@
-//! Feature extractors for code intelligence routing
+//! Feature extraction for adapter routing.
+//!
+//! Extracts routing signals from input context. Features are **internal routing
+//! signals**, not cryptographic commitments—they help select adapters but don't
+//! belong in receipts.
+//!
+//! # Architecture
+//!
+//! ```text
+//! Context String ──► extract() ──► Features ──► Router ──► Decision
+//!       │                                                      │
+//!       └──────────────────── Receipt ─────────────────────────┘
+//!                          (context + output, NOT features)
+//! ```
+//!
+//! Features are derived intermediates. Receipts should bind the true input
+//! (context string) to the output (adapter indices + Q15 gates), not the
+//! features used internally to make the routing decision.
+//!
+//! # Determinism
+//!
+//! Extraction is deterministic (same input → same features) via:
+//! - BTreeMap for ordered iteration
+//! - `total_cmp` for IEEE 754 float ordering
+//!
+//! # Insufficient Input
+//!
+//! Returns `None` when input is too short for reliable detection.
+//! Callers should **abstain from routing**, not use neutral features.
 
 use std::collections::BTreeMap;
+
+// =============================================================================
+// Constants
+// =============================================================================
+
+/// Current feature schema version.
+///
+/// Bump this when the feature vector layout changes to ensure
+/// compatibility checks between stored/cached features and runtime.
+///
+/// Version history:
+/// - v1: Initial 22-dim layout (lang[8], framework[3], symbols[1], paths[1], verb[8], entropy[1])
+pub const FEATURE_SCHEMA_VERSION: u32 = 1;
+
+/// Minimum input length (in characters) for reliable feature detection.
+///
+/// Inputs shorter than this threshold will use default/neutral features
+/// to avoid unreliable detection from insufficient context.
+pub const MIN_INPUT_LENGTH: usize = 20;
 
 /// Code features for router scoring
 #[derive(Debug, Clone)]
@@ -31,10 +78,10 @@ pub enum PromptVerb {
 }
 
 impl CodeFeatures {
-    /// Create empty features
+    /// Create empty features.
     pub fn new() -> Self {
         Self {
-            lang_one_hot: vec![0.0; 8], // Support for 8 languages
+            lang_one_hot: vec![0.0; 8],
             framework_prior: BTreeMap::new(),
             symbol_hits: 0.0,
             path_tokens: Vec::new(),
@@ -44,25 +91,32 @@ impl CodeFeatures {
         }
     }
 
-    /// Extract features from context
+    /// Extract features from context.
+    ///
+    /// Returns `None` if input is too short for reliable detection.
+    /// Callers should **abstain from routing** when this returns `None`,
+    /// not substitute neutral features.
+    ///
+    /// # Determinism
+    ///
+    /// Same input always produces same output.
+    pub fn extract(context: &str) -> Option<Self> {
+        if context.len() < MIN_INPUT_LENGTH {
+            return None;
+        }
+        Some(Self::from_context(context))
+    }
+
+    /// Extract features unconditionally (no length check).
+    ///
+    /// Use [`extract`] in production to handle short inputs correctly.
     pub fn from_context(context: &str) -> Self {
         let mut features = Self::new();
-
-        // Extract language one-hot
         features.lang_one_hot = extract_lang_one_hot(context);
-
-        // Extract framework priors
         features.framework_prior = extract_framework_prior(context);
-
-        // Count symbol hits
         features.symbol_hits = count_symbol_hits(context);
-
-        // Extract path tokens
         features.path_tokens = extract_path_tokens(context);
-
-        // Classify prompt verb
         features.prompt_verb = classify_prompt_verb(context);
-
         features
     }
 
@@ -94,15 +148,31 @@ impl CodeFeatures {
         true
     }
 
-    /// Convert to flat vector for router
+    /// Convert to flat 22-dimensional vector for router scoring.
+    ///
+    /// # Layout
+    ///
+    /// | Index | Dimension | Description |
+    /// |-------|-----------|-------------|
+    /// | 0-7   | 8         | Language one-hot (normalized) |
+    /// | 8-10  | 3         | Framework scores (top-3, sorted desc) |
+    /// | 11    | 1         | Symbol density (normalized 0-1) |
+    /// | 12    | 1         | Path token count (normalized 0-1) |
+    /// | 13-20 | 8         | Prompt verb one-hot |
+    /// | 21    | 1         | Attention entropy (0.0 if not set) |
+    ///
+    /// # Determinism
+    ///
+    /// Output is deterministic: same `CodeFeatures` always produces same vector.
+    /// Framework scores use `total_cmp` for IEEE 754 consistent ordering.
     pub fn to_vector(&self) -> Vec<f32> {
-        let mut vec = Vec::new();
+        let mut vec = Vec::with_capacity(22);
 
-        // Add language one-hot
+        // [0-7] Language one-hot (8 dimensions)
         vec.extend_from_slice(&self.lang_one_hot);
 
-        // Add framework prior (top 3 frameworks)
-        // Issue D-5 Fix: Use total_cmp for IEEE 754 total ordering (handles NaN deterministically)
+        // [8-10] Framework scores (3 dimensions, top-3 sorted descending)
+        // Determinism: total_cmp for IEEE 754 total ordering (handles NaN deterministically)
         let mut framework_scores: Vec<f32> = self.framework_prior.values().copied().collect();
         framework_scores.sort_by(|a, b| b.total_cmp(a));
         framework_scores.truncate(3);
@@ -111,22 +181,23 @@ impl CodeFeatures {
         }
         vec.extend_from_slice(&framework_scores);
 
-        // Add symbol hits (normalized)
+        // [11] Symbol density (1 dimension, normalized to 0-1)
         vec.push((self.symbol_hits / 10.0).min(1.0));
 
-        // Add path token count (normalized)
+        // [12] Path token count (1 dimension, normalized to 0-1)
         vec.push((self.path_tokens.len() as f32 / 5.0).min(1.0));
 
-        // Add prompt verb one-hot
+        // [13-20] Prompt verb one-hot (8 dimensions)
         vec.extend_from_slice(&prompt_verb_one_hot(self.prompt_verb));
 
-        // Add attention entropy (optional, defaults to 0.0 if not set)
+        // [21] Attention entropy (1 dimension, 0.0 if not computed)
         vec.push(self.attn_entropy.unwrap_or(0.0));
 
+        debug_assert_eq!(vec.len(), 22, "Feature vector must be 22 dimensions");
         vec
     }
 
-    /// Convert to extended feature vector (25 dimensions) for DIR (Deterministic Inference Runtime)
+    /// Convert to extended feature vector (25 dimensions) for DIR
     /// Reference: https://openreview.net/pdf?id=jqz6Msm3AF
     ///
     /// Note: The extended features (orthogonal_penalty, adapter_diversity, path_similarity)
@@ -484,6 +555,48 @@ fn compute_entropy(probs: &[f32]) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // =========================================================================
+    // Short Input Tests
+    // =========================================================================
+
+    #[test]
+    fn test_extract_short_input_returns_none() {
+        assert!(CodeFeatures::extract("tiny").is_none());
+        assert!(CodeFeatures::extract(&"a".repeat(19)).is_none());
+    }
+
+    #[test]
+    fn test_extract_sufficient_input_returns_some() {
+        let features = CodeFeatures::extract("Fix this python bug in src/main.py with def function()")
+            .expect("should extract from sufficient input");
+
+        assert!(features.lang_one_hot[0] > 0.0); // Python detected
+        assert_eq!(features.prompt_verb, PromptVerb::Fix);
+    }
+
+    // =========================================================================
+    // Determinism Tests
+    // =========================================================================
+
+    #[test]
+    fn test_extraction_determinism() {
+        let context = "Fix the python FastAPI bug in src/api/handlers.py with async def endpoint():";
+
+        let v1 = CodeFeatures::from_context(context).to_vector();
+        let v2 = CodeFeatures::from_context(context).to_vector();
+
+        for (a, b) in v1.iter().zip(v2.iter()) {
+            assert!(
+                a.to_bits() == b.to_bits(),
+                "Feature vectors must be bit-identical"
+            );
+        }
+    }
+
+    // =========================================================================
+    // Original Tests
+    // =========================================================================
 
     #[test]
     fn test_extract_lang_one_hot() {

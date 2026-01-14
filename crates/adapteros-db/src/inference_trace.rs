@@ -1,5 +1,8 @@
 use crate::Db;
-use adapteros_core::{emit_observability_event, receipt_mismatch_event, AosError, B3Hash, Result};
+use adapteros_core::{
+    compute_input_digest_v2, emit_observability_event, receipt_mismatch_event, AosError, B3Hash,
+    EquipmentProfile, Result,
+};
 use async_trait::async_trait;
 use serde_json;
 use sqlx::Row;
@@ -45,6 +48,11 @@ pub struct TraceReceipt {
     // Model Cache Identity (PRD-06: ModelCacheIdentity v2)
     /// BLAKE3-256 digest of ModelCacheIdentityV2 canonical bytes
     pub model_cache_identity_v2_digest_b3: Option<B3Hash>,
+    // Cryptographic Receipt Fields (Patent 3535886.0002)
+    /// BLAKE3 digest of input token sequence
+    pub input_digest_b3: Option<B3Hash>,
+    /// Equipment profile capturing processor and engine versions
+    pub equipment_profile: Option<EquipmentProfile>,
 }
 
 #[derive(Debug, Clone)]
@@ -74,6 +82,9 @@ pub struct TraceFinalization<'a> {
     pub model_cache_identity_v2_digest_b3: Option<B3Hash>,
     /// Optional attestation payload (e.g., determinism report)
     pub attestation: Option<Vec<u8>>,
+    // Equipment Profile (Patent 3535886.0002: Cryptographic Receipt)
+    /// Pre-computed equipment profile from worker initialization
+    pub equipment_profile: Option<EquipmentProfile>,
 }
 
 #[derive(Debug, Clone)]
@@ -111,10 +122,26 @@ pub struct SqlTraceSink {
     buffer: Vec<TraceTokenRow>,
     flush_every: usize,
     run_head_hash: B3Hash,
+    /// Input digest computed from input tokens (Patent 3535886.0002)
+    input_digest_b3: Option<B3Hash>,
 }
 
 impl SqlTraceSink {
     pub async fn new(db: Arc<Db>, start: TraceStart, flush_every: usize) -> Result<Self> {
+        Self::new_with_input_tokens(db, start, flush_every, None).await
+    }
+
+    /// Create a new SqlTraceSink with input token digest computation.
+    ///
+    /// When `input_tokens` is provided, computes and stores the input digest
+    /// (BLAKE3 hash of the input token sequence) for cryptographic receipt
+    /// binding per Patent 3535886.0002.
+    pub async fn new_with_input_tokens(
+        db: Arc<Db>,
+        start: TraceStart,
+        flush_every: usize,
+        input_tokens: Option<&[u32]>,
+    ) -> Result<Self> {
         if !db.storage_mode().write_to_sql() {
             return Err(AosError::Validation(
                 "SQL write disabled - cannot persist inference trace".to_string(),
@@ -135,13 +162,22 @@ impl SqlTraceSink {
         .await
         .map_err(|e| AosError::Database(format!("Failed to insert inference_trace: {e}")))?;
 
+        // Compute input digest if tokens provided
+        let input_digest_b3 = input_tokens.map(compute_input_digest_v2);
+
         Ok(Self {
             db,
             start,
             buffer: Vec::with_capacity(flush_every.max(1)),
             flush_every: flush_every.max(1),
             run_head_hash: B3Hash::zero(),
+            input_digest_b3,
         })
+    }
+
+    /// Get the computed input digest (if available)
+    pub fn input_digest(&self) -> Option<B3Hash> {
+        self.input_digest_b3
     }
 
     fn encode_adapter_ids(ids: &[String]) -> Vec<u8> {
@@ -558,6 +594,24 @@ impl TraceSink for SqlTraceSink {
         // PRD-01: Serialize prefix_kv_key_b3 to hex string for TEXT column
         let prefix_kv_key_hex = finalization.prefix_kv_key_b3.as_ref().map(|h| h.to_hex());
 
+        // Serialize equipment profile fields for storage
+        let equipment_profile_digest_bytes = finalization
+            .equipment_profile
+            .as_ref()
+            .map(|ep| ep.digest.as_bytes().to_vec());
+        let processor_id = finalization
+            .equipment_profile
+            .as_ref()
+            .map(|ep| ep.processor_id.clone());
+        let mlx_version = finalization
+            .equipment_profile
+            .as_ref()
+            .map(|ep| ep.engine_version.clone());
+        let ane_version = finalization
+            .equipment_profile
+            .as_ref()
+            .and_then(|ep| ep.ane_version.clone());
+
         sqlx::query(
             r#"
             INSERT OR REPLACE INTO inference_trace_receipts (
@@ -579,8 +633,13 @@ impl TraceSink for SqlTraceSink {
                 prefix_kv_key_b3,
                 prefix_cache_hit,
                 prefix_kv_bytes,
+                input_digest_b3,
+                equipment_profile_digest_b3,
+                processor_id,
+                mlx_version,
+                ane_version,
                 created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
             "#,
         )
         .bind(&self.start.trace_id)
@@ -605,6 +664,11 @@ impl TraceSink for SqlTraceSink {
         .bind(&prefix_kv_key_hex)
         .bind(finalization.prefix_cache_hit as i64)
         .bind(finalization.prefix_kv_bytes as i64)
+        .bind(self.input_digest_b3.as_ref().map(|d| d.as_bytes().to_vec()))
+        .bind(equipment_profile_digest_bytes.as_ref().map(|b| &b[..]))
+        .bind(&processor_id)
+        .bind(&mlx_version)
+        .bind(&ane_version)
         .execute(self.db.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to insert trace receipt: {e}")))?;
@@ -625,6 +689,8 @@ impl TraceSink for SqlTraceSink {
             stop_reason_token_index: finalization.stop_reason_token_index,
             stop_policy_digest_b3: finalization.stop_policy_digest_b3,
             model_cache_identity_v2_digest_b3: finalization.model_cache_identity_v2_digest_b3,
+            input_digest_b3: self.input_digest_b3,
+            equipment_profile: finalization.equipment_profile.clone(),
         })
     }
 
@@ -780,6 +846,32 @@ pub async fn recompute_receipt(db: &Db, trace_id: &str) -> Result<TraceReceiptVe
             _ => None,
         };
 
+        // Extract input digest and equipment profile from stored receipt
+        let input_digest_bytes: Option<Vec<u8>> =
+            row.try_get("input_digest_b3").ok().flatten();
+        let input_digest_b3 = match input_digest_bytes {
+            Some(bytes) if bytes.len() == 32 => {
+                Some(B3Hash::from_bytes(SqlTraceSink::to_digest(bytes)?))
+            }
+            _ => None,
+        };
+
+        let equipment_profile_digest_bytes: Option<Vec<u8>> =
+            row.try_get("equipment_profile_digest_b3").ok().flatten();
+        let stored_processor_id: Option<String> = row.try_get("processor_id").ok().flatten();
+        let stored_mlx_version: Option<String> = row.try_get("mlx_version").ok().flatten();
+        let stored_ane_version: Option<String> = row.try_get("ane_version").ok().flatten();
+
+        let equipment_profile = match equipment_profile_digest_bytes {
+            Some(bytes) if bytes.len() == 32 => Some(EquipmentProfile {
+                processor_id: stored_processor_id.unwrap_or_default(),
+                engine_version: stored_mlx_version.unwrap_or_default(),
+                ane_version: stored_ane_version,
+                digest: B3Hash::from_bytes(SqlTraceSink::to_digest(bytes)?),
+            }),
+            _ => None,
+        };
+
         let stored = TraceReceipt {
             trace_id: trace_id.to_string(),
             run_head_hash: B3Hash::from_bytes(stored_run_head),
@@ -796,6 +888,8 @@ pub async fn recompute_receipt(db: &Db, trace_id: &str) -> Result<TraceReceiptVe
             stop_reason_token_index: stop_reason_token_index.map(|i| i as u32),
             stop_policy_digest_b3,
             model_cache_identity_v2_digest_b3,
+            input_digest_b3,
+            equipment_profile,
         };
         (stored.output_digest, Some(stored))
     } else {
@@ -879,6 +973,14 @@ pub async fn recompute_receipt(db: &Db, trace_id: &str) -> Result<TraceReceiptVe
         model_cache_identity_v2_digest_b3.as_ref(),
     );
 
+    // For recomputation, carry over input_digest and equipment_profile from stored receipt
+    let (recomputed_input_digest_b3, recomputed_equipment_profile) =
+        if let Some(stored) = &stored {
+            (stored.input_digest_b3, stored.equipment_profile.clone())
+        } else {
+            (None, None)
+        };
+
     let recomputed = TraceReceipt {
         trace_id: trace_id.to_string(),
         run_head_hash: run_head,
@@ -895,6 +997,8 @@ pub async fn recompute_receipt(db: &Db, trace_id: &str) -> Result<TraceReceiptVe
         stop_reason_token_index,
         stop_policy_digest_b3,
         model_cache_identity_v2_digest_b3,
+        input_digest_b3: recomputed_input_digest_b3,
+        equipment_profile: recomputed_equipment_profile,
     };
 
     let matches = stored

@@ -27,6 +27,7 @@ adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true }
 adapteros-memory = { path = "../adapteros-memory" }
 adapteros-secure-fs = { path = "../adapteros-secure-fs" }
 adapteros-types = { path = "../adapteros-types" }
+ed25519-dalek = { workspace = true }
 memmap2 = "0.9"
 parking_lot = "0.12"
 safetensors = "0.4"
@@ -37,6 +38,7 @@ tokio = { version = "1", features = ["rt", "macros", "sync"] }
 tracing = { workspace = true }
 chrono = { workspace = true }
 futures = "0.3"
+hex = "0.4"
 zeroize = "1.8"
 utoipa = "5.4"
 zip = { version = "0.6", default-features = false, features = ["deflate"] }

@@ -164,6 +164,8 @@ fn map_finish_reason(stop_reason_code: Option<StopReasonCode>) -> Option<String>
         Some(StopReasonCode::CompletionConfident)
         | Some(StopReasonCode::RepetitionGuard)
         | Some(StopReasonCode::StopSequence) => Some("stop".to_string()),
+        Some(StopReasonCode::Cancelled) => Some("cancelled".to_string()),
+        Some(StopReasonCode::SystemError) => Some("error".to_string()),
         None => None,
     }
 }

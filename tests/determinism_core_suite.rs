@@ -388,6 +388,7 @@ async fn run_reasoning_trace(
             prefix_kv_bytes: 0,
             model_cache_identity_v2_digest_b3: None,
             attestation: None,
+            equipment_profile: None,
         })
         .await?;
 

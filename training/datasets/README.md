@@ -151,7 +151,7 @@ cargo run -p adapteros-cli -- dataset validate training/datasets/routing/my_data
 ### Training an Adapter
 ```bash
 # Use the training orchestrator
-cargo run -p adapteros-orchestrator -- train \
+./aosctl train \
   --dataset training/datasets/routing/my_dataset \
   --rank 16 \
   --alpha 32 \

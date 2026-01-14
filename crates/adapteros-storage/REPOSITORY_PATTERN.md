@@ -337,7 +337,7 @@ let adapters = repo.list_by_state(tenant_id, state).await?;
 
 ## References
 
-- [Database Schema](../../docs/DATABASE_REFERENCE.md) - SQL adapter table definition
+- [Database Schema](../../docs/DATABASE.md) - SQL adapter table definition
 - [Adapter Lifecycle](../../docs/LIFECYCLE.md) - State transitions
 - [Lineage Queries](../../crates/adapteros-db/src/registry/lineage.rs) - Original SQL implementation
 

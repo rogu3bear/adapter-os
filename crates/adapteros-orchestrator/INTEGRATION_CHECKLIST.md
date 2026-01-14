@@ -255,7 +255,7 @@ When a gate fails, follow this process:
 
 **Step 1: Check Dependency Status**
 ```bash
-./target/release/aosctl gates check-deps --gate {GATE_NAME}
+./aosctl gates check-deps --gate {GATE_NAME}
 ```
 
 Look for:
@@ -276,12 +276,12 @@ Common messages:
 
 **Step 4: Run with Debug Logging**
 ```bash
-RUST_LOG=debug ./target/release/aosctl gates run --cpid {CPID} 2>&1 | grep {GATE_NAME}
+RUST_LOG=debug ./aosctl gates run --cpid {CPID} 2>&1 | grep {GATE_NAME}
 ```
 
 **Step 5: Check Detailed Report**
 ```bash
-./target/release/aosctl gates run --cpid {CPID} --output json | jq '.dependency_checks[] | select(.gate_id == "{GATE_NAME}")'
+./aosctl gates run --cpid {CPID} --output json | jq '.dependency_checks[] | select(.gate_id == "{GATE_NAME}")'
 ```
 
 ## File Structure Reference

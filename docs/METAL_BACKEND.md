@@ -889,7 +889,7 @@ jobs:
 
 - [docs/COREML_BACKEND.md](./COREML_BACKEND.md) - CoreML backend guide
 - [docs/ADR_MULTI_BACKEND_STRATEGY.md](./ADR_MULTI_BACKEND_STRATEGY.md) - Multi-backend architecture
-- [docs/MLX_INTEGRATION.md](./MLX_INTEGRATION.md) - MLX backend guide
+- [docs/MLX_GUIDE.md](./MLX_GUIDE.md) - MLX backend guide
 - [AGENTS.md](../AGENTS.md) - Development guidelines
 
 ---

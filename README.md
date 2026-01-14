@@ -1,6 +1,6 @@
 # AdapterOS: Deterministic ML Inference Platform
 
-[![Rust](https://img.shields.io/badge/rust-nightly-orange.svg)](https://www.rust-lang.org/)
+[![Rust](https://img.shields.io/badge/rust-stable-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-Apache%202.0%2FMIT-blue.svg)](LICENSE)
 [![CI](https://github.com/rogu3bear/adapter-os/workflows/CI/badge.svg)](https://github.com/rogu3bear/adapter-os/actions)
 [![Security](https://github.com/rogu3bear/adapter-os/workflows/Security%20Regression%20Tests/badge.svg)](https://github.com/rogu3bear/adapter-os/actions)
@@ -23,11 +23,7 @@ AdapterOS is an ML inference platform that enables **deterministic multi-adapter
 - **Token Artifact System (TAS)**: Transforms inference outputs into persistent, reusable artifacts that can be referenced and composed
 - **K-Sparse LoRA Routing**: Dynamic gating with Q15 quantized gates and entropy floor
 - **Modular Metal Kernels**: Precompiled `.metallib` kernels with deterministic compilation
-- **Policy Enforcement**: 25 canonical policy packs for compliance, security, and quality
-
-- **K-Sparse LoRA Routing**: Dynamic gating with Q15 quantized gates and entropy floor
-- **Modular Metal Kernels**: Precompiled `.metallib` kernels with deterministic compilation
-- **Policy Enforcement**: 25 canonical policy packs for compliance, security, and quality
+- **Policy Enforcement**: 28 canonical policy packs for compliance, security, and quality
 - **Environment Fingerprinting**: Cryptographically signed drift detection with automatic baseline creation
 - **Deterministic Execution**: Reproducible outputs with HKDF seeding and canonical JSON
 - **Zero Network Egress**: Air-gapped serving with Unix domain sockets only
@@ -104,7 +100,7 @@ graph TB
 ```
 
 **Key Components:**
-- **Policy Registry**: 25 canonical policy packs (egress, determinism, router, evidence, etc.)
+- **Policy Registry**: 28 canonical policy packs (egress, determinism, router, evidence, etc.)
 - **K-Sparse Router**: Top-K adapter selection with Q15 quantized gates
 - **Modular Kernels**: Precompiled `.metallib` kernels for deterministic execution
 - **Adapter Registry**: Content-addressed LoRA adapter storage
@@ -156,7 +152,7 @@ huggingface-cli download mlx-community/Qwen2.5-7B-Instruct \
 ### Prerequisites
 
 - **macOS 13.0+** with Apple Silicon (M1/M2/M3/M4)
-- **Rust (nightly toolchain)**: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh` (see `rust-toolchain.toml` for exact channel)
+- **Rust (stable toolchain)**: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh` (see `rust-toolchain.toml` for exact channel)
 - **pnpm 8+**: Required for UI development (`npm install -g pnpm`)
 - **MLX**: `brew install mlx` (Required for MLX backend; `pip install mlx-lm` only for model conversion)
 
@@ -195,10 +191,10 @@ Use `./scripts/fresh-build.sh` before rebuilding to prevent port conflicts and b
 
 ```bash
 # Run database migrations
-cargo run -p adapteros-orchestrator -- db migrate
+./aosctl db migrate
 
 # Initialize the default tenant
-cargo run -p adapteros-orchestrator -- init-tenant --id default --uid 1000 --gid 1000
+./aosctl init-tenant --id default --uid 1000 --gid 1000
 ```
 
 ### Migration Hygiene (dev)
@@ -323,7 +319,7 @@ kernel void fused_attention_lora(
 
 ### 3. **Policy Enforcement**
 
-25 canonical policy packs ensure compliance:
+28 canonical policy packs ensure compliance:
 - **Egress Ruleset**: Zero network during serving, PF enforcement
 - **Determinism Ruleset**: Precompiled kernels, HKDF seeding
 - **Router Ruleset**: K bounds, entropy floor, Q15 gates
@@ -364,7 +360,7 @@ See [docs/LIFECYCLE.md](docs/LIFECYCLE.md) for detailed state machine documentat
 - **Multi-Backend Support**: MLX (primary inference/training), CoreML (ANE acceleration layer), Metal (GPU kernels)
 - **K-Sparse LoRA Routing**: Dynamic adapter selection with Q15 quantization
 - **Deterministic Execution**: HKDF seeding, reproducible results
-- **Policy Enforcement**: 25 canonical policy packs with runtime validation
+- **Policy Enforcement**: 28 canonical policy packs with runtime validation
 - **Adapter Lifecycle**: Hot-swap, pinning, TTL management, memory optimization
 - **REST API**: Complete inference endpoints with streaming support
 - **Database**: SQLite with migrations, adapter registry, telemetry
@@ -391,36 +387,36 @@ AdapterOS includes comprehensive visual documentation. Here are key diagrams:
 
 ### **System Architecture**
 - **[System Architecture](docs/ARCHITECTURE.md)**: Architecture documentation
-- **[Precision Diagrams](docs/architecture/precision-diagrams.md)**: Code-verified architecture diagrams
-- **[Multi-Backend Strategy](docs/ADR_MULTI_BACKEND_STRATEGY.md)**: Backend selection rationale
+- **[Architecture](docs/ARCHITECTURE.md)**: System architecture documentation
+- **[Backend Selection](docs/BACKEND_SELECTION.md)**: Backend selection rationale
 
 ### **Data Flow & Processing**
-- **[Inference Flow](docs/INFERENCE_FLOW.md)**: Complete token processing pipeline
+- **[Backend Architecture](docs/BACKEND_ARCHITECTURE.md)**: Backend system architecture
 - **[Hot Swap Scenarios](docs/HOT_SWAP_SCENARIOS.md)**: Live adapter replacement flows
-- **[Runtime Diagrams](docs/RUNTIME_DIAGRAMS.md)**: Execution state machines
+- **[Visual Guides](docs/VISUAL_GUIDES.md)**: System diagrams and visualizations
 
 ### **Database & Schema**
-- **[Database Schema](docs/database-schema.md)**: Complete entity relationships
-- **[Workflow Diagrams](docs/database-schema/workflows/)**: 10+ workflow visualizations
-- **[Route Map](docs/ROUTE_MAP_DIAGRAM.md)**: API endpoint relationships
+- **[Database Reference](docs/DATABASE.md)**: Complete entity relationships
+- **[Database Reference](docs/DATABASE.md)**: Database schema and workflows
+- **[Route Map](docs/api/ROUTE_MAP.md)**: API endpoint relationships
 
 ### **Component Details**
 - **[Lifecycle States](docs/LIFECYCLE.md)**: Adapter state machine visualization
-- **[MLX Integration](docs/MLX_INTEGRATION.md)**: Backend architecture diagrams
-- **[CoreML Integration](docs/COREML_INTEGRATION.md)**: ANE acceleration flows
-- **[Metal Kernels](docs/metal/)**: GPU compute pipeline diagrams
+- **[MLX Guide](docs/MLX_GUIDE.md)**: Backend architecture and usage
+- **[CoreML Backend](docs/COREML_BACKEND.md)**: ANE acceleration flows
+- **[Metal Backend](docs/METAL_BACKEND.md)**: GPU compute pipeline documentation
 
 ### **Quick Diagram Reference**
 
 | Component | Diagram | Location |
 |-----------|---------|----------|
 | **System Overview** | Architecture Flow | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
-| **Inference Pipeline** | Token Processing | [docs/INFERENCE_FLOW.md](docs/INFERENCE_FLOW.md) |
-| **Database Schema** | Entity Relationships | [docs/database-schema.md](docs/database-schema.md) |
+| **Backend Architecture** | System Design | [docs/BACKEND_ARCHITECTURE.md](docs/BACKEND_ARCHITECTURE.md) |
+| **Database Schema** | Entity Relationships | [docs/DATABASE.md](docs/DATABASE.md) |
 | **Adapter Lifecycle** | State Machine | [docs/LIFECYCLE.md](docs/LIFECYCLE.md) |
-| **Multi-Backend** | Selection Logic | [docs/ADR_MULTI_BACKEND_STRATEGY.md](docs/ADR_MULTI_BACKEND_STRATEGY.md) |
-| **Hot Swap** | Runtime Updates | [docs/HOT_SWAP.md](docs/HOT_SWAP.md) |
-| **API Routes** | Endpoint Map | [docs/ROUTE_MAP_DIAGRAM.md](docs/ROUTE_MAP_DIAGRAM.md) |
+| **Backend Selection** | Selection Logic | [docs/BACKEND_SELECTION.md](docs/BACKEND_SELECTION.md) |
+| **Hot Swap** | Runtime Updates | [docs/HOT_SWAP_SCENARIOS.md](docs/HOT_SWAP_SCENARIOS.md) |
+| **API Routes** | Endpoint Map | [docs/api/ROUTE_MAP.md](docs/api/ROUTE_MAP.md) |
 
 **All diagrams are interactive Mermaid charts** - click any link above to explore the visual documentation!
 
@@ -509,7 +505,7 @@ AdapterOS alpha-v0.11 includes:
 
 ### Completed Features
 - ✅ **Naming Unification**: All crates renamed to `adapteros-*` with compatibility shims
-- ✅ **Policy Registry**: 25 canonical policy packs with CLI commands
+- ✅ **Policy Registry**: 28 canonical policy packs with CLI commands
 - ✅ **Adapter Taxonomy**: Semantic naming with lineage tracking and fork semantics
 - ✅ **Metal Kernel Refactor**: Modular kernels with parameter structs
 - ✅ **Deterministic Config**: Precedence rules with freeze mechanism
@@ -533,17 +529,17 @@ AdapterOS alpha-v0.11 includes:
 - **[Quick Start Guide](docs/QUICKSTART.md)** - Get running in 10 minutes
 - **[Documentation Index](docs/README.md)** - Complete documentation navigation
 - **[System Architecture](docs/ARCHITECTURE.md)** - High-level design and components
-- **[Policy Registry](docs/POLICIES.md)** - 25 canonical policy packs
+- **[Policy Registry](docs/POLICIES.md)** - 28 canonical policy packs
 - **[Security Guide](docs/SECURITY.md)** - Security architecture and practices
 - **[Stability Log (Last Two Weeks)](docs/stability/RECENT_ISSUES.md)** - Point-in-time risk tracking
 
 ### Key Topics
-- **Environment Setup**: [docs/ENVIRONMENT_SETUP.md](docs/ENVIRONMENT_SETUP.md) - Configuration profiles and variable reference
+- **Configuration**: [docs/CONFIGURATION.md](docs/CONFIGURATION.md) - Configuration profiles and variable reference
 - **API Reference**: [docs/API_REFERENCE.md](docs/API_REFERENCE.md) - REST API documentation
-- **Configuration**: [docs/CONFIG_PRECEDENCE.md](docs/CONFIG_PRECEDENCE.md)
-- **Metal Kernels**: [docs/metal/phase4-metal-kernels.md](docs/metal/phase4-metal-kernels.md)
-- **Safety Features**: [docs/runaway-prevention.md](docs/runaway-prevention.md)
-- **Database Schema**: [docs/database-schema/](docs/database-schema/)
+- **Deployment**: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
+- **Metal Backend**: [docs/METAL_BACKEND.md](docs/METAL_BACKEND.md)
+- **Operations**: [docs/OPERATIONS.md](docs/OPERATIONS.md)
+- **Database Reference**: [docs/DATABASE.md](docs/DATABASE.md)
 
 ### API Reference
 - **Rust API**: Run `cargo doc --open`
@@ -677,7 +673,7 @@ curl -X GET http://localhost:8080/v1/plugins \
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - Full architecture documentation
 - [docs/ARCHITECTURE.md#architecture-components](docs/ARCHITECTURE.md#architecture-components) - Detailed architectural patterns
 - [AGENTS.md](AGENTS.md) - Developer quick reference guide
-- [docs/MLX_INTEGRATION.md](docs/MLX_INTEGRATION.md) - MLX backend integration
-- [docs/COREML_INTEGRATION.md](docs/COREML_INTEGRATION.md) - CoreML backend with ANE acceleration
+- [docs/MLX_GUIDE.md](docs/MLX_GUIDE.md) - MLX backend integration
+- [docs/COREML_BACKEND.md](docs/COREML_BACKEND.md) - CoreML backend with ANE acceleration
 
-MLNavigator Inc Thursday Dec 11, 2025.
+MLNavigator Inc January 2026.

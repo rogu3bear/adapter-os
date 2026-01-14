@@ -18,7 +18,6 @@ default = []
 # =============================================================================
 
 multi-backend = ["dep:adapteros-lora-mlx-ffi"]
-mlx-rs-backend = ["multi-backend", "adapteros-lora-mlx-ffi/mlx-rs-backend"]
 
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }

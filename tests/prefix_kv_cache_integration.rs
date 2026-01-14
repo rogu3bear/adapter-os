@@ -791,6 +791,7 @@ async fn test_prefix_kv_receipt_fields_persistence() {
             prefix_kv_bytes: 4096,
             model_cache_identity_v2_digest_b3: Some(model_identity_digest),
             attestation: None,
+            equipment_profile: None,
         })
         .await
         .expect("Failed to finalize trace");

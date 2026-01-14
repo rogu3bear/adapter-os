@@ -10,7 +10,6 @@ description = "Multi-agent spawn system for parallel code modification strategie
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
-adapteros-uds-protocol = { path = "../adapteros-uds-protocol" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
 adapteros-config = { path = "../adapteros-config" }
 

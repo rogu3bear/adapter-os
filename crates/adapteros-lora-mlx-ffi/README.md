@@ -1,12 +1,12 @@
 # AdapterOS MLX FFI Integration
 
 **Status:** Production-Ready Implementation
-**Backend:** MLX (FFI primary; mlx-rs fallback optional)
+**Backend:** MLX C++ FFI (primary)
 **Features:** Model loading, inference, LoRA adaptation, deterministic execution
 
 ## Overview
 
-This crate provides production-ready FFI bindings for MLX (Apple's machine learning framework) supporting LoRA adapter inference and training. The primary path is the C++ FFI backend; an optional `mlx-rs-backend` feature enables an experimental Rust fallback when FFI initialization fails.
+This crate provides production-ready FFI bindings for MLX (Apple's machine learning framework) supporting LoRA adapter inference and training via C++ FFI.
 
 ## Architecture
 
@@ -39,17 +39,12 @@ real wrapper (`src/mlx_cpp_wrapper_real.cpp`). If MLX is missing or
 `MLX_FORCE_STUB=1` is set, it falls back to the stub wrapper
 (`src/mlx_cpp_wrapper.cpp`).
 
-To enable the experimental Rust fallback, build with `--features mlx-rs-backend`.
-At runtime, the MLX implementation is selected automatically; override with
-`AOS_MLX_IMPL=ffi|rs|auto` for internal debugging.
-
 ## Production Deployment
 
 1. Install MLX: `brew install mlx`
 2. Build real MLX: `cargo build -p adapteros-lora-mlx-ffi --features mlx --release`
-3. Optional fallback: add `mlx-rs-backend` to build flags for experimental Rust fallback
-4. Optional: set `MLX_PATH`/`MLX_INCLUDE_DIR`/`MLX_LIB_DIR` for custom installs
-5. Verify: build output shows `MLX FFI build: REAL` or check `mlx_version()`
+3. Optional: set `MLX_PATH`/`MLX_INCLUDE_DIR`/`MLX_LIB_DIR` for custom installs
+4. Verify: build output shows `MLX FFI build: REAL` or check `mlx_version()`
 
 ## Development
 
@@ -68,7 +63,6 @@ cargo test --package adapteros-lora-mlx-ffi
 ### Environment Variables
 
 - `MLX_PATH`: Path to MLX installation (default: `/opt/homebrew`)
-- `AOS_MLX_IMPL`: Internal MLX implementation override (`auto`, `ffi`, `rs`)
 
 ## Policy Compliance
 
@@ -92,9 +86,9 @@ cargo test --package adapteros-lora-mlx-ffi
 ## See Also
 
 - [MLX_FFI_INTEGRATION_PROOF.md](./MLX_FFI_INTEGRATION_PROOF.md) - MLX FFI integration proof document
-- [docs/MLX_INTEGRATION.md](../../docs/MLX_INTEGRATION.md) - Complete MLX integration guide
-- [docs/ADR_MULTI_BACKEND_STRATEGY.md](../../docs/ADR_MULTI_BACKEND_STRATEGY.md) - Multi-backend architecture decision
-- [docs/COREML_INTEGRATION.md](../../docs/COREML_INTEGRATION.md) - CoreML backend (alternative)
+- [docs/MLX_GUIDE.md](../../docs/MLX_GUIDE.md) - Complete MLX integration guide
+- [docs/BACKEND_SELECTION.md](../../docs/BACKEND_SELECTION.md) - Multi-backend architecture decision
+- [docs/COREML_BACKEND.md](../../docs/COREML_BACKEND.md) - CoreML backend (alternative)
 - [BENCHMARK_RESULTS.md](../../BENCHMARK_RESULTS.md) - MLX FFI benchmark results
 - [benches/mlx_integration_benchmark.rs](./benches/mlx_integration_benchmark.rs) - MLX FFI benchmarks
 - [tests/INDEX.md](./tests/INDEX.md) - Test documentation index

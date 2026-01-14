@@ -1378,3 +1378,215 @@ fn test_router_q15_determinism_identical_inputs() {
         );
     }
 }
+
+// =============================================================================
+// Deterministic Tie-Breaking Sort Tests
+// =============================================================================
+
+#[test]
+fn test_sort_scores_deterministic_by_score_descending() {
+    use crate::sort_scores_deterministic;
+
+    let adapter_info: Vec<AdapterInfo> = (0..3)
+        .map(|i| AdapterInfo {
+            id: format!("adapter_{}", i),
+            stable_id: (i as u64 + 1) * 100,
+            ..Default::default()
+        })
+        .collect();
+
+    let mut scores = vec![(0, 0.5f32), (1, 0.9f32), (2, 0.7f32)];
+
+    let ties = sort_scores_deterministic(&mut scores, &adapter_info, true);
+
+    assert!(ties.is_empty(), "No ties expected");
+    assert_eq!(scores[0].0, 1); // 0.9
+    assert_eq!(scores[1].0, 2); // 0.7
+    assert_eq!(scores[2].0, 0); // 0.5
+}
+
+#[test]
+fn test_sort_scores_deterministic_tie_breaking() {
+    use crate::sort_scores_deterministic;
+
+    // Adapters with same score but different stable_ids
+    let adapter_info: Vec<AdapterInfo> = vec![
+        AdapterInfo {
+            id: "a".to_string(),
+            stable_id: 300, // Highest stable_id
+            ..Default::default()
+        },
+        AdapterInfo {
+            id: "b".to_string(),
+            stable_id: 100, // Lowest stable_id - should win ties
+            ..Default::default()
+        },
+        AdapterInfo {
+            id: "c".to_string(),
+            stable_id: 200,
+            ..Default::default()
+        },
+    ];
+
+    let mut scores = vec![(0, 0.8f32), (1, 0.8f32), (2, 0.8f32)];
+
+    let ties = sort_scores_deterministic(&mut scores, &adapter_info, true);
+
+    // All same score -> sorted by stable_id ascending
+    assert_eq!(scores[0].0, 1); // stable_id 100
+    assert_eq!(scores[1].0, 2); // stable_id 200
+    assert_eq!(scores[2].0, 0); // stable_id 300
+
+    // Should have recorded tie events
+    assert!(!ties.is_empty(), "Tie events should be recorded");
+}
+
+#[test]
+fn test_sort_scores_deterministic_mixed() {
+    use crate::sort_scores_deterministic;
+
+    let adapter_info: Vec<AdapterInfo> = vec![
+        AdapterInfo {
+            id: "a".to_string(),
+            stable_id: 200,
+            ..Default::default()
+        },
+        AdapterInfo {
+            id: "b".to_string(),
+            stable_id: 100, // Lower stable_id wins in tie
+            ..Default::default()
+        },
+        AdapterInfo {
+            id: "c".to_string(),
+            stable_id: 50,
+            ..Default::default()
+        },
+        AdapterInfo {
+            id: "d".to_string(),
+            stable_id: 150,
+            ..Default::default()
+        },
+    ];
+
+    // idx 0 and 1 have same score (0.9), idx 2 and 3 are different
+    let mut scores = vec![(0, 0.9f32), (1, 0.9f32), (2, 0.5f32), (3, 0.7f32)];
+
+    let ties = sort_scores_deterministic(&mut scores, &adapter_info, true);
+
+    // Expected order: 0.9(stable_id 100), 0.9(stable_id 200), 0.7, 0.5
+    assert_eq!(scores[0].0, 1); // 0.9, stable_id 100
+    assert_eq!(scores[1].0, 0); // 0.9, stable_id 200
+    assert_eq!(scores[2].0, 3); // 0.7
+    assert_eq!(scores[3].0, 2); // 0.5
+
+    // One tie event between idx 0 and 1
+    assert_eq!(ties.len(), 1);
+    assert!((ties[0].idx_a == 0 && ties[0].idx_b == 1) || (ties[0].idx_a == 1 && ties[0].idx_b == 0));
+}
+
+#[test]
+fn test_sort_scores_deterministic_no_tie_collection() {
+    use crate::sort_scores_deterministic;
+
+    let adapter_info: Vec<AdapterInfo> = vec![
+        AdapterInfo {
+            id: "a".to_string(),
+            stable_id: 100,
+            ..Default::default()
+        },
+        AdapterInfo {
+            id: "b".to_string(),
+            stable_id: 200,
+            ..Default::default()
+        },
+    ];
+
+    let mut scores = vec![(0, 0.8f32), (1, 0.8f32)];
+
+    // Don't collect ties
+    let ties = sort_scores_deterministic(&mut scores, &adapter_info, false);
+
+    // Still sorts correctly
+    assert_eq!(scores[0].0, 0); // stable_id 100
+    assert_eq!(scores[1].0, 1); // stable_id 200
+
+    // But no tie events collected
+    assert!(ties.is_empty());
+}
+
+#[test]
+fn test_sort_scores_deterministic_total_cmp() {
+    use crate::sort_scores_deterministic;
+
+    let adapter_info: Vec<AdapterInfo> = vec![
+        AdapterInfo {
+            id: "a".to_string(),
+            stable_id: 100,
+            ..Default::default()
+        },
+        AdapterInfo {
+            id: "b".to_string(),
+            stable_id: 200,
+            ..Default::default()
+        },
+        AdapterInfo {
+            id: "c".to_string(),
+            stable_id: 300,
+            ..Default::default()
+        },
+    ];
+
+    // Test with infinity and negative zero
+    let mut scores = vec![
+        (0, f32::INFINITY),
+        (1, 0.5f32),
+        (2, f32::NEG_INFINITY),
+    ];
+
+    let ties = sort_scores_deterministic(&mut scores, &adapter_info, true);
+
+    assert!(ties.is_empty());
+    assert_eq!(scores[0].0, 0); // +inf
+    assert_eq!(scores[1].0, 1); // 0.5
+    assert_eq!(scores[2].0, 2); // -inf
+}
+
+#[test]
+fn test_sort_scores_deterministic_consistency() {
+    use crate::sort_scores_deterministic;
+
+    let adapter_info: Vec<AdapterInfo> = vec![
+        AdapterInfo {
+            id: "a".to_string(),
+            stable_id: 300,
+            ..Default::default()
+        },
+        AdapterInfo {
+            id: "b".to_string(),
+            stable_id: 100,
+            ..Default::default()
+        },
+        AdapterInfo {
+            id: "c".to_string(),
+            stable_id: 200,
+            ..Default::default()
+        },
+        AdapterInfo {
+            id: "d".to_string(),
+            stable_id: 400,
+            ..Default::default()
+        },
+    ];
+
+    // Run 100 times to verify determinism
+    for _ in 0..100 {
+        let mut scores = vec![(0, 0.8f32), (1, 0.8f32), (2, 0.8f32), (3, 0.9f32)];
+        sort_scores_deterministic(&mut scores, &adapter_info, false);
+
+        // Must always produce same order
+        assert_eq!(scores[0].0, 3); // 0.9
+        assert_eq!(scores[1].0, 1); // 0.8, stable_id 100
+        assert_eq!(scores[2].0, 2); // 0.8, stable_id 200
+        assert_eq!(scores[3].0, 0); // 0.8, stable_id 300
+    }
+}

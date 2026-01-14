@@ -35,21 +35,20 @@ The MLX backend is a production-ready GPU acceleration layer for AdapterOS suppo
 ### Current Status: Feature-Gated
 
 **Real MLX is available when built with `multi-backend` + `mlx` (C++ FFI).**
-If `mlx-rs-backend` is also enabled, the system can fall back to the Rust bindings when FFI init fails.
-The user-facing backend remains `mlx`; the implementation is auto-selected at boot (internal override via `AOS_MLX_IMPL=ffi|rs`).
+The user-facing backend remains `mlx`; the implementation uses the C++ FFI backend.
 
-| Aspect | Status | Implementation |
-|--------|--------|----------------|
-| **Model Loading** | ✅ Real when `mlx` enabled | Load from directory or pre-serialized buffers with config.json parsing |
-| **Inference** | ✅ Real when `mlx` enabled | Forward passes, text generation, hidden state extraction |
-| **Determinism** | ✅ HKDF-seeded in real mode | HKDF-seeded RNG for reproducible dropout/sampling operations |
-| **LoRA Support** | ✅ Real when `mlx` enabled | Multi-adapter routing with K-sparse selection and Q15 quantized gates |
-| **Tokenization** | ✅ Real when `mlx` enabled | Lazy tokenizer loading from model directory |
-| **Health Monitoring** | ✅ Production | Circuit breaker, consecutive failure tracking, auto-recovery |
-| **Memory Management** | ✅ Production | Unified memory tracking, GC hints, allocation monitoring |
-| **FFI Safety** | ✅ Real when `mlx` enabled | Bounds checking, null pointer validation, error propagation |
-| **Text Generation** | ✅ Real when `mlx` enabled | Temperature, top-k, top-p sampling with deterministic seeding |
-| **Hidden States** | ✅ Real when `mlx` enabled | Extract intermediate layer outputs for analysis |
+| Aspect                | Status                      | Implementation                                                         |
+| --------------------- | --------------------------- | ---------------------------------------------------------------------- |
+| **Model Loading**     | ✅ Real when `mlx` enabled  | Load from directory or pre-serialized buffers with config.json parsing |
+| **Inference**         | ✅ Real when `mlx` enabled  | Forward passes, text generation, hidden state extraction               |
+| **Determinism**       | ✅ HKDF-seeded in real mode | HKDF-seeded RNG for reproducible dropout/sampling operations           |
+| **LoRA Support**      | ✅ Real when `mlx` enabled  | Multi-adapter routing with K-sparse selection and Q15 quantized gates  |
+| **Tokenization**      | ✅ Real when `mlx` enabled  | Lazy tokenizer loading from model directory                            |
+| **Health Monitoring** | ✅ Production               | Circuit breaker, consecutive failure tracking, auto-recovery           |
+| **Memory Management** | ✅ Production               | Unified memory tracking, GC hints, allocation monitoring               |
+| **FFI Safety**        | ✅ Real when `mlx` enabled  | Bounds checking, null pointer validation, error propagation            |
+| **Text Generation**   | ✅ Real when `mlx` enabled  | Temperature, top-k, top-p sampling with deterministic seeding          |
+| **Hidden States**     | ✅ Real when `mlx` enabled  | Extract intermediate layer outputs for analysis                        |
 
 ### Key Features
 
@@ -68,11 +67,11 @@ The user-facing backend remains `mlx`; the implementation is auto-selected at bo
 
 MLX operates as a **fully-capable production backend** in our multi-backend ecosystem:
 
-| Backend | Status | Use Case | Determinism | Resilience |
-|---------|--------|----------|-------------|------------|
-| **Metal** | Incomplete | GPU acceleration | Guaranteed | Partial (model loading issues) |
-| **CoreML** | Production | ANE acceleration | Conditional | Full |
-| **MLX** | **Production** | Production inference, training | **Feature-gated** | **Enterprise-grade** |
+| Backend    | Status         | Use Case                       | Determinism       | Resilience                     |
+| ---------- | -------------- | ------------------------------ | ----------------- | ------------------------------ |
+| **Metal**  | Incomplete     | GPU acceleration               | Guaranteed        | Partial (model loading issues) |
+| **CoreML** | Production     | ANE acceleration               | Conditional       | Full                           |
+| **MLX**    | **Production** | Production inference, training | **Feature-gated** | **Enterprise-grade**           |
 
 ```mermaid
 flowchart TD
@@ -92,6 +91,7 @@ flowchart TD
 ### Backend Selection Policy
 
 **Training Selection Policy (ADR-aligned):**
+
 - Priority: CoreML (ANE) → MLX → Metal; CPU only when GPU is optional
 - `preferred_backend` is honored when available; otherwise the chain above is used
 - MLX training requires a model path (e.g., `AOS_MODEL_PATH`) and will fall back to CPU if GPU is optional and all GPU backends fail
@@ -114,14 +114,14 @@ flowchart LR
 
 ### Implementation Locations
 
-| Component | Location | Purpose |
-|-----------|----------|---------|
-| **Rust API** | `crates/adapteros-lora-mlx-ffi/src/` | High-level Rust interface |
-| **Memory Module** | `crates/adapteros-lora-mlx-ffi/src/memory_management.rs` | Memory management API |
-| **Real C++** | `crates/adapteros-lora-mlx-ffi/src/mlx_cpp_wrapper_real.cpp` | MLX FFI implementation |
-| **Stub C++** | `crates/adapteros-lora-mlx-ffi/src/mlx_cpp_wrapper.cpp` | Fallback stub implementation |
-| **Backend Factory** | `crates/adapteros-lora-worker/src/backend_factory.rs` | Backend creation & selection |
-| **Tests** | `crates/adapteros-lora-mlx-ffi/tests/` | Comprehensive test suite |
+| Component           | Location                                                     | Purpose                      |
+| ------------------- | ------------------------------------------------------------ | ---------------------------- |
+| **Rust API**        | `crates/adapteros-lora-mlx-ffi/src/`                         | High-level Rust interface    |
+| **Memory Module**   | `crates/adapteros-lora-mlx-ffi/src/memory_management.rs`     | Memory management API        |
+| **Real C++**        | `crates/adapteros-lora-mlx-ffi/src/mlx_cpp_wrapper_real.cpp` | MLX FFI implementation       |
+| **Stub C++**        | `crates/adapteros-lora-mlx-ffi/src/mlx_cpp_wrapper.cpp`      | Fallback stub implementation |
+| **Backend Factory** | `crates/adapteros-lora-worker/src/backend_factory.rs`        | Backend creation & selection |
+| **Tests**           | `crates/adapteros-lora-mlx-ffi/tests/`                       | Comprehensive test suite     |
 
 ---
 
@@ -130,14 +130,16 @@ flowchart LR
 ### System Requirements
 
 **Hardware:**
+
 - **Processor:** Apple Silicon (M1, M2, M3, M4 or compatible)
 - **Memory:** Minimum 8GB unified memory (16GB+ recommended for models >7B)
 - **Storage:** 50GB free for base OS + models
 
 **Software:**
+
 - **macOS:** 12.0 or later
 - **MLX C++ Library:** Version 0.1.0 or later
-- **Rust:** 1.70+ with nightly toolchain
+- **Rust:** stable toolchain (see `rust-toolchain.toml`)
 
 ### Quick Start (5 Minutes)
 
@@ -162,9 +164,6 @@ cargo build -p adapteros-lora-mlx-ffi --features mlx --release
 cargo build --release --features "multi-backend,mlx"
 
 # Check output for: "MLX FFI build: REAL"
-
-# Optional: enable experimental mlx-rs fallback
-cargo build --release --features "multi-backend,mlx,mlx-rs-backend"
 ```
 
 #### 3. Prepare Model
@@ -179,6 +178,7 @@ python -m mlx_lm.convert \
 ```
 
 Expected model structure:
+
 ```
 models/qwen2.5-7b-mlx/
 ├── config.json          # Model configuration
@@ -192,7 +192,7 @@ models/qwen2.5-7b-mlx/
 ```bash
 export AOS_MODEL_PATH="./models/qwen2.5-7b-mlx"
 
-./target/release/aosctl serve \
+./aosctl serve \
   --backend mlx \
   --model-path ./models/qwen2.5-7b-mlx
 ```
@@ -225,6 +225,7 @@ MLX_FORCE_STUB=1 cargo build -p adapteros-lora-mlx-ffi
 ```
 
 **Build Configuration Precedence:**
+
 1. `MLX_INCLUDE_DIR` and `MLX_LIB_DIR` (explicit paths)
 2. `MLX_PATH` (base directory, uses `MLX_PATH/include` and `MLX_PATH/lib`)
 3. Default paths (`/opt/homebrew/include` and `/opt/homebrew/lib` on macOS)
@@ -293,6 +294,7 @@ base_seed = "automatic"  # Or explicit hex value
 ### Common Configuration Patterns
 
 #### Development Setup
+
 ```toml
 [mlx]
 enabled = true
@@ -309,6 +311,7 @@ enable_kv_cache = true
 ```
 
 #### Production Setup
+
 ```toml
 [mlx]
 enabled = true
@@ -337,21 +340,22 @@ base_seed = "automatic"
 
 ### Environment Variables
 
-| Variable | Purpose | Example |
-|----------|---------|---------|
-| `AOS_MODEL_PATH` | Primary model path | `/data/models/qwen2.5-7b-mlx` |
-| `AOS_MLX_FFI_MODEL` | Legacy model path (warned) | `./models/qwen2.5-7b-mlx` |
-| `AOS_MLX_IMPL` | Internal MLX implementation override (`auto`, `ffi`, `rs`) | `auto` |
-| `MLX_INCLUDE_DIR` | MLX headers path | `/opt/homebrew/include` |
-| `MLX_LIB_DIR` | MLX library path | `/opt/homebrew/lib` |
-| `MLX_PATH` | MLX base path | `/opt/homebrew` |
-| `RUST_LOG` | Log level | `info,adapteros_lora_mlx_ffi=debug` |
-| `RUST_BACKTRACE` | Backtrace verbosity | `1` or `full` |
-| `AOS_MLX_MAX_MEMORY_MB` | Memory limit | `16000` |
-| `AOS_MLX_GC_THRESHOLD_MB` | GC trigger | `2000` |
-| `MLX_FORCE_STUB` | Force stub build | `1` |
+| Variable                  | Purpose                                                    | Example                             |
+| ------------------------- | ---------------------------------------------------------- | ----------------------------------- |
+| `AOS_MODEL_PATH`          | Primary model path                                         | `/data/models/qwen2.5-7b-mlx`       |
+| `AOS_MLX_FFI_MODEL`       | Legacy model path (warned)                                 | `./models/qwen2.5-7b-mlx`           |
+| `AOS_MLX_IMPL`            | Internal MLX implementation override (`auto`, `ffi`, `rs`) | `auto`                              |
+| `MLX_INCLUDE_DIR`         | MLX headers path                                           | `/opt/homebrew/include`             |
+| `MLX_LIB_DIR`             | MLX library path                                           | `/opt/homebrew/lib`                 |
+| `MLX_PATH`                | MLX base path                                              | `/opt/homebrew`                     |
+| `RUST_LOG`                | Log level                                                  | `info,adapteros_lora_mlx_ffi=debug` |
+| `RUST_BACKTRACE`          | Backtrace verbosity                                        | `1` or `full`                       |
+| `AOS_MLX_MAX_MEMORY_MB`   | Memory limit                                               | `16000`                             |
+| `AOS_MLX_GC_THRESHOLD_MB` | GC trigger                                                 | `2000`                              |
+| `MLX_FORCE_STUB`          | Force stub build                                           | `1`                                 |
 
 **Model path resolution (in order):**
+
 1. CLI/`ModelConfig.path` (preferred)
 2. `AOS_MODEL_PATH` (primary env var)
 3. Legacy: `AOS_MLX_FFI_MODEL`, then `MLX_PATH` (warned)
@@ -360,14 +364,9 @@ The path must be a directory containing `config.json`; otherwise backend creatio
 
 ---
 
-### Implementation Differences (FFI vs mlx-rs)
+### MLX Backend Implementation
 
-| Implementation | Status | Notes |
-|----------------|--------|-------|
-| **C++ FFI (default)** | Production | Full feature set (LoRA, adapter cache, hot-swap, GPU sampling) |
-| **mlx-rs (fallback)** | Experimental | No LoRA adapters yet; bypasses model cache; CPU sampling path |
-
-Use `AOS_MLX_IMPL=ffi|rs|auto` for internal debugging; production runs should keep `auto`.
+The MLX backend uses the C++ FFI implementation, which provides the full feature set including LoRA adapters, adapter cache, hot-swap, and GPU sampling.
 
 ---
 
@@ -568,13 +567,13 @@ manager.synchronize()?;
 
 ### Memory Management API
 
-| Function | Purpose | Latency | Notes |
-|----------|---------|---------|-------|
-| `gc_collect()` | Trigger GC | 10-100ms | GPU-blocking, flushes pending operations |
-| `memory_usage()` | Current bytes | <1µs | Atomic load, lock-free |
-| `allocation_count()` | Active allocations | <1µs | Atomic load, lock-free |
-| `memory_stats()` | Detailed snapshot | <10µs | Two atomic loads + peak tracking |
-| `synchronize()` | GPU sync | 1-10ms | GPU-blocking, ensures operations complete |
+| Function             | Purpose            | Latency  | Notes                                     |
+| -------------------- | ------------------ | -------- | ----------------------------------------- |
+| `gc_collect()`       | Trigger GC         | 10-100ms | GPU-blocking, flushes pending operations  |
+| `memory_usage()`     | Current bytes      | <1µs     | Atomic load, lock-free                    |
+| `allocation_count()` | Active allocations | <1µs     | Atomic load, lock-free                    |
+| `memory_stats()`     | Detailed snapshot  | <10µs    | Two atomic loads + peak tracking          |
+| `synchronize()`      | GPU sync           | 1-10ms   | GPU-blocking, ensures operations complete |
 
 ### Memory Pressure Monitoring
 
@@ -718,6 +717,7 @@ fn attest_determinism(&self) -> Result<attestation::DeterminismReport> {
 ```
 
 **Important:** `deterministic: false` is correct because:
+
 1. Execution order is not deterministic (async GPU operations)
 2. Floating-point rounding may vary between runs
 3. MLX does not provide order-determinism guarantees
@@ -818,34 +818,34 @@ let result = hotswap_manager.execute(command).await?;
 
 #### Inference Latency (7B Model, M2 Max)
 
-| Operation | Latency | Notes |
-|-----------|---------|-------|
-| Model load | 500ms | One-time |
-| Forward pass (1 token) | 15ms | Cold cache |
-| Forward pass (batched) | 30ms | Batch size 4 |
-| Text generation (100 tokens) | 2000ms | With sampling |
-| Adapter hot-swap | 50ms | Runtime load |
+| Operation                    | Latency | Notes         |
+| ---------------------------- | ------- | ------------- |
+| Model load                   | 500ms   | One-time      |
+| Forward pass (1 token)       | 15ms    | Cold cache    |
+| Forward pass (batched)       | 30ms    | Batch size 4  |
+| Text generation (100 tokens) | 2000ms  | With sampling |
+| Adapter hot-swap             | 50ms    | Runtime load  |
 
 #### Memory Usage (7B Model)
 
-| Component | Memory | Notes |
-|-----------|--------|-------|
-| Model weights | 4.5GB | INT8 quantized |
-| KV cache | 1.2GB | Max sequence length |
-| Adapters (5x) | 0.5GB | ~100MB each |
-| Runtime overhead | 0.3GB | FFI, allocation tracking |
-| **Total** | **~6.5GB** | Typical deployment |
+| Component        | Memory     | Notes                    |
+| ---------------- | ---------- | ------------------------ |
+| Model weights    | 4.5GB      | INT8 quantized           |
+| KV cache         | 1.2GB      | Max sequence length      |
+| Adapters (5x)    | 0.5GB      | ~100MB each              |
+| Runtime overhead | 0.3GB      | FFI, allocation tracking |
+| **Total**        | **~6.5GB** | Typical deployment       |
 
 ### Performance Characteristics
 
-| Metric | MLX | Notes |
-|--------|-----|-------|
-| Model Loading | Sub-second | Lazy tokenizer loading |
-| Forward Pass | 10-50ms | Depends on model size and GPU utilization |
+| Metric          | MLX              | Notes                                       |
+| --------------- | ---------------- | ------------------------------------------- |
+| Model Loading   | Sub-second       | Lazy tokenizer loading                      |
+| Forward Pass    | 10-50ms          | Depends on model size and GPU utilization   |
 | Text Generation | Token/sec varies | Includes sampling and tokenization overhead |
-| Memory Overhead | <50MB | Base runtime, grows with model size |
-| Determinism | ✅ Complete | HKDF seeding for RNG operations |
-| Concurrency | Limited | Sequential execution via global executor |
+| Memory Overhead | <50MB            | Base runtime, grows with model size         |
+| Determinism     | ✅ Complete      | HKDF seeding for RNG operations             |
+| Concurrency     | Limited          | Sequential execution via global executor    |
 
 ### Memory Configuration
 
@@ -905,6 +905,7 @@ let text = model.generate_with_config(prompt, config)?;
 ### Deployment Steps
 
 **Step 1: Prepare Environment**
+
 ```bash
 # Create model directory
 mkdir -p /data/models/base
@@ -921,13 +922,14 @@ ls -la /data/models/base/qwen2.5-7b-mlx/
 ```
 
 **Step 2: Initialize Database**
+
 ```bash
 # Run migrations
 export DATABASE_URL="sqlite:///data/aos.db"
-./target/release/aosctl db migrate
+./aosctl db migrate
 
 # Create system tenant
-./target/release/aosctl init-tenant \
+./aosctl init-tenant \
   --id system \
   --uid 1000 \
   --gid 1000 \
@@ -935,11 +937,12 @@ export DATABASE_URL="sqlite:///data/aos.db"
 ```
 
 **Step 3: Start Server**
+
 ```bash
 export AOS_MODEL_PATH="/data/models/base/qwen2.5-7b-mlx"
 export RUST_LOG="info,adapteros_lora_mlx_ffi=info"
 
-./target/release/aosctl serve \
+./aosctl serve \
   --tenant system \
   --backend mlx \
   --model-path /data/models/base/qwen2.5-7b-mlx \
@@ -948,6 +951,7 @@ export RUST_LOG="info,adapteros_lora_mlx_ffi=info"
 ```
 
 **Step 4: Verify Deployment**
+
 ```bash
 # Health check
 curl http://localhost:8080/healthz
@@ -1020,6 +1024,7 @@ WantedBy=multi-user.target
 ```
 
 Enable and start:
+
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable aos-mlx.service
@@ -1070,6 +1075,7 @@ The MLX Bridge is a subprocess-based backend that uses Python's `mlx-lm` library
 ### Auto-Selection
 
 The backend factory automatically selects MLX Bridge for MoE models:
+
 ```rust
 fn is_moe_model(model_path: &Path) -> bool {
     // Checks for:
@@ -1116,12 +1122,12 @@ let bridge = MLXSubprocessBridge::with_full_config(
 
 ### Environment Variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `MLX_BRIDGE_PYTHON_PATH` | `python3` | Python executable path |
-| `MLX_BRIDGE_TIMEOUT` | `300` | Request timeout in seconds |
-| `MLX_BRIDGE_MAX_RESTARTS` | `3` | Maximum restart attempts on failure |
-| `MLX_BRIDGE_SCRIPT_PATH` | (auto-detected) | Path to `mlx_bridge_server.py` script |
+| Variable                  | Default         | Description                           |
+| ------------------------- | --------------- | ------------------------------------- |
+| `MLX_BRIDGE_PYTHON_PATH`  | `python3`       | Python executable path                |
+| `MLX_BRIDGE_TIMEOUT`      | `300`           | Request timeout in seconds            |
+| `MLX_BRIDGE_MAX_RESTARTS` | `3`             | Maximum restart attempts on failure   |
+| `MLX_BRIDGE_SCRIPT_PATH`  | (auto-detected) | Path to `mlx_bridge_server.py` script |
 
 ### Text Generation
 
@@ -1232,13 +1238,13 @@ if is_moe_model(&model_path) {
 
 ### Performance Characteristics
 
-| Metric | MLX FFI | MLX Bridge | Notes |
-|--------|---------|------------|-------|
-| **Startup** | 1-3s | 3-5s | Bridge has subprocess overhead |
-| **Latency** | 50-80ms | 60-100ms | ~10-20% higher |
-| **Memory** | Unified | Separate process | Extra ~500MB for Python |
-| **MoE Support** | ❌ | ✅ | Bridge required for MoE |
-| **Streaming** | Limited | ✅ Full | Native token streaming |
+| Metric          | MLX FFI | MLX Bridge       | Notes                          |
+| --------------- | ------- | ---------------- | ------------------------------ |
+| **Startup**     | 1-3s    | 3-5s             | Bridge has subprocess overhead |
+| **Latency**     | 50-80ms | 60-100ms         | ~10-20% higher                 |
+| **Memory**      | Unified | Separate process | Extra ~500MB for Python        |
+| **MoE Support** | ❌      | ✅               | Bridge required for MoE        |
+| **Streaming**   | Limited | ✅ Full          | Native token streaming         |
 
 ### Troubleshooting
 
@@ -1249,6 +1255,7 @@ Error: Failed to spawn MLX bridge subprocess
 ```
 
 **Solutions:**
+
 1. Verify Python path: `which python3`
 2. Check mlx-lm installed: `python3 -c "import mlx_lm"`
 3. Check script exists: `ls scripts/mlx_bridge_server.py`
@@ -1260,6 +1267,7 @@ Error: Model loading timed out after 120s
 ```
 
 **Solutions:**
+
 1. Increase startup timeout: `export MLX_BRIDGE_TIMEOUT=300`
 2. Check model size fits in memory
 3. Verify model path is correct
@@ -1271,6 +1279,7 @@ Warning: MLX bridge restart count exceeded (3)
 ```
 
 **Solutions:**
+
 1. Check Python process logs
 2. Verify model compatibility with mlx-lm
 3. Increase max restarts: `export MLX_BRIDGE_MAX_RESTARTS=5`
@@ -1298,20 +1307,20 @@ Warning: MLX bridge restart count exceeded (3)
 
 ### Backend Comparison
 
-| Feature | Metal | CoreML | MLX | MLX Bridge |
-|---------|-------|--------|-----|------------|
-| **Determinism** | ✓ Guaranteed | ~ ANE-only | ✗ RNG-only | ✗ Best-effort |
-| **RNG Seeding** | Via global seed | Via global seed | Via HKDF | Via Python |
-| **Execution Order** | ✓ Fused kernels | ~ Conditional | ✗ Async | ✗ Subprocess |
-| **Float Rounding** | ✓ Controlled | ~ Depends on backend | ✗ Uncontrolled | ✗ Uncontrolled |
-| **Use Case** | Production | Power-efficient | Production inference, training | MoE models |
-| **Policy Attestation** | `deterministic: true` | `deterministic: ane_available` | `deterministic: false` | `deterministic: false` |
-| **Performance** | Highest | Good | Good | Good (10-20% overhead) |
-| **Setup** | Automatic on macOS | Automatic | Requires Homebrew MLX | Requires Python/mlx-lm |
-| **LoRA Support** | Full | Full | Full | Limited |
-| **Adapter Hot-Swap** | Limited | Limited | Full | Limited |
-| **Model Format** | .metallib | .mlmodelc | .safetensors | .safetensors |
-| **MoE Support** | ❌ | ❌ | ❌ | ✅ |
+| Feature                | Metal                 | CoreML                         | MLX                            | MLX Bridge             |
+| ---------------------- | --------------------- | ------------------------------ | ------------------------------ | ---------------------- |
+| **Determinism**        | ✓ Guaranteed          | ~ ANE-only                     | ✗ RNG-only                     | ✗ Best-effort          |
+| **RNG Seeding**        | Via global seed       | Via global seed                | Via HKDF                       | Via Python             |
+| **Execution Order**    | ✓ Fused kernels       | ~ Conditional                  | ✗ Async                        | ✗ Subprocess           |
+| **Float Rounding**     | ✓ Controlled          | ~ Depends on backend           | ✗ Uncontrolled                 | ✗ Uncontrolled         |
+| **Use Case**           | Production            | Power-efficient                | Production inference, training | MoE models             |
+| **Policy Attestation** | `deterministic: true` | `deterministic: ane_available` | `deterministic: false`         | `deterministic: false` |
+| **Performance**        | Highest               | Good                           | Good                           | Good (10-20% overhead) |
+| **Setup**              | Automatic on macOS    | Automatic                      | Requires Homebrew MLX          | Requires Python/mlx-lm |
+| **LoRA Support**       | Full                  | Full                           | Full                           | Limited                |
+| **Adapter Hot-Swap**   | Limited               | Limited                        | Full                           | Limited                |
+| **Model Format**       | .metallib             | .mlmodelc                      | .safetensors                   | .safetensors           |
+| **MoE Support**        | ❌                    | ❌                             | ❌                             | ✅                     |
 
 ### Recommended Backends by Scenario
 
@@ -1375,12 +1384,12 @@ generator.generate_stream(
 
 ### StreamEvent Types
 
-| Event Type | Description | Fields |
-|------------|-------------|--------|
-| `Token` | Generated token | `token`, `confidence`, `alternatives` |
-| `StartTime` | Generation start marker | `timestamp` |
-| `EndTime` | Generation complete marker | `timestamp`, `total_tokens` |
-| `Error` | Error during streaming | `message`, `recoverable` |
+| Event Type  | Description                | Fields                                |
+| ----------- | -------------------------- | ------------------------------------- |
+| `Token`     | Generated token            | `token`, `confidence`, `alternatives` |
+| `StartTime` | Generation start marker    | `timestamp`                           |
+| `EndTime`   | Generation complete marker | `timestamp`, `total_tokens`           |
+| `Error`     | Error during streaming     | `message`, `recoverable`              |
 
 ### Token Confidence Scores
 
@@ -1462,12 +1471,12 @@ cache.clear()?;
 
 ### Configuration Options
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `max_cached_adapters` | 8 | Maximum number of adapters to keep in cache |
-| `max_adapter_size_bytes` | 512MB | Maximum size of a single adapter |
-| `max_total_cache_bytes` | 4GB | Total cache memory limit |
-| `adapter_ttl_secs` | 1800 | Time-to-live before automatic eviction |
+| Option                   | Default | Description                                 |
+| ------------------------ | ------- | ------------------------------------------- |
+| `max_cached_adapters`    | 8       | Maximum number of adapters to keep in cache |
+| `max_adapter_size_bytes` | 512MB   | Maximum size of a single adapter            |
+| `max_total_cache_bytes`  | 4GB     | Total cache memory limit                    |
+| `adapter_ttl_secs`       | 1800    | Time-to-live before automatic eviction      |
 
 ### Cache Statistics
 
@@ -1527,11 +1536,11 @@ pool.compact()?;    // Defragment pool
 
 ### Configuration Options
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `pressure_threshold` | 0.80 | Memory utilization threshold for cleanup |
-| `idle_timeout_secs` | 120 | Seconds before idle buffers are released |
-| `target_headroom` | 0.20 | Target free memory ratio |
+| Option               | Default | Description                              |
+| -------------------- | ------- | ---------------------------------------- |
+| `pressure_threshold` | 0.80    | Memory utilization threshold for cleanup |
+| `idle_timeout_secs`  | 120     | Seconds before idle buffers are released |
+| `target_headroom`    | 0.20    | Target free memory ratio                 |
 
 ### Memory Pressure Callbacks
 
@@ -1591,69 +1600,24 @@ The MLX backend supports two implementations with automatic selection at runtime
 
 ### Available Implementations
 
-| Implementation | Feature Flag | Status | Description |
-|----------------|--------------|--------|-------------|
-| **C++ FFI** | `mlx` | Primary/Production | Full MLX C++ library integration via FFI |
-| **mlx-rs** | `mlx-rs-backend` | Experimental | Pure Rust bindings (limited features) |
+| Implementation | Feature Flag | Status     | Description                              |
+| -------------- | ------------ | ---------- | ---------------------------------------- |
+| **C++ FFI**    | `mlx`        | Production | Full MLX C++ library integration via FFI |
 
-### Feature Differences
+### Features
 
-| Feature | C++ FFI | mlx-rs |
-|---------|---------|--------|
-| LoRA adapters | ✅ Full support | ❌ Not available |
-| Adapter cache | ✅ Full support | ❌ Not available |
-| Hot-swap | ✅ Full support | ❌ Not available |
-| GPU sampling | ✅ GPU-accelerated | ⚠️ CPU fallback |
-| Text generation | ✅ Full support | ✅ Basic support |
-| Model loading | ✅ Lazy tokenizer | ⚠️ Eager loading |
-| Memory management | ✅ Full GC integration | ⚠️ Limited |
+The C++ FFI backend provides full support for:
 
-### Runtime Override
+- LoRA adapters with hot-swap
+- Adapter cache management
+- GPU-accelerated sampling
+- Text generation
+- Lazy tokenizer loading
+- Full memory management with GC integration
 
-Use `AOS_MLX_IMPL` to override automatic implementation selection:
-
-```bash
-# Force C++ FFI implementation
-export AOS_MLX_IMPL=ffi
-
-# Force mlx-rs implementation (experimental)
-export AOS_MLX_IMPL=rs
-
-# Automatic selection (default)
-export AOS_MLX_IMPL=auto
-```
-
-### Auto-Selection Logic
-
-```mermaid
-flowchart TD
-    A[MLX Backend Init] --> B{AOS_MLX_IMPL set?}
-    B -->|ffi| C[Use C++ FFI]
-    B -->|rs| D[Use mlx-rs]
-    B -->|auto/unset| E{FFI available?}
-    E -->|Yes| C
-    E -->|No| F{mlx-rs enabled?}
-    F -->|Yes| D
-    F -->|No| G[Error: No MLX impl]
-```
-
-The automatic selection:
-1. Attempts C++ FFI initialization first
-2. If FFI fails and `mlx-rs-backend` feature is enabled, falls back to mlx-rs
-3. If both fail, returns an initialization error
-
-### Checking Active Implementation
+### Checking Implementation
 
 ```rust
-use adapteros_lora_mlx_ffi::implementation;
-
-// Check which implementation is active
-match implementation::active() {
-    implementation::Kind::Ffi => println!("Using C++ FFI (production)"),
-    implementation::Kind::Rs => println!("Using mlx-rs (experimental)"),
-    implementation::Kind::Stub => println!("Using stub (no real MLX)"),
-}
-
 // Check via FFI
 let is_real = adapteros_lora_mlx_ffi::mlx_wrapper_is_real();
 println!("Real MLX: {}", is_real);
@@ -1686,14 +1650,14 @@ println!("  Requests processed: {}", metrics.total_requests);
 
 ### PerformanceMetrics Fields
 
-| Field | Type | Description |
-|-------|------|-------------|
+| Field                     | Type  | Description                               |
+| ------------------------- | ----- | ----------------------------------------- |
 | `total_inference_time_ms` | `u64` | Cumulative inference time in milliseconds |
-| `average_latency_ms` | `f64` | Rolling average request latency |
-| `peak_memory_usage_mb` | `u64` | Highest memory usage observed |
-| `cache_hit_rate` | `f64` | KV cache hit rate (0.0-1.0) |
-| `total_tokens_generated` | `u64` | Total tokens generated since startup |
-| `total_requests` | `u64` | Total inference requests processed |
+| `average_latency_ms`      | `f64` | Rolling average request latency           |
+| `peak_memory_usage_mb`    | `u64` | Highest memory usage observed             |
+| `cache_hit_rate`          | `f64` | KV cache hit rate (0.0-1.0)               |
+| `total_tokens_generated`  | `u64` | Total tokens generated since startup      |
+| `total_requests`          | `u64` | Total inference requests processed        |
 
 ### BackendHealth Tracking
 
@@ -1802,7 +1766,7 @@ let app = Router::new()
 ### Related Documentation
 
 - [ADR_MULTI_BACKEND_STRATEGY.md](./ADR_MULTI_BACKEND_STRATEGY.md) - Multi-backend architecture decision record
-- [COREML_INTEGRATION.md](./COREML_INTEGRATION.md) - CoreML backend guide, ANE optimization, Swift bridge
+- [COREML_BACKEND.md](./COREML_BACKEND.md) - CoreML backend guide, ANE optimization, Swift bridge
 - [ADDING_NEW_BACKEND.md](./ADDING_NEW_BACKEND.md) - Template for adding new backends
 - [OBJECTIVE_CPP_FFI_PATTERNS.md](./OBJECTIVE_CPP_FFI_PATTERNS.md) - FFI memory safety patterns
 - [DETERMINISM.md](./DETERMINISM.md) - Global determinism and replay strategy

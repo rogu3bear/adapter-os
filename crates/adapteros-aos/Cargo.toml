@@ -39,7 +39,7 @@ anyhow = { workspace = true }
 lru = { version = "0.16", optional = true }
 parking_lot = { version = "0.12", optional = true }
 
-# File adapters - Removed: adapteros-single-file-adapter (migrated to adapteros-aos)
+# File adapters - adapteros-single-file-adapter provides high-level wrapper (training, lineage, migration)
 tempfile = { workspace = true }
 
 # Unix signal handling (Unix-only)

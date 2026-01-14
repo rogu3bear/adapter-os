@@ -133,7 +133,6 @@ result_large_err = "warn"
 default = []
 # MLX backend support - enables MLX capability detection and reporting
 mlx-ffi-backend = ["adapteros-lora-mlx-ffi"]
-mlx-rs-backend = ["mlx-ffi-backend", "adapteros-lora-mlx-ffi/mlx-rs-backend"]
 # Standalone MLX flag for capability gating
 mlx = []
 coreml-backend = ["adapteros-lora-worker/coreml-backend", "adapteros-orchestrator/coreml-backend"]

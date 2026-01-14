@@ -32,7 +32,7 @@ cp .env.example .env
 vim .env
 
 # Step 3: Verify configuration
-cargo run -p adapteros-orchestrator -- config show
+./aosctl config show
 ```
 
 ### Platform Requirements
@@ -48,9 +48,9 @@ cargo run -p adapteros-orchestrator -- config show
 - [ ] Clone repository: `git clone https://github.com/rogu3bear/adapter-os.git`
 - [ ] Copy environment: `cp .env.example .env`
 - [ ] Download model: `./scripts/download_model.sh`
-- [ ] Initialize database: `cargo run -p adapteros-orchestrator -- db migrate`
-- [ ] Create default tenant: `cargo run -p adapteros-orchestrator -- init-tenant --id default --uid 1000 --gid 1000`
-- [ ] Verify configuration: `cargo run -p adapteros-orchestrator -- config show`
+- [ ] Initialize database: `./aosctl db migrate`
+- [ ] Create default tenant: `./aosctl init-tenant --id default --uid 1000 --gid 1000`
+- [ ] Verify configuration: `./aosctl config show`
 - [ ] Start backend: `cargo run --release -p adapteros-server-api`
 - [ ] Start UI: `cd ui && pnpm install && pnpm dev`
 - [ ] Access UI: Open http://localhost:3200
@@ -67,7 +67,7 @@ cargo run -p adapteros-orchestrator -- config show
 - [ ] Update `AOS_DATABASE_URL` to production path
 - [ ] Set `AOS_TELEMETRY_ENABLED=true`
 - [ ] Set `RUST_LOG=warn,adapteros=info`
-- [ ] Test configuration: `cargo run -p adapteros-orchestrator -- config show`
+- [ ] Test configuration: `./aosctl config show`
 - [ ] Build release binary: `cargo build --release -p adapteros-server-api`
 - [ ] Deploy and start service
 
@@ -1037,7 +1037,7 @@ echo $AOS_DATABASE_URL
 mkdir -p var
 
 # Run migrations
-cargo run -p adapteros-orchestrator -- db migrate
+./aosctl db migrate
 ```
 
 #### Model Not Found
@@ -1070,7 +1070,7 @@ brew install mlx
 export AOS_MODEL_BACKEND=metal
 
 # Verify available backends
-cargo run -p adapteros-orchestrator -- config show | grep backend
+./aosctl config show | grep backend
 ```
 
 ### Configuration Failure Modes
@@ -1236,8 +1236,8 @@ let config = loader.load(cli_args, manifest_path)?;
 - [Configuration Guards](../crates/adapteros-config/src/guards.rs)
 - [Policy Registry](../crates/adapteros-policy/src/registry.rs)
 - [Quick Start Guide](QUICKSTART.md)
-- [MLX Integration Guide](MLX_INTEGRATION.md)
-- [CoreML Integration Guide](COREML_INTEGRATION.md)
+- [MLX Guide](MLX_GUIDE.md)
+- [CoreML Backend Guide](COREML_BACKEND.md)
 
 ---
 

@@ -217,7 +217,7 @@ If KV is slower than expected:
 ## References
 
 - [AGENTS.md](../../AGENTS.md): Storage migration strategy
-- [docs/DATABASE_REFERENCE.md](../../docs/DATABASE_REFERENCE.md): Schema documentation
+- [docs/DATABASE.md](../../docs/DATABASE.md): Schema documentation
 - [Criterion.rs](https://github.com/bheisler/criterion.rs): Benchmark framework
 
 ---

@@ -52,8 +52,8 @@ pub use dependency_security::{
     DependencyVulnerability, SecurityAssessmentResult, VulnerabilitySeverity,
 };
 pub use determinism::{
-    DeterminismConfig, DeterminismPolicy, EpsilonBounds, RngSeedingMethod, TieBreakRule,
-    ToolchainRequirements,
+    default_fallback_mappings, DeterminismConfig, DeterminismPolicy, EnforcementMode,
+    EpsilonBounds, OperationValidation, RngSeedingMethod, TieBreakRule, ToolchainRequirements,
 };
 pub use deterministic_io::{
     DeterminismRequirements, DeterminismRule, DeterministicIoConfig, DeterministicIoPolicy,

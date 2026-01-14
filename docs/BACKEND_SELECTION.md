@@ -75,14 +75,14 @@ pub enum BackendKind {
 
 ### Backend Types
 
-| Backend | Description | Platform | Determinism | Primary Use Case |
-|---------|-------------|----------|-------------|-----------------|
-| **Auto** | Deterministic auto-selection based on hardware capabilities | All | Inherited | Default behavior - picks best available backend |
-| **Mlx** | MLX FFI backend with C++ bindings | macOS (Apple Silicon) | HKDF-seeded | Primary inference/training, research workloads |
-| **MlxBridge** | MLX subprocess bridge via Python mlx-lm | macOS (Apple Silicon) | Best-effort | MoE (Mixture of Experts) models not supported by MLX FFI |
-| **CoreML** | Apple Neural Engine acceleration | macOS (Apple Silicon) | Guaranteed (ANE) | Production inference with audit trails, power efficiency |
-| **Metal** | Metal GPU compute kernels | macOS (Intel/Apple Silicon) | Guaranteed | Legacy hardware, development/testing |
-| **CPU** | CPU-only execution | All | N/A | Not implemented for inference (observability only) |
+| Backend       | Description                                                 | Platform                    | Determinism      | Primary Use Case                                         |
+| ------------- | ----------------------------------------------------------- | --------------------------- | ---------------- | -------------------------------------------------------- |
+| **Auto**      | Deterministic auto-selection based on hardware capabilities | All                         | Inherited        | Default behavior - picks best available backend          |
+| **Mlx**       | MLX FFI backend with C++ bindings                           | macOS (Apple Silicon)       | HKDF-seeded      | Primary inference/training, research workloads           |
+| **MlxBridge** | MLX subprocess bridge via Python mlx-lm                     | macOS (Apple Silicon)       | Best-effort      | MoE (Mixture of Experts) models not supported by MLX FFI |
+| **CoreML**    | Apple Neural Engine acceleration                            | macOS (Apple Silicon)       | Guaranteed (ANE) | Production inference with audit trails, power efficiency |
+| **Metal**     | Metal GPU compute kernels                                   | macOS (Intel/Apple Silicon) | Guaranteed       | Legacy hardware, development/testing                     |
+| **CPU**       | CPU-only execution                                          | All                         | N/A              | Not implemented for inference (observability only)       |
 
 ### Key Methods
 
@@ -118,19 +118,20 @@ AdapterOS implements an MLX-first priority chain for backend selection. This ens
 MLX -> CoreML -> MlxBridge -> Metal -> CPU
 ```
 
-| Priority | Backend | Rationale |
-|----------|---------|-----------|
-| 1 | **MLX** | Primary backend for flexibility and HKDF-seeded determinism |
-| 2 | **CoreML** | First fallback for ANE acceleration when MLX unavailable |
-| 3 | **MlxBridge** | MoE models that MLX FFI doesn't support |
-| 4 | **Metal** | GPU fallback when MLX/CoreML unavailable |
-| 5 | **CPU** | Terminal entry (observability only - not implemented) |
+| Priority | Backend       | Rationale                                                   |
+| -------- | ------------- | ----------------------------------------------------------- |
+| 1        | **MLX**       | Primary backend for flexibility and HKDF-seeded determinism |
+| 2        | **CoreML**    | First fallback for ANE acceleration when MLX unavailable    |
+| 3        | **MlxBridge** | MoE models that MLX FFI doesn't support                     |
+| 4        | **Metal**     | GPU fallback when MLX/CoreML unavailable                    |
+| 5        | **CPU**       | Terminal entry (observability only - not implemented)       |
 
 ### Why MLX is Primary
 
 1. **HKDF-Seeded Determinism**: MLX uses HKDF-SHA256 seed derivation from the manifest hash, ensuring reproducible inference and training across runs.
 
 2. **Flexibility**: Native C++ bindings via FFI provide full feature set including:
+
    - Multi-adapter routing with K-sparse selection
    - Hot-swap adapter loading/unloading
    - Circuit breaker pattern for resilience
@@ -164,14 +165,14 @@ The `BackendKind` enum supports multiple string aliases for flexible configurati
 
 ### Alias Table
 
-| Canonical | Aliases | Notes |
-|-----------|---------|-------|
-| `auto` | `autodev`, `auto_dev`, `default` | Default behavior |
-| `coreml` | `core-ml`, `ane` | ANE acceleration |
-| `mlx` | `mlx-ffi`, `mlx_ffi` | Primary MLX backend |
-| `mlxbridge` | `mlx-bridge`, `mlx_bridge`, `subprocess` | Python subprocess bridge |
-| `metal` | (none) | GPU compute |
-| `cpu` | `cpu_only`, `cpu-only` | Not implemented for inference |
+| Canonical   | Aliases                                  | Notes                         |
+| ----------- | ---------------------------------------- | ----------------------------- |
+| `auto`      | `autodev`, `auto_dev`, `default`         | Default behavior              |
+| `coreml`    | `core-ml`, `ane`                         | ANE acceleration              |
+| `mlx`       | `mlx-ffi`, `mlx_ffi`                     | Primary MLX backend           |
+| `mlxbridge` | `mlx-bridge`, `mlx_bridge`, `subprocess` | Python subprocess bridge      |
+| `metal`     | (none)                                   | GPU compute                   |
+| `cpu`       | `cpu_only`, `cpu-only`                   | Not implemented for inference |
 
 ### Parsing Examples
 
@@ -235,6 +236,7 @@ Error: Invalid backend 'unknown-backend'. Expected one of: auto, coreml, mlx, ml
 **Features:** `coreml-backend` build flag required
 
 **Characteristics:**
+
 - **Hardware:** Apple Neural Engine (M1/M2/M3/M4)
 - **Determinism:** Guaranteed deterministic when ANE is available
 - **Performance:** 15.8 TOPS (M1), 17.0 TOPS (M2/M3/M4)
@@ -242,12 +244,14 @@ Error: Invalid backend 'unknown-backend'. Expected one of: auto, coreml, mlx, ml
 - **Use Case:** Production inference with audit trails, power-constrained deployments
 
 **Compute Units:**
+
 - `CpuOnly`: CPU fallback (not recommended)
 - `CpuAndGpu`: GPU acceleration without ANE
 - `CpuAndNeuralEngine`: ANE acceleration (recommended)
 - `All`: Uses all available compute units
 
 **Configuration:**
+
 ```toml
 # configs/cp.toml
 [coreml]
@@ -256,6 +260,7 @@ production_mode = false  # Disable fallbacks in production
 ```
 
 **Environment Variables:**
+
 - `AOS_COREML_COMPUTE_PREFERENCE`: Override compute preference
 - `AOS_COREML_PRODUCTION_MODE`: Enable production mode (no fallbacks)
 
@@ -265,11 +270,12 @@ production_mode = false  # Disable fallbacks in production
 
 ### 2. MLX (Apple MLX Framework)
 
-**Status:** ✅ Production Ready (Feature-Gated, FFI primary)
+**Status:** ✅ Production Ready (Feature-Gated)
 **Platform:** macOS (Apple Silicon)
-**Features:** `multi-backend` + `mlx` build flags required (`mlx-rs-backend` optional fallback)
+**Features:** `multi-backend` + `mlx` build flags required
 
 **Characteristics:**
+
 - **Hardware:** Unified memory on Apple Silicon
 - **Determinism:** HKDF-seeded RNG for reproducible inference/training
 - **Performance:** GPU-accelerated, flexible framework
@@ -277,6 +283,7 @@ production_mode = false  # Disable fallbacks in production
 - **Use Case:** Production inference, training, research workloads
 
 **Features:**
+
 - Multi-adapter routing with K-sparse selection
 - Hot-swap adapter loading/unloading
 - Circuit breaker pattern for resilience
@@ -284,18 +291,19 @@ production_mode = false  # Disable fallbacks in production
 - Tokenizer integration
 - MoE (Mixture of Experts) support via subprocess bridge
 
-**Implementation Selection (internal):**
-- **FFI (default):** C++ MLX library, full feature set
-- **mlx-rs (fallback):** Experimental; no LoRA adapters yet, CPU sampling, cache bypass
-- **Auto-selection:** chosen at boot; override with `AOS_MLX_IMPL=ffi|rs|auto` for debugging
+**Implementation:**
+
+- **C++ FFI:** Uses the C++ MLX library with full feature set including LoRA adapters, hot-swap, and GPU sampling
 
 **Memory Management:**
+
 ```bash
 # Model cache budget (shared across backends)
 export AOS_MODEL_CACHE_MAX_MB=8192  # 8GB cache
 ```
 
 **Environment Variables:**
+
 - `AOS_MODEL_PATH`: Path to MLX model directory (must contain config.json)
 - `AOS_FUSION_INTERVAL_MODE`: Fusion strategy (`per_request`, `per_token`, `per_segment:N`)
 
@@ -310,6 +318,7 @@ export AOS_MODEL_CACHE_MAX_MB=8192  # 8GB cache
 **Features:** `mlx-bridge` build flag required
 
 **Characteristics:**
+
 - **Hardware:** Apple Silicon with Python/mlx-lm subprocess
 - **Determinism:** Best-effort (Python subprocess has weaker determinism guarantees)
 - **Performance:** Slightly slower than native MLX FFI due to subprocess overhead
@@ -317,12 +326,14 @@ export AOS_MODEL_CACHE_MAX_MB=8192  # 8GB cache
 - **Use Case:** MoE (Mixture of Experts) models that aren't supported by MLX FFI
 
 **When to Use:**
+
 - Models with `num_experts > 0` in config.json (e.g., Qwen3-30B MoE, Mixtral)
 - Models with architecture names containing "Moe" or "Mixtral"
 - When explicit `--backend mlx-bridge` is requested
 
 **Auto-Selection:**
 The backend factory automatically selects MLX Bridge for MoE models:
+
 ```rust
 fn is_moe_model(model_path: &Path) -> bool {
     // Checks for num_experts, num_local_experts, or MoE architecture
@@ -330,6 +341,7 @@ fn is_moe_model(model_path: &Path) -> bool {
 ```
 
 **Configuration:**
+
 ```bash
 # Environment variables for MLX Bridge
 export MLX_BRIDGE_PYTHON_PATH=python3      # Custom Python path
@@ -338,12 +350,14 @@ export MLX_BRIDGE_MAX_RESTARTS=3           # Max restart attempts
 ```
 
 **Features:**
+
 - Streaming token generation
 - Automatic subprocess lifecycle management (spawn, health check, restart on failure)
 - JSON protocol for request/response serialization
 - Fallback to MLX FFI for non-MoE models when Python unavailable
 
 **Python Requirements:**
+
 ```bash
 pip install mlx-lm
 ```
@@ -362,6 +376,7 @@ The bridge performs periodic health checks and can automatically restart the Pyt
 **Features:** Built-in (no feature flag required)
 
 **Characteristics:**
+
 - **Hardware:** Any macOS device with Metal GPU (Intel or Apple Silicon)
 - **Determinism:** Guaranteed with precompiled shaders
 - **Performance:** GPU-accelerated, parallel processing
@@ -369,12 +384,14 @@ The bridge performs periodic health checks and can automatically restart the Pyt
 - **Use Case:** Legacy hardware (pre-M1), development/testing
 
 **Features:**
+
 - Precompiled Metal shaders (`.metallib`)
 - Zero-copy unified memory on Apple Silicon
 - Grouped Query Attention (GQA) support
 - Model integrity verification
 
 **Shader Compilation:**
+
 ```bash
 # Metal shaders compiled at build time
 xcrun -sdk macosx metal -c -std=metal3.1 kernels.metal -o kernels.air
@@ -392,12 +409,14 @@ xcrun -sdk macosx metallib kernels.air -o kernels.metallib
 **Features:** Built-in (observability only)
 
 **Characteristics:**
+
 - **Hardware:** CPU-only execution
 - **Determinism:** N/A (not implemented)
 - **Performance:** N/A (not implemented)
 - **Use Case:** Training fallback when `require_gpu=false`
 
 **Current Status:**
+
 - CPU backend is listed in the fallback chain for observability
 - Inference kernels are NOT implemented for CPU
 - Selecting CPU explicitly returns an error: "CPU backend is not supported for inference kernels"
@@ -417,6 +436,7 @@ pub fn auto_select_backend(capabilities: &BackendCapabilities) -> Result<Backend
 ```
 
 **Selection Logic:**
+
 1. **MLX**: If `multi-backend` feature enabled and `has_mlx`, select MLX
 2. **CoreML**: If `has_coreml && has_ane`, select CoreML
 3. **MlxBridge**: If `mlx-bridge` enabled and `has_mlx_bridge`, select MLX Bridge
@@ -424,11 +444,13 @@ pub fn auto_select_backend(capabilities: &BackendCapabilities) -> Result<Backend
 5. **CPU**: Terminal entry (returns error - not implemented)
 
 **Usage:**
+
 ```rust
 let backend = create_backend_with_model(BackendChoice::Auto, model_path)?;
 ```
 
 **Environment Variable:**
+
 ```bash
 # Auto-selection uses hardware detection
 export AOS_BACKEND=auto  # or omit for default
@@ -567,6 +589,7 @@ fn detect_metal_device(caps: &mut BackendCapabilities) -> bool {
 ```
 
 **Capabilities Detected:**
+
 - Device name (e.g., "Apple M2")
 - Recommended max working set size (GPU memory)
 
@@ -586,6 +609,7 @@ fn detect_metal_device(caps: &mut BackendCapabilities) -> bool {
 ```
 
 **ANE Detection:**
+
 ```rust
 fn detect_neural_engine() -> bool {
     use adapteros_lora_kernel_coreml::is_neural_engine_available;
@@ -594,6 +618,7 @@ fn detect_neural_engine() -> bool {
 ```
 
 **Apple Silicon Detection:**
+
 ```rust
 #[cfg(target_arch = "aarch64")]
 fn is_apple_silicon() -> bool {
@@ -646,11 +671,13 @@ fn detect_mlx_bridge_availability() -> bool {
 ```
 
 **Requirements:**
+
 - Python 3.9+
 - `mlx-lm` package installed (`pip install mlx-lm`)
 - `mlx-bridge` feature flag enabled at build time
 
 **Environment Variables for Bridge:**
+
 ```bash
 # Custom Python executable (default: python3)
 export MLX_BRIDGE_PYTHON_PATH=/usr/bin/python3
@@ -661,6 +688,7 @@ export MLX_BRIDGE_SCRIPT_PATH=/opt/aos/scripts/mlx_bridge_server.py
 
 **Auto-Detection Locations:**
 The bridge script is searched in the following order:
+
 1. `MLX_BRIDGE_SCRIPT_PATH` environment variable
 2. `scripts/mlx_bridge_server.py` relative to executable
 3. `scripts/mlx_bridge_server.py` relative to working directory
@@ -696,14 +724,15 @@ Backend selection follows a strict precedence order:
 CLI argument > Environment variable > Config file > Auto-selection
 ```
 
-| Priority | Source | Example |
-|----------|--------|---------|
-| 1 (highest) | CLI argument | `--backend mlx` |
-| 2 | Environment variable | `AOS_MODEL_BACKEND=mlx` |
-| 3 | Config file | `[mlx] backend = "mlx"` |
-| 4 (lowest) | Auto-selection | Hardware capability detection |
+| Priority    | Source               | Example                       |
+| ----------- | -------------------- | ----------------------------- |
+| 1 (highest) | CLI argument         | `--backend mlx`               |
+| 2           | Environment variable | `AOS_MODEL_BACKEND=mlx`       |
+| 3           | Config file          | `[mlx] backend = "mlx"`       |
+| 4 (lowest)  | Auto-selection       | Hardware capability detection |
 
 **Example Precedence:**
+
 ```bash
 # Config file sets CoreML
 # configs/cp.toml: [model] backend = "coreml"
@@ -729,6 +758,7 @@ export AOS_MODEL_BACKEND=mlx  # auto, coreml, mlx, mlxbridge, metal, cpu
 ```
 
 **Parsed Values (with aliases):**
+
 - `auto`, `autodev`, `auto_dev`, `default` -> `BackendKind::Auto`
 - `coreml`, `core-ml`, `ane` -> `BackendKind::CoreML`
 - `mlx`, `mlx-ffi`, `mlx_ffi` -> `BackendKind::Mlx`
@@ -773,11 +803,13 @@ max.mb = 8192  # 8GB cache
 ```
 
 **Validation:**
+
 ```rust
 pub fn validate_model_cache_budget() -> Result<u64>
 ```
 
 **Error if Missing:**
+
 ```
 Model cache budget not configured.
 
@@ -858,6 +890,7 @@ export MLX_BRIDGE_SCRIPT_PATH=/opt/aos/scripts/mlx_bridge_server.py
 ```
 
 **Note:** The MLX Bridge requires Python 3.9+ with `mlx-lm` package installed:
+
 ```bash
 pip install mlx-lm
 ```
@@ -988,12 +1021,14 @@ flowchart TD
 ### Decision Tree Key
 
 **Capability Checks:**
+
 - `has_coreml && has_ane`: CoreML framework available AND Apple Neural Engine detected
 - `has_mlx`: MLX runtime initialized (requires `multi-backend` + `mlx` features)
 - `has_mlx_bridge`: Python/mlx-lm subprocess available (requires `mlx-bridge` feature)
 - `has_metal`: Metal GPU device detected
 
 **Cache Key Components:**
+
 - `backend_type`: CoreML, MLX, MlxBridge, Metal
 - `manifest_hash`: B3 hash of manifest JSON
 - `quantization_mode`: Detected from config.json or backend-specific tag
@@ -1002,6 +1037,7 @@ flowchart TD
 - `build_id`: AdapterOS version (optional)
 
 **Fallback Reasons:**
+
 - `fallback_coreml_unavailable`: CoreML requested but not available, falling back
 - `fallback_metal`: Generic Metal fallback
 
@@ -1011,14 +1047,14 @@ flowchart TD
 
 ### Throughput Comparison
 
-| Backend | Hardware | Typical Throughput | Latency (7B fp16) | Power Draw |
-|---------|----------|-------------------|-------------------|------------|
-| **CoreML** | M1 ANE | 15.8 TOPS | 40-60ms | **Low** (50% reduction) |
-| **CoreML** | M2/M3/M4 ANE | 17.0 TOPS | 35-55ms | **Low** (50% reduction) |
-| **MLX** | M1/M2 Unified | Variable (GPU) | 50-80ms | Moderate |
-| **MLX Bridge** | M1/M2 + Python | Variable (GPU) | 60-100ms | Moderate |
-| **Metal** | M1/M2 GPU | Variable (GPU) | 50-80ms | Moderate |
-| **Metal** | Intel GPU | Variable (GPU) | 80-120ms | Moderate-High |
+| Backend        | Hardware       | Typical Throughput | Latency (7B fp16) | Power Draw              |
+| -------------- | -------------- | ------------------ | ----------------- | ----------------------- |
+| **CoreML**     | M1 ANE         | 15.8 TOPS          | 40-60ms           | **Low** (50% reduction) |
+| **CoreML**     | M2/M3/M4 ANE   | 17.0 TOPS          | 35-55ms           | **Low** (50% reduction) |
+| **MLX**        | M1/M2 Unified  | Variable (GPU)     | 50-80ms           | Moderate                |
+| **MLX Bridge** | M1/M2 + Python | Variable (GPU)     | 60-100ms          | Moderate                |
+| **Metal**      | M1/M2 GPU      | Variable (GPU)     | 50-80ms           | Moderate                |
+| **Metal**      | Intel GPU      | Variable (GPU)     | 80-120ms          | Moderate-High           |
 
 **Note:** Throughput varies significantly based on model architecture, quantization, and batch size. MLX Bridge has ~10-20% higher latency due to subprocess overhead.
 
@@ -1026,19 +1062,21 @@ flowchart TD
 
 ### Memory Footprint
 
-| Backend | Overhead | Sharing | Notes |
-|---------|----------|---------|-------|
-| **CoreML** | Low | Per-model cache | Compiled `.mlmodelc` cached on disk |
-| **MLX** | Moderate | Unified memory | Shares system RAM/GPU memory |
+| Backend        | Overhead      | Sharing                 | Notes                               |
+| -------------- | ------------- | ----------------------- | ----------------------------------- |
+| **CoreML**     | Low           | Per-model cache         | Compiled `.mlmodelc` cached on disk |
+| **MLX**        | Moderate      | Unified memory          | Shares system RAM/GPU memory        |
 | **MLX Bridge** | Moderate-High | Separate Python process | Extra overhead for subprocess + IPC |
-| **Metal** | Low-Moderate | Arc-backed buffers | Zero-copy on Apple Silicon |
+| **Metal**      | Low-Moderate  | Arc-backed buffers      | Zero-copy on Apple Silicon          |
 
 **Model Cache Budget:**
+
 - Shared across all backends
 - Cache key: `(backend_type, manifest_hash, quantization, fusion, kernel_version)`
 - Eviction policy: LRU with memory budget enforcement
 
 **Recommended Cache Budgets:**
+
 ```
 7B models (4-bit):   4096 MB (4GB)
 7B models (fp16):   16384 MB (16GB)
@@ -1050,22 +1088,24 @@ flowchart TD
 
 ### Determinism Guarantees
 
-| Backend | Determinism Level | Seeding Method | Use Case |
-|---------|------------------|----------------|----------|
-| **CoreML** | ✅ Guaranteed (ANE) | ANE hardware | Audit trails, compliance |
-| **CoreML** | ⚠️ Conditional (GPU) | GPU non-deterministic | Fallback only |
-| **MLX** | ✅ HKDF-seeded | Manifest hash → RNG seed | Training, reproducible research |
-| **MLX Bridge** | ⚠️ Best-effort | Python mlx-lm seeding | MoE models |
-| **Metal** | ✅ Guaranteed | Precompiled shaders | Development, testing |
-| **CPU** | ❌ N/A | Not implemented | N/A |
+| Backend        | Determinism Level    | Seeding Method           | Use Case                        |
+| -------------- | -------------------- | ------------------------ | ------------------------------- |
+| **CoreML**     | ✅ Guaranteed (ANE)  | ANE hardware             | Audit trails, compliance        |
+| **CoreML**     | ⚠️ Conditional (GPU) | GPU non-deterministic    | Fallback only                   |
+| **MLX**        | ✅ HKDF-seeded       | Manifest hash → RNG seed | Training, reproducible research |
+| **MLX Bridge** | ⚠️ Best-effort       | Python mlx-lm seeding    | MoE models                      |
+| **Metal**      | ✅ Guaranteed        | Precompiled shaders      | Development, testing            |
+| **CPU**        | ❌ N/A               | Not implemented          | N/A                             |
 
 **HKDF-Seeded Determinism (MLX):**
+
 ```rust
 // Manifest hash used as HKDF input key material (IKM)
 let backend = MLXFFIBackend::with_manifest_hash_arc(model_arc, manifest_hash)?;
 ```
 
 **Attestation:**
+
 - All backends report determinism status via attestation API
 - CoreML reports ANE usage flag
 - MLX reports HKDF seed derivation
@@ -1075,14 +1115,15 @@ let backend = MLXFFIBackend::with_manifest_hash_arc(model_arc, manifest_hash)?;
 
 ### Startup Time
 
-| Backend | Cold Start | Warm Start (Cached) | Notes |
-|---------|-----------|---------------------|-------|
-| **CoreML** | 2-5s | 500ms-1s | `.mlmodelc` compilation + ANE load |
-| **MLX** | 1-3s | 200ms-500ms | Model load + HKDF seed derivation |
-| **MLX Bridge** | 3-5s | 1-2s | Python subprocess + model load |
-| **Metal** | 500ms-1s | 100ms-300ms | Shader compilation (precompiled) |
+| Backend        | Cold Start | Warm Start (Cached) | Notes                              |
+| -------------- | ---------- | ------------------- | ---------------------------------- |
+| **CoreML**     | 2-5s       | 500ms-1s            | `.mlmodelc` compilation + ANE load |
+| **MLX**        | 1-3s       | 200ms-500ms         | Model load + HKDF seed derivation  |
+| **MLX Bridge** | 3-5s       | 1-2s                | Python subprocess + model load     |
+| **Metal**      | 500ms-1s   | 100ms-300ms         | Shader compilation (precompiled)   |
 
 **Cache Benefits:**
+
 - Model cache eliminates redundant model loads
 - Subsequent requests reuse cached models (O(1) lookup)
 - Cache key identity ensures consistent reuse
@@ -1097,11 +1138,13 @@ let backend = MLXFFIBackend::with_manifest_hash_arc(model_arc, manifest_hash)?;
 **Fallback:** MLX → Metal
 
 **Rationale:**
+
 - Guaranteed determinism with ANE
 - 50% power savings
 - Audit trail compatibility
 
 **Configuration:**
+
 ```bash
 export AOS_COREML_COMPUTE_PREFERENCE=cpu_and_ne
 export AOS_COREML_PRODUCTION_MODE=true  # No fallbacks
@@ -1125,12 +1168,14 @@ max.mb = 16384
 **Fallback:** None (fail if MLX unavailable)
 
 **Rationale:**
+
 - HKDF-seeded determinism for reproducible training
 - Unified memory architecture
 - Circuit breaker resilience
 - Multi-adapter routing
 
 **Configuration:**
+
 ```bash
 export AOS_BACKEND=mlx
 export AOS_MODEL_PATH=/var/model-cache/models/qwen2.5-7b-instruct-bf16
@@ -1139,6 +1184,7 @@ export AOS_MODEL_CACHE_MAX_MB=24576  # 24GB cache
 ```
 
 **Build Flags:**
+
 ```bash
 cargo build --features multi-backend,mlx
 ```
@@ -1149,10 +1195,10 @@ cargo build --features multi-backend,mlx
 
 Codebase adapters require different backends depending on their state:
 
-| Codebase Adapter State | Recommended Backend | Rationale |
-|------------------------|---------------------|-----------|
-| **Live** (bound to session) | MLX or Metal | Receives incremental updates; requires hot-swap |
-| **Frozen** (versioned, unbound) | CoreML (pre-fused) | Stable state; benefits from ANE |
+| Codebase Adapter State          | Recommended Backend | Rationale                                       |
+| ------------------------------- | ------------------- | ----------------------------------------------- |
+| **Live** (bound to session)     | MLX or Metal        | Receives incremental updates; requires hot-swap |
+| **Frozen** (versioned, unbound) | CoreML (pre-fused)  | Stable state; benefits from ANE                 |
 
 **Live Codebase Session:**
 
@@ -1181,11 +1227,13 @@ export AOS_MODEL_PATH=./fused-codebase.mlpackage
 **Fallback:** None (fail if ANE unavailable)
 
 **Rationale:**
+
 - ANE provides 50% power reduction vs GPU
 - Lower thermal footprint
 - Longer battery life on mobile deployments
 
 **Configuration:**
+
 ```bash
 export AOS_COREML_COMPUTE_PREFERENCE=cpu_and_ne
 export AOS_COREML_PRODUCTION_MODE=true
@@ -1199,11 +1247,13 @@ export AOS_COREML_PRODUCTION_MODE=true
 **Fallback:** None
 
 **Rationale:**
+
 - Only GPU backend available on Intel Macs
 - No ANE support
 - CoreML/MLX require Apple Silicon
 
 **Configuration:**
+
 ```bash
 export AOS_BACKEND=metal
 export AOS_MODEL_CACHE_MAX_MB=8192  # 8GB cache
@@ -1217,11 +1267,13 @@ export AOS_MODEL_CACHE_MAX_MB=8192  # 8GB cache
 **Fallback:** Auto selection chain
 
 **Rationale:**
+
 - Fast iteration
 - Precompiled shaders for consistent results
 - Auto-selection tests fallback logic
 
 **Configuration:**
+
 ```bash
 export AOS_BACKEND=auto  # Test auto-selection
 export AOS_MODEL_CACHE_MAX_MB=4096  # 4GB cache (smaller for testing)
@@ -1235,11 +1287,13 @@ export AOS_MODEL_CACHE_MAX_MB=4096  # 4GB cache (smaller for testing)
 **Fallback:** None
 
 **Rationale:**
+
 - MoE models detected from `config.json` (`num_experts > 1`)
 - Automatic subprocess bridge creation
 - Python bridge for complex routing logic
 
 **Detection:**
+
 ```rust
 fn is_moe_model(model_path: &Path) -> bool {
     // Checks for num_experts field in config.json
@@ -1247,6 +1301,7 @@ fn is_moe_model(model_path: &Path) -> bool {
 ```
 
 **Configuration:**
+
 ```bash
 export AOS_BACKEND=mlx
 export AOS_MODEL_PATH=/var/model-cache/models/qwen3-30b-moe
@@ -1263,13 +1318,16 @@ export AOS_MODEL_PATH=/var/model-cache/models/qwen3-30b-moe
 **Cause:** Auto-selection exhausted all options (MLX → CoreML → MlxBridge → Metal → CPU)
 
 **Solution:**
+
 1. Check hardware capabilities:
+
    ```bash
    # Look for capability detection logs
    grep "Backend capabilities detected" logs/worker.log
    ```
 
 2. Verify build features:
+
    ```bash
    cargo build --features coreml-backend,multi-backend,mlx
    ```
@@ -1286,12 +1344,15 @@ export AOS_MODEL_PATH=/var/model-cache/models/qwen3-30b-moe
 **Cause:** CoreML requested but ANE not detected or `coreml-backend` feature not enabled
 
 **Solution:**
+
 1. Check for Apple Silicon:
+
    ```bash
    uname -m  # Should show "arm64"
    ```
 
 2. Verify build features:
+
    ```bash
    cargo build --features coreml-backend
    ```
@@ -1309,11 +1370,13 @@ export AOS_MODEL_PATH=/var/model-cache/models/qwen3-30b-moe
 **Cause:** MLX requested but `multi-backend` or `mlx` feature not enabled
 
 **Solution:**
+
 ```bash
 cargo build --features multi-backend,mlx
 ```
 
 **Verify MLX runtime:**
+
 ```bash
 # Check MLX initialization logs
 grep "MLX runtime" logs/worker.log
@@ -1326,7 +1389,9 @@ grep "MLX runtime" logs/worker.log
 **Cause:** Metal requested but no Metal GPU detected
 
 **Solution:**
+
 1. Check for Metal support:
+
    ```bash
    # macOS only
    system_profiler SPDisplaysDataType | grep "Metal"
@@ -1341,6 +1406,7 @@ grep "MLX runtime" logs/worker.log
 **Cause:** Neither `AOS_MODEL_CACHE_MAX_MB` nor `model.cache.max.mb` is set
 
 **Solution:**
+
 ```bash
 # Option 1: Environment variable
 export AOS_MODEL_CACHE_MAX_MB=8192
@@ -1353,6 +1419,7 @@ EOF
 ```
 
 **Recommended Budgets:**
+
 - 7B models (4-bit): 4096 MB
 - 7B models (fp16): 16384 MB
 - 13B models (4-bit): 8192 MB
@@ -1367,13 +1434,16 @@ EOF
 **Cause:** MLX model path invalid or missing `config.json`
 
 **Solution:**
+
 1. Verify model directory structure:
+
    ```bash
    ls -la $AOS_MODEL_PATH
    # Should contain: config.json, model-*.safetensors or model.safetensors.index.json
    ```
 
 2. Validate config.json:
+
    ```bash
    jq . $AOS_MODEL_PATH/config.json
    ```
@@ -1391,12 +1461,15 @@ EOF
 **Cause:** Grouped Query Attention (GQA) configuration invalid (`num_attention_heads` not divisible by `num_key_value_heads`)
 
 **Solution:**
+
 1. Verify config.json:
+
    ```bash
    jq '{num_attention_heads, num_key_value_heads}' $AOS_MODEL_PATH/config.json
    ```
 
 2. Expected invariant:
+
    ```
    num_attention_heads % num_key_value_heads == 0
    ```
@@ -1412,13 +1485,16 @@ EOF
 **Cause:** Model integrity verification failed (hash mismatch)
 
 **Solution:**
+
 1. Re-download the model:
+
    ```bash
    rm -rf $AOS_MODEL_PATH
    # Re-download from source
    ```
 
 2. Skip verification (development only):
+
    ```bash
    export AOS_SKIP_MODEL_HASH_VERIFY=1
    ```
@@ -1438,12 +1514,15 @@ EOF
 **Cause:** Model cache budget too large or too many models cached
 
 **Solution:**
+
 1. Reduce cache budget:
+
    ```bash
    export AOS_MODEL_CACHE_MAX_MB=4096  # Reduce to 4GB
    ```
 
 2. Check cache statistics:
+
    ```bash
    grep "Model cache" logs/worker.log
    ```
@@ -1461,7 +1540,9 @@ EOF
 **Cause:** Cold start overhead (model loading, compilation)
 
 **Solution:**
+
 1. **CoreML:** Pre-compile `.mlmodelc`:
+
    ```bash
    # CoreML compiles on first use
    # Subsequent requests use cached .mlmodelc
@@ -1482,7 +1563,9 @@ EOF
 **Cause:** Backend fallback to CPU, insufficient GPU memory, or quantization mismatch
 
 **Solution:**
+
 1. Check backend selection:
+
    ```bash
    grep "selected" logs/worker.log
    # Should show: "Auto-selected CoreML backend with Neural Engine"
@@ -1490,6 +1573,7 @@ EOF
    ```
 
 2. Verify ANE usage (CoreML):
+
    ```bash
    grep "ane_used" logs/worker.log
    # Should show: ane_used=true
@@ -1518,6 +1602,7 @@ grep "Backend capabilities detected" logs/worker.log
 ```
 
 **Expected Output:**
+
 ```
 has_metal=true, metal_device="Apple M2", has_ane=true, has_coreml=true, has_mlx=true, gpu_memory_mb=8192
 ```
@@ -1529,6 +1614,7 @@ grep "Creating.*kernel backend" logs/worker.log
 ```
 
 **Expected Output:**
+
 ```
 Creating CoreML kernel backend: compute_preference=cpu_and_ne, production_mode=false, gpu_available=true, ane_available=true, gpu_used=false, ane_used=true
 ```
@@ -1540,6 +1626,7 @@ grep "Model cache" logs/worker.log
 ```
 
 **Expected Output:**
+
 ```
 Initializing per-worker model cache with explicit budget: max_memory_mb=8192
 Model cache budget validated: budget_mb=8192, source=AOS_MODEL_CACHE_MAX_MB
@@ -1562,9 +1649,11 @@ Model cache budget validated: budget_mb=8192, source=AOS_MODEL_CACHE_MAX_MB
 ## Implementation Reference
 
 **Primary Module:**
+
 - `/Users/mln-dev/Dev/adapter-os/crates/adapteros-lora-worker/src/backend_factory.rs`
 
 **Key Types:**
+
 ```rust
 // Backend choice (canonical)
 pub type BackendChoice = adapteros_core::backend::BackendKind;
@@ -1596,6 +1685,7 @@ pub struct SelectionContext {
 ```
 
 **Key Functions:**
+
 ```rust
 // Capability detection
 pub fn detect_capabilities() -> BackendCapabilities

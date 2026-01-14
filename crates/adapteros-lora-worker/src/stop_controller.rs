@@ -205,8 +205,9 @@ impl StopController {
         if let Some(reason) = self.check_repetition_guard() {
             debug!(
                 token_index,
-                ngram = self.policy.repetition_ngram,
+                min_ngram = self.policy.repetition_ngram,
                 window = self.policy.repetition_window,
+                threshold = self.policy.repetition_threshold,
                 "Stop: REPETITION_GUARD"
             );
             return Some(StopDecision {
@@ -302,16 +303,24 @@ impl StopController {
         (eos_exp / sum_exp) as f32
     }
 
-    /// Check for n-gram repetition in the sliding window
+    /// Check for n-gram repetition in the sliding window.
+    ///
+    /// Scans all n-gram sizes from `repetition_ngram` (minimum) to `window_size / 2`
+    /// (maximum). For each size, counts occurrences of every n-gram in the window.
+    /// If any n-gram appears more than `repetition_threshold` times, flags repetition.
+    ///
+    /// This algorithm is deterministic: given the same token sequence, it will
+    /// always produce the same result. N-gram sizes are checked in ascending order
+    /// (smallest first) for consistent early-exit behavior.
     fn check_repetition_guard(&self) -> Option<StopReasonCode> {
-        let ngram_size = self.policy.repetition_ngram as usize;
+        use std::collections::HashMap;
 
+        let min_ngram = self.policy.repetition_ngram as usize;
         let window_size = self.policy.repetition_window as usize;
-        let history_len = self.token_history.len();
-        if history_len < ngram_size * 2 {
-            return None;
-        }
+        let threshold = self.policy.repetition_threshold as usize;
 
+        // Extract the sliding window
+        let history_len = self.token_history.len();
         let window_start = history_len.saturating_sub(window_size);
         let window: Vec<u32> = self
             .token_history
@@ -320,35 +329,34 @@ impl StopController {
             .copied()
             .collect();
 
-        // Need at least 2 * ngram_size tokens to detect a repeated n-gram
-        if window.len() < ngram_size * 2 {
+        let window_len = window.len();
+
+        // Need enough tokens to form at least the smallest n-gram twice
+        if window_len < min_ngram * 2 {
             return None;
         }
 
-        // Get the last n-gram (the one we're checking for repetition)
-        let history_len = window.len();
-        let last_ngram: Vec<u32> = window
-            .iter()
-            .skip(history_len - ngram_size)
-            .copied()
-            .collect();
+        // Maximum n-gram size is window_size / 2 (must fit at least 2 n-grams)
+        let max_ngram = window_len / 2;
 
-        // Check if this n-gram appears earlier in the window
-        // We check all positions except the last one (which is the n-gram itself)
-        for start_pos in 0..=(history_len - ngram_size * 2) {
-            let candidate: Vec<u32> = window
-                .iter()
-                .skip(start_pos)
-                .take(ngram_size)
-                .copied()
-                .collect();
+        // Check n-gram sizes from min to max (ascending order for determinism)
+        for ngram_size in min_ngram..=max_ngram {
+            // Count all n-grams of this size in the window
+            let mut counts: HashMap<Vec<u32>, usize> = HashMap::new();
 
-            if candidate == last_ngram {
+            for start in 0..=(window_len - ngram_size) {
+                let ngram: Vec<u32> = window[start..start + ngram_size].to_vec();
+                *counts.entry(ngram).or_insert(0) += 1;
+            }
+
+            // Check if any n-gram exceeds threshold (deterministic: max is well-defined)
+            let max_count = counts.values().copied().max().unwrap_or(0);
+            if max_count > threshold {
                 trace!(
-                    ngram = ?last_ngram,
-                    first_pos = start_pos,
-                    second_pos = history_len - ngram_size,
-                    "Repetition detected"
+                    ngram_size,
+                    max_count,
+                    threshold,
+                    "Repetition detected: n-gram count exceeds threshold"
                 );
                 return Some(StopReasonCode::RepetitionGuard);
             }
@@ -412,6 +420,7 @@ mod tests {
             completion_threshold_q15: 24576, // ~0.75
             repetition_ngram: 3,
             repetition_window: 32,
+            repetition_threshold: 1,
             stop_sequences: Vec::new(),
         }
     }
@@ -443,12 +452,16 @@ mod tests {
         assert_eq!(decision.unwrap().reason, StopReasonCode::Length);
 
         // All stop reasons should be valid enum variants
+        // Note: Cancelled and SystemError are not returned by StopController.check_stop()
+        // but are valid stop reasons for external use (cancellation, hardware errors)
         let reasons = vec![
             StopReasonCode::Length,
             StopReasonCode::BudgetMax,
             StopReasonCode::CompletionConfident,
             StopReasonCode::RepetitionGuard,
             StopReasonCode::StopSequence,
+            StopReasonCode::Cancelled,
+            StopReasonCode::SystemError,
         ];
         for reason in reasons {
             // Verify serialization works
@@ -514,6 +527,7 @@ mod tests {
             completion_threshold_q15: 32767, // Very high threshold (won't trigger)
             repetition_ngram: 3,
             repetition_window: 32,
+            repetition_threshold: 1,
             stop_sequences: Vec::new(),
         };
         let mut controller = StopController::new(policy.clone());
@@ -564,6 +578,7 @@ mod tests {
             completion_threshold_q15: 32767, // Won't trigger
             repetition_ngram: 3,
             repetition_window: 32,
+            repetition_threshold: 1,
             stop_sequences: Vec::new(),
         };
         let mut controller = StopController::new(policy);

@@ -189,7 +189,7 @@ cargo test test_patch_lifecycle
 
 ```bash
 # Via CLI
-./target/release/aosctl metrics show <cpid>
+./aosctl metrics show <cpid>
 
 # Via API
 curl http://localhost:9443/api/v1/code/metrics/<cpid> \
@@ -200,13 +200,13 @@ curl http://localhost:9443/api/v1/code/metrics/<cpid> \
 
 ```bash
 # List adapters
-./target/release/aosctl list-adapters
+./aosctl list-adapters
 
 # Pin adapter
-./target/release/aosctl pin-adapter --id <adapter-id> --rank 16
+./aosctl pin-adapter --id <adapter-id> --rank 16
 
 # Evict adapter
-./target/release/aosctl evict-adapter --id <adapter-id>
+./aosctl evict-adapter --id <adapter-id>
 ```
 
 ## Troubleshooting

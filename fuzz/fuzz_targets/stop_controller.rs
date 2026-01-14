@@ -35,12 +35,16 @@ fuzz_target!(|data: &[u8]| {
 
     let repetition_window = u.int_in_range::<u32>(8..=128).unwrap_or(32);
 
+    let repetition_threshold = u.int_in_range::<u8>(1..=5).unwrap_or(1);
+
     let policy = StopPolicySpec {
         output_max_tokens,
         eos_token_id: Some(eos_token_id),
         completion_threshold_q15,
         repetition_ngram: repetition_ngram.try_into().unwrap_or(3),
         repetition_window: repetition_window.try_into().unwrap_or(32),
+        repetition_threshold,
+        stop_sequences: Vec::new(),
     };
 
     // Create two controllers with same policy for determinism check
@@ -156,6 +160,8 @@ fuzz_target!(|data: &[u8]| {
         completion_threshold_q15: STOP_Q15_DENOM as i16, // Never trigger
         repetition_ngram: 100,
         repetition_window: 200,
+        repetition_threshold: 100, // High threshold to prevent triggering
+        stop_sequences: Vec::new(),
     };
     let mut budget_controller = StopController::new(budget_policy);
     let dummy_logits = vec![0.0; 1000];

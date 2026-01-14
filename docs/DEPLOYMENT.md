@@ -230,8 +230,8 @@ cargo build --release
 cd metal && bash build.sh
 
 # Initialize database and create default tenant
-./target/release/aosctl db migrate
-./target/release/aosctl init-tenant --id default --uid 1000 --gid 1000
+./aosctl db migrate
+./aosctl init-tenant --id default --uid 1000 --gid 1000
 ```
 
 ### Method 3: Quick Start Script
@@ -260,7 +260,7 @@ For rapid development setup:
 ls -lh var/aos-cp.sqlite3
 
 # Run migrations
-./target/release/aosctl db migrate
+./aosctl db migrate
 ```
 
 **Option 2: PostgreSQL (Multi-Node)**
@@ -302,30 +302,30 @@ sudo cp target/release/aos-worker /usr/local/bin/
 
 ```bash
 # Run database migrations
-./target/release/aosctl db migrate
+./aosctl db migrate
 
 # Create production tenant
-./target/release/aosctl init-tenant \
+./aosctl init-tenant \
   --id production \
   --uid 5000 \
   --gid 5000
 
 # Verify tenant creation
-./target/release/aosctl list-tenants
+./aosctl list-tenants
 ```
 
 ### Load Base Model
 
 ```bash
 # Import base model (example: Qwen2.5-7B)
-./target/release/aosctl import-model \
+./aosctl import-model \
   --name qwen2.5-7b-instruct \
   --weights models/qwen2.5-7b-mlx/weights.safetensors \
   --config models/qwen2.5-7b-mlx/config.json \
   --tokenizer models/qwen2.5-7b-mlx/tokenizer.json
 
 # Verify model import
-./target/release/aosctl list-models
+./aosctl list-models
 ```
 
 ---
@@ -375,7 +375,7 @@ json_output = "/var/log/adapteros/telemetry.jsonl"
 prometheus_port = 9090
 
 [policies]
-# Enable all 25 policy packs
+# Enable all 28 policy packs
 egress = true
 determinism = true
 router = true
@@ -528,7 +528,7 @@ seeds:
 **Step 2: Build Plan**
 
 ```bash
-./target/release/aosctl build-plan \
+./aosctl build-plan \
   --manifest manifests/production-plan.yaml \
   --output plan/production-plan \
   --tenant-id production
@@ -538,10 +538,10 @@ seeds:
 
 ```bash
 # List plans
-./target/release/aosctl list-plans --tenant-id production
+./aosctl list-plans --tenant-id production
 
 # Inspect plan details
-./target/release/aosctl plan-info \
+./aosctl plan-info \
   --plan-id production-plan \
   --tenant-id production
 ```
@@ -573,7 +573,7 @@ curl http://localhost:8080/healthz
 # {"status":"ok","version":"1.0.0"}
 
 # Worker status
-./target/release/aosctl worker-status --tenant production
+./aosctl worker-status --tenant production
 
 # Expected output:
 # Worker Status: READY
@@ -587,7 +587,7 @@ curl http://localhost:8080/healthz
 **Via CLI:**
 
 ```bash
-./target/release/aosctl infer \
+./aosctl infer \
   --prompt "Explain how AdapterOS works in 50 words" \
   --max-tokens 100 \
   --tenant production
@@ -622,13 +622,13 @@ cargo test -p adapteros-lora-router --test determinism
 bash scripts/check_fast_math_flags.sh
 
 # Or manually test same prompt twice:
-./target/release/aosctl infer \
+./aosctl infer \
   --prompt "Hello world" \
   --seed 42 \
   --temperature 0.0 \
   > output1.txt
 
-./target/release/aosctl infer \
+./aosctl infer \
   --prompt "Hello world" \
   --seed 42 \
   --temperature 0.0 \
@@ -642,7 +642,7 @@ diff output1.txt output2.txt
 
 ```bash
 # System metrics
-./target/release/aosctl system-metrics
+./aosctl system-metrics
 
 # Expected output:
 # Memory: 5.2GB / 32GB (16% used, 27GB free)
@@ -658,10 +658,10 @@ tail -f /var/log/adapteros/telemetry.jsonl
 
 ```bash
 # Check active policies
-./target/release/aosctl list-policies
+./aosctl list-policies
 
 # Test egress policy (should fail)
-./target/release/aosctl infer \
+./aosctl infer \
   --prompt "Make an HTTP request" \
   --adapter network-adapter
 
@@ -831,7 +831,7 @@ sudo tcpdump -i any -n src host <server_ip>
 
 ```bash
 # Check binaries
-./target/release/aosctl --version
+./aosctl --version
 ./target/release/adapteros-server --version
 
 # Verify Metal kernels compiled
@@ -1464,7 +1464,7 @@ k_sparse = 5  # Activate more adapters simultaneously
 
 ### Policies
 
-- [ ] All 25 policy packs enabled
+- [ ] All 28 policy packs enabled
 - [ ] Compliance reports generated weekly
 - [ ] Audit trail retention configured (90 days)
 - [ ] Incident freeze procedures tested
@@ -1558,7 +1558,7 @@ ls -la var/aos-cp.sqlite3
 
 # Reinitialize database
 rm var/aos-cp.sqlite3
-./target/release/aosctl db migrate
+./aosctl db migrate
 
 # For PostgreSQL: check connection
 psql -h localhost -U adapteros -d adapteros_prod
@@ -1568,13 +1568,13 @@ psql -h localhost -U adapteros -d adapteros_prod
 
 ```bash
 # Check migration status
-./target/release/aosctl db status
+./aosctl db status
 
 # Verify migration signatures
 cat migrations/signatures.json
 
 # Re-run migrations
-./target/release/aosctl db migrate --force
+./aosctl db migrate --force
 ```
 
 ### Worker Issues
@@ -1586,26 +1586,26 @@ cat migrations/signatures.json
 ls -la /var/run/aos/production/
 
 # Verify tenant exists
-./target/release/aosctl list-tenants
+./aosctl list-tenants
 
 # Check worker logs
 tail -f var/logs/worker.log
 
 # Verify backend availability
-./target/release/aosctl backend-info
+./aosctl backend-info
 ```
 
 **Issue: Inference Timeouts**
 
 ```bash
 # Check worker health
-./target/release/aosctl worker-status --tenant production
+./aosctl worker-status --tenant production
 
 # Verify model loading
-./target/release/aosctl model-info --tenant production
+./aosctl model-info --tenant production
 
 # Check memory usage
-./target/release/aosctl system-metrics
+./aosctl system-metrics
 
 # Increase timeout in config
 [worker.safety]
@@ -1632,7 +1632,7 @@ lsof -i :8080
 
 ```bash
 # Check memory metrics
-./target/release/aosctl system-metrics
+./aosctl system-metrics
 
 # Reduce adapter cache
 [memory]
@@ -1640,17 +1640,17 @@ max_adapters_per_tenant = 10  # Reduce from 20
 min_headroom_pct = 20  # Increase headroom
 
 # Force eviction
-./target/release/aosctl evict-adapters --tenant production
+./aosctl evict-adapters --tenant production
 ```
 
 **Issue: Slow Inference**
 
 ```bash
 # Profile inference
-./target/release/aosctl infer --prompt "test" --profile
+./aosctl infer --prompt "test" --profile
 
 # Check backend performance
-./target/release/aosctl backend-bench --backend mlx
+./aosctl backend-bench --backend mlx
 
 # Optimize router
 [router]
@@ -1667,7 +1667,7 @@ export RUST_LOG=debug
 export RUST_BACKTRACE=1
 
 # Run with verbose output
-./target/release/aosctl serve --tenant production --plan my-plan --verbose
+./aosctl serve --tenant production --plan my-plan --verbose
 
 # Check logs
 tail -f var/logs/server.log
@@ -1688,10 +1688,10 @@ tail -f /var/log/adapteros/telemetry.jsonl
 curl http://localhost:8080/healthz
 
 # Check worker status
-./target/release/aosctl worker-status --tenant production
+./aosctl worker-status --tenant production
 
 # Monitor system metrics with interval
-./target/release/aosctl system-metrics --interval 30
+./aosctl system-metrics --interval 30
 ```
 
 ---
@@ -1701,7 +1701,7 @@ curl http://localhost:8080/healthz
 - [README.md](../README.md) - Quick start and feature overview
 - [AGENTS.md](../AGENTS.md) - Development guide
 - [docs/AUTHENTICATION.md](AUTHENTICATION.md) - Authentication details
-- [docs/POLICIES.md](POLICIES.md) - 25 policy packs
+- [docs/POLICIES.md](POLICIES.md) - 28 policy packs
 - [docs/DETERMINISM.md](DETERMINISM.md) - Determinism and replay guarantees
 
 ---

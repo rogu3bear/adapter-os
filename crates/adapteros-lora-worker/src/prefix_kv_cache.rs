@@ -60,6 +60,8 @@ pub struct PrefixKvEntry {
     pub tokenizer_hash: B3Hash,
     /// Model identity hash
     pub model_identity_hash: B3Hash,
+    /// BLAKE3 hash of KV tensor payload for corruption detection
+    payload_integrity_hash: B3Hash,
 }
 
 impl PrefixKvEntry {
@@ -71,6 +73,7 @@ impl PrefixKvEntry {
         prefix_cached_token_count: u32,
     ) -> Self {
         let kv_bytes = Self::compute_kv_bytes(&keys, &values);
+        let payload_integrity_hash = Self::compute_payload_hash(&keys, &values);
         let now = Instant::now();
 
         Self {
@@ -87,6 +90,7 @@ impl PrefixKvEntry {
             context_digest: B3Hash::zero(),
             tokenizer_hash: B3Hash::zero(),
             model_identity_hash: B3Hash::zero(),
+            payload_integrity_hash,
         }
     }
 
@@ -102,6 +106,7 @@ impl PrefixKvEntry {
         model_identity_hash: B3Hash,
     ) -> Self {
         let kv_bytes = Self::compute_kv_bytes(&keys, &values);
+        let payload_integrity_hash = Self::compute_payload_hash(&keys, &values);
         let now = Instant::now();
         let prefix_cached_token_count = prefix_tokens.len() as u32;
 
@@ -118,6 +123,7 @@ impl PrefixKvEntry {
             context_digest,
             tokenizer_hash,
             model_identity_hash,
+            payload_integrity_hash,
         }
     }
 
@@ -164,6 +170,47 @@ impl PrefixKvEntry {
         let key_bytes: usize = keys.iter().map(|k| k.len() * 4).sum();
         let value_bytes: usize = values.iter().map(|v| v.len() * 4).sum();
         (key_bytes + value_bytes) as u64
+    }
+
+    /// Compute BLAKE3 hash of KV tensor payload for integrity verification.
+    ///
+    /// This hash is computed at cache write time and verified on retrieval
+    /// to detect memory corruption or tampering.
+    fn compute_payload_hash(keys: &[Vec<f32>], values: &[Vec<f32>]) -> B3Hash {
+        let mut hasher = blake3::Hasher::new();
+        for layer in keys {
+            for &val in layer {
+                hasher.update(&val.to_ne_bytes());
+            }
+        }
+        for layer in values {
+            for &val in layer {
+                hasher.update(&val.to_ne_bytes());
+            }
+        }
+        B3Hash::new(*hasher.finalize().as_bytes())
+    }
+
+    /// Verify that the KV tensor payload has not been corrupted.
+    ///
+    /// Returns `true` if the payload matches the integrity hash computed
+    /// at cache write time. Returns `false` if corruption is detected,
+    /// in which case the entry should be invalidated and treated as a
+    /// cache miss.
+    pub fn verify_integrity(&self) -> bool {
+        let actual = Self::compute_payload_hash(&self.keys, &self.values);
+        if actual == self.payload_integrity_hash {
+            true
+        } else {
+            tracing::error!(
+                expected = %self.payload_integrity_hash,
+                actual = %actual,
+                tenant_id = %self.tenant_id,
+                kv_bytes = self.kv_bytes,
+                "Cache entry integrity check failed: payload corrupted"
+            );
+            false
+        }
     }
 
     /// Record an access (updates last_access timestamp)
@@ -214,6 +261,8 @@ pub struct PrefixKvCacheStats {
     pub max_bytes: u64,
     /// Number of in-flight builds
     pub in_flight_builds: u64,
+    /// Number of integrity check failures (corrupted entries)
+    pub integrity_failures: u64,
 }
 
 impl PrefixKvCacheStats {
@@ -291,11 +340,22 @@ impl PrefixKvCache {
 
     /// Get an entry from the cache.
     ///
-    /// Returns `Some(entry)` on cache hit, `None` on miss.
-    /// Automatically records access time for LRU.
+    /// Returns `Some(entry)` on cache hit, `None` on miss or integrity failure.
+    /// Automatically records access time for LRU and verifies payload integrity.
+    /// Corrupted entries are treated as cache misses to maintain determinism.
     pub fn get(&self, key: &B3Hash) -> Option<Arc<PrefixKvEntry>> {
         let entries = self.entries.read();
         if let Some(entry) = entries.get(key) {
+            // Verify integrity before returning - corrupted entries are cache misses
+            if !entry.verify_integrity() {
+                let mut stats = self.stats.lock();
+                stats.integrity_failures += 1;
+                stats.misses += 1;
+                // Don't evict here - let caller decide whether to rebuild
+                // The entry will be replaced on next insert or evicted by LRU
+                return None;
+            }
+
             entry.record_access();
             let mut stats = self.stats.lock();
             stats.hits += 1;
@@ -358,10 +418,17 @@ impl PrefixKvCache {
 
         let entries = self.entries.read();
         let mut best_match: Option<(B3Hash, Arc<PrefixKvEntry>, u32)> = None;
+        let mut corrupted_keys: Vec<B3Hash> = Vec::new();
 
         for (key, entry) in entries.iter() {
             // Skip entries that don't support prefix matching
             if !entry.supports_prefix_matching() {
+                continue;
+            }
+
+            // Skip corrupted entries - track them for stats
+            if !entry.verify_integrity() {
+                corrupted_keys.push(*key);
                 continue;
             }
 
@@ -383,6 +450,12 @@ impl PrefixKvCache {
                     best_match = Some((*key, Arc::clone(entry), match_len));
                 }
             }
+        }
+
+        // Record integrity failures
+        if !corrupted_keys.is_empty() {
+            let mut stats = self.stats.lock();
+            stats.integrity_failures += corrupted_keys.len() as u64;
         }
 
         // Update stats and return result
@@ -1010,6 +1083,53 @@ mod tests {
 
         entry.release();
         assert!(!entry.is_in_use());
+    }
+
+    #[test]
+    fn test_entry_integrity_valid() {
+        let entry = make_entry("tenant1", 100, 2, 128);
+        // Fresh entry should pass integrity check
+        assert!(entry.verify_integrity());
+    }
+
+    #[test]
+    fn test_entry_integrity_detects_corruption() {
+        let mut entry = make_entry("tenant1", 100, 2, 128);
+        // Mutate the payload after construction
+        entry.keys[0][0] = 999.0;
+        // Integrity check should now fail
+        assert!(!entry.verify_integrity());
+    }
+
+    #[test]
+    fn test_cache_get_rejects_corrupted_entry() {
+        let cache = PrefixKvCache::new(1024 * 1024);
+        let key = B3Hash::hash(b"test_key");
+        let entry = make_entry("tenant1", 100, 2, 128);
+
+        cache.insert(key, entry).unwrap();
+
+        // Corrupt the entry via the Arc - this simulates memory corruption
+        // We need to get the entry directly from the map to corrupt it
+        {
+            let entries = cache.entries.read();
+            let entry = entries.get(&key).unwrap();
+            // Use unsafe to mutate through Arc for testing purposes only
+            // In production, corruption would come from memory errors
+            let entry_ptr = Arc::as_ptr(entry) as *mut PrefixKvEntry;
+            unsafe {
+                (*entry_ptr).keys[0][0] = 999.0;
+            }
+        }
+
+        // get() should return None for corrupted entry
+        assert!(cache.get(&key).is_none());
+
+        // Stats should reflect the integrity failure
+        let stats = cache.stats();
+        assert_eq!(stats.integrity_failures, 1);
+        assert_eq!(stats.misses, 1);
+        assert_eq!(stats.hits, 0);
     }
 
     #[test]

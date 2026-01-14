@@ -96,6 +96,83 @@ fn sanitize_tau(tau: f32) -> f32 {
     }
 }
 
+// =============================================================================
+// Deterministic Tie-Breaking Sort
+// =============================================================================
+
+/// Tie event captured during deterministic sorting.
+///
+/// Records when two adapters had equal scores and tie-breaking was applied.
+#[derive(Debug, Clone, Copy)]
+pub struct TieEvent {
+    /// Index of first adapter in tie
+    pub idx_a: usize,
+    /// Index of second adapter in tie
+    pub idx_b: usize,
+    /// Score of both adapters (equal by definition)
+    pub score: f32,
+}
+
+/// Sort adapter scores with deterministic tie-breaking using stable_id.
+///
+/// Uses composite key `(-score, stable_id)` for total ordering:
+/// - Primary: score descending (higher scores first)
+/// - Secondary: stable_id ascending (lower stable_id wins ties)
+///
+/// # Determinism Guarantees
+///
+/// - Uses `f32::total_cmp()` for IEEE 754 total ordering
+/// - NaN values sort consistently (after all finite values in descending order)
+/// - Handles -0.0 consistently (equals +0.0 in total ordering)
+/// - stable_id provides immutable tie-breaker across adapter lifecycle
+///
+/// # Arguments
+///
+/// * `scores` - Mutable slice of (adapter_index, score) tuples to sort in-place
+/// * `adapter_info` - Adapter metadata for stable_id lookup
+/// * `collect_ties` - Whether to collect tie events for diagnostics
+///
+/// # Returns
+///
+/// Vector of tie events (empty if `collect_ties` is false or no ties occurred).
+///
+/// # Receipt Binding
+///
+/// This sort order directly affects the `Decision.indices` which are hashed
+/// into the receipt chain via `hash_token_decision()`. Deterministic ordering
+/// is critical for receipt reproducibility.
+pub fn sort_scores_deterministic(
+    scores: &mut [(usize, f32)],
+    adapter_info: &[AdapterInfo],
+    collect_ties: bool,
+) -> Vec<TieEvent> {
+    let mut tie_events = Vec::new();
+
+    scores.sort_by(|a, b| {
+        // Primary: score descending using total_cmp for IEEE 754 total ordering
+        let score_cmp = b.1.total_cmp(&a.1);
+
+        if score_cmp == std::cmp::Ordering::Equal {
+            // Exact tie: use stable_id for deterministic tie-breaking
+            if collect_ties {
+                tie_events.push(TieEvent {
+                    idx_a: a.0,
+                    idx_b: b.0,
+                    score: a.1,
+                });
+            }
+            // stable_id is assigned at registration and never changes
+            adapter_info[a.0]
+                .stable_id
+                .cmp(&adapter_info[b.0].stable_id)
+        } else {
+            score_cmp
+        }
+    });
+
+    tie_events
+}
+
 /// Router for selecting K adapters with quantized gates
 pub struct Router {
     /// Feature weights for scoring
@@ -1512,51 +1589,12 @@ impl Router {
                 );
             }
         }
-        // Track tie events for logging and diagnostics
-        let mut tie_events: Vec<(usize, usize, f32, f32)> = Vec::new();
+        // Sort by score descending with stable_id tie-breaking (Issue D-2 Fix)
+        // See sort_scores_deterministic() for full determinism guarantees.
+        let collect_ties = log_ties || emit_diag_ties;
+        let tie_events = sort_scores_deterministic(&mut scores, adapter_info, collect_ties);
 
-        // Sort by score descending, then by stable_id for deterministic tie-break
-        //
-        // # Tie-Breaking Strategy (Critical for Determinism - Issue D-2 Fix)
-        //
-        // 1. **Primary**: Score descending using `total_cmp()` for IEEE 754 total ordering
-        //    - Handles NaN consistently (NaN > all other values in total_cmp)
-        //    - Provides deterministic ordering across platforms
-        // 2. **Secondary**: stable_id-based tie-breaking (ascending)
-        //    - Unlike array indices, stable_id doesn't change after filtering
-        //    - Assigned at registration time, never mutates
-        //    - Ensures identical selection after policy mask filtering and top-k
-        //
-        // NOTE: Using stable_id instead of array index is critical because array
-        // indices shift when adapters are filtered by policy masks. stable_id
-        // remains constant, ensuring consistent tie-breaking across:
-        // - Policy mask filtering
-        // - Top-k selection
-        // - Adapter hot-swap/reload
-        //
-        // Using `total_cmp()` instead of `partial_cmp()` ensures:
-        // - NaN values are handled deterministically (sorted to end)
-        // - No undefined behavior from floating-point edge cases
-        // - Consistent results across runs and platforms
-        scores.sort_by(|a, b| {
-            // Use total_cmp for IEEE 754 total ordering (handles NaN deterministically)
-            let score_cmp = b.1.total_cmp(&a.1); // Descending order
-
-            if score_cmp == std::cmp::Ordering::Equal {
-                // Exact tie: use stable_id for deterministic tie-breaking
-                // stable_id is assigned at registration and never changes
-                if log_ties || emit_diag_ties {
-                    tie_events.push((a.0, b.0, a.1, b.1));
-                }
-                // Use stable_id instead of array index for tie-breaking
-                adapter_info[a.0]
-                    .stable_id
-                    .cmp(&adapter_info[b.0].stable_id)
-            } else {
-                score_cmp
-            }
-        });
-
+        // Log tie events if debug enabled
         if log_ties && !tie_events.is_empty() {
             tracing::info!(
                 target: "determinism",
@@ -1564,13 +1602,12 @@ impl Router {
                 adaptive = self.adaptive_routing,
                 "Router tie-break events (AOS_DEBUG_DETERMINISM=1)"
             );
-            for (idx_a, idx_b, score_a, score_b) in tie_events.iter().take(10) {
+            for event in tie_events.iter().take(10) {
                 tracing::debug!(
                     target: "determinism",
-                    a_idx = *idx_a,
-                    b_idx = *idx_b,
-                    a_score = *score_a,
-                    b_score = *score_b,
+                    a_idx = event.idx_a,
+                    b_idx = event.idx_b,
+                    score = event.score,
                     adaptive = self.adaptive_routing,
                     "Tie-break comparison"
                 );
@@ -1579,19 +1616,19 @@ impl Router {
 
         // Emit TieBreakApplied diagnostic events
         if let Some(ref diag) = self.router_diag {
-            for (idx_a, idx_b, score_a, _score_b) in tie_events.iter() {
+            for event in tie_events.iter() {
                 // Determine winner and loser based on stable_id ordering
                 let (winner_idx, loser_idx) =
-                    if adapter_info[*idx_a].stable_id < adapter_info[*idx_b].stable_id {
-                        (*idx_a, *idx_b)
+                    if adapter_info[event.idx_a].stable_id < adapter_info[event.idx_b].stable_id {
+                        (event.idx_a, event.idx_b)
                     } else {
-                        (*idx_b, *idx_a)
+                        (event.idx_b, event.idx_a)
                     };
                 diag.emit_tie_break_applied(
                     step_idx,
                     &adapter_info[winner_idx],
                     &adapter_info[loser_idx],
-                    *score_a,
+                    event.score,
                 );
             }
         }

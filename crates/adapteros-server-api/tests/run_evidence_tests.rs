@@ -115,6 +115,7 @@ async fn evidence_bundle_contains_required_files() -> anyhow::Result<()> {
         prefix_kv_bytes: 0,
         model_cache_identity_v2_digest_b3: None,
         attestation: None,
+        equipment_profile: None,
     };
     sink.finalize(finalization).await?;
     sink.flush().await?;

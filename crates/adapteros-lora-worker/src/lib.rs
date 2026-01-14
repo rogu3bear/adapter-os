@@ -70,6 +70,7 @@ use adapteros_config::{
     resolve_index_root, ModelConfig, PlacementConfig, PlacementMode, PlacementWeights,
 };
 use adapteros_core::constants::DEFAULT_ADAPTER_CACHE_SIZE;
+use adapteros_core::prefix_kv_key::compute_tokenizer_manifest_hash;
 use adapteros_core::{
     determinism::{DeterminismContext, DeterminismSource},
     determinism_violation_event, emit_observability_event, AosError, B3Hash, BackendKind,
@@ -136,6 +137,7 @@ pub mod directory_adapters;
 pub mod embeddings;
 pub mod ephemeral_adapters;
 pub mod evidence;
+pub mod execution;
 pub mod export;
 pub mod filter_engine;
 pub mod framework_adapters;
@@ -164,6 +166,7 @@ pub mod panic_utils;
 pub mod patch_generator;
 pub mod patch_telemetry;
 pub mod patch_validator;
+pub mod cache_prefix_lookup;
 pub mod prefix_kv_cache;
 pub mod reasoning_router;
 pub mod request_pinner;
@@ -350,6 +353,10 @@ pub use model_handle_cache::{
 };
 pub use model_key::{FusionMode, ModelCacheIdentityV2, ModelKey, QuantizationMode};
 pub use model_loader::{ModelInfo, ModelLoader, QwenModel, QwenModelConfig, TransformerLayer};
+pub use cache_prefix_lookup::{
+    cache_prefix_lookup, cache_prefix_lookup_with_tensors, CacheEntryHandle, CacheLookupConfig,
+    CacheLookupResult, CacheLookupWithTensors, CacheMissReason,
+};
 pub use prefix_kv_cache::{PrefixKvCache, PrefixKvCacheStats, PrefixKvEntry};
 pub use stop_controller::{StopController, StopDecision};
 pub use telemetry_adapter::{
@@ -372,6 +379,12 @@ pub use vision_adapter::{
 };
 pub use vision_lora::{
     load_vision_lora, VisionLoraRegistry, VisionLoraWeights, VisionMergePlan, VisionTask,
+};
+
+// Re-export kernel-level determinism policy enforcement (Patent 3535886.0002 Claim 5)
+pub use adapteros_policy::packs::determinism::{
+    DeterminismConfig as KernelDeterminismConfig, DeterminismPolicy as KernelDeterminismPolicy,
+    EnforcementMode as KernelEnforcementMode, OperationValidation as KernelOperationValidation,
 };
 
 #[cfg(test)]
@@ -1630,6 +1643,14 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
     /// This digest uniquely identifies the cache configuration used for inference,
     /// including kernel, quantization, tokenizer, tenant, and worker identity.
     fn compute_model_cache_identity_v2_digest(&self, backend: BackendKind) -> B3Hash {
+        self.build_model_cache_identity_v2(backend).0
+    }
+
+    /// Build ModelCacheIdentityV2 and return (digest, canonical_bytes).
+    ///
+    /// The canonical bytes are needed for prefix KV cache key computation.
+    /// The digest is stored in receipts for verification.
+    fn build_model_cache_identity_v2(&self, backend: BackendKind) -> (B3Hash, Vec<u8>) {
         use adapteros_lora_kernel_api::attestation::BackendType;
 
         // Convert BackendKind to BackendType for identity computation
@@ -1657,7 +1678,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             panic!("ModelCacheIdentityV2 validation failed: {}", e);
         }
 
-        identity.digest()
+        (identity.digest(), identity.canonical_bytes())
     }
 
     /// Run inference with comprehensive safety mechanisms
@@ -1775,6 +1796,24 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         }
     }
 
+    /// Check if inference has been cancelled by client or system.
+    ///
+    /// # Gap: Error Receipt Generation
+    ///
+    /// Currently, cancellation returns `Err(AosError::Worker(...))` which loses the
+    /// partial output. For full PRD compliance, this should:
+    ///
+    /// 1. Build a partial receipt with `stop_reason_code: Cancelled`
+    /// 2. Include `stop_reason_token_index` pointing to the last generated token
+    /// 3. Return a result that allows the caller to finalize the receipt
+    ///
+    /// The `StopReasonCode::Cancelled` variant exists for this purpose but is not
+    /// yet wired into the error handling flow. A similar pattern applies to
+    /// `StopReasonCode::SystemError` for hardware/system failures.
+    ///
+    /// To implement, consider returning `Result<(), CancellationState>` where
+    /// `CancellationState` carries the partial output and reason, allowing the
+    /// caller to build an error receipt before returning to the client.
     fn check_inference_cancelled(
         &self,
         request: &InferenceRequest,
@@ -1793,6 +1832,8 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             .reason()
             .unwrap_or_else(|| "client_cancelled".to_string());
         self.log_inference_cancelled(request, &reason, tokens_generated);
+        // TODO: Generate error receipt with partial output using StopReasonCode::Cancelled
+        // before returning error. See doc comment above for implementation guidance.
         Err(AosError::Worker(format!("Inference cancelled: {}", reason)))
     }
 
@@ -2319,27 +2360,41 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         }
         let context_digest = B3Hash::hash(&context_bytes).to_bytes();
 
-        // PRD-01: Compute prefix KV cache key from context digest
-        // This key uniquely identifies the prefix for caching
-        let prefix_kv_key = B3Hash::from_bytes(context_digest);
+        // PRD-01: Compute prefix KV cache lookup using PRD-compliant key
+        // Key = BLAKE3(context_digest || tokens || tokenizer_hash || model_identity)
+        let context_digest_hash = B3Hash::from_bytes(context_digest);
+        let tokenizer_manifest_hash = compute_tokenizer_manifest_hash(
+            &self.manifest.base.tokenizer_hash,
+            &self.manifest.base.tokenizer_cfg_hash,
+        );
+        let (model_cache_identity_v2_digest, model_identity_bytes) =
+            self.build_model_cache_identity_v2(resolved_backend);
 
-        // Check for prefix KV cache hit (metrics tracking)
-        // Note: Actual KV tensor reuse requires kernel-level integration (follow-up work)
-        let prefix_cache_entry = self.prefix_kv_cache.get(&prefix_kv_key);
-        let prefix_cache_hit = prefix_cache_entry.is_some();
-        let (prefix_cached_token_count, prefix_kv_bytes) =
-            if let Some(ref entry) = prefix_cache_entry {
-                entry.record_access();
-                (entry.prefix_cached_token_count, entry.kv_bytes)
-            } else {
-                (0, 0)
-            };
+        // Perform cache prefix lookup (deterministic, receipt-ready)
+        let cache_lookup_result = cache_prefix_lookup::cache_prefix_lookup(
+            &self.prefix_kv_cache,
+            &prompt_tokens,
+            &context_digest_hash,
+            &tokenizer_manifest_hash,
+            &model_cache_identity_v2_digest,
+            &model_identity_bytes,
+            &cache_prefix_lookup::CacheLookupConfig::default(),
+        );
+
+        // Extract receipt-bound values from lookup result
+        let prefix_cache_hit = cache_lookup_result.cache_hit;
+        let prefix_cached_token_count = cache_lookup_result.cached_token_count;
+        let prefix_kv_bytes = cache_lookup_result.cached_kv_bytes;
+        let prefix_kv_key = cache_lookup_result
+            .cache_id
+            .unwrap_or(context_digest_hash);
 
         if prefix_cache_hit {
             tracing::debug!(
                 key = %prefix_kv_key.to_hex()[..16],
                 cached_tokens = prefix_cached_token_count,
                 kv_bytes = prefix_kv_bytes,
+                exact_match = cache_lookup_result.is_exact_match,
                 "Prefix KV cache hit (metrics only - KV reuse pending kernel integration)"
             );
         }
@@ -2879,8 +2934,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             }
 
             if let Some(sink) = trace_sink.as_mut() {
-                let model_cache_identity_v2_digest =
-                    self.compute_model_cache_identity_v2_digest(resolved_backend);
+                // model_cache_identity_v2_digest already computed earlier for cache lookup
                 match sink
                     .finalize(TraceFinalization {
                         output_tokens: &output_token_ids,
@@ -2903,6 +2957,8 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                         prefix_kv_bytes,
                         model_cache_identity_v2_digest_b3: Some(model_cache_identity_v2_digest),
                         attestation: None,
+                        // Patent 3535886.0002: Equipment profile (to be wired from worker state)
+                        equipment_profile: None,
                     })
                     .await
                 {
@@ -3507,6 +3563,19 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             }
         }
 
+        // Ensure stop reason is set if loop completed without explicit stop condition.
+        // This handles the case where the loop exits by exhausting max_tokens_remaining
+        // iterations without the StopController triggering BUDGET_MAX (off-by-one in check).
+        // PRD: Every generation MUST have a stop_reason_code for verifiable receipts.
+        if stop_reason_code.is_none() {
+            stop_reason_code = Some(adapteros_api_types::inference::StopReasonCode::BudgetMax);
+            stop_reason_token_index = Some(generated_tokens.len() as u32);
+            debug!(
+                tokens_generated = generated_tokens.len(),
+                "Stop reason defaulted to BUDGET_MAX (loop exhausted)"
+            );
+        }
+
         // Evaluate lifecycle transitions after inference
         {
             let lifecycle = self.lifecycle.lock().await;
@@ -3576,9 +3645,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             billed_output_tokens,
         };
 
-        // PRD-06: Compute model cache identity v2 digest
-        let model_cache_identity_v2_digest =
-            self.compute_model_cache_identity_v2_digest(resolved_backend);
+        // PRD-06: model_cache_identity_v2_digest already computed earlier for cache lookup
 
         if let Some(sink) = trace_sink.as_mut() {
             match sink
@@ -3604,6 +3671,8 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                     // PRD-06: Model cache identity v2 digest
                     model_cache_identity_v2_digest_b3: Some(model_cache_identity_v2_digest),
                     attestation: determinism_attestation.clone(),
+                    // Patent 3535886.0002: Equipment profile (to be wired from worker state)
+                    equipment_profile: None,
                 })
                 .await
             {

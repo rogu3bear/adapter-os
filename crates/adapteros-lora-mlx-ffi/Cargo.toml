@@ -18,13 +18,7 @@ serde.workspace = true
 serde_json.workspace = true
 safetensors.workspace = true
 
-# mlx-rs abstraction layer (only used by deprecated mlx-rs-backend feature)
-adapteros-mlx = { path = "../adapteros-mlx", optional = true }
-
-# MLX Language Models (transformer models using mlx-rs)
-mlx-lm = { version = "0.0.1", optional = true }
-
-# Legacy FFI bindings (deprecated - will be removed)
+# FFI support libraries (required for C++ bridge)
 libc = "0.2"
 core-foundation = "0.9"
 
@@ -74,12 +68,6 @@ default = []
 #   cargo build -p adapteros-lora-mlx-ffi                 # Stub implementation
 #   cargo build -p adapteros-lora-mlx-ffi --features mlx  # Real MLX
 # =============================================================================
-
-# mlx-rs: Pure Rust MLX bindings (deprecated/unsupported)
-#   - Kept for reference only, do not enable in production
-#   - Uses adapteros-mlx wrapper around mlx-rs
-#   - Uses mlx-lm for transformer model implementation
-mlx-rs-backend = ["dep:adapteros-mlx", "dep:mlx-lm"]
 
 # mlx: C++ FFI (primary/production)
 #   - Requires the MLX C++ library to be installed

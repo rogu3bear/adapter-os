@@ -1,8 +1,6 @@
 //! MLX FFI tensor operations
 //!
-//! This module provides tensor operations for MLX.
-//! When the `mlx-rs-backend` feature is enabled (experimental), it uses pure Rust mlx-rs.
-//! Otherwise, it uses the C++ FFI implementation (primary).
+//! This module provides tensor operations for MLX using the C++ FFI implementation.
 
 use adapteros_core::{AosError, Result};
 
@@ -14,14 +12,10 @@ pub enum TensorDtype {
     UInt32,
 }
 
-// =========================================================================
-// mlx-rs backend implementation
-// =========================================================================
-
-#[cfg(feature = "mlx-rs-backend")]
-mod mlx_rs_impl {
+// NOTE: mlx-rs backend was removed - dead module left for reference
+#[cfg(feature = "mlx-rs-backend-NEVER-ENABLED")]
+mod _mlx_rs_dead_code {
     use super::*;
-    use crate::array::MlxArray;
 
     /// MLX tensor wrapper using pure Rust mlx-rs
     #[derive(Debug, Clone)]
@@ -219,14 +213,10 @@ mod mlx_rs_impl {
     }
 }
 
-#[cfg(feature = "mlx-rs-backend")]
-pub use mlx_rs_impl::MLXFFITensor;
-
 // =========================================================================
-// Legacy FFI backend implementation
+// FFI backend implementation
 // =========================================================================
 
-#[cfg(not(feature = "mlx-rs-backend"))]
 mod ffi_impl {
     use super::*;
     use crate::{
@@ -745,7 +735,6 @@ mod ffi_impl {
     unsafe impl Sync for MLXFFITensor {}
 }
 
-#[cfg(not(feature = "mlx-rs-backend"))]
 pub use ffi_impl::MLXFFITensor;
 
 #[cfg(test)]
@@ -758,9 +747,6 @@ mod tests {
         let shape = vec![2, 2];
         let tensor = MLXFFITensor::from_data(&data, shape).unwrap();
 
-        #[cfg(feature = "mlx-rs-backend")]
-        assert_eq!(tensor.shape(), vec![2, 2]);
-        #[cfg(not(feature = "mlx-rs-backend"))]
         assert_eq!(tensor.shape(), &[2, 2]);
 
         assert_eq!(tensor.size(), 4);
@@ -778,9 +764,6 @@ mod tests {
 
         // Test addition
         let result = tensor1.add(&tensor2).unwrap();
-        #[cfg(feature = "mlx-rs-backend")]
-        assert_eq!(result.shape(), vec![2, 2]);
-        #[cfg(not(feature = "mlx-rs-backend"))]
         assert_eq!(result.shape(), &[2, 2]);
     }
 
@@ -791,17 +774,11 @@ mod tests {
 
         // Reshape from [6] to [2, 3]
         let reshaped = tensor.reshape(vec![2, 3]).unwrap();
-        #[cfg(feature = "mlx-rs-backend")]
-        assert_eq!(reshaped.shape(), vec![2, 3]);
-        #[cfg(not(feature = "mlx-rs-backend"))]
         assert_eq!(reshaped.shape(), &[2, 3]);
         assert_eq!(reshaped.size(), 6);
 
         // Reshape to [3, 2]
         let reshaped2 = tensor.reshape(vec![3, 2]).unwrap();
-        #[cfg(feature = "mlx-rs-backend")]
-        assert_eq!(reshaped2.shape(), vec![3, 2]);
-        #[cfg(not(feature = "mlx-rs-backend"))]
         assert_eq!(reshaped2.shape(), &[3, 2]);
         assert_eq!(reshaped2.size(), 6);
     }
@@ -829,9 +806,6 @@ mod tests {
         let tensor = MLXFFITensor::from_data(&data, vec![2, 3]).unwrap();
 
         let transposed = tensor.transpose().unwrap();
-        #[cfg(feature = "mlx-rs-backend")]
-        assert_eq!(transposed.shape(), vec![3, 2]);
-        #[cfg(not(feature = "mlx-rs-backend"))]
         assert_eq!(transposed.shape(), &[3, 2]);
         assert_eq!(transposed.size(), 6);
     }
@@ -842,9 +816,6 @@ mod tests {
         let tensor = MLXFFITensor::from_data(&data, vec![2, 3, 4]).unwrap();
 
         let transposed = tensor.transpose().unwrap();
-        #[cfg(feature = "mlx-rs-backend")]
-        assert_eq!(transposed.shape(), vec![4, 3, 2]);
-        #[cfg(not(feature = "mlx-rs-backend"))]
         assert_eq!(transposed.shape(), &[4, 3, 2]);
         assert_eq!(transposed.size(), 24);
     }
@@ -870,9 +841,6 @@ mod tests {
         let tensor = MLXFFITensor::from_data(&data, vec![2, 2]).unwrap();
 
         let copied = tensor.copy().unwrap();
-        #[cfg(feature = "mlx-rs-backend")]
-        assert_eq!(copied.shape(), tensor.shape());
-        #[cfg(not(feature = "mlx-rs-backend"))]
         assert_eq!(copied.shape(), tensor.shape());
         assert_eq!(copied.dtype(), tensor.dtype());
         assert_eq!(copied.size(), tensor.size());
@@ -928,9 +896,6 @@ mod tests {
         let reshaped2 = reshaped1.reshape(vec![2, 3, 4]).unwrap();
         let reshaped3 = reshaped2.reshape(vec![4, 6]).unwrap();
 
-        #[cfg(feature = "mlx-rs-backend")]
-        assert_eq!(reshaped3.shape(), vec![4, 6]);
-        #[cfg(not(feature = "mlx-rs-backend"))]
         assert_eq!(reshaped3.shape(), &[4, 6]);
         assert_eq!(reshaped3.size(), 24);
     }

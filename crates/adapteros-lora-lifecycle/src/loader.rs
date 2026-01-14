@@ -1,12 +1,27 @@
 //! Hot-swap adapter loading and unloading
+//!
+//! Supports loading adapters from:
+//! - `.aos` files (standard adapter format)
+//! - `.safetensors` files (raw weights)
+//! - `.sealed` files (cryptographically sealed containers with integrity verification)
+//!
+//! ## Sealed Adapter Loading
+//!
+//! Sealed adapters (`.sealed` extension) provide cryptographic guarantees:
+//! - Container integrity via BLAKE3 hash
+//! - Authenticity via Ed25519 signature from trusted signers
+//! - The `weights_hash` binds into the receipt's `context_digest`
+//! - The `integrity_hash` is logged for audit/tamper-evidence
 
 use adapteros_aos::{
-    compute_scope_hash, open_aos, AosWriter, BackendTag, HEADER_SIZE, INDEX_ENTRY_SIZE,
+    compute_scope_hash, open_aos, AosWriter, BackendTag, LoadResult, RejectionReason,
+    SealedAdapterLoader, VerifiedAdapter, HEADER_SIZE, INDEX_ENTRY_SIZE,
 };
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_single_file_adapter::format::AosSignature;
 use adapteros_types::coreml::CoreMLPlacementSpec;
 use adapteros_types::training::LoraTier;
+use ed25519_dalek::VerifyingKey;
 use memmap2::Mmap;
 use safetensors::SafeTensors;
 use serde::{Deserialize, Serialize};
@@ -217,6 +232,8 @@ pub struct AdapterLoader {
     /// Expected base model identity (id + hash) for CoreML placement validation.
     expected_base_model_id: Option<String>,
     expected_base_model_hash: Option<B3Hash>,
+    /// Trusted public keys for sealed adapter verification
+    trusted_sealed_keys: Vec<VerifyingKey>,
 }
 
 impl AdapterLoader {
@@ -247,6 +264,7 @@ impl AdapterLoader {
             require_signatures,
             expected_base_model_id: None,
             expected_base_model_hash: None,
+            trusted_sealed_keys: Vec::new(),
         }
     }
 
@@ -263,7 +281,21 @@ impl AdapterLoader {
             require_signatures,
             expected_base_model_id: None,
             expected_base_model_hash: None,
+            trusted_sealed_keys: Vec::new(),
         }
+    }
+
+    /// Add a trusted public key for sealed adapter verification
+    ///
+    /// Sealed adapters (`.sealed` files) require signature verification against
+    /// trusted keys. This method adds a key to the trusted set.
+    pub fn add_trusted_sealed_key(&mut self, key: VerifyingKey) {
+        self.trusted_sealed_keys.push(key);
+    }
+
+    /// Add multiple trusted public keys for sealed adapter verification
+    pub fn add_trusted_sealed_keys(&mut self, keys: impl IntoIterator<Item = VerifyingKey>) {
+        self.trusted_sealed_keys.extend(keys);
     }
 
     /// Set whether signatures are required
@@ -314,33 +346,47 @@ impl AdapterLoader {
     }
 
     /// Load an adapter for a specific backend tag ("mlx", "metal", "coreml", or "canonical"/"auto")
+    ///
+    /// Supports three file formats in priority order:
+    /// 1. `.sealed` - Cryptographically sealed containers (highest priority)
+    /// 2. `.aos` - Standard adapter archive format
+    /// 3. `.safetensors` - Raw weights only
     pub fn load_adapter_for_backend(
         &mut self,
         adapter_id: u16,
         adapter_name: &str,
         backend: &str,
     ) -> Result<AdapterHandle> {
-        let (aos_path, safetensors_path) = resolve_adapter_paths(&self.base_path, adapter_name);
+        let paths = resolve_adapter_paths(&self.base_path, adapter_name);
 
-        let (adapter_path, weights_data, metadata) = if aos_path.exists() {
+        // Priority: .sealed > .aos > .safetensors
+        let (adapter_path, weights_data, metadata) = if paths.sealed.exists() {
             tracing::debug!(
                 adapter_name = adapter_name,
-                path = %aos_path.display(),
+                path = %paths.sealed.display(),
+                "Loading from .sealed file"
+            );
+            let (data, meta) = self.load_from_sealed(&paths.sealed)?;
+            (paths.sealed, data, meta)
+        } else if paths.aos.exists() {
+            tracing::debug!(
+                adapter_name = adapter_name,
+                path = %paths.aos.display(),
                 "Loading from .aos file"
             );
-            let (data, meta) = self.load_from_aos(&aos_path, backend)?;
-            (aos_path, data, meta)
-        } else if safetensors_path.exists() {
+            let (data, meta) = self.load_from_aos(&paths.aos, backend)?;
+            (paths.aos, data, meta)
+        } else if paths.safetensors.exists() {
             tracing::debug!(
                 adapter_name = adapter_name,
-                path = %safetensors_path.display(),
+                path = %paths.safetensors.display(),
                 "Loading from .safetensors file"
             );
-            let (data, meta) = self.load_and_parse_safetensors(&safetensors_path)?;
-            (safetensors_path, data, meta)
+            let (data, meta) = self.load_and_parse_safetensors(&paths.safetensors)?;
+            (paths.safetensors, data, meta)
         } else {
             return Err(AosError::Lifecycle(format!(
-                "Adapter file not found: {} (checked .aos and .safetensors)",
+                "Adapter file not found: {} (checked .sealed, .aos, and .safetensors)",
                 adapter_name
             )));
         };
@@ -384,6 +430,115 @@ impl AdapterLoader {
         })
     }
 
+    /// Load and verify a sealed adapter container
+    ///
+    /// Sealed adapters provide cryptographic guarantees:
+    /// - Container integrity verified via BLAKE3 hash
+    /// - Authenticity verified via Ed25519 signature from trusted keys
+    /// - The `integrity_hash` is logged for audit purposes
+    ///
+    /// The `weights_hash` from the verified adapter flows into `ContextAdapterEntryV1.adapter_hash`
+    /// for receipt binding.
+    fn load_from_sealed(&self, sealed_path: &PathBuf) -> Result<(LoadedWeights, AdapterMetadata)> {
+        validate_nonzero_file(sealed_path)?;
+
+        // Check that trusted keys are configured
+        if self.trusted_sealed_keys.is_empty() {
+            return Err(AosError::Crypto(
+                "No trusted keys configured for sealed adapter verification. \
+                 Add trusted keys via add_trusted_sealed_key() before loading .sealed files."
+                    .to_string(),
+            ));
+        }
+
+        // Read the sealed container
+        let sealed_bytes = fs::read(sealed_path).map_err(|e| {
+            AosError::Io(format!(
+                "Failed to read sealed adapter {}: {}",
+                sealed_path.display(),
+                e
+            ))
+        })?;
+
+        // Create loader with trusted keys and load the container
+        let loader = SealedAdapterLoader::new(self.trusted_sealed_keys.clone());
+        let load_result = loader.load_from_bytes(&sealed_bytes);
+
+        match load_result {
+            LoadResult::Verified(verified) => {
+                // Log the integrity_hash for audit/tamper-evidence
+                // The weights_hash is what flows into receipts
+                tracing::info!(
+                    adapter_id = %verified.adapter_id(),
+                    integrity_hash = %verified.integrity_hash().to_hex(),
+                    weights_hash = %verified.weights_hash_for_receipt().to_hex(),
+                    signer_pubkey = hex::encode(verified.signer_pubkey),
+                    path = %sealed_path.display(),
+                    "Sealed adapter verified successfully"
+                );
+
+                // Extract weights and build metadata
+                let bundle = verified.bundle;
+                let weights_data = LoadedWeights {
+                    data: bundle.weights_data,
+                    _mmap: None,
+                };
+
+                // Parse weights to extract metadata
+                let tensors = SafeTensors::deserialize(&weights_data.data).map_err(|e| {
+                    AosError::Lifecycle(format!(
+                        "Failed to parse SafeTensors from sealed adapter: {}",
+                        e
+                    ))
+                })?;
+
+                let mut metadata = Self::extract_metadata(&tensors);
+                metadata.backend_tag = Some("sealed".to_string());
+
+                Ok((weights_data, metadata))
+            }
+            LoadResult::Rejected {
+                reason,
+                message,
+                expected,
+                actual,
+            } => {
+                // Log the rejection for audit
+                tracing::error!(
+                    path = %sealed_path.display(),
+                    reason = %reason.as_str(),
+                    message = %message,
+                    expected = expected.as_ref().map(|h| h.to_hex()).unwrap_or_default(),
+                    actual = actual.as_ref().map(|h| h.to_hex()).unwrap_or_default(),
+                    "Sealed adapter rejected"
+                );
+
+                // Map rejection reason to appropriate error
+                match reason {
+                    RejectionReason::InvalidFormat => Err(AosError::InvalidSealedData {
+                        reason: message,
+                    }),
+                    RejectionReason::IntegrityMismatch | RejectionReason::PayloadCorrupted => {
+                        Err(AosError::AdapterHashMismatch {
+                            adapter_id: sealed_path.display().to_string(),
+                            expected: expected.unwrap_or_else(B3Hash::zero),
+                            actual: actual.unwrap_or_else(B3Hash::zero),
+                        })
+                    }
+                    RejectionReason::UntrustedSigner => Err(AosError::Crypto(format!(
+                        "Sealed adapter signed by untrusted key: {}",
+                        message
+                    ))),
+                    RejectionReason::SignatureInvalid => Err(AosError::Crypto(format!(
+                        "Invalid signature on sealed adapter: {}",
+                        message
+                    ))),
+                    RejectionReason::ManifestInvalid => Err(AosError::Parse(message)),
+                }
+            }
+        }
+    }
+
     /// Load an adapter asynchronously using spawn_blocking
     pub async fn load_adapter_async(
         &mut self,
@@ -394,6 +549,11 @@ impl AdapterLoader {
             .await
     }
 
+    /// Load an adapter asynchronously using spawn_blocking
+    ///
+    /// Note: Sealed adapters (`.sealed` files) are not yet supported in async mode.
+    /// Use the synchronous `load_adapter_for_backend()` method for sealed adapters,
+    /// or wrap the call in `tokio::task::spawn_blocking()`.
     pub async fn load_adapter_async_for_backend(
         &mut self,
         adapter_id: u16,
@@ -408,32 +568,39 @@ impl AdapterLoader {
         let expected_base_model_hash = self.expected_base_model_hash;
 
         let (handle, weights_data) = tokio::task::spawn_blocking(move || {
-            let (aos_path, safetensors_path) =
-                resolve_adapter_paths(&base_path, &adapter_name_owned);
+            let paths = resolve_adapter_paths(&base_path, &adapter_name_owned);
 
-            let (adapter_path, weights_data, metadata) = if aos_path.exists() {
+            // Note: .sealed files not supported in async path yet
+            // Users should use sync API or wrap in spawn_blocking for sealed adapters
+            let (adapter_path, weights_data, metadata) = if paths.sealed.exists() {
+                return Err(AosError::Lifecycle(
+                    "Sealed adapters (.sealed) not yet supported in async load. \
+                     Use load_adapter_for_backend() synchronously."
+                        .to_string(),
+                ));
+            } else if paths.aos.exists() {
                 tracing::debug!(
                     adapter_name = adapter_name_owned,
-                    path = %aos_path.display(),
+                    path = %paths.aos.display(),
                     "Loading from .aos file (async)"
                 );
                 // Load from .aos file
                 let (data, meta) = AdapterLoader::load_from_aos_static(
-                    &aos_path,
+                    &paths.aos,
                     &backend_owned,
                     expected_base_model_id.as_deref(),
                     expected_base_model_hash.as_ref(),
                 )?;
-                (aos_path, data, meta)
-            } else if safetensors_path.exists() {
+                (paths.aos, data, meta)
+            } else if paths.safetensors.exists() {
                 tracing::debug!(
                     adapter_name = adapter_name_owned,
-                    path = %safetensors_path.display(),
+                    path = %paths.safetensors.display(),
                     "Loading from .safetensors file (async)"
                 );
-                validate_nonzero_file(&safetensors_path)?;
+                validate_nonzero_file(&paths.safetensors)?;
                 // Load from .safetensors file
-                let file = File::open(&safetensors_path).map_err(|e| {
+                let file = File::open(&paths.safetensors).map_err(|e| {
                     AosError::Lifecycle(format!("Failed to open adapter file: {}", e))
                 })?;
 
@@ -458,10 +625,10 @@ impl AdapterLoader {
                     _mmap: Some(mmap),
                 };
 
-                (safetensors_path, loaded_weights, metadata)
+                (paths.safetensors, loaded_weights, metadata)
             } else {
                 return Err(AosError::Lifecycle(format!(
-                    "Adapter file not found: {} (checked .aos and .safetensors)",
+                    "Adapter file not found: {} (checked .sealed, .aos, and .safetensors)",
                     adapter_name_owned
                 )));
             };
@@ -1144,28 +1311,44 @@ impl AdapterLoader {
     }
 }
 
-fn resolve_adapter_paths(base_path: &Path, adapter_name: &str) -> (PathBuf, PathBuf) {
+/// Resolved paths for different adapter file formats
+struct AdapterPaths {
+    aos: PathBuf,
+    safetensors: PathBuf,
+    sealed: PathBuf,
+}
+
+fn resolve_adapter_paths(base_path: &Path, adapter_name: &str) -> AdapterPaths {
     let flat_aos = base_path.join(format!("{adapter_name}.aos"));
     let flat_safetensors = base_path.join(format!("{adapter_name}.safetensors"));
+    let flat_sealed = base_path.join(format!("{adapter_name}.sealed"));
 
-    if flat_aos.exists() || flat_safetensors.exists() {
-        return (flat_aos, flat_safetensors);
+    if flat_aos.exists() || flat_safetensors.exists() || flat_sealed.exists() {
+        return AdapterPaths {
+            aos: flat_aos,
+            safetensors: flat_safetensors,
+            sealed: flat_sealed,
+        };
     }
 
     let adapter_dir = base_path.join(adapter_name);
     if let Ok(entries) = fs::read_dir(&adapter_dir) {
         let mut aos_candidates = Vec::new();
         let mut safetensors_candidates = Vec::new();
+        let mut sealed_candidates = Vec::new();
         for entry in entries.flatten() {
             let path = entry.path();
             if path.extension().is_some_and(|ext| ext == "aos") {
                 aos_candidates.push(path);
             } else if path.extension().is_some_and(|ext| ext == "safetensors") {
                 safetensors_candidates.push(path);
+            } else if path.extension().is_some_and(|ext| ext == "sealed") {
+                sealed_candidates.push(path);
             }
         }
         aos_candidates.sort();
         safetensors_candidates.sort();
+        sealed_candidates.sort();
 
         let aos_path = aos_candidates
             .into_iter()
@@ -1175,10 +1358,22 @@ fn resolve_adapter_paths(base_path: &Path, adapter_name: &str) -> (PathBuf, Path
             .into_iter()
             .next()
             .unwrap_or_else(|| flat_safetensors.clone());
-        return (aos_path, safetensors_path);
+        let sealed_path = sealed_candidates
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| flat_sealed.clone());
+        return AdapterPaths {
+            aos: aos_path,
+            safetensors: safetensors_path,
+            sealed: sealed_path,
+        };
     }
 
-    (flat_aos, flat_safetensors)
+    AdapterPaths {
+        aos: flat_aos,
+        safetensors: flat_safetensors,
+        sealed: flat_sealed,
+    }
 }
 
 /// Handle to a loaded adapter

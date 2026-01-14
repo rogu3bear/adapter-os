@@ -2,16 +2,10 @@
 //!
 //! Provides zero-copy GPU loading when MLX is available, falling back
 //! to the Rust safetensors crate for compatibility.
-//!
-//! When `mlx-rs-backend` feature is enabled, uses pure Rust loading
-//! with conversion to mlx-rs Array types.
 
 use adapteros_core::{AosError, Result};
 use std::collections::HashMap;
 use std::path::Path;
-
-#[cfg(feature = "mlx-rs-backend")]
-use crate::array::MlxArray;
 
 /// Loading strategy preference
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -34,8 +28,7 @@ pub struct TensorMetadata {
 
 /// Unified SafeTensors loader
 pub struct UnifiedSafeTensorsLoader {
-    /// MLX weights handle (if loaded via MLX FFI - only when not using mlx-rs-backend)
-    #[cfg(not(feature = "mlx-rs-backend"))]
+    /// MLX weights handle (if loaded via MLX FFI)
     mlx_weights: Option<*mut crate::mlx_weights_t>,
     /// Rust safetensors data (if loaded via Rust)
     rust_data: Option<Vec<u8>>,
@@ -47,23 +40,6 @@ pub struct UnifiedSafeTensorsLoader {
 
 impl UnifiedSafeTensorsLoader {
     /// Load safetensors file with specified strategy
-    #[cfg(feature = "mlx-rs-backend")]
-    pub fn load<P: AsRef<Path>>(path: P, _strategy: LoadStrategy) -> Result<Self> {
-        // mlx-rs backend always uses pure Rust loading
-        let path = path.as_ref();
-
-        if !path.exists() {
-            return Err(AosError::NotFound(format!(
-                "SafeTensors file not found: {}",
-                path.display()
-            )));
-        }
-
-        Self::load_rust_crate(path)
-    }
-
-    /// Load safetensors file with specified strategy (legacy FFI path)
-    #[cfg(not(feature = "mlx-rs-backend"))]
     pub fn load<P: AsRef<Path>>(path: P, strategy: LoadStrategy) -> Result<Self> {
         let path = path.as_ref();
 
@@ -97,8 +73,7 @@ impl UnifiedSafeTensorsLoader {
         }
     }
 
-    /// Load using MLX C++ FFI (only available when not using mlx-rs-backend)
-    #[cfg(not(feature = "mlx-rs-backend"))]
+    /// Load using MLX C++ FFI
     fn load_mlx_native(path: &Path) -> Result<Self> {
         // Ensure MLX is initialized
         crate::mlx_ensure_initialized(true)?;
@@ -210,7 +185,6 @@ impl UnifiedSafeTensorsLoader {
         tracing::info!(path = %path.display(), tensors = tensor_info.len(), "Loaded via Rust crate");
 
         Ok(Self {
-            #[cfg(not(feature = "mlx-rs-backend"))]
             mlx_weights: None,
             rust_data: Some(data),
             tensor_info,
@@ -218,25 +192,7 @@ impl UnifiedSafeTensorsLoader {
         })
     }
 
-    /// Get tensor as f32 vec (mlx-rs-backend)
-    #[cfg(feature = "mlx-rs-backend")]
-    pub fn get_tensor_f32(&self, name: &str) -> Result<Vec<f32>> {
-        if let Some(ref data) = self.rust_data {
-            let tensors = safetensors::SafeTensors::deserialize(data)
-                .map_err(|e| AosError::Parse(format!("Parse error: {}", e)))?;
-
-            let view = tensors
-                .tensor(name)
-                .map_err(|_| AosError::NotFound(format!("Tensor not found: {}", name)))?;
-
-            Self::convert_tensor_to_f32(&view)
-        } else {
-            Err(AosError::Internal("No data loaded".to_string()))
-        }
-    }
-
-    /// Get tensor as f32 vec (legacy FFI)
-    #[cfg(not(feature = "mlx-rs-backend"))]
+    /// Get tensor as f32 vec
     pub fn get_tensor_f32(&self, name: &str) -> Result<Vec<f32>> {
         if let Some(weights) = self.mlx_weights {
             // MLX path
@@ -312,18 +268,6 @@ impl UnifiedSafeTensorsLoader {
         }
     }
 
-    /// Get tensor as MlxArray (mlx-rs-backend only)
-    #[cfg(feature = "mlx-rs-backend")]
-    pub fn get_tensor_mlx(&self, name: &str) -> Result<MlxArray> {
-        let f32_data = self.get_tensor_f32(name)?;
-        let meta = self
-            .get_metadata(name)
-            .ok_or_else(|| AosError::NotFound(format!("Tensor metadata not found: {}", name)))?;
-
-        let shape_i32: Vec<i32> = meta.shape.iter().map(|&s| s as i32).collect();
-        Ok(MlxArray::from_slice_f32(&f32_data, &shape_i32)?)
-    }
-
     /// List tensor names
     pub fn tensor_names(&self) -> Vec<String> {
         self.tensor_info.keys().cloned().collect()
@@ -340,7 +284,6 @@ impl UnifiedSafeTensorsLoader {
     }
 }
 
-#[cfg(not(feature = "mlx-rs-backend"))]
 impl Drop for UnifiedSafeTensorsLoader {
     fn drop(&mut self) {
         if let Some(weights) = self.mlx_weights.take() {

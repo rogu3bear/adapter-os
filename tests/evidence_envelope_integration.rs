@@ -98,6 +98,7 @@ async fn create_test_trace(
             prefix_kv_bytes: 0,
             model_cache_identity_v2_digest_b3: Some(B3Hash::hash(b"model-id")),
             attestation: None,
+            equipment_profile: None,
         })
         .await?;
 

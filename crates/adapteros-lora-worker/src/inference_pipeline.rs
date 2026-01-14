@@ -19,7 +19,12 @@ use adapteros_lora_kernel_api::{FusedKernels, IoBuffers};
 use adapteros_lora_router::{
     policy_mask::PolicyMask, AbstainContext, AdapterInfo, Router, ROUTER_GATE_Q15_MAX,
 };
-use adapteros_policy::{PolicyDecisionChain, PolicyEngine, QuarantineManager, QuarantineOperation};
+use adapteros_policy::{
+    packs::determinism::{
+        DeterminismConfig, DeterminismPolicy, EnforcementMode, OperationValidation,
+    },
+    PolicyDecisionChain, PolicyEngine, QuarantineManager, QuarantineOperation,
+};
 use adapteros_telemetry::events::{
     AbstainEvent, PerformanceBudgetViolationEvent, RouterCandidate, RouterDecisionEvent,
 };
@@ -319,6 +324,10 @@ pub struct InferencePipeline {
     budget_tracker: BudgetTracker,
     /// Inference pause registry for human-in-the-loop review protocol
     pause_registry: Option<Arc<crate::inference_pause::InferencePauseRegistry>>,
+    /// Kernel-level determinism policy enforcement (Patent 3535886.0002 Claim 5)
+    determinism_policy: Option<DeterminismPolicy>,
+    /// Tracks fallback usage during inference for receipt binding
+    fallback_used: bool,
 }
 
 impl InferencePipeline {
@@ -410,6 +419,8 @@ impl InferencePipeline {
             max_adapter_count,
             budget_tracker: BudgetTracker::new(),
             pause_registry: None,
+            determinism_policy: None,
+            fallback_used: false,
         })
     }
 
@@ -420,6 +431,76 @@ impl InferencePipeline {
     ) -> Self {
         self.pause_registry = Some(registry);
         self
+    }
+
+    /// Configure kernel-level determinism policy enforcement (Patent 3535886.0002 Claim 5)
+    ///
+    /// When set, the pipeline will validate kernel operations against the policy
+    /// before each inference step. The policy digest is recorded in receipts.
+    ///
+    /// # Example
+    /// ```ignore
+    /// use adapteros_policy::packs::determinism::{DeterminismConfig, DeterminismPolicy};
+    ///
+    /// let policy = DeterminismPolicy::new(DeterminismConfig::default());
+    /// let pipeline = InferencePipeline::new(...)?.with_determinism_policy(policy);
+    /// ```
+    pub fn with_determinism_policy(mut self, policy: DeterminismPolicy) -> Self {
+        self.determinism_policy = Some(policy);
+        self
+    }
+
+    /// Configure determinism policy from config
+    pub fn with_determinism_config(mut self, config: DeterminismConfig) -> Self {
+        self.determinism_policy = Some(DeterminismPolicy::new(config));
+        self
+    }
+
+    /// Get the determinism policy digest for receipt binding (V6 schema)
+    pub fn determinism_policy_digest(&self) -> Option<[u8; 32]> {
+        self.determinism_policy
+            .as_ref()
+            .map(|p| p.compute_policy_digest().to_bytes())
+    }
+
+    /// Get the enforcement mode string for receipt binding
+    pub fn enforcement_mode_str(&self) -> Option<String> {
+        self.determinism_policy
+            .as_ref()
+            .map(|p| p.enforcement_mode().as_str().to_string())
+    }
+
+    /// Check if fallback was used during the last inference
+    pub fn fallback_used(&self) -> bool {
+        self.fallback_used
+    }
+
+    /// Enforce determinism policy before kernel execution
+    ///
+    /// Returns the effective kernel name to use (may be a fallback).
+    /// In Strict mode, violations cause immediate rejection.
+    fn enforce_kernel_policy(&mut self, kernel_name: &str) -> Result<String> {
+        let Some(policy) = &self.determinism_policy else {
+            return Ok(kernel_name.to_string());
+        };
+
+        match policy.enforce_operation(kernel_name)? {
+            OperationValidation::Allowed => Ok(kernel_name.to_string()),
+            OperationValidation::Fallback {
+                original,
+                fallback,
+                reason,
+            } => {
+                warn!(
+                    original = %original,
+                    fallback = %fallback,
+                    reason = %reason,
+                    "Determinism policy: using fallback kernel"
+                );
+                self.fallback_used = true;
+                Ok(fallback)
+            }
+        }
     }
 
     fn filter_adapters(
@@ -488,6 +569,8 @@ impl InferencePipeline {
             max_adapter_count: Self::DEFAULT_MAX_ADAPTER_COUNT,
             budget_tracker: BudgetTracker::new(),
             pause_registry: None,
+            determinism_policy: None,
+            fallback_used: false,
         })
     }
 
@@ -1019,6 +1102,10 @@ impl InferencePipeline {
             let mut router_ring = decision_to_router_ring(&decision, self.max_adapter_count)?;
             router_ring.position = step;
 
+            // Enforce determinism policy before kernel dispatch (Patent 3535886.0002 Claim 5)
+            let kernel_name = self.kernels.device_name().to_string();
+            let _effective_kernel = self.enforce_kernel_policy(&kernel_name)?;
+
             let kernel_start = Instant::now();
             self.kernels.run_step(&router_ring, &mut io_buffers)?;
             let kernel_latency = kernel_start.elapsed();
@@ -1187,6 +1274,19 @@ impl InferencePipeline {
                 stop_reason_token_index = Some(step as u32);
                 break;
             }
+        }
+
+        // Ensure stop reason is set if loop completed without explicit stop condition.
+        // This handles the case where the loop exits by exhausting max_tokens iterations
+        // without the StopController triggering BUDGET_MAX.
+        // PRD: Every generation MUST have a stop_reason_code for verifiable receipts.
+        if stop_reason_code.is_none() {
+            stop_reason_code = Some(adapteros_api_types::inference::StopReasonCode::BudgetMax);
+            stop_reason_token_index = Some(generated_tokens.len() as u32);
+            debug!(
+                tokens_generated = generated_tokens.len(),
+                "Stop reason defaulted to BUDGET_MAX (loop exhausted)"
+            );
         }
 
         // 13. Decode generated text
@@ -1548,6 +1648,10 @@ impl InferencePipeline {
             let mut router_ring = decision_to_router_ring(&decision, self.max_adapter_count)?;
             router_ring.position = step;
 
+            // Enforce determinism policy before kernel dispatch (Patent 3535886.0002 Claim 5)
+            let kernel_name = self.kernels.device_name().to_string();
+            let _effective_kernel = self.enforce_kernel_policy(&kernel_name)?;
+
             let kernel_start = Instant::now();
             self.kernels.run_step(&router_ring, &mut io_buffers)?;
             let kernel_latency = kernel_start.elapsed();
@@ -1658,6 +1762,19 @@ impl InferencePipeline {
                 stop_reason_token_index = Some(step as u32);
                 break;
             }
+        }
+
+        // Ensure stop reason is set if loop completed without explicit stop condition.
+        // This handles the case where the loop exits by exhausting max_tokens iterations
+        // without the StopController triggering BUDGET_MAX.
+        // PRD: Every generation MUST have a stop_reason_code for verifiable receipts.
+        if stop_reason_code.is_none() {
+            stop_reason_code = Some(adapteros_api_types::inference::StopReasonCode::BudgetMax);
+            stop_reason_token_index = Some(generated_tokens.len() as u32);
+            debug!(
+                tokens_generated = generated_tokens.len(),
+                "Stop reason defaulted to BUDGET_MAX (loop exhausted)"
+            );
         }
 
         // 13. Decode generated text

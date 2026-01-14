@@ -73,12 +73,15 @@ cp .env.example .env
 # See docs/ENVIRONMENT_SETUP.md for detailed configuration guide
 # vim .env
 
+# Build CLI and create symlink
+cargo build --release -p adapteros-cli --features tui
+ln -sf target/release/aosctl ./aosctl
+
 # Run database migrations
-cargo run --release -p adapteros-orchestrator -- db migrate
+./aosctl db migrate
 
 # Initialize default tenant
-cargo run --release -p adapteros-orchestrator -- init-tenant \
-    --id default --uid 1000 --gid 1000
+./aosctl init-tenant --id default --uid 1000 --gid 1000
 ```
 
 ---
@@ -285,7 +288,7 @@ echo $AOS_MLX_FFI_MODEL
 **Database errors:**
 ```bash
 rm var/aos-cp.sqlite3
-cargo run --release -p adapteros-orchestrator -- db migrate
+./aosctl db migrate
 ```
 
 **Memory issues:**
@@ -306,25 +309,24 @@ cd ui && pnpm dev
 ## Next Steps
 
 - **[Full Architecture](docs/ARCHITECTURE.md)** - System design
-- **[MLX Integration](docs/MLX_INTEGRATION.md)** - Backend details
-- **[Training Guide](docs/training/aos_adapters.md)** - Advanced training
-- **[REST API Reference](AGENTS.md#rest-api-reference)** - All endpoints
-- **[Complete System Guide](docs/QUICKSTART_COMPLETE_SYSTEM.md)** - Detailed setup
+- **[MLX Guide](docs/MLX_GUIDE.md)** - Backend details
+- **[Training Guide](docs/TRAINING.md)** - Advanced training
+- **[REST API Reference](docs/API_REFERENCE.md)** - All endpoints
+- **[Deployment Guide](docs/DEPLOYMENT.md)** - Detailed setup
 
 ---
 
 ## See Also
 
 - [AGENTS.md](AGENTS.md) - Developer quick reference guide
-- [docs/LOCAL_BUILD.md](docs/LOCAL_BUILD.md) - Local build guide with troubleshooting
-- [docs/FEATURE_FLAGS.md](docs/FEATURE_FLAGS.md) - Feature flag reference
-- [docs/COREML_INTEGRATION.md](docs/COREML_INTEGRATION.md) - CoreML backend with ANE acceleration
-- [QUICKSTART_GPU_TRAINING.md](QUICKSTART_GPU_TRAINING.md) - GPU training quick start
-- [docs/ARCHITECTURE.md#core-concepts](docs/ARCHITECTURE.md#core-concepts) - Detailed architecture patterns
-- [docs/DATABASE_REFERENCE.md](docs/DATABASE_REFERENCE.md) - Database schema reference
+- [docs/CONFIGURATION.md](docs/CONFIGURATION.md) - Configuration and environment setup
+- [docs/COREML_BACKEND.md](docs/COREML_BACKEND.md) - CoreML backend with ANE acceleration
+- [docs/TRAINING.md](docs/TRAINING.md) - Training guide
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - Detailed architecture patterns
+- [docs/DATABASE.md](docs/DATABASE.md) - Database schema reference
 
 ---
 
 **Built for Apple Silicon** | Copyright 2025 JKCA / James KC Auchterlonie
 
-MLNavigator Inc 2025-12-06.
+MLNavigator Inc January 2026.

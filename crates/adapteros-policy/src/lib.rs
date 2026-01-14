@@ -78,9 +78,10 @@ pub use hooks::{is_core_policy, Decision, HookContext, PolicyDecision, PolicyHoo
 pub use mplora::{MploraConfig, MploraPolicy};
 pub use numeric::validate_numeric_units;
 pub use packs::{
-    AdapterNameValidation, DeterminismConfig, DeterminismPolicy, EpsilonBounds, NamingConfig,
-    NamingPolicy, NamingViolation, NamingViolationType, RefusalConfig, RefusalPolicy,
-    RngSeedingMethod, SafetyScores, StackNameValidation, TieBreakRule, ToolchainRequirements,
+    default_fallback_mappings, AdapterNameValidation, DeterminismConfig, DeterminismPolicy,
+    EnforcementMode, EpsilonBounds, NamingConfig, NamingPolicy, NamingViolation,
+    NamingViolationType, OperationValidation, RefusalConfig, RefusalPolicy, RngSeedingMethod,
+    SafetyScores, StackNameValidation, TieBreakRule, ToolchainRequirements,
 };
 // Note: packs::refusal::RefusalReason is a different type than refusal::RefusalReason
 // The former is used for policy enforcement, the latter for HTTP response serialization

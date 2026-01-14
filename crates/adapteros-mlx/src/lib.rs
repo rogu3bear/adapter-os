@@ -1,9 +1,11 @@
-//! AdapterOS MLX - mlx-rs Abstraction Layer (Experimental Fallback)
+//! AdapterOS MLX - mlx-rs Abstraction Layer
 //!
-//! Wraps mlx-rs for the experimental pure-Rust MLX path. The primary/production
-//! backend is C++ FFI (`adapteros-lora-mlx-ffi` with `mlx` feature).
+//! **DEPRECATED**: This crate is no longer used. The `mlx-rs-backend` feature
+//! has been removed from the codebase. The production backend is C++ FFI
+//! (`adapteros-lora-mlx-ffi` with `mlx` feature).
 //!
-//! This crate is ONLY used when `mlx-rs-backend` feature is enabled.
+//! This crate remains in the workspace for reference only and may be removed
+//! in a future cleanup.
 //!
 //! # Architecture
 //!
