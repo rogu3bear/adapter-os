@@ -210,21 +210,33 @@ pub fn compute_context_id(
         buf.extend_from_slice(adapter.hash_b3.as_bytes());
     }
 
-    // 3. Configuration parameters with sentinels for None
-    // Temperature: f32 as u32 bits, 0xFFFFFFFF sentinel for None
-    let temp_bits = config
-        .temperature
-        .map(|t| t.to_bits())
-        .unwrap_or(0xFFFFFFFF);
-    buf.extend_from_slice(&temp_bits.to_le_bytes());
+    // 3. Configuration parameters with presence markers (avoids sentinel ambiguity)
+    // Temperature: 1-byte presence marker + f32 bits if present
+    match config.temperature {
+        Some(t) => {
+            buf.push(1u8);
+            buf.extend_from_slice(&t.to_bits().to_le_bytes());
+        }
+        None => buf.push(0u8),
+    }
 
-    // Top-k: u32, 0xFFFFFFFF sentinel for None
-    let top_k = config.top_k.unwrap_or(0xFFFFFFFF);
-    buf.extend_from_slice(&top_k.to_le_bytes());
+    // Top-k: 1-byte presence marker + u32 if present
+    match config.top_k {
+        Some(k) => {
+            buf.push(1u8);
+            buf.extend_from_slice(&k.to_le_bytes());
+        }
+        None => buf.push(0u8),
+    }
 
-    // Max tokens: u32, 0xFFFFFFFF sentinel for None
-    let max_tokens = config.max_tokens.unwrap_or(0xFFFFFFFF);
-    buf.extend_from_slice(&max_tokens.to_le_bytes());
+    // Max tokens: 1-byte presence marker + u32 if present
+    match config.max_tokens {
+        Some(m) => {
+            buf.push(1u8);
+            buf.extend_from_slice(&m.to_le_bytes());
+        }
+        None => buf.push(0u8),
+    }
 
     B3Hash::hash(&buf)
 }
