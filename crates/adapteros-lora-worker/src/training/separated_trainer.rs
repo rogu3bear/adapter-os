@@ -472,7 +472,12 @@ mod tests {
     use adapteros_types::training::{ExampleMetadataV1, TRAINING_DATA_CONTRACT_VERSION};
 
     fn make_metadata(row_id: u64, weight: f32) -> ExampleMetadataV1 {
-        let provenance = serde_json::json!({ "weight": weight }).to_string();
+        // Include sample_role for negative weights so separate_examples() can identify them
+        let provenance = if weight < 0.0 {
+            serde_json::json!({ "weight": weight, "sample_role": "negative" }).to_string()
+        } else {
+            serde_json::json!({ "weight": weight }).to_string()
+        };
         ExampleMetadataV1::new("test_source", row_id, provenance, 0)
     }
 
