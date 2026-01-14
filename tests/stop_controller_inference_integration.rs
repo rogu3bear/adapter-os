@@ -256,6 +256,10 @@ async fn test_stop_controller_budget_max_persisted_to_receipt() -> Result<()> {
         model_cache_identity_v2_digest_b3: None,
         attestation: None,
         equipment_profile: None,
+        // Phase 3: Crypto Receipt Dual-Write
+        crypto_receipt_digest_b3: None,
+        receipt_parity_verified: None,
+        tenant_id: None,
     };
 
     let receipt = sink.finalize(finalization).await?;
@@ -350,6 +354,10 @@ async fn test_stop_controller_completion_confident_persisted() -> Result<()> {
         model_cache_identity_v2_digest_b3: None,
         attestation: None,
         equipment_profile: None,
+        // Phase 3: Crypto Receipt Dual-Write
+        crypto_receipt_digest_b3: None,
+        receipt_parity_verified: None,
+        tenant_id: None,
     };
 
     sink.finalize(finalization).await?;
@@ -436,6 +444,10 @@ async fn test_stop_controller_repetition_guard_persisted() -> Result<()> {
         model_cache_identity_v2_digest_b3: None,
         attestation: None,
         equipment_profile: None,
+        // Phase 3: Crypto Receipt Dual-Write
+        crypto_receipt_digest_b3: None,
+        receipt_parity_verified: None,
+        tenant_id: None,
     };
 
     sink.finalize(finalization).await?;
@@ -519,6 +531,10 @@ async fn test_stop_controller_length_eos_persisted() -> Result<()> {
         model_cache_identity_v2_digest_b3: None,
         attestation: None,
         equipment_profile: None,
+        // Phase 3: Crypto Receipt Dual-Write
+        crypto_receipt_digest_b3: None,
+        receipt_parity_verified: None,
+        tenant_id: None,
     };
 
     sink.finalize(finalization).await?;
@@ -609,6 +625,10 @@ async fn test_determinism_same_policy_same_receipt_digest() -> Result<()> {
         model_cache_identity_v2_digest_b3: None,
         attestation: None,
         equipment_profile: None,
+        // Phase 3: Crypto Receipt Dual-Write
+        crypto_receipt_digest_b3: None,
+        receipt_parity_verified: None,
+        tenant_id: None,
     };
     let receipt1 = sink1.finalize(finalization1).await?;
 
@@ -651,6 +671,10 @@ async fn test_determinism_same_policy_same_receipt_digest() -> Result<()> {
         model_cache_identity_v2_digest_b3: None,
         attestation: None,
         equipment_profile: None,
+        // Phase 3: Crypto Receipt Dual-Write
+        crypto_receipt_digest_b3: None,
+        receipt_parity_verified: None,
+        tenant_id: None,
     };
     let receipt2 = sink2.finalize(finalization2).await?;
 
@@ -834,6 +858,10 @@ async fn test_stop_policy_digest_committed_to_merkle_bundle() -> Result<()> {
         model_cache_identity_v2_digest_b3: None,
         attestation: None,
         equipment_profile: None,
+        // Phase 3: Crypto Receipt Dual-Write
+        crypto_receipt_digest_b3: None,
+        receipt_parity_verified: None,
+        tenant_id: None,
     };
 
     let receipt = sink.finalize(finalization).await?;
@@ -914,6 +942,10 @@ async fn test_stop_policy_digest_committed_to_merkle_bundle() -> Result<()> {
         model_cache_identity_v2_digest_b3: None,
         attestation: None,
         equipment_profile: None,
+        // Phase 3: Crypto Receipt Dual-Write
+        crypto_receipt_digest_b3: None,
+        receipt_parity_verified: None,
+        tenant_id: None,
     };
 
     sink2.finalize(finalization2).await?;

@@ -24,8 +24,8 @@ pub enum ModelsCommand {
 "#)]
     Seed {
         /// Model directory path (defaults to AOS_MODEL_PATH env var or var/models)
-        #[arg(long)]
-        model_path: Option<PathBuf>,
+        #[arg(long = "model-path")]
+        path: Option<PathBuf>,
 
         /// Database path (defaults to DATABASE_URL or ./var/aos-cp.sqlite3)
         #[arg(long)]
@@ -75,10 +75,10 @@ pub async fn handle_models_command(cmd: ModelsCommand, output: &OutputWriter) ->
 
     match cmd {
         ModelsCommand::Seed {
-            model_path,
+            path,
             db_path,
             force,
-        } => run_seed(model_path, db_path, force, output).await,
+        } => run_seed(path, db_path, force, output).await,
         ModelsCommand::List { db_path, json } => run_list(db_path, json, output).await,
         ModelsCommand::CheckTokenizer(args) => args.execute(output).await,
     }

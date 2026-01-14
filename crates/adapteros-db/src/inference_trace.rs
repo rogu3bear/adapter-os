@@ -62,6 +62,8 @@ pub struct TraceReceipt {
     pub crypto_receipt_digest_b3: Option<B3Hash>,
     /// Whether parity was verified between legacy and crypto receipts
     pub receipt_parity_verified: Option<bool>,
+    /// Tenant ID for multi-tenant isolation
+    pub tenant_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -282,7 +284,11 @@ impl SqlTraceSink {
             ));
         }
         let mut cursor = 4;
-        let count = u32::from_le_bytes(bytes[..4].try_into().unwrap()) as usize;
+        let count = u32::from_le_bytes(
+            bytes[..4]
+                .try_into()
+                .map_err(|_| AosError::InvalidHash("allowed_mask blob corrupted".to_string()))?,
+        ) as usize;
         let mut mask = Vec::with_capacity(count);
         for _ in 0..count {
             if bytes.len() < cursor + 1 {
@@ -645,6 +651,7 @@ impl TraceSink for SqlTraceSink {
             equipment_profile: finalization.equipment_profile.clone(),
             crypto_receipt_digest_b3: finalization.crypto_receipt_digest_b3,
             receipt_parity_verified: finalization.receipt_parity_verified,
+            tenant_id: finalization.tenant_id.clone(),
         })
     }
 
@@ -846,6 +853,7 @@ pub async fn recompute_receipt(db: &Db, trace_id: &str) -> Result<TraceReceiptVe
             equipment_profile,
             crypto_receipt_digest_b3: None,
             receipt_parity_verified: None,
+            tenant_id: None, // Loaded from inference_traces, not receipts
         };
         (stored.output_digest, Some(stored))
     } else {
@@ -969,6 +977,7 @@ pub async fn recompute_receipt(db: &Db, trace_id: &str) -> Result<TraceReceiptVe
         equipment_profile: recomputed_equipment_profile,
         crypto_receipt_digest_b3: None,
         receipt_parity_verified: None,
+        tenant_id: None, // Recomputed receipt doesn't carry tenant_id
     };
 
     let matches = stored
