@@ -22,6 +22,7 @@ pub mod notification_provider;
 pub mod offline_banner;
 pub mod responsive;
 pub mod search_results;
+pub mod skeleton;
 pub mod spinner;
 pub mod split_panel;
 pub mod start_menu;
@@ -37,7 +38,8 @@ pub mod virtual_list;
 pub mod workspace;
 
 pub use async_state::{
-    Breadcrumb, DetailRow, EmptyState, ErrorDisplay, LoadingDisplay, PageHeader, RefreshButton,
+    Breadcrumb, DetailRow, EmptyState, EmptyStateVariant, ErrorDisplay, LoadingDisplay, PageHeader,
+    RefreshButton,
 };
 pub use auth::{AuthProvider, ProtectedRoute};
 pub use button::{Button, ButtonSize, ButtonVariant};
@@ -57,6 +59,10 @@ pub use responsive::{
     use_breakpoint, use_is_desktop_or_larger, use_is_mobile, use_is_tablet_or_smaller, Breakpoint,
 };
 pub use search_results::{SearchEmptyState, SearchResultsList};
+pub use skeleton::{
+    Skeleton, SkeletonAvatar, SkeletonButton, SkeletonCard, SkeletonTable, SkeletonText,
+    SkeletonVariant,
+};
 pub use spinner::Spinner;
 pub use split_panel::{SplitMode, SplitPanel, SplitRatio};
 pub use start_menu::{MenuGroup, MenuItem, MenuItemState, StartButton, StartMenu};
@@ -64,7 +70,9 @@ pub use status::{
     BackendStatus, BackendStatusBadge, BackendStatusIndicator, Badge, BadgeVariant, StatusColor,
     StatusIndicator,
 };
-pub use table::{Table, TableBody, TableCell, TableHead, TableHeader, TableRow};
+pub use table::{
+    SortDirection, Table, TableBody, TableCell, TableHead, TableHeader, TableHeadSortable, TableRow,
+};
 pub use tabs::{TabButton, TabButtonEnum, TabNav, TabNavEnum, TabPanel, TabPanelEnum};
 pub use toggle::{Select, Toggle};
 pub use trace_viewer::{TraceButton, TracePanel, TraceViewer};
