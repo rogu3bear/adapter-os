@@ -285,21 +285,21 @@ mod seeding_error_handling_tests {
     }
 
     #[test]
-    fn test_valid_short_seed() {
+    fn test_short_seed_rejected() {
         let short_seed = vec![1, 2, 3, 4];
         let result = mlx_set_seed_from_bytes(&short_seed);
 
-        // MLX accepts variable-length seeds
-        assert!(result.is_ok());
+        // Deterministic seeding requires exactly 32-byte HKDF seeds
+        assert!(result.is_err());
     }
 
     #[test]
-    fn test_valid_long_seed() {
+    fn test_long_seed_rejected() {
         let long_seed = vec![42u8; 64]; // 64 bytes
         let result = mlx_set_seed_from_bytes(&long_seed);
 
-        // Should handle longer seeds
-        assert!(result.is_ok());
+        // Deterministic seeding requires exactly 32-byte HKDF seeds
+        assert!(result.is_err());
     }
 
     #[test]

@@ -47,26 +47,24 @@ tokio.workspace = true
 criterion = { version = "0.5", features = ["html_reports"] }
 
 [features]
-default = []
+default = ["mlx"]
 
 # =============================================================================
 # MLX FFI FEATURE FLAGS
 # =============================================================================
 # This crate provides MLX (Apple's ML framework) integration via C++ FFI.
 #
-# mlx: Enable real MLX library integration
-#   - Requires the MLX C++ library to be installed
-#   - Enables actual GPU-accelerated inference
-#   - Without this flag, stub implementations are used
-# real-mlx: Backward-compatible alias for `mlx` (deprecated)
+# mlx: Enable real MLX library integration (DEFAULT)
+#   - Requires the MLX C++ library to be installed (brew install mlx)
+#   - Enables actual GPU-accelerated inference on Apple Silicon
+#   - This is the primary production backend
+#
+# To build WITHOUT real MLX (stub mode for CI/testing):
+#   cargo build -p adapteros-lora-mlx-ffi --no-default-features
 #
 # test-utils: Enable test utilities
 #   - Mock implementations for testing
 #   - Deterministic test fixtures
-#
-# Usage:
-#   cargo build -p adapteros-lora-mlx-ffi                 # Stub implementation
-#   cargo build -p adapteros-lora-mlx-ffi --features mlx  # Real MLX
 # =============================================================================
 
 # mlx: C++ FFI (primary/production)
