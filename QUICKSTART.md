@@ -108,12 +108,13 @@ export RUST_LOG=info
 cargo run --release -p adapteros-server-api
 ```
 
-Terminal 2 - UI:
+Terminal 2 - UI (Development):
 ```bash
-cd ui
-pnpm install
-pnpm dev
+cd crates/adapteros-ui
+trunk serve
 ```
+
+**Note:** For production, the UI is served from the `static/` directory by the backend (via `./start`). The development UI runs on port 3200, while the production UI is served on port 8080 along with the API.
 
 **Legacy scripts (deprecated; prompt with default No before continuing):**
 - `scripts/run_complete_system.sh` (redirects to `./start`)
@@ -124,7 +125,11 @@ pnpm dev
 
 ## 6. Access the UI
 
-Open http://localhost:3200 in your browser.
+**Development Mode:**
+- UI dev server: http://localhost:3200 (when running `trunk serve` in `crates/adapteros-ui`)
+
+**Production Mode:**
+- UI served by backend: http://localhost:8080 (when running `./start`)
 
 **Key Pages:**
 
