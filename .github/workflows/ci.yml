@@ -301,13 +301,13 @@ jobs:
           path: target/test-failures/
 
   # ==========================================================================
-  # Determinism Replay Harness (main branch and nightly only)
+  # Determinism Replay Harness (runs on all PRs and main pushes)
   # ==========================================================================
   replay-harness:
     name: Determinism Replay Harness
     runs-on: macos-14
     timeout-minutes: 20
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Run on PRs and main pushes to catch replay regressions before merge
     env:
       AOS_DEV_NO_AUTH: "1"
       AOS_BACKEND: mock
