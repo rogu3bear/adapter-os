@@ -39,7 +39,7 @@ use crate::cli::Cli;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
-use tracing::{error, info, warn};
+use tracing::{error, info, instrument, warn};
 
 /// Context returned from database initialization containing all database-related state.
 pub struct DatabaseContext {
@@ -85,6 +85,7 @@ pub struct DatabaseContext {
 /// - Effective config initialization fails in production mode
 /// - Configuration guard freeze fails in production mode
 /// - Runtime mode resolution fails
+#[instrument(skip_all)]
 pub async fn initialize_database(
     config: Arc<RwLock<Config>>,
     boot_state: BootStateManager,

@@ -15,8 +15,9 @@ use adapteros_core::AosError;
 use adapteros_server_api::config::Config;
 use anyhow::Result;
 use ed25519_dalek::SigningKey;
+use serde::Serialize;
 use std::sync::{Arc, RwLock};
-use tracing::{error, info, trace, warn};
+use tracing::{error, info, instrument, trace, warn};
 
 /// Security context established during boot phase 2.
 pub struct SecurityContext {
@@ -41,6 +42,7 @@ pub struct SecurityContext {
 /// # Returns
 ///
 /// Returns a `SecurityContext` containing the PID lock and worker keypair.
+#[instrument(skip_all)]
 pub async fn initialize_security(
     config: Arc<RwLock<Config>>,
     cli: &Cli,
@@ -128,6 +130,83 @@ pub async fn initialize_security(
     })
 }
 
+#[derive(Debug, Serialize)]
+struct RedactedConfig {
+    server: adapteros_server_api::config::ServerConfig,
+    db: adapteros_server_api::config::DatabaseConfig,
+    security: RedactedSecurityConfig,
+    paths: adapteros_server_api::config::PathsConfig,
+    rate_limits: adapteros_server_api::config::RateLimitsConfig,
+    metrics: RedactedMetricsConfig,
+    alerting: adapteros_server_api::config::AlertingConfig,
+}
+
+#[derive(Debug, Serialize)]
+struct RedactedSecurityConfig {
+    require_pf_deny: bool,
+    mtls_required: bool,
+    jwt_secret: String,
+    jwt_ttl_hours: u32,
+    key_provider_mode: String,
+    jwt_issuer: String,
+    jwt_additional_ed25519_public_keys: Option<Vec<String>>,
+    jwt_additional_hmac_secrets: Option<Vec<String>>,
+}
+
+#[derive(Debug, Serialize)]
+struct RedactedMetricsConfig {
+    enabled: bool,
+    bearer_token: String,
+    include_histogram: bool,
+}
+
+impl From<&Config> for RedactedConfig {
+    fn from(cfg: &Config) -> Self {
+        let redact = |s: &str| -> String {
+            if s.is_empty() {
+                "[missing]".to_string()
+            } else {
+                "[REDACTED]".to_string()
+            }
+        };
+
+        Self {
+            server: cfg.server.clone(),
+            db: cfg.db.clone(),
+            security: RedactedSecurityConfig {
+                require_pf_deny: cfg.security.require_pf_deny,
+                mtls_required: cfg.security.mtls_required,
+                jwt_secret: redact(&cfg.security.jwt_secret),
+                jwt_ttl_hours: cfg.security.jwt_ttl_hours,
+                key_provider_mode: cfg.security.key_provider_mode.clone(),
+                jwt_issuer: cfg.security.jwt_issuer.clone(),
+                jwt_additional_ed25519_public_keys: cfg
+                    .security
+                    .jwt_additional_ed25519_public_keys
+                    .as_ref()
+                    .map(|_| vec!["[REDACTED]".to_string()]),
+                jwt_additional_hmac_secrets: cfg
+                    .security
+                    .jwt_additional_hmac_secrets
+                    .as_ref()
+                    .map(|_| vec!["[REDACTED]".to_string()]),
+            },
+            paths: cfg.paths.clone(),
+            rate_limits: cfg.rate_limits.clone(),
+            metrics: RedactedMetricsConfig {
+                enabled: cfg.metrics.enabled,
+                bearer_token: if cfg.metrics.enabled {
+                    redact(&cfg.metrics.bearer_token)
+                } else {
+                    "[disabled]".to_string()
+                },
+                include_histogram: cfg.metrics.include_histogram,
+            },
+            alerting: cfg.alerting.clone(),
+        }
+    }
+}
+
 /// Log the effective configuration at startup.
 ///
 /// This logs:
@@ -135,104 +214,16 @@ pub async fn initialize_security(
 /// - Server configuration (bind address, paths, timeouts)
 /// - Security configuration (PF requirements, mTLS, JWT settings)
 /// - Operational configuration (rate limits, metrics, alerting)
+#[instrument(skip_all)]
 pub fn log_effective_config(config: &Arc<RwLock<Config>>) -> Result<()> {
     let cfg = config.read().map_err(|e| {
         error!(error = %e, "Config lock poisoned at startup");
         anyhow::anyhow!("config lock poisoned at startup")
     })?;
 
-    let parse_env_u16 =
-        |key: &str| -> Option<u16> { std::env::var(key).ok().and_then(|v| v.parse::<u16>().ok()) };
-    let env_truthy = |key: &str| -> bool {
-        std::env::var(key)
-            .ok()
-            .map(|v| {
-                matches!(
-                    v.trim().to_ascii_lowercase().as_str(),
-                    "1" | "true" | "yes" | "on"
-                )
-            })
-            .unwrap_or(false)
-    };
+    let redacted_config = RedactedConfig::from(&*cfg);
 
-    // Port already resolved (including legacy aliases) in config.rs Phase 1
-    let api_port = cfg.server.port;
-    let ui_port = parse_env_u16("AOS_UI_PORT");
-    let panel_port = parse_env_u16("AOS_PANEL_PORT");
-
-    let demo_mode = env_truthy("AOS_DEMO_MODE")
-        || panel_port.is_some()
-        || std::env::var("AOS_DATABASE_URL")
-            .ok()
-            .is_some_and(|v| v.contains("aos-demo"))
-        || std::env::var("DATABASE_URL")
-            .ok()
-            .is_some_and(|v| v.contains("aos-demo"));
-
-    let dev_no_auth_active = cfg!(debug_assertions) && env_truthy("AOS_DEV_NO_AUTH");
-    let auth_mode = if dev_no_auth_active {
-        "dev_no_auth"
-    } else {
-        "jwt"
-    };
-
-    info!(
-        api_port,
-        ui_port = ?ui_port,
-        panel_port = ?panel_port,
-        db_path = %cfg.db.path,
-        auth_mode = %auth_mode,
-        demo_mode,
-        "Effective config summary"
-    );
-
-    info!(
-        port = cfg.server.port,
-        bind = %cfg.server.bind,
-        production_mode = cfg.server.production_mode,
-        uds_socket = ?cfg.server.uds_socket,
-        drain_timeout_secs = cfg.server.drain_timeout_secs,
-        boot_timeout_secs = cfg.server.boot_timeout_secs,
-        db_path = %cfg.db.path,
-        artifacts_root = %cfg.paths.artifacts_root,
-        bundles_root = %cfg.paths.bundles_root,
-        adapters_root = %cfg.paths.adapters_root,
-        datasets_root = %cfg.paths.datasets_root,
-        documents_root = %cfg.paths.documents_root,
-        "Effective server configuration"
-    );
-    info!(
-        require_pf_deny = cfg.security.require_pf_deny,
-        mtls_required = cfg.security.mtls_required,
-        jwt_ttl_hours = cfg.security.jwt_ttl_hours,
-        jwt_issuer = %cfg.security.jwt_issuer,
-        key_provider_mode = %cfg.security.key_provider_mode,
-        "Effective security configuration"
-    );
-    let redact = |s: &str| -> String {
-        if s.is_empty() {
-            "[missing]".to_string()
-        } else {
-            format!("[len={}]", s.len())
-        }
-    };
-    info!(
-        jwt_secret = %redact(&cfg.security.jwt_secret),
-        metrics_token = %if cfg.metrics.enabled {
-            redact(&cfg.metrics.bearer_token)
-        } else {
-            "[disabled]".to_string()
-        },
-        "Secret configuration (redacted)"
-    );
-    info!(
-        rate_limit_rpm = cfg.rate_limits.requests_per_minute,
-        burst_size = cfg.rate_limits.burst_size,
-        inference_rpm = cfg.rate_limits.inference_per_minute,
-        metrics_enabled = cfg.metrics.enabled,
-        alerting_enabled = cfg.alerting.enabled,
-        "Effective operational configuration"
-    );
+    info!(config = ?redacted_config, "Effective configuration loaded");
 
     Ok(())
 }
@@ -252,6 +243,7 @@ pub fn log_effective_config(config: &Arc<RwLock<Config>>) -> Result<()> {
 /// # Returns
 ///
 /// Returns an error if security checks fail in production mode.
+#[instrument(skip_all)]
 pub async fn run_preflight_checks(config: Arc<RwLock<Config>>, cli: &Cli) -> Result<()> {
     info!(target: "boot", phase = 4, name = "security-preflight", "═══ BOOT PHASE 4/12: Security Preflight ═══");
     info!("Running security preflight checks");

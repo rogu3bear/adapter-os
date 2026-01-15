@@ -14,7 +14,7 @@ use adapteros_server_api::boot_state::BootStateManager;
 use adapteros_server_api::config::Config;
 use anyhow::Result;
 use std::sync::{Arc, RwLock};
-use tracing::{error, info, warn};
+use tracing::{error, info, instrument, warn};
 
 use crate::cli::Cli;
 use crate::model_seeding::seed_models_from_cache_if_empty;
@@ -41,6 +41,7 @@ use crate::model_seeding::seed_models_from_cache_if_empty;
 /// * `Ok(true)` - Migrations complete and --migrate-only was specified, caller should exit
 /// * `Ok(false)` - Migrations complete, continue with normal boot sequence
 /// * `Err(_)` - Migration or crash recovery failed
+#[instrument(skip_all)]
 pub async fn run_migrations(
     db: &Db,
     _config: Arc<RwLock<Config>>,

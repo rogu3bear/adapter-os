@@ -18,7 +18,7 @@ use adapteros_server_api::state::BackgroundTaskTracker;
 use anyhow::Result;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
-use tracing::{info, warn};
+use tracing::{info, instrument, warn};
 
 /// Context returned from executor initialization containing shutdown
 /// coordination, background task tracking, and manifest hash.
@@ -54,6 +54,7 @@ pub struct ExecutorContext {
 /// - Manifest path resolution fails
 /// - Production mode is enabled but manifest is invalid
 /// - Executor initialization fails
+#[instrument(skip_all)]
 pub async fn initialize_executor(
     config: Arc<RwLock<Config>>,
     cli: &Cli,

@@ -28,13 +28,13 @@ use ed25519_dalek::SigningKey;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use tokio::sync::mpsc;
-use tracing::{info, warn};
+use tracing::{info, instrument, warn};
 
 use crate::boot::BackgroundTaskSpawner;
 use crate::shutdown::ShutdownCoordinator;
 
 const DEFAULT_MANIFEST_HASH: &str =
-    "756be0c4434c3fe5e1198fcf417c52a662e7a24d0716dbf12aae6246bea84f9e";
+    "8910e57445575ebf4b0dfb4dc92a26ea174edf13088ae7acacd3262be8bb8a20";
 
 /// Build the AppState with all its dependencies.
 ///
@@ -50,6 +50,7 @@ const DEFAULT_MANIFEST_HASH: &str =
 /// - Adapter registry initialization (SQLite registry.db)
 /// - Git subsystem initialization (if enabled)
 #[allow(clippy::too_many_arguments)]
+#[instrument(skip_all)]
 pub async fn build_app_state(
     db: Db,
     api_config: Arc<RwLock<ApiConfig>>,
