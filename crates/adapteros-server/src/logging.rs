@@ -141,11 +141,13 @@ impl LogProfile {
 #[derive(Clone)]
 struct StructuredJsonFormatter {
     component: &'static str,
+    run_id: String,
 }
 
 impl StructuredJsonFormatter {
     fn new(component: &'static str) -> Self {
-        Self { component }
+        let run_id = std::env::var("AOS_RUN_ID").unwrap_or_else(|_| "unknown".to_string());
+        Self { component, run_id }
     }
 }
 
@@ -206,6 +208,7 @@ where
         payload.insert("phase".to_string(), serde_json::Value::String(phase));
 
         // Standard keys with deterministic presence (empty string if absent)
+        payload.insert("run_id".to_string(), serde_json::Value::String(self.run_id.clone()));
         for key in ["trace_id", "span_id", "request_id", "tenant", "error_code"] {
             payload.insert(key.to_string(), serde_json::Value::String(String::new()));
         }

@@ -19,7 +19,7 @@ use anyhow::Result;
 use serde_json::json;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
-use tracing::{error, info, warn};
+use tracing::{error, info, instrument, warn};
 
 use crate::cli::{normalize_jwt_mode, Cli};
 use crate::{logging, otel, telemetry_flush};
@@ -65,6 +65,7 @@ pub struct ConfigContext {
 /// - Configuration lock is poisoned
 /// - Logging initialization fails
 /// - CORS configuration validation fails
+#[instrument(skip_all)]
 pub async fn initialize_config(cli: &Cli) -> Result<ConfigContext> {
     let boot_state = BootStateManager::new();
     boot_state.start_phase("config_load");

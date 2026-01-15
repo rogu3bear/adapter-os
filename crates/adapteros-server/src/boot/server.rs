@@ -40,7 +40,7 @@ use std::net::{SocketAddr, TcpListener};
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{error, info, warn};
+use tracing::{error, info, instrument, warn};
 
 /// Server binding mode.
 #[derive(Debug, Clone)]
@@ -188,6 +188,7 @@ pub fn precheck_tcp_port(addr: SocketAddr) -> Result<(), BindError> {
 ///
 /// Returns `Ok(())` on successful shutdown, or `Err` if binding fails.
 ///
+#[instrument(skip_all)]
 pub async fn bind_and_serve(
     mode: BindMode,
     app: Router,

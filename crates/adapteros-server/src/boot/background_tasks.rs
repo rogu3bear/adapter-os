@@ -59,7 +59,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::MissedTickBehavior;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, instrument, warn};
 
 /// Counter for orphaned training jobs that have been cleaned up.
 static ORPHANED_TRAINING_JOB_CLEANED: AtomicU64 = AtomicU64::new(0);
@@ -99,6 +99,7 @@ pub fn orphaned_training_job_cleaned_count() -> u64 {
 ///
 /// Returns error if strict mode is enabled and a critical task fails to spawn
 #[allow(clippy::too_many_arguments)]
+#[instrument(skip_all)]
 pub async fn spawn_all_background_tasks(
     state: &AppState,
     db: &Db,

@@ -28,12 +28,13 @@ use anyhow::Result;
 use clap::Parser;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
-use tracing::{error, info, warn};
+use tracing::{error, info, warn, instrument};
 
 mod alerting;
 mod openapi;
 
 #[tokio::main]
+#[instrument(skip_all)]
 async fn main() -> Result<()> {
     // Parse CLI first (before logging, so we know config path)
     let cli = Cli::parse();
