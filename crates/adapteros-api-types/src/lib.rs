@@ -12,9 +12,9 @@
 #[cfg(feature = "server")]
 pub use adapteros_core::version::API_SCHEMA_VERSION;
 
-// For WASM builds, define a constant directly
+// For WASM builds, define a constant directly (must match core::version::API_SCHEMA_VERSION)
 #[cfg(not(feature = "server"))]
-pub const API_SCHEMA_VERSION: &str = "0.11.0";
+pub const API_SCHEMA_VERSION: &str = "1.0.0";
 
 /// Get the current API schema version as a String.
 /// Used as serde default for response types.
@@ -23,6 +23,8 @@ pub fn schema_version() -> String {
 }
 
 pub mod adapters;
+pub mod admin;
+pub mod api_keys;
 pub mod auth;
 pub mod codebase_adapters;
 pub mod dashboard;
@@ -35,6 +37,7 @@ pub mod git;
 pub mod inference;
 pub mod metrics;
 pub mod model_status;
+pub mod models;
 pub mod nodes;
 pub mod orchestration;
 pub mod plans;
@@ -62,6 +65,8 @@ pub use adapteros_types::coreml::{
 #[cfg(feature = "server")]
 pub use adapteros_types::repository::RepoTier;
 pub use adapters::*;
+pub use admin::*;
+pub use api_keys::*;
 pub use auth::*;
 pub use codebase_adapters::*;
 pub use dashboard::*;
@@ -73,6 +78,7 @@ pub use failure_code::FailureCode;
 pub use git::*;
 pub use inference::*;
 pub use metrics::*;
+pub use models::*;
 pub use nodes::*;
 pub use orchestration::*;
 pub use plans::*;

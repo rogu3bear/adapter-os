@@ -208,12 +208,19 @@ pub struct BootFailure {
 #[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct KernelStatus {
+    /// Current model status (aggregated across tenants).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<ModelStatusSummary>,
+    /// Latest plan pointer (best effort).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub plan: Option<PlanStatusSummary>,
+    /// Adapter inventory across the cluster.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub adapters: Option<AdapterInventory>,
+    /// Model inventory (canonical source for model counts).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub models: Option<ModelInventory>,
+    /// Memory summary for UMA and ANE.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub memory: Option<KernelMemorySummary>,
 }
@@ -246,10 +253,27 @@ pub struct PlanStatusSummary {
 #[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct AdapterInventory {
+    /// Count of adapters in active workspace stacks.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_active: Option<i64>,
+    /// Count of loaded models (renamed from misleading "loaded" field).
+    /// DEPRECATED: Use `kernel.models.loaded` instead. This field is retained
+    /// for backward compatibility with older clients.
+    #[serde(skip_serializing_if = "Option::is_none", alias = "loaded")]
+    pub loaded_models: Option<i64>,
+}
+
+/// Model inventory across the cluster (canonical source for model counts).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct ModelInventory {
+    /// Count of models with status="ready" (loaded and ready for inference).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub loaded: Option<i64>,
+    /// Total count of registered models in the database.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total: Option<i64>,
 }
 
 /// Memory summary for UMA and ANE where available.

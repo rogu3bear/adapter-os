@@ -255,3 +255,51 @@ pub struct WorkerHeartbeatResponse {
     /// Recommended seconds until the next heartbeat
     pub next_heartbeat_secs: u32,
 }
+
+/// Worker metrics response
+///
+/// Detailed metrics for a worker instance, including memory, GPU, and performance stats.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+pub struct WorkerMetricsResponse {
+    pub worker_id: String,
+    /// Memory usage in MB
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory_used_mb: Option<u64>,
+    /// Memory limit in MB
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory_limit_mb: Option<u64>,
+    /// GPU memory used in MB
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gpu_memory_used_mb: Option<u64>,
+    /// GPU memory total in MB
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gpu_memory_total_mb: Option<u64>,
+    /// GPU utilization percentage
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gpu_utilization_pct: Option<f64>,
+    /// CPU utilization percentage
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cpu_utilization_pct: Option<f64>,
+    /// Requests processed
+    #[serde(default)]
+    pub requests_processed: u64,
+    /// Requests per second
+    #[serde(default)]
+    pub requests_per_second: f64,
+    /// Average latency in ms
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avg_latency_ms: Option<f64>,
+    /// P99 latency in ms
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub p99_latency_ms: Option<f64>,
+    /// Uptime in seconds
+    #[serde(default)]
+    pub uptime_seconds: u64,
+    /// Cache entries count
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_entries: Option<u32>,
+    /// Cache hit rate
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_hit_rate: Option<f64>,
+}

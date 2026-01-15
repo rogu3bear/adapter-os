@@ -1438,6 +1438,17 @@ pub struct DatasetResponse {
     pub updated_at: String,
 }
 
+/// Response for listing datasets
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct DatasetListResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
+    pub datasets: Vec<DatasetResponse>,
+    pub total: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
