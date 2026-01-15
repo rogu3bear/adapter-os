@@ -1,6 +1,6 @@
-//! Prometheus/OpenMetrics exporter for AdapterOS control plane
+//! Prometheus/OpenMetrics exporter for adapterOS control plane
 
-use adapteros_db::{models::Worker, Db};
+use adapteros_db::Db;
 use anyhow::Result;
 use prometheus::{
     Counter, CounterVec, Encoder, Gauge, GaugeVec, HistogramOpts, HistogramVec, Opts, Registry,
@@ -12,7 +12,7 @@ use std::{
     sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
-use tracing::info;
+use tracing::{info, warn};
 
 /// Snapshot of current metrics for health checks
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,8 +51,8 @@ pub struct MetricsExporter {
     jobs_active: GaugeVec,
     // Worker metrics
     workers_active: Gauge,
-    _workers_memory_headroom_pct: GaugeVec,
-    _workers_adapters_loaded: GaugeVec,
+    // Note: Per-worker metrics (_workers_memory_headroom_pct, _workers_adapters_loaded)
+    // were removed as they were never populated. Add back when worker-level telemetry is implemented.
     // Model load/unload metrics
     model_load_success_total: CounterVec,
     model_load_failure_total: CounterVec,
@@ -170,23 +170,8 @@ impl MetricsExporter {
         )?;
         registry.register(Box::new(workers_active.clone()))?;
 
-        let workers_memory_headroom_pct = GaugeVec::new(
-            Opts::new(
-                "adapteros_lora_workers_memory_headroom_percent",
-                "Worker memory headroom percentage",
-            ),
-            &["worker_id", "tenant_id"],
-        )?;
-        registry.register(Box::new(workers_memory_headroom_pct.clone()))?;
-
-        let workers_adapters_loaded = GaugeVec::new(
-            Opts::new(
-                "adapteros_lora_workers_adapters_loaded",
-                "Number of adapters loaded per worker",
-            ),
-            &["worker_id", "tenant_id"],
-        )?;
-        registry.register(Box::new(workers_adapters_loaded.clone()))?;
+        // Note: Per-worker metrics (workers_memory_headroom_pct, workers_adapters_loaded)
+        // were removed as they were never populated. Add back when worker-level telemetry is implemented.
 
         // Base model load/unload metrics
         let model_load_success_total = CounterVec::new(
@@ -552,8 +537,6 @@ impl MetricsExporter {
             jobs_duration_seconds,
             jobs_active,
             workers_active,
-            _workers_memory_headroom_pct: workers_memory_headroom_pct,
-            _workers_adapters_loaded: workers_adapters_loaded,
             model_load_success_total,
             model_load_failure_total,
             model_unload_success_total,
@@ -834,17 +817,38 @@ impl MetricsExporter {
     }
 
     /// Update worker metrics from database
-    pub async fn update_worker_metrics(&self, _db: &Db) -> Result<()> {
-        // Use db.list_all_workers() which uses actual Worker schema
-        let workers: Vec<Worker> = vec![];
+    pub async fn update_worker_metrics(&self, db: &Db) -> Result<()> {
+        // Query workers from database - log errors instead of silently defaulting
+        let workers = match db.list_all_workers().await {
+            Ok(w) => w,
+            Err(e) => {
+                warn!(error = %e, "Failed to query workers for metrics update");
+                // Don't reset the metric - keep stale value rather than reporting 0
+                return Ok(());
+            }
+        };
 
-        // Reset workers_active gauge
-        self.workers_active.set(workers.len() as f64);
+        // Count healthy workers only for the active metric
+        let healthy_count = workers.iter().filter(|w| w.status == "healthy").count();
 
-        info!("Updated worker metrics: {} workers", workers.len());
+        // Set workers_active gauge to healthy worker count
+        self.workers_active.set(healthy_count as f64);
 
-        // Use db.list_jobs() which uses actual Job schema
-        let jobs = _db.list_jobs(None).await.unwrap_or_default();
+        info!(
+            "Updated worker metrics: {} healthy / {} total workers",
+            healthy_count,
+            workers.len()
+        );
+
+        // Use db.list_jobs() which uses actual Job schema - log errors instead of silently defaulting
+        let jobs = match db.list_jobs(None).await {
+            Ok(j) => j,
+            Err(e) => {
+                warn!(error = %e, "Failed to query jobs for metrics update");
+                // Don't reset the metric - keep stale value rather than reporting 0
+                return Ok(());
+            }
+        };
 
         // Count active jobs (queued + running)
         let active_jobs = jobs

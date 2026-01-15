@@ -411,6 +411,10 @@ impl BufferRelocationDetector {
 
         // Hash buffer contents
         let mut hasher = blake3::Hasher::new();
+        // SAFETY: `contents` is a valid pointer to Metal buffer data obtained via `buffer.contents()`.
+        // `size` is the buffer length from `buffer.length()`. The Metal buffer owns this memory
+        // and remains valid for the duration of this scope. The slice is read-only and does not
+        // outlive the buffer reference.
         unsafe {
             let slice = std::slice::from_raw_parts(contents as *const u8, size);
             hasher.update(slice);

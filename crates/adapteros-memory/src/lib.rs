@@ -1,4 +1,4 @@
-//! Unified Memory Watchdog for AdapterOS
+//! Unified Memory Watchdog for adapterOS
 //!
 //! This crate provides comprehensive memory monitoring and stability guarantees:
 //! - Metal heap observer that records page migrations
