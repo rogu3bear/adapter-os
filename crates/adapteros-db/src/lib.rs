@@ -1,6 +1,6 @@
-//! AdapterOS Database Layer
+//! adapterOS Database Layer
 //!
-//! This crate provides the persistence layer for AdapterOS, including both SQL
+//! This crate provides the persistence layer for adapterOS, including both SQL
 //! (SQLite) and KV (ReDB) backends with dual-write support for migration.
 //!
 //! # Naming Conventions

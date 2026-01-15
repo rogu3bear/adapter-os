@@ -1,4 +1,4 @@
-//! Model loader and validation for AdapterOS
+//! Model loader and validation for adapterOS
 
 use adapteros_chat::{ChatTemplate, ChatTemplateProcessor, SpecialTokens};
 use adapteros_core::{AosError, Result};
@@ -418,7 +418,7 @@ pub struct RoPEConfig {
 
 /// Deprecated alias for backwards compatibility
 #[deprecated(
-    since = "0.12.0",
+    since = "0.12.1",
     note = "Use `RoPEConfig` instead (correct RoPE casing)"
 )]
 pub type RopeConfig = RoPEConfig;
