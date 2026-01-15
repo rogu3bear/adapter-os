@@ -1,7 +1,7 @@
 {
   "dataset_id": "adapteros-qa-docs-v1",
-  "name": "AdapterOS Q&A Dataset (Documentation)",
-  "description": "Question-answer pairs generated from AGENTS.md for instruction tuning. Teaches the adapter to answer questions about AdapterOS architecture, conventions, and best practices.",
+  "name": "adapterOS Q&A Dataset (Documentation)",
+  "description": "Question-answer pairs generated from AGENTS.md for instruction tuning. Teaches the adapter to answer questions about adapterOS architecture, conventions, and best practices.",
   "version": "1.0.0",
   "created_at": "2025-01-18",
   "strategy": "question_answer",
@@ -47,9 +47,9 @@
     "strategy": "QuestionAnswer"
   },
   "metadata": {
-    "purpose": "Instruction tuning for AdapterOS Q&A capabilities",
+    "purpose": "Instruction tuning for adapterOS Q&A capabilities",
     "domain": "engineering/documentation/qa",
-    "use_case": "Training adapters to answer technical questions about AdapterOS features, architecture, and usage patterns",
+    "use_case": "Training adapters to answer technical questions about adapterOS features, architecture, and usage patterns",
     "quality": "high",
     "validation_status": "valid",
     "question_types": [

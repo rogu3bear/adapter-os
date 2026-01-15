@@ -1,4 +1,4 @@
-//! Unified logging configuration for AdapterOS CLI
+//! Unified logging configuration for adapterOS CLI
 //!
 //! Provides centralized logging initialization and configuration for all CLI commands.
 //! Replaces println! usage with structured tracing throughout the CLI.

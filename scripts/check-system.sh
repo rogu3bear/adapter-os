@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Quick system readiness checker for AdapterOS
+# Quick system readiness checker for adapterOS
 #
 # Runs the preflight command and provides helpful output
 #
@@ -19,7 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 echo -e "${BLUE}╔═══════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║           AdapterOS System Readiness Check                   ║${NC}"
+echo -e "${BLUE}║           adapterOS System Readiness Check                   ║${NC}"
 echo -e "${BLUE}╚═══════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 

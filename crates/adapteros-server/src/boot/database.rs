@@ -1,4 +1,4 @@
-//! Database initialization and connection management for AdapterOS boot sequence.
+//! Database initialization and connection management for adapterOS boot sequence.
 //!
 //! This module handles Phase 5a of the boot sequence: Database Connection.
 //!

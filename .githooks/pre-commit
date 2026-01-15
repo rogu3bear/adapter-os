@@ -1,5 +1,5 @@
 #!/bin/bash
-# Pre-commit hook for AdapterOS
+# Pre-commit hook for adapterOS
 # Runs linting and validation
 
 set -e
@@ -8,7 +8,7 @@ echo "🧹 Running pre-commit checks..."
 
 # Check if we're in the right directory
 if [ ! -f "Cargo.toml" ]; then
-    echo "❌ Not in AdapterOS root directory"
+    echo "❌ Not in adapterOS root directory"
     exit 1
 fi
 

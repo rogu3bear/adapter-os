@@ -4,7 +4,7 @@ version.workspace = true
 edition = "2021"
 authors = ["James KC Auchterlonie <vats-springs0m@icloud.com>"]
 license = "MIT OR Apache-2.0"
-description = "Single-file adapter format (.aos) implementation for AdapterOS"
+description = "Single-file adapter format (.aos) implementation for adapterOS"
 repository = "https://github.com/rogu3bear/mplora"
 
 [dependencies]

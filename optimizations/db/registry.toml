@@ -1,4 +1,4 @@
-# AdapterOS DB Optimization Registry
+# adapterOS DB Optimization Registry
 #
 # Purpose:
 # - Provide a single coordination point for *all* DB optimizations (migrations, query rewrites,

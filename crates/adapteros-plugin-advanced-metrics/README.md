@@ -1,6 +1,6 @@
 # adapteros-plugin-advanced-metrics
 
-Advanced metrics collection plugin for AdapterOS, providing detailed performance tracking and Prometheus endpoint.
+Advanced metrics collection plugin for adapterOS, providing detailed performance tracking and Prometheus endpoint.
 
 ## Features
 

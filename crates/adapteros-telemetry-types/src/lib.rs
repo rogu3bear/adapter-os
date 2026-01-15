@@ -1,4 +1,4 @@
-//! Shared telemetry metric types for AdapterOS
+//! Shared telemetry metric types for adapterOS
 //!
 //! This crate provides the core metric data structures used across
 //! the telemetry system and API layer, breaking the dependency cycle

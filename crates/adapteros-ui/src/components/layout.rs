@@ -167,7 +167,7 @@ pub fn TopBar() -> impl IntoView {
             // Left: Product name + environment badge
             <div class="flex items-center gap-3">
                 <div class="flex items-center gap-2">
-                    <span class="font-semibold text-sm tracking-tight">"AdapterOS"</span>
+                    <span class="font-semibold text-sm tracking-tight">"adapterOS"</span>
                     <Badge variant=env_badge_variant>{env_badge}</Badge>
                 </div>
             </div>
@@ -558,7 +558,7 @@ fn StartMenu(on_close: impl Fn() + Clone + 'static) -> impl IntoView {
         >
             // Header
             <div class="p-4 border-b border-border">
-                <h2 class="text-lg font-semibold">"AdapterOS"</h2>
+                <h2 class="text-lg font-semibold">"adapterOS"</h2>
                 <p class="text-xs text-muted-foreground">"Module Launcher"</p>
             </div>
 

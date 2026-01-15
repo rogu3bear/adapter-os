@@ -21,10 +21,15 @@
 
 | PRD | Title | Status |
 |-----|-------|--------|
-| RECT-002 | Tenant Isolation | ✅ Done (workers, model handlers) |
+| RECT-001 | Tenant Isolation — Adapter Lifecycle | ❓ Needs audit |
+| RECT-002 | Worker Lifecycle — Tenant Scoping + Status Transitions | ✅ Done (workers, model handlers) |
+| RECT-003 | Backend Cache — Eviction Predictability + Observability | ❓ Needs audit |
+| RECT-004 | Tenant DB Triggers — Revalidation | ❓ Needs audit |
+| RECT-005 | Model Loading — Integrity + Graceful Error Handling | ❓ Needs audit |
+| RECT-006 | Unified Inference Pipeline Alignment | ✅ Done (success criteria met) |
 
 ## Notes
 
-- All Phase 1-4 PRDs completed as of 0.12.0
+- All Phase 1-4 PRDs completed as of 0.12.1
 - See CHANGELOG.md for release history
-- See AOS_FUTURE_FEATURES.md for post-MVP features (require approval)
+- Future features require separate PRD approval process

@@ -55,7 +55,7 @@ async fn test_aos_complete_workflow() -> Result<()> {
     sleep(Duration::from_secs(2)).await;
     
     // 4. Run inference
-    let inference_prompt = "Explain how AdapterOS works in one sentence.";
+    let inference_prompt = "Explain how adapterOS works in one sentence.";
     let inference_output = Command::new("curl")
         .args(&[
             "-X", "POST", "http://localhost:8080/v1/infer",

@@ -2,13 +2,13 @@
 # validate-docs.sh
 #
 # Validates documentation cross-references and accuracy
-# Part of AdapterOS documentation quality assurance
+# Part of adapterOS documentation quality assurance
 #
 # Usage: ./scripts/validate-docs.sh
 
 set -e
 
-echo "🔍 Validating AdapterOS documentation..."
+echo "🔍 Validating adapterOS documentation..."
 echo "========================================"
 
 ERRORS=0

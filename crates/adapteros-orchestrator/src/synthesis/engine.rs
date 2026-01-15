@@ -374,7 +374,7 @@ mod tests {
         let engine = TestSynthesisEngine::new();
 
         let request = create_synthesis_request(
-            "AdapterOS uses BLAKE3 hashing for content integrity.",
+            "adapterOS uses BLAKE3 hashing for content integrity.",
             "test/doc.md:chunk_0",
         );
 

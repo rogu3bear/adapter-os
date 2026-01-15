@@ -1,11 +1,11 @@
 #!/bin/bash
-# Dependency Consolidation Script for AdapterOS
+# Dependency Consolidation Script for adapterOS
 # Generated: 2025-11-21
 # Run from workspace root: ./scripts/consolidate_deps.sh
 
 set -e
 
-echo "=== AdapterOS Dependency Consolidation ==="
+echo "=== adapterOS Dependency Consolidation ==="
 echo ""
 
 # Colors for output

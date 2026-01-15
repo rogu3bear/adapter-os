@@ -1,4 +1,4 @@
-# AdapterOS MLX FFI Integration
+# adapterOS MLX FFI Integration
 
 **Status:** Production-Ready Implementation
 **Backend:** MLX C++ FFI (primary)
@@ -11,7 +11,7 @@ This crate provides production-ready FFI bindings for MLX (Apple's machine learn
 ## Architecture
 
 ```
-AdapterOS Worker
+adapterOS Worker
     │
     └──> MLX Backend (PRIMARY - Inference & Training)
          ├──> CoreML (ANE acceleration for specific layers)

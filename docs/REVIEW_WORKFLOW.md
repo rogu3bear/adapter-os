@@ -1,11 +1,11 @@
 # Human-in-the-Loop Review Workflow
 
-AdapterOS supports a human-in-the-loop review pattern where the system surfaces items needing review, and external reviewers (including AI assistants like Claude Code) can provide structured feedback.
+adapterOS supports a human-in-the-loop review pattern where the system surfaces items needing review, and external reviewers (including AI assistants like Claude Code) can provide structured feedback.
 
 ## Architecture
 
 ```
-AdapterOS (local)
+adapterOS (local)
       │
       ├── flags items "needs review"
       │   └── InferenceState::Paused(PauseReason::ReviewNeeded)
@@ -19,9 +19,9 @@ AdapterOS (local)
                       │
                       └── Reviewer responds with structured feedback
                               │
-                              └── User feeds back to AdapterOS
+                              └── User feeds back to adapterOS
                                       │
-                                      └── AdapterOS resumes/rejects operation
+                                      └── adapterOS resumes/rejects operation
 ```
 
 ## Quick Start
@@ -256,12 +256,12 @@ enum ReviewScope {
 
 ### Workflow
 
-1. **AdapterOS pauses inference** when it detects something needing review
+1. **adapterOS pauses inference** when it detects something needing review
 2. **User exports context**: `aosctl review export <pause_id> -o context.json`
 3. **User shares with Claude Code**: "Please review this code and provide feedback"
 4. **Claude Code analyzes** and generates structured response
 5. **User imports response**: `aosctl review import <pause_id> -f response.json`
-6. **AdapterOS resumes** or halts based on assessment
+6. **adapterOS resumes** or halts based on assessment
 
 ### Example Claude Code Prompt
 
@@ -311,7 +311,7 @@ Please analyze this and provide a review response in JSON format with:
 # Configure webhook endpoint
 aosctl config set review.webhook_url "https://example.com/review-callback"
 
-# AdapterOS will POST to webhook when items need review
+# adapterOS will POST to webhook when items need review
 {
   "pause_id": "uuid",
   "kind": "ReviewNeeded",

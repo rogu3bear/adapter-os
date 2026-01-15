@@ -2,7 +2,7 @@
 
 **Version:** 1.0
 **Date:** 2026-01-06
-**Scope:** Tamper-evidence and forensic replay for AdapterOS inference receipts and policy audit chains
+**Scope:** Tamper-evidence and forensic replay for adapterOS inference receipts and policy audit chains
 
 ---
 

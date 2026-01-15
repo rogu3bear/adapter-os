@@ -1,5 +1,5 @@
 #!/bin/bash
-# AdapterOS Post-Install Smoke Test
+# adapterOS Post-Install Smoke Test
 # Tests core functionality: init, serve, and inference
 
 set -e
@@ -251,7 +251,7 @@ cleanup() {
 # Main test execution
 main() {
     echo "================================================"
-    echo "AdapterOS Post-Install Smoke Test"
+    echo "adapterOS Post-Install Smoke Test"
     echo "================================================"
     echo "Workspace: $WORKSPACE_ROOT"
     echo "Test tenant: $TEST_TENANT"

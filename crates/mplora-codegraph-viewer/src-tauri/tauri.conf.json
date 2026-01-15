@@ -6,7 +6,7 @@
     "distDir": "../frontend/dist"
   },
   "package": {
-    "productName": "AdapterOS CodeGraph Viewer",
+    "productName": "adapterOS CodeGraph Viewer",
     "version": "0.1.0"
   },
   "tauri": {

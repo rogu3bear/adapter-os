@@ -1,4 +1,4 @@
-# AdapterOS Automated Backup Configuration
+# adapterOS Automated Backup Configuration
 # Install with: sudo cp deploy/cron/adapteros-backup /etc/cron.d/
 
 # Daily full backup at 2 AM

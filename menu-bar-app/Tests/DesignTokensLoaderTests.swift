@@ -1,5 +1,5 @@
 import XCTest
-@testable import AdapterOSMenu
+@testable import adapterOSMenu
 import Foundation
 import CryptoKit
 

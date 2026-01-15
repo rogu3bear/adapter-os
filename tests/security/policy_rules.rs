@@ -1,7 +1,7 @@
 #![cfg(all(test, feature = "extended-tests"))]
 //! Policy Rule Testing
 //!
-//! This module tests policy rule validation, enforcement, and compliance for AdapterOS.
+//! This module tests policy rule validation, enforcement, and compliance for adapterOS.
 //! It covers policy gates, rule evaluation, policy pack validation, and deterministic
 //! policy enforcement in the context of a deterministic inference runtime.
 

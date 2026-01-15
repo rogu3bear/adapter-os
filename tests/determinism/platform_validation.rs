@@ -1,5 +1,5 @@
 #![cfg(all(test, feature = "extended-tests"))]
-//! Platform validation tests for AdapterOS determinism
+//! Platform validation tests for adapterOS determinism
 //!
 //! Ensures that deterministic behavior is consistent across different platforms,
 //! architectures, and environments while maintaining security boundaries.
@@ -163,7 +163,7 @@ fn test_endianness_handling() {
     // Test that serialization is canonical regardless of platform endianness
     let test_data = vec![1u32, 2u32, 3u32, 0x42u32];
 
-    // Serialize in little-endian (canonical for AdapterOS)
+    // Serialize in little-endian (canonical for adapterOS)
     let mut le_bytes = Vec::new();
     for &num in &test_data {
         le_bytes.extend_from_slice(&num.to_le_bytes());

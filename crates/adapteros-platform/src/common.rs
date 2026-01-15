@@ -110,7 +110,7 @@ impl PlatformUtils {
     }
 
     // =========================================================================
-    // AdapterOS Directory Functions
+    // adapterOS Directory Functions
     // =========================================================================
     //
     // API Design Note:
@@ -121,7 +121,7 @@ impl PlatformUtils {
     // expansion requires a home directory which may not exist on all systems.
     // =========================================================================
 
-    /// Get the AdapterOS var directory (runtime data)
+    /// Get the adapterOS var directory (runtime data)
     ///
     /// This is the canonical location for all runtime data including:
     /// - `var/model-cache/` - Downloaded models from HuggingFace
@@ -204,7 +204,7 @@ impl PlatformUtils {
         candidate
     }
 
-    /// Get the user-specific AdapterOS cache directory (optional)
+    /// Get the user-specific adapterOS cache directory (optional)
     ///
     /// Returns `~/.cache/adapteros` on Unix systems (expanded to absolute path).
     /// Use this for user-specific cached data that should persist across projects.
@@ -213,7 +213,7 @@ impl PlatformUtils {
         Self::expand_path("~/.cache/adapteros")
     }
 
-    /// Get the user-specific AdapterOS config directory
+    /// Get the user-specific adapterOS config directory
     ///
     /// Returns `~/.config/adapteros` on Unix systems (expanded to absolute path).
     /// This is the location for user-specific configuration files.
@@ -239,7 +239,7 @@ impl PlatformUtils {
             .ok_or_else(|| AosError::Platform("Failed to get data directory".to_string()))
     }
 
-    /// Get the AdapterOS temp directory (under runtime var tree)
+    /// Get the adapterOS temp directory (under runtime var tree)
     pub fn temp_dir() -> PathBuf {
         Self::aos_var_dir().join("tmp")
     }

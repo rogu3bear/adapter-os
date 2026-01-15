@@ -1,7 +1,7 @@
 #![cfg(all(test, feature = "extended-tests"))]
 //! Specialized Security Testing Utilities
 //!
-//! This module provides utilities specifically designed for security testing in AdapterOS,
+//! This module provides utilities specifically designed for security testing in adapterOS,
 //! including mock security contexts, policy engines, compliance validators, and security
 //! test harnesses.
 

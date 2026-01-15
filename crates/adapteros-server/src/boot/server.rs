@@ -1,4 +1,4 @@
-//! Server binding utilities for AdapterOS control plane.
+//! Server binding utilities for adapterOS control plane.
 //!
 //! This module provides abstractions for binding the server to either
 //! TCP (development) or Unix Domain Socket (production) endpoints.

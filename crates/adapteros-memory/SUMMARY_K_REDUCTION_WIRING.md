@@ -401,6 +401,6 @@ $ cargo check -p adapteros-memory
 
 ## Summary
 
-The K reduction protocol is now fully wired through a robust, tested, and well-documented channel-based communication layer. The memory pressure manager can trigger K reduction requests without blocking, enabling responsive memory management in AdapterOS.
+The K reduction protocol is now fully wired through a robust, tested, and well-documented channel-based communication layer. The memory pressure manager can trigger K reduction requests without blocking, enabling responsive memory management in adapterOS.
 
 **Status:** ✓ Complete and ready for integration with lifecycle manager

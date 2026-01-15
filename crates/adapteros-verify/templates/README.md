@@ -122,7 +122,7 @@ aosctl golden verify \
 
 ## Policy Integration
 
-Golden runs integrate with AdapterOS policy packs:
+Golden runs integrate with adapterOS policy packs:
 
 - **Build & Release Ruleset (15)**: Requires zero-diff replay on fixed prompt corpus
 - **Compliance Ruleset (16)**: Maps controls to evidence (golden runs as proof)

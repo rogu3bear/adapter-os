@@ -1,7 +1,7 @@
 //! # Deterministic Seed Derivation System
 //!
 //! This module provides cryptographically secure, deterministic seed derivation for all
-//! random number generation in AdapterOS. It ensures **replay reproducibility**: given the
+//! random number generation in adapterOS. It ensures **replay reproducibility**: given the
 //! same inputs (manifest hash, request parameters), the system produces identical outputs.
 //!
 //! ## Architecture Overview

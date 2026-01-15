@@ -1,6 +1,6 @@
 # Type Validation Test Suite
 
-A comprehensive schema validation framework for the AdapterOS Control Plane API that ensures type compatibility across the full stack: Rust → JSON → TypeScript.
+A comprehensive schema validation framework for the adapterOS Control Plane API that ensures type compatibility across the full stack: Rust → JSON → TypeScript.
 
 ## Quick Links
 

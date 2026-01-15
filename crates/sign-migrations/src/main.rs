@@ -24,7 +24,7 @@ struct SignaturesFile {
 }
 
 fn main() -> Result<()> {
-    println!("AdapterOS Migration Signing Tool (Rust)");
+    println!("adapterOS Migration Signing Tool (Rust)");
     println!("========================================\n");
 
     let project_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))

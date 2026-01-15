@@ -1,5 +1,5 @@
 #![cfg(all(test, feature = "extended-tests"))]
-//! Canonical hashing verification tests for AdapterOS determinism
+//! Canonical hashing verification tests for adapterOS determinism
 //!
 //! Verifies that canonical JSON serialization and BLAKE3 hashing produce
 //! deterministic, tamper-evident hashes for all data structures.

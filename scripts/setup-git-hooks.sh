@@ -1,10 +1,10 @@
 #!/bin/bash
-# Setup git hooks for AdapterOS development
+# Setup git hooks for adapterOS development
 # This ensures consistent code quality across the team
 
 set -e
 
-echo "🔧 Setting up git hooks for AdapterOS..."
+echo "🔧 Setting up git hooks for adapterOS..."
 
 # Configure git to use our custom hooks directory
 git config core.hooksPath .githooks

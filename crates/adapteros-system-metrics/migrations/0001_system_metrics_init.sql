@@ -1,7 +1,7 @@
 -- System Metrics Schema
 -- 
 -- Provides storage for system resource monitoring, health checks, and threshold violations
--- Aligns with AdapterOS deterministic state tracking requirements
+-- Aligns with adapterOS deterministic state tracking requirements
 
 CREATE TABLE IF NOT EXISTS system_metrics (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,

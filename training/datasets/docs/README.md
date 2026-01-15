@@ -1,6 +1,6 @@
 # Document-Based Training Datasets
 
-This directory contains document-based datasets for TrainingDatasetManager, generated from AdapterOS documentation using the `adapteros-ingest-docs` pipeline.
+This directory contains document-based datasets for TrainingDatasetManager, generated from adapterOS documentation using the `adapteros-ingest-docs` pipeline.
 
 ## Overview
 
@@ -9,18 +9,18 @@ Two datasets are provided to demonstrate different training strategies:
 1. **Identity Dataset** (`adapteros_identity/`) - Memorization training
 2. **Q&A Dataset** (`adapteros_qa/`) - Instruction tuning
 
-## Dataset 1: AdapterOS Identity Dataset
+## Dataset 1: adapterOS Identity Dataset
 
 **Path:** `training/datasets/docs/adapteros_identity/`
 
 **Strategy:** Identity (unsupervised memorization)
 
 **Description:**
-Identity mapping dataset where `input = target`. Trains adapters to reproduce AdapterOS documentation verbatim, teaching core concepts, conventions, and patterns through memorization.
+Identity mapping dataset where `input = target`. Trains adapters to reproduce adapterOS documentation verbatim, teaching core concepts, conventions, and patterns through memorization.
 
 **Statistics:**
 - **Examples:** 10 training examples
-- **Source:** AGENTS.md (AdapterOS Developer Guide)
+- **Source:** AGENTS.md (adapterOS Developer Guide)
 - **Sections:** header, code_style, error_handling, logging, policy_packs, naming_conventions, hot_swap, lifecycle, deterministic_seeding, hkdf
 - **Avg Sequence Length:** ~350 tokens
 
@@ -44,22 +44,22 @@ Identity mapping dataset where `input = target`. Trains adapters to reproduce Ad
 - Max Seq Length: 512
 - Strategy: `TrainingStrategy::Identity`
 
-**Use Case:** Training adapters to memorize and recall AdapterOS technical documentation, conventions, and code patterns.
+**Use Case:** Training adapters to memorize and recall adapterOS technical documentation, conventions, and code patterns.
 
 ---
 
-## Dataset 2: AdapterOS Q&A Dataset
+## Dataset 2: adapterOS Q&A Dataset
 
 **Path:** `training/datasets/docs/adapteros_qa/`
 
 **Strategy:** QuestionAnswer (instruction tuning)
 
 **Description:**
-Question-answer pairs generated from AGENTS.md for instruction tuning. Teaches adapters to answer questions about AdapterOS architecture, conventions, and best practices.
+Question-answer pairs generated from AGENTS.md for instruction tuning. Teaches adapters to answer questions about adapterOS architecture, conventions, and best practices.
 
 **Statistics:**
 - **Examples:** 20 Q&A pairs
-- **Source:** AGENTS.md (AdapterOS Developer Guide)
+- **Source:** AGENTS.md (adapterOS Developer Guide)
 - **Topics:** overview, error_handling, logging, policies, naming, hot_swap, lifecycle, determinism, hkdf, rbac, aos_format, memory_management, barrier_telemetry, heartbeat, training_pipeline, training_strategies, migrations, pinning, ttl, concurrency
 - **Avg Question Length:** ~50 tokens
 - **Avg Answer Length:** ~200 tokens
@@ -67,8 +67,8 @@ Question-answer pairs generated from AGENTS.md for instruction tuning. Teaches a
 **Format:**
 ```json
 {
-  "input": "What is AdapterOS?",
-  "target": "AdapterOS is a technical platform for K-sparse LoRA routing...",
+  "input": "What is adapterOS?",
+  "target": "adapterOS is a technical platform for K-sparse LoRA routing...",
   "metadata": {
     "source": "AGENTS.md",
     "strategy": "qa",
@@ -83,7 +83,7 @@ Question-answer pairs generated from AGENTS.md for instruction tuning. Teaches a
 - Max Seq Length: 512
 - Strategy: `TrainingStrategy::QuestionAnswer`
 
-**Use Case:** Training adapters to answer technical questions about AdapterOS features, architecture, and usage patterns.
+**Use Case:** Training adapters to answer technical questions about adapterOS features, architecture, and usage patterns.
 
 **Question Types:**
 - What is X? (definitions)
@@ -280,5 +280,5 @@ These datasets demonstrate the 5-step training pipeline from AGENTS.md:
 ---
 
 **Created:** 2025-01-18
-**Maintained by:** AdapterOS Training Pipeline
+**Maintained by:** adapterOS Training Pipeline
 **Copyright:** © 2025 JKCA / James KC Auchterlonie. All rights reserved.

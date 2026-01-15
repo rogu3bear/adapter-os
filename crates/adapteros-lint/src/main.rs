@@ -1,6 +1,6 @@
-//! AdapterOS Lint Driver
+//! adapterOS Lint Driver
 //!
-//! This binary provides a command-line interface for running AdapterOS architectural
+//! This binary provides a command-line interface for running adapterOS architectural
 //! lint rules. It can be used as a standalone tool or integrated into CI/CD pipelines.
 
 use adapteros_lint::architectural::{check_directory, check_file, ArchitecturalViolation};
@@ -137,9 +137,9 @@ fn report_violations(violations: &[ArchitecturalViolation], context: &str) {
 }
 
 fn print_help() {
-    println!("AdapterOS Architectural Lint Tool");
+    println!("adapterOS Architectural Lint Tool");
     println!();
-    println!("This tool helps detect architectural violations in AdapterOS code.");
+    println!("This tool helps detect architectural violations in adapterOS code.");
     println!();
     println!("Usage: adapteros-lint <command> [args...]");
     println!();

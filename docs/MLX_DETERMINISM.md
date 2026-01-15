@@ -1,6 +1,6 @@
 # MLX Backend Determinism
 
-**AdapterOS MLX backend provides bit-exact deterministic inference when properly configured.**
+**adapterOS MLX backend provides bit-exact deterministic inference when properly configured.**
 
 ---
 

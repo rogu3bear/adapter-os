@@ -1,7 +1,7 @@
 //! Artifacts Policy Pack
 //!
 //! Enforces artifact signing, SBOM validation, and content-addressed storage
-//! requirements for AdapterOS bundles and components.
+//! requirements for adapterOS bundles and components.
 
 use crate::{Audit, Policy, PolicyContext, PolicyId, Severity, Violation};
 use adapteros_core::{AosError, Result};

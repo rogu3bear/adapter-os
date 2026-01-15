@@ -1,6 +1,6 @@
-# Contributing to AdapterOS
+# Contributing to adapterOS
 
-Thank you for your interest in contributing to AdapterOS! This document provides guidelines and information for contributors.
+Thank you for your interest in contributing to adapterOS! This document provides guidelines and information for contributors.
 
 ## Table of Contents
 
@@ -40,7 +40,7 @@ This project adheres to a code of conduct. By participating, you are expected to
 
 ### Security Considerations
 
-AdapterOS uses a comprehensive keychain integration for secure cryptographic operations. When contributing to security-critical code:
+adapterOS uses a comprehensive keychain integration for secure cryptographic operations. When contributing to security-critical code:
 
 - **Never store secrets in code**: All sensitive data must use the keychain provider
 - **Test with secure backends**: Use platform keychains or password fallbacks, never in-memory storage
@@ -129,7 +129,7 @@ AOS_PANEL_PORT=3501
 
 ### Alpha Release Considerations
 
-**Important**: AdapterOS is currently in 0.12.0. This means:
+**Important**: adapterOS is currently in 0.12.0. This means:
 
 - **Breaking Changes**: May occur without notice
 - **API Stability**: Not guaranteed
@@ -394,7 +394,7 @@ What actually happens
 - OS: macOS 13.0+
 - Hardware: Apple Silicon (M1/M2/M3/M4)
 - Rust Version: 1.75+
-- AdapterOS Version: 0.12.0
+- adapterOS Version: 0.12.0
 
 ## Additional Context
 Any other relevant information
@@ -501,7 +501,7 @@ Contributors will be recognized in:
 
 ## License
 
-By contributing to AdapterOS, you agree that your contributions will be licensed under the same terms as the project:
+By contributing to adapterOS, you agree that your contributions will be licensed under the same terms as the project:
 - Apache License, Version 2.0
 - MIT License
 
@@ -509,6 +509,6 @@ You can choose either license for your contributions.
 
 ---
 
-**Thank you for contributing to AdapterOS!**
+**Thank you for contributing to adapterOS!**
 
 *Last updated: January 2026*

@@ -1,4 +1,4 @@
-//! GPU vs CPU training performance benchmarks for AdapterOS
+//! GPU vs CPU training performance benchmarks for adapterOS
 //!
 //! This benchmark suite compares training performance across different backends:
 //! - CPU (pure Rust implementation)
@@ -79,7 +79,7 @@ fn measure_training_time(backend: &str, examples: usize, rank: usize, hidden_dim
 }
 
 fn main() {
-    println!("=== AdapterOS GPU Training Performance Benchmarks ===\n");
+    println!("=== adapterOS GPU Training Performance Benchmarks ===\n");
 
     // Show available backends
     println!(

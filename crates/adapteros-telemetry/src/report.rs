@@ -148,7 +148,7 @@ fn create_report_html(bundle: &ReplayBundle) -> Result<String> {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AdapterOS Telemetry Report - {cpid}</title>
+    <title>adapterOS Telemetry Report - {cpid}</title>
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{ 
@@ -232,7 +232,7 @@ fn create_report_html(bundle: &ReplayBundle) -> Result<String> {
 <body>
     <div class="container">
         <header>
-            <h1>AdapterOS Telemetry Report</h1>
+            <h1>adapterOS Telemetry Report</h1>
             <div class="subtitle">CPID: {cpid} | Plan: {plan_id}</div>
         </header>
         
@@ -395,13 +395,13 @@ pub struct ReportStructureRequirements {
 /// Validate that an HTML report meets structure requirements
 ///
 /// Checks for:
-/// - Title (h1 element with "AdapterOS Telemetry Report")
+/// - Title (h1 element with "adapterOS Telemetry Report")
 /// - Bundle hash displayed in a stat card
 /// - At least 4 stat cards
 /// - Event timeline table with proper structure
 pub fn validate_report_structure(html: &str) -> Result<ReportStructureRequirements> {
     let requirements = ReportStructureRequirements {
-        has_title: html.contains("<h1>AdapterOS Telemetry Report</h1>"),
+        has_title: html.contains("<h1>adapterOS Telemetry Report</h1>"),
         has_bundle_hash: html.contains("Bundle Hash") && html.contains("stat-value"),
         stat_card_count: html.matches("class=\"stat-card\"").count(),
         has_event_table: html.contains("<table>")
@@ -454,7 +454,7 @@ mod tests {
 <html>
 <head><title>Report</title></head>
 <body>
-    <h1>AdapterOS Telemetry Report</h1>
+    <h1>adapterOS Telemetry Report</h1>
     <div class="stat-card"><div class="stat-label">Total Events</div><div class="stat-value">100</div></div>
     <div class="stat-card"><div class="stat-label">Event Types</div><div class="stat-value">5</div></div>
     <div class="stat-card"><div class="stat-label">Duration</div><div class="stat-value">1500ms</div></div>
@@ -500,7 +500,7 @@ mod tests {
         let html = r#"<!DOCTYPE html>
 <html>
 <body>
-    <h1>AdapterOS Telemetry Report</h1>
+    <h1>adapterOS Telemetry Report</h1>
     <div class="stat-card"><div class="stat-label">Bundle Hash</div><div class="stat-value">abc</div></div>
     <div class="stat-card"><div class="stat-value">1</div></div>
     <table><thead><tr><th>Timestamp</th></tr></thead><tbody></tbody></table>
@@ -518,7 +518,7 @@ mod tests {
         let html = r#"<!DOCTYPE html>
 <html>
 <body>
-    <h1>AdapterOS Telemetry Report</h1>
+    <h1>adapterOS Telemetry Report</h1>
     <div class="stat-card"><div class="stat-label">Bundle Hash</div><div class="stat-value">abc</div></div>
     <div class="stat-card"><div class="stat-value">1</div></div>
     <div class="stat-card"><div class="stat-value">2</div></div>

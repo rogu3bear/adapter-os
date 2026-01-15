@@ -1,4 +1,4 @@
-//! AdapterOS MLX - mlx-rs Abstraction Layer
+//! adapterOS MLX - mlx-rs Abstraction Layer
 //!
 //! **DEPRECATED**: This crate is no longer used. The `mlx-rs-backend` feature
 //! has been removed from the codebase. The production backend is C++ FFI

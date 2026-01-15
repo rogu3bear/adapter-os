@@ -1,6 +1,6 @@
-# AdapterOS CLI Guide
+# adapterOS CLI Guide
 
-**Purpose**: Comprehensive guide to understanding and using the AdapterOS CLI (`aosctl`)
+**Purpose**: Comprehensive guide to understanding and using the adapterOS CLI (`aosctl`)
 **Last Updated**: January 2026
 **Version**: 0.12.0
 
@@ -41,7 +41,7 @@
 
 ## Overview
 
-The AdapterOS CLI (`aosctl`) provides access to different layers of the AdapterOS system. Understanding which layer each command operates on is crucial for choosing the right tool for your task.
+The adapterOS CLI (`aosctl`) provides access to different layers of the adapterOS system. Understanding which layer each command operates on is crucial for choosing the right tool for your task.
 
 ### Key Concepts
 
@@ -53,7 +53,7 @@ The AdapterOS CLI (`aosctl`) provides access to different layers of the AdapterO
 
 ## Architectural Layers
 
-AdapterOS CLI commands operate at five distinct architectural layers:
+adapterOS CLI commands operate at five distinct architectural layers:
 
 ### 1. Registry Layer (`registry.db`)
 
@@ -2014,7 +2014,7 @@ aosctl storage kv rollback [OPTIONS]
 
 ### `preflight`
 
-Pre-flight system readiness checker for AdapterOS
+Pre-flight system readiness checker for adapterOS
 
 Provides comprehensive environment verification before launching the server:
 - Model availability and configuration
@@ -2505,7 +2505,7 @@ aosctl bootstrap-admin --email <EMAIL> [OPTIONS]
 
 ### `bootstrap`
 
-Bootstrap AdapterOS installation
+Bootstrap adapterOS installation
 
 **Usage**:
 ```bash

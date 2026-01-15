@@ -1,6 +1,6 @@
-# AdapterOS Quick Start for macOS
+# adapterOS Quick Start for macOS
 
-Get the full AdapterOS UX running in 10 minutes.
+Get the full adapterOS UX running in 10 minutes.
 
 **Requirements:** Apple Silicon Mac (M1/M2/M3/M4), 16GB+ RAM, macOS 14+
 
@@ -49,11 +49,10 @@ cargo build --release --workspace
 
 ```bash
 # Download Qwen 2.5 7B (4-bit quantized, ~3.8GB)
-./scripts/download_model.sh
+./aosctl models seed
 
-# Or specify options:
-# ./scripts/download_model.sh --size 3b    # Smaller 3B model
-# ./scripts/download_model.sh --size 0.5b  # Tiny model for testing
+# Or specify custom model path:
+# ./aosctl models seed --model-path ./var/models/qwen2.5-7b-4bit
 ```
 
 The model will be downloaded to `models/qwen2.5-7b-instruct-4bit-mlx/`.
@@ -287,7 +286,7 @@ pkill -f adapteros-server
 ```bash
 ls -la models/
 echo $AOS_MLX_FFI_MODEL
-./scripts/download_model.sh  # Re-download if needed
+./aosctl models seed  # Re-seed if needed
 ```
 
 **Database errors:**
@@ -297,7 +296,7 @@ rm var/aos-cp.sqlite3
 ```
 
 **Memory issues:**
-- Use a smaller model: `./scripts/download_model.sh --size 3b`
+- Use a smaller model: `./aosctl models seed --model-path ./var/models/qwen2.5-3b-4bit`
 - Reduce concurrent requests in `configs/cp.toml`
 
 **UI won't connect:**

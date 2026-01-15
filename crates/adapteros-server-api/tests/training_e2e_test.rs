@@ -87,7 +87,7 @@ async fn create_test_training_dataset(db: &Db, dataset_id: &str, tenant_id: &str
     use adapteros_core::B3Hash;
 
     // Create minimal JSONL dataset content
-    let dataset_content = r#"{"input": "What is AdapterOS?", "output": "AdapterOS is a multi-LoRA inference platform."}
+    let dataset_content = r#"{"input": "What is adapterOS?", "output": "adapterOS is a multi-LoRA inference platform."}
 {"input": "What backend does it use?", "output": "It uses CoreML/ANE, Metal, and MLX backends."}
 {"input": "What is Q15 quantization?", "output": "Q15 is a fixed-point quantization format using 32767.0 as denominator."}
 "#;

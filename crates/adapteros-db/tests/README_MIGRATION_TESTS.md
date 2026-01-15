@@ -295,4 +295,4 @@ async fn test_migration_XXXX_data_insertion() -> Result<()> {
 ---
 
 **Last Updated**: 2025-12-12
-**Maintainer**: AdapterOS Core Team
+**Maintainer**: adapterOS Core Team

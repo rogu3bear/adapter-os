@@ -30,7 +30,7 @@
 
 ## Overview
 
-The MLX backend is a production-ready GPU acceleration layer for AdapterOS supporting production inference and training workloads on Apple Silicon. It integrates seamlessly with the multi-backend architecture and includes enterprise-grade resilience, health monitoring, and deterministic seeding.
+The MLX backend is a production-ready GPU acceleration layer for adapterOS supporting production inference and training workloads on Apple Silicon. It integrates seamlessly with the multi-backend architecture and includes enterprise-grade resilience, health monitoring, and deterministic seeding.
 
 ### Current Status: Feature-Gated
 
@@ -979,7 +979,7 @@ Create `/etc/systemd/system/aos-mlx.service`:
 
 ```ini
 [Unit]
-Description=AdapterOS with MLX Backend
+Description=adapterOS with MLX Backend
 After=network.target
 Wants=aos-db.service
 

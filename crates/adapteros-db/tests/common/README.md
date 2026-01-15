@@ -1,6 +1,6 @@
 # Test Utilities for KV Integration Tests
 
-This module provides comprehensive test utilities for testing the KV storage backend integration in AdapterOS. It includes helpers for database setup, test data factories, cleanup utilities, and custom assertions.
+This module provides comprehensive test utilities for testing the KV storage backend integration in adapterOS. It includes helpers for database setup, test data factories, cleanup utilities, and custom assertions.
 
 ## Module Structure
 

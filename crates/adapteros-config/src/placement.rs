@@ -2,7 +2,7 @@
 //!
 //! This module centralizes the knobs for per-token device placement across
 //! CPU/GPU/ANE targets. Defaults favor a mixed objective (latency + thermal +
-//! energy) to match the current AdapterOS posture.
+//! energy) to match the current adapterOS posture.
 
 use crate::model::load_dotenv;
 use serde::{Deserialize, Serialize};

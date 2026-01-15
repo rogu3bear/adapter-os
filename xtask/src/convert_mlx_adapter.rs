@@ -1,4 +1,4 @@
-//! Convert mlx-lm LoRA adapter to AdapterOS LoRAWeights JSON format
+//! Convert mlx-lm LoRA adapter to adapterOS LoRAWeights JSON format
 
 use anyhow::{Context, Result};
 use clap::Parser;

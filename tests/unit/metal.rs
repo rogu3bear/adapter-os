@@ -2,7 +2,7 @@
 //! Metal Kernel Testing Helpers
 //!
 //! This module provides utilities for testing Metal kernels and GPU operations
-//! in the AdapterOS system, with support for kernel compilation, execution
+//! in the adapterOS system, with support for kernel compilation, execution
 //! verification, and performance testing.
 //!
 //! ## Key Features

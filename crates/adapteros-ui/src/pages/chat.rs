@@ -753,7 +753,7 @@ fn parse_sse_event_with_info(event_data: &str) -> ParsedSseEvent {
         return result;
     }
 
-    // Try parsing as InferenceEvent first (AdapterOS format)
+    // Try parsing as InferenceEvent first (adapterOS format)
     if let Ok(event) = serde_json::from_str::<InferenceEvent>(data) {
         match event {
             InferenceEvent::Token { text } => {

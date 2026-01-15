@@ -2,7 +2,7 @@
 
 ## Overview
 
-Comprehensive hardware-specific test suite for Metal heap observation in AdapterOS memory management.
+Comprehensive hardware-specific test suite for Metal heap observation in adapterOS memory management.
 
 **Status**: Complete
 **Total Files Created**: 4

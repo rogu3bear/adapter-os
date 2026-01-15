@@ -14,7 +14,7 @@ fn test_diag_system_runs() {
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     // Verify diagnostic output contains expected checks
-    assert!(stdout.contains("AdapterOS Diagnostics"));
+    assert!(stdout.contains("adapterOS Diagnostics"));
     assert!(stdout.contains("System Checks"));
 
     // Should check these components

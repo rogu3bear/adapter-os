@@ -50,7 +50,7 @@ The menu bar currently displays **6-7 major sections**:
 
 ```
 ┌─────────────────────────────────────────┐
-│ 🔴 AdapterOS [3h 12m] ⚠️ 2 issues      │ ← 3 critical indicators
+│ 🔴 adapterOS [3h 12m] ⚠️ 2 issues      │ ← 3 critical indicators
 ├─────────────────────────────────────────┤
 │ ❌ Service failures: web-api, db       │ ← Problems (if any)
 │ ┌─────────────────────────────────────┐ │
@@ -140,7 +140,7 @@ Status: 🔴 Error • Trust: ⚠️ Pending • Uptime: 2h 15m
 
 ### Option B: Dashboard Preview (5 Things)
 ```
-AdapterOS Status
+adapterOS Status
 ├── 🔴 2 services failing
 ├── ⚠️ 1 operation running
 ├── 🔓 Trust verification needed
@@ -149,7 +149,7 @@ AdapterOS Status
 
 ### Option C: Contextual (4-6 Things)
 ```
-AdapterOS [2h 15m]
+adapterOS [2h 15m]
 ├── 🔴 web-api (failed)
 ├── 🟡 db (restarting)
 ├── ⏳ Loading model...

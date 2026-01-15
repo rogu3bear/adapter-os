@@ -163,7 +163,7 @@ impl ChangeBatch {
         }
 
         let summary_str = parts.join(", ");
-        format!("AdapterOS: {} files {}", summary.total, summary_str)
+        format!("adapterOS: {} files {}", summary.total, summary_str)
     }
 }
 

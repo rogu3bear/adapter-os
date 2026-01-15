@@ -1,4 +1,4 @@
-//! API configuration builder for the AdapterOS server.
+//! API configuration builder for the adapterOS server.
 //!
 //! This module handles the construction of [`ApiConfig`] from the main server configuration
 //! and provides hot-reload capabilities via SIGHUP signal handling on Unix systems.

@@ -1,6 +1,6 @@
-# AdapterOS Examples
+# adapterOS Examples
 
-This directory contains example code and data files demonstrating how to use AdapterOS features.
+This directory contains example code and data files demonstrating how to use adapterOS features.
 
 ## Files
 

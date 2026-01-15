@@ -3,7 +3,7 @@
 **Version:** 1.0.0
 **Last Updated:** 2025-12-24
 
-This document provides comprehensive API examples for adapter operations in AdapterOS, including curl commands, request/response formats, and common workflows.
+This document provides comprehensive API examples for adapter operations in adapterOS, including curl commands, request/response formats, and common workflows.
 
 ---
 
@@ -502,7 +502,7 @@ curl -X POST "$AOS_BASE_URL/v1/adapters/import?load=true" \
 
 **Deduplication Response:**
 
-If an adapter with the same hash already exists, AdapterOS returns the existing adapter:
+If an adapter with the same hash already exists, adapterOS returns the existing adapter:
 
 ```json
 {

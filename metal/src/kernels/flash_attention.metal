@@ -1,4 +1,4 @@
-// AdapterOS Flash Attention Kernel
+// adapterOS Flash Attention Kernel
 // Memory-efficient attention computation with GQA support
 //
 // Features:

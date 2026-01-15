@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document specifies three PRs to address gaps in AdapterOS's determinism enforcement identified during the determinism hardening review.
+This document specifies three PRs to address gaps in adapterOS's determinism enforcement identified during the determinism hardening review.
 
 ## Executive Summary
 

@@ -24,7 +24,7 @@ use adapteros_deterministic_exec::{DeterministicExecutor, ExecutorConfig};
 
 #[cfg(not(feature = "extended-tests"))]
 fn main() {
-    eprintln!("Enable the `extended-tests` feature to run the AdapterOS MLX inference example.");
+    eprintln!("Enable the `extended-tests` feature to run the adapterOS MLX inference example.");
 }
 
 #[cfg(feature = "extended-tests")]

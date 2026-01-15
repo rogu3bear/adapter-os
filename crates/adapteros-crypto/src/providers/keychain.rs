@@ -913,7 +913,7 @@ impl MacKeychain {
         let key_data = signing_key.to_bytes();
 
         let account = format!("{}-ed25519", key_id);
-        let label = format!("AdapterOS Ed25519 Key: {}", key_id);
+        let label = format!("adapterOS Ed25519 Key: {}", key_id);
 
         self.store_keychain_item(&account, &label, &key_data)?;
 
@@ -1008,7 +1008,7 @@ impl MacKeychain {
     /// Store symmetric key in macOS Keychain using native APIs
     fn store_symmetric_key(&self, key_id: &str, key_data: &[u8]) -> Result<()> {
         let account = format!("{}-symmetric", key_id);
-        let label = format!("AdapterOS Symmetric Key: {}", key_id);
+        let label = format!("adapterOS Symmetric Key: {}", key_id);
 
         self.store_keychain_item(&account, &label, key_data)?;
 
@@ -1686,7 +1686,7 @@ impl LinuxKeyring {
             attributes.insert("key-type".to_string(), "ed25519".to_string());
             attributes.insert("key-id".to_string(), key_id.to_string());
 
-            let label = format!("AdapterOS Ed25519 Key: {}", key_id);
+            let label = format!("adapterOS Ed25519 Key: {}", key_id);
 
             // Store the secret
             collection
@@ -2025,7 +2025,7 @@ impl LinuxKeyring {
             attributes.insert("key-type".to_string(), "symmetric".to_string());
             attributes.insert("key-id".to_string(), key_id.to_string());
 
-            let label = format!("AdapterOS Symmetric Key: {}", key_id);
+            let label = format!("adapterOS Symmetric Key: {}", key_id);
 
             // Store the secret
             collection.create_item(

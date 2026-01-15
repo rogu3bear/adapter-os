@@ -1,12 +1,12 @@
 //! Version Information Module
 //!
-//! This module provides a single source of truth for all AdapterOS version information.
+//! This module provides a single source of truth for all adapterOS version information.
 //! All version numbers should be read from this module to ensure consistency across
 //! the codebase.
 //!
 //! # Version Strategy
 //!
-//! AdapterOS uses Semantic Versioning (SemVer) with an optional phase suffix:
+//! adapterOS uses Semantic Versioning (SemVer) with an optional phase suffix:
 //! - Format: `MAJOR.MINOR.PATCH[-PHASE]`
 //! - Example: `1.0.0-alpha`, `1.0.0-beta`, `1.0.0`
 //!
@@ -18,7 +18,7 @@
 //!
 //! # Version Components
 //!
-//! - **Product Version**: Overall AdapterOS release version
+//! - **Product Version**: Overall adapterOS release version
 //! - **API Schema Version**: REST API compatibility version
 //! - **Database Schema Version**: Migration sequence number
 //! - **Build Metadata**: Git commit, build timestamp, etc.
@@ -264,9 +264,9 @@ pub enum IncompatibilitySeverity {
 // Product Version Constants
 // =============================================================================
 
-/// Current AdapterOS release version
+/// Current adapterOS release version
 ///
-/// This is the primary version number for the entire AdapterOS product.
+/// This is the primary version number for the entire adapterOS product.
 /// It's synchronized across all crates via Cargo workspace inheritance.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -387,7 +387,7 @@ impl VersionInfo {
     /// use adapteros_core::version::VersionInfo;
     ///
     /// let info = VersionInfo::current();
-    /// println!("AdapterOS v{}", info.release);
+    /// println!("adapterOS v{}", info.release);
     /// println!("API Schema: v{}", info.api_schema);
     /// println!("DB Schema: v{}", info.database_schema);
     /// ```
@@ -457,7 +457,7 @@ impl VersionInfo {
 
 impl fmt::Display for VersionInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "AdapterOS {}", self.release)?;
+        writeln!(f, "adapterOS {}", self.release)?;
         writeln!(f, "API Schema:      v{}", self.api_schema)?;
         writeln!(f, "Database Schema: v{}", self.database_schema)?;
         writeln!(f, "RNG Module:      v{}", self.rng_module)?;
@@ -525,7 +525,7 @@ mod tests {
     fn test_version_info_display() {
         let info = VersionInfo::current();
         let display = format!("{}", info);
-        assert!(display.contains("AdapterOS"));
+        assert!(display.contains("adapterOS"));
         assert!(display.contains("API Schema"));
         assert!(display.contains("Database Schema"));
     }

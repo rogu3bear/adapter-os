@@ -1,4 +1,4 @@
-# AdapterOS Supervisor Configuration
+# adapterOS Supervisor Configuration
 
 [supervisor]
 # Health check interval (seconds)

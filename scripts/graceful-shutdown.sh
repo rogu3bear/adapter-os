@@ -1,5 +1,5 @@
 #!/bin/bash
-# AdapterOS Graceful Shutdown Script
+# adapterOS Graceful Shutdown Script
 # Provides robust, phased shutdown with proper cleanup and timeouts
 
 set -e
@@ -325,7 +325,7 @@ shutdown_all() {
 
 # Usage
 usage() {
-    echo "AdapterOS Graceful Shutdown"
+    echo "adapterOS Graceful Shutdown"
     echo ""
     echo "USAGE: $0 [mode]"
     echo ""

@@ -1,6 +1,6 @@
 # Access Control Guide
 
-**Purpose:** Comprehensive reference for access control implementation in AdapterOS
+**Purpose:** Comprehensive reference for access control implementation in adapterOS
 **Last Updated:** 2025-12-11
 **Maintained by:** James KC Auchterlonie
 
@@ -23,7 +23,7 @@
 
 ## Overview
 
-AdapterOS implements a defense-in-depth access control system combining:
+adapterOS implements a defense-in-depth access control system combining:
 
 - **RBAC (Role-Based Access Control):** 5 roles with 56 granular permissions
 - **Tenant Isolation:** Multi-tenant boundary enforcement at database, API, and worker levels
@@ -90,7 +90,7 @@ graph TB
 
 ### Core Roles
 
-AdapterOS implements a 5-role RBAC system with 56 granular permissions.
+adapterOS implements a 5-role RBAC system with 56 granular permissions.
 
 | Role | Purpose | Use Case | Permission Count |
 |------|---------|----------|------------------|
@@ -1641,7 +1641,7 @@ pub async fn sre_view_metrics(
 
 ## Summary
 
-AdapterOS implements comprehensive access control through:
+adapterOS implements comprehensive access control through:
 
 1. **RBAC System:** 5 roles (Admin, Operator, SRE, Compliance, Viewer) with 56 granular permissions
 2. **Tenant Isolation:** Multi-layer enforcement (JWT, middleware, handler, database, worker)

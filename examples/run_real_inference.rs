@@ -1,6 +1,6 @@
 //! Run real inference with an .aos adapter using MLX backend
 //!
-//! This demonstrates actual model interaction using the AdapterOS infrastructure.
+//! This demonstrates actual model interaction using the adapterOS infrastructure.
 //!
 //! # Environment Variables
 //! - `AOS_MODEL_PATH` - Path to the model directory (required)
@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 // use adapteros_config::ModelConfig;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("AdapterOS Real Inference Demo");
+    println!("adapterOS Real Inference Demo");
     println!("================================\n");
 
     // Load model configuration from environment

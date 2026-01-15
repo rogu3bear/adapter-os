@@ -1,4 +1,4 @@
--- AdapterOS PostgreSQL Schema (Consolidated Init)
+-- adapterOS PostgreSQL Schema (Consolidated Init)
 -- Purpose: Provide a Postgres-native schema parallel to SQLite migrations/
 -- Notes:
 --   - Uses TIMESTAMPTZ, BOOLEAN, and proper FK constraints

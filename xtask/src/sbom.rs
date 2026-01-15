@@ -30,7 +30,7 @@ pub fn generate_sbom() -> Result<()> {
         chrono::Utc::now().format("%Y%m%d%H%M%S")
     );
 
-    let mut doc = SpdxDocument::new("AdapterOS".to_string(), namespace);
+    let mut doc = SpdxDocument::new("adapterOS".to_string(), namespace);
 
     // Add all packages from Cargo.lock
     for package in &lock.packages {

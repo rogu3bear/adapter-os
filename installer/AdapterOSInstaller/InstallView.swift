@@ -1,6 +1,6 @@
 //
 //  InstallView.swift
-//  AdapterOSInstaller
+//  adapterOSInstaller
 //
 //  Installation progress and log streaming
 //
@@ -162,7 +162,7 @@ struct InstallView: View {
         case .notStarted:
             return "Preparing Installation"
         case .running:
-            return "Installing AdapterOS"
+            return "Installing adapterOS"
         case .completed:
             return "Installation Complete"
         case .failed:

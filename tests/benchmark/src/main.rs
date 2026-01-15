@@ -1,8 +1,8 @@
 #![cfg(all(test, feature = "extended-tests"))]
-//! AdapterOS Benchmark Suite Main Entry Point
+//! adapterOS Benchmark Suite Main Entry Point
 //!
 //! This binary provides a command-line interface for running comprehensive
-//! performance benchmarks for AdapterOS components.
+//! performance benchmarks for adapterOS components.
 
 use adapteros_benchmarks::runner::{BenchmarkRunner, RunnerConfig};
 use clap::{Parser, Subcommand};
@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(name = "adapteros-benchmarks")]
-#[command(about = "Comprehensive performance benchmarking suite for AdapterOS")]
+#[command(about = "Comprehensive performance benchmarking suite for adapterOS")]
 #[command(version = env!("CARGO_PKG_VERSION"))]
 struct Cli {
     #[command(subcommand)]
@@ -192,7 +192,7 @@ fn compare_results(current_path: &PathBuf, baseline_path: &PathBuf, format: &str
         }
 
         _ => { // text format (default)
-            println!("AdapterOS Benchmark Comparison");
+            println!("adapterOS Benchmark Comparison");
             println!("================================");
             println!("Current:  {}", current_report.timestamp.format("%Y-%m-%d %H:%M:%S UTC"));
             println!("Baseline: {}", baseline_report.timestamp.format("%Y-%m-%d %H:%M:%S UTC"));
@@ -237,7 +237,7 @@ fn generate_comparison_html(
         r#"<!DOCTYPE html>
 <html>
 <head>
-    <title>AdapterOS Benchmark Comparison</title>
+    <title>adapterOS Benchmark Comparison</title>
     <style>
         body {{ font-family: Arial, sans-serif; margin: 40px; }}
         .header {{ background: #f0f0f0; padding: 20px; border-radius: 5px; }}
@@ -253,7 +253,7 @@ fn generate_comparison_html(
 </head>
 <body>
     <div class="header">
-        <h1>AdapterOS Benchmark Comparison</h1>
+        <h1>adapterOS Benchmark Comparison</h1>
         <p>Current: {} | Baseline: {}</p>
     </div>
 
@@ -300,7 +300,7 @@ fn generate_comparison_html(
 }
 
 fn list_benchmarks() {
-    println!("Available AdapterOS Benchmarks");
+    println!("Available adapterOS Benchmarks");
     println!("==============================");
     println!();
     println!("Kernel Performance Benchmarks:");

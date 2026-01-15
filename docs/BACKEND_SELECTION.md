@@ -2,7 +2,7 @@
 
 **Copyright:** © 2025 JKCA / James KC Auchterlonie. All rights reserved.
 **Last Updated:** 2026-01-02
-**Purpose:** Complete guide to backend selection strategies in AdapterOS
+**Purpose:** Complete guide to backend selection strategies in adapterOS
 
 ---
 
@@ -25,7 +25,7 @@
 
 ## Overview
 
-AdapterOS implements a **multi-backend architecture** that dynamically selects the optimal inference kernel based on:
+adapterOS implements a **multi-backend architecture** that dynamically selects the optimal inference kernel based on:
 
 - **Hardware capabilities** (Apple Neural Engine, Metal GPU, MLX support)
 - **Model requirements** (size, architecture, quantization)
@@ -56,7 +56,7 @@ return auto_select_backend(capabilities);  // Returns: MLX → CoreML → MlxBri
 
 ## BackendKind Enum
 
-The canonical `BackendKind` enum is defined in `adapteros-core/src/backend.rs` and serves as the single source of truth for all backend selection across AdapterOS (inference + training).
+The canonical `BackendKind` enum is defined in `adapteros-core/src/backend.rs` and serves as the single source of truth for all backend selection across adapterOS (inference + training).
 
 ### Enum Definition
 
@@ -110,7 +110,7 @@ impl BackendKind {
 
 ## MLX-First Priority Chain
 
-AdapterOS implements an MLX-first priority chain for backend selection. This ensures consistent, deterministic backend selection across the control plane, worker selection, and UI hints.
+adapterOS implements an MLX-first priority chain for backend selection. This ensures consistent, deterministic backend selection across the control plane, worker selection, and UI hints.
 
 ### Priority Order
 
@@ -1033,8 +1033,8 @@ flowchart TD
 - `manifest_hash`: B3 hash of manifest JSON
 - `quantization_mode`: Detected from config.json or backend-specific tag
 - `fusion_mode`: Fusion interval strategy (`per_request`, `per_token`, `per_segment:N`)
-- `kernel_version_id`: AdapterOS version string
-- `build_id`: AdapterOS version (optional)
+- `kernel_version_id`: adapterOS version string
+- `build_id`: adapterOS version (optional)
 
 **Fallback Reasons:**
 

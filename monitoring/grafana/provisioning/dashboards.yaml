@@ -4,9 +4,9 @@
 apiVersion: 1
 
 providers:
-  - name: 'AdapterOS'
+  - name: 'adapterOS'
     orgId: 1
-    folder: 'AdapterOS'
+    folder: 'adapterOS'
     folderUid: 'adapteros'
     type: file
     disableDeletion: false

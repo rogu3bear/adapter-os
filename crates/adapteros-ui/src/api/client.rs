@@ -1,6 +1,6 @@
 //! HTTP API client
 //!
-//! Typed HTTP client for the AdapterOS REST API.
+//! Typed HTTP client for the adapterOS REST API.
 
 use super::{api_base_url, ApiError, ApiResult};
 use gloo_net::http::{Request, RequestBuilder};
@@ -24,7 +24,7 @@ pub use adapteros_api_types::models::{
 };
 pub use adapteros_api_types::workers::WorkerMetricsResponse;
 
-/// HTTP API client for AdapterOS backend
+/// HTTP API client for adapterOS backend
 #[derive(Clone)]
 pub struct ApiClient {
     base_url: String,

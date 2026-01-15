@@ -1,4 +1,4 @@
-//! Request context middleware for AdapterOS API
+//! Request context middleware for adapterOS API
 //!
 //! Consolidates request-scoped data (claims, request ID, client IP) into a single
 //! `RequestContext` type, with convenient extractors for handlers.

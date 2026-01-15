@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document describes how to run tests, understand test coverage, and perform manual testing for the AdapterOS Menu Bar App.
+This document describes how to run tests, understand test coverage, and perform manual testing for the adapterOS Menu Bar App.
 
 ## Running Tests
 
@@ -103,7 +103,7 @@ swift test --filter StatusReaderTests -- --verbose
 2. **Verify Initialization**
    - Menu bar icon appears within 5 seconds
    - Icon shows correct initial state (OFFLINE if no status file)
-   - Tooltip displays "AdapterOS OFFLINE" or current status
+   - Tooltip displays "adapterOS OFFLINE" or current status
 
 3. **Check Status File Discovery**
    - Status file should be discovered across all paths
@@ -228,7 +228,7 @@ swift test
 
 ```bash
 # Requires Xcode
-xcodebuild test -scheme AdapterOSMenu -destination 'platform=macOS'
+xcodebuild test -scheme adapterOSMenu -destination 'platform=macOS'
 ```
 
 ## Test Maintenance

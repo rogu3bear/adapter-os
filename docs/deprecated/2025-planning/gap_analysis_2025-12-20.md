@@ -1,4 +1,4 @@
-# AdapterOS Gap Analysis: Tenant Isolation, Lifecycle, Runtime, and Cache
+# adapterOS Gap Analysis: Tenant Isolation, Lifecycle, Runtime, and Cache
 
 **Date:** 2025-12-20
 **Scope:** PRD-RECT-001 through PRD-RECT-005

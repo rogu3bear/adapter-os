@@ -104,7 +104,7 @@ pub fn Login() -> impl IntoView {
         <div class="flex min-h-screen items-center justify-center bg-muted/40">
             <Card
                 title="Login".to_string()
-                description="Enter your credentials to access AdapterOS".to_string()
+                description="Enter your credentials to access adapterOS".to_string()
                 class="w-full max-w-md".to_string()
             >
                 <form

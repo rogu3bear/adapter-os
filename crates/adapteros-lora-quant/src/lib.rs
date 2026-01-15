@@ -1,4 +1,4 @@
-//! Quantization API for AdapterOS
+//! Quantization API for adapterOS
 
 use adapteros_core::{AosError, B3Hash, Result};
 use serde::{Deserialize, Serialize};

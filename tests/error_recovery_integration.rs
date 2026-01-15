@@ -1,7 +1,7 @@
-//! Comprehensive Error Recovery and Fault Tolerance Tests for AdapterOS
+//! Comprehensive Error Recovery and Fault Tolerance Tests for adapterOS
 //!
 //! This module implements chaos testing patterns to verify error paths are properly
-//! handled and recovered across critical AdapterOS components:
+//! handled and recovered across critical adapterOS components:
 //!
 //! - Circuit breaker error recovery (simulates network/service failures)
 //! - Hash verification failure handling (corrupted data detection)

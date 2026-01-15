@@ -2,7 +2,7 @@
 
 ## Overview
 
-This guide explains how to run and interpret performance benchmarks for the AdapterOS MLX FFI backend.
+This guide explains how to run and interpret performance benchmarks for the adapterOS MLX FFI backend.
 
 **Contents:**
 1. Running benchmarks

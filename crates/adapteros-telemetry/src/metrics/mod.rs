@@ -1,7 +1,7 @@
-//! Metrics collection and export for AdapterOS telemetry
+//! Metrics collection and export for adapterOS telemetry
 //!
 //! This module provides comprehensive Prometheus-compatible metrics for monitoring
-//! critical AdapterOS components including:
+//! critical adapterOS components including:
 //!
 //! - Metal kernel execution timing
 //! - Hot-swap operation latencies

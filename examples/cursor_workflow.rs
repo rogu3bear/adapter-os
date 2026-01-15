@@ -10,7 +10,7 @@ use anyhow::Result;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    println!("AdapterOS + Cursor Integration Example\n");
+    println!("adapterOS + Cursor Integration Example\n");
 
     // Step 1: Register repository
     println!("Step 1: Registering repository...");

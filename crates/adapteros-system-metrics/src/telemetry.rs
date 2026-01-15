@@ -1,7 +1,7 @@
 //! Telemetry integration for system metrics
 //!
 //! Provides telemetry event generation for system metrics following
-//! AdapterOS telemetry patterns and canonical JSON serialization.
+//! adapterOS telemetry patterns and canonical JSON serialization.
 //! Enhanced with monitoring operations including alerts, anomalies, and baselines.
 
 use crate::SystemMetrics;

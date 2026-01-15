@@ -202,7 +202,7 @@ impl Default for BuildInfo {
 
 impl std::fmt::Display for BuildInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "AdapterOS {}", self.full_version())?;
+        writeln!(f, "adapterOS {}", self.full_version())?;
         writeln!(f, "Platform:  {}", self.platform)?;
         writeln!(f, "Profile:   {}", self.profile)?;
         writeln!(f, "Build:     {}", self.build_time)?;
@@ -227,7 +227,7 @@ mod tests {
     fn test_build_info_display() {
         let info = BuildInfo::current();
         let display = format!("{}", info);
-        assert!(display.contains("AdapterOS"));
+        assert!(display.contains("adapterOS"));
         assert!(display.contains("Platform:"));
     }
 

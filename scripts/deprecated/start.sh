@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# start.sh - Simple startup script for AdapterOS
+# start.sh - Simple startup script for adapterOS
 #
 # Starts the backend API and web UI together.
 # A simpler alternative to the full run_complete_system.sh script.
@@ -80,7 +80,7 @@ cleanup() {
         wait "$SERVER_PID" 2>/dev/null || true
     fi
 
-    success "AdapterOS stopped"
+    success "adapterOS stopped"
 }
 
 trap cleanup EXIT INT TERM
@@ -91,7 +91,7 @@ trap cleanup EXIT INT TERM
 
 show_help() {
     cat << 'EOF'
-start.sh - Simple startup script for AdapterOS
+start.sh - Simple startup script for adapterOS
 
 Usage:
   ./scripts/start.sh [OPTIONS]
@@ -138,7 +138,7 @@ done
 # =============================================================================
 
 echo ""
-echo -e "${BOLD}AdapterOS Startup${NC}"
+echo -e "${BOLD}adapterOS Startup${NC}"
 echo "=================="
 echo ""
 
@@ -326,7 +326,7 @@ fi
 # -----------------------------------------------------------------------------
 
 echo ""
-echo -e "${BOLD}${GREEN}AdapterOS is running${NC}"
+echo -e "${BOLD}${GREEN}adapterOS is running${NC}"
 echo ""
 echo "  Backend:   http://localhost:$API_PORT"
 echo "  Health:    http://localhost:$API_PORT/healthz"

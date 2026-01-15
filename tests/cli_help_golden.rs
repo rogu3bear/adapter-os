@@ -16,7 +16,7 @@ fn test_main_help() {
     let help_text = String::from_utf8_lossy(&output.stdout);
 
     // Verify main sections are present
-    assert!(help_text.contains("AdapterOS command-line interface"));
+    assert!(help_text.contains("adapterOS command-line interface"));
     assert!(help_text.contains("Usage:"));
     assert!(help_text.contains("Commands:"));
     assert!(help_text.contains("Options:"));

@@ -1,5 +1,5 @@
 #!/bin/bash
-# AdapterOS Bootstrap with Checkpoint Recovery
+# adapterOS Bootstrap with Checkpoint Recovery
 # Wraps installation steps with state persistence for resume capability
 
 set -e
@@ -15,7 +15,7 @@ if [[ ! "$REPLY" =~ ^[Yy]$ ]]; then
 fi
 
 # Configuration
-DEFAULT_CHECKPOINT_FILE="$HOME/Library/Application Support/AdapterOS/installer/adapteros_install.state"
+DEFAULT_CHECKPOINT_FILE="$HOME/Library/Application Support/adapterOS/installer/adapteros_install.state"
 CHECKPOINT_FILE="${1:-$DEFAULT_CHECKPOINT_FILE}"
 MODE="${2:-full}"
 AIRGAPPED="${3:-false}"
@@ -124,7 +124,7 @@ run_step() {
 
 # Step implementations
 create_directories() {
-    echo "Creating AdapterOS directories..."
+    echo "Creating adapterOS directories..."
     mkdir -p var
     mkdir -p artifacts
     mkdir -p plan
@@ -135,7 +135,7 @@ create_directories() {
 }
 
 build_all() {
-    echo "Building AdapterOS binaries (this may take 10-15 minutes)..."
+    echo "Building adapterOS binaries (this may take 10-15 minutes)..."
     json_progress "build_binaries" 0.2 "Compiling Rust crates" "running"
     
     # Build with release profile
@@ -221,7 +221,7 @@ run_smoke_tests() {
 # Main installation flow
 main() {
     echo "================================================"
-    echo "AdapterOS Bootstrap Installer"
+    echo "adapterOS Bootstrap Installer"
     echo "================================================"
     echo "Mode: $MODE"
     echo "Air-gapped: $AIRGAPPED"

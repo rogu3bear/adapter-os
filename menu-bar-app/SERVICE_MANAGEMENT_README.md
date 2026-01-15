@@ -1,10 +1,10 @@
-# Service Management in AdapterOS Menu Bar
+# Service Management in adapterOS Menu Bar
 
-This document describes the service management functionality added to the AdapterOS menu bar application.
+This document describes the service management functionality added to the adapterOS menu bar application.
 
 ## Overview
 
-The menu bar now includes service management capabilities that allow users to start and stop AdapterOS services directly from the menu bar, without needing to open the web interface.
+The menu bar now includes service management capabilities that allow users to start and stop adapterOS services directly from the menu bar, without needing to open the web interface.
 
 ## Features
 
@@ -254,7 +254,7 @@ log stream --predicate 'process == "aos-menu"' --style compact
 tail -f ui/service-panel.log
 
 # System logs for authentication issues
-log show --predicate 'process == "AdapterOSMenu"' --last 1h
+log show --predicate 'process == "adapterOSMenu"' --last 1h
 
 # Network connectivity test
 curl -H "Authorization: Basic $(echo -n 'service-panel:your-secret' | base64)" \
@@ -293,4 +293,4 @@ curl -H "Authorization: Basic $(echo -n 'service-panel:your-secret' | base64)" \
    - Test start/stop operations
    - Verify no authentication errors
 
-This completes the service management implementation for the AdapterOS menu bar. The feature provides essential service control capabilities while maintaining security and usability standards.
+This completes the service management implementation for the adapterOS menu bar. The feature provides essential service control capabilities while maintaining security and usability standards.

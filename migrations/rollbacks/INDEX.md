@@ -5,7 +5,7 @@
 
 ## Table of Contents
 
-This directory contains migration rollback procedures for the AdapterOS database schema. All files are SQLite-compatible and ready for production use.
+This directory contains migration rollback procedures for the adapterOS database schema. All files are SQLite-compatible and ready for production use.
 
 ### Files Overview
 

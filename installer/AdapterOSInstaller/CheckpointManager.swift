@@ -1,6 +1,6 @@
 //
 //  CheckpointManager.swift
-//  AdapterOSInstaller
+//  adapterOSInstaller
 //
 //  Resume detection and checkpoint management
 //
@@ -12,7 +12,7 @@ class CheckpointManager {
     
     init() {
         let baseDir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/AdapterOS/installer", isDirectory: true)
+            .appendingPathComponent("Library/Application Support/adapterOS/installer", isDirectory: true)
         try? FileManager.default.createDirectory(at: baseDir, withIntermediateDirectories: true)
         self.checkpointPath = baseDir.appendingPathComponent("adapteros_install.state").path
     }

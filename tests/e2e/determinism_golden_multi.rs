@@ -1,7 +1,7 @@
 #![cfg(all(test, feature = "extended-tests"))]
 //! Multi-Host Golden Baseline Determinism Test
 //!
-//! Validates that AdapterOS produces identical outputs across multiple hosts
+//! Validates that adapterOS produces identical outputs across multiple hosts
 //! when given the same inputs and global seed.
 //!
 //! Per Determinism Ruleset #2: Outputs must be reproducible across runs and hosts.

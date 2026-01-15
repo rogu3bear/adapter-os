@@ -1,7 +1,7 @@
 //! Advanced Metrics Plugin
 //!
 //! This plugin provides enhanced metrics collection and reporting capabilities
-//! for AdapterOS. It tracks detailed performance metrics including:
+//! for adapterOS. It tracks detailed performance metrics including:
 //!
 //! - Inference latency percentiles (p50, p95, p99) per adapter
 //! - Training job duration histograms

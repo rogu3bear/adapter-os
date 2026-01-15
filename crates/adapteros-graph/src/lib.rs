@@ -1,4 +1,4 @@
-//! AdapterOS Graph - Tensor metadata canonicalization and hash graph
+//! adapterOS Graph - Tensor metadata canonicalization and hash graph
 //!
 //! This crate provides deterministic tensor metadata canonicalization for
 //! reproducible hash graphs across hardware, drivers, and compiler revisions.

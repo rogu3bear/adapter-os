@@ -322,7 +322,7 @@ pub fn validate_worker_token(
     let signature = Signature::from_bytes(&sig_array);
 
     // SECURITY: We use verify_strict() for defense-in-depth against weak key attacks.
-    // While AdapterOS controls key generation (making weak key attacks infeasible),
+    // While adapterOS controls key generation (making weak key attacks infeasible),
     // verify_strict() adds an additional check that rejects signatures with small-order
     // points, following RFC 8032's cofactored verification variant.
     // See: https://docs.rs/ed25519-dalek/latest/ed25519_dalek/struct.VerifyingKey.html

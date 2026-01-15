@@ -1,4 +1,4 @@
-//! Telemetry event types for AdapterOS
+//! Telemetry event types for adapterOS
 //!
 //! This module provides canonical telemetry types including:
 //! - TelemetryEvent - Core event structure
@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 /// Unified telemetry event structure
 ///
-/// Core event type used across all AdapterOS components.
+/// Core event type used across all adapterOS components.
 /// Supports distributed tracing, sampling, and integrity verification.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

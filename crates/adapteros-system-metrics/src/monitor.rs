@@ -8,7 +8,7 @@
 //!
 //! SystemMonitor implements deterministic sampling using HKDF-derived seeds to ensure
 //! reproducible telemetry behavior across runs. This enables audit trail reconstruction,
-//! deterministic replay for debugging, and compliance with AdapterOS Policy #2 (Determinism).
+//! deterministic replay for debugging, and compliance with adapterOS Policy #2 (Determinism).
 //!
 //! **Key Guarantees:**
 //!
@@ -96,7 +96,7 @@ impl SystemMonitor {
     /// **Why this matters:**
     /// - Enables telemetry bundle replay with identical sampling behavior
     /// - Supports audit trail reconstruction for compliance
-    /// - Complies with AdapterOS Policy #2 (Determinism)
+    /// - Complies with adapterOS Policy #2 (Determinism)
     /// - Prevents seed reuse via domain separation label
     ///
     /// **Global Seed Requirements:**
@@ -125,7 +125,7 @@ impl SystemMonitor {
     ///
     /// Uses HKDF label: `"system_metrics_sampling"`
     ///
-    /// This label must be unique across all AdapterOS subsystems to prevent
+    /// This label must be unique across all adapterOS subsystems to prevent
     /// correlated randomness. Other labels in use:
     /// - `"router"` - K-sparse adapter selection
     /// - `"dropout"` - LoRA dropout masks
@@ -277,7 +277,7 @@ impl SystemMonitor {
     ///    engineers can replay execution with the same seed to reproduce exact
     ///    telemetry sampling patterns and identify issues.
     ///
-    /// 3. **Policy Compliance**: Satisfies AdapterOS Policy #2 (Determinism) which
+    /// 3. **Policy Compliance**: Satisfies adapterOS Policy #2 (Determinism) which
     ///    requires all randomness to be seeded and reproducible for regulatory
     ///    compliance in industries like healthcare and finance.
     ///

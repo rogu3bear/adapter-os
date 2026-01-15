@@ -1,4 +1,4 @@
-//! Metrics and monitoring initialization for AdapterOS.
+//! Metrics and monitoring initialization for adapterOS.
 //!
 //! This module handles the initialization of:
 //! - UDS (Unix Domain Socket) metrics exporter for zero-network metrics

@@ -1,4 +1,4 @@
-//! Strict mode implementation for AdapterOS determinism enforcement
+//! Strict mode implementation for adapterOS determinism enforcement
 //!
 //! Strict mode halts execution on the first nondeterminism violation detected.
 //! This is used for testing and development to ensure code paths are deterministic.
@@ -15,7 +15,7 @@ pub fn init_strict_mode() {
     // Check for environment variable
     if env::var("ADAPTEROS_STRICT_MODE").is_ok() {
         STRICT_MODE_ENABLED.store(true, Ordering::Relaxed);
-        info!("AdapterOS strict mode enabled via environment variable");
+        info!("adapterOS strict mode enabled via environment variable");
         return;
     }
 
@@ -24,7 +24,7 @@ pub fn init_strict_mode() {
     for arg in &args {
         if arg == "--strict" || arg == "--deterministic" {
             STRICT_MODE_ENABLED.store(true, Ordering::Relaxed);
-            info!("AdapterOS strict mode enabled via command line");
+            info!("adapterOS strict mode enabled via command line");
             return;
         }
     }
@@ -38,13 +38,13 @@ pub fn is_strict_mode() -> bool {
 /// Enable strict mode programmatically
 pub fn enable_strict_mode() {
     STRICT_MODE_ENABLED.store(true, Ordering::Relaxed);
-    info!("AdapterOS strict mode enabled programmatically");
+    info!("adapterOS strict mode enabled programmatically");
 }
 
 /// Disable strict mode programmatically
 pub fn disable_strict_mode() {
     STRICT_MODE_ENABLED.store(false, Ordering::Relaxed);
-    info!("AdapterOS strict mode disabled");
+    info!("adapterOS strict mode disabled");
 }
 
 /// Macro to check strict mode and panic if enabled

@@ -1,4 +1,4 @@
-//! Deterministic async executor for AdapterOS
+//! Deterministic async executor for adapterOS
 //!
 //! This module provides a deterministic async executor that:
 //! - Runs all async tasks in a fixed serial order

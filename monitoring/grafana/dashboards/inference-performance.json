@@ -260,7 +260,7 @@
   "time": { "from": "now-1h", "to": "now" },
   "timepicker": {},
   "timezone": "",
-  "title": "AdapterOS Inference Performance",
+  "title": "adapterOS Inference Performance",
   "uid": "adapteros-inference",
   "version": 1,
   "weekStart": ""

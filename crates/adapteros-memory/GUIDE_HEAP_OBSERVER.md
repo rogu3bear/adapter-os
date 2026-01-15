@@ -286,7 +286,7 @@ See: [INTEGRATION_HEAP_OBSERVER.md#platform-support](INTEGRATION_HEAP_OBSERVER.m
 
 ## Summary
 
-The Metal Heap Observer provides thread-safe Metal heap monitoring for AdapterOS:
+The Metal Heap Observer provides thread-safe Metal heap monitoring for adapterOS:
 
 - **420 lines** of production Objective-C++ code
 - **1,822 lines** of comprehensive documentation

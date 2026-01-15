@@ -1,4 +1,4 @@
-//! Canonical defaults for AdapterOS.
+//! Canonical defaults for adapterOS.
 //!
 //! Centralizes configuration defaults to prevent drift across crates.
 

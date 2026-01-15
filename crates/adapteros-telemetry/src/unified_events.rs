@@ -1,4 +1,4 @@
-//! Unified telemetry event schema for AdapterOS
+//! Unified telemetry event schema for adapterOS
 //!
 //! Provides a centralized event schema that consolidates all telemetry
 //! across the system into a single, canonical format.

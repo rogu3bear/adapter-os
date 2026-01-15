@@ -1,5 +1,5 @@
 #!/bin/bash
-# Unload a model from AdapterOS
+# Unload a model from adapterOS
 # Usage: ./scripts/unload_model.sh [model_id] [tenant_id]
 
 set -e

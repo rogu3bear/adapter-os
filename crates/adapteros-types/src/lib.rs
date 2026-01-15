@@ -1,8 +1,8 @@
-//! Core type definitions for AdapterOS
+//! Core type definitions for adapterOS
 //!
 //! This crate provides pure data types without framework dependencies.
 //! It serves as the single source of truth for domain types used across
-//! the AdapterOS control plane, worker nodes, and client libraries.
+//! the adapterOS control plane, worker nodes, and client libraries.
 //!
 //! # Architecture
 //!

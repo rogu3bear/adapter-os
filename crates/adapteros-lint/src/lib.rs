@@ -1,7 +1,7 @@
-//! AdapterOS Determinism Runtime Guards
+//! adapterOS Determinism Runtime Guards
 //!
 //! This crate provides runtime guards to prevent developers from introducing
-//! nondeterminism into the AdapterOS codebase. It detects common patterns that
+//! nondeterminism into the adapterOS codebase. It detects common patterns that
 //! violate determinism guarantees:
 //!
 //! - `tokio::task::spawn_blocking` calls

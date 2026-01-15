@@ -8,7 +8,7 @@
 
 ## Overview
 
-AdapterOS implements a **multi-backend architecture** with three production backends:
+adapterOS implements a **multi-backend architecture** with three production backends:
 
 | Backend | Crate | FFI Layer | Status |
 |---------|-------|-----------|--------|

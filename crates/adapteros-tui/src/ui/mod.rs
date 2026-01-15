@@ -502,7 +502,7 @@ fn draw_setup_prompt(f: &mut Frame, app: &App) {
 
     let mut lines = vec![
         Line::from(Span::styled(
-            "AdapterOS control center is waiting to bootstrap services",
+            "adapterOS control center is waiting to bootstrap services",
             Style::default()
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
@@ -529,7 +529,7 @@ fn draw_setup_prompt(f: &mut Frame, app: &App) {
     }
 
     lines.push(Line::from(
-        "This panel should be the first process you start - it can launch every other AdapterOS service and guide setup.",
+        "This panel should be the first process you start - it can launch every other adapterOS service and guide setup.",
     ));
     lines.push(Line::from(""));
     lines.push(Line::from("Shortcuts:"));

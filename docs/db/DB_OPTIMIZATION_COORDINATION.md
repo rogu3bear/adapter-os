@@ -1,6 +1,6 @@
 # Database Optimization Coordination Framework
 
-This document defines the coordination mechanism and operational rules for database optimizations in AdapterOS.
+This document defines the coordination mechanism and operational rules for database optimizations in adapterOS.
 
 ## Scope
 

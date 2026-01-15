@@ -1,6 +1,6 @@
-# AdapterOS Installer
+# adapterOS Installer
 
-Native macOS graphical installer for AdapterOS using SwiftUI.
+Native macOS graphical installer for adapterOS using SwiftUI.
 
 ## Features
 
@@ -21,7 +21,7 @@ Native macOS graphical installer for AdapterOS using SwiftUI.
 
 ### Build from Xcode
 
-1. Open `AdapterOSInstaller.xcodeproj` in Xcode
+1. Open `adapterOSInstaller.xcodeproj` in Xcode
 2. Select your development team in project settings
 3. Build and run (⌘R)
 
@@ -29,15 +29,15 @@ Native macOS graphical installer for AdapterOS using SwiftUI.
 
 ```bash
 cd installer
-xcodebuild -project AdapterOSInstaller.xcodeproj -scheme AdapterOSInstaller -configuration Release
+xcodebuild -project adapterOSInstaller.xcodeproj -scheme adapterOSInstaller -configuration Release
 ```
 
-The built app will be in `build/Release/AdapterOS Installer.app`
+The built app will be in `build/Release/adapterOS Installer.app`
 
 ### Build from Project Root
 
 ```bash
-cd installer && xcodebuild -project AdapterOSInstaller.xcodeproj -scheme AdapterOSInstaller -configuration Release
+cd installer && xcodebuild -project adapterOSInstaller.xcodeproj -scheme adapterOSInstaller -configuration Release
 ```
 
 ## Architecture
@@ -68,7 +68,7 @@ The installer is a thin SwiftUI wrapper around the existing CLI infrastructure:
 
 ## Files
 
-- `AdapterOSInstallerApp.swift` - App entry point
+- `adapterOSInstallerApp.swift` - App entry point
 - `ContentView.swift` - Main navigation
 - `PreCheckView.swift` - Hardware validation screen
 - `InstallView.swift` - Installation progress screen
@@ -103,14 +103,14 @@ If installation is interrupted, the installer automatically detects the checkpoi
 For distribution, sign the app with your Developer ID:
 
 ```bash
-codesign --deep --force --verify --verbose --sign "Developer ID Application: Your Name" "AdapterOS Installer.app"
+codesign --deep --force --verify --verbose --sign "Developer ID Application: Your Name" "adapterOS Installer.app"
 ```
 
 For notarization (required for distribution outside the App Store):
 
 ```bash
-xcrun notarytool submit "AdapterOS Installer.app" --apple-id your@email.com --team-id TEAMID --wait
-xcrun stapler staple "AdapterOS Installer.app"
+xcrun notarytool submit "adapterOS Installer.app" --apple-id your@email.com --team-id TEAMID --wait
+xcrun stapler staple "adapterOS Installer.app"
 ```
 
 ## Smoke Test

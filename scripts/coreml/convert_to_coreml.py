@@ -116,7 +116,7 @@ def convert_to_coreml(
     print(f"  Saved merged weights to: {merged_weights_path}")
     
     # Note: Full CoreML conversion requires model architecture definition
-    # For production, use the AdapterOS conversion pipeline:
+    # For production, use the adapterOS conversion pipeline:
     #   scripts/convert_mlx_to_coreml.py
     
     print(f"""

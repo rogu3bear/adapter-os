@@ -1,7 +1,7 @@
 //! Chat Dock component
 //!
 //! A persistent chat panel that stays visible across page navigation.
-//! Provides a command console for interacting with AdapterOS.
+//! Provides a command console for interacting with adapterOS.
 
 use crate::components::{Button, ButtonSize, Spinner, Textarea};
 use crate::signals::{use_chat, ChatTarget, ContextToggle, DockState};

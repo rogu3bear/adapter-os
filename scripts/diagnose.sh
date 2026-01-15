@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# AdapterOS Comprehensive Diagnostic Tool
+# adapterOS Comprehensive Diagnostic Tool
 # Generates detailed system health report for troubleshooting
 
 set -euo pipefail
@@ -50,7 +50,7 @@ check_command() {
 # Start report
 {
     echo "==================================================================="
-    echo "          AdapterOS Diagnostic Report"
+    echo "          adapterOS Diagnostic Report"
     echo "==================================================================="
     echo "Generated: $(date)"
     echo "Hostname: $(hostname)"
@@ -118,11 +118,11 @@ check_command() {
     echo "=== PROCESS STATUS ==="
     separator
 
-    echo "AdapterOS Processes:"
+    echo "adapterOS Processes:"
     if ps aux | grep -E "adapteros-server|aos-worker" | grep -v grep; then
         success "Processes found"
     else
-        error "No AdapterOS processes running"
+        error "No adapterOS processes running"
     fi
     echo
 

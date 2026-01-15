@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document describes the production-grade rate limiting and backpressure mechanisms implemented in the AdapterOS telemetry system.
+This document describes the production-grade rate limiting and backpressure mechanisms implemented in the adapterOS telemetry system.
 
 ## Components
 

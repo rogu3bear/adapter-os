@@ -16,7 +16,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
     tracing_subscriber::fmt::init();
 
-    println!("🚀 AdapterOS Patch Proposal System - API Example");
+    println!("🚀 adapterOS Patch Proposal System - API Example");
     println!("================================================");
 
     let client = Client::new();

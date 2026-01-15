@@ -600,7 +600,7 @@ fn ApiKeysSection() -> impl IntoView {
                                         </div>
                                         <h3 class="text-lg font-medium mb-2">"No API Keys"</h3>
                                         <p class="text-muted-foreground max-w-md mx-auto mb-4">
-                                            "Generate API keys for programmatic access to the AdapterOS API."
+                                            "Generate API keys for programmatic access to the adapterOS API."
                                         </p>
                                         <Button
                                             variant=ButtonVariant::Primary
@@ -784,7 +784,7 @@ fn OrgSection() -> impl IntoView {
 
     view! {
         <div class="max-w-2xl">
-            <Card title="Organization Settings".to_string() description="Configure your organization's AdapterOS instance.".to_string()>
+            <Card title="Organization Settings".to_string() description="Configure your organization's adapterOS instance.".to_string()>
                 <div class="space-y-4">
                     {move || {
                         let state = auth_state.get();

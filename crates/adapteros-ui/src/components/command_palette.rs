@@ -291,7 +291,7 @@ pub fn CommandPalette() -> impl IntoView {
                             </span>
                         </div>
                         <span class="hidden sm:block text-muted-foreground/70">
-                            "AdapterOS"
+                            "adapterOS"
                         </span>
                     </div>
                 </div>

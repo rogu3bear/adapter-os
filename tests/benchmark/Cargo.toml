@@ -2,14 +2,14 @@
 name = "adapteros-benchmarks"
 version.workspace = true
 edition = "2021"
-description = "Comprehensive performance benchmarking suite for AdapterOS"
+description = "Comprehensive performance benchmarking suite for adapterOS"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/adapteros/adapter-os"
 keywords = ["benchmarking", "performance", "deterministic", "metal", "inference"]
 categories = ["development-tools::testing"]
 
 [dependencies]
-# Core AdapterOS crates
+# Core adapterOS crates
 adapteros-core = { path = "../../crates/adapteros-core" }
 adapteros-lora-kernel-api = { path = "../../crates/adapteros-lora-kernel-api" }
 adapteros-lora-kernel-mtl = { path = "../../crates/adapteros-lora-kernel-mtl" }

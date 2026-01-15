@@ -12,7 +12,7 @@ We actively support the following versions with security updates:
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in AdapterOS, please report it to us as follows:
+If you discover a security vulnerability in adapterOS, please report it to us as follows:
 
 ### Contact
 - **Email**: security@adapteros.ai
@@ -34,7 +34,7 @@ Please include the following information in your report:
 
 ## Security Considerations
 
-AdapterOS implements several security measures:
+adapterOS implements several security measures:
 
 ### Deterministic Execution
 - Cryptographic seeding prevents timing attacks
@@ -72,4 +72,4 @@ We kindly ask that you:
 - Avoid accessing user data or disrupting services
 - Report vulnerabilities in a responsible manner
 
-Thank you for helping keep AdapterOS and its users secure!
+Thank you for helping keep adapterOS and its users secure!

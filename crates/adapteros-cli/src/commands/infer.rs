@@ -1,4 +1,4 @@
-//! CLI inference command over AdapterOS UDS
+//! CLI inference command over adapterOS UDS
 
 use crate::error_codes::{get, ECode};
 use adapteros_client::UdsClient;

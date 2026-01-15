@@ -2,7 +2,7 @@
 //! Access Control Enforcement Tests
 //!
 //! This module tests authentication, authorization, and access control mechanisms
-//! in AdapterOS. It verifies that users and tenants can only access resources they
+//! in adapterOS. It verifies that users and tenants can only access resources they
 //! are authorized for, and that access control decisions are properly enforced
 //! and audited.
 

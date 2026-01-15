@@ -1,6 +1,6 @@
-//! AdapterOS Core Types
+//! adapterOS Core Types
 //!
-//! Foundational types and utilities for the AdapterOS system.
+//! Foundational types and utilities for the adapterOS system.
 //!
 //! This crate provides:
 //! - Error handling with [`AosError`] and [`Result`]
@@ -205,7 +205,7 @@ pub use seed::{
 };
 pub use seed_guard::SeedScopeGuard;
 pub use stack::compute_stack_hash;
-pub use status::{AdapterOSStatus, HealthCheckResult, HealthStatus, ServiceStatus};
+pub use status::{adapterOSStatus, HealthCheckResult, HealthStatus, ServiceStatus};
 pub use telemetry::{
     audit_chain_divergence_event, audit_export_tamper_event, determinism_violation_event,
     dual_write_divergence_event, emit_observability_event, policy_override_event,
@@ -253,7 +253,7 @@ pub const RNG_MODULE_VERSION: &str = "1.0.0-chacha20";
 pub mod prelude {
     pub use crate::{
         bytes_to_gb, bytes_to_mb, gb_to_bytes, kb_to_bytes, mb_to_bytes, AdapterEvent, AdapterName,
-        AdapterOSStatus, AdapterType, AosError, AuditEvent, B3Hash, BackendKind, CircuitBreaker,
+        adapterOSStatus, AdapterType, AosError, AuditEvent, B3Hash, BackendKind, CircuitBreaker,
         CircuitBreakerConfig, CircuitBreakerMetrics, CircuitState, DriftPolicy, EventHookType,
         ExecutionProfile, ForkType, HealthCheckResult, HealthStatus, InferenceEvent,
         LifecycleState, LifecycleTransition, MetricsTickEvent, ObservabilityEvent,

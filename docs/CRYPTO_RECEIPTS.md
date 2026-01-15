@@ -2,13 +2,13 @@
 
 **Version:** 0.12.0
 
-Comprehensive guide to AdapterOS cryptographic receipts - verifiable proofs of inference execution.
+Comprehensive guide to adapterOS cryptographic receipts - verifiable proofs of inference execution.
 
 ---
 
 ## Overview
 
-Cryptographic receipts are AdapterOS's mechanism for creating **verifiable, tamper-proof proofs** that a specific inference output was produced under specific conditions. Unlike traditional audit logs, receipts can be **verified by third parties** without access to the inference system.
+Cryptographic receipts are adapterOS's mechanism for creating **verifiable, tamper-proof proofs** that a specific inference output was produced under specific conditions. Unlike traditional audit logs, receipts can be **verified by third parties** without access to the inference system.
 
 ### What Receipts Prove
 

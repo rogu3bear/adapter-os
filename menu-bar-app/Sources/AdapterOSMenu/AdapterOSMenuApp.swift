@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct AdapterOSMenuApp: App {
+struct adapterOSMenuApp: App {
     @StateObject private var viewModel = StatusViewModel()
     @State private var showTooltip = false
 
@@ -48,7 +48,7 @@ struct AdapterOSMenuApp: App {
 }
 
 =======
-        MenuBarExtra("AdapterOS", systemImage: viewModel.iconName) {
+        MenuBarExtra("adapterOS", systemImage: viewModel.iconName) {
             StatusMenuView(viewModel: viewModel)
         }
         .menuBarExtraStyle(.window)

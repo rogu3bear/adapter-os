@@ -2,7 +2,7 @@
 
 ## Overview
 
-This directory contains a complete implementation of memory management and tracking for the MLX FFI backend in AdapterOS. The system provides real-time visibility into unified memory allocations and enables the lifecycle manager to make adaptive memory management decisions.
+This directory contains a complete implementation of memory management and tracking for the MLX FFI backend in adapterOS. The system provides real-time visibility into unified memory allocations and enables the lifecycle manager to make adaptive memory management decisions.
 
 ## Quick Start
 

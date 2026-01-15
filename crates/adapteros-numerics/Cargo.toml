@@ -2,8 +2,8 @@
 name = "adapteros-numerics"
 version.workspace = true
 edition = "2021"
-authors = ["AdapterOS Team"]
-description = "Numerical stability tracking and quantization noise measurement for AdapterOS kernels"
+authors = ["adapterOS Team"]
+description = "Numerical stability tracking and quantization noise measurement for adapterOS kernels"
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

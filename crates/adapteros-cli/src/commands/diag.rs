@@ -874,7 +874,7 @@ pub async fn run(
     let mut runner = DiagnosticRunner::new(profile, tenant_id.clone());
 
     if !json {
-        info!("AdapterOS Diagnostics");
+        info!("adapterOS Diagnostics");
         info!("════════════════════════════════════════════════════════════════");
         info!("Profile: {:?}", profile);
         if let Some(ref tenant) = tenant_id {

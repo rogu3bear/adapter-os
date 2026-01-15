@@ -1,4 +1,4 @@
-# AdapterOS Route Map
+# adapterOS Route Map
 
 > **Developer Reference:** Maps API routes to handler implementations.
 >

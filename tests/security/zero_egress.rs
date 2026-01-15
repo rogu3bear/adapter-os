@@ -1,7 +1,7 @@
 #![cfg(all(test, feature = "extended-tests"))]
 //! Zero-Egress Policy Tests
 //!
-//! This module tests zero-egress policies in AdapterOS, ensuring that no data
+//! This module tests zero-egress policies in adapterOS, ensuring that no data
 //! can leave the system without explicit authorization. It covers network access
 //! controls, data exfiltration prevention, and compliance with air-gapped operations.
 

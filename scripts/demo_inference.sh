@@ -1,5 +1,5 @@
 #!/bin/bash
-# AdapterOS Inference Demo Script
+# adapterOS Inference Demo Script
 #
 # This script demonstrates the complete end-to-end inference pipeline:
 # 1. System health check
@@ -11,7 +11,7 @@
 
 set -e
 
-echo "🎬 AdapterOS Inference Demo"
+echo "🎬 adapterOS Inference Demo"
 echo "======================================"
 echo ""
 
@@ -85,14 +85,14 @@ fi
 echo "${GREEN}✅ Found $ADAPTER_COUNT adapter(s)${NC}"
 
 # Build the project
-section "🔨 Building AdapterOS"
+section "🔨 Building adapterOS"
 echo "Building release binary..."
 cargo build --release --bin adapteros-server
 echo "${GREEN}✅ Build complete${NC}"
 
 # Start server
 section "🚀 Starting Server"
-echo "Starting AdapterOS server..."
+echo "Starting adapterOS server..."
 echo "Socket path: $SOCKET_PATH"
 
 # Remove old socket if exists
@@ -231,4 +231,4 @@ echo "  2. Benchmark latency and throughput"
 echo "  3. Explore evidence grounding with RAG"
 echo "  4. Try different prompts and settings"
 echo ""
-echo "${GREEN}🎉 AdapterOS inference pipeline is ready!${NC}"
+echo "${GREEN}🎉 adapterOS inference pipeline is ready!${NC}"

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# download_model.sh - Download Qwen2.5 models for AdapterOS
+# download_model.sh - Download Qwen2.5 models for adapterOS
 #
 # Copyright (c) 2025 JKCA / James KC Auchterlonie. All rights reserved.
 #
@@ -50,7 +50,7 @@ error() { echo -e "${RED}[ERROR]${NC} $1" >&2; }
 # Show usage
 show_help() {
     cat << 'EOF'
-download_model.sh - Download Qwen2.5 models for AdapterOS
+download_model.sh - Download Qwen2.5 models for adapterOS
 
 Usage:
   ./scripts/download_model.sh [OPTIONS]
@@ -356,7 +356,7 @@ show_summary() {
     info "Total size: $total_size"
     echo ""
 
-    info "To use this model with AdapterOS:"
+    info "To use this model with adapterOS:"
     echo ""
     echo "  # Set environment variable"
     echo "  export AOS_MLX_FFI_MODEL=\"$OUTPUT_PATH\""
@@ -373,7 +373,7 @@ show_summary() {
 main() {
     echo ""
     echo "=========================================="
-    echo "  AdapterOS Model Downloader"
+    echo "  adapterOS Model Downloader"
     echo "=========================================="
     echo ""
 

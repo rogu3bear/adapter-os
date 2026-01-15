@@ -1,10 +1,10 @@
 # Integration Tests Documentation
 
-This document provides an overview of the comprehensive integration test suite for AdapterOS.
+This document provides an overview of the comprehensive integration test suite for adapterOS.
 
 ## Overview
 
-The integration test suite validates end-to-end functionality of key AdapterOS subsystems:
+The integration test suite validates end-to-end functionality of key adapterOS subsystems:
 
 1. **Kernel Workflow Integration** - Real Metal kernel-based workflow execution
 2. **Streaming Inference** - Server-Sent Events (SSE) streaming with chat-style responses

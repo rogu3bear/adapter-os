@@ -1,4 +1,4 @@
-# AdapterOS MLX production template
+# adapterOS MLX production template
 # Hardened defaults for real MLX backend with circuit breaker protections.
 
 [server]

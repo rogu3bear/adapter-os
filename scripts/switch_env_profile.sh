@@ -1,5 +1,5 @@
 #!/bin/bash
-# AdapterOS Environment Profile Switcher
+# adapterOS Environment Profile Switcher
 # Quick switch between development, training, and production profiles
 
 set -e
@@ -152,7 +152,7 @@ Good for: Production serving, compliance, auditing"
 
     *)
         echo ""
-        echo -e "${BLUE}AdapterOS Environment Profile Switcher${NC}"
+        echo -e "${BLUE}adapterOS Environment Profile Switcher${NC}"
         echo ""
         echo "Usage: ./scripts/switch_env_profile.sh <profile>"
         echo ""

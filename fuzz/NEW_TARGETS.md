@@ -1,4 +1,4 @@
-This document describes the new fuzzing targets added to the AdapterOS project.
+This document describes the new fuzzing targets added to the adapterOS project.
 
 Four new fuzzing targets have been created to test recently added modules:
 

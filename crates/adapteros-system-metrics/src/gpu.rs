@@ -1,7 +1,7 @@
 //! GPU metrics collection integration
 //!
 //! Provides GPU metrics collection using Metal profiler and MLX integration.
-//! Follows AdapterOS patterns for Metal kernel profiling and MLX device monitoring.
+//! Follows adapterOS patterns for Metal kernel profiling and MLX device monitoring.
 
 use crate::GpuMetrics;
 use adapteros_core::Result;

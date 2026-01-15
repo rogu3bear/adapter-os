@@ -2,7 +2,7 @@
 //! Test orchestration utilities for end-to-end testing
 //!
 //! Provides comprehensive test environment setup, lifecycle management,
-//! and orchestration capabilities for running complex AdapterOS workflows.
+//! and orchestration capabilities for running complex adapterOS workflows.
 
 use adapteros_core::{AosError, Result};
 use adapteros_policy::PolicyEngine;

@@ -1,4 +1,4 @@
-//! AdapterOS Deterministic Configuration System
+//! adapterOS Deterministic Configuration System
 //!
 //! This crate provides a deterministic configuration system with strict precedence rules:
 //! CLI arguments > Environment variables (.env file supported) > Manifest file (TOML)

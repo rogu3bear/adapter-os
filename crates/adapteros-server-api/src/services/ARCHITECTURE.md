@@ -347,7 +347,7 @@ Services emit events, infrastructure handles collection/storage.
 
 ## Standards Compliance
 
-All services follow AdapterOS standards:
+All services follow adapterOS standards:
 
 | Standard | Requirement | Implementation |
 |----------|-------------|----------------|

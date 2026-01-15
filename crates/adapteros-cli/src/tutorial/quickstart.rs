@@ -40,7 +40,7 @@ pub async fn run(ci_mode: bool) -> Result<()> {
 
 fn print_banner() {
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    println!("           AdapterOS Interactive Tutorial (Quickstart)");
+    println!("           adapterOS Interactive Tutorial (Quickstart)");
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
 }
 
@@ -119,7 +119,7 @@ async fn step_2_verify(ci_mode: bool) -> Result<()> {
     println!("\n📘 Step 2: Verify Artifacts");
     println!("═══════════════════════════════════════════════════════════");
     println!();
-    println!("AdapterOS requires all artifacts to be signed and hashed.");
+    println!("adapterOS requires all artifacts to be signed and hashed.");
     println!("The verify command checks signatures, SBOM, and artifact hashes.");
     println!();
 

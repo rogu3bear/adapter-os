@@ -37,7 +37,7 @@ const DOCUMENT_FIXTURES: &[DocumentFixture] = &[
         relative_path: "docs/safe_mode.pdf",
         answer_questions: &[
             QAExpectation {
-                question: "What does AdapterOS Safe Mode ensure before responding?",
+                question: "What does adapterOS Safe Mode ensure before responding?",
                 answer_snippet: "evidence-backed responses",
             },
             QAExpectation {

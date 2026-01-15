@@ -55,7 +55,7 @@ usage() {
   cat <<'USAGE'
 Usage: seed-demo.sh [--db-path PATH] [--skip-migrate]
 
-Seeds a deterministic pilot demo dataset into the AdapterOS SQLite database.
+Seeds a deterministic pilot demo dataset into the adapterOS SQLite database.
 
 Defaults:
   - DB path: $DB_PATH, else $AOS_DATABASE_URL / $DATABASE_URL (sqlite:.../sqlite://.../path), else ./var/aos-cp.sqlite3

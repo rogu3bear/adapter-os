@@ -37,7 +37,7 @@
     "Repeated token sequences maintain determinism",
     "Unicode and special characters processed consistently"
   ],
-  "intent": "Stress test the deterministic execution guarantees of AdapterOS by exposing router and kernel components to adversarial edge cases that might cause non-deterministic behavior in naive implementations",
+  "intent": "Stress test the deterministic execution guarantees of adapterOS by exposing router and kernel components to adversarial edge cases that might cause non-deterministic behavior in naive implementations",
   "edge_case_categories": {
     "floating_point_precision": "Inputs that test floating-point rounding and precision determinism",
     "minimal_input": "Extremely short inputs (0-2 characters) that stress tokenization",

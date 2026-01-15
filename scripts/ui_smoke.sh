@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# AdapterOS UI smoke checks (static + API).
+# adapterOS UI smoke checks (static + API).
 # - Verifies UI root serves built assets (or dev server index.html)
 # - Verifies API readiness + meta endpoint
 # - Optionally performs dev-bypass and checks authenticated MVP endpoints

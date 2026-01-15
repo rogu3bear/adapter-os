@@ -1,6 +1,6 @@
 # OpenCode (OpenAI-Compatible) Integration
 
-AdapterOS exposes a minimal OpenAI Chat Completions–compatible endpoint at:
+adapterOS exposes a minimal OpenAI Chat Completions–compatible endpoint at:
 
 - `POST /v1/chat/completions`
 
@@ -28,7 +28,7 @@ In no-auth mode, requests succeed without an `Authorization` header (some client
 
 ### Auth enabled (API key)
 
-AdapterOS accepts OpenAI-style API key headers:
+adapterOS accepts OpenAI-style API key headers:
 
 - `Authorization: Bearer <api_key>`
 
@@ -41,7 +41,7 @@ curl -s http://localhost:8080/v1/chat/completions \
   -d '{
     "model": "qwen2.5-7b",
     "messages": [
-      {"role": "system", "content": "You are AdapterOS."},
+      {"role": "system", "content": "You are adapterOS."},
       {"role": "user", "content": "Say hello in one short sentence."}
     ]
   }' | jq .

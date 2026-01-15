@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Run AdapterOS Worker Crash Chaos Tests
+# Run adapterOS Worker Crash Chaos Tests
 #
 # This script runs the comprehensive chaos testing suite for worker crash scenarios.
 # It provides detailed reporting and verification of recovery behavior.
@@ -24,7 +24,7 @@ mkdir -p "$REPORT_DIR"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 REPORT_FILE="${REPORT_DIR}/chaos_test_${TIMESTAMP}.txt"
 
-echo -e "${BLUE}=== AdapterOS Worker Crash Chaos Testing Suite ===${NC}"
+echo -e "${BLUE}=== adapterOS Worker Crash Chaos Testing Suite ===${NC}"
 echo -e "${BLUE}Report will be saved to: ${REPORT_FILE}${NC}"
 echo ""
 

@@ -1,4 +1,4 @@
-# AdapterOS Rectification Patch Plan
+# adapterOS Rectification Patch Plan
 
 **Date:** 2025-12-20
 **Scope:** PRD-RECT-001 through PRD-RECT-005

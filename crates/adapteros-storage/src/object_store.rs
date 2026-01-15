@@ -68,7 +68,7 @@ pub trait ObjectStore: Send + Sync {
     fn resolve_path(&self, key: &StorageKey) -> PathBuf;
 }
 
-/// Filesystem-backed object store compatible with current AdapterOS layout.
+/// Filesystem-backed object store compatible with current adapterOS layout.
 #[derive(Debug, Clone)]
 pub struct FsObjectStore {
     dataset_root: PathBuf,

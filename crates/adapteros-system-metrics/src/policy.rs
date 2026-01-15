@@ -3,7 +3,7 @@
 //! Policy integration for system metrics
 //!
 //! Provides policy enforcement integration for system metrics following
-//! AdapterOS policy patterns and memory ruleset enforcement.
+//! adapterOS policy patterns and memory ruleset enforcement.
 
 use crate::{SystemMetrics, ThresholdsConfig};
 use adapteros_core::{AosError, Result};

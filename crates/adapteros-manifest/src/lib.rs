@@ -1,4 +1,4 @@
-//! Manifest schema and validation for AdapterOS
+//! Manifest schema and validation for adapterOS
 //!
 //! This crate provides:
 //! - Manifest V3 schema definition

@@ -2,7 +2,7 @@
 
 ## Summary of Implementation
 
-Production-grade rate limiting and backpressure have been added to the AdapterOS telemetry system to protect against:
+Production-grade rate limiting and backpressure have been added to the adapterOS telemetry system to protect against:
 
 1. **Tenant Resource Hogging**: High-volume tenants overwhelming the system
 2. **Slow Client Backlog**: SSE clients consuming events slowly causing queue growth

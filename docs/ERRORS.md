@@ -1,9 +1,9 @@
-# Error Handling in AdapterOS
+# Error Handling in adapterOS
 
 **Version:** 0.12.0
 **Last Updated:** 2025-12-11
 
-This document provides a comprehensive guide to error handling in AdapterOS, including error codes, patterns, helper utilities, and best practices.
+This document provides a comprehensive guide to error handling in adapterOS, including error codes, patterns, helper utilities, and best practices.
 
 ---
 
@@ -22,7 +22,7 @@ This document provides a comprehensive guide to error handling in AdapterOS, inc
 
 ### Core Error Type: `AosError`
 
-All errors in AdapterOS use the `AosError` enum defined in `crates/adapteros-core/src/error.rs`. This ensures consistent error handling, logging, and user experience across the system.
+All errors in adapterOS use the `AosError` enum defined in `crates/adapteros-core/src/error.rs`. This ensures consistent error handling, logging, and user experience across the system.
 
 **Type Alias:**
 ```rust
@@ -191,7 +191,7 @@ When creating error messages, follow these conventions:
 
 ## Error Handling Patterns
 
-These patterns were implemented across AdapterOS and should be reused throughout the codebase.
+These patterns were implemented across adapterOS and should be reused throughout the codebase.
 
 ### Pattern 1: Lock Poisoning Handling
 
@@ -555,7 +555,7 @@ let sig = match signal(SignalKind::hangup()) {
 
 ## Error Helper Utilities
 
-AdapterOS provides extension traits that simplify error handling by reducing boilerplate and ensuring consistent error messages.
+adapterOS provides extension traits that simplify error handling by reducing boilerplate and ensuring consistent error messages.
 
 **Location:** `crates/adapteros-core/src/error_helpers.rs`
 

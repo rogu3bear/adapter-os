@@ -1,6 +1,6 @@
 # Migration Rollback Procedures
 
-This directory contains rollback scripts for critical AdapterOS migrations. These scripts reverse the effects of forward migrations by dropping tables, views, triggers, and indexes in the correct dependency order.
+This directory contains rollback scripts for critical adapterOS migrations. These scripts reverse the effects of forward migrations by dropping tables, views, triggers, and indexes in the correct dependency order.
 
 ## Overview
 

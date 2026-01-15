@@ -284,7 +284,7 @@ impl OutputWriter {
     }
 }
 
-/// Create a new table with standard AdapterOS CLI styling.
+/// Create a new table with standard adapterOS CLI styling.
 ///
 /// This function creates a comfy-table with UTF-8 borders and rounded corners,
 /// which is the standard style used throughout the CLI.

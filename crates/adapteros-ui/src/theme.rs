@@ -1,4 +1,4 @@
-//! Design tokens and theme constants for AdapterOS UI
+//! Design tokens and theme constants for adapterOS UI
 //!
 //! This module provides typed design tokens that match the original Tailwind theme.
 //! Colors use CSS custom properties for dark mode support.

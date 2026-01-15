@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# AdapterOS perf smoke test:
+# adapterOS perf smoke test:
 # - time to /readyz 200 from dev-up start
 # - time for first inference call
 #

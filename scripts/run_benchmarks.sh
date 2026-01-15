@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# AdapterOS Performance Benchmark Runner
+# adapterOS Performance Benchmark Runner
 # This script runs the comprehensive benchmark suite and handles CI/CD integration
 
 set -e
@@ -41,7 +41,7 @@ log_success() {
 # Check if we're in the right directory
 check_environment() {
     if [[ ! -f "$PROJECT_ROOT/Cargo.toml" ]]; then
-        log_error "Not in AdapterOS project root. Please run from the project root directory."
+        log_error "Not in adapterOS project root. Please run from the project root directory."
         exit 1
     fi
 
@@ -124,7 +124,7 @@ generate_ci_summary() {
         # Output GitHub Actions summary if in CI
         if [[ -n "$GITHUB_STEP_SUMMARY" ]]; then
             {
-                echo "## AdapterOS Benchmark Results"
+                echo "## adapterOS Benchmark Results"
                 echo ""
                 echo "| Metric | Value |"
                 echo "|--------|-------|"
@@ -183,7 +183,7 @@ archive_results() {
 
 # Main execution
 main() {
-    log_info "AdapterOS Benchmark Runner Starting"
+    log_info "adapterOS Benchmark Runner Starting"
     log_info "=================================="
 
     check_environment
@@ -220,7 +220,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --help)
-            echo "AdapterOS Benchmark Runner"
+            echo "adapterOS Benchmark Runner"
             echo ""
             echo "Usage: $0 [OPTIONS]"
             echo ""

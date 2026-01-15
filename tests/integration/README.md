@@ -1,6 +1,6 @@
-# AdapterOS Integration Tests
+# adapterOS Integration Tests
 
-Comprehensive integration tests for AdapterOS system workflows, focusing on multi-tenant scenarios, policy enforcement, and resource isolation.
+Comprehensive integration tests for adapterOS system workflows, focusing on multi-tenant scenarios, policy enforcement, and resource isolation.
 
 ## Test Categories
 
@@ -37,7 +37,7 @@ tests/integration/
 ## Running Tests
 
 ### Prerequisites
-- Running AdapterOS instance with multi-tenant support
+- Running adapterOS instance with multi-tenant support
 - Test database with tenant isolation enabled
 - Proper authentication tokens for test tenants
 
@@ -58,7 +58,7 @@ cargo test --test integration -- --nocapture
 
 ### Test Configuration
 Tests use the following environment variables:
-- `MPLORA_TEST_URL`: Base URL for AdapterOS API (default: http://localhost:9443)
+- `MPLORA_TEST_URL`: Base URL for adapterOS API (default: http://localhost:9443)
 - `TENANT_A_TOKEN`: Authentication token for tenant A
 - `TENANT_B_TOKEN`: Authentication token for tenant B
 - `TENANT_C_TOKEN`: Authentication token for tenant C

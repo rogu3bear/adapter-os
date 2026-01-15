@@ -1,4 +1,4 @@
-//! Tab navigation components for AdapterOS UI.
+//! Tab navigation components for adapterOS UI.
 //!
 //! Provides reusable tab navigation patterns for settings, admin, and other pages.
 //!

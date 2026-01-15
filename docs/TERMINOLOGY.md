@@ -1,6 +1,6 @@
 # Terminology
 
-AdapterOS uses a single user-facing term across the UI and documentation.
+adapterOS uses a single user-facing term across the UI and documentation.
 
 ## Canonical Mapping
 
@@ -18,7 +18,7 @@ AdapterOS uses a single user-facing term across the UI and documentation.
 
 ## Adapter Domains
 
-AdapterOS classifies adapters into three domain types, each with distinct lifecycle rules, storage patterns, and routing constraints.
+adapterOS classifies adapters into three domain types, each with distinct lifecycle rules, storage patterns, and routing constraints.
 
 ### Domain Definitions
 

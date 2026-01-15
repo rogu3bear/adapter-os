@@ -1,7 +1,7 @@
 //! Configuration schema definitions for AOS_* environment variables
 //!
 //! This module provides comprehensive validation rules for all configuration
-//! variables used in the AdapterOS system. The schema supports type validation,
+//! variables used in the adapterOS system. The schema supports type validation,
 //! constraints, deprecation tracking, and sensitive value handling.
 //!
 //! # Example

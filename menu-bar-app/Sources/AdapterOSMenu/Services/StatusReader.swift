@@ -10,12 +10,12 @@ enum StatusReadError: Error, Equatable {
     case unknown
 }
 
-/// Reads AdapterOS status from the JSON snapshot file without blocking the main thread.
+/// Reads adapterOS status from the JSON snapshot file without blocking the main thread.
 final class StatusReader {
     private let filePaths: [String]
     private let decoder: JSONDecoder
     private let readTimeout: TimeInterval
-    private var lastValidStatus: AdapterOSStatus?  // Cache for fallback on corruption
+    private var lastValidStatus: adapterOSStatus?  // Cache for fallback on corruption
     private var lastValidMetadata: (hash: Data, snippet: String)?
     private var validationErrorCount: Int = 0
     private var consecutiveFailures: Int = 0
@@ -33,7 +33,7 @@ final class StatusReader {
         // First, try to read metadata file written by server indicating actual path
         let metadataPaths = [
             "/var/run/adapteros_status_path.txt",
-            "\(homeDir)/Library/Application Support/AdapterOS/status_path.txt"
+            "\(homeDir)/Library/Application Support/adapterOS/status_path.txt"
         ]
         
         for metadataPath in metadataPaths {
@@ -74,7 +74,7 @@ final class StatusReader {
         }
         
         // User-writable fallback location
-        let userFallback = "\(homeDir)/Library/Application Support/AdapterOS/status.json"
+        let userFallback = "\(homeDir)/Library/Application Support/adapterOS/status.json"
         if !paths.contains(userFallback) {
             paths.append(userFallback)
         }
@@ -114,16 +114,16 @@ final class StatusReader {
     }
 
     /// Read and decode status. Throws mapped StatusReadError.
-    func readStatus() async throws -> AdapterOSStatus {
+    func readStatus() async throws -> adapterOSStatus {
         let (status, _) = try await readInternal()
         return status
     }
 
     /// Read and decode status, capturing raw hash for de-jittering and a short snippet for copy.
-    /// Returns .success(AdapterOSStatus) or .failure(StatusReadError).
+    /// Returns .success(adapterOSStatus) or .failure(StatusReadError).
 <<<<<<< HEAD
     /// On validation failure, attempts to return last valid status if available.
-    func readNow() async -> Result<(AdapterOSStatus, Data, String), StatusReadError> {
+    func readNow() async -> Result<(adapterOSStatus, Data, String), StatusReadError> {
         do {
             let (status, meta) = try await readInternal()
             // Cache valid status for fallback
@@ -160,7 +160,7 @@ final class StatusReader {
                 return .success((cached, metadata.hash, metadata.snippet))
             }
 =======
-    func readNow() async -> Result<(AdapterOSStatus, Data, String), StatusReadError> {
+    func readNow() async -> Result<(adapterOSStatus, Data, String), StatusReadError> {
         do {
             let (status, meta) = try await readInternal()
             return .success((status, meta.hash, meta.snippet))
@@ -173,7 +173,7 @@ final class StatusReader {
     }
 
     // MARK: - Internal read
-    private func readInternal() async throws -> (AdapterOSStatus, (hash: Data, snippet: String)) {
+    private func readInternal() async throws -> (adapterOSStatus, (hash: Data, snippet: String)) {
 <<<<<<< HEAD
         // Capture only the properties we need to avoid Sendable issues
         let decoder = self.decoder
@@ -186,7 +186,7 @@ final class StatusReader {
             let queue = DispatchQueue.global(qos: .utility)
             var readItem: DispatchWorkItem?
 
-            func resumeSuccess(_ value: (AdapterOSStatus, (hash: Data, snippet: String))) {
+            func resumeSuccess(_ value: (adapterOSStatus, (hash: Data, snippet: String))) {
                 resumeLock.lock()
                 defer { resumeLock.unlock() }
                 guard !didResume else { return }
@@ -252,7 +252,7 @@ final class StatusReader {
                     // Decode JSON
                     do {
 <<<<<<< HEAD
-                        let status = try decoder.decode(AdapterOSStatus.self, from: data)
+                        let status = try decoder.decode(adapterOSStatus.self, from: data)
                         let snippet = Self.makeSnippet(from: data)
                         
                         // Validate decoded status
@@ -264,7 +264,7 @@ final class StatusReader {
                         // Status is valid - return it (caching happens in readNow wrapper)
                         resumeSuccess((status, (hashData, snippet)))
                     } catch {
-                        let message = "Failed to decode AdapterOS status JSON: \(error.localizedDescription)"
+                        let message = "Failed to decode adapterOS status JSON: \(error.localizedDescription)"
                         let decodeError = StatusReadError.decodeFailed(message)
                         Logger.shared.error("Status JSON decode failed", error: error, context: ["path": filePath])
                         resumeFailure(decodeError)
@@ -298,7 +298,7 @@ final class StatusReader {
                 }
             }
 =======
-                        let status = try self.decoder.decode(AdapterOSStatus.self, from: data)
+                        let status = try self.decoder.decode(adapterOSStatus.self, from: data)
                         let snippet = Self.makeSnippet(from: data)
                         continuation.resume(returning: (status, (hashData, snippet)))
                     } catch {
@@ -333,7 +333,7 @@ final class StatusReader {
 <<<<<<< HEAD
     
     /// Validate that decoded status has all required fields with valid values
-    private static func validateStatus(_ status: AdapterOSStatus) -> String? {
+    private static func validateStatus(_ status: adapterOSStatus) -> String? {
         // Validate required non-optional fields
         if status.status.isEmpty {
             return "status field is empty"
@@ -375,7 +375,7 @@ final class StatusReader {
     }
     
     /// Get last valid status (for fallback on corruption)
-    func getLastValidStatus() -> AdapterOSStatus? {
+    func getLastValidStatus() -> adapterOSStatus? {
         return lastValidStatus
     }
 
@@ -399,7 +399,7 @@ final class StatusReader {
     }
 
     /// Test helper: Inject valid status for testing
-    func injectValidStatusForTesting(_ status: AdapterOSStatus, metadata: (hash: Data, snippet: String)? = nil) {
+    func injectValidStatusForTesting(_ status: adapterOSStatus, metadata: (hash: Data, snippet: String)? = nil) {
         lastValidStatus = status
         if let metadata {
             lastValidMetadata = metadata
@@ -418,7 +418,7 @@ final class StatusReader {
     }
     
     /// Update last valid status cache
-    private func updateLastValidStatus(_ status: AdapterOSStatus, metadata: (hash: Data, snippet: String)) {
+    private func updateLastValidStatus(_ status: adapterOSStatus, metadata: (hash: Data, snippet: String)) {
         lastValidStatus = status
         lastValidMetadata = metadata
     }

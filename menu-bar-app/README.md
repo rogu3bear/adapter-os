@@ -1,12 +1,12 @@
-## AdapterOS Menu Bar App
+## adapterOS Menu Bar App
 
-SwiftUI `MenuBarExtra` companion for local AdapterOS status.
+SwiftUI `MenuBarExtra` companion for local adapterOS status.
 
 ### Build & Run
 
 1. Open in Xcode 15+ or build via SwiftPM:
    - `swift build -c release`
-2. Launch the `AdapterOSMenu` target.
+2. Launch the `adapterOSMenu` target.
 
 Requirements:
 - macOS 13+
@@ -24,10 +24,10 @@ Use `Config/LaunchAgent.plist` as a template to run on login. Do not install by 
 ### Screenshots
 Add light/dark screenshots here.
 
-# AdapterOS Menu Bar App
+# adapterOS Menu Bar App
 
 ## Overview
-The AdapterOS Menu Bar App provides real-time monitoring and management of AdapterOS services from the macOS menu bar. It reads system status from `/var/run/adapteros_status.json` and interacts with the service supervisor API at `http://localhost:8081`.
+The adapterOS Menu Bar App provides real-time monitoring and management of adapterOS services from the macOS menu bar. It reads system status from `/var/run/adapteros_status.json` and interacts with the service supervisor API at `http://localhost:8081`.
 
 ## Features
 - Real-time status display (uptime, adapters, base model, services)
@@ -37,7 +37,7 @@ The AdapterOS Menu Bar App provides real-time monitoring and management of Adapt
 - Accessibility support (VoiceOver, reduced motion)
 
 ## Prerequisites
-- AdapterOS server and service supervisor running
+- adapterOS server and service supervisor running
 - Set `SERVICE_PANEL_SECRET` environment variable for auth (shared secret with supervisor)
 
 ## Installation
@@ -47,7 +47,7 @@ The AdapterOS Menu Bar App provides real-time monitoring and management of Adapt
    ```
 2. Install to `/usr/local/bin`:
    ```
-   cd menu-bar-app && swift build -c release && cp .build/release/AdapterOSMenu /usr/local/bin/aos-menu
+   cd menu-bar-app && swift build -c release && cp .build/release/adapterOSMenu /usr/local/bin/aos-menu
    ```
 3. Run:
    ```
@@ -77,7 +77,7 @@ The AdapterOS Menu Bar App provides real-time monitoring and management of Adapt
 - Tokens: Edit `Resources/DesignTokens.json` for theming.
 - Logs: View in Console.app (subsystem: com.adapteros.menu).
 
-For full AdapterOS docs, see root README.md.
+For full adapterOS docs, see root README.md.
 
 ## Recent Fixes (2025-01-15)
 
@@ -132,7 +132,7 @@ See [TESTING.md](TESTING.md) for testing guide and [ARCHITECTURE.md](ARCHITECTUR
 For distribution, sign with your Developer ID:
 
 ```bash
-codesign --sign "Developer ID Application: Your Name" .build/release/AdapterOSMenu
+codesign --sign "Developer ID Application: Your Name" .build/release/adapterOSMenu
 ```
 
 ## License
@@ -142,7 +142,7 @@ Dual-licensed under Apache 2.0 or MIT.
 ## App Structure Outline
 
 ### Core App
-- **AdapterOSMenuApp.swift**: Entry point, theme setup.
+- **adapterOSMenuApp.swift**: Entry point, theme setup.
 
 ### Models (Data Structures)
 - **StatusTypes.swift**, **DesignTokensModel.swift**: Typed responses, UI tokens.
@@ -162,9 +162,9 @@ Dual-licensed under Apache 2.0 or MIT.
 - **StatusUtils.swift**: Formatting.
 - Tests: StatusViewModelTests.swift (full coverage).
 
-[source: menu-bar-app/Sources/AdapterOSMenu/AdapterOSMenuApp.swift L1-L20]
-[source: menu-bar-app/Sources/AdapterOSMenu/Services/StatusReader.swift L1-L50]
-[source: menu-bar-app/Sources/AdapterOSMenu/Views/StatusMenuView.swift L1-L100]
+[source: menu-bar-app/Sources/adapterOSMenu/adapterOSMenuApp.swift L1-L20]
+[source: menu-bar-app/Sources/adapterOSMenu/Services/StatusReader.swift L1-L50]
+[source: menu-bar-app/Sources/adapterOSMenu/Views/StatusMenuView.swift L1-L100]
 
 
 

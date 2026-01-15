@@ -1,5 +1,5 @@
 #!/bin/bash
-# AdapterOS Fresh Build Script
+# adapterOS Fresh Build Script
 # Ensures clean rebuilds by stopping services and freeing ports
 #
 # Copyright (c) 2025 JKCA / James KC Auchterlonie. All rights reserved.
@@ -130,9 +130,9 @@ stop_service_gracefully() {
 
 # Kill any orphaned processes
 kill_orphaned_processes() {
-    status_msg "Checking for orphaned AdapterOS processes..."
+    status_msg "Checking for orphaned adapterOS processes..."
 
-    # Find processes that look like AdapterOS but aren't managed
+    # Find processes that look like adapterOS but aren't managed
     local orphaned_pids=$(ps aux | grep -E "(adapteros)" | grep -v grep | awk '{print $2}' || true)
 
     if [ -n "$orphaned_pids" ]; then
@@ -230,7 +230,7 @@ fresh_build() {
 
     # Check for any remaining issues
     if pgrep -f "adapteros-server" >/dev/null 2>&1; then
-        warning_msg "Some AdapterOS processes may still be running"
+        warning_msg "Some adapterOS processes may still be running"
         ((errors++))
     fi
 
@@ -253,7 +253,7 @@ fresh_build() {
 
 # Show usage
 usage() {
-    echo "AdapterOS Fresh Build Script"
+    echo "adapterOS Fresh Build Script"
     echo ""
     echo "Ensures clean rebuilds by stopping services and freeing ports"
     echo ""
@@ -263,8 +263,8 @@ usage() {
     echo "  --help, -h    Show this help message"
     echo ""
     echo "This script will:"
-    echo "  1. Stop all running AdapterOS services gracefully"
-    echo "  2. Kill any orphaned AdapterOS processes"
+    echo "  1. Stop all running adapterOS services gracefully"
+    echo "  2. Kill any orphaned adapterOS processes"
     echo "  3. Verify all ports are free (8080, 3200)"
     echo "  4. Clean build artifacts"
     echo "  5. Verify environment is ready for clean build"

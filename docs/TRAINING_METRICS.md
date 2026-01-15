@@ -1,6 +1,6 @@
 # Training Metrics System
 
-Complete guide to the comprehensive training metrics infrastructure in AdapterOS.
+Complete guide to the comprehensive training metrics infrastructure in adapterOS.
 
 **Last Updated:** 2025-12-11
 **Location:** `crates/adapteros-lora-worker/src/training/`

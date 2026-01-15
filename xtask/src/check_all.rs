@@ -1,4 +1,4 @@
-//! Feature matrix testing for AdapterOS workspace
+//! Feature matrix testing for adapterOS workspace
 //!
 //! This module implements comprehensive build checking across all supported
 //! feature combinations to ensure workspace-wide compatibility.

@@ -1,6 +1,6 @@
-# AdapterOS Performance Documentation
+# adapterOS Performance Documentation
 
-This directory contains performance baselines, benchmarks, and optimization guides for AdapterOS components.
+This directory contains performance baselines, benchmarks, and optimization guides for adapterOS components.
 
 ## Performance Baselines
 
@@ -299,4 +299,4 @@ When adding new performance optimizations:
 
 ## License
 
-Performance documentation follows the same license as AdapterOS (MIT OR Apache-2.0).
+Performance documentation follows the same license as adapterOS (MIT OR Apache-2.0).

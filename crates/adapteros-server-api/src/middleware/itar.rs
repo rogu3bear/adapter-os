@@ -1,4 +1,4 @@
-//! ITAR compliance middleware for AdapterOS
+//! ITAR compliance middleware for adapterOS
 //!
 //! This middleware enforces International Traffic in Arms Regulations (ITAR) compliance
 //! for tenants flagged with itar_flag=true. It provides:

@@ -15,7 +15,7 @@ use std::time::Duration;
 use tokio::signal;
 
 #[derive(Parser, Debug)]
-#[clap(name = "aos-secd", about = "AdapterOS Secure Enclave Daemon")]
+#[clap(name = "aos-secd", about = "adapterOS Secure Enclave Daemon")]
 struct Args {
     /// Unix domain socket path
     #[clap(long, default_value = "/var/run/aos-secd.sock")]
@@ -96,7 +96,7 @@ async fn main() -> Result<(), AosError> {
 
     tracing::info!(
         component = "secd",
-        "AdapterOS Secure Enclave Daemon starting"
+        "adapterOS Secure Enclave Daemon starting"
     );
     tracing::info!(
         component = "secd",

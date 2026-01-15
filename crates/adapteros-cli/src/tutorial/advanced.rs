@@ -39,7 +39,7 @@ pub async fn run(ci_mode: bool) -> Result<()> {
 
 fn print_banner() {
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    println!("           AdapterOS Interactive Tutorial (Advanced)");
+    println!("           adapterOS Interactive Tutorial (Advanced)");
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
 }
 
@@ -120,7 +120,7 @@ async fn step_2_verify_kernel(ci_mode: bool) -> Result<()> {
     println!("\n📘 Step 2: Verify Kernel Build");
     println!("═══════════════════════════════════════════════════════════");
     println!();
-    println!("AdapterOS uses fused Metal kernels for performance.");
+    println!("adapterOS uses fused Metal kernels for performance.");
     println!("Determinism requires:");
     println!("  - Precompiled .metallib (no runtime compilation)");
     println!("  - Kernel hash embedded in Plan manifest");

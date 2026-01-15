@@ -1,4 +1,4 @@
-# AdapterOS Database Benchmarks
+# adapterOS Database Benchmarks
 
 This directory contains performance benchmarks comparing SQL and KV storage backends for adapter operations.
 

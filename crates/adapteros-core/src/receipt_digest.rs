@@ -1,4 +1,4 @@
-//! Canonical receipt digest computation for AdapterOS.
+//! Canonical receipt digest computation for adapterOS.
 //!
 //! This module provides a single source of truth for computing receipt digests,
 //! ensuring parity between production (inference_trace) and offline verification (CLI).

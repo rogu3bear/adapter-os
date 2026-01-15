@@ -22,7 +22,7 @@ pub struct ReferenceOutput {
     pub baseline_hardware: String,
     /// macOS version used to generate reference
     pub baseline_os_version: String,
-    /// AdapterOS version used
+    /// adapterOS version used
     pub adapteros_version: String,
     /// Input tokens for the test
     pub input_tokens: Vec<u32>,

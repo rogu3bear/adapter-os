@@ -4,7 +4,7 @@ set -euo pipefail
 
 usage() {
   cat <<'USAGE'
-Collect AdapterOS debugging logs/config into a local bundle folder.
+Collect adapterOS debugging logs/config into a local bundle folder.
 
 Creates: var/log-bundles/<timestamp>/
 

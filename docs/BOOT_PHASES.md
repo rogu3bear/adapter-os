@@ -1,10 +1,10 @@
-# AdapterOS Boot Phases
+# adapterOS Boot Phases
 
 This document formalizes the boot lifecycle phases and their transitions.
 
 ## Overview
 
-AdapterOS uses a phase-gated boot sequence where each phase must complete before the next can begin. This ensures orderly initialization and provides clear failure points for debugging.
+adapterOS uses a phase-gated boot sequence where each phase must complete before the next can begin. This ensures orderly initialization and provides clear failure points for debugging.
 
 ## State Diagram
 
@@ -168,10 +168,10 @@ The boot report is emitted at the end of a successful boot sequence:
   "worker_key_kids": ["worker-def456"],
   "build": {
     "git_sha": "abc123def",
-    "build_time": "2025-01-15T10:00:00Z",
-    "version": "0.11.0"
+    "build_time": "2026-01-14T10:00:00Z",
+    "version": "0.12.1"
   },
-  "generated_at": "2025-01-15T10:00:18Z"
+  "generated_at": "2026-01-14T10:00:18Z"
 }
 ```
 
@@ -663,7 +663,7 @@ The `normalize_repo_slug` function in `crates/adapteros-orchestrator/src/code_in
 
 | Input | Slug |
 |-------|------|
-| `AdapterOS-Core` | `adapteros_core` |
+| `adapterOS-Core` | `adapteros_core` |
 | `My Awesome Repo!` | `my_awesome_repo` |
 | `__weird__` | `weird` |
 | `""` (empty) | `repo` |
@@ -1219,7 +1219,7 @@ Storage modes control sync behavior:
 
 ## Deterministic Execution and Reproducibility
 
-AdapterOS provides comprehensive determinism guarantees for reproducible training and inference.
+adapterOS provides comprehensive determinism guarantees for reproducible training and inference.
 
 ### Seed Derivation from Boot Manifest
 

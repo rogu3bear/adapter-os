@@ -1,10 +1,10 @@
-# AdapterOS API Reference
+# adapterOS API Reference
 
 **Version:** 1.3.0
 **Last Updated:** 2026-01-13
 **Copyright:** 2025 MLNavigator Inc. All rights reserved.
 
-This document provides the complete API reference for AdapterOS, consolidating endpoint documentation, request/response formats, and integration examples.
+This document provides the complete API reference for adapterOS, consolidating endpoint documentation, request/response formats, and integration examples.
 
 ---
 
@@ -60,7 +60,7 @@ This document provides the complete API reference for AdapterOS, consolidating e
 
 ### System Architecture
 
-AdapterOS provides a multi-tenant ML inference platform with the following components:
+adapterOS provides a multi-tenant ML inference platform with the following components:
 
 - **Control Plane** (port 8080): HTTP API with SQLite, JWT auth, policy enforcement
 - **Worker Processes**: LoRA inference/training over Unix Domain Sockets (UDS)
@@ -3507,7 +3507,7 @@ eventSource.addEventListener('metrics', (event) => {
 
 ### Overview
 
-The LLM interface specification defines how the base language model interacts with the AdapterOS runtime. This enables:
+The LLM interface specification defines how the base language model interacts with the adapterOS runtime. This enables:
 - Function calling for retrieval and computation
 - Signal-based adapter activation
 - Evidence-grounded responses
@@ -4047,7 +4047,7 @@ streamInference('Write a haiku about machine learning');
 ### TypeScript Client SDK
 
 ```typescript
-class AdapterOSClient {
+class adapterOSClient {
   constructor(
     private baseURL: string,
     private token: string
@@ -4126,7 +4126,7 @@ class AdapterOSClient {
 }
 
 // Usage
-const client = new AdapterOSClient('http://localhost:8080', '');
+const client = new adapterOSClient('http://localhost:8080', '');
 await client.login('admin@example.com', 'password');
 
 const adapters = await client.listAdapters({ tier: 1 });

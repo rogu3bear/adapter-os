@@ -1,4 +1,4 @@
-//! Security Audit Test Suite for AdapterOS Critical Components
+//! Security Audit Test Suite for adapterOS Critical Components
 //!
 //! This test suite validates security properties across:
 //! - HKDF seed isolation and domain separation

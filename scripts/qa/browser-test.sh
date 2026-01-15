@@ -1,5 +1,5 @@
 #!/bin/bash
-# Browser QA Test Script for AdapterOS
+# Browser QA Test Script for adapterOS
 # Tests API endpoints and provides checklist for manual browser testing
 
 set -e
@@ -65,7 +65,7 @@ test_json_endpoint() {
 
 echo ""
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${CYAN}  AdapterOS Browser QA Test Suite${NC}"
+echo -e "${CYAN}  adapterOS Browser QA Test Suite${NC}"
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 echo "Base URL: $BASE_URL"

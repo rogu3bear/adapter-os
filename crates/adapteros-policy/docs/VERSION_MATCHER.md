@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `version_matcher` module provides comprehensive version range matching capabilities for CVE (Common Vulnerabilities and Exposures) integration in AdapterOS. It enables matching software versions against vulnerability databases including NVD (National Vulnerability Database), OSV (Open Source Vulnerabilities), and CPE (Common Platform Enumeration) formats.
+The `version_matcher` module provides comprehensive version range matching capabilities for CVE (Common Vulnerabilities and Exposures) integration in adapterOS. It enables matching software versions against vulnerability databases including NVD (National Vulnerability Database), OSV (Open Source Vulnerabilities), and CPE (Common Platform Enumeration) formats.
 
 ## Key Features
 

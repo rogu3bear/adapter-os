@@ -2,7 +2,7 @@
   "spdxVersion": "SPDX-2.3",
   "dataLicense": "CC0-1.0",
   "spdxId": "SPDXRef-DOCUMENT",
-  "name": "AdapterOS",
+  "name": "adapterOS",
   "documentNamespace": "https://github.com/rogu3bear/adapter-os/sbom/1766778641",
   "creationInfo": {
     "created": "2025-12-26T19:50:41Z",

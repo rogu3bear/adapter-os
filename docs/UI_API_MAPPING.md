@@ -1,4 +1,4 @@
-# AdapterOS UI → API Mapping
+# adapterOS UI → API Mapping
 
 > Comprehensive mapping of Leptos UI pages to backend API dependencies.
 

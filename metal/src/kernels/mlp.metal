@@ -1,4 +1,4 @@
-// AdapterOS MLP Kernel
+// adapterOS MLP Kernel
 // Fused MLP with SwiGLU activation, LoRA support, and bias
 //
 // Features:

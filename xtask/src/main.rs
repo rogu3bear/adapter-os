@@ -1,4 +1,4 @@
-//! Build automation and developer workflows for AdapterOS
+//! Build automation and developer workflows for adapterOS
 
 use anyhow::Result;
 use std::env;
@@ -122,7 +122,7 @@ async fn main() -> Result<()> {
 }
 
 fn print_help() {
-    println!("AdapterOS Build Tasks");
+    println!("adapterOS Build Tasks");
     println!();
     println!("USAGE:");
     println!("  cargo xtask <TASK>");

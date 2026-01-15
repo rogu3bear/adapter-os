@@ -1,5 +1,5 @@
 #![cfg(all(test, feature = "extended-tests"))]
-//! Hash chain validation tests for AdapterOS determinism
+//! Hash chain validation tests for adapterOS determinism
 //!
 //! Verifies that hash chains maintain integrity and determinism throughout
 //! the execution lifecycle, ensuring tamper-evident operation logs.

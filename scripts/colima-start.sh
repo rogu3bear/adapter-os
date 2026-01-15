@@ -1,9 +1,9 @@
 #!/bin/bash
-# Colima lifecycle management script for AdapterOS development
+# Colima lifecycle management script for adapterOS development
 
 set -e
 
-echo "Starting Colima for AdapterOS development..."
+echo "Starting Colima for adapterOS development..."
 
 # Start Colima if not running
 if ! colima status >/dev/null 2>&1; then

@@ -1,6 +1,6 @@
-# AdapterOS Architecture
+# adapterOS Architecture
 
-**Canonical reference for AdapterOS system architecture, concepts, and workflows**
+**Canonical reference for adapterOS system architecture, concepts, and workflows**
 
 **Last Updated:** 2026-01-13
 
@@ -21,7 +21,7 @@
 
 ## System Overview
 
-AdapterOS is an ML inference platform with an offline-capable, UMA-optimized orchestration layer for multi-LoRA systems on Apple Silicon.
+adapterOS is an ML inference platform with an offline-capable, UMA-optimized orchestration layer for multi-LoRA systems on Apple Silicon.
 
 ### Core Technologies
 
@@ -38,7 +38,7 @@ AdapterOS is an ML inference platform with an offline-capable, UMA-optimized orc
 
 ### Backend Execution Modes
 
-AdapterOS supports two backend execution modes with different adapter handling:
+adapterOS supports two backend execution modes with different adapter handling:
 
 - **MLX (Primary)**: Native macOS inference and training with unified memory. Supports **hot-swap adapters** with live replacement during inference. Uses atomic pointer updates for zero-downtime updates and rollbacks. HKDF-seeded determinism for reproducible results.
 
@@ -127,7 +127,7 @@ graph TB
 
 ### 1. Tenant
 
-**Definition:** A tenant is the top-level isolation unit in AdapterOS, representing a user, organization, or environment.
+**Definition:** A tenant is the top-level isolation unit in adapterOS, representing a user, organization, or environment.
 
 **Purpose:** Enforce security boundaries, resource quotas, and access control.
 
@@ -435,7 +435,7 @@ aosctl verify determinism-loop --json
 
 ### Control Plane
 
-The control plane (`adapteros-server`) is the orchestration hub for AdapterOS.
+The control plane (`adapteros-server`) is the orchestration hub for adapterOS.
 
 **Responsibilities:**
 - HTTP API server (port 8080)
@@ -675,7 +675,7 @@ if !updated {
 
 ## Cryptographic Receipts & Sealed Adapters
 
-AdapterOS implements **cryptographic receipts** and **sealed adapters** for verifiable, tamper-proof ML operations.
+adapterOS implements **cryptographic receipts** and **sealed adapters** for verifiable, tamper-proof ML operations.
 
 ### Cryptographic Receipts
 
@@ -912,7 +912,7 @@ User Prompt (text)
 
 ### Token Accounting and Cache Credits
 
-AdapterOS distinguishes **logical tokens** (total processed) from **billed tokens** (charged to user), crediting cache-reused computation.
+adapterOS distinguishes **logical tokens** (total processed) from **billed tokens** (charged to user), crediting cache-reused computation.
 
 ```mermaid
 flowchart TD
@@ -1500,6 +1500,6 @@ sequenceDiagram
 
 **Copyright:** © 2025 MLNavigator Inc / James KC Auchterlonie. All rights reserved.
 
-**Maintained by:** AdapterOS Team
+**Maintained by:** adapterOS Team
 
 **Last Updated:** 2025-12-11

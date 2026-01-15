@@ -1,6 +1,6 @@
-# AdapterOS Glossary
+# adapterOS Glossary
 
-**Purpose:** Centralized definitions for technical terms used throughout AdapterOS documentation.  
+**Purpose:** Centralized definitions for technical terms used throughout adapterOS documentation.  
 **Last Updated:** 2025-01-15
 
 ---
@@ -30,7 +30,7 @@ A baseline adapter (like `adapteros.aos`) that serves as the delta base for code
 **See also:** [Adapter](#adapter), [Codebase Adapter](#codebase-adapter)
 
 ### Control Plane
-The management system that coordinates everything in AdapterOS. Includes the API server, job orchestration, telemetry indexing, and policy enforcement.
+The management system that coordinates everything in adapterOS. Includes the API server, job orchestration, telemetry indexing, and policy enforcement.
 
 **See also:** [Control Plane Documentation](CONTROL-PLANE.md)
 
@@ -42,7 +42,7 @@ Versioned configuration snapshot for promotion and rollback. Contains determinis
 ## D
 
 ### Deterministic
-Always produces the same output for the same input. In AdapterOS, this is achieved through:
+Always produces the same output for the same input. In adapterOS, this is achieved through:
 - Fixed random seeds (HKDF-derived)
 - Quantized gates (Q15)
 - Deterministic tie-breaking in retrieval
@@ -62,7 +62,7 @@ The core execution engine that ensures reproducible, auditable inference with to
 ## E
 
 ### Eviction
-Removing something from memory to free up space. AdapterOS uses intelligent eviction policies to maintain ≥15% memory headroom, evicting adapters in order: ephemeral_ttl → cold_lru → warm_lru.
+Removing something from memory to free up space. adapterOS uses intelligent eviction policies to maintain ≥15% memory headroom, evicting adapters in order: ephemeral_ttl → cold_lru → warm_lru.
 
 **See also:** [Memory Management](architecture.md#memory-management)
 
@@ -101,7 +101,7 @@ An adapter that supports live replacement without service interruption. Uses ato
 ## I
 
 ### Inference
-Running the AI model to generate an answer. AdapterOS performs inference using K-sparse LoRA routing with Metal-optimized kernels.
+Running the AI model to generate an answer. adapterOS performs inference using K-sparse LoRA routing with Metal-optimized kernels.
 
 ---
 
@@ -131,14 +131,14 @@ Using only K adapters at a time (K=3 by default). Instead of using all available
 ## M
 
 ### Metal
-Apple's GPU programming framework for Mac. AdapterOS uses Metal for high-performance GPU computation on Apple Silicon.
+Apple's GPU programming framework for Mac. adapterOS uses Metal for high-performance GPU computation on Apple Silicon.
 
 **See also:** [Metal Kernels](metal/PHASE4-METAL-KERNELS.md)
 
 ### Deterministic Inference Runtime (DIR)
 **DIR** - The core inference engine that enables deterministic execution and token artifact reusability. DIR refers to the routing, adapter management, and execution system that treats inference outputs as persistent, reusable artifacts.
 
-**Note:** Use "AdapterOS" for the complete system. Use "DIR" when referring to the inference runtime specifically.
+**Note:** Use "adapterOS" for the complete system. Use "DIR" when referring to the inference runtime specifically.
 
 **See also:** [Token Artifact System](#token-artifact-system-tas), [Naming Conventions](README.md#naming-conventions)
 
@@ -154,7 +154,7 @@ Apple's GPU programming framework for Mac. AdapterOS uses Metal for high-perform
 ## P
 
 ### Policy Pack
-A set of rules the system must follow. AdapterOS enforces 25 canonical policy packs covering:
+A set of rules the system must follow. adapterOS enforces 25 canonical policy packs covering:
 - Security (Egress, Isolation, Secrets)
 - Quality (Determinism, Performance, Memory)
 - Compliance (Evidence, Refusal, Compliance)
@@ -172,7 +172,7 @@ The default adapter type (also called "standard"). Portable adapters are `.aos` 
 ## Q
 
 ### Q15
-A number format using 16 bits (0 to 32767). AdapterOS uses Q15 quantization for router gates to improve efficiency:
+A number format using 16 bits (0 to 32767). adapterOS uses Q15 quantization for router gates to improve efficiency:
 - **Before**: Gate values stored as 32-bit floats (0.0 to 1.0)
 - **After**: Gate values stored as 16-bit integers (0 to 32767)
 
@@ -208,7 +208,7 @@ An adapter tied to a specific inference stream, unable to serve requests in othe
 ## T
 
 ### Telemetry
-Recording what the system does for monitoring and debugging. AdapterOS uses canonical JSON format with BLAKE3 hashing for integrity, bundle rotation, and signing.
+Recording what the system does for monitoring and debugging. adapterOS uses canonical JSON format with BLAKE3 hashing for integrity, bundle rotation, and signing.
 
 **See also:** [Telemetry Policy](POLICIES.md#9-telemetry)
 
@@ -225,7 +225,7 @@ Transforms inference outputs into persistent, reusable artifacts that can be ref
 ## U
 
 ### UDS
-**Unix Domain Socket** - A way for programs to communicate securely on the same machine. AdapterOS uses UDS for worker communication instead of TCP for better security and isolation.
+**Unix Domain Socket** - A way for programs to communicate securely on the same machine. adapterOS uses UDS for worker communication instead of TCP for better security and isolation.
 
 **See also:** [Isolation Policy](POLICIES.md#8-isolation)
 
@@ -275,4 +275,4 @@ A process that does the actual AI inference work. Workers run in isolated proces
 ---
 
 **Last Updated:** 2025-01-15  
-**Maintained by:** AdapterOS Documentation Team
+**Maintained by:** adapterOS Documentation Team

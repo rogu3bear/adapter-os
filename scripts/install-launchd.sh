@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install AdapterOS worker as a launchd service on macOS
+# Install adapterOS worker as a launchd service on macOS
 #
 # This script installs the aos-worker as a system-level launchd service
 # with automatic restart on failure.
@@ -56,7 +56,7 @@ if [[ ! -f "$PLIST_SOURCE" ]]; then
     exit 1
 fi
 
-info "Installing AdapterOS Worker as launchd service..."
+info "Installing adapterOS Worker as launchd service..."
 info ""
 
 # Create necessary directories

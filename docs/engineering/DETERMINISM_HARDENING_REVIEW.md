@@ -22,7 +22,7 @@
 
 ### 1.1 Definition
 
-**Determinism in AdapterOS** means: given identical inputs (model weights, adapter parameters, prompt tokens, and configuration), the system produces bit-identical outputs across:
+**Determinism in adapterOS** means: given identical inputs (model weights, adapter parameters, prompt tokens, and configuration), the system produces bit-identical outputs across:
 
 - Multiple inference runs on the same hardware
 - System restarts with the same seed

@@ -1,4 +1,4 @@
-# AdapterOS Foundation Adapter Dataset
+# adapterOS Foundation Adapter Dataset
 
 Goal: train a single LoRA that internalizes this codebase’s structure, invariants, and common tasks without overfitting or hallucinating non-existent artifacts.
 

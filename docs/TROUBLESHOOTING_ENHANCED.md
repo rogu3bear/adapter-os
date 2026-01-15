@@ -1,10 +1,10 @@
-# AdapterOS Enhanced Troubleshooting Guide
+# adapterOS Enhanced Troubleshooting Guide
 
-**Comprehensive error diagnosis and resolution for AdapterOS**
+**Comprehensive error diagnosis and resolution for adapterOS**
 
 **Last Updated:** 2025-12-20
 **Version:** 3.0
-**Maintained By:** AdapterOS Support Team
+**Maintained By:** adapterOS Support Team
 
 ---
 
@@ -1205,7 +1205,7 @@ curl -s http://localhost:8080/api/v1/metrics/system | jq -r '
 #!/bin/bash
 # Generate comprehensive diagnostic report
 
-echo "=== AdapterOS Diagnostic Report ==="
+echo "=== adapterOS Diagnostic Report ==="
 echo "Generated: $(date)"
 echo
 

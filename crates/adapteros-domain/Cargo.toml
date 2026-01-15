@@ -2,12 +2,12 @@
 name = "adapteros-domain"
 version.workspace = true
 edition = "2021"
-authors = ["AdapterOS Team"]
-description = "Domain-specific adapter layer for AdapterOS with deterministic execution"
+authors = ["adapterOS Team"]
+description = "Domain-specific adapter layer for adapterOS with deterministic execution"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-# AdapterOS core dependencies
+# adapterOS core dependencies
 adapteros-core = { path = "../adapteros-core" }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 adapteros-trace = { path = "../adapteros-trace" }

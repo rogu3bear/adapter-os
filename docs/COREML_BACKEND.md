@@ -75,7 +75,7 @@ CoreML backend uses **fused packages** where LoRA weights are pre-merged into ba
 
 ## Architecture
 
-### CoreML Integration in AdapterOS Stack
+### CoreML Integration in adapterOS Stack
 
 ```mermaid
 graph TB
@@ -209,7 +209,7 @@ xcode-select --install
 
 ### Model Preparation
 
-AdapterOS provides a production-ready export script at `scripts/export_coreml_production.py` that creates optimized FP16 models with multiple sequence length variants.
+adapterOS provides a production-ready export script at `scripts/export_coreml_production.py` that creates optimized FP16 models with multiple sequence length variants.
 
 **Prerequisites:**
 ```bash

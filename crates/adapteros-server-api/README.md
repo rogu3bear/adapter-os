@@ -2,7 +2,7 @@
 
 **Control Plane API Server**
 
-REST API for AdapterOS control plane operations, including CAB promotion workflow, adapter management, and system monitoring.
+REST API for adapterOS control plane operations, including CAB promotion workflow, adapter management, and system monitoring.
 
 ---
 

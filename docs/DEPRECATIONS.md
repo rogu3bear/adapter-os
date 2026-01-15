@@ -1,4 +1,4 @@
-# AdapterOS CLI & Script Deprecations
+# adapterOS CLI & Script Deprecations
 
 This document tracks deprecated CLIs and scripts, along with their supported replacements. Adding a new script under `scripts/` requires either:
 

@@ -1,4 +1,4 @@
-# AdapterOS Training Datasets
+# adapterOS Training Datasets
 
 **Purpose:** Organized test data for validation, contract testing, and behavioral verification.
 

@@ -1,6 +1,6 @@
 //! Performance benchmarks for BLAKE3 hashing and HKDF seed derivation
 //!
-//! This module benchmarks cryptographic operations critical to AdapterOS:
+//! This module benchmarks cryptographic operations critical to adapterOS:
 //! - BLAKE3 hashing across various file sizes (1KB to 256MB)
 //! - HKDF seed derivation performance (derive_seed and derive_seed_full)
 //! - Hash verification operations
@@ -29,7 +29,7 @@ use std::time::Duration;
 
 /// Benchmark BLAKE3 hashing for requested file sizes
 ///
-/// Tests the specific sizes requested for AdapterOS:
+/// Tests the specific sizes requested for adapterOS:
 /// - 1KB: Small configuration files
 /// - 64KB: Typical adapter metadata
 /// - 1MB: Medium-sized models

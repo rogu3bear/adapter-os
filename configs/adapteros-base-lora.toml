@@ -1,4 +1,4 @@
-# AdapterOS base code adapter training configuration (MasterPlan Layer 2)
+# adapterOS base code adapter training configuration (MasterPlan Layer 2)
 rank = 16
 alpha = 32.0
 learning_rate = 0.0005

@@ -14,7 +14,7 @@ fn test_tutorial_quickstart_ci_mode() {
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     // Verify tutorial output contains expected sections
-    assert!(stdout.contains("AdapterOS Interactive Tutorial"));
+    assert!(stdout.contains("adapterOS Interactive Tutorial"));
     assert!(stdout.contains("Quickstart"));
 
     // Verify tutorial steps
@@ -51,7 +51,7 @@ fn test_tutorial_advanced_ci_mode() {
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     // Verify advanced tutorial output
-    assert!(stdout.contains("AdapterOS Interactive Tutorial"));
+    assert!(stdout.contains("adapterOS Interactive Tutorial"));
     assert!(stdout.contains("Advanced"));
 
     // Verify advanced topics
@@ -64,7 +64,7 @@ fn test_tutorial_advanced_ci_mode() {
 fn test_tutorial_module_compiles() {
     // This test ensures the tutorial module compiles successfully
     // Verify that the module is loaded correctly
-    let test_string = "AdapterOS Interactive Tutorial";
+    let test_string = "adapterOS Interactive Tutorial";
     assert!(
         !test_string.is_empty(),
         "Tutorial constants should be non-empty"

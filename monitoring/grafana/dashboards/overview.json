@@ -316,7 +316,7 @@
   "time": { "from": "now-1h", "to": "now" },
   "timepicker": {},
   "timezone": "",
-  "title": "AdapterOS Overview",
+  "title": "adapterOS Overview",
   "uid": "adapteros-overview",
   "version": 1,
   "weekStart": ""

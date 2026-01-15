@@ -1,4 +1,4 @@
-# AdapterOS Determinism Invariants
+# adapterOS Determinism Invariants
 
 > Complete list of determinism rules and invariants for reproducible inference.
 

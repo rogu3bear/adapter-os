@@ -2166,7 +2166,7 @@
         "type": "object"
       },
       "BackendKind": {
-        "description": "Canonical backend selector used across AdapterOS (inference + training).\n\nAll user- and config-facing backend strings must parse through this type so\nwe have a single source of truth (and error messages) for CoreML, MLX,\nMetal, CPU, and Auto detection. MLX is the primary backend for its\nflexibility and HKDF-seeded determinism, with CoreML as a high-performance\nfallback when ANE acceleration is preferred. `Auto` preserves the current\nbehavior of \"pick the best available backend\".",
+        "description": "Canonical backend selector used across adapterOS (inference + training).\n\nAll user- and config-facing backend strings must parse through this type so\nwe have a single source of truth (and error messages) for CoreML, MLX,\nMetal, CPU, and Auto detection. MLX is the primary backend for its\nflexibility and HKDF-seeded determinism, with CoreML as a high-performance\nfallback when ANE acceleration is preferred. `Auto` preserves the current\nbehavior of \"pick the best available backend\".",
         "enum": [
           "auto",
           "coreml",

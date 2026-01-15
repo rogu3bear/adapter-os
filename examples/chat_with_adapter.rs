@@ -24,7 +24,7 @@ fn main() {
         std::env::var("AOS_MODEL_PATH").unwrap_or_else(|_| "./models/default".to_string());
     let model_backend = std::env::var("AOS_MODEL_BACKEND").unwrap_or_else(|_| "auto".to_string());
 
-    println!("AdapterOS Chat Interface");
+    println!("adapterOS Chat Interface");
     println!("Model: {} (backend: {})", model_path, model_backend);
     println!();
 

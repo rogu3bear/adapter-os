@@ -2,8 +2,8 @@
 name = "adapteros-error-recovery"
 version.workspace = true
 edition = "2021"
-authors = ["AdapterOS Team"]
-description = "Error recovery and corruption detection for AdapterOS"
+authors = ["adapterOS Team"]
+description = "Error recovery and corruption detection for adapterOS"
 license = "MIT OR Apache-2.0"
 
 [dependencies]

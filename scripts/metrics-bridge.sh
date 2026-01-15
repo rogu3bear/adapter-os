@@ -3,7 +3,7 @@
 # 
 # This script reads metrics from the Unix domain socket and exports them
 # to an external Prometheus push gateway, ensuring zero network egress
-# from the AdapterOS worker processes (Egress Ruleset #1).
+# from the adapterOS worker processes (Egress Ruleset #1).
 
 set -euo pipefail
 

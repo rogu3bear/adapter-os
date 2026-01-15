@@ -1,4 +1,4 @@
-# AdapterOS API Endpoints Truth Table
+# adapterOS API Endpoints Truth Table
 
 > Generated from codebase analysis. Source: `crates/adapteros-server-api/src/routes.rs`
 

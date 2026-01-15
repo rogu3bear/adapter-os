@@ -1,4 +1,4 @@
-//! System resource monitoring and metrics collection for AdapterOS
+//! System resource monitoring and metrics collection for adapterOS
 //!
 //! This crate provides comprehensive system resource monitoring including:
 //! - CPU usage (per-core and aggregated)
@@ -9,7 +9,7 @@
 //! - Policy enforcement integration
 //! - Telemetry event generation
 //!
-//! Follows AdapterOS patterns for telemetry, policy enforcement, and error handling.
+//! Follows adapterOS patterns for telemetry, policy enforcement, and error handling.
 
 #![allow(clippy::collapsible_match)]
 #![allow(dead_code)]

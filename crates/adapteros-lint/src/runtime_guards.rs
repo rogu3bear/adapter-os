@@ -45,7 +45,7 @@ pub fn init_guards(config: GuardConfig) {
     STRICT_MODE.store(config.strict_mode, Ordering::Relaxed);
 
     if config.enabled {
-        info!("AdapterOS determinism guards enabled");
+        info!("adapterOS determinism guards enabled");
         if config.strict_mode {
             warn!("Strict mode: will panic on first nondeterminism violation");
         }

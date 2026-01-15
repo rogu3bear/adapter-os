@@ -145,7 +145,7 @@ fn trace_receipt_to_ref(receipt: &TraceReceipt) -> InferenceReceiptRef {
 
 fn build_readme(summary: &BundleReadme) -> String {
     let mut out = String::new();
-    out.push_str("AdapterOS Evidence Bundle\n");
+    out.push_str("adapterOS Evidence Bundle\n");
     out.push_str("=========================\n\n");
     out.push_str(&format!("Run ID: {}\n", summary.run_id));
     out.push_str(&format!("Tenant: {}\n", summary.tenant_id));

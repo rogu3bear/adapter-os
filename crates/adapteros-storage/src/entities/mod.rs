@@ -1,4 +1,4 @@
-//! Entity KV schemas for AdapterOS storage migration
+//! Entity KV schemas for adapterOS storage migration
 //!
 //! This module defines the canonical entity types that replace SQL tables
 //! in the key-value storage backend. Each entity type includes conversion

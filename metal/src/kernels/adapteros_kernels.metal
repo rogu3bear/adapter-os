@@ -1,4 +1,4 @@
-// AdapterOS Modular Metal Kernels
+// adapterOS Modular Metal Kernels
 // Production-optimized Metal kernels for Qwen2.5-7B-Instruct
 //
 // Features:

@@ -1,6 +1,6 @@
 //! Integration test harness for axum-test based API testing
 //!
-//! Provides a complete test harness for testing AdapterOS API endpoints with:
+//! Provides a complete test harness for testing adapterOS API endpoints with:
 //! - In-memory SQLite test database setup
 //! - Automatic authentication token management
 //! - Request/response helpers for common patterns

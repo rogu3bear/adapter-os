@@ -21,7 +21,7 @@
 
 ## Overview
 
-AdapterOS supports three primary backends for LoRA inference on Apple Silicon:
+adapterOS supports three primary backends for LoRA inference on Apple Silicon:
 
 | Backend | Primary Use Case | Hardware Target | Status |
 |---------|-----------------|-----------------|--------|

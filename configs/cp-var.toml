@@ -1,4 +1,4 @@
-# AdapterOS Control Plane Configuration (var-backed)
+# adapterOS Control Plane Configuration (var-backed)
 
 [server]
 # Use 8080 for development (UI expects this)

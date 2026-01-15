@@ -5,7 +5,7 @@
 # Secure Enclave settings
 enable_secure_enclave = false  # Set to true when hardware is available
 key_alias = "aos-host-signing"
-keychain_name = "AdapterOS-SecureEnclave"
+keychain_name = "adapterOS-SecureEnclave"
 
 # Hardware requirements
 require_hardware_attestation = false  # Set to true for production

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Coverage threshold checker for AdapterOS.
+Coverage threshold checker for adapterOS.
 
 Parses tarpaulin JSON output and checks per-crate coverage against thresholds.
 Fails with exit code 1 if any crate is below its threshold.

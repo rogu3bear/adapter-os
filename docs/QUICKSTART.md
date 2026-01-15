@@ -1,6 +1,6 @@
-# AdapterOS Complete Setup Guide
+# adapterOS Complete Setup Guide
 
-Get AdapterOS fully up and running in under 10 minutes. This guide covers both backend integration and web UI setup.
+Get adapterOS fully up and running in under 10 minutes. This guide covers both backend integration and web UI setup.
 
 > **For basic backend-only setup**, see [getting-started.md](getting-started.md) (5 minutes).
 
@@ -81,7 +81,7 @@ AOS_DEV_NO_AUTH=1 cargo run -p adapteros-server -- --config configs/cp.toml
 
 ## Understanding the Database
 
-AdapterOS uses SQLite for tenant management, adapter registry, and telemetry. For complete database schema documentation:
+adapterOS uses SQLite for tenant management, adapter registry, and telemetry. For complete database schema documentation:
 
 - [Database Documentation](DATABASE.md) - Complete database structure and schema
 

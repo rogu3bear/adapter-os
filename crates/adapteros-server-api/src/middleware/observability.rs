@@ -340,7 +340,7 @@ fn derive_hint(code: &str, message: &str, detail: Option<&str>, _status: StatusC
         || combined.contains("unable to open database file")
         || combined.contains("readonly database")
     {
-        return "Database unavailable: ensure `var/aos-cp.sqlite3` is readable/writable and not locked by another AdapterOS process"
+        return "Database unavailable: ensure `var/aos-cp.sqlite3` is readable/writable and not locked by another adapterOS process"
             .to_string();
     }
 

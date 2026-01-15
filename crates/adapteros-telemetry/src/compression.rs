@@ -247,7 +247,7 @@ mod tests {
     fn generate_test_data(size: usize) -> Vec<u8> {
         // Generate compressible data (repeated patterns)
         let pattern =
-            b"AdapterOS telemetry event data with repeated patterns for compression testing. ";
+            b"adapterOS telemetry event data with repeated patterns for compression testing. ";
         let mut data = Vec::with_capacity(size);
 
         while data.len() < size {

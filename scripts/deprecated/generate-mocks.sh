@@ -1,5 +1,5 @@
 #!/bin/bash
-# AdapterOS Mock Data Generator
+# adapterOS Mock Data Generator
 # Generates realistic mock fixtures for UI and CLI development
 
 set -euo pipefail
@@ -13,7 +13,7 @@ CYAN='\033[0;36m'
 GREEN='\033[0;32m'
 NC='\033[0m'
 
-echo -e "${CYAN}=== AdapterOS Mock Generator ===${NC}"
+echo -e "${CYAN}=== adapterOS Mock Generator ===${NC}"
 
 # Create mocks directory structure
 mkdir -p "$MOCKS_DIR"/{adapters,stacks,telemetry,inference,router,training,policies}

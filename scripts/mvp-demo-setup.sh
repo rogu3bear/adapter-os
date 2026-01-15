@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# AdapterOS MVP Demo Setup
+# adapterOS MVP Demo Setup
 # One-command setup for demo-ready state
 # =============================================================================
 
@@ -259,13 +259,13 @@ create_demo_data() {
 
     if [ ! -f "$demo_dataset" ]; then
         cat > "$demo_dataset" << 'EOF'
-{"prompt": "What is AdapterOS?", "completion": "AdapterOS is an ML inference platform with offline-capable, UMA-optimized orchestration for multi-LoRA systems on Apple Silicon. It provides deterministic inference, hot-swap adapters, and multi-tenant isolation."}
+{"prompt": "What is adapterOS?", "completion": "adapterOS is an ML inference platform with offline-capable, UMA-optimized orchestration for multi-LoRA systems on Apple Silicon. It provides deterministic inference, hot-swap adapters, and multi-tenant isolation."}
 {"prompt": "How do I train an adapter?", "completion": "To train an adapter: 1) Navigate to Training > Datasets, 2) Upload your training data in JSONL format, 3) Click 'Start Training' to create an adapter from your dataset, 4) Once complete, add the adapter to a stack for inference."}
-{"prompt": "What is deterministic inference?", "completion": "Deterministic inference ensures that given the same input, model, and configuration, you will always get the exact same output. AdapterOS achieves this through fixed seeds, Q15 quantization, and reproducible routing decisions."}
+{"prompt": "What is deterministic inference?", "completion": "Deterministic inference ensures that given the same input, model, and configuration, you will always get the exact same output. adapterOS achieves this through fixed seeds, Q15 quantization, and reproducible routing decisions."}
 {"prompt": "How does the K-sparse router work?", "completion": "The K-sparse router selects the top-K adapters based on feature scoring. It extracts 22-dimensional features from the input context (language, framework, symbols, etc.) and scores each adapter. The top K adapters are selected with Q15 quantized gates."}
 {"prompt": "What is a stack?", "completion": "A stack is a collection of adapters configured for inference. Stacks allow you to combine multiple specialized adapters and route requests to the most appropriate ones based on the input context."}
 {"prompt": "How do I upload a dataset?", "completion": "Navigate to Training > Datasets and click 'Upload Dataset'. Select your JSONL file containing prompt/completion pairs. The system will validate the format and compute a BLAKE3 hash for integrity verification."}
-{"prompt": "What backends are supported?", "completion": "AdapterOS supports multiple backends: CoreML (primary, uses Apple Neural Engine), Metal (GPU fallback), and MLX (experimental). The default is CoreML for optimal performance on Apple Silicon."}
+{"prompt": "What backends are supported?", "completion": "adapterOS supports multiple backends: CoreML (primary, uses Apple Neural Engine), Metal (GPU fallback), and MLX (experimental). The default is CoreML for optimal performance on Apple Silicon."}
 {"prompt": "How is tenant isolation enforced?", "completion": "Tenant isolation is enforced at multiple layers: handler-level validation, database FK constraints, tenant-scoped queries, and 29+ composite triggers that prevent cross-tenant data access."}
 {"prompt": "What is Q15 quantization?", "completion": "Q15 quantization uses 16-bit fixed-point representation with a denominator of 32767.0 (not 32768). This ensures deterministic gate values for adapter routing and reproducible inference results."}
 {"prompt": "How do I start the system?", "completion": "Run ./start from the repository root. This boots the backend API (port 8080), UI server (port 3200), and optionally the inference worker. Health checks verify each service is ready before proceeding."}
@@ -336,7 +336,7 @@ verify_setup() {
 print_instructions() {
     echo ""
     echo "=============================================="
-    echo -e "${GREEN}AdapterOS MVP Demo Ready!${NC}"
+    echo -e "${GREEN}adapterOS MVP Demo Ready!${NC}"
     echo "=============================================="
     echo ""
     echo "To start the demo:"
@@ -369,7 +369,7 @@ print_instructions() {
 main() {
     echo ""
     echo "=============================================="
-    echo "AdapterOS MVP Demo Setup"
+    echo "adapterOS MVP Demo Setup"
     echo "=============================================="
     echo ""
 

@@ -1,4 +1,4 @@
-//! Security middleware for AdapterOS API server
+//! Security middleware for adapterOS API server
 //!
 //! Provides defense-in-depth security controls:
 //! - Security headers (CSP, HSTS, X-Frame-Options, etc.)

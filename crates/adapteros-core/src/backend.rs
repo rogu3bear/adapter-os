@@ -2,7 +2,7 @@ use crate::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use std::{fmt, str::FromStr};
 
-/// Canonical backend selector used across AdapterOS (inference + training).
+/// Canonical backend selector used across adapterOS (inference + training).
 ///
 /// All user- and config-facing backend strings must parse through this type so
 /// we have a single source of truth (and error messages) for CoreML, MLX,

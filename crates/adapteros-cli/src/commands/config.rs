@@ -1772,7 +1772,7 @@ fn output_show_json(config: &[ConfigEntry]) -> Result<()> {
 }
 
 fn output_show_env(config: &[ConfigEntry]) -> Result<()> {
-    println!("# AdapterOS Configuration Export");
+    println!("# adapterOS Configuration Export");
     println!("# Generated: {}", Utc::now().to_rfc3339());
     println!();
 
@@ -2034,7 +2034,7 @@ fn output_effective_json(entries: &[EffectiveEntry]) -> Result<()> {
 
 /// Output effective config as env file format
 fn output_effective_env(entries: &[EffectiveEntry]) -> Result<()> {
-    println!("# AdapterOS Effective Configuration");
+    println!("# adapterOS Effective Configuration");
     println!("# Generated: {}", Utc::now().to_rfc3339());
     println!("# Precedence: CLI > ENV > TOML > Default");
     println!();

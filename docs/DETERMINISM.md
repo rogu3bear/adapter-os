@@ -1,6 +1,6 @@
 # Determinism and Replay
 
-**Purpose:** Comprehensive documentation for deterministic execution, reproducibility, RAG determinism, and replay systems in AdapterOS
+**Purpose:** Comprehensive documentation for deterministic execution, reproducibility, RAG determinism, and replay systems in adapterOS
 
 **Last Updated:** 2026-01-05
 
@@ -8,7 +8,7 @@
 
 ## Overview
 
-AdapterOS guarantees reproducible execution through HKDF-seeded randomness, global tick ledger synchronization, deterministic RAG retrieval, and comprehensive replay capabilities. All inference operations are auditable and exactly reproducible given the same inputs and system state.
+adapterOS guarantees reproducible execution through HKDF-seeded randomness, global tick ledger synchronization, deterministic RAG retrieval, and comprehensive replay capabilities. All inference operations are auditable and exactly reproducible given the same inputs and system state.
 
 ### Key Guarantees
 
@@ -78,7 +78,7 @@ graph TB
 
 ## HKDF Seeding Hierarchy
 
-All randomness in AdapterOS is derived from a global seed using HKDF (HMAC-based Key Derivation Function) with domain separation labels to ensure isolation and reproducibility.
+All randomness in adapterOS is derived from a global seed using HKDF (HMAC-based Key Derivation Function) with domain separation labels to ensure isolation and reproducibility.
 
 ### Seed Derivation
 
@@ -283,7 +283,7 @@ flowchart LR
 
 ## Hardware Determinism on Apple Silicon
 
-AdapterOS achieves determinism through a combination of hardware advantages and software controls.
+adapterOS achieves determinism through a combination of hardware advantages and software controls.
 
 ### Unified Memory Architecture (UMA)
 
@@ -420,7 +420,7 @@ Each `decision_hash` includes:
 
 ## RAG Determinism
 
-AdapterOS guarantees deterministic RAG (Retrieval-Augmented Generation) results through strict ordering contracts and comprehensive evidence tracking.
+adapterOS guarantees deterministic RAG (Retrieval-Augmented Generation) results through strict ordering contracts and comprehensive evidence tracking.
 
 ### Ordering Contract
 
@@ -453,7 +453,7 @@ scored_docs.sort_by(|(row_a, score_a), (row_b, score_b)| {
 
 ### KV Store vs SQL/pgvector
 
-AdapterOS supports multiple RAG storage backends with strict consistency guarantees:
+adapterOS supports multiple RAG storage backends with strict consistency guarantees:
 
 #### Storage Modes
 

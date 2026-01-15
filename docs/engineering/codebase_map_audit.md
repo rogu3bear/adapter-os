@@ -1,6 +1,6 @@
-# AdapterOS Codebase Map (Audit)
+# adapterOS Codebase Map (Audit)
 
-Purpose: Provide a code-level map of AdapterOS components, their roles, and how they connect at runtime. This is a conceptual interaction map, not a compile-time dependency graph.
+Purpose: Provide a code-level map of adapterOS components, their roles, and how they connect at runtime. This is a conceptual interaction map, not a compile-time dependency graph.
 
 Scope:
 - Control plane, workers, router, backends, storage, policy, telemetry, replay, CLI/UI, and tooling.

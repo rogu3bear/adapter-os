@@ -129,7 +129,7 @@ async fn dev_up(
         "Starting development services"
     );
 
-    output.info("Starting AdapterOS development environment");
+    output.info("Starting adapterOS development environment");
     output.blank();
 
     // Ensure PID directory exists

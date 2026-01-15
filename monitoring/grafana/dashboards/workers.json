@@ -325,7 +325,7 @@
   "time": { "from": "now-1h", "to": "now" },
   "timepicker": {},
   "timezone": "",
-  "title": "AdapterOS Workers",
+  "title": "adapterOS Workers",
   "uid": "adapteros-workers",
   "version": 1,
   "weekStart": ""

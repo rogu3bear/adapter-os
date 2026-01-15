@@ -1,4 +1,4 @@
-//! AdapterOS service & adapter runner CLI (`aos`).
+//! adapterOS service & adapter runner CLI (`aos`).
 //!
 //! Target scope:
 //! - Local services/adapters only (no DB writes, migrations, or cluster ops).
@@ -68,7 +68,7 @@ enum Commands {
 
 #[derive(Parser, Debug)]
 #[command(name = "aos")]
-#[command(about = "AdapterOS local service & adapter runner", long_about = None)]
+#[command(about = "adapterOS local service & adapter runner", long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -656,7 +656,7 @@ async fn start_menubar(pid_file: &str, cli: &Cli) -> Result<()> {
         use std::process::Command as StdCommand;
 
         // Build menu bar app if needed (mirrors previous bash behavior)
-        let binary_path = Path::new("menu-bar-app/.build/release/AdapterOSMenu");
+        let binary_path = Path::new("menu-bar-app/.build/release/adapterOSMenu");
         if !binary_path.exists() {
             info!(
                 component = "aos",

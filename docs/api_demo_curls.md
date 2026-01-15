@@ -1,4 +1,4 @@
-# AdapterOS Demo API Curl Cookbook
+# adapterOS Demo API Curl Cookbook
 
 Copy/paste-friendly `curl` commands for the demo control plane API (default `http://localhost:8080`).
 
@@ -71,5 +71,5 @@ Route: `POST /v1/infer`
 ```bash
 curl -sS -X POST "$AOS_BASE_URL/v1/infer" \
   -H "Content-Type: application/json" \
-  -d "{\"prompt\":\"Hello from AdapterOS demo\",\"stack_id\":\"$AOS_STACK_ID\",\"max_tokens\":32}"
+  -d "{\"prompt\":\"Hello from adapterOS demo\",\"stack_id\":\"$AOS_STACK_ID\",\"max_tokens\":32}"
 ```

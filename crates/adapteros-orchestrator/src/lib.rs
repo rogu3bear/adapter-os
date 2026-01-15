@@ -1,4 +1,4 @@
-//! Orchestrator for AdapterOS promotion gates
+//! Orchestrator for adapterOS promotion gates
 //!
 //! Runs all quality gates and reports pass/fail status with evidence.
 

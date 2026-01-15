@@ -1,7 +1,7 @@
 #![cfg(all(test, feature = "extended-tests"))]
 //! Property-Based Testing Infrastructure
 //!
-//! This module provides property-based testing utilities for AdapterOS components,
+//! This module provides property-based testing utilities for adapterOS components,
 //! enabling generation of test cases from property specifications and automated
 //! testing of component invariants.
 //!
@@ -436,7 +436,7 @@ pub fn seed_derivation_deterministic_property() -> SeedDerivationDeterminismProp
     SeedDerivationDeterminismProperty
 }
 
-/// Create a property test runner with common AdapterOS properties
+/// Create a property test runner with common adapterOS properties
 pub fn adapteros_property_runner() -> PropertyTestRunner {
     let mut runner = PropertyTestRunner::new();
     runner.add_property(hash_deterministic_property());

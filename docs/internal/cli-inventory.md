@@ -1,7 +1,7 @@
 # CLI Script Inventory
 
 This inventory lists the top-level `scripts/*.sh` helpers that are part of the
-AdapterOS CLI/tooling surface. Each script name here satisfies the
+adapterOS CLI/tooling surface. Each script name here satisfies the
 `script_inventory_guard` test so new scripts don't bypass documentation.
 
 ## Scripts

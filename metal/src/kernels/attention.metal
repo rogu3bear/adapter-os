@@ -1,4 +1,4 @@
-// AdapterOS Attention Kernel
+// adapterOS Attention Kernel
 // Fused QKV with Grouped Query Attention (GQA) support
 //
 // Features:

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install Metal Toolchain for AdapterOS
+# Install Metal Toolchain for adapterOS
 # Part of H1: Metal Kernel Compilation task
 # Copyright © 2025 JKCA / James KC Auchterlonie. All rights reserved.
 
@@ -23,7 +23,7 @@ fi
 mkdir -p "${TMP_ROOT}"
 
 echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}AdapterOS Metal Toolchain Installer${NC}"
+echo -e "${BLUE}adapterOS Metal Toolchain Installer${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo ""
 
@@ -142,7 +142,7 @@ echo -e "${GREEN}Installation Complete!${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo ""
 echo -e "${BLUE}Next steps:${NC}"
-echo -e "  1. Build AdapterOS: ${YELLOW}cargo build${NC}"
+echo -e "  1. Build adapterOS: ${YELLOW}cargo build${NC}"
 echo -e "  2. Test Metal kernels: ${YELLOW}cargo test -p adapteros-lora-kernel-mtl${NC}"
 echo ""
 echo -e "${BLUE}For more information, see:${NC}"

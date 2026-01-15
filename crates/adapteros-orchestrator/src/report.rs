@@ -84,7 +84,7 @@ impl GateReport {
     pub fn to_markdown(&self) -> String {
         let mut md = String::new();
 
-        md.push_str("# AdapterOS Promotion Gate Report\n\n");
+        md.push_str("# adapterOS Promotion Gate Report\n\n");
         md.push_str(&format!("**CPID:** `{}`  \n", self.cpid));
         md.push_str(&format!("**Timestamp:** {}  \n", self.timestamp));
         md.push_str(&format!(

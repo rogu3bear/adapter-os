@@ -108,9 +108,9 @@ func openDashboard()                     // URL/navigation utility
 ```swift
 // Responsible for: File I/O, JSON parsing, validation, caching
 protocol StatusReading {
-    func readStatus() async throws -> AdapterOSStatus
-    func readNow() async -> Result<(AdapterOSStatus, Data, String), StatusReadError>
-    func getLastValidStatus() -> AdapterOSStatus?
+    func readStatus() async throws -> adapterOSStatus
+    func readNow() async -> Result<(adapterOSStatus, Data, String), StatusReadError>
+    func getLastValidStatus() -> adapterOSStatus?
     func getReadHealthMetrics() -> StatusReadHealthMetrics
 }
 ```
@@ -133,8 +133,8 @@ protocol StatusManaging {
     func startPolling()
     func stopPolling()
     func refresh() async
-    func updateTrustState(with status: AdapterOSStatus)
-    var status: AdapterOSStatus? { get }
+    func updateTrustState(with status: adapterOSStatus)
+    var status: adapterOSStatus? { get }
     var lastError: StatusReadError? { get }
 }
 ```

@@ -1,7 +1,7 @@
 //! Determinism verification tests for CoreML backend
 //!
 //! These tests verify that CoreML tensor operations produce bit-exact results
-//! across repeated runs, ensuring deterministic execution for AdapterOS.
+//! across repeated runs, ensuring deterministic execution for adapterOS.
 #![allow(clippy::useless_vec)]
 
 use adapteros_core::{derive_seed, B3Hash};

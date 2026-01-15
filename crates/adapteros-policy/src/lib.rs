@@ -1,4 +1,4 @@
-//! Policy enforcement for AdapterOS
+//! Policy enforcement for adapterOS
 
 #![allow(unused_imports)]
 #![allow(dead_code)]

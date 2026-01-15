@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document describes the memory tracking and management system for the MLX FFI backend in AdapterOS. The implementation provides comprehensive visibility into unified memory allocation patterns and enables proactive memory management for the lifecycle manager.
+This document describes the memory tracking and management system for the MLX FFI backend in adapterOS. The implementation provides comprehensive visibility into unified memory allocation patterns and enables proactive memory management for the lifecycle manager.
 
 ## Architecture
 
@@ -378,5 +378,5 @@ if stats.allocation_count > 0 && stats.total_bytes > 0 {
 
 - MLX Documentation: https://ml-explore.github.io/mlx/
 - Unified Memory: Apple Metal documentation on unified memory model
-- AdapterOS Lifecycle Manager: `crates/adapteros-lora-lifecycle/`
-- FFI Safety: Rust FFI guidelines in AdapterOS AGENTS.md
+- adapterOS Lifecycle Manager: `crates/adapteros-lora-lifecycle/`
+- FFI Safety: Rust FFI guidelines in adapterOS AGENTS.md

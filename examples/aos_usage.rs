@@ -23,7 +23,7 @@ use std::collections::HashMap;
 
 #[cfg(not(feature = "extended-tests"))]
 fn main() {
-    eprintln!("Enable the `extended-tests` feature to run the advanced AdapterOS .aos example.");
+    eprintln!("Enable the `extended-tests` feature to run the advanced adapterOS .aos example.");
 }
 
 #[cfg(feature = "extended-tests")]

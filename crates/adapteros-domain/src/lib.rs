@@ -1,4 +1,4 @@
-//! Domain Adapter Layer for AdapterOS
+//! Domain Adapter Layer for adapterOS
 //!
 //! This module provides high-level domain-specific abstractions that translate
 //! deterministic tensor operations into domain-specific functions (text, vision,

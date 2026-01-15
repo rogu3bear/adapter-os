@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document audits the integration of the new `crypto_receipt` module (`crates/adapteros-core/src/crypto_receipt.rs`) with the existing AdapterOS infrastructure for inference trace receipts.
+This document audits the integration of the new `crypto_receipt` module (`crates/adapteros-core/src/crypto_receipt.rs`) with the existing adapterOS infrastructure for inference trace receipts.
 
 ## Component Mapping
 

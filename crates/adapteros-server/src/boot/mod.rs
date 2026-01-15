@@ -1,4 +1,4 @@
-//! Boot sequence module for AdapterOS control plane.
+//! Boot sequence module for adapterOS control plane.
 //!
 //! This module contains utilities and abstractions for the boot sequence,
 //! including timing tracking, background task management, and server binding.

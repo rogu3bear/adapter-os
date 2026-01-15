@@ -2,7 +2,7 @@
 
 ## Optimization-First Mindset
 
-All database operations in AdapterOS must prioritize **tenant isolation performance**. As a multi-tenant system, our database queries must never degrade linearly with the total data volume. They must scale with the **tenant's data volume**.
+All database operations in adapterOS must prioritize **tenant isolation performance**. As a multi-tenant system, our database queries must never degrade linearly with the total data volume. They must scale with the **tenant's data volume**.
 
 ### The Golden Rule
 > **Every tenant-scoped query must start with `WHERE tenant_id = ?` and use a composite index starting with `tenant_id`.**

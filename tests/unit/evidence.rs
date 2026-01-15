@@ -2,7 +2,7 @@
 //! Evidence-Grounded Response Testing Utilities
 //!
 //! This module provides utilities for testing evidence-grounded response generation
-//! in the AdapterOS system, ensuring that responses are properly backed by evidence
+//! in the adapterOS system, ensuring that responses are properly backed by evidence
 //! and meet quality and relevance criteria.
 //!
 //! ## Key Features

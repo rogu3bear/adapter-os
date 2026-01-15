@@ -1,4 +1,4 @@
-//! API versioning middleware for AdapterOS
+//! API versioning middleware for adapterOS
 //!
 //! Implements version negotiation and deprecation warnings:
 //! - Accept header negotiation (application/vnd.aos.v1+json, application/vnd.aos.v2+json)

@@ -1,6 +1,6 @@
-# Peer Discovery & Consensus in AdapterOS Federation
+# Peer Discovery & Consensus in adapterOS Federation
 
-Comprehensive implementation of peer discovery, health checking, consensus voting, and network partition handling for the AdapterOS federation system.
+Comprehensive implementation of peer discovery, health checking, consensus voting, and network partition handling for the adapterOS federation system.
 
 ## Overview
 

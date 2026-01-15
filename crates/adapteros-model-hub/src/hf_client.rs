@@ -6,7 +6,7 @@
 //!
 //! ## Architecture
 //!
-//! The client uses reqwest for HTTP operations and follows AdapterOS error handling
+//! The client uses reqwest for HTTP operations and follows adapterOS error handling
 //! patterns using `Result<T, ModelHubError>`.
 //!
 //! ## API Endpoints

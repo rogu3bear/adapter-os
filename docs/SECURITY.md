@@ -1,9 +1,9 @@
-# AdapterOS Security Architecture
+# adapterOS Security Architecture
 
 **Document Version:** 2.0
 **Last Updated:** 2025-12-11
 **Status:** Production Ready
-**Maintained by:** AdapterOS Security Team
+**Maintained by:** adapterOS Security Team
 
 ---
 
@@ -30,7 +30,7 @@
 
 ## Overview
 
-AdapterOS implements defense-in-depth security with multiple layers providing comprehensive protection across authentication, cryptography, hardware security, and operational controls.
+adapterOS implements defense-in-depth security with multiple layers providing comprehensive protection across authentication, cryptography, hardware security, and operational controls.
 
 ### Security Layers
 
@@ -64,7 +64,7 @@ graph TD
 
 ### JWT with Ed25519 Signatures
 
-AdapterOS uses **Ed25519** digital signatures for JWT tokens in production mode, providing:
+adapterOS uses **Ed25519** digital signatures for JWT tokens in production mode, providing:
 
 - **Fast verification:** ~60,000 signatures/second
 - **Small signatures:** 64 bytes
@@ -267,7 +267,7 @@ SELECT COUNT(*) FROM revoked_tokens WHERE jti = ?
 
 ### Core Cryptographic Operations
 
-AdapterOS provides a comprehensive cryptographic foundation with hardware-backed security, cross-platform key management, and deterministic execution guarantees.
+adapterOS provides a comprehensive cryptographic foundation with hardware-backed security, cross-platform key management, and deterministic execution guarantees.
 
 ```mermaid
 graph TD
@@ -333,7 +333,7 @@ let hex_string = hash.to_hex();
 - 256-bit output
 - Cryptographically secure
 - High performance (SIMD optimized)
-- Used for all content addressing in AdapterOS
+- Used for all content addressing in adapterOS
 
 ### Cryptographic Security Features (S6-S9)
 
@@ -426,7 +426,7 @@ let encryptions = logger.query_by_operation(CryptoOperation::Encrypt).await;
 
 #### S9: Policy-Based Crypto Enforcement
 
-Enforces cryptographic policies for all operations, integrated with AdapterOS's policy packs.
+Enforces cryptographic policies for all operations, integrated with adapterOS's policy packs.
 
 **Features:**
 - Algorithm policies (approved/banned lists)
@@ -500,7 +500,7 @@ Hardware-backed key generation and attestation using Apple's Secure Enclave Proc
 ```mermaid
 graph TD
     subgraph "Secure Enclave Security Model"
-        A[Application AdapterOS] -->|1. Key Generation Request| B[Secure Enclave Hardware]
+        A[Application adapterOS] -->|1. Key Generation Request| B[Secure Enclave Hardware]
         B -->|2. Key Handle Returned| A
         A -->|3. Signing Request| B
         B -->|4. Signature Returned| A
@@ -575,7 +575,7 @@ impl SecureEnclaveConnection {
 # Secure Enclave settings
 enable_secure_enclave = true
 key_alias = "aos-host-signing"
-keychain_name = "AdapterOS-SecureEnclave"
+keychain_name = "adapterOS-SecureEnclave"
 
 # Enhanced security settings
 require_hardware_attestation = true
@@ -593,7 +593,7 @@ backup_enabled = false  # Keys never leave Secure Enclave
 
 ### Overview
 
-AdapterOS provides secure cryptographic key storage across multiple platforms using native OS keychain facilities.
+adapterOS provides secure cryptographic key storage across multiple platforms using native OS keychain facilities.
 
 ### Supported Backends
 
@@ -632,7 +632,7 @@ AdapterOS provides secure cryptographic key storage across multiple platforms us
 | `kSecClass` | `kSecClassGenericPassword` | Item class for generic secrets |
 | `kSecAttrService` | `"adapteros"` | Service namespace |
 | `kSecAttrAccount` | `"<key_id>-<type>"` | Unique identifier |
-| `kSecAttrLabel` | `"AdapterOS <Type> Key: <key_id>"` | Human-readable label |
+| `kSecAttrLabel` | `"adapterOS <Type> Key: <key_id>"` | Human-readable label |
 | `kSecAttrAccessible` | `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` | Access policy |
 
 #### Linux Secret Service Schema
@@ -642,7 +642,7 @@ AdapterOS provides secure cryptographic key storage across multiple platforms us
 | `service` | `"adapteros"` | Service namespace |
 | `key-type` | `"ed25519" | "symmetric"` | Algorithm type |
 | `key-id` | `"<key_id>"` | Unique identifier |
-| `label` | `"AdapterOS <Type> Key: <key_id>"` | Human-readable label |
+| `label` | `"adapterOS <Type> Key: <key_id>"` | Human-readable label |
 
 ### Key Lifecycle
 
@@ -976,7 +976,7 @@ curl -X DELETE https://api.adapteros.local/v1/auth/sessions/abc123 \
 
 ### Security Regression Test Suite
 
-AdapterOS includes a comprehensive security regression test suite that automatically detects security vulnerabilities.
+adapterOS includes a comprehensive security regression test suite that automatically detects security vulnerabilities.
 
 #### Test Categories
 

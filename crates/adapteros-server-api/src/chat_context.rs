@@ -15,7 +15,7 @@
 //!
 //! Prompts are formatted with simple `[role]:` prefixes:
 //! ```text
-//! [system]: You are AdapterOS.
+//! [system]: You are adapterOS.
 //! [user]: Hello
 //! [assistant]: Hi there
 //! [user]: New message

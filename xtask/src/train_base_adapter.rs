@@ -1,4 +1,4 @@
-//! End-to-end training workflow for the AdapterOS base code adapter.
+//! End-to-end training workflow for the adapterOS base code adapter.
 //!
 //! Loads the curated dataset manifest, runs the deterministic Micro-LoRA trainer,
 //! and packages quantized weights into `adapters/<adapter_id>/`.

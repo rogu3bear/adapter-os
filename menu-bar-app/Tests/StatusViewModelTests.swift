@@ -1,5 +1,5 @@
 import XCTest
-@testable import AdapterOSMenu
+@testable import adapterOSMenu
 
 final class StatusViewModelTests: XCTestCase {
     var viewModel: StatusViewModel!
@@ -16,7 +16,7 @@ final class StatusViewModelTests: XCTestCase {
     func testInitialState() {
         XCTAssertTrue(viewModel.isOffline, "Should start offline")
         XCTAssertEqual(viewModel.iconName, "bolt.slash.circle.fill")
-        XCTAssertEqual(viewModel.tooltip, "AdapterOS OFFLINE")
+        XCTAssertEqual(viewModel.tooltip, "adapterOS OFFLINE")
         XCTAssertNil(viewModel.status)
     }
 
@@ -80,7 +80,7 @@ final class StatusViewModelTests: XCTestCase {
 
         // Test offline state
         XCTAssertEqual(tmpViewModel.iconName, "bolt.slash.circle.fill")
-        XCTAssertEqual(tmpViewModel.tooltip, "AdapterOS OFFLINE")
+        XCTAssertEqual(tmpViewModel.tooltip, "adapterOS OFFLINE")
 
         // Test online state
         let json = """

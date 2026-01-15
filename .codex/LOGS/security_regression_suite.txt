@@ -1,7 +1,7 @@
 
 running 14 tests
 
-=== AdapterOS Security Regression Test Suite ===
+=== adapterOS Security Regression Test Suite ===
 
 Tests included:
   1. test_no_unsafe_in_public_api - Scans for unsafe blocks

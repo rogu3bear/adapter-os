@@ -5,7 +5,7 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "AOS 2.0 archive format for AdapterOS"
+description = "AOS 2.0 archive format for adapterOS"
 
 [[bin]]
 name = "aos"

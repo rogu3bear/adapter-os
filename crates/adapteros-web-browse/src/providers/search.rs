@@ -40,7 +40,7 @@ impl Default for SearchProviderConfig {
             api_key: None,
             timeout_secs: 10,
             max_results: 10,
-            user_agent: "AdapterOS-WebBrowse/1.0".to_string(),
+            user_agent: "adapterOS-WebBrowse/1.0".to_string(),
         }
     }
 }

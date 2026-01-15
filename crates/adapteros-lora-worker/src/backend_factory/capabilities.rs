@@ -560,7 +560,7 @@ pub fn log_backend_status() {
     info!(
         available_count = available_count,
         total_count = total_count,
-        "AdapterOS Backend Status Report"
+        "adapterOS Backend Status Report"
     );
 
     for backend in backends {

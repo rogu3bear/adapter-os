@@ -1,5 +1,5 @@
 #!/bin/bash
-# AdapterOS API Endpoint Testing Script
+# adapterOS API Endpoint Testing Script
 # Tests all backend API endpoints and validates responses
 #
 # Usage:
@@ -135,7 +135,7 @@ test_protected_without_auth() {
 }
 
 echo "========================================"
-echo "AdapterOS API Endpoint Testing"
+echo "adapterOS API Endpoint Testing"
 echo "========================================"
 echo "Base URL: $BASE_URL"
 echo "Token provided: $([ -n "$TOKEN" ] && echo 'Yes' || echo 'No')"

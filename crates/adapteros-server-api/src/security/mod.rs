@@ -1,4 +1,4 @@
-//! Security subsystem for AdapterOS
+//! Security subsystem for adapterOS
 //!
 //! Provides comprehensive security controls:
 //! - Token revocation and session management

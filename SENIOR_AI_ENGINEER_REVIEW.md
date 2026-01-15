@@ -1,4 +1,4 @@
-# Senior AI Engineer's Perspective on AdapterOS
+# Senior AI Engineer's Perspective on adapterOS
 
 **Date:** 2026-01-18  
 **Reviewer Perspective:** Senior ML/AI Systems Engineer  
@@ -26,7 +26,7 @@
 - **10 critical determinism invariants** with compile-time enforcement - this is how you prevent regressions
 
 **Why This Matters:**
-Most ML systems are non-deterministic by default. GPU operations, floating-point rounding, thread scheduling—all introduce variance. AdapterOS has clearly thought through every source of non-determinism and systematically eliminated them. This is **rare** and **valuable** for:
+Most ML systems are non-deterministic by default. GPU operations, floating-point rounding, thread scheduling—all introduce variance. adapterOS has clearly thought through every source of non-determinism and systematically eliminated them. This is **rare** and **valuable** for:
 - Regulatory compliance (FDA, SEC, etc.)
 - Debugging production issues ("why did this request fail?")
 - A/B testing with confidence
@@ -353,7 +353,7 @@ Multiple memory managers (ModelCache, ModelHandleCache, UnifiedMemoryManager) ad
 
 ### vs. vLLM / TensorRT-LLM
 
-**AdapterOS Advantages:**
+**adapterOS Advantages:**
 - ✅ Determinism (vLLM is non-deterministic)
 - ✅ Multi-tenant isolation (vLLM is single-tenant)
 - ✅ Audit trails (vLLM has minimal observability)
@@ -365,13 +365,13 @@ Multiple memory managers (ModelCache, ModelHandleCache, UnifiedMemoryManager) ad
 - ✅ Better documentation (larger community)
 - ✅ More model support (broader compatibility)
 
-**Verdict:** Different target markets. AdapterOS is for **regulated industries**. vLLM is for **high-throughput serving**.
+**Verdict:** Different target markets. adapterOS is for **regulated industries**. vLLM is for **high-throughput serving**.
 
 ---
 
 ### vs. Hugging Face Text Generation Inference (TGI)
 
-**AdapterOS Advantages:**
+**adapterOS Advantages:**
 - ✅ Determinism
 - ✅ Multi-tenant
 - ✅ MoE routing (TGI is single-model)
@@ -382,13 +382,13 @@ Multiple memory managers (ModelCache, ModelHandleCache, UnifiedMemoryManager) ad
 - ✅ Better model support (broader compatibility)
 - ✅ More mature (longer in production)
 
-**Verdict:** AdapterOS is more sophisticated but more complex. TGI is simpler but less feature-rich.
+**Verdict:** adapterOS is more sophisticated but more complex. TGI is simpler but less feature-rich.
 
 ---
 
 ### vs. Custom Enterprise ML Platforms
 
-**AdapterOS Advantages:**
+**adapterOS Advantages:**
 - ✅ Open source (most enterprise platforms are proprietary)
 - ✅ Determinism architecture (rare in industry)
 - ✅ Apple Silicon optimization (most platforms are GPU-focused)
@@ -399,7 +399,7 @@ Multiple memory managers (ModelCache, ModelHandleCache, UnifiedMemoryManager) ad
 - ✅ Managed services (no ops burden)
 - ✅ Broader hardware support (NVIDIA, AMD, etc.)
 
-**Verdict:** AdapterOS is **better architected** than most enterprise platforms I've seen, but lacks vendor support and managed services.
+**Verdict:** adapterOS is **better architected** than most enterprise platforms I've seen, but lacks vendor support and managed services.
 
 ---
 

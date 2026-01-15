@@ -195,7 +195,7 @@ Tests included:
 
 ## References
 
-- [AdapterOS Policy Packs](.cursor/rules/global.mdc)
+- [adapterOS Policy Packs](.cursor/rules/global.mdc)
 - [RAG Index Ruleset](docs/architecture/MasterPlan.md#rag-index-ruleset)
 - [Migration Schema](../migrations/0029_pgvector_rag.sql)
 

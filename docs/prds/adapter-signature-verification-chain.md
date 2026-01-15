@@ -9,7 +9,7 @@
 
 ## 1. Summary
 
-Adapters imported via `aosctl registry` and `aosctl import` currently bypass cryptographic signature verification or use placeholder signatures. This PRD defines the end-to-end verification chain so AdapterOS rejects unsigned or tampered adapters by default and records audit events for all verification attempts.
+Adapters imported via `aosctl registry` and `aosctl import` currently bypass cryptographic signature verification or use placeholder signatures. This PRD defines the end-to-end verification chain so adapterOS rejects unsigned or tampered adapters by default and records audit events for all verification attempts.
 
 ---
 

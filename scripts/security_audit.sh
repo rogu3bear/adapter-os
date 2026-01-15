@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# Security Audit Script for AdapterOS
+# Security Audit Script for adapterOS
 # Performs comprehensive dependency security analysis
 
 set -e
 
-echo "🔒 AdapterOS Security Audit"
+echo "🔒 adapterOS Security Audit"
 echo "=========================="
 
 # Function to check if command exists
@@ -58,11 +58,11 @@ cat > "$SBOM_FILE" << EOF
   "spdxVersion": "SPDX-2.3",
   "dataLicense": "CC0-1.0",
   "SPDXID": "SPDXRef-DOCUMENT",
-  "documentName": "AdapterOS-SBOM",
+  "documentName": "adapterOS-SBOM",
   "documentNamespace": "https://adapteros.com/sbom/$(date +%s)",
   "creationInfo": {
     "created": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-    "creators": ["Tool: AdapterOS Security Audit"],
+    "creators": ["Tool: adapterOS Security Audit"],
     "licenseListVersion": "3.18"
   },
   "packages": [
@@ -74,12 +74,12 @@ cat >> "$SBOM_FILE" << EOF
       "SPDXID": "SPDXRef-Package-adapteros",
       "name": "adapteros",
       "versionInfo": "$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)",
-      "supplier": "Organization: AdapterOS",
+      "supplier": "Organization: adapterOS",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "MIT OR Apache-2.0",
       "licenseDeclared": "MIT OR Apache-2.0",
-      "copyrightText": "Copyright (c) 2025 AdapterOS"
+      "copyrightText": "Copyright (c) 2025 adapterOS"
     }
 EOF
 
@@ -181,7 +181,7 @@ echo "📊 Generating security report..."
 REPORT_FILE="var/security/audit-report-$(date +%Y%m%d-%H%M%S).txt"
 
 cat > "$REPORT_FILE" << EOF
-AdapterOS Security Audit Report
+adapterOS Security Audit Report
 Generated: $(date)
 =====================================
 

@@ -1,4 +1,4 @@
-//! Policy enforcement middleware for AdapterOS
+//! Policy enforcement middleware for adapterOS
 //!
 //! Validates all HTTP requests against policy packs at runtime to ensure
 //! compliance with security, performance, and operational policies.

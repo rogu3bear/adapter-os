@@ -1,6 +1,6 @@
 # Safe Mode CLI
 
-The Safe Mode CLI keeps evidence-aware responses aligned with AdapterOS policies.
+The Safe Mode CLI keeps evidence-aware responses aligned with adapterOS policies.
 
 ## Commands
 - `cargo run -- toggle-safe-mode` flips safe mode state and logs every transition.

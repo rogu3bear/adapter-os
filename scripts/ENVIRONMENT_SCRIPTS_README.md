@@ -1,4 +1,4 @@
-# AdapterOS Environment Configuration Scripts
+# adapterOS Environment Configuration Scripts
 
 Quick-reference guide for environment setup and configuration scripts.
 
@@ -6,7 +6,7 @@ Quick-reference guide for environment setup and configuration scripts.
 
 ## Overview
 
-Three essential scripts for managing your AdapterOS environment:
+Three essential scripts for managing your adapterOS environment:
 
 | Script | Purpose | Use When |
 |--------|---------|----------|
@@ -40,7 +40,7 @@ Three essential scripts for managing your AdapterOS environment:
 
 ```
 ╔════════════════════════════════════════════════════════════════╗
-║ AdapterOS Environment Setup                                   ║
+║ adapterOS Environment Setup                                   ║
 ╚════════════════════════════════════════════════════════════════╝
 
 → Creating .env file
@@ -92,7 +92,7 @@ Select profile (1-4):
 $ ./scripts/setup_env.sh
 
 ╔════════════════════════════════════════════════════════════════╗
-║ AdapterOS Environment Setup                                   ║
+║ adapterOS Environment Setup                                   ║
 ╚════════════════════════════════════════════════════════════════╝
 
 Creating optimized environment configuration for your workflow
@@ -183,7 +183,7 @@ Your environment is configured! Next steps:
 
 ```
 ╔════════════════════════════════════════════════════════════════╗
-║ AdapterOS Configuration Validation                            ║
+║ adapterOS Configuration Validation                            ║
 ╚════════════════════════════════════════════════════════════════╝
 
 === MODEL CONFIGURATION ===
@@ -228,7 +228,7 @@ Warnings: 0
 Errors: 0
 
 ✅ Environment validation passed
-Ready to start AdapterOS!
+Ready to start adapterOS!
 ```
 
 ### Exit Codes

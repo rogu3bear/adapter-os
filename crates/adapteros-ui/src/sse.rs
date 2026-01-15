@@ -1,14 +1,14 @@
 //! Server-Sent Events (SSE) parsing module
 //!
 //! This module provides types and utilities for parsing SSE streams from
-//! AdapterOS streaming inference endpoints. It supports both the native
-//! AdapterOS event format and OpenAI-compatible streaming chunks.
+//! adapterOS streaming inference endpoints. It supports both the native
+//! adapterOS event format and OpenAI-compatible streaming chunks.
 //!
 //! # Event Formats
 //!
 //! The parser handles two event formats:
 //!
-//! 1. **AdapterOS format** - Uses tagged JSON with an `event` field:
+//! 1. **adapterOS format** - Uses tagged JSON with an `event` field:
 //!    ```text
 //!    data: {"event": "Token", "text": "Hello"}
 //!    data: {"event": "Done", "total_tokens": 10, "latency_ms": 100}
@@ -34,7 +34,7 @@ use serde::Deserialize;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
-/// SSE event types from the AdapterOS streaming inference endpoint.
+/// SSE event types from the adapterOS streaming inference endpoint.
 ///
 /// This enum represents the different event types that can be received
 /// during a streaming inference request.
@@ -132,7 +132,7 @@ pub struct ParsedSseEvent {
 /// Parse an SSE event and extract token content plus trace info.
 ///
 /// This function handles the parsing of SSE event data, supporting both
-/// AdapterOS native format and OpenAI-compatible format.
+/// adapterOS native format and OpenAI-compatible format.
 ///
 /// # Arguments
 ///
@@ -189,7 +189,7 @@ pub fn parse_sse_event_with_info(event_data: &str) -> ParsedSseEvent {
         return result;
     }
 
-    // Try parsing as InferenceEvent first (AdapterOS format)
+    // Try parsing as InferenceEvent first (adapterOS format)
     if let Ok(event) = serde_json::from_str::<InferenceEvent>(data) {
         match event {
             InferenceEvent::Token { text } => {

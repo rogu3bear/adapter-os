@@ -189,7 +189,7 @@ pub async fn run(args: VerifyAgentsArgs) -> Result<VerificationReport> {
     // Create artifacts directory
     std::fs::create_dir_all(&args.artifacts)?;
 
-    println!("=== AdapterOS Adapter Verification ===\n");
+    println!("=== adapterOS Adapter Verification ===\n");
 
     // Run baseline checks first
     println!("Running baseline checks...");

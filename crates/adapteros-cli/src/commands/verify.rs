@@ -346,7 +346,7 @@ async fn run_bundle(bundle_path: &Path, output: &OutputWriter) -> Result<()> {
     let temp_root = PlatformUtils::temp_dir();
     fs::create_dir_all(&temp_root).with_context(|| {
         format!(
-            "Failed to create AdapterOS temp directory {}",
+            "Failed to create adapterOS temp directory {}",
             temp_root.display()
         )
     })?;

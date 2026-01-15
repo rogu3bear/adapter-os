@@ -1,7 +1,7 @@
 //! Secure filesystem operations with cap-std integration
 //!
 //! Provides secure filesystem operations with capability-based access control,
-//! symlink protection, and path traversal prevention for AdapterOS.
+//! symlink protection, and path traversal prevention for adapterOS.
 
 pub mod caps;
 pub mod content;

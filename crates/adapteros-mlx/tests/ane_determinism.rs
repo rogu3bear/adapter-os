@@ -1,7 +1,7 @@
 //! ANE Determinism Tests
 //!
 //! These tests verify that operations produce bit-exact results across
-//! repeated executions, which is critical for the AdapterOS determinism
+//! repeated executions, which is critical for the adapterOS determinism
 //! guarantee.
 //!
 //! Run with: cargo test -p adapteros-mlx --test ane_determinism -- --test-threads=1

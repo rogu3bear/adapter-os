@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Benchmark comparison script for AdapterOS.
+Benchmark comparison script for adapterOS.
 
 Compares Criterion benchmark results between baseline and current runs.
 Fails if any benchmark regressed more than the threshold (default 10%).

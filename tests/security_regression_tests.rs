@@ -1,4 +1,4 @@
-//! Security regression test suite for AdapterOS
+//! Security regression test suite for adapterOS
 //!
 //! This comprehensive suite tests security properties across all components:
 //! - Cryptographic operation correctness and resistance to common attacks

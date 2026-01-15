@@ -1,6 +1,6 @@
 # Telemetry Export Tests
 
-This directory contains comprehensive integration tests for the telemetry export functionality in AdapterOS.
+This directory contains comprehensive integration tests for the telemetry export functionality in adapterOS.
 
 ## Test Coverage
 
@@ -258,7 +258,7 @@ Helper function to create temporary directories under `var/tmp` for test isolati
 
 ## Architecture Notes
 
-The tests follow AdapterOS design principles:
+The tests follow adapterOS design principles:
 
 - **Determinism**: Metrics are reproducible and verifiable
 - **Security**: No `/tmp` usage, proper tenant isolation

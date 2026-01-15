@@ -10,7 +10,7 @@
 //! 7. Audit trail verification (policy decisions, routing decisions)
 //! 8. Telemetry event capture
 //!
-//! This is the canonical E2E test demonstrating the full AdapterOS inference flow.
+//! This is the canonical E2E test demonstrating the full adapterOS inference flow.
 
 mod common;
 

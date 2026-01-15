@@ -1,5 +1,5 @@
 import XCTest
-@testable import AdapterOSMenu
+@testable import adapterOSMenu
 
 final class StatusReaderTests: XCTestCase {
     func testDecodeValidJSON() async throws {
@@ -92,7 +92,7 @@ final class StatusReaderTests: XCTestCase {
     }
 
     func testUptimeFormatting() throws {
-        let status = AdapterOSStatus(
+        let status = adapterOSStatus(
             schema_version: "1.0",
             status: "ok",
             uptime_secs: 7265, // 2h 1m 5s
@@ -113,7 +113,7 @@ final class StatusReaderTests: XCTestCase {
     }
 
     func testKernelHashShortening() throws {
-        let status = AdapterOSStatus(
+        let status = adapterOSStatus(
             schema_version: "1.0",
             status: "ok",
             uptime_secs: 100,

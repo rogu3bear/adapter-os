@@ -70,7 +70,7 @@ impl Default for PageFetcherConfig {
         Self {
             timeout_secs: 10,
             max_content_kb: 100,
-            user_agent: "AdapterOS-WebBrowse/1.0".to_string(),
+            user_agent: "adapterOS-WebBrowse/1.0".to_string(),
             https_only: true,
             blocked_domains: vec!["localhost".to_string(), "127.0.0.1".to_string()],
             retry_config: HttpRetryConfig::default(),

@@ -273,7 +273,7 @@
   "time": { "from": "now-6h", "to": "now" },
   "timepicker": {},
   "timezone": "",
-  "title": "AdapterOS DB Index Health",
+  "title": "adapterOS DB Index Health",
   "uid": "adapteros-db-index-health",
   "version": 1,
   "weekStart": ""

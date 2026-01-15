@@ -1,5 +1,5 @@
 #!/bin/bash
-# AdapterOS Unified Environment Loader
+# adapterOS Unified Environment Loader
 # Provides safe .env loading, validation, and helper functions
 # Usage: source scripts/lib/env-loader.sh
 

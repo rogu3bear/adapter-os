@@ -1,5 +1,5 @@
 #!/bin/bash
-# Debug helper script for AdapterOS
+# Debug helper script for adapterOS
 # Usage: ./scripts/debug.sh [asan|tsan|ubsan|gdb|lldb|valgrind] [command]
 
 set -e
@@ -104,7 +104,7 @@ case "$1" in
         ;;
 
     "help"|*)
-        echo "AdapterOS Debug Helper"
+        echo "adapterOS Debug Helper"
         echo ""
         echo "Usage: $0 <command> [args...]"
         echo ""

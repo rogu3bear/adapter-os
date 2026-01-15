@@ -1,6 +1,6 @@
-# AdapterOS End-to-End Testing Framework
+# adapterOS End-to-End Testing Framework
 
-This directory contains comprehensive end-to-end tests for AdapterOS, validating complete inference pipelines, adapter lifecycle management, telemetry validation, failure scenario handling, and determinism workflow guarantees.
+This directory contains comprehensive end-to-end tests for adapterOS, validating complete inference pipelines, adapter lifecycle management, telemetry validation, failure scenario handling, and determinism workflow guarantees.
 
 ## Overview
 

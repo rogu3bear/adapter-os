@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Script to apply graceful shutdown coordinator to AdapterOS server
+# Script to apply graceful shutdown coordinator to adapterOS server
 # This script patches the necessary files to implement graceful shutdown
 
 set -e

@@ -22,7 +22,7 @@ if [[ "${1:-}" == "--skip-opt" ]]; then
     SKIP_OPT=true
 fi
 
-echo "=== Building AdapterOS UI (WASM) ==="
+echo "=== Building adapterOS UI (WASM) ==="
 echo "Directory: $UI_DIR"
 
 # Check trunk

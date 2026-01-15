@@ -3,7 +3,7 @@
 //! System metrics collector implementation
 //!
 //! Provides real-time system resource monitoring using sysinfo crate.
-//! Follows AdapterOS patterns for error handling and telemetry integration.
+//! Follows adapterOS patterns for error handling and telemetry integration.
 
 use crate::{DiskMetrics, GpuMetrics, NetworkMetrics, SystemMetrics};
 use std::time::SystemTime;

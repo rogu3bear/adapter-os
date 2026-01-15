@@ -1,4 +1,4 @@
-//! Architectural lint rules for AdapterOS
+//! Architectural lint rules for adapterOS
 //!
 //! Detects violations of architectural patterns:
 //! - Lifecycle manager bypasses (direct DB updates before lifecycle manager)

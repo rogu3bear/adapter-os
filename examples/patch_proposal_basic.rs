@@ -24,7 +24,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
     tracing_subscriber::fmt::init();
 
-    println!("[ROCKET] AdapterOS Patch Proposal System - Basic Example");
+    println!("[ROCKET] adapterOS Patch Proposal System - Basic Example");
     println!("==================================================");
 
     // 1. Create evidence spans for the patch proposal

@@ -41,7 +41,7 @@ pub enum ModelHubError {
     #[error("Download failed: {0}")]
     DownloadFailed(String),
 
-    #[error("AdapterOS error: {0}")]
+    #[error("adapterOS error: {0}")]
     AosError(#[from] AosError),
 }
 

@@ -2,7 +2,7 @@
 
 ## Strategic Vision: Tenant Isolation Performance
 
-This roadmap outlines the evolution of AdapterOS database architecture to support 10,000+ tenants with sub-millisecond query latency.
+This roadmap outlines the evolution of adapterOS database architecture to support 10,000+ tenants with sub-millisecond query latency.
 
 ## Phase 1: Migration 0210 (Current)
 - **Goal:** Eliminate Temp B-Trees and optimize high-frequency lookups.

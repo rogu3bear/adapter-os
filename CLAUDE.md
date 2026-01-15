@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AdapterOS is a Rust-based deterministic ML inference platform for Apple Silicon. It provides K-sparse LoRA routing, Metal-optimized kernels, and policy enforcement for production environments. The system is designed for air-gapped deployments with zero network egress during serving.
+adapterOS is a Rust-based deterministic ML inference platform for Apple Silicon. It provides K-sparse LoRA routing, Metal-optimized kernels, and policy enforcement for production environments. The system is designed for air-gapped deployments with zero network egress during serving.
 
 **Getting Started**: See [docs/getting-started.md](docs/getting-started.md) for the canonical setup guide (5-minute quick start, prerequisites, verification).
 
@@ -425,7 +425,7 @@ cargo clippy --workspace -- -D warnings
 
 ## Human-in-the-Loop Review
 
-AdapterOS supports a review workflow where the system surfaces items needing human review (inference pauses, dataset safety gates, promotion approvals). External reviewers—including AI assistants like Claude Code—can provide structured feedback.
+adapterOS supports a review workflow where the system surfaces items needing human review (inference pauses, dataset safety gates, promotion approvals). External reviewers—including AI assistants like Claude Code—can provide structured feedback.
 
 See `docs/REVIEW_WORKFLOW.md` for the full architecture.
 

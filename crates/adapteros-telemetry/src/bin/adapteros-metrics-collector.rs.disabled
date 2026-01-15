@@ -42,7 +42,7 @@ impl SystemMetricsProvider for TelemetrySystemMetricsProvider {
 
 #[derive(Parser, Debug)]
 #[command(name = "adapteros-metrics-collector")]
-#[command(about = "AdapterOS standalone metrics collector", long_about = None)]
+#[command(about = "adapterOS standalone metrics collector", long_about = None)]
 struct Cli {
     /// Port to expose Prometheus metrics on
     #[arg(long, default_value_t = 9090)]

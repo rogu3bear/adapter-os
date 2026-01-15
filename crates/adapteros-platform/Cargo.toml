@@ -2,8 +2,8 @@
 name = "adapteros-platform"
 version.workspace = true
 edition = "2021"
-authors = ["AdapterOS Team"]
-description = "Cross-platform filesystem operations for AdapterOS"
+authors = ["adapterOS Team"]
+description = "Cross-platform filesystem operations for adapterOS"
 license = "MIT OR Apache-2.0"
 
 [dependencies]

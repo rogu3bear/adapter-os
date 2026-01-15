@@ -2,7 +2,7 @@
 
 **Version:** 0.12.0
 
-Guide to AdapterOS sealed adapter containers - cryptographically secure, tamper-proof adapter distribution.
+Guide to adapterOS sealed adapter containers - cryptographically secure, tamper-proof adapter distribution.
 
 ---
 
@@ -126,7 +126,7 @@ graph TD
 
 1. **Adapter bundle**: Trained adapter weights and configuration
 2. **Signing key**: Ed25519 private key for signing
-3. **AdapterOS CLI**: `aosctl` with sealing support
+3. **adapterOS CLI**: `aosctl` with sealing support
 
 ### Step-by-Step Creation
 

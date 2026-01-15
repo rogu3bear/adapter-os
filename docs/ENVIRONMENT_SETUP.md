@@ -1,14 +1,14 @@
-# AdapterOS Environment Setup Guide
+# adapterOS Environment Setup Guide
 
 **Version:** 0.12.0
 
-Comprehensive guide for configuring AdapterOS environment variables and settings.
+Comprehensive guide for configuring adapterOS environment variables and settings.
 
 ---
 
 ## Overview
 
-AdapterOS uses environment variables for configuration with the following precedence:
+adapterOS uses environment variables for configuration with the following precedence:
 
 ```
 CLI arguments > Environment variables > .env file > Built-in defaults

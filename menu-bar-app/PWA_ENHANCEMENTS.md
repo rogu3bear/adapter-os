@@ -2,7 +2,7 @@
 
 ## Overview
 
-Following Smashing Design Techniques principles, this document outlines Progressive Web App (PWA) enhancements for the AdapterOS Menu Bar App to improve user experience, performance, and accessibility.
+Following Smashing Design Techniques principles, this document outlines Progressive Web App (PWA) enhancements for the adapterOS Menu Bar App to improve user experience, performance, and accessibility.
 
 ## Current State Analysis
 
@@ -22,8 +22,8 @@ The menu bar app currently provides:
 
 ```swift
 struct StatusTransitionView: View {
-    let status: AdapterOSStatus?
-    let previousStatus: AdapterOSStatus?
+    let status: adapterOSStatus?
+    let previousStatus: adapterOSStatus?
 
     var body: some View {
         ZStack {
@@ -181,7 +181,7 @@ struct LiveStatusView: View {
         // For example, bounce on status recovery
     }
 
-    private func statusIcon(for status: AdapterOSStatus? = nil) -> some View {
+    private func statusIcon(for status: adapterOSStatus? = nil) -> some View {
         let iconName: String
         switch status?.status ?? viewModel.status?.status ?? "unknown" {
         case "ok": iconName = "checkmark.circle.fill"
@@ -269,11 +269,11 @@ struct AccessibleStatusIcon: View {
 
     private func accessibilityLabel(for status: String) -> String {
         switch status {
-        case "ok": return "AdapterOS running normally"
-        case "degraded": return "AdapterOS running with issues"
-        case "error": return "AdapterOS has errors"
-        case "offline": return "AdapterOS is offline"
-        default: return "AdapterOS status unknown"
+        case "ok": return "adapterOS running normally"
+        case "degraded": return "adapterOS running with issues"
+        case "error": return "adapterOS has errors"
+        case "offline": return "adapterOS is offline"
+        default: return "adapterOS status unknown"
         }
     }
 }

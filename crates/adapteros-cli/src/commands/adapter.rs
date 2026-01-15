@@ -5,7 +5,7 @@ use crate::http_client::send_with_refresh_from_store;
 use crate::output::OutputWriter;
 use adapteros_aos::{parse_segments, AosWriter};
 use adapteros_api_types::adapters::RegisterAdapterRequest;
-use adapteros_client::AdapterOSClient;
+use adapteros_client::adapterOSClient;
 use adapteros_core::validation;
 use adapteros_core::AosError;
 use adapteros_core::B3Hash;

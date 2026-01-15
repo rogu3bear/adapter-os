@@ -1,6 +1,6 @@
 //! Secure file permissions
 //!
-//! Implements secure file and directory permissions for AdapterOS.
+//! Implements secure file and directory permissions for adapterOS.
 //!
 //! ## Permission Recovery
 //!

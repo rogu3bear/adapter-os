@@ -22,7 +22,7 @@ pub async fn run(
     checkpoint_file: Option<PathBuf>,
 ) -> Result<()> {
     if !json_output {
-        info!("Starting AdapterOS bootstrap...");
+        info!("Starting adapterOS bootstrap...");
         info!("Mode: {}", mode);
         info!("Air-gapped: {}", air_gapped);
     }

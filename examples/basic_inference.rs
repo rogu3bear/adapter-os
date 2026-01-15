@@ -1,4 +1,4 @@
-//! Basic inference example demonstrating AdapterOS functionality
+//! Basic inference example demonstrating adapterOS functionality
 //!
 //! This example demonstrates:
 //! 1. Loading a manifest
@@ -25,7 +25,7 @@ use std::fs;
 
 #[cfg(not(feature = "extended-tests"))]
 fn main() {
-    eprintln!("Enable the `extended-tests` feature to run the AdapterOS basic inference example.");
+    eprintln!("Enable the `extended-tests` feature to run the adapterOS basic inference example.");
 }
 
 #[cfg(feature = "extended-tests")]
@@ -36,7 +36,7 @@ async fn main() -> Result<()> {
         .with_max_level(tracing::Level::INFO)
         .init();
 
-    println!("\n🚀 AdapterOS Basic Inference Example\n");
+    println!("\n🚀 adapterOS Basic Inference Example\n");
 
     // Load manifest
     let manifest_path = "manifests/qwen7b.json"; // Example path

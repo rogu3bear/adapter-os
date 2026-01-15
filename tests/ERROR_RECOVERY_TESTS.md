@@ -4,7 +4,7 @@
 
 ## Overview
 
-Comprehensive chaos testing and fault tolerance validation for critical AdapterOS components. This test suite ensures proper error handling, recovery mechanisms, and state consistency across all failure scenarios.
+Comprehensive chaos testing and fault tolerance validation for critical adapterOS components. This test suite ensures proper error handling, recovery mechanisms, and state consistency across all failure scenarios.
 
 ## Test Modules
 

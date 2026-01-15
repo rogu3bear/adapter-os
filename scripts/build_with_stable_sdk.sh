@@ -30,7 +30,7 @@ export SOURCE_DATE_EPOCH='1704067200'
 export RUSTFLAGS='-Cdebuginfo=0'
 export CARGO_TERM_COLOR=always
 
-echo "🚀 Building AdapterOS with stable SDK..."
+echo "🚀 Building adapterOS with stable SDK..."
 echo "Command: cargo build $@"
 
 # Run cargo build with provided arguments
@@ -52,5 +52,5 @@ find target -name "*.dylib" -exec sh -c '
 ' _ {} \;
 
 echo ""
-echo "🎉 AdapterOS build verification complete!"
+echo "🎉 adapterOS build verification complete!"
 echo "The macOS 14.4 SDK workaround successfully avoided Sequoia beta linker issues."

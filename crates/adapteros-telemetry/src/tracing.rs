@@ -1,4 +1,4 @@
-//! Distributed tracing correlation for AdapterOS
+//! Distributed tracing correlation for adapterOS
 //!
 //! Implements W3C Trace Context for distributed tracing across:
 //! - Inference requests

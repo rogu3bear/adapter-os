@@ -80,7 +80,7 @@ python convert_to_coreml.py \
     --compute-units cpu_and_ne
 ```
 
-### 4. Integrate with AdapterOS
+### 4. Integrate with adapterOS
 
 Copy the CoreML package to the models directory:
 
@@ -94,7 +94,7 @@ cp -r output/synthesis_model.mlpackage ../../var/models/
 
 ```json
 {
-  "chunk": "AdapterOS uses BLAKE3 hashing for content integrity and deterministic verification. The router sorts adapter scores in descending order, with index-based tie-breaking for reproducibility.",
+  "chunk": "adapterOS uses BLAKE3 hashing for content integrity and deterministic verification. The router sorts adapter scores in descending order, with index-based tie-breaking for reproducibility.",
   "metadata": {
     "source": "docs/DETERMINISM.md",
     "chunk_index": 3
@@ -108,23 +108,23 @@ cp -r output/synthesis_model.mlpackage ../../var/models/
 {
   "qa_pairs": [
     {
-      "question": "What hashing algorithm does AdapterOS use for content integrity?",
-      "answer": "AdapterOS uses BLAKE3 hashing for content integrity and deterministic verification."
+      "question": "What hashing algorithm does adapterOS use for content integrity?",
+      "answer": "adapterOS uses BLAKE3 hashing for content integrity and deterministic verification."
     },
     {
-      "question": "How does the AdapterOS router handle tie-breaking?",
+      "question": "How does the adapterOS router handle tie-breaking?",
       "answer": "The router uses index-based tie-breaking when adapter scores are equal, ensuring reproducibility."
     }
   ],
   "instructions": [
     {
-      "instruction": "Explain how AdapterOS ensures deterministic behavior.",
-      "response": "AdapterOS ensures deterministic behavior through two key mechanisms: BLAKE3 hashing for content integrity verification, and a router that sorts adapter scores in descending order with index-based tie-breaking for reproducibility."
+      "instruction": "Explain how adapterOS ensures deterministic behavior.",
+      "response": "adapterOS ensures deterministic behavior through two key mechanisms: BLAKE3 hashing for content integrity verification, and a router that sorts adapter scores in descending order with index-based tie-breaking for reproducibility."
     }
   ],
   "completions": [
     {
-      "context": "The AdapterOS router sorting algorithm",
+      "context": "The adapterOS router sorting algorithm",
       "continuation": "sorts adapter scores in descending order, with index-based tie-breaking to ensure reproducible results across runs."
     }
   ]
@@ -197,5 +197,5 @@ Ensure CoreML package is using `cpu_and_ne` compute units for ANE acceleration.
 
 ## License
 
-Training scripts: MIT License (same as AdapterOS)
+Training scripts: MIT License (same as adapterOS)
 Model weights: Subject to Qwen model license (Apache 2.0)

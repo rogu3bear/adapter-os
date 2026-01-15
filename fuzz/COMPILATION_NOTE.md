@@ -38,7 +38,7 @@ The fuzz target code follows the same patterns as existing working targets in th
 - Uses `libfuzzer_sys::fuzz_target!` macro
 - Uses `arbitrary::Unstructured` for structured fuzzing
 - Includes determinism assertions
-- Follows AdapterOS code style conventions
+- Follows adapterOS code style conventions
 
 ## Testing Without Full Build
 

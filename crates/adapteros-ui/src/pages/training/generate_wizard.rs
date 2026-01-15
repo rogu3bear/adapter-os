@@ -1,7 +1,7 @@
 //! Dataset generation wizard for creating training data from raw files.
 //!
 //! This wizard allows users to upload a text file (e.g., README.md) and
-//! generate a training dataset using local AdapterOS inference with
+//! generate a training dataset using local adapterOS inference with
 //! configurable strategies (QA or Summary).
 
 #[cfg(target_arch = "wasm32")]

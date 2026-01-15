@@ -1,4 +1,4 @@
-//! Document ingestion helpers for AdapterOS.
+//! Document ingestion helpers for adapterOS.
 //!
 //! Provides deterministic PDF/Markdown parsing, token-aware chunking, and
 //! normalized outputs that downstream pipelines can index or convert into

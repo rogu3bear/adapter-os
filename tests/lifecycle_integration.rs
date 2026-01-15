@@ -1,7 +1,7 @@
 //! Integration tests for the complete lifecycle system
 //!
 //! These tests verify the full startup → runtime → shutdown lifecycle
-//! of the AdapterOS server with all major subsystems.
+//! of the adapterOS server with all major subsystems.
 
 #[cfg(test)]
 mod lifecycle_tests {

@@ -1,4 +1,4 @@
-//! Supervisor daemon for AdapterOS
+//! Supervisor daemon for adapterOS
 //!
 //! Provides:
 //! - Health monitoring for worker processes

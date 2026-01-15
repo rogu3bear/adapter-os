@@ -1,7 +1,7 @@
 //! # Determinism Replay Test Harness
 //!
 //! This harness validates that identical inference requests produce identical
-//! outputs across multiple runs. It is the cornerstone of AdapterOS's
+//! outputs across multiple runs. It is the cornerstone of adapterOS's
 //! deterministic replay guarantee.
 //!
 //! ## Test Properties

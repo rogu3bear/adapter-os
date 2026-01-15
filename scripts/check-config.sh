@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# AdapterOS config sanity checker
+# adapterOS config sanity checker
 #
 # Checks:
 # - Env vars used by dev-up/smoke scripts (ports, DB path)
@@ -223,7 +223,7 @@ describe_port_users() {
   return 0
 }
 
-echo "AdapterOS config sanity check"
+echo "adapterOS config sanity check"
 echo "Repo: $ROOT_DIR"
 echo ""
 

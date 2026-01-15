@@ -8,7 +8,7 @@
 //!
 //! Citation: docs/llm-interface-specification.md §5.1
 
-use crate::{types::*, AdapterOSClient, TelemetryBundleResponse, TelemetryEvent};
+use crate::{types::*, adapterOSClient, TelemetryBundleResponse, TelemetryEvent};
 use anyhow::Result;
 use futures_util::stream::BoxStream;
 use serde_json;
@@ -460,7 +460,7 @@ pub struct CancelTrainingResponse {
     pub stopped_at_epoch: Option<u32>,
 }
 
-impl AdapterOSClient for UdsClient {
+impl adapterOSClient for UdsClient {
     // Health & Auth
     async fn health(&self) -> Result<HealthResponse> {
         // UDS clients typically don't implement health checks

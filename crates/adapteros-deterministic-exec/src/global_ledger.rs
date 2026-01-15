@@ -578,7 +578,7 @@ impl GlobalTickLedger {
         // in the tick_ledger_entries schema (added in migration 0035_tick_ledger_federation.sql)
         // but are not currently populated. These fields are reserved for future multi-host
         // federation features where tick ledgers will be synchronized and verified across
-        // multiple AdapterOS instances. When federation is implemented, these fields will
+        // multiple adapterOS instances. When federation is implemented, these fields will
         // enable cross-host consistency verification and tamper detection.
         sqlx::query(
             r#"

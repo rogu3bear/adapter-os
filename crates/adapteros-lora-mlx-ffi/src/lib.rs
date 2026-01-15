@@ -1,4 +1,4 @@
-//! MLX FFI integration for AdapterOS
+//! MLX FFI integration for adapterOS
 //!
 //! This crate provides C FFI bindings for MLX's C++ API, avoiding PyO3 dependency issues.
 //! The C++ FFI path is the primary/production backend.

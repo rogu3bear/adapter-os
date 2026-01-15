@@ -1,8 +1,8 @@
-# AdapterOS Load Testing Guide
+# adapterOS Load Testing Guide
 
 ## Overview
 
-This guide provides comprehensive documentation for running load tests on AdapterOS concurrent adapter operations. The load testing suite validates performance, stability, and reliability under high concurrency scenarios.
+This guide provides comprehensive documentation for running load tests on adapterOS concurrent adapter operations. The load testing suite validates performance, stability, and reliability under high concurrency scenarios.
 
 ## Test Suite Overview
 
@@ -80,7 +80,7 @@ Configurable stress test with environment-variable-driven parameters for custom 
 
 2. **Configure Test Environment:**
    ```bash
-   # Set base URL for AdapterOS instance
+   # Set base URL for adapterOS instance
    export MPLORA_TEST_URL="http://localhost:9443"
 
    # Configure tenant tokens (optional, for multi-tenant tests)
@@ -179,7 +179,7 @@ Memory Usage:
 
 ### Test Environment
 - **Platform**: macOS (Apple Silicon)
-- **AdapterOS Version**: v0.1.0
+- **adapterOS Version**: v0.1.0
 - **Test Date**: 2025-12-24
 
 ### Baseline Results
@@ -362,7 +362,7 @@ cargo test --test integration --features extended-tests -- --test-threads=1 --no
 ```
 Error: Connection refused (os error 61)
 ```
-**Solution**: Ensure AdapterOS server is running at `MPLORA_TEST_URL`.
+**Solution**: Ensure adapterOS server is running at `MPLORA_TEST_URL`.
 
 ### Out of Memory
 ```
@@ -393,7 +393,7 @@ When adding new load tests:
 
 For issues or questions:
 - File an issue in the repository
-- Contact the AdapterOS team
+- Contact the adapterOS team
 - Check existing test documentation
 
 ---

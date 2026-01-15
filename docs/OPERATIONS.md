@@ -1,10 +1,10 @@
-# AdapterOS Production Operations Guide
+# adapterOS Production Operations Guide
 
 **Complete operational guide for production deployment, monitoring, backup/restore, and disaster recovery.**
 
 **Last Updated:** 2025-12-11
 **Version:** 1.0
-**Maintained By:** AdapterOS Operations Team
+**Maintained By:** adapterOS Operations Team
 
 ---
 
@@ -292,7 +292,7 @@ groups:
 
 ### Backup Strategy Overview
 
-AdapterOS stores critical state in multiple locations requiring coordinated backup:
+adapterOS stores critical state in multiple locations requiring coordinated backup:
 
 - **Control-plane DB:** `AOS_DATABASE_URL` (default `sqlite://var/aos-cp.sqlite3`)
 - **KV store:** `AOS_KV_PATH` (default `var/aos-kv.redb`)
@@ -317,7 +317,7 @@ Create `/opt/adapteros/scripts/backup/backup.sh`:
 
 ```bash
 #!/bin/bash
-# AdapterOS Production Backup Script
+# adapterOS Production Backup Script
 set -euo pipefail
 
 BACKUP_DIR="/var/backups/adapteros"
@@ -357,7 +357,7 @@ echo "Backup completed: $BACKUP_DIR/aos-backup-$TIMESTAMP.tar.gz"
 
 ### Database Restore Procedure
 
-**Critical: Stop all AdapterOS services before restore**
+**Critical: Stop all adapterOS services before restore**
 
 ```bash
 # 1. Stop services

@@ -1,12 +1,12 @@
-# AdapterOS Boot Sequence Walkthrough
+# adapterOS Boot Sequence Walkthrough
 
-This document provides a narrative walkthrough of the AdapterOS boot sequence, connecting the shell orchestration layer with the Rust control plane startup. It's designed to help new developers understand how the system initializes in under 30 minutes.
+This document provides a narrative walkthrough of the adapterOS boot sequence, connecting the shell orchestration layer with the Rust control plane startup. It's designed to help new developers understand how the system initializes in under 30 minutes.
 
 ## Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                           AdapterOS Boot Flow                                │
+│                           adapterOS Boot Flow                                │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │   ./start                                                                   │
@@ -36,7 +36,7 @@ This document provides a narrative walkthrough of the AdapterOS boot sequence, c
 
 **File:** `start` (project root, 1099 lines)
 
-The canonical entry point for AdapterOS. It:
+The canonical entry point for adapterOS. It:
 
 1. **Displays banner** and version info
 2. **Runs preflight checks** (disk space, memory, port availability)

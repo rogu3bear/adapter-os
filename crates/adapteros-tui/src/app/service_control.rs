@@ -43,7 +43,7 @@ impl ServiceControl {
         let project_root = manifest_dir
             .parent()
             .and_then(Path::parent)
-            .ok_or_else(|| anyhow!("Could not determine AdapterOS project root"))?
+            .ok_or_else(|| anyhow!("Could not determine adapterOS project root"))?
             .to_path_buf();
         let launch_script = project_root.join("launch.sh");
 

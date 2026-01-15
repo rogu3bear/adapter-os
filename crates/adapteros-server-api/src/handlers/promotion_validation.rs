@@ -285,7 +285,7 @@ fn validate_isolation(archive: &GoldenRunArchive) -> AosResult<PolicyValidationR
 
 fn validate_adapter_lifecycle(archive: &GoldenRunArchive) -> AosResult<PolicyValidationResult> {
     if archive.metadata.adapters.is_empty() {
-        // It's possible to have a run with no adapters (base model only), but unusual for AdapterOS
+        // It's possible to have a run with no adapters (base model only), but unusual for adapterOS
         // We'll allow it but note it
         return Ok(PolicyValidationResult::pass(Some(serde_json::json!({
             "note": "No adapters used in golden run"

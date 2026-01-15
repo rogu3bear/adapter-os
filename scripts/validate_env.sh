@@ -1,5 +1,5 @@
 #!/bin/bash
-# AdapterOS Environment Validation Script
+# adapterOS Environment Validation Script
 # Validates .env configuration and environment setup
 
 set -e
@@ -294,6 +294,6 @@ elif [ $WARNINGS -gt 0 ]; then
 else
     echo ""
     echo -e "${GREEN}✅ Environment validation passed${NC}"
-    echo "Ready to start AdapterOS!"
+    echo "Ready to start adapterOS!"
     exit 0
 fi

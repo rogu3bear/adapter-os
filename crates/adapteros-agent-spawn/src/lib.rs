@@ -1,4 +1,4 @@
-//! Multi-agent spawn system for AdapterOS
+//! Multi-agent spawn system for adapterOS
 //!
 //! This crate provides infrastructure for spawning 15-30 parallel AI agent processes
 //! to collaboratively strategize about code modifications. Agents communicate via

@@ -2,7 +2,7 @@
 //! Evidence Validation Tests
 //!
 //! This module tests evidence collection, validation, integrity, and tamper detection
-//! in AdapterOS. It ensures that evidence is properly collected, validated, and protected
+//! in adapterOS. It ensures that evidence is properly collected, validated, and protected
 //! against tampering while maintaining the deterministic nature of the inference runtime.
 
 use adapteros_core::{B3Hash, Evidence};

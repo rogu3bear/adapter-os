@@ -1,4 +1,4 @@
-//! Bundle metadata types for AdapterOS telemetry system
+//! Bundle metadata types for adapterOS telemetry system
 //!
 //! This module provides the canonical BundleMetadata type used across
 //! the telemetry system for bundle storage, verification, and retention.
@@ -16,7 +16,7 @@ use std::time::SystemTime;
 /// Canonical bundle metadata (consolidates lib.rs, bundle_store.rs, and bundle.rs versions)
 ///
 /// Per Artifacts Ruleset #13: All bundles must be signed with Ed25519
-/// This type provides a single source of truth for bundle signature metadata across AdapterOS.
+/// This type provides a single source of truth for bundle signature metadata across adapterOS.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]

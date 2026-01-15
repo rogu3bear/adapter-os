@@ -1,4 +1,4 @@
-//! Unified Error Registry for AdapterOS
+//! Unified Error Registry for adapterOS
 //!
 //! This crate provides a centralized error code registry with:
 //! - Compile-time exhaustiveness checking for AosError → ECode mappings

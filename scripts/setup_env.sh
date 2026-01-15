@@ -1,5 +1,5 @@
 #!/bin/bash
-# AdapterOS Interactive Environment Setup Script
+# adapterOS Interactive Environment Setup Script
 # Guides developers through environment configuration
 
 set -e
@@ -17,7 +17,7 @@ NC='\033[0m'
 print_header() {
     echo ""
     echo -e "${BLUE}╔════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║ AdapterOS Environment Setup${NC}${BLUE} $(printf '%-40s' "$1")║${NC}"
+    echo -e "${BLUE}║ adapterOS Environment Setup${NC}${BLUE} $(printf '%-40s' "$1")║${NC}"
     echo -e "${BLUE}╚════════════════════════════════════════════════════════════════╝${NC}"
 }
 

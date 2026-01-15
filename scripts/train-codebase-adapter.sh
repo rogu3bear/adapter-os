@@ -4,7 +4,7 @@ IFS=$'\n\t'
 
 usage() {
   cat <<'USAGE'
-Train a demo adapter from the current AdapterOS codebase and run one inference.
+Train a demo adapter from the current adapterOS codebase and run one inference.
 
 Pipeline:
   1) Build local codebase dataset (scripts/build-codebase-dataset.sh)
@@ -16,7 +16,7 @@ Pipeline:
   7) Load adapter + run one inference and print output
 
 Requirements:
-  - AdapterOS control plane running (default: http://localhost:8080)
+  - adapterOS control plane running (default: http://localhost:8080)
   - curl, jq, python3
 
 Authentication:
@@ -123,7 +123,7 @@ TRAIN_BATCH_SIZE="${AOS_TRAIN_BATCH_SIZE:-2}"
 TRAIN_LEARNING_RATE="${AOS_TRAIN_LEARNING_RATE:-0.0001}"
 TRAIN_TIMEOUT_SEC="${AOS_TRAIN_TIMEOUT_SEC:-1800}"
 
-INFER_PROMPT="${AOS_INFER_PROMPT:-Explain (briefly) what AdapterOS is and how LoRA adapters are used in it.}"
+INFER_PROMPT="${AOS_INFER_PROMPT:-Explain (briefly) what adapterOS is and how LoRA adapters are used in it.}"
 INFER_MAX_TOKENS="${AOS_INFER_MAX_TOKENS:-160}"
 
 normalize_base_url() {
@@ -444,7 +444,7 @@ PY
 
 step "Uploading dataset to control plane"
 DATASET_NAME="codebase-demo-$(date +%Y%m%d-%H%M%S)"
-DATASET_DESC="Demo: codebase chunks (input == target) from AdapterOS repository"
+DATASET_DESC="Demo: codebase chunks (input == target) from adapterOS repository"
 DATASET_UPLOAD_RESP="$(api_multipart_upload_dataset "${TRAINING_JSONL}" "${DATASET_NAME}" "${DATASET_DESC}")"
 DATASET_ID="$(printf "%s" "$DATASET_UPLOAD_RESP" | jq -r '.dataset_id // empty')"
 [[ -n "${DATASET_ID}" ]] || die "dataset upload succeeded but no dataset_id found"

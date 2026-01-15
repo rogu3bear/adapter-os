@@ -1,6 +1,6 @@
 //! Adapter and stack naming validation
 //!
-//! This module implements the canonical naming taxonomy for AdapterOS adapters and stacks.
+//! This module implements the canonical naming taxonomy for adapterOS adapters and stacks.
 //! See docs/ADAPTER_TAXONOMY.md for the complete specification.
 
 use crate::{AosError, Result};

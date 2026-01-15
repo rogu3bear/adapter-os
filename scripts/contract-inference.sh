@@ -119,7 +119,7 @@ if ! command -v curl >/dev/null 2>&1; then
   die "curl is required"
 fi
 
-note "AdapterOS inference contract: ${BASE_URL}"
+note "adapterOS inference contract: ${BASE_URL}"
 
 if [[ -n "${AOS_TOKEN:-}" ]]; then
   AUTH_HEADER="Authorization: Bearer ${AOS_TOKEN}"
