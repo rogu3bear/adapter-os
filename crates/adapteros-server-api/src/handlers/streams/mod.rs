@@ -1122,8 +1122,8 @@ pub async fn enhanced_system_metrics_stream(
                 Err(_) => 0,
             };
 
-        // Fetch worker health status
-        let workers = match sqlx::query("SELECT id, status FROM workers WHERE status = 'active'")
+        // Fetch worker health status (workers in 'healthy' status are actively serving)
+        let workers = match sqlx::query("SELECT id, status FROM workers WHERE status = 'healthy'")
             .fetch_all(state.db.pool())
             .await
         {
@@ -1182,8 +1182,9 @@ async fn get_system_metrics_internal(state: &AppState) -> Result<SystemMetricsRe
         .map_err(|e| format!("time error: {}", e))?
         .as_secs();
 
+    // Workers in 'healthy' status are actively serving inference requests
     let active_workers =
-        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM workers WHERE status = 'active'")
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM workers WHERE status = 'healthy'")
             .fetch_one(state.db.pool())
             .await
             .unwrap_or(0) as i32;

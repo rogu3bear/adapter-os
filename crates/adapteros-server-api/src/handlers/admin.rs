@@ -9,71 +9,27 @@ use crate::error_helpers::db_error_with_details;
 use crate::middleware::require_role;
 use crate::state::AppState;
 use crate::types::*;
+pub use adapteros_api_types::admin::{ListUsersParams, ListUsersResponse, UserResponse};
 use adapteros_db::users::{Role, User};
 use axum::{
     extract::{Extension, Query, State},
     http::StatusCode,
     response::Json,
 };
-use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
 
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct ListUsersParams {
-    #[serde(default = "default_page")]
-    pub page: i64,
-    #[serde(default = "default_page_size")]
-    pub page_size: i64,
-    pub role: Option<String>,
-    pub tenant_id: Option<String>,
-}
-
-fn default_page() -> i64 {
-    1
-}
-
-fn default_page_size() -> i64 {
-    100
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct ListUsersResponse {
-    #[serde(rename = "schema_version")]
-    pub schema_version: String,
-    pub users: Vec<UserResponse>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct UserResponse {
-    pub user_id: String,
-    pub id: String, // Alias for user_id
-    pub email: String,
-    pub display_name: String,
-    pub role: String,
-    pub tenant_id: String,
-    pub created_at: String,
-    pub last_login_at: Option<String>,
-    pub mfa_enabled: Option<bool>,
-    pub permissions: Option<Vec<String>>,
-}
-
-impl From<User> for UserResponse {
-    fn from(user: User) -> Self {
-        UserResponse {
-            user_id: user.id.clone(),
-            id: user.id,
-            email: user.email,
-            display_name: user.display_name,
-            role: user.role,
-            tenant_id: user.tenant_id,
-            created_at: user.created_at,
-            last_login_at: None,
-            mfa_enabled: Some(user.mfa_enabled),
-            permissions: None, // Requires role-based computation
-        }
+/// Convert a database User to an API UserResponse
+fn user_to_response(user: User) -> UserResponse {
+    UserResponse {
+        user_id: user.id.clone(),
+        id: user.id,
+        email: user.email,
+        display_name: user.display_name,
+        role: user.role,
+        tenant_id: user.tenant_id,
+        created_at: user.created_at,
+        last_login_at: None,
+        mfa_enabled: Some(user.mfa_enabled),
+        permissions: None, // Requires role-based computation
     }
 }
 
@@ -116,7 +72,7 @@ pub async fn list_users(
         .await
         .map_err(db_error_with_details)?;
 
-    let user_responses: Vec<UserResponse> = users.into_iter().map(|u| u.into()).collect();
+    let user_responses: Vec<UserResponse> = users.into_iter().map(user_to_response).collect();
 
     Ok(Json(ListUsersResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),

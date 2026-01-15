@@ -22,21 +22,8 @@ pub struct DirectoryUpsertResponse {
     pub activated: bool,
 }
 
-/// Base model status response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct BaseModelStatusResponse {
-    pub model_id: String,
-    pub model_name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub model_path: Option<String>,
-    pub status: ModelLoadStatus,
-    pub loaded_at: Option<String>,
-    pub unloaded_at: Option<String>,
-    pub error_message: Option<String>,
-    pub memory_usage_mb: Option<i32>,
-    pub is_loaded: bool,
-    pub updated_at: String,
-}
+// BaseModelStatusResponse is now imported from adapteros_api_types::models
+pub use adapteros_api_types::models::BaseModelStatusResponse;
 
 /// Promotion response
 #[derive(Debug, Serialize, Deserialize, ToSchema)]

@@ -19,17 +19,33 @@ use serde::Serialize;
         (status = 200, description = "System metadata", body = MetaResponse)
     )
 )]
-pub async fn meta() -> Json<MetaResponse> {
-    // Note: environment, production_mode, and dev_login_enabled are runtime config values
-    // that require AppState. For now, we provide defaults.
-    // TODO: Update this handler to take State if these values are needed.
+pub async fn meta(State(state): State<AppState>) -> Json<MetaResponse> {
+    // Read actual runtime config values
+    let (production_mode, dev_bypass, dev_login_enabled) = {
+        let cfg = state.config.read().unwrap_or_else(|e| e.into_inner());
+        (
+            cfg.server.production_mode,
+            cfg.security.dev_bypass,
+            cfg.security.dev_login_enabled,
+        )
+    };
+
+    // Derive environment from production_mode
+    let environment = if production_mode {
+        "production".to_string()
+    } else if dev_bypass {
+        "dev-bypass".to_string()
+    } else {
+        "dev".to_string()
+    };
+
     Json(MetaResponse {
         version: env!("CARGO_PKG_VERSION").to_string(),
         build_hash: option_env!("BUILD_HASH").unwrap_or("dev").to_string(),
         build_date: option_env!("BUILD_DATE").unwrap_or("unknown").to_string(),
-        environment: "dev".to_string(),
-        production_mode: false,
-        dev_login_enabled: false,
+        environment,
+        production_mode,
+        dev_login_enabled,
     })
 }
 
@@ -121,9 +137,10 @@ pub async fn get_resource_usage(
     })?;
 
     let total_workers = workers.len();
+    // Workers in 'healthy' status are actively serving inference requests
     let active_workers = workers
         .iter()
-        .filter(|w| w.status == "active" || w.status == "ready")
+        .filter(|w| w.status == "healthy")
         .count();
 
     // Get loaded adapters count

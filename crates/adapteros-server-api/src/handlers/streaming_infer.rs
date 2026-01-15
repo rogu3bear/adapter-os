@@ -19,7 +19,7 @@
 //! Reconnection replay is not supported for this endpoint; clients should retry the request.
 
 use crate::api_error::ApiError;
-use crate::auth::{AuthMode, Claims, PrincipalType, JWT_ISSUER};
+use crate::auth::{is_dev_bypass_enabled, AuthMode, Claims, PrincipalType, JWT_ISSUER};
 use crate::backpressure::check_uma_backpressure;
 use crate::chat_context::build_chat_prompt;
 use crate::citations::collect_citations_for_adapters;
@@ -1741,6 +1741,28 @@ impl StreamState {
                                         });
                                     }
                                     Some(Err(err)) => {
+                                        // Dev echo mode: return echo token instead of error
+                                        // when worker is unavailable in dev bypass mode
+                                        if is_dev_bypass_enabled() {
+                                            if matches!(
+                                                err,
+                                                InferenceError::WorkerDegraded { .. }
+                                                    | InferenceError::NoCompatibleWorker { .. }
+                                                    | InferenceError::WorkerError(_)
+                                                    | InferenceError::WorkerNotAvailable(_)
+                                            ) {
+                                                info!(
+                                                    request_id = %self.request_id,
+                                                    error = %err,
+                                                    "Dev echo mode (stream): returning mock token"
+                                                );
+                                                self.phase = StreamPhase::Done;
+                                                // Return echo text as a single token
+                                                return Some(StreamEvent::Token(
+                                                    "[DEV ECHO] No inference worker available. Start a worker to enable real inference.".to_string()
+                                                ));
+                                            }
+                                        }
                                         self.phase = StreamPhase::Done;
                                         return Some(self.map_inference_error(err));
                                     }

@@ -272,9 +272,53 @@ pub async fn list_workers(
         })?
     };
 
-    let response: Vec<WorkerResponse> = workers
-        .into_iter()
-        .map(|w| WorkerResponse {
+    // Build response with model lookups
+    let mut response = Vec::with_capacity(workers.len());
+    for w in workers {
+        // Look up model_id from hash if available
+        let model_id = if let Some(ref hash) = w.model_hash_b3 {
+            state
+                .db
+                .get_model_by_hash(hash)
+                .await
+                .ok()
+                .flatten()
+                .map(|m| m.id)
+        } else {
+            None
+        };
+
+        // Get runtime info if available
+        let runtime = state.worker_runtime.get(&w.id);
+        let (cache_used_mb, cache_max_mb, cache_pinned_entries, cache_active_entries) =
+            if let Some(ref rt) = runtime {
+                (
+                    rt.cache_used_mb,
+                    rt.cache_max_mb,
+                    rt.cache_pinned_entries,
+                    rt.cache_active_entries,
+                )
+            } else {
+                (None, None, None, None)
+            };
+
+        // Parse capabilities from JSON
+        let capabilities = w
+            .capabilities_json
+            .as_ref()
+            .and_then(|json| serde_json::from_str::<Vec<String>>(json).ok())
+            .unwrap_or_default();
+
+        let capabilities_detail = runtime
+            .as_ref()
+            .and_then(|rt| rt.capabilities_detail.clone())
+            .or_else(|| {
+                w.capabilities_json.as_ref().and_then(|json| {
+                    serde_json::from_str(json).ok()
+                })
+            });
+
+        response.push(WorkerResponse {
             schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
             id: w.id,
             tenant_id: w.tenant_id,
@@ -285,19 +329,18 @@ pub async fn list_workers(
             status: w.status,
             started_at: w.started_at,
             last_seen_at: w.last_seen_at,
-            capabilities: Vec::new(),
-            capabilities_detail: None,
-            backend: None,
-            model_id: None,
-            model_hash: None,
-            model_loaded: false,
-            // Cache metrics populated from worker heartbeats (not persisted in DB)
-            cache_used_mb: None,
-            cache_max_mb: None,
-            cache_pinned_entries: None,
-            cache_active_entries: None,
-        })
-        .collect();
+            capabilities,
+            capabilities_detail,
+            backend: w.backend,
+            model_id,
+            model_hash: w.model_hash_b3.clone(),
+            model_loaded: w.model_hash_b3.is_some(),
+            cache_used_mb,
+            cache_max_mb,
+            cache_pinned_entries,
+            cache_active_entries,
+        });
+    }
 
     Ok(Json(response))
 }
