@@ -386,30 +386,21 @@ pub fn DatasetDetail() -> impl IntoView {
                                             view! {
                                                 <dl class="space-y-3">
                                                     <div class="flex justify-between">
-                                                        <dt class="text-muted-foreground">"Row Count"</dt>
-                                                        <dd>{stats_data.row_count.to_string()}</dd>
+                                                        <dt class="text-muted-foreground">"Examples"</dt>
+                                                        <dd>{stats_data.num_examples.to_string()}</dd>
                                                     </div>
                                                     <div class="flex justify-between">
-                                                        <dt class="text-muted-foreground">"Size"</dt>
-                                                        <dd>{format_bytes(stats_data.size_bytes)}</dd>
+                                                        <dt class="text-muted-foreground">"Total Tokens"</dt>
+                                                        <dd>{stats_data.total_tokens.to_string()}</dd>
                                                     </div>
-                                                    {stats_data.split_stats.as_ref().map(|splits| view! {
-                                                        <div class="border-t pt-3 mt-3">
-                                                            <h4 class="text-sm font-medium mb-2">"Data Splits"</h4>
-                                                            <div class="flex justify-between">
-                                                                <dt class="text-muted-foreground">"Train"</dt>
-                                                                <dd>{splits.train_count.to_string()}</dd>
-                                                            </div>
-                                                            <div class="flex justify-between">
-                                                                <dt class="text-muted-foreground">"Validation"</dt>
-                                                                <dd>{splits.validation_count.to_string()}</dd>
-                                                            </div>
-                                                            <div class="flex justify-between">
-                                                                <dt class="text-muted-foreground">"Test"</dt>
-                                                                <dd>{splits.test_count.to_string()}</dd>
-                                                            </div>
-                                                        </div>
-                                                    })}
+                                                    <div class="flex justify-between">
+                                                        <dt class="text-muted-foreground">"Avg Input Length"</dt>
+                                                        <dd>{format!("{:.1}", stats_data.avg_input_length)}</dd>
+                                                    </div>
+                                                    <div class="flex justify-between">
+                                                        <dt class="text-muted-foreground">"Avg Target Length"</dt>
+                                                        <dd>{format!("{:.1}", stats_data.avg_target_length)}</dd>
+                                                    </div>
                                                 </dl>
                                             }.into_any()
                                         }

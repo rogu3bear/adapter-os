@@ -2,7 +2,9 @@
 //!
 //! Modal dialogs for creating training jobs.
 
-use crate::api::{ApiClient, ApiError};
+use crate::api::ApiClient;
+#[cfg(target_arch = "wasm32")]
+use crate::api::ApiError;
 use crate::components::{Button, ButtonVariant, FormField, Input};
 use crate::pages::training::dataset_wizard::{DatasetUploadOutcome, DatasetUploadWizard};
 use crate::pages::training::generate_wizard::{GenerateDatasetOutcome, GenerateDatasetWizard};
@@ -12,6 +14,7 @@ use leptos::prelude::*;
 use serde_json::json;
 
 /// Create job dialog
+#[allow(dead_code)] // Leptos #[component] macro limitation with unused props warnings
 #[component]
 pub fn CreateJobDialog(
     open: RwSignal<bool>,
@@ -55,6 +58,7 @@ pub fn CreateJobDialog(
     // File upload state
     let uploading = RwSignal::new(false);
     let upload_status = RwSignal::new(String::new());
+    #[cfg(target_arch = "wasm32")]
     let format_upload_error = |err: &ApiError| -> String {
         if let ApiError::Structured {
             error,

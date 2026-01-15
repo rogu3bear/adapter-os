@@ -7,8 +7,22 @@ use gloo_net::http::{Request, RequestBuilder};
 use serde::{de::DeserializeOwned, Serialize};
 use std::sync::{Arc, RwLock};
 
-use adapteros_api_types::training::JsonlValidationDiagnostic;
+pub use adapteros_api_types::dataset_domain::CanonicalRow;
+pub use adapteros_api_types::training::{
+    DatasetFileResponse, DatasetVersionsResponse, JsonlValidationDiagnostic,
+};
 pub use adapteros_api_types::{DatasetManifest, UploadDatasetResponse};
+// Consolidated types from shared crate
+pub use adapteros_api_types::admin::{ListUsersResponse, UserResponse};
+pub use adapteros_api_types::api_keys::{
+    ApiKeyInfo, ApiKeyListResponse, CreateApiKeyRequest, CreateApiKeyResponse, RevokeApiKeyResponse,
+};
+pub use adapteros_api_types::model_status::ModelLoadStatus;
+pub use adapteros_api_types::models::{
+    AllModelsStatusResponse, AneMemoryStatus, BaseModelStatusResponse, ModelStatusResponse,
+    SeedModelRequest, SeedModelResponse,
+};
+pub use adapteros_api_types::workers::WorkerMetricsResponse;
 
 /// HTTP API client for AdapterOS backend
 #[derive(Clone)]
@@ -115,6 +129,21 @@ impl ApiClient {
     pub async fn get<T: DeserializeOwned>(&self, path: &str) -> ApiResult<T> {
         let response = self.request("GET", path).send().await?;
         self.handle_response(response).await
+    }
+
+    /// Perform a GET request and return the text body
+    pub async fn get_text(&self, path: &str) -> ApiResult<String> {
+        let response = self.request("GET", path).send().await?;
+        if response.ok() {
+            response
+                .text()
+                .await
+                .map_err(|e| ApiError::Serialization(e.to_string()))
+        } else {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            Err(ApiError::from_response(status, &text))
+        }
     }
 
     /// Perform a POST request with JSON body
@@ -436,6 +465,11 @@ impl ApiClient {
     /// List all models with stats
     pub async fn list_models(&self) -> ApiResult<ModelListResponse> {
         self.get("/v1/models").await
+    }
+
+    /// List all models status
+    pub async fn list_models_status(&self) -> ApiResult<AllModelsStatusResponse> {
+        self.get("/v1/models/status/all").await
     }
 
     /// Get model status by ID
@@ -935,6 +969,55 @@ impl ApiClient {
         self.get(&format!("/v1/datasets/{}", id)).await
     }
 
+    /// List dataset versions
+    pub async fn list_dataset_versions(&self, dataset_id: &str) -> ApiResult<DatasetVersionsResponse> {
+        self.get(&format!("/v1/datasets/{}/versions", dataset_id))
+            .await
+    }
+
+    /// List dataset files
+    pub async fn list_dataset_files(&self, dataset_id: &str) -> ApiResult<Vec<DatasetFileResponse>> {
+        self.get(&format!("/v1/datasets/{}/files", dataset_id))
+            .await
+    }
+
+    /// Fetch dataset file content as text
+    pub async fn get_dataset_file_content(
+        &self,
+        dataset_id: &str,
+        file_id: &str,
+    ) -> ApiResult<String> {
+        self.get_text(&format!(
+            "/v1/datasets/{}/files/{}/content",
+            dataset_id, file_id
+        ))
+        .await
+    }
+
+    /// Validate a single dataset file
+    pub async fn validate_dataset_file(
+        &self,
+        dataset_id: &str,
+        file_id: &str,
+        request: &ValidateFileRequest,
+    ) -> ApiResult<ValidateFileResponse> {
+        self.post(
+            &format!("/v1/datasets/{}/files/{}/validate", dataset_id, file_id),
+            request,
+        )
+        .await
+    }
+
+    /// Validate all dataset files
+    pub async fn validate_all_dataset_files(
+        &self,
+        dataset_id: &str,
+        request: &ValidateFileRequest,
+    ) -> ApiResult<ValidateAllFilesResponse> {
+        self.post(&format!("/v1/datasets/{}/files/validate", dataset_id), request)
+            .await
+    }
+
     /// Delete a dataset
     pub async fn delete_dataset(&self, id: &str) -> ApiResult<()> {
         self.delete(&format!("/v1/datasets/{}", id)).await
@@ -943,6 +1026,37 @@ impl ApiClient {
     /// Get dataset statistics
     pub async fn get_dataset_statistics(&self, id: &str) -> ApiResult<DatasetStatisticsResponse> {
         self.get(&format!("/v1/datasets/{}/statistics", id)).await
+    }
+
+    /// Stream normalized dataset rows for a version
+    pub async fn list_dataset_rows(
+        &self,
+        dataset_version_id: &str,
+        split: Option<&str>,
+        shuffle_seed: Option<&str>,
+    ) -> ApiResult<Vec<CanonicalRow>> {
+        let mut query_parts = Vec::new();
+        if let Some(split) = split {
+            let encoded = js_sys::encode_uri_component(split);
+            query_parts.push(format!("split={}", encoded));
+        }
+        if let Some(seed) = shuffle_seed {
+            let encoded = js_sys::encode_uri_component(seed);
+            query_parts.push(format!("shuffle_seed={}", encoded));
+        }
+        let path = if query_parts.is_empty() {
+            format!(
+                "/v1/training/dataset_versions/{}/rows",
+                dataset_version_id
+            )
+        } else {
+            format!(
+                "/v1/training/dataset_versions/{}/rows?{}",
+                dataset_version_id,
+                query_parts.join("&")
+            )
+        };
+        self.get(&path).await
     }
 
     /// Create a training dataset from existing document(s)
@@ -1406,6 +1520,19 @@ pub struct InferenceRequest {
 // Local types for API responses not in adapteros-api-types (wasm feature)
 // ============================================================================
 
+/// Model architecture summary
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ModelArchitectureSummary {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub architecture: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub num_layers: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hidden_size: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vocab_size: Option<usize>,
+}
+
 /// Model with stats response (from /v1/models endpoint)
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ModelWithStatsResponse {
@@ -1425,69 +1552,34 @@ pub struct ModelWithStatsResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub created_at: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub architecture_summary: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quantization: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tenant_id: Option<String>,
     #[serde(default)]
     pub adapter_count: i64,
     #[serde(default)]
     pub training_job_count: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub imported_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
+    #[serde(alias = "architecture_summary")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub architecture: Option<ModelArchitectureSummary>,
 }
 
-/// Model list response
+/// Model list response (uses UI-specific ModelWithStatsResponse)
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ModelListResponse {
     pub models: Vec<ModelWithStatsResponse>,
     pub total: usize,
 }
 
-/// Model status response (from /v1/models/{id}/status endpoint)
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct ModelStatusResponse {
-    pub model_id: String,
-    pub model_name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub model_path: Option<String>,
-    pub status: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub loaded_at: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error_message: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub memory_usage_mb: Option<i32>,
-    pub is_loaded: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ane_memory: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub uma_pressure_level: Option<String>,
-}
-
-/// Import model request (for POST /v1/models/import)
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct SeedModelRequest {
-    pub model_name: String,
-    pub model_path: String,
-    /// Format: "mlx", "safetensors", "pytorch", "gguf"
-    pub format: String,
-    /// Backend: "mlx", "metal", "coreml"
-    pub backend: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub capabilities: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<serde_json::Value>,
-}
-
-/// Import model response
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct SeedModelResponse {
-    pub import_id: String,
-    pub status: String,
-    pub message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub progress: Option<i32>,
-}
+// Model types (AneMemoryStatus, ModelStatusResponse, BaseModelStatusResponse,
+// AllModelsStatusResponse, SeedModelRequest, SeedModelResponse) are now
+// imported from adapteros_api_types::models
 
 /// Workflow type for adapter stacks
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -1610,50 +1702,7 @@ pub struct TrainingConfigRequest {
     pub validation_split: Option<f32>,
 }
 
-/// Worker metrics response
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct WorkerMetricsResponse {
-    pub worker_id: String,
-    /// Memory usage in MB
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub memory_used_mb: Option<u64>,
-    /// Memory limit in MB
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub memory_limit_mb: Option<u64>,
-    /// GPU memory used in MB
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub gpu_memory_used_mb: Option<u64>,
-    /// GPU memory total in MB
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub gpu_memory_total_mb: Option<u64>,
-    /// GPU utilization percentage
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub gpu_utilization_pct: Option<f64>,
-    /// CPU utilization percentage
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cpu_utilization_pct: Option<f64>,
-    /// Requests processed
-    #[serde(default)]
-    pub requests_processed: u64,
-    /// Requests per second
-    #[serde(default)]
-    pub requests_per_second: f64,
-    /// Average latency in ms
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub avg_latency_ms: Option<f64>,
-    /// P99 latency in ms
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub p99_latency_ms: Option<f64>,
-    /// Uptime in seconds
-    #[serde(default)]
-    pub uptime_seconds: u64,
-    /// Cache entries count
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cache_entries: Option<u32>,
-    /// Cache hit rate
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cache_hit_rate: Option<f64>,
-}
+// WorkerMetricsResponse is now imported from adapteros_api_types::workers
 
 // ============================================================================
 // Collection types
@@ -2293,15 +2342,23 @@ pub struct DatasetResponse {
     pub schema_version: String,
     #[serde(alias = "dataset_id")]
     pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dataset_version_id: Option<String>,
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     pub format: String,
+    #[serde(alias = "hash")]
+    #[serde(alias = "hash_b3")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hash_b3: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub dataset_hash_b3: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub storage_path: Option<String>,
     pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub validation_status: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2309,10 +2366,13 @@ pub struct DatasetResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub validation_diagnostics: Option<Vec<JsonlValidationDiagnostic>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub trust_state: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub file_count: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_size_bytes: Option<i64>,
-    pub tenant_id: String,
+    #[serde(default)]
+    pub created_by: Option<String>,
     pub created_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<String>,
@@ -2334,32 +2394,89 @@ pub struct DatasetStatisticsResponse {
     #[serde(default)]
     pub schema_version: String,
     pub dataset_id: String,
-    pub row_count: i64,
     #[serde(default)]
-    pub size_bytes: i64,
+    pub num_examples: i64,
+    #[serde(default)]
+    pub avg_input_length: f64,
+    #[serde(default)]
+    pub avg_target_length: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub split_stats: Option<SplitStatistics>,
+    pub language_distribution: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub column_stats: Option<Vec<ColumnStatistics>>,
+    pub file_type_distribution: Option<serde_json::Value>,
+    #[serde(default)]
+    pub total_tokens: i64,
+    #[serde(default)]
+    pub computed_at: String,
 }
 
-/// Split statistics for a dataset
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct SplitStatistics {
-    pub train_count: i64,
-    pub validation_count: i64,
-    pub test_count: i64,
+fn default_validation_mode() -> String {
+    "quick".to_string()
 }
 
-/// Column statistics
+/// Request parameters for file validation
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct ColumnStatistics {
-    pub column_name: String,
-    pub data_type: String,
+pub struct ValidateFileRequest {
+    /// Validation mode: "quick" or "deep"
+    #[serde(default = "default_validation_mode")]
+    pub mode: String,
+    /// Whether to check required fields for JSONL training format
+    #[serde(default)]
+    pub check_training_format: bool,
+    /// Custom required fields to validate
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub null_count: Option<i64>,
+    pub required_fields: Option<Vec<String>>,
+}
+
+/// Detailed file validation error
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct FileValidationError {
+    pub severity: String,
+    pub category: String,
+    pub message: String,
+    pub code: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub unique_count: Option<i64>,
+    pub line_number: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub column_number: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub field_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggestion: Option<String>,
+}
+
+/// Response from file validation
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ValidateFileResponse {
+    pub schema_version: String,
+    pub file_id: String,
+    pub file_name: String,
+    pub is_valid: bool,
+    pub validation_mode: String,
+    pub error_count: usize,
+    pub warning_count: usize,
+    pub info_count: usize,
+    pub entries_validated: usize,
+    pub duration_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub errors: Option<Vec<FileValidationError>>,
+    pub validated_at: String,
+}
+
+/// Response from validating all files in a dataset
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ValidateAllFilesResponse {
+    pub schema_version: String,
+    pub dataset_id: String,
+    pub is_valid: bool,
+    pub validation_mode: String,
+    pub files_validated: usize,
+    pub total_error_count: usize,
+    pub total_warning_count: usize,
+    pub total_entries_validated: usize,
+    pub duration_ms: u64,
+    pub file_results: Vec<ValidateFileResponse>,
+    pub validated_at: String,
 }
 
 // ============================================================================
@@ -2646,77 +2763,13 @@ pub struct RoutingDecisionChainResponse {
 // Admin Types
 // ============================================================================
 
-/// User response from admin API
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct UserResponse {
-    pub user_id: String,
-    pub id: String,
-    pub email: String,
-    pub display_name: String,
-    pub role: String,
-    pub tenant_id: String,
-    pub created_at: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_login_at: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mfa_enabled: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub permissions: Option<Vec<String>>,
-}
-
-/// List users response
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct ListUsersResponse {
-    #[serde(default)]
-    pub schema_version: String,
-    pub users: Vec<UserResponse>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-}
+// Admin types (UserResponse, ListUsersResponse) are now imported from
+// adapteros_api_types::admin
 
 // ============================================================================
 // API Key Types
 // ============================================================================
 
-/// Request to create a new API key
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct CreateApiKeyRequest {
-    /// Name/label for the API key
-    pub name: String,
-    /// List of roles/scopes allowed for this key
-    pub scopes: Vec<String>,
-}
-
-/// Response after creating an API key (includes the actual token - shown only once)
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct CreateApiKeyResponse {
-    pub id: String,
-    /// The actual API token - only shown once at creation time
-    pub token: String,
-    pub created_at: String,
-}
-
-/// API key info (without the actual token)
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct ApiKeyInfo {
-    pub id: String,
-    pub name: String,
-    pub scopes: Vec<String>,
-    pub created_at: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub revoked_at: Option<String>,
-}
-
-/// Response for listing API keys
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct ApiKeyListResponse {
-    pub api_keys: Vec<ApiKeyInfo>,
-}
-
-/// Response after revoking an API key
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct RevokeApiKeyResponse {
-    pub id: String,
-    pub revoked: bool,
-}
+// API key types (CreateApiKeyRequest, CreateApiKeyResponse, ApiKeyInfo,
+// ApiKeyListResponse, RevokeApiKeyResponse) are now imported from
+// adapteros_api_types::api_keys

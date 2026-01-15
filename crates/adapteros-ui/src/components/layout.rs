@@ -3,16 +3,20 @@
 //! Global shell layout with top bar, bottom taskbar, and main workspace.
 //! Designed like a Windows taskbar + modern control plane aesthetic.
 
+use crate::api::ApiClient;
 use crate::components::chat_dock::{ChatDockPanel, MobileChatOverlay, NarrowChatDock};
 use crate::components::glass_toggle::GlassThemeToggle;
 use crate::components::global_search::GlobalSearchBox;
 use crate::components::offline_banner::OfflineBanner;
 use crate::components::status::{Badge, BadgeVariant, StatusColor, StatusIndicator};
+use crate::components::status_center::{use_status_center, StatusCenterProvider};
 use crate::components::version_skew_banner::VersionSkewBanner;
 use crate::components::workspace::Workspace;
+use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::{use_auth, use_chat, use_search, DockState};
 use leptos::prelude::*;
 use leptos_router::hooks::use_location;
+use std::sync::Arc;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 
@@ -82,41 +86,43 @@ pub fn Shell(children: Children) -> impl IntoView {
     });
 
     view! {
-        <div class="shell">
-            // PRD-UI-000: Offline banner for API connectivity status
-            <OfflineBanner/>
-            // Version drift banner prompts reload when backend/frontend versions differ
-            <VersionSkewBanner/>
-            // Streaming health indicator (SSE) could go here if needed
+        <StatusCenterProvider>
+            <div class="shell">
+                // PRD-UI-000: Offline banner for API connectivity status
+                <OfflineBanner/>
+                // Version drift banner prompts reload when backend/frontend versions differ
+                <VersionSkewBanner/>
+                // Streaming health indicator (SSE) could go here if needed
 
-            // Top bar
-            <TopBar/>
+                // Top bar
+                <TopBar/>
 
-            // Main content area with workspace
-            <div class="shell-content">
-                // Main workspace wrapper
-                <Workspace class="shell-workspace">
-                    <main class="shell-main">
-                        {children()}
-                    </main>
-                </Workspace>
+                // Main content area with workspace
+                <div class="shell-content">
+                    // Main workspace wrapper
+                    <Workspace class="shell-workspace">
+                        <main class="shell-main">
+                            {children()}
+                        </main>
+                    </Workspace>
 
-                // Chat dock (collapsible right panel)
-                {move || {
-                    match chat_state.get().dock_state {
-                        DockState::Docked => view! { <ChatDockPanel/> }.into_any(),
-                        DockState::Narrow => view! { <NarrowChatDock/> }.into_any(),
-                        DockState::Hidden => view! {}.into_any(),
-                    }
-                }}
+                    // Chat dock (collapsible right panel)
+                    {move || {
+                        match chat_state.get().dock_state {
+                            DockState::Docked => view! { <ChatDockPanel/> }.into_any(),
+                            DockState::Narrow => view! { <NarrowChatDock/> }.into_any(),
+                            DockState::Hidden => view! {}.into_any(),
+                        }
+                    }}
+                </div>
+
+                // Bottom taskbar
+                <Taskbar/>
+
+                // Mobile chat overlay
+                <MobileChatOverlay/>
             </div>
-
-            // Bottom taskbar
-            <Taskbar/>
-
-            // Mobile chat overlay
-            <MobileChatOverlay/>
-        </div>
+        </StatusCenterProvider>
     }
 }
 
@@ -484,71 +490,109 @@ fn TaskbarButton(
 // Start Menu
 // ============================================================================
 
-/// Module launcher menu
+/// Module launcher menu with all application pages
 #[component]
 fn StartMenu(on_close: impl Fn() + Clone + 'static) -> impl IntoView {
     let on_close_clone = on_close.clone();
 
-    // Module categories
+    // All module categories - comprehensive list of all pages
     let modules = vec![
         (
             "Core",
             vec![
-                ("Dashboard", "/", "Overview and metrics"),
-                ("Adapters", "/adapters", "Manage LoRA adapters"),
-                ("Chat", "/chat", "Interactive inference"),
+                ("Dashboard", "/"),
+                ("Chat", "/chat"),
+                ("Adapters", "/adapters"),
+            ],
+        ),
+        (
+            "Resources",
+            vec![
+                ("Models", "/models"),
+                ("Stacks", "/stacks"),
+                ("Collections", "/collections"),
+                ("Datasets", "/datasets"),
+                ("Documents", "/documents"),
+                ("Repositories", "/repositories"),
             ],
         ),
         (
             "Operations",
             vec![
-                ("Training", "/training", "Training jobs"),
-                ("System", "/system", "System status"),
-                ("Settings", "/settings", "Configuration"),
+                ("Training", "/training"),
+                ("Workers", "/workers"),
+                ("Routing", "/routing"),
+                ("Runs", "/runs"),
+            ],
+        ),
+        (
+            "Monitoring",
+            vec![
+                ("System", "/system"),
+                ("Monitoring", "/monitoring"),
+                ("Audit", "/audit"),
+                ("Errors", "/errors"),
+            ],
+        ),
+        (
+            "Administration",
+            vec![
+                ("Admin", "/admin"),
+                ("Policies", "/policies"),
+                ("Settings", "/settings"),
+            ],
+        ),
+        (
+            "Developer",
+            vec![
+                ("Diff", "/diff"),
+                ("Style Audit", "/style-audit"),
             ],
         ),
     ];
 
     view! {
-        <div class="absolute bottom-full left-0 mb-2 w-80 bg-background border border-border rounded-lg shadow-xl z-50">
+        <div
+            class="absolute left-0 w-96 bg-background border border-border rounded-lg shadow-xl z-50"
+            style="bottom: 100%; margin-bottom: 0.5rem;"
+        >
             // Header
             <div class="p-4 border-b border-border">
                 <h2 class="text-lg font-semibold">"AdapterOS"</h2>
                 <p class="text-xs text-muted-foreground">"Module Launcher"</p>
             </div>
 
-            // Module grid
-            <div class="p-3 max-h-80 overflow-y-auto">
-                {modules.into_iter().map(|(category, items)| {
-                    let on_close = on_close_clone.clone();
-                    view! {
-                        <div class="mb-3">
-                            <h3 class="text-xs font-medium text-muted-foreground uppercase tracking-wider px-2 mb-1">
-                                {category}
-                            </h3>
-                            <div class="space-y-0.5">
-                                {items.into_iter().map(|(label, href, desc)| {
-                                    let on_close = on_close.clone();
-                                    view! {
-                                        <a
-                                            href=href
-                                            class="flex items-start gap-3 px-2 py-2 rounded-md hover:bg-muted/50 transition-colors"
-                                            on:click=move |_| on_close()
-                                        >
-                                            <div class="w-8 h-8 rounded bg-primary/10 flex items-center justify-center shrink-0">
-                                                <span class="text-primary text-sm">{label.chars().next().unwrap_or('?')}</span>
-                                            </div>
-                                            <div class="min-w-0">
-                                                <p class="text-sm font-medium truncate">{label}</p>
-                                                <p class="text-xs text-muted-foreground truncate">{desc}</p>
-                                            </div>
-                                        </a>
-                                    }
-                                }).collect::<Vec<_>>()}
+            // Module grid - two column layout for better organization
+            <div class="p-3 max-h-[28rem] overflow-y-auto">
+                <div class="grid grid-cols-2 gap-x-4">
+                    {modules.into_iter().map(|(category, items)| {
+                        let on_close = on_close_clone.clone();
+                        view! {
+                            <div class="mb-3">
+                                <h3 class="text-xs font-medium text-muted-foreground uppercase tracking-wider px-2 mb-1">
+                                    {category}
+                                </h3>
+                                <div class="space-y-0.5">
+                                    {items.into_iter().map(|(label, href)| {
+                                        let on_close = on_close.clone();
+                                        view! {
+                                            <a
+                                                href=href
+                                                class="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted/50 transition-colors"
+                                                on:click=move |_| on_close()
+                                            >
+                                                <div class="w-6 h-6 rounded bg-primary/10 flex items-center justify-center shrink-0">
+                                                    <span class="text-primary text-xs">{label.chars().next().unwrap_or('?')}</span>
+                                                </div>
+                                                <span class="text-sm font-medium truncate">{label}</span>
+                                            </a>
+                                        }
+                                    }).collect::<Vec<_>>()}
+                                </div>
                             </div>
-                        </div>
-                    }
-                }).collect::<Vec<_>>()}
+                        }
+                    }).collect::<Vec<_>>()}
+                </div>
             </div>
 
             // Footer
@@ -571,6 +615,12 @@ fn StartMenu(on_close: impl Fn() + Clone + 'static) -> impl IntoView {
 /// System tray with health indicator, connection status, and time
 #[component]
 fn SystemTray() -> impl IntoView {
+    let status_center = use_status_center();
+    let (health, _refetch_health) =
+        use_api_resource(|client: Arc<ApiClient>| async move { client.health().await });
+    let (system_status, _refetch_status) =
+        use_api_resource(|client: Arc<ApiClient>| async move { client.system_status().await });
+
     // Current time (updates every second)
     let (time, set_time) = signal(get_current_time());
 
@@ -593,19 +643,106 @@ fn SystemTray() -> impl IntoView {
 
     view! {
         <div class="flex items-center gap-3">
-            // Health indicator - static for now, connect to real API when available
-            <div class="flex items-center gap-1.5" title="System Health">
-                <StatusIndicator color=StatusColor::Green pulsing=false/>
-                <span class="text-xs text-muted-foreground hidden sm:block">"Healthy"</span>
-            </div>
+            {move || {
+                let (color, label, pulsing, title) = match system_status.get() {
+                    LoadingState::Loaded(status) => {
+                        let readiness = match status.readiness.overall {
+                            adapteros_api_types::StatusIndicator::Ready => "Ready",
+                            adapteros_api_types::StatusIndicator::NotReady => "Not Ready",
+                            adapteros_api_types::StatusIndicator::Unknown => "Unknown",
+                        };
+                        let inference = match status.inference_ready {
+                            adapteros_api_types::InferenceReadyState::True => "Ready",
+                            adapteros_api_types::InferenceReadyState::False => "Not Ready",
+                            adapteros_api_types::InferenceReadyState::Unknown => "Unknown",
+                        };
+                        let blockers = if status.inference_blockers.is_empty() {
+                            "none".to_string()
+                        } else {
+                            format!("{} blockers", status.inference_blockers.len())
+                        };
+                        let title = format!(
+                            "Readiness: {} | Inference: {} | Blockers: {}",
+                            readiness, inference, blockers
+                        );
+                        match status.readiness.overall {
+                            adapteros_api_types::StatusIndicator::Ready => {
+                                (StatusColor::Green, "Healthy", true, title)
+                            }
+                            adapteros_api_types::StatusIndicator::NotReady => {
+                                (StatusColor::Red, "Not Ready", false, title)
+                            }
+                            adapteros_api_types::StatusIndicator::Unknown => {
+                                (StatusColor::Yellow, "Unknown", false, title)
+                            }
+                        }
+                    }
+                    LoadingState::Idle | LoadingState::Loading => (
+                        StatusColor::Gray,
+                        "Checking",
+                        false,
+                        "Loading system status".to_string(),
+                    ),
+                    LoadingState::Error(_) => (
+                        StatusColor::Red,
+                        "Unavailable",
+                        false,
+                        "System status unavailable".to_string(),
+                    ),
+                };
+                let on_click = move |_| {
+                    if let Some(ctx) = status_center {
+                        ctx.open();
+                    }
+                };
+                view! {
+                    <button
+                        class="flex items-center gap-1.5"
+                        on:click=on_click
+                        title=title
+                        aria-label="System status"
+                        type="button"
+                    >
+                        <StatusIndicator color=color pulsing=pulsing/>
+                        <span class="text-xs text-muted-foreground hidden sm:block">{label}</span>
+                    </button>
+                }
+            }}
 
-            // Connection status - static for now
-            <div class="flex items-center gap-1.5" title="Connection Status">
-                <svg class="w-3.5 h-3.5 text-status-success" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
-                </svg>
-                <span class="text-xs text-muted-foreground hidden sm:block">"Connected"</span>
-            </div>
+            {move || {
+                let (color, label, pulsing, title) = match health.get() {
+                    LoadingState::Loaded(resp) => {
+                        let status = resp.status.to_lowercase();
+                        let (color, label) = if matches!(status.as_str(), "ok" | "healthy") {
+                            (StatusColor::Green, "Connected")
+                        } else if matches!(status.as_str(), "degraded" | "warning") {
+                            (StatusColor::Yellow, "Degraded")
+                        } else {
+                            (StatusColor::Red, "Unhealthy")
+                        };
+                        let title = format!("Health: {} | Version: {}", resp.status, resp.version);
+                        (color, label, false, title)
+                    }
+                    LoadingState::Idle | LoadingState::Loading => (
+                        StatusColor::Yellow,
+                        "Connecting",
+                        true,
+                        "Connecting to backend".to_string(),
+                    ),
+                    LoadingState::Error(_) => (
+                        StatusColor::Red,
+                        "Offline",
+                        false,
+                        "Backend offline".to_string(),
+                    ),
+                };
+                view! {
+                    <div class="flex items-center gap-1.5" title=title>
+                        <StatusIndicator color=color pulsing=pulsing/>
+                        <span class="text-xs text-muted-foreground hidden sm:block">{label}</span>
+                    </div>
+                }
+            }}
 
             // Separator
             <div class="w-px h-4 bg-border/50"></div>

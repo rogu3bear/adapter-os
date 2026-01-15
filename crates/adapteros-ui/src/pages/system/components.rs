@@ -1,23 +1,28 @@
 //! System page components
 //!
 //! UI components for the system overview page including status cards,
-//! workers/nodes tables, health details, metrics, and boot status.
+//! workers/nodes tables, system state, health details, metrics, and boot status.
 
-use crate::api::SseState;
+use crate::api::{ApiError, SseState};
 use crate::components::{
-    Badge, BadgeVariant, Card, StatusColor, StatusIndicator, Table, TableBody, TableCell,
+    Badge, BadgeVariant, Card, Spinner, StatusColor, StatusIndicator, Table, TableBody, TableCell,
     TableHead, TableHeader, TableRow,
 };
+use crate::hooks::LoadingState;
 use adapteros_api_types::{
-    ComponentCheck, DriftLevel, InferenceBlocker, InferenceReadyState, NodeResponse,
-    StatusIndicator as ApiStatusIndicator, SystemMetricsResponse, SystemStatusResponse,
-    WorkerResponse,
+    AdapterMemorySummary, AllModelsStatusResponse, BaseModelStatusResponse, ComponentCheck,
+    DriftLevel, InferenceBlocker, InferenceReadyState, MemoryPressureLevel, ModelLoadStatus,
+    NodeResponse, RagStatus, ServiceHealthStatus, ServiceState,
+    StatusIndicator as ApiStatusIndicator, SystemMetricsResponse, SystemStateResponse,
+    SystemStatusResponse, TenantState, WorkerResponse,
 };
 use leptos::prelude::*;
 use std::collections::HashMap;
 
 use super::icons::{CheckCircleIcon, WarningIcon};
-use super::utils::{format_timestamp, format_uptime, NODES_PAGE_SIZE, WORKERS_PAGE_SIZE};
+use super::utils::{
+    format_timestamp, format_uptime, NODES_PAGE_SIZE, TENANTS_PAGE_SIZE, WORKERS_PAGE_SIZE,
+};
 
 // ============================================================================
 // SSE Indicator
@@ -93,6 +98,8 @@ pub fn SystemContent(
     workers: Vec<WorkerResponse>,
     nodes: Vec<NodeResponse>,
     metrics: Option<SystemMetricsResponse>,
+    state: LoadingState<SystemStateResponse>,
+    models_status: LoadingState<AllModelsStatusResponse>,
     /// Real-time worker status overrides from SSE (worker_id -> (status, timestamp))
     #[prop(default = HashMap::new())]
     worker_status_overrides: HashMap<String, (String, String)>,
@@ -120,12 +127,41 @@ pub fn SystemContent(
         .count();
     let total_workers = workers_with_overrides.len();
 
-    let models_loaded = status
-        .kernel
-        .as_ref()
-        .and_then(|k| k.adapters.as_ref())
-        .and_then(|a| a.loaded)
-        .unwrap_or(0);
+    let models_status_counts = models_status.data().map(|data| {
+        let loaded = data.models.iter().filter(|m| m.is_loaded).count() as i64;
+        let total = data.models.len() as i64;
+        (loaded, total)
+    });
+    let kernel_models = status.kernel.as_ref().and_then(|k| k.models.as_ref());
+    let models_loaded = kernel_models
+        .and_then(|m| m.loaded)
+        .or_else(|| models_status_counts.map(|(loaded, _)| loaded))
+        .or_else(|| {
+            status
+                .kernel
+                .as_ref()
+                .and_then(|k| k.adapters.as_ref())
+                .and_then(|a| a.loaded_models)
+        });
+    let models_total = kernel_models
+        .and_then(|m| m.total)
+        .or_else(|| models_status_counts.map(|(_, total)| total));
+    let active_model_detail = match status.kernel.as_ref().and_then(|k| k.model.as_ref()) {
+        Some(summary) => {
+            let status_label = summary.status.clone();
+            if let Some(model_id) = summary.model_id.clone() {
+                let short_id = if model_id.len() > 8 {
+                    format!("{}...", &model_id[..8])
+                } else {
+                    model_id
+                };
+                format!("Active: {} ({})", short_id, status_label)
+            } else {
+                format!("Active: - ({})", status_label)
+            }
+        }
+        None => "Active: -".to_string(),
+    };
 
     view! {
         // Section 1: Status Overview Cards
@@ -136,6 +172,8 @@ pub fn SystemContent(
             healthy_workers=healthy_workers
             total_workers=total_workers
             models_loaded=models_loaded
+            models_total=models_total
+            active_model_detail=active_model_detail
         />
 
         // Section 2: Workers Table (with real-time SSE updates applied)
@@ -144,16 +182,22 @@ pub fn SystemContent(
         // Section 3: Nodes Table
         <NodesSection nodes=nodes/>
 
-        // Section 4: Health Details
+        // Section 4: System State
+        <SystemStateSection state=state/>
+
+        // Section 5: Model Runtime
+        <ModelRuntimeSection models_status=models_status/>
+
+        // Section 6: Health Details
         <HealthDetails status=status.clone()/>
 
-        // Section 5: Metrics Summary
+        // Section 7: Metrics Summary
         <MetricsSummary metrics=metrics status=status.clone()/>
 
-        // Section 6: Inference Blockers / Recent Events
+        // Section 8: Inference Blockers / Recent Events
         <InferenceBlockersSection blockers=status.inference_blockers.clone()/>
 
-        // Section 7: Boot Status (if available)
+        // Section 9: Boot Status (if available)
         {status.boot.map(|boot| view! {
             <BootStatusSection boot=boot/>
         })}
@@ -172,8 +216,18 @@ fn StatusOverview(
     inference_ready: bool,
     healthy_workers: usize,
     total_workers: usize,
-    models_loaded: i64,
+    models_loaded: Option<i64>,
+    models_total: Option<i64>,
+    active_model_detail: String,
 ) -> impl IntoView {
+    let models_label = match (models_loaded, models_total) {
+        (Some(loaded), Some(total)) => format!("{} / {}", loaded, total),
+        (Some(loaded), None) => loaded.to_string(),
+        (None, Some(total)) => format!("- / {}", total),
+        (None, None) => "-".to_string(),
+    };
+    let active_model_title = active_model_detail.clone();
+
     view! {
         <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
             // API Status
@@ -209,9 +263,10 @@ fn StatusOverview(
             // Models Loaded
             <Card title="Models".to_string()>
                 <div class="text-2xl font-bold">
-                    {models_loaded}
+                    {models_label}
                 </div>
-                <p class="text-xs text-muted-foreground">"Loaded adapters"</p>
+                <p class="text-xs text-muted-foreground">"Loaded / Total"</p>
+                <p class="text-xs text-muted-foreground truncate" title=active_model_title>{active_model_detail}</p>
             </Card>
 
             // Inference Ready
@@ -537,6 +592,530 @@ fn NodeRow(node: NodeResponse) -> impl IntoView {
                 </span>
             </TableCell>
         </TableRow>
+    }
+}
+
+// ============================================================================
+// System State Section
+// ============================================================================
+
+#[component]
+fn SystemStateSection(state: LoadingState<SystemStateResponse>) -> impl IntoView {
+    match state {
+        LoadingState::Loaded(state) => {
+            let SystemStateResponse {
+                tenants,
+                node,
+                memory,
+                rag_status,
+                ..
+            } = state;
+            let tenant_count = tenants.len();
+            let stack_total: usize = tenants.iter().map(|t| t.stacks.len()).sum();
+            let active_stack_count: usize = tenants
+                .iter()
+                .flat_map(|t| t.stacks.iter())
+                .filter(|s| s.is_active)
+                .count();
+            let adapter_total: usize = tenants.iter().map(|t| t.adapter_count).sum();
+            let headroom_percent = memory.headroom_percent;
+            let pressure_level = memory.pressure_level;
+            let top_adapters = memory.top_adapters;
+
+            view! {
+                <div class="space-y-6">
+                    <StateSummary
+                        tenant_count=tenant_count
+                        stack_total=stack_total
+                        active_stack_count=active_stack_count
+                        adapter_total=adapter_total
+                        headroom_percent=headroom_percent
+                        pressure_level=pressure_level
+                        rag_status=rag_status
+                    />
+                    <TenantsSection tenants=tenants/>
+                    <div class="grid gap-6 lg:grid-cols-2">
+                        <NodeServicesSection services=node.services/>
+                        <TopAdaptersSection adapters=top_adapters/>
+                    </div>
+                </div>
+            }
+            .into_any()
+        }
+        LoadingState::Idle | LoadingState::Loading => view! {
+            <Card title="System State".to_string() description="Tenant and service inventory".to_string()>
+                <div class="flex items-center justify-center gap-2 py-6 text-muted-foreground">
+                    <Spinner/>
+                    <span class="text-sm">"Loading system state..."</span>
+                </div>
+            </Card>
+        }
+        .into_any(),
+        LoadingState::Error(e) => view! {
+            <Card title="System State".to_string() description="Tenant and service inventory".to_string()>
+                <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
+                    <p class="text-sm text-destructive">{format!("Failed to load: {}", e)}</p>
+                </div>
+            </Card>
+        }
+        .into_any(),
+    }
+}
+
+#[component]
+fn StateSummary(
+    tenant_count: usize,
+    stack_total: usize,
+    active_stack_count: usize,
+    adapter_total: usize,
+    headroom_percent: f32,
+    pressure_level: MemoryPressureLevel,
+    rag_status: Option<RagStatus>,
+) -> impl IntoView {
+    view! {
+        <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+            <Card title="Tenants".to_string()>
+                <div class="text-2xl font-bold">{tenant_count}</div>
+                <p class="text-xs text-muted-foreground">"Total tenants"</p>
+            </Card>
+            <Card title="Stacks".to_string()>
+                <div class="text-2xl font-bold">
+                    {format!("{} / {}", active_stack_count, stack_total)}
+                </div>
+                <p class="text-xs text-muted-foreground">"Active / total"</p>
+            </Card>
+            <Card title="Adapters".to_string()>
+                <div class="text-2xl font-bold">{adapter_total}</div>
+                <p class="text-xs text-muted-foreground">"Active adapters"</p>
+            </Card>
+            <Card title="Headroom".to_string()>
+                <div class="text-2xl font-bold">{format!("{:.1}%", headroom_percent)}</div>
+                <p class="text-xs text-muted-foreground">"Memory headroom"</p>
+            </Card>
+            <Card title="Pressure".to_string()>
+                <div class="text-2xl font-bold">{pressure_level.to_string()}</div>
+                <p class="text-xs text-muted-foreground">"Memory pressure"</p>
+            </Card>
+            {rag_status.map(|rag| {
+                let (label, detail, color) = match rag {
+                    RagStatus::Enabled { model_hash, dimension } => {
+                        let short_hash = if model_hash.len() > 8 {
+                            format!("{}...", &model_hash[..8])
+                        } else {
+                            model_hash
+                        };
+                        (
+                            "Enabled".to_string(),
+                            format!("Model: {} ({}d)", short_hash, dimension),
+                            StatusColor::Green,
+                        )
+                    }
+                    RagStatus::Disabled { reason } => (
+                        "Disabled".to_string(),
+                        format!("Reason: {}", reason),
+                        StatusColor::Yellow,
+                    ),
+                };
+
+                view! {
+                    <Card title="RAG".to_string()>
+                        <div class="flex items-center gap-2">
+                            <StatusIndicator color=color label=label/>
+                        </div>
+                        <p class="text-xs text-muted-foreground">{detail}</p>
+                    </Card>
+                }
+            })}
+        </div>
+    }
+}
+
+#[component]
+fn TenantsSection(tenants: Vec<TenantState>) -> impl IntoView {
+    let total = tenants.len();
+    let visible_count = RwSignal::new(TENANTS_PAGE_SIZE);
+
+    view! {
+        <Card title="Tenants".to_string() description="Tenant status and active stacks".to_string()>
+            {if tenants.is_empty() {
+                view! {
+                    <div class="text-center py-8">
+                        <p class="text-muted-foreground">"No tenants available"</p>
+                    </div>
+                }.into_any()
+            } else {
+                view! {
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>"Tenant"</TableHead>
+                                <TableHead>"Status"</TableHead>
+                                <TableHead>"Active Stack"</TableHead>
+                                <TableHead>"Stacks"</TableHead>
+                                <TableHead>"Adapters"</TableHead>
+                                <TableHead>"Memory"</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {move || {
+                                let count = visible_count.get();
+                                tenants.iter().take(count).cloned().map(|tenant| {
+                                    view! { <TenantRow tenant=tenant/> }
+                                }).collect::<Vec<_>>()
+                            }}
+                        </TableBody>
+                    </Table>
+
+                    {move || {
+                        let count = visible_count.get();
+                        if count < total {
+                            let remaining = total - count;
+                            Some(view! {
+                                <div class="text-center py-4 border-t">
+                                    <button
+                                        class="text-sm text-muted-foreground hover:text-foreground underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
+                                        on:click=move |_| {
+                                            visible_count.update(|c| *c = (*c + TENANTS_PAGE_SIZE).min(total));
+                                        }
+                                    >
+                                        {format!("Show more ({} remaining)", remaining)}
+                                    </button>
+                                </div>
+                            })
+                        } else {
+                            None
+                        }
+                    }}
+                }.into_any()
+            }}
+        </Card>
+    }
+}
+
+#[component]
+fn TenantRow(tenant: TenantState) -> impl IntoView {
+    let status_variant = match tenant.status.as_str() {
+        "active" => BadgeVariant::Success,
+        "paused" => BadgeVariant::Warning,
+        "archived" => BadgeVariant::Secondary,
+        "error" => BadgeVariant::Destructive,
+        _ => BadgeVariant::Secondary,
+    };
+    let active_stack = tenant
+        .stacks
+        .iter()
+        .find(|stack| stack.is_active)
+        .map(|stack| stack.name.clone())
+        .unwrap_or_else(|| "-".to_string());
+    let active_stack_title = active_stack.clone();
+    let active_stack_label = active_stack.clone();
+    let short_tenant_id = if tenant.tenant_id.len() > 8 {
+        format!("{}...", &tenant.tenant_id[..8])
+    } else {
+        tenant.tenant_id.clone()
+    };
+
+    view! {
+        <TableRow>
+            <TableCell>
+                <div>
+                    <p class="text-sm font-medium">{tenant.name.clone()}</p>
+                    <p class="text-xs text-muted-foreground font-mono" title=tenant.tenant_id.clone()>
+                        {short_tenant_id}
+                    </p>
+                </div>
+            </TableCell>
+            <TableCell>
+                <Badge variant=status_variant>{tenant.status.clone()}</Badge>
+            </TableCell>
+            <TableCell>
+                <span class="text-sm truncate" title=active_stack_title>{active_stack_label}</span>
+            </TableCell>
+            <TableCell>
+                <span class="text-sm">{tenant.stacks.len()}</span>
+            </TableCell>
+            <TableCell>
+                <span class="text-sm">{tenant.adapter_count}</span>
+            </TableCell>
+            <TableCell>
+                <span class="text-sm">{format!("{:.1} MB", tenant.memory_usage_mb)}</span>
+            </TableCell>
+        </TableRow>
+    }
+}
+
+#[component]
+fn NodeServicesSection(services: Vec<ServiceState>) -> impl IntoView {
+    view! {
+        <Card title="Node Services".to_string() description="Service health checks".to_string()>
+            {if services.is_empty() {
+                view! {
+                    <div class="text-center py-8">
+                        <p class="text-muted-foreground">"No service data reported"</p>
+                    </div>
+                }.into_any()
+            } else {
+                view! {
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>"Service"</TableHead>
+                                <TableHead>"Status"</TableHead>
+                                <TableHead>"Last Check"</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {services.into_iter().map(|service| {
+                                view! { <ServiceRow service=service/> }
+                            }).collect::<Vec<_>>()}
+                        </TableBody>
+                    </Table>
+                }.into_any()
+            }}
+        </Card>
+    }
+}
+
+#[component]
+fn ServiceRow(service: ServiceState) -> impl IntoView {
+    let status_variant = match service.status {
+        ServiceHealthStatus::Healthy => BadgeVariant::Success,
+        ServiceHealthStatus::Degraded => BadgeVariant::Warning,
+        ServiceHealthStatus::Unhealthy => BadgeVariant::Destructive,
+        ServiceHealthStatus::Unknown => BadgeVariant::Secondary,
+    };
+    let status_label = match service.status {
+        ServiceHealthStatus::Healthy => "Healthy",
+        ServiceHealthStatus::Degraded => "Degraded",
+        ServiceHealthStatus::Unhealthy => "Unhealthy",
+        ServiceHealthStatus::Unknown => "Unknown",
+    };
+
+    view! {
+        <TableRow>
+            <TableCell>
+                <span class="text-sm font-medium">{service.name.clone()}</span>
+            </TableCell>
+            <TableCell>
+                <Badge variant=status_variant>{status_label}</Badge>
+            </TableCell>
+            <TableCell>
+                <span class="text-sm text-muted-foreground">
+                    {format_timestamp(&service.last_check)}
+                </span>
+            </TableCell>
+        </TableRow>
+    }
+}
+
+#[component]
+fn TopAdaptersSection(adapters: Vec<AdapterMemorySummary>) -> impl IntoView {
+    view! {
+        <Card title="Top Adapters".to_string() description="Highest memory adapters".to_string()>
+            {if adapters.is_empty() {
+                view! {
+                    <div class="text-center py-8">
+                        <p class="text-muted-foreground">"No adapter memory data available"</p>
+                    </div>
+                }.into_any()
+            } else {
+                view! {
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>"Adapter"</TableHead>
+                                <TableHead>"State"</TableHead>
+                                <TableHead>"Tenant"</TableHead>
+                                <TableHead>"Memory"</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {adapters.into_iter().map(|adapter| {
+                                view! { <TopAdapterRow adapter=adapter/> }
+                            }).collect::<Vec<_>>()}
+                        </TableBody>
+                    </Table>
+                }.into_any()
+            }}
+        </Card>
+    }
+}
+
+#[component]
+fn TopAdapterRow(adapter: AdapterMemorySummary) -> impl IntoView {
+    let short_adapter_id = if adapter.adapter_id.len() > 8 {
+        format!("{}...", &adapter.adapter_id[..8])
+    } else {
+        adapter.adapter_id.clone()
+    };
+    let short_tenant_id = if adapter.tenant_id.len() > 8 {
+        format!("{}...", &adapter.tenant_id[..8])
+    } else {
+        adapter.tenant_id.clone()
+    };
+
+    view! {
+        <TableRow>
+            <TableCell>
+                <div>
+                    <p class="text-sm font-medium">{adapter.name.clone()}</p>
+                    <p class="text-xs text-muted-foreground font-mono" title=adapter.adapter_id.clone()>
+                        {short_adapter_id}
+                    </p>
+                </div>
+            </TableCell>
+            <TableCell>
+                <span class="text-sm">{adapter.state.to_string()}</span>
+            </TableCell>
+            <TableCell>
+                <span class="text-sm font-mono" title=adapter.tenant_id.clone()>
+                    {short_tenant_id}
+                </span>
+            </TableCell>
+            <TableCell>
+                <span class="text-sm">{format!("{:.1} MB", adapter.memory_mb)}</span>
+            </TableCell>
+        </TableRow>
+    }
+}
+
+// ============================================================================
+// Model Runtime Section
+// ============================================================================
+
+#[component]
+fn ModelRuntimeSection(models_status: LoadingState<AllModelsStatusResponse>) -> impl IntoView {
+    view! {
+        <Card title="Model Runtime".to_string() description="Base model load status".to_string()>
+            {match models_status {
+                LoadingState::Idle | LoadingState::Loading => view! {
+                    <div class="flex items-center justify-center gap-2 py-6 text-muted-foreground">
+                        <Spinner/>
+                        <span class="text-sm">"Loading model runtime..."</span>
+                    </div>
+                }.into_any(),
+                LoadingState::Loaded(data) => {
+                    if data.models.is_empty() {
+                        view! {
+                            <div class="text-center py-8">
+                                <p class="text-muted-foreground">"No models available"</p>
+                            </div>
+                        }.into_any()
+                    } else {
+                        view! {
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>"Model"</TableHead>
+                                        <TableHead>"Status"</TableHead>
+                                        <TableHead>"Memory"</TableHead>
+                                        <TableHead>"Loaded At"</TableHead>
+                                        <TableHead>"Updated"</TableHead>
+                                        <TableHead>"Error"</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {data.models.into_iter().map(|model| {
+                                        view! { <ModelRuntimeRow model=model/> }
+                                    }).collect::<Vec<_>>()}
+                                </TableBody>
+                            </Table>
+                        }.into_any()
+                    }
+                }
+                LoadingState::Error(e) => {
+                    if matches!(&e, ApiError::Forbidden(_)) {
+                        view! {
+                            <div class="rounded-lg border p-4">
+                                <p class="text-sm text-muted-foreground">
+                                    "Model runtime status requires admin permissions."
+                                </p>
+                            </div>
+                        }.into_any()
+                    } else {
+                        view! {
+                            <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
+                                <p class="text-sm text-destructive">{format!("Failed to load: {}", e)}</p>
+                            </div>
+                        }.into_any()
+                    }
+                }
+            }}
+        </Card>
+    }
+}
+
+#[component]
+fn ModelRuntimeRow(model: BaseModelStatusResponse) -> impl IntoView {
+    let short_id = if model.model_id.len() > 8 {
+        format!("{}...", &model.model_id[..8])
+    } else {
+        model.model_id.clone()
+    };
+    let name_title = model
+        .model_path
+        .clone()
+        .unwrap_or_else(|| model.model_name.clone());
+    let (status_variant, status_label) = model_status_badge(model.status);
+    let memory_label = model
+        .memory_usage_mb
+        .map(|m| format!("{} MB", m))
+        .unwrap_or_else(|| "-".to_string());
+    let loaded_at = model
+        .loaded_at
+        .clone()
+        .unwrap_or_else(|| "-".to_string());
+    let updated_at = format_timestamp(&model.updated_at);
+    let has_error = model.error_message.is_some();
+    let error_text = model.error_message.clone().unwrap_or_else(|| "-".to_string());
+    let error_title = if has_error {
+        error_text.clone()
+    } else {
+        String::new()
+    };
+    let error_class = if has_error {
+        "text-sm text-destructive truncate max-w-[240px]"
+    } else {
+        "text-sm text-muted-foreground"
+    };
+
+    view! {
+        <TableRow>
+            <TableCell>
+                <div>
+                    <p class="text-sm font-medium" title=name_title>{model.model_name.clone()}</p>
+                    <p class="text-xs text-muted-foreground font-mono" title=model.model_id.clone()>
+                        {short_id}
+                    </p>
+                </div>
+            </TableCell>
+            <TableCell>
+                <Badge variant=status_variant>{status_label}</Badge>
+            </TableCell>
+            <TableCell>
+                <span class="text-sm text-muted-foreground">{memory_label}</span>
+            </TableCell>
+            <TableCell>
+                <span class="text-sm text-muted-foreground">{format_timestamp(&loaded_at)}</span>
+            </TableCell>
+            <TableCell>
+                <span class="text-sm text-muted-foreground">{updated_at}</span>
+            </TableCell>
+            <TableCell>
+                <span class=error_class title=error_title>{error_text}</span>
+            </TableCell>
+        </TableRow>
+    }
+}
+
+fn model_status_badge(status: ModelLoadStatus) -> (BadgeVariant, &'static str) {
+    match status {
+        ModelLoadStatus::Ready => (BadgeVariant::Success, "Ready"),
+        ModelLoadStatus::Loading => (BadgeVariant::Secondary, "Loading"),
+        ModelLoadStatus::Unloading => (BadgeVariant::Secondary, "Unloading"),
+        ModelLoadStatus::Checking => (BadgeVariant::Secondary, "Checking"),
+        ModelLoadStatus::Error => (BadgeVariant::Destructive, "Error"),
+        ModelLoadStatus::NoModel => (BadgeVariant::Secondary, "Unloaded"),
     }
 }
 

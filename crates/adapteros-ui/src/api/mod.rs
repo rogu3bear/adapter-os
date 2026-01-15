@@ -9,21 +9,24 @@ pub mod error_reporter;
 pub mod sse;
 
 pub use client::{
-    AdapterScoreResponse, ApiClient, ApiKeyInfo, ApiKeyListResponse, AuditChainEntry,
-    AuditChainResponse, AuditLogEntry, AuditLogsQuery, AuditLogsResponse,
-    ChainVerificationResponse, CodePolicy, CollectionDetailResponse, CollectionDocumentInfo,
-    CollectionListResponse, CollectionResponse, ColumnStatistics, ComplianceAuditResponse,
-    ComplianceControl, CreateApiKeyRequest, CreateApiKeyResponse, CreateCollectionRequest,
-    CreateStackRequest, DatasetListResponse, DatasetManifest, DatasetResponse,
-    DatasetStatisticsResponse, FederationAuditResponse, GetCodePolicyResponse, HostChainSummary,
-    InferenceRequest, ListUsersResponse, ProcessAlertResponse, ProcessAnomalyResponse,
-    ProcessCrashDumpResponse, ProcessHealthMetricResponse, ProcessLogResponse,
+    AdapterScoreResponse, AllModelsStatusResponse, AneMemoryStatus, ApiClient, ApiKeyInfo,
+    ApiKeyListResponse, AuditChainEntry, AuditChainResponse, AuditLogEntry, AuditLogsQuery,
+    AuditLogsResponse, BaseModelStatusResponse, CanonicalRow, ChainVerificationResponse,
+    CodePolicy, CollectionDetailResponse, CollectionDocumentInfo, CollectionListResponse,
+    CollectionResponse, ComplianceAuditResponse, ComplianceControl, CreateApiKeyRequest,
+    CreateApiKeyResponse, CreateCollectionRequest, CreateStackRequest, DatasetFileResponse,
+    DatasetListResponse, DatasetManifest, DatasetResponse, DatasetStatisticsResponse,
+    DatasetVersionsResponse, FederationAuditResponse, FileValidationError, GetCodePolicyResponse,
+    HostChainSummary, InferenceRequest, ListUsersResponse, ModelArchitectureSummary,
+    ModelListResponse, ModelStatusResponse, ModelWithStatsResponse, ProcessAlertResponse,
+    ProcessAnomalyResponse, ProcessCrashDumpResponse, ProcessHealthMetricResponse, ProcessLogResponse,
     ProcessMonitoringRuleResponse, PublishAdapterRequest, RegisterRepositoryRequest,
     RepositoryAdapter, RepositoryDetailResponse, RepositoryListResponse, RepositoryResponse,
     RepositoryVersion, RevokeApiKeyResponse, RoutingCandidateResponse, RoutingDebugRequest,
     RoutingDebugResponse, RoutingDecisionResponse, RoutingDecisionsQuery, RoutingDecisionsResponse,
-    ScanStatusResponse, SplitStatistics, StackResponse, UpdateCodePolicyRequest,
-    UpdateStackRequest, UploadDatasetResponse, UserResponse, WorkerMetricsResponse, WorkflowType,
+    ScanStatusResponse, StackResponse, UpdateCodePolicyRequest, UpdateStackRequest,
+    UploadDatasetResponse, UserResponse, ValidateAllFilesResponse, ValidateFileRequest,
+    ValidateFileResponse, WorkerMetricsResponse, WorkflowType,
 };
 pub use error::{ApiError, ApiResult};
 pub use error_reporter::report_error;

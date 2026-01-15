@@ -8,7 +8,7 @@ use super::sections::{StatusDivider, StatusSection, StatusSectionBadgeVariant};
 use crate::components::Spinner;
 use adapteros_api_types::{
     DataAvailability, InferenceBlocker, InferenceReadyState, MemoryPressureLevel,
-    ServiceHealthStatus, StatusIndicator as ApiStatusIndicator,
+    RagStatus, ServiceHealthStatus, StatusIndicator as ApiStatusIndicator,
 };
 use leptos::prelude::*;
 
@@ -177,6 +177,7 @@ fn StatusCenterSections(
     let kernel_for_model = status.kernel.clone();
     let kernel_for_uma = status.kernel.clone();
     let kernel_for_ane = status.kernel.clone();
+    let rag_status = state.rag_status.clone();
     let ready_count = [
         &readiness_checks.db,
         &readiness_checks.migrations,
@@ -300,6 +301,36 @@ fn StatusCenterSections(
                         value=m.model_id.clone().unwrap_or_else(|| "None".to_string())
                         severity=if m.status == "loaded" { StatusItemSeverity::Success } else { StatusItemSeverity::Warning }
                         detail=format!("Status: {}", m.status)
+                    />
+                }
+            })}
+            {rag_status.map(|rag| {
+                let (value, severity, detail) = match rag {
+                    RagStatus::Enabled { model_hash, dimension } => {
+                        let short_hash = if model_hash.len() > 8 {
+                            format!("{}...", &model_hash[..8])
+                        } else {
+                            model_hash
+                        };
+                        (
+                            "Enabled".to_string(),
+                            StatusItemSeverity::Success,
+                            format!("Model: {} ({}d)", short_hash, dimension),
+                        )
+                    }
+                    RagStatus::Disabled { reason } => (
+                        "Disabled".to_string(),
+                        StatusItemSeverity::Warning,
+                        format!("Reason: {}", reason),
+                    ),
+                };
+
+                view! {
+                    <StatusItem
+                        label="RAG"
+                        value=value
+                        severity=severity
+                        detail=detail
                     />
                 }
             })}

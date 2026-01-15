@@ -13,7 +13,9 @@ use crate::api::{use_sse_json_events, ApiClient, SseState};
 use crate::components::{ErrorDisplay, Spinner};
 use crate::hooks::{use_api_resource, use_polling, use_sse_notifications, LoadingState};
 use crate::pages::workers::dialogs::{PlanOption, SpawnWorkerDialog};
-use adapteros_api_types::{workers::WorkerStatusUpdate, SpawnWorkerRequest, WorkerResponse};
+use adapteros_api_types::{
+    workers::WorkerStatusUpdate, SpawnWorkerRequest, SystemStateResponse, WorkerResponse,
+};
 use leptos::prelude::*;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -53,6 +55,19 @@ pub fn System() -> impl IntoView {
     let (metrics, refetch_metrics) =
         use_api_resource(|client: Arc<ApiClient>| async move { client.system_metrics().await });
 
+    // Fetch models status (admin-only endpoint; handled gracefully on error)
+    let (models_status, refetch_models_status) =
+        use_api_resource(|client: Arc<ApiClient>| async move {
+            client.list_models_status().await
+        });
+
+    // Fetch system state (tenants, stacks, services)
+    let (system_state, refetch_state) = use_api_resource(|client: Arc<ApiClient>| async move {
+        client
+            .get::<SystemStateResponse>("/v1/system/state?include_adapters=false&top_adapters=10")
+            .await
+    });
+
     // Fetch plans for spawn form
     let (plans, _refetch_plans) = use_api_resource(|client: Arc<ApiClient>| async move {
         client.get::<Vec<PlanOption>>("/v1/plans").await
@@ -67,6 +82,8 @@ pub fn System() -> impl IntoView {
     let refetch_workers_signal = StoredValue::new(refetch_workers);
     let refetch_nodes_signal = StoredValue::new(refetch_nodes);
     let refetch_metrics_signal = StoredValue::new(refetch_metrics);
+    let refetch_state_signal = StoredValue::new(refetch_state);
+    let refetch_models_status_signal = StoredValue::new(refetch_models_status);
 
     // Real-time worker status updates via SSE
     // Maps worker_id -> (status, timestamp) for incremental updates
@@ -144,6 +161,8 @@ pub fn System() -> impl IntoView {
         refetch_status_signal.with_value(|f| f());
         refetch_nodes_signal.with_value(|f| f());
         refetch_metrics_signal.with_value(|f| f());
+        refetch_state_signal.with_value(|f| f());
+        refetch_models_status_signal.with_value(|f| f());
         // Only refetch workers if SSE is not connected
         // Use get_untracked since we're in an async context outside reactive tracking
         if sse_status.get_untracked() != SseState::Connected {
@@ -167,6 +186,8 @@ pub fn System() -> impl IntoView {
                                 refetch_workers_signal.with_value(|f| f());
                                 refetch_nodes_signal.with_value(|f| f());
                                 refetch_metrics_signal.with_value(|f| f());
+                                refetch_state_signal.with_value(|f| f());
+                                refetch_models_status_signal.with_value(|f| f());
                             }
                         >
                             <RefreshIcon/>
@@ -226,12 +247,16 @@ pub fn System() -> impl IntoView {
                                 LoadingState::Loaded(m) => Some(m),
                                 _ => None,
                             };
+                            let state_data = system_state.get();
+                            let models_status_data = models_status.get();
                             view! {
                                 <SystemContent
                                     status=status_data
                                     workers=workers_data
                                     nodes=nodes_data
                                     metrics=metrics_data
+                                    state=state_data
+                                    models_status=models_status_data
                                     worker_status_overrides=overrides
                                 />
                             }.into_any()
