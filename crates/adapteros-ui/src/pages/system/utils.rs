@@ -8,6 +8,9 @@ pub const WORKERS_PAGE_SIZE: usize = 10;
 /// Maximum nodes to show initially (client-side pagination)
 pub const NODES_PAGE_SIZE: usize = 10;
 
+/// Maximum tenants to show initially (client-side pagination)
+pub const TENANTS_PAGE_SIZE: usize = 10;
+
 /// Format a timestamp for display
 pub fn format_timestamp(timestamp: &str) -> String {
     // Try to parse and format nicely, otherwise return as-is

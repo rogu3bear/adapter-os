@@ -68,6 +68,14 @@ pub fn StatusCenterProvider(children: Children) -> impl IntoView {
     let open = RwSignal::new(false);
     provide_context(StatusCenterContext { open });
 
+    let shortcut_count = use_status_center_shortcut();
+    Effect::new(move || {
+        let count = shortcut_count.get();
+        if count > 0 {
+            open.update(|o| *o = !*o);
+        }
+    });
+
     view! {
         <StatusCenterPanel open=open />
         {children()}
