@@ -50,7 +50,7 @@ fn register_with_cp(
         "strict_mode": params.strict_mode
     });
 
-    let url = format!("{}/api/v1/workers/register", params.cp_url);
+    let url = format!("{}/v1/workers/register", params.cp_url);
     let agent = ureq::Agent::config_builder()
         .timeout_global(Some(std::time::Duration::from_secs(10)))
         .build()
@@ -254,7 +254,7 @@ pub fn notify_cp_status(
         "manifest_hash": manifest_hash,
     });
 
-    let url = format!("{}/api/v1/workers/status", cp_url);
+    let url = format!("{}/v1/workers/status", cp_url);
     let agent = ureq::Agent::config_builder()
         .timeout_global(Some(std::time::Duration::from_secs(5)))
         .build()

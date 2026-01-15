@@ -221,7 +221,7 @@ impl WorkerInsertBuilder {
 impl Db {
     pub async fn list_workers_by_tenant(&self, tenant_id: &str) -> Result<Vec<Worker>> {
         let workers = sqlx::query_as::<_, Worker>(
-            "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at, backend, model_hash_b3, capabilities_json
+            "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at, manifest_hash_b3, backend, model_hash_b3, capabilities_json
              FROM workers
              WHERE tenant_id = ?",
         )
@@ -234,7 +234,7 @@ impl Db {
 
     pub async fn list_all_workers(&self) -> Result<Vec<Worker>> {
         let workers = sqlx::query_as::<_, Worker>(
-            "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at, backend, model_hash_b3, capabilities_json
+            "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at, manifest_hash_b3, backend, model_hash_b3, capabilities_json
              FROM workers
              ORDER BY started_at DESC",
         )
@@ -246,7 +246,7 @@ impl Db {
 
     pub async fn list_workers_by_node(&self, node_id: &str) -> Result<Vec<Worker>> {
         let workers = sqlx::query_as::<_, Worker>(
-            "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at, backend, model_hash_b3, capabilities_json
+            "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at, manifest_hash_b3, backend, model_hash_b3, capabilities_json
              FROM workers
              WHERE node_id = ?
              ORDER BY started_at DESC",
@@ -376,7 +376,7 @@ impl Db {
     /// Get a worker by ID
     pub async fn get_worker(&self, worker_id: &str) -> Result<Option<Worker>> {
         let worker = sqlx::query_as::<_, Worker>(
-            "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at, backend, model_hash_b3, capabilities_json
+            "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at, manifest_hash_b3, backend, model_hash_b3, capabilities_json
              FROM workers
              WHERE id = ?",
         )
@@ -397,7 +397,7 @@ impl Db {
         worker_id: &str,
     ) -> Result<Option<Worker>> {
         let worker = sqlx::query_as::<_, Worker>(
-            "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at, backend, model_hash_b3, capabilities_json
+            "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at, manifest_hash_b3, backend, model_hash_b3, capabilities_json
              FROM workers
              WHERE id = ? AND tenant_id = ?",
         )
@@ -613,7 +613,7 @@ impl Db {
     /// List workers with health filtering
     pub async fn list_workers_by_health(&self, health_status: &str) -> Result<Vec<Worker>> {
         let workers = sqlx::query_as::<_, Worker>(
-            "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at, backend, model_hash_b3, capabilities_json
+            "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at, manifest_hash_b3, backend, model_hash_b3, capabilities_json
              FROM workers WHERE health_status = ? ORDER BY started_at DESC",
         )
         .bind(health_status)
@@ -627,7 +627,7 @@ impl Db {
     /// List healthy workers for a tenant (for routing)
     pub async fn list_healthy_workers_by_tenant(&self, tenant_id: &str) -> Result<Vec<Worker>> {
         let workers = sqlx::query_as::<_, Worker>(
-            "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at, backend, model_hash_b3, capabilities_json
+            "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at, manifest_hash_b3, backend, model_hash_b3, capabilities_json
              FROM workers
              WHERE tenant_id = ? AND health_status IN ('healthy', 'unknown')
              ORDER BY avg_latency_ms ASC NULLS LAST",

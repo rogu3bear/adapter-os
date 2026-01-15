@@ -1,10 +1,10 @@
 use adapteros_core::AosError;
 use clap::Parser;
 
-/// AdapterOS Inference Worker
+/// adapterOS Inference Worker
 #[derive(Parser, Debug)]
 #[command(name = "aos-worker")]
-#[command(about = "AdapterOS inference worker with UDS communication")]
+#[command(about = "adapterOS inference worker with UDS communication")]
 pub struct Args {
     /// Tenant ID for this worker
     #[arg(long, env = "TENANT_ID", default_value = "default")]

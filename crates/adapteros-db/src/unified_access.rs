@@ -1,4 +1,4 @@
-//! Unified database access interface for AdapterOS
+//! Unified database access interface for adapterOS
 //!
 //! Provides a centralized interface for all database operations across
 //! the system with consistent error handling, connection management,

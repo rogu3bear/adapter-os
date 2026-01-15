@@ -23,7 +23,7 @@ pub fn fetch_manifest_from_cp(
     manifest_hash: &B3Hash,
 ) -> Result<String> {
     let url = format!(
-        "{}/api/v1/tenants/{}/manifests/{}",
+        "{}/v1/tenants/{}/manifests/{}",
         cp_url,
         tenant_id,
         manifest_hash.to_hex()

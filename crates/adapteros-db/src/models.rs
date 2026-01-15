@@ -252,6 +252,7 @@ pub struct Worker {
     pub status: String,
     pub started_at: String,
     pub last_seen_at: Option<String>,
+    pub manifest_hash_b3: Option<String>,
     pub backend: Option<String>,
     pub model_hash_b3: Option<String>,
     pub capabilities_json: Option<String>,
@@ -329,6 +330,21 @@ impl Db {
         Ok(model)
     }
 
+    /// Get model by its hash (model_hash_b3). Used to lookup model from worker's model_hash.
+    pub async fn get_model_by_hash(&self, hash_b3: &str) -> Result<Option<Model>> {
+        let model = sqlx::query_as::<_, Model>(
+            "SELECT id, name, hash_b3, license_hash_b3, config_hash_b3, tokenizer_hash_b3,
+             tokenizer_cfg_hash_b3, metadata_json, created_at, model_type, model_path, config,
+             routing_bias, status, tenant_id, updated_at, adapter_path, backend, quantization, last_error,
+             size_bytes, format, capabilities, import_status, import_error, imported_at, imported_by
+             FROM models WHERE hash_b3 = ?",
+        )
+        .bind(hash_b3)
+        .fetch_optional(self.pool())
+        .await?;
+        Ok(model)
+    }
+
     /// Get a model scoped to a tenant. Returns None when tenant_id is set and does not match.
     pub async fn get_model_for_tenant(&self, tenant_id: &str, id: &str) -> Result<Option<Model>> {
         let model = self.get_model(id).await?;
@@ -352,13 +368,14 @@ impl Db {
     }
 
     pub async fn list_models(&self, tenant_id: &str) -> Result<Vec<Model>> {
+        // Include models from: user's tenant, NULL tenant (legacy), or 'system' tenant (shared)
         let models = sqlx::query_as::<_, Model>(
             "SELECT id, name, hash_b3, license_hash_b3, config_hash_b3, tokenizer_hash_b3,
              tokenizer_cfg_hash_b3, metadata_json, created_at, model_type, model_path, config,
              routing_bias, status, tenant_id, updated_at, adapter_path, backend, quantization, last_error,
              size_bytes, format, capabilities, import_status, import_error, imported_at, imported_by
              FROM models
-             WHERE tenant_id = ? OR tenant_id IS NULL
+             WHERE tenant_id = ? OR tenant_id IS NULL OR tenant_id = 'system'
              ORDER BY created_at DESC",
         )
         .bind(tenant_id)

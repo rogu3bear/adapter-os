@@ -1795,6 +1795,10 @@ mod tests {
         let temp_dir_path = temp_dir.path().to_path_buf();
 
         let prev = std::env::var("AOS_SERVER_PRODUCTION_MODE").ok();
+        // SAFETY: Environment variable modification is inherently unsafe in multi-threaded contexts
+        // because `std::env::set_var` is not synchronized. This test must run with `--test-threads=1`
+        // or be marked `#[serial]` to prevent data races with other tests reading/writing env vars.
+        // The `#[allow(unused_unsafe)]` is present because Rust 2024 edition marks this as unsafe.
         #[allow(unused_unsafe)]
         unsafe {
             std::env::set_var("AOS_SERVER_PRODUCTION_MODE", "true");
@@ -1803,6 +1807,7 @@ mod tests {
         let loader = AdapterLoader::new(temp_dir_path.clone(), HashMap::new());
         assert!(loader.signatures_required());
 
+        // SAFETY: Same constraints as the set_var above - requires single-threaded test execution.
         #[allow(unused_unsafe)]
         unsafe {
             if let Some(v) = prev {

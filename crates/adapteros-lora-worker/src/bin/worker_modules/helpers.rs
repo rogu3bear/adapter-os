@@ -91,7 +91,7 @@ pub fn setup_panic_hook() {
 
             // Use blocking HTTP client (ureq) since we're in panic context
             // and can't use async. Best-effort delivery with short timeout.
-            let url = format!("{}/api/v1/workers/fatal", identity.cp_url);
+            let url = format!("{}/v1/workers/fatal", identity.cp_url);
             let agent = ureq::Agent::config_builder()
                 .timeout_global(Some(std::time::Duration::from_secs(3)))
                 .build()

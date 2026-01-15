@@ -4,7 +4,7 @@
 //! trace linkage to router decisions, adapters, and training jobs.
 //!
 //! # Overview
-//! Chat sessions are the primary way users interact with AdapterOS in the
+//! Chat sessions are the primary way users interact with adapterOS in the
 //! workspace experience. Each session:
 //! - Is scoped to a tenant
 //! - Can be associated with a specific adapter stack
