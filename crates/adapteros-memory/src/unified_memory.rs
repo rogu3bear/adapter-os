@@ -1,4 +1,4 @@
-//! Unified memory management for AdapterOS
+//! Unified memory management for adapterOS
 //!
 //! This module provides unified memory management using Metal's MTLSharedHeap
 //! for efficient tensor operations across Metal, MLX, and CoreML backends.

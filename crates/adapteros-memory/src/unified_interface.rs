@@ -1,4 +1,4 @@
-//! Unified memory management interface for AdapterOS
+//! Unified memory management interface for adapterOS
 //!
 //! Provides a centralized interface for all memory management operations
 //! across the system, consolidating adapter lifecycle, eviction, and monitoring.

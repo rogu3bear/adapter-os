@@ -1,4 +1,4 @@
-//! IOKit-based page migration tracking for AdapterOS
+//! IOKit-based page migration tracking for adapterOS
 //!
 //! This module provides real-time monitoring of VM page migrations, memory pressure events,
 //! and unified memory transitions on Apple Silicon (M1/M2/M3) and Intel platforms.

@@ -2541,8 +2541,9 @@ pub async fn get_system_metrics(
         .as_secs();
 
     // Collect additional metrics for frontend compatibility
+    // Workers in 'healthy' status are actively serving inference requests
     let active_workers =
-        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM workers WHERE status = 'active'")
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM workers WHERE status = 'healthy'")
             .fetch_one(state.db.pool())
             .await
             .unwrap_or(0) as i32;

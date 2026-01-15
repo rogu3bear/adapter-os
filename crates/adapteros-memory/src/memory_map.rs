@@ -524,7 +524,11 @@ mod tests {
         #[cfg(not(target_os = "macos"))]
         {
             Arc::new(metal::Device::system_default().unwrap_or_else(|| {
-                // Create a mock device for testing
+                // SAFETY: This creates a mock device pointer for non-macOS test compilation only.
+                // The transmuted value (0x1) is a sentinel that should never be dereferenced.
+                // If any Metal operations are called on this mock device, the test will crash,
+                // which is the intended behavior since Metal is not available on this platform.
+                // This code path only exists to allow the test module to compile on Linux CI.
                 unsafe { std::mem::transmute(0x1usize) }
             }))
         }
