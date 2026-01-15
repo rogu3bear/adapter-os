@@ -2218,11 +2218,23 @@ impl KmsProvider {
             }
             KmsBackendType::HashicorpVault => Arc::new(HashicorpVaultBackend::new(config.clone())?),
             KmsBackendType::Pkcs11Hsm => {
-                // STUB: CRYPTO-GAP-001 - PKCS#11 HSM backend not implemented
-                // Impact: Users selecting Pkcs11Hsm get mock backend silently
-                // Rectify: Implement PKCS#11 via rust-pkcs11 crate when HSM support required
-                warn!("PKCS#11 HSM backend not implemented (CRYPTO-GAP-001), using mock");
-                Arc::new(MockKmsBackend::new())
+                // CRYPTO-GAP-001: PKCS#11 HSM backend not implemented
+                // Federal deployments requiring FIPS 140-2 via physical HSM must use
+                // AOS_ALLOW_MOCK_HSM=1 explicitly to acknowledge mock fallback.
+                if std::env::var("AOS_ALLOW_MOCK_HSM").is_ok() {
+                    warn!(
+                        "PKCS#11 HSM not implemented - using mock backend \
+                         (AOS_ALLOW_MOCK_HSM set, DEVELOPMENT ONLY)"
+                    );
+                    Arc::new(MockKmsBackend::new())
+                } else {
+                    return Err(AosError::Crypto(
+                        "PKCS#11 HSM backend not implemented (CRYPTO-GAP-001). \
+                         Use 'local' or 'keychain' backend for production, \
+                         or set AOS_ALLOW_MOCK_HSM=1 for development only."
+                            .to_string(),
+                    ));
+                }
             }
         };
 
