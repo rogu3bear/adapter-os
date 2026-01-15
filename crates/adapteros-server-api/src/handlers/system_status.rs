@@ -9,9 +9,9 @@ use std::time::{Duration, Instant};
 use adapteros_api_types::system_status::{
     AdapterInventory, AneMemorySummary, BootFailure, BootPhaseTiming, BootStatus, ComponentCheck,
     DataAvailability, DegradedReason, DriftLevel, DriftStatus, InferenceBlocker,
-    InferenceReadyState, IntegrityStatus, KernelMemorySummary, KernelStatus, ModelStatusSummary,
-    PlanStatusSummary, ReadinessChecks, ReadinessStatus, StatusIndicator, SystemStatusResponse,
-    UmaMemorySummary,
+    InferenceReadyState, IntegrityStatus, KernelMemorySummary, KernelStatus, ModelInventory,
+    ModelStatusSummary, PlanStatusSummary, ReadinessChecks, ReadinessStatus, StatusIndicator,
+    SystemStatusResponse, UmaMemorySummary,
 };
 use adapteros_api_types::{ModelLoadStatus, API_SCHEMA_VERSION};
 use axum::{extract::State, Extension, Json};
@@ -465,6 +465,7 @@ async fn collect_kernel_status(
     let mut model_summary = None;
     let mut plan_summary = None;
     let mut adapter_inventory = None;
+    let mut model_inventory = None;
 
     if db_ready && !state.db.pool().is_closed() {
         match state.db.list_base_model_statuses().await {
@@ -583,7 +584,9 @@ async fn collect_kernel_status(
             }
         };
 
-        let loaded = match state.db.count_loaded_models().await {
+        // Count loaded models (status="ready") for both adapter inventory (backward compat)
+        // and new model inventory (canonical source)
+        let loaded_models_count = match state.db.count_loaded_models().await {
             Ok(v) => Some(v),
             Err(e) => {
                 warn!(error = %e, "Failed to count loaded models");
@@ -591,10 +594,31 @@ async fn collect_kernel_status(
             }
         };
 
-        if total_active.is_some() || loaded.is_some() {
+        // Count total registered models for the new model inventory
+        let total_models_count = match query_scalar::<_, i64>("SELECT COUNT(*) FROM models")
+            .fetch_one(state.db.pool())
+            .await
+        {
+            Ok(v) => Some(v),
+            Err(e) => {
+                warn!(error = %e, "Failed to count total models");
+                None
+            }
+        };
+
+        // Populate adapter inventory with renamed field (backward compat)
+        if total_active.is_some() || loaded_models_count.is_some() {
             adapter_inventory = Some(AdapterInventory {
                 total_active,
-                loaded,
+                loaded_models: loaded_models_count, // Renamed from misleading "loaded"
+            });
+        }
+
+        // Populate new model inventory (canonical source for model counts)
+        if loaded_models_count.is_some() || total_models_count.is_some() {
+            model_inventory = Some(ModelInventory {
+                loaded: loaded_models_count,
+                total: total_models_count,
             });
         }
     }
@@ -604,6 +628,7 @@ async fn collect_kernel_status(
     if model_summary.is_none()
         && plan_summary.is_none()
         && adapter_inventory.is_none()
+        && model_inventory.is_none()
         && memory.is_none()
     {
         None
@@ -612,6 +637,7 @@ async fn collect_kernel_status(
             model: model_summary,
             plan: plan_summary,
             adapters: adapter_inventory,
+            models: model_inventory,
             memory,
         })
     }

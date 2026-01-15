@@ -9,7 +9,7 @@
 //!
 //! All inference execution is routed through InferenceCore for unified handling.
 
-use crate::auth::Claims;
+use crate::auth::{is_dev_bypass_enabled, Claims};
 use crate::backpressure::check_uma_backpressure;
 use crate::chat_context::build_chat_prompt;
 use crate::inference_core::InferenceCore;
@@ -24,6 +24,7 @@ use crate::types::{
     new_run_envelope, set_policy_mask, ErrorResponse, InferRequest, InferResponse, InferenceError,
     InferenceRequestInternal,
 };
+use adapteros_api_types::inference::InferenceTrace;
 use adapteros_api_types::FailureCode;
 use adapteros_core::identity::IdentityEnvelope;
 use adapteros_core::telemetry::{
@@ -282,6 +283,66 @@ pub async fn infer(
                     "Inference cancelled due to client disconnect"
                 );
                 return Err(<(StatusCode, Json<ErrorResponse>)>::from(e));
+            }
+
+            // Dev echo mode: when no worker is available in dev bypass mode,
+            // return a mock echo response instead of failing
+            if is_dev_bypass_enabled() {
+                if matches!(
+                    e,
+                    InferenceError::WorkerDegraded { .. }
+                        | InferenceError::NoCompatibleWorker { .. }
+                        | InferenceError::WorkerError(_)
+                ) {
+                    info!(
+                        request_id = %request_id_str,
+                        tenant_id = %claims.tenant_id,
+                        error = %e,
+                        "Dev echo mode: returning mock response (no worker available)"
+                    );
+                    let echo_text = format!(
+                        "[DEV ECHO] No inference worker available. Your message was: {}",
+                        req.prompt.chars().take(500).collect::<String>()
+                    );
+                    return Ok(Json(InferResponse {
+                        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+                        id: request_id_str.clone(),
+                        text: echo_text,
+                        tokens: vec![],
+                        tokens_generated: 0,
+                        finish_reason: "dev_echo".to_string(),
+                        latency_ms: 0,
+                        adapters_used: vec![],
+                        run_receipt: None,
+                        deterministic_receipt: None,
+                        run_envelope: None,
+                        citations: vec![],
+                        trace: InferenceTrace {
+                            adapters_used: vec![],
+                            router_decisions: vec![],
+                            router_decision_chain: None,
+                            fusion_intervals: None,
+                            latency_ms: 0,
+                            model_type: None,
+                        },
+                        model: None,
+                        prompt_tokens: None,
+                        error: None,
+                        unavailable_pinned_adapters: None,
+                        pinned_routing_fallback: None,
+                        backend_used: Some("dev_echo".to_string()),
+                        coreml_compute_preference: None,
+                        coreml_compute_units: None,
+                        coreml_gpu_used: None,
+                        fallback_backend: None,
+                        fallback_triggered: false,
+                        determinism_mode_applied: None,
+                        replay_guarantee: None,
+                        stop_reason_code: None,
+                        stop_reason_token_index: None,
+                        stop_policy_digest_b3: None,
+                    }));
+                }
             }
 
             let failure_code = e.failure_code().map(|c| c.as_str().to_string());

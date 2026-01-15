@@ -3,6 +3,9 @@ use crate::middleware::require_any_role;
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::ErrorResponse;
+pub use adapteros_api_types::api_keys::{
+    ApiKeyInfo, ApiKeyListResponse, CreateApiKeyRequest, CreateApiKeyResponse, RevokeApiKeyResponse,
+};
 use adapteros_core::AosError;
 use adapteros_db::users::Role;
 use axum::extract::{Path, State};
@@ -14,44 +17,8 @@ use blake3::Hasher;
 use chrono::Utc;
 use rand::rngs::OsRng;
 use rand::RngCore;
-use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use tracing::warn;
-use utoipa::ToSchema;
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct CreateApiKeyRequest {
-    pub name: String,
-    /// List of roles allowed for this key (must be subset of caller privileges)
-    pub scopes: Vec<String>,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct CreateApiKeyResponse {
-    pub id: String,
-    pub token: String,
-    pub created_at: String,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct ApiKeyInfo {
-    pub id: String,
-    pub name: String,
-    pub scopes: Vec<String>,
-    pub created_at: String,
-    pub revoked_at: Option<String>,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct ApiKeyListResponse {
-    pub api_keys: Vec<ApiKeyInfo>,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct RevokeApiKeyResponse {
-    pub id: String,
-    pub revoked: bool,
-}
 
 fn parse_scopes(scopes: &[String]) -> Result<Vec<Role>, AosError> {
     scopes

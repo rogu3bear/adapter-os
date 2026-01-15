@@ -151,51 +151,15 @@ fn validate_model_compatibility(
     Ok(())
 }
 
-#[derive(Debug, Serialize, ToSchema)]
-pub struct AllModelsStatusResponse {
-    #[serde(rename = "schema_version")]
-    pub schema_version: String,
-    pub models: Vec<crate::types::BaseModelStatusResponse>,
-    pub total_memory_mb: i64,
-    pub available_memory_mb: Option<i64>,
-    pub active_model_count: i64,
-}
+// Import and re-export consolidated model types from shared crate
+pub use adapteros_api_types::models::{
+    AllModelsStatusResponse, AneMemoryStatus, ModelStatusResponse, SeedModelRequest,
+    SeedModelResponse,
+};
 
-#[derive(Deserialize, ToSchema)]
-pub struct ImportModelRequest {
-    pub model_name: String,
-    pub model_path: String,
-    pub format: String,  // "mlx", "safetensors", "pytorch", "gguf"
-    pub backend: String, // "mlx", "metal", "coreml"
-    pub capabilities: Option<Vec<String>>, // ["chat", "completion", "embeddings"]
-    pub metadata: Option<serde_json::Value>,
-}
-
-#[derive(Serialize, ToSchema)]
-pub struct ImportModelResponse {
-    pub import_id: String,
-    pub status: String,
-    pub message: String,
-    pub progress: Option<i32>,
-}
-
-#[derive(Serialize, ToSchema)]
-pub struct ModelStatusResponse {
-    pub model_id: String,
-    pub model_name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub model_path: Option<String>,
-    pub status: ModelLoadStatus,
-    pub loaded_at: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error_message: Option<String>,
-    pub memory_usage_mb: Option<i32>,
-    pub is_loaded: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ane_memory: Option<AneMemoryStatus>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub uma_pressure_level: Option<String>,
-}
+/// Alias for backward compatibility with existing code
+pub type ImportModelRequest = SeedModelRequest;
+pub type ImportModelResponse = SeedModelResponse;
 
 #[derive(Serialize, ToSchema)]
 pub struct ValidationIssue {
@@ -225,13 +189,7 @@ pub struct ModelRuntimeHealthResponse {
     pub last_accessed: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, ToSchema)]
-pub struct AneMemoryStatus {
-    pub allocated_mb: u64,
-    pub used_mb: u64,
-    pub available_mb: u64,
-    pub usage_pct: f32,
-}
+// AneMemoryStatus is now imported from adapteros_api_types::models
 
 #[allow(clippy::too_many_arguments)]
 async fn build_model_status_response(

@@ -10,7 +10,7 @@ use crate::error_helpers::{db_error, forbidden, not_found};
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
-use crate::types::{DatasetResponse, ErrorResponse};
+use crate::types::{DatasetListResponse, DatasetResponse, ErrorResponse};
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -25,7 +25,7 @@ use tracing::{error, info};
     path = "/v1/datasets",
     params(ListDatasetsQuery),
     responses(
-        (status = 200, description = "List of datasets", body = Vec<DatasetResponse>),
+        (status = 200, description = "List of datasets", body = DatasetListResponse),
         (status = 500, description = "Internal server error")
     ),
     tag = "datasets"
@@ -120,7 +120,12 @@ pub async fn list_datasets(
         });
     }
 
-    Ok(Json(responses))
+    let total = responses.len() as i64;
+    Ok(Json(DatasetListResponse {
+        schema_version: "1.0".to_string(),
+        datasets: responses,
+        total,
+    }))
 }
 
 /// Get a specific dataset
