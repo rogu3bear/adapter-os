@@ -1,5 +1,5 @@
 #!/bin/bash
-# AdapterOS Bootstrap Integration Test Suite
+# adapterOS Bootstrap Integration Test Suite
 # Tests all edge cases for the unified ./start entry point
 #
 # Usage: ./scripts/bootstrap_integration_test.sh [test_name]

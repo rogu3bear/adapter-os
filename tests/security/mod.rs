@@ -1,7 +1,7 @@
 #![cfg(all(test, feature = "extended-tests"))]
 //! Security and Policy Compliance Tests
 //!
-//! This module contains comprehensive security tests for AdapterOS, focusing on:
+//! This module contains comprehensive security tests for adapterOS, focusing on:
 //!
 //! - Policy rule testing and validation
 //! - Multi-tenant isolation verification

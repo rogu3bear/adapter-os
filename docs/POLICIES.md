@@ -1,9 +1,9 @@
-# AdapterOS Policy Packs
+# adapterOS Policy Packs
 
 **Document Version:** 2.0
 **Last Updated:** 2025-12-11
 **Status:** Production Ready
-**Maintained by:** AdapterOS Policy Team
+**Maintained by:** adapterOS Policy Team
 
 ---
 
@@ -24,7 +24,7 @@
 
 ## Overview
 
-AdapterOS implements a comprehensive policy enforcement system with 25 canonical policy packs that govern all aspects of system behavior. Policy enforcement happens at multiple layers throughout the request lifecycle, ensuring security, performance, and operational compliance.
+adapterOS implements a comprehensive policy enforcement system with 25 canonical policy packs that govern all aspects of system behavior. Policy enforcement happens at multiple layers throughout the request lifecycle, ensuring security, performance, and operational compliance.
 
 ### Policy Enforcement Layers
 

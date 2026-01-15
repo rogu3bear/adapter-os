@@ -1,4 +1,4 @@
-//! HTTP middleware for AdapterOS telemetry
+//! HTTP middleware for adapterOS telemetry
 //!
 //! Provides reusable middleware components for API logging across all servers.
 //!

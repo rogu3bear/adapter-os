@@ -1,4 +1,4 @@
-//! Identity primitives for AdapterOS entities
+//! Identity primitives for adapterOS entities
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;

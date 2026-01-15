@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# AdapterOS Load Test Runner
+# adapterOS Load Test Runner
 #
 # Runs comprehensive load tests for concurrent adapter operations
 # with configurable parameters and generates performance reports.
@@ -30,7 +30,7 @@ usage() {
     cat << EOF
 Usage: $0 [OPTIONS] [TEST_NAME]
 
-Run AdapterOS load tests for concurrent adapter operations.
+Run adapterOS load tests for concurrent adapter operations.
 
 OPTIONS:
     -h, --help              Show this help message
@@ -38,7 +38,7 @@ OPTIONS:
     -p, --profile PROFILE   Load test profile (light|medium|heavy|extreme)
     -r, --requests N        Number of requests (default: $DEFAULT_REQUESTS)
     -c, --concurrency N     Concurrency level (default: $DEFAULT_CONCURRENCY)
-    -u, --url URL           AdapterOS server URL (default: $DEFAULT_TEST_URL)
+    -u, --url URL           adapterOS server URL (default: $DEFAULT_TEST_URL)
     -l, --log-dir DIR       Log directory (default: $LOG_DIR)
     --no-baseline           Skip baseline comparison
 
@@ -142,7 +142,7 @@ check_prerequisites() {
 
     # Check if server is reachable
     if ! curl -s -f -o /dev/null "$TEST_URL/health" 2>/dev/null; then
-        print_message "$YELLOW" "Warning: Cannot reach AdapterOS server at $TEST_URL"
+        print_message "$YELLOW" "Warning: Cannot reach adapterOS server at $TEST_URL"
         print_message "$YELLOW" "Some tests may fail if the server is not running."
         read -p "Continue anyway? (y/N) " -n 1 -r
         echo
@@ -294,7 +294,7 @@ done
 
 # Main execution
 main() {
-    print_header "AdapterOS Load Test Runner"
+    print_header "adapterOS Load Test Runner"
 
     apply_profile
     setup_logging

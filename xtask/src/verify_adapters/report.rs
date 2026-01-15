@@ -28,7 +28,7 @@ fn generate_markdown(report: &VerificationReport) -> Result<String> {
     let mut md = String::new();
 
     // Header
-    md.push_str("# AdapterOS Adapter Verification Report\n\n");
+    md.push_str("# adapterOS Adapter Verification Report\n\n");
     md.push_str(&format!("**Generated:** {}\n\n", report.timestamp));
 
     // Summary

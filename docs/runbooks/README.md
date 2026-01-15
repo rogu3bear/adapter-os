@@ -1,16 +1,16 @@
-# AdapterOS Production Runbooks
+# adapterOS Production Runbooks
 
-**Operational runbooks for incident response and troubleshooting in production AdapterOS environments.**
+**Operational runbooks for incident response and troubleshooting in production adapterOS environments.**
 
 **Last Updated:** 2025-12-15
 **Version:** 1.0
-**Maintained By:** AdapterOS SRE Team
+**Maintained By:** adapterOS SRE Team
 
 ---
 
 ## Overview
 
-This directory contains actionable runbooks for AdapterOS production operations. Each runbook follows a consistent structure:
+This directory contains actionable runbooks for adapterOS production operations. Each runbook follows a consistent structure:
 
 - **Symptoms** - Observable indicators (alerts, metrics, user reports)
 - **Diagnosis** - Step-by-step investigation procedures

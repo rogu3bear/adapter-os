@@ -1,7 +1,7 @@
 #![cfg(all(test, feature = "extended-tests"))]
 //! Deterministic Mocking Utilities
 //!
-//! This module provides controlled, reproducible test doubles for AdapterOS components.
+//! This module provides controlled, reproducible test doubles for adapterOS components.
 //! All mocks are designed to produce deterministic outputs for identical inputs,
 //! ensuring reliable and repeatable test execution.
 //!

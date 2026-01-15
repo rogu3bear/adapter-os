@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "AdapterOS MLX abstraction layer using mlx-rs (DEPRECATED - not used in production)"
+description = "adapterOS MLX abstraction layer using mlx-rs (DEPRECATED - not used in production)"
 
 # =============================================================================
 # MLX-RS ABSTRACTION LAYER (DEPRECATED)

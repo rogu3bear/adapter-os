@@ -20,7 +20,7 @@ pub fn OfflineBanner() -> impl IntoView {
                 <div class="offline-banner-content">
                     <span class="offline-banner-title">"Backend Offline"</span>
                     <span class="offline-banner-message">
-                        "Unable to reach the AdapterOS API. Some data may be stale."
+                        "Unable to reach the adapterOS API. Some data may be stale."
                     </span>
                 </div>
                 <Button

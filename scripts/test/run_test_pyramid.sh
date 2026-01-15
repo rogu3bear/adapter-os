@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# AdapterOS Test Pyramid Runner
+# adapterOS Test Pyramid Runner
 # =============================================================================
 #
 # This script runs the test pyramid with correct thread caps, environment
@@ -327,7 +327,7 @@ run_nightly_suite() {
 
 print_usage() {
     cat << EOF
-AdapterOS Test Pyramid Runner
+adapterOS Test Pyramid Runner
 
 Usage: $0 [OPTIONS] [SUITE]
 
@@ -401,7 +401,7 @@ main() {
     # Print header
     echo ""
     echo "============================================================================="
-    echo -e "${BLUE}AdapterOS Test Pyramid${NC}"
+    echo -e "${BLUE}adapterOS Test Pyramid${NC}"
     echo "============================================================================="
     echo "Mode: ${mode}"
     echo "Repo: ${REPO_ROOT}"

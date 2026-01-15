@@ -40,7 +40,7 @@ pub async fn get_settings(
                 .general
                 .as_ref()
                 .and_then(|g| g.system_name.clone())
-                .unwrap_or_else(|| "AdapterOS".to_string()),
+                .unwrap_or_else(|| "adapterOS".to_string()),
             environment: config
                 .general
                 .as_ref()

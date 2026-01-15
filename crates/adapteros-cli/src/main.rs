@@ -1,4 +1,4 @@
-//! AdapterOS CLI tool (aosctl)
+//! adapterOS CLI tool (aosctl)
 
 #![allow(clippy::needless_borrow)]
 #![allow(clippy::needless_borrows_for_generic_args)]
@@ -81,7 +81,7 @@ impl From<BackendType> for adapteros_config::BackendPreference {
 
 #[derive(Parser)]
 #[command(name = "aosctl")]
-#[command(about = "AdapterOS command-line interface", long_about = None)]
+#[command(about = "adapterOS command-line interface", long_about = None)]
 #[command(version)]
 struct Cli {
     #[command(subcommand)]
@@ -858,7 +858,7 @@ Examples:
         output: PathBuf,
     },
 
-    /// Bootstrap AdapterOS installation
+    /// Bootstrap adapterOS installation
     #[command(after_help = "\
 Examples:
   # Full installation
@@ -1190,7 +1190,7 @@ Examples:
         args: train_docs::TrainDocsArgs,
     },
 
-    /// Initialize AdapterOS system (Owner Home setup)
+    /// Initialize adapterOS system (Owner Home setup)
     #[command(after_help = "\
 Examples:
   # Initialize system with default settings

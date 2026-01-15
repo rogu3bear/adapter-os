@@ -27,7 +27,7 @@ class NotificationManager {
 ```
 
 **Why Reasonable**:
-- Users need to know when AdapterOS has issues
+- Users need to know when adapterOS has issues
 - macOS notifications are standard and expected
 - Can be implemented with 50-100 lines of code
 - High user value, low development cost
@@ -146,9 +146,9 @@ struct ServiceHealthTrend {
 
 #### Implementation
 ```swift
-func formatStatusForSharing(_ status: AdapterOSStatus) -> String {
+func formatStatusForSharing(_ status: adapterOSStatus) -> String {
     """
-    AdapterOS Status Report
+    adapterOS Status Report
     Generated: \(Date.now.formatted())
 
     System Health: \(status.status)
@@ -240,7 +240,7 @@ struct PerformanceOverlay: View {
 ### ❌ Complex Features to Avoid
 - **Full dashboard in menu bar** - Too complex, defeats purpose
 - **Advanced graphing/charts** - Menu bar isn't for data visualization
-- **User authentication** - Already handled by AdapterOS
+- **User authentication** - Already handled by adapterOS
 - **Plugin system** - Overkill for current needs
 - **Machine learning predictions** - Too complex, questionable value
 

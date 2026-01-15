@@ -1,7 +1,7 @@
 #!/bin/bash
-# AdapterOS Freeze Guard
+# adapterOS Freeze Guard
 # Port conflict detection that reports but NEVER kills.
-# Prompts for AdapterOS resources, pure freeze for external processes.
+# Prompts for adapterOS resources, pure freeze for external processes.
 #
 # Usage: source scripts/lib/freeze-guard.sh
 
@@ -26,8 +26,8 @@ fg_port_in_time_wait() {
     netstat -an 2>/dev/null | grep -q "[:.]${port}.*TIME_WAIT"
 }
 
-# Check if a PID is an AdapterOS process
-# Returns: 0 if AdapterOS, 1 otherwise
+# Check if a PID is an adapterOS process
+# Returns: 0 if adapterOS, 1 otherwise
 fg_is_adapteros_process() {
     local pid="$1"
     local cmd
@@ -57,7 +57,7 @@ freeze_check_port() {
             fg_warn "Port $port is in TIME_WAIT state"
             echo ""
             echo "  This means a previous connection is still closing."
-            echo "  AdapterOS ports are pinned; wait ~60 seconds or stop the"
+            echo "  adapterOS ports are pinned; wait ~60 seconds or stop the"
             echo "  process that just exited, then retry on the same port."
             echo ""
             return 1
@@ -71,19 +71,19 @@ freeze_check_port() {
         cmd_info=$(fg_get_process_info "$pid")
 
         if fg_is_adapteros_process "$pid"; then
-            # AdapterOS process - offer interactive prompt
-            fg_warn "Port $port is in use by AdapterOS process"
+            # adapterOS process - offer interactive prompt
+            fg_warn "Port $port is in use by adapterOS process"
             echo ""
             echo "  PID: $pid"
             echo "  Command: $cmd_info"
             echo ""
 
             # Interactive prompt (default: No)
-            read -p "  Kill this AdapterOS process? [y/N] " -n 1 -r
+            read -p "  Kill this adapterOS process? [y/N] " -n 1 -r
             echo ""
 
             if [[ $REPLY =~ ^[Yy]$ ]]; then
-                fg_status "Stopping AdapterOS process (PID $pid)..."
+                fg_status "Stopping adapterOS process (PID $pid)..."
                 kill -TERM "$pid" 2>/dev/null
 
                 # Wait up to 10 seconds for graceful shutdown
@@ -107,7 +107,7 @@ freeze_check_port() {
                 fg_success "Process stopped"
                 return 0
             else
-                fg_error "Port $port blocked by existing AdapterOS process"
+                fg_error "Port $port blocked by existing adapterOS process"
                 echo ""
                 echo "  To resolve manually:"
                 echo "    kill $pid"
@@ -115,13 +115,13 @@ freeze_check_port() {
                 return 1
             fi
         else
-            # Non-AdapterOS process - pure freeze (never touch)
-            fg_error "Port $port is in use by external process (NOT AdapterOS)"
+            # Non-adapterOS process - pure freeze (never touch)
+            fg_error "Port $port is in use by external process (NOT adapterOS)"
             echo ""
             echo "  PID: $pid"
             echo "  Command: $cmd_info"
             echo ""
-            echo "  AdapterOS will NOT kill external processes."
+            echo "  adapterOS will NOT kill external processes."
             echo "  Required action:"
             echo "    Stop the external process and retry on the same port."
             echo ""
@@ -160,7 +160,7 @@ freeze_check_pid_file() {
 
     # Check if process is still running
     if kill -0 "$pid" 2>/dev/null; then
-        # Process exists - verify it's AdapterOS
+        # Process exists - verify it's adapterOS
         if fg_is_adapteros_process "$pid"; then
             fg_warn "$service_name appears to be running (PID $pid)"
             echo ""
@@ -181,7 +181,7 @@ freeze_check_pid_file() {
             fi
             return 1
         else
-            fg_error "PID file points to non-AdapterOS process"
+            fg_error "PID file points to non-adapterOS process"
             echo ""
             echo "  PID file: $pid_file"
             echo "  PID: $pid"
@@ -228,7 +228,7 @@ freeze_check_socket() {
 
         if [ -n "$listener_pid" ]; then
             if fg_is_adapteros_process "$listener_pid"; then
-                fg_warn "Socket in use by AdapterOS (PID $listener_pid)"
+                fg_warn "Socket in use by adapterOS (PID $listener_pid)"
                 read -p "  Stop the process using this socket? [y/N] " -n 1 -r
                 echo ""
                 if [[ $REPLY =~ ^[Yy]$ ]]; then
@@ -240,7 +240,7 @@ freeze_check_socket() {
                 fi
                 return 1
             else
-                fg_error "Socket in use by non-AdapterOS process"
+                fg_error "Socket in use by non-adapterOS process"
                 echo "  PID: $listener_pid"
                 echo "  Command: $(fg_get_process_info "$listener_pid")"
                 return 1

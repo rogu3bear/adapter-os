@@ -1,5 +1,5 @@
 #![cfg(all(test, feature = "extended-tests"))]
-//! Reusable test utilities for AdapterOS integration tests
+//! Reusable test utilities for adapterOS integration tests
 //!
 //! Provides common functionality for multi-tenant testing, resource monitoring,
 //! policy validation, and isolation checking.

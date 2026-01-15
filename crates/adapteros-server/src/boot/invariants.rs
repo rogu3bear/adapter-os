@@ -1,4 +1,4 @@
-//! Boot-time invariant validation for AdapterOS.
+//! Boot-time invariant validation for adapterOS.
 //!
 //! This module validates critical system invariants at startup, catching
 //! configuration errors and unsafe states before they can cause silent failures.

@@ -2,7 +2,7 @@
 
 ## Overview
 
-This guide covers the performance optimization strategies for tenant-isolated queries in AdapterOS, specifically focusing on the improvements introduced in Migration 0210.
+This guide covers the performance optimization strategies for tenant-isolated queries in adapterOS, specifically focusing on the improvements introduced in Migration 0210.
 
 ## Core Concepts
 

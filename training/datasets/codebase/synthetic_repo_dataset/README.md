@@ -2,13 +2,13 @@
 
 ## Overview
 
-This dataset contains a synthetic Rust codebase with corresponding Q/A pairs designed to test AdapterOS's code ingestion capabilities. It demonstrates how the system can learn from actual code structures, documentation, and implementation patterns.
+This dataset contains a synthetic Rust codebase with corresponding Q/A pairs designed to test adapterOS's code ingestion capabilities. It demonstrates how the system can learn from actual code structures, documentation, and implementation patterns.
 
 ## Dataset Structure
 
 ### Files
 
-1. **synthetic_code.rs** - A complete Rust module implementing realistic AdapterOS patterns:
+1. **synthetic_code.rs** - A complete Rust module implementing realistic adapterOS patterns:
    - Content-addressable hashing with BLAKE3
    - HKDF-based seed derivation for deterministic execution
    - Adapter lifecycle management with tiered eviction
@@ -98,15 +98,15 @@ Each JSONL entry includes:
 
 This dataset is designed for:
 
-1. **Code comprehension** - Understanding Rust patterns and AdapterOS architecture
+1. **Code comprehension** - Understanding Rust patterns and adapterOS architecture
 2. **Documentation generation** - Learning to explain code functionality
 3. **Design pattern recognition** - Identifying common patterns (lifecycle, eviction, routing)
 4. **Test-driven learning** - Understanding verification strategies
 5. **Codebase navigation** - Mapping questions to specific code locations
 
-## Integration with AdapterOS
+## Integration with adapterOS
 
-To use this dataset with AdapterOS training pipeline:
+To use this dataset with adapterOS training pipeline:
 
 ```bash
 # 1. Ingest the synthetic repository
@@ -150,4 +150,4 @@ Potential expansions:
 
 Copyright © 2025 JKCA / James KC Auchterlonie. All rights reserved.
 
-Part of the AdapterOS synthetic training dataset collection.
+Part of the adapterOS synthetic training dataset collection.

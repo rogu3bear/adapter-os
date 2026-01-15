@@ -50,7 +50,7 @@ impl Default for WebBrowseConfig {
             max_concurrent_requests: 10,
             default_timeout_secs: 10,
             cache: CacheSettings::default(),
-            user_agent: "AdapterOS-WebBrowse/1.0".to_string(),
+            user_agent: "adapterOS-WebBrowse/1.0".to_string(),
         }
     }
 }

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Comprehensive end-to-end test suite for the complete dataset-to-inference workflow in AdapterOS. The suite validates the full pipeline from dataset upload through inference execution with robust error handling.
+Comprehensive end-to-end test suite for the complete dataset-to-inference workflow in adapterOS. The suite validates the full pipeline from dataset upload through inference execution with robust error handling.
 
 ## Documentation Map
 
@@ -242,7 +242,7 @@ Running test suite...
 - `TestEnvironment` - Shared test environment
 - `TestConfig` - Configuration management
 - `TelemetryWriter` - Event logging
-- `AdapterOS` API types - Type compatibility
+- `adapterOS` API types - Type compatibility
 
 ### Module Registration
 - Registered in `tests/e2e/mod.rs`

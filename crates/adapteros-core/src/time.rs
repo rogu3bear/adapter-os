@@ -1,4 +1,4 @@
-//! Timestamp utilities for AdapterOS
+//! Timestamp utilities for adapterOS
 //!
 //! Provides consistent RFC 3339 timestamp generation and Unix timestamp utilities
 //! across the codebase.

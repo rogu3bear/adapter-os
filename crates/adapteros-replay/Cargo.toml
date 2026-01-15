@@ -15,7 +15,7 @@ serde_json = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 
-# AdapterOS dependencies
+# adapterOS dependencies
 adapteros-core = { path = "../adapteros-core" }
 adapteros-types = { path = "../adapteros-types" }
 adapteros-crypto = { path = "../adapteros-crypto" }

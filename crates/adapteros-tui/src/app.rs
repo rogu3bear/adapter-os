@@ -821,7 +821,7 @@ impl App {
                                 result.combined_output(),
                             );
                             self.confirmation_message =
-                                Some("Launching AdapterOS stack locally...".to_string());
+                                Some("Launching adapterOS stack locally...".to_string());
                             self.error_message = None;
                         }
                         Err(launch_error) => {

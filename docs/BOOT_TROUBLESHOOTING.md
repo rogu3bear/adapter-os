@@ -1,6 +1,6 @@
-# AdapterOS Boot Troubleshooting Guide
+# adapterOS Boot Troubleshooting Guide
 
-This document provides a decision-tree approach to diagnosing and resolving common boot failures in AdapterOS.
+This document provides a decision-tree approach to diagnosing and resolving common boot failures in adapterOS.
 
 ---
 

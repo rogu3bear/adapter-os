@@ -11,11 +11,11 @@ class StatusViewModel: ObservableObject {
     
     // MARK: - Published State
     
-    @Published var status: AdapterOSStatus?
+    @Published var status: adapterOSStatus?
     @Published var metrics: SystemMetrics?
     @Published var isOffline: Bool = true
     @Published var iconName: String = "bolt.slash.circle.fill"
-    @Published var tooltip: String = "AdapterOS OFFLINE"
+    @Published var tooltip: String = "adapterOS OFFLINE"
     @Published var lastError: StatusReadError?
     @Published var lastUpdate: Date?
 <<<<<<< HEAD
@@ -236,7 +236,7 @@ class StatusViewModel: ObservableObject {
         }
     }
 
-    private func checkServiceNotifications(for newStatus: AdapterOSStatus) {
+    private func checkServiceNotifications(for newStatus: adapterOSStatus) {
         guard let services = newStatus.services else { return }
 
         for service in services {
@@ -273,7 +273,7 @@ class StatusViewModel: ObservableObject {
         )
     }
 
-    private func addStatusSnapshot(_ status: AdapterOSStatus) {
+    private func addStatusSnapshot(_ status: adapterOSStatus) {
         let snapshot = StatusSnapshot(status: status, timestamp: Date())
         _recentStatusSnapshots.insert(snapshot, at: 0)
 
@@ -288,7 +288,7 @@ class StatusViewModel: ObservableObject {
     private func updateIconAndTooltip() {
         guard let status = status else {
             iconName = "bolt.slash.circle.fill"
-            tooltip = "AdapterOS OFFLINE"
+            tooltip = "adapterOS OFFLINE"
             return
         }
 
@@ -314,7 +314,7 @@ class StatusViewModel: ObservableObject {
 
         // Build tooltip
         var tooltipComponents: [String] = []
-        tooltipComponents.append("AdapterOS \(status.status.uppercased())")
+        tooltipComponents.append("adapterOS \(status.status.uppercased())")
 
         // Add service failure information
         if !status.failedServices.isEmpty {
@@ -341,9 +341,9 @@ class StatusViewModel: ObservableObject {
             let statusText = status.status.uppercased()
             let cpu = String(format: "%.0f%%", metrics.cpuUsage)
             let mem = String(format: "%.0fGB", metrics.memoryUsedGB)
-            tooltip = "AdapterOS \(statusText) · \(cpu) CPU · \(mem) RAM"
+            tooltip = "adapterOS \(statusText) · \(cpu) CPU · \(mem) RAM"
         } else {
-            tooltip = "AdapterOS \(status.status.uppercased())"
+            tooltip = "adapterOS \(status.status.uppercased())"
         }
 >>>>>>> integration-branch
     }
@@ -351,7 +351,7 @@ class StatusViewModel: ObservableObject {
     // MARK: - Actions
     
     func openLogs() {
-        // Open Console.app filtered to AdapterOS logs
+        // Open Console.app filtered to adapterOS logs
         let script = """
         tell application "Console"
             activate
@@ -418,7 +418,7 @@ class StatusViewModel: ObservableObject {
 
     func loadSampleOKStatus() async {
         // Create a sample status manually since no static samples exist
-        let sampleStatus = AdapterOSStatus(
+        let sampleStatus = adapterOSStatus(
             schema_version: "1.0",
             status: "ok",
             uptime_secs: 3600,
@@ -466,7 +466,7 @@ class StatusViewModel: ObservableObject {
 
     func loadSampleDegradedStatus() async {
         // Create a sample degraded status
-        let sampleStatus = AdapterOSStatus(
+        let sampleStatus = adapterOSStatus(
             schema_version: "1.0",
             status: "degraded",
             uptime_secs: 1800,
@@ -681,13 +681,13 @@ class StatusViewModel: ObservableObject {
 // MARK: - Derived State Helpers
 
 private extension StatusViewModel {
-    func updateTrustState(with status: AdapterOSStatus) {
+    func updateTrustState(with status: adapterOSStatus) {
         let previousTrustState = trustState
 
         if status.deterministic {
             trustState = .signed(
                 .init(
-                    issuer: "AdapterOS Control Plane",
+                    issuer: "adapterOS Control Plane",
                     verifiedAt: Date()
                 )
             )
@@ -708,7 +708,7 @@ private extension StatusViewModel {
 
     func injectTestStatus() {
         // Create a test status for debugging
-        let testStatus = AdapterOSStatus(
+        let testStatus = adapterOSStatus(
             schema_version: "1.0",
             status: "ok",
             uptime_secs: 3600, // 1 hour

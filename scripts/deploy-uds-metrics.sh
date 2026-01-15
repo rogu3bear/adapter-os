@@ -42,7 +42,7 @@ sudo chown aos:aos "$BRIDGE_SCRIPT"
 echo "⚙️  Creating systemd service..."
 sudo tee "/etc/systemd/system/${SERVICE_NAME}.service" > /dev/null <<EOF
 [Unit]
-Description=AdapterOS Metrics Bridge
+Description=adapterOS Metrics Bridge
 After=network.target
 Wants=aos-worker.service
 
@@ -96,7 +96,7 @@ if [ -S "$UDS_SOCKET" ]; then
     echo -e "${GREEN}✅ UDS socket created: $UDS_SOCKET${NC}"
 else
     echo -e "${YELLOW}⚠️  UDS socket not yet available: $UDS_SOCKET${NC}"
-    echo "This is normal if the AdapterOS worker hasn't started yet."
+    echo "This is normal if the adapterOS worker hasn't started yet."
 fi
 
 # Show service logs

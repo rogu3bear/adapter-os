@@ -1,6 +1,6 @@
-//! AdapterOS (.aos) manifest parser
+//! adapterOS (.aos) manifest parser
 //!
-//! Provides lightweight symbol extraction from AdapterOS single-file
+//! Provides lightweight symbol extraction from adapterOS single-file
 //! adapter manifests to integrate with the codegraph.
 
 use crate::parsers::LanguageParser;
@@ -9,7 +9,7 @@ use adapteros_core::{AosError, Result};
 use adapteros_single_file_adapter::SingleFileAdapterLoader;
 use std::path::Path;
 
-/// Parser for AdapterOS single-file adapter manifests.
+/// Parser for adapterOS single-file adapter manifests.
 pub struct AdapterParser {
     runtime: Option<tokio::runtime::Runtime>,
 }
@@ -30,7 +30,7 @@ impl AdapterParser {
             if self.runtime.is_none() {
                 self.runtime = Some(tokio::runtime::Runtime::new().map_err(|e| {
                     AosError::Internal(format!(
-                        "Failed to create Tokio runtime for AdapterOS parser: {}",
+                        "Failed to create Tokio runtime for adapterOS parser: {}",
                         e
                     ))
                 })?);
@@ -52,7 +52,7 @@ impl AdapterParser {
             symbol_id,
             value.to_string(),
             SymbolKind::Class,
-            Language::AdapterOS,
+            Language::adapterOS,
             span,
             file_id,
         );
@@ -65,7 +65,7 @@ impl AdapterParser {
 
 impl LanguageParser for AdapterParser {
     fn language(&self) -> Language {
-        Language::AdapterOS
+        Language::adapterOS
     }
 
     fn parse_file(&mut self, path: &Path) -> Result<ParseResult> {
@@ -201,7 +201,7 @@ mod tests {
         assert!(names.contains(adapter.manifest.category.as_str()));
 
         for symbol in &result.symbols {
-            assert_eq!(symbol.language, Language::AdapterOS);
+            assert_eq!(symbol.language, Language::adapterOS);
             assert_eq!(symbol.kind, SymbolKind::Class);
             assert_eq!(symbol.visibility, Visibility::Public);
             assert_eq!(symbol.file_path, aos_path.to_string_lossy());

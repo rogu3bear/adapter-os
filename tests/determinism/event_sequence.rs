@@ -1,5 +1,5 @@
 #![cfg(all(test, feature = "extended-tests"))]
-//! Event sequence determinism tests for AdapterOS
+//! Event sequence determinism tests for adapterOS
 //!
 //! Verifies that event sequences maintain deterministic ordering and content,
 //! ensuring replay capability and audit trail integrity.

@@ -1,4 +1,4 @@
-# AdapterOS E2E Testing Strategy
+# adapterOS E2E Testing Strategy
 
 **Author:** Test Infrastructure Engineering
 **Date:** 2026-01-06

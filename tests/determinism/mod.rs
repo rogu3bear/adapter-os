@@ -1,6 +1,6 @@
 #![cfg(all(test, feature = "extended-tests"))]
 
-//! Comprehensive determinism verification tests for AdapterOS
+//! Comprehensive determinism verification tests for adapterOS
 //!
 //! This module provides specialized verification utilities and tests for:
 //! - Cross-run consistency verification

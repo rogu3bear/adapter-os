@@ -1,7 +1,7 @@
 //! Policy Packs - Complete implementation of all 25 policy packs
 //!
 //! This module contains the complete implementation of all policy packs
-//! for AdapterOS, including configuration, validation, and enforcement logic.
+//! for adapterOS, including configuration, validation, and enforcement logic.
 
 pub mod adapters;
 pub mod artifacts;

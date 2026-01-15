@@ -1,6 +1,6 @@
 //
 //  PreCheckView.swift
-//  AdapterOSInstaller
+//  adapterOSInstaller
 //
 //  Hardware validation and configuration screen
 //
@@ -25,7 +25,7 @@ struct PreCheckView: View {
                 Text("System Requirements")
                     .font(.title2)
                     .fontWeight(.semibold)
-                Text("Validating your system meets AdapterOS requirements")
+                Text("Validating your system meets adapterOS requirements")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
             }

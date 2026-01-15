@@ -1,7 +1,7 @@
 //! OpenAI-compatible API shim.
 //!
 //! Implements a minimal subset of OpenAI's Chat Completions API by translating
-//! requests into AdapterOS `/v1/infer` calls internally.
+//! requests into adapterOS `/v1/infer` calls internally.
 
 use crate::auth::Claims;
 use crate::handlers;

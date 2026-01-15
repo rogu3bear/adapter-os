@@ -1,5 +1,5 @@
 [Unit]
-Description=AdapterOS Supervisor Daemon
+Description=adapterOS Supervisor Daemon
 Documentation=https://github.com/adapteros/adapter-os
 After=network.target
 Wants=aos-worker.service

@@ -1,6 +1,6 @@
 //! Interactive chat CLI with streaming support
 //!
-//! This module provides a robust CLI interface for chatting with the AdapterOS
+//! This module provides a robust CLI interface for chatting with the adapterOS
 //! inference runtime. It supports both interactive REPL and one-shot modes,
 //! with configurable endpoints, model/stack selection, and graceful error handling.
 

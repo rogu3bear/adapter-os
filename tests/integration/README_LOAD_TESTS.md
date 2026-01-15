@@ -2,7 +2,7 @@
 
 ## Overview
 
-This directory contains comprehensive load tests for AdapterOS concurrent adapter operations. The tests validate performance, stability, and reliability under high concurrency scenarios including:
+This directory contains comprehensive load tests for adapterOS concurrent adapter operations. The tests validate performance, stability, and reliability under high concurrency scenarios including:
 
 - 100+ concurrent inference requests with different adapters
 - Simultaneous hot-swaps from multiple threads
@@ -331,9 +331,9 @@ For issues or questions:
 - Check documentation in `/tests/` directory
 - Review existing test code for examples
 - File issues in the repository
-- Contact the AdapterOS team
+- Contact the adapterOS team
 
 ---
 
 **Last Updated**: 2025-12-24
-**Maintainers**: AdapterOS Team
+**Maintainers**: adapterOS Team

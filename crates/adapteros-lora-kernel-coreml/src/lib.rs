@@ -1,6 +1,6 @@
 //! CoreML kernel implementation for Neural Engine acceleration
 //!
-//! This crate provides the CoreML backend for AdapterOS, enabling inference
+//! This crate provides the CoreML backend for adapterOS, enabling inference
 //! on Apple Neural Engine (ANE) for improved power efficiency and performance.
 
 #![allow(dead_code)]

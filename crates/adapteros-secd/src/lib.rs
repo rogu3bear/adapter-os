@@ -1,4 +1,4 @@
-//! Secure Enclave Daemon for AdapterOS
+//! Secure Enclave Daemon for adapterOS
 //!
 //! This daemon provides a privileged interface to macOS Secure Enclave operations.
 //! It runs as a separate process with restricted entitlements and exposes a minimal

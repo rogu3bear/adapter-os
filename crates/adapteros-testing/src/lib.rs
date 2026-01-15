@@ -1,4 +1,4 @@
-//! Unified testing framework for AdapterOS
+//! Unified testing framework for adapterOS
 //!
 //! Provides a centralized testing framework that consolidates all testing
 //! patterns across the system with consistent setup, teardown, and assertions.

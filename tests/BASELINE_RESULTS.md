@@ -1,11 +1,11 @@
-# AdapterOS Load Test Baseline Results
+# adapterOS Load Test Baseline Results
 
-This document tracks baseline performance metrics for AdapterOS concurrent adapter operations.
+This document tracks baseline performance metrics for adapterOS concurrent adapter operations.
 
 ## Test Environment
 
 - **Date**: 2025-12-24
-- **AdapterOS Version**: v0.1.0-dev
+- **adapterOS Version**: v0.1.0-dev
 - **Platform**: macOS (Darwin 25.1.0)
 - **Architecture**: Apple Silicon
 - **Rust Version**: 1.70+

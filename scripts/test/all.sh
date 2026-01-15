@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# AdapterOS one-command test runner
+# adapterOS one-command test runner
 # - Validates minimal environment
 # - Checks toolchain versions
 # - Runs formatter, lint, unit, and integration suites in order
@@ -38,7 +38,7 @@ run_cmd() {
   bash -c "$cmd"
 }
 
-info "AdapterOS test runner (suite: ${SUITE})"
+info "adapterOS test runner (suite: ${SUITE})"
 
 require_cmd "cargo" "Install Rust toolchain (rustup recommended)."
 

@@ -79,7 +79,7 @@ pub async fn run_with_config(config: CodegenConfig) -> Result<()> {
     let mut report = CodegenReport::new();
 
     println!("========================================");
-    println!("  AdapterOS Code Generation Pipeline");
+    println!("  adapterOS Code Generation Pipeline");
     println!("========================================\n");
 
     // Step 1: Check dependencies
@@ -256,7 +256,7 @@ async fn build_server_and_export_openapi(config: &CodegenConfig) -> Result<PathB
             let stub_spec = serde_json::json!({
                 "openapi": "3.0.0",
                 "info": {
-                    "title": "AdapterOS API",
+                    "title": "adapterOS API",
                     "version": "1.0.0",
                     "description": "Stub spec - build system blocked (see PRD-02-BLOCKERS.md)"
                 },

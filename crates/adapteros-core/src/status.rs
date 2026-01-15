@@ -1,4 +1,4 @@
-//! Status types for AdapterOS system monitoring
+//! Status types for adapterOS system monitoring
 //!
 //! Defines the data structures used for system status reporting
 //! across menu bar, web UI, and other monitoring interfaces.
@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime};
 
-/// Canonical health status for components across AdapterOS.
+/// Canonical health status for components across adapterOS.
 ///
 /// Use this type for health checks across all subsystems.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -84,7 +84,7 @@ pub struct ServiceStatus {
 
 /// Status reported to menu bar app
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AdapterOSStatus {
+pub struct adapterOSStatus {
     /// Schema version for forward/backward compatibility
     pub schema_version: String,
     /// System status: "ok" | "degraded" | "error"
@@ -115,7 +115,7 @@ pub struct AdapterOSStatus {
     pub services: Option<Vec<ServiceStatus>>,
 }
 
-impl AdapterOSStatus {
+impl adapterOSStatus {
     /// Get uptime formatted as a human-readable string
     pub fn uptime_formatted(&self) -> String {
         let hours = self.uptime_secs / 3600;

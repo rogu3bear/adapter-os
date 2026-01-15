@@ -15,7 +15,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ROUTES_FILE="$ROOT/crates/adapteros-server-api/src/routes.rs"
 HANDLERS_DIR="$ROOT/crates/adapteros-server-api/src/handlers"
 
-echo "# AdapterOS Route Map"
+echo "# adapterOS Route Map"
 echo ""
 echo "> Auto-generated from \`routes.rs\` and handler files."
 echo "> Last updated: $(date -Idate)"

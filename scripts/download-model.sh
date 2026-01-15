@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Download Qwen 2.5 7B Instruct model for AdapterOS
+# Download Qwen 2.5 7B Instruct model for adapterOS
 #
 # This script downloads the MLX-optimized Qwen 2.5 7B Instruct model from Hugging Face
-# and sets up the model directory structure required by AdapterOS.
+# and sets up the model directory structure required by adapterOS.
 #
 # Copyright: © 2025 JKCA / James KC Auchterlonie. All rights reserved.
 
@@ -26,7 +26,7 @@ MODEL_PATH="$MODEL_DIR/$MODEL_NAME"
 HF_MODEL_ID="mlx-community/Qwen2.5-7B-Instruct-4bit"
 
 echo -e "${BLUE}═══════════════════════════════════════════════════════════════${NC}"
-echo -e "${BLUE}  AdapterOS Model Downloader${NC}"
+echo -e "${BLUE}  adapterOS Model Downloader${NC}"
 echo -e "${BLUE}═══════════════════════════════════════════════════════════════${NC}"
 echo ""
 

@@ -121,7 +121,7 @@ seeds:
   "spdxVersion": "SPDX-2.3",
   "dataLicense": "CC0-1.0",
   "spdxId": "SPDXRef-DOCUMENT",
-  "name": "AdapterOS",
+  "name": "adapterOS",
   "documentNamespace": "https://github.com/rogu3bear/adapter-os/sbom/test",
   "creationInfo": {
     "created": "2025-01-01T00:00:00Z",
@@ -275,7 +275,7 @@ async fn test_orchestrator_cli_help() -> Result<()> {
         .output()?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("AdapterOS promotion gate orchestrator"));
+    assert!(stdout.contains("adapterOS promotion gate orchestrator"));
     assert!(stdout.contains("Commands:"));
     assert!(stdout.contains("gate"));
 

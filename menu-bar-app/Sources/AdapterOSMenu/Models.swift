@@ -28,7 +28,7 @@ struct StatusSnapshot: Equatable {
         return formatter.localizedString(for: timestamp, relativeTo: Date())
     }
 
-    init(status: AdapterOSStatus, timestamp: Date = Date()) {
+    init(status: adapterOSStatus, timestamp: Date = Date()) {
         self.status = status.status
         self.timestamp = timestamp
         self.uptimeFormatted = status.uptimeFormatted
@@ -95,7 +95,7 @@ struct AppStatusViewState: Equatable {
 }
 
 extension AppStatusViewState {
-    init(status: AdapterOSStatus, metrics: SystemMetrics?, lastUpdated: Date?) {
+    init(status: adapterOSStatus, metrics: SystemMetrics?, lastUpdated: Date?) {
         let health = Health(rawValue: status.status) ?? .degraded
 
         let metricsSummary: String?

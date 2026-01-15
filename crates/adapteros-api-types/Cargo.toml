@@ -2,7 +2,7 @@
 name = "adapteros-api-types"
 version = "0.2.0"
 edition = "2021"
-description = "Shared API types for AdapterOS - works in both server and WASM contexts"
+description = "Shared API types for adapterOS - works in both server and WASM contexts"
 
 [features]
 default = ["server"]

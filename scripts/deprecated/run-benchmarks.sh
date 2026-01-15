@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# AdapterOS Comprehensive Benchmark Suite Runner
+# adapterOS Comprehensive Benchmark Suite Runner
 # This script runs all performance benchmarks and generates a comprehensive report
 
 set -euo pipefail
@@ -108,7 +108,7 @@ check_system() {
 # Initialize report
 init_report() {
     cat > "$REPORT_FILE" << EOF
-# AdapterOS Performance Benchmark Report
+# adapterOS Performance Benchmark Report
 
 **Date:** $(date '+%Y-%m-%d %H:%M:%S')
 **System:** $(uname -mrs)
@@ -118,7 +118,7 @@ init_report() {
 
 ## Executive Summary
 
-This report contains comprehensive performance benchmarks for AdapterOS components.
+This report contains comprehensive performance benchmarks for adapterOS components.
 
 EOF
 }
@@ -241,7 +241,7 @@ summarize_results() {
 
 # Main execution
 main() {
-    log_header "AdapterOS Benchmark Suite"
+    log_header "adapterOS Benchmark Suite"
 
     # Check system
     check_system

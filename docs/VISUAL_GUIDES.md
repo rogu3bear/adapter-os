@@ -1,6 +1,6 @@
-# Visual Guides: Understanding AdapterOS
+# Visual Guides: Understanding adapterOS
 
-**Purpose:** Visual explanations of AdapterOS concepts, comparisons with typical LLM systems, and token flow diagrams.
+**Purpose:** Visual explanations of adapterOS concepts, comparisons with typical LLM systems, and token flow diagrams.
 
 **Last Updated:** 2025-12-18
 
@@ -8,7 +8,7 @@
 
 ## Table of Contents
 
-1. [Typical LLM vs AdapterOS](#typical-llm-vs-adapteros)
+1. [Typical LLM vs adapterOS](#typical-llm-vs-adapteros)
 2. [Token Flow Through a Conversation](#token-flow-through-a-conversation)
 3. [KV Cache Comparison](#kv-cache-comparison)
 4. [The Determinism Guarantee](#the-determinism-guarantee)
@@ -16,7 +16,7 @@
 
 ---
 
-## Typical LLM vs AdapterOS
+## Typical LLM vs adapterOS
 
 ### The Fundamental Difference
 
@@ -31,7 +31,7 @@ flowchart LR
         T6["Trust required"]
     end
     
-    subgraph ADAPTEROS["AdapterOS"]
+    subgraph ADAPTEROS["adapterOS"]
         A1["Input → Recorded Process → Output"]
         A2["Every decision captured"]
         A3["Cache usage proven in receipt"]
@@ -46,7 +46,7 @@ flowchart LR
 
 ### Feature Comparison
 
-| Aspect | Typical LLM | AdapterOS |
+| Aspect | Typical LLM | adapterOS |
 |--------|-------------|-----------|
 | **Determinism** | Same input → different output | Same input → identical output |
 | **Routing** | Hidden, variable | Quantized (Q15), recorded |
@@ -110,7 +110,7 @@ flowchart TD
 | **Total** | — | **379** | **62** | **285** | **347** |
 
 **Without cache credits:** 441 + 285 = 726 tokens billed  
-**With AdapterOS:** 347 tokens billed  
+**With adapterOS:** 347 tokens billed  
 **Savings:** 52%
 
 ### Visual Token Timeline
@@ -154,11 +154,11 @@ flowchart TD
     TK1 --> TK2 --> TK3 --> TK4 --> TK5 --> TK6
 ```
 
-### AdapterOS KV Cache
+### adapterOS KV Cache
 
 ```mermaid
 flowchart TD
-    subgraph "AdapterOS System"
+    subgraph "adapterOS System"
         AK1["Cache keyed by BLAKE3(prefix)"]
         AK2["Follow-up arrives"]
         AK3["Prefix lookup: deterministic"]

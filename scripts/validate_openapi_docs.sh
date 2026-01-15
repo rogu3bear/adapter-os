@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# Validate OpenAPI documentation for AdapterOS Server API
+# Validate OpenAPI documentation for adapterOS Server API
 # This script validates the OpenAPI spec in docs/api.md
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -18,7 +18,7 @@ mkdir -p "$TMP_ROOT"
 OPENAPI_DOC="$PROJECT_ROOT/docs/api.md"
 SERVER_URL="${SERVER_URL:-http://localhost:${AOS_SERVER_PORT:-8080}}"
 
-echo "🔍 Validating OpenAPI documentation for AdapterOS Server API..."
+echo "🔍 Validating OpenAPI documentation for adapterOS Server API..."
 echo "📍 API docs file: $OPENAPI_DOC"
 echo "📍 Server URL: $SERVER_URL"
 

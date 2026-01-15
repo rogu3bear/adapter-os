@@ -1,4 +1,4 @@
-//! Centralized icon components for AdapterOS UI.
+//! Centralized icon components for adapterOS UI.
 //!
 //! All icons use Heroicons (MIT licensed) with consistent styling:
 //! - Default size: 1rem (h-4 w-4)

@@ -1,4 +1,4 @@
-# MVP Smoke Harness
+# Smoke Test Harness
 
 Single command smoke checks for build, SQLx offline validity, UI build, and key API endpoints.
 

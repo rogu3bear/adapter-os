@@ -2,7 +2,7 @@
 
 ## Overview
 
-AdapterOS currently uses short-lived JWT access tokens plus refresh/session cookies. The authoritative behavior comes from:
+adapterOS currently uses short-lived JWT access tokens plus refresh/session cookies. The authoritative behavior comes from:
 - `crates/adapteros-server-api/src/handlers/auth_enhanced.rs` (login, refresh, dev bypass/bootstrap)
 - `crates/adapteros-server-api/src/middleware/mod.rs` (auth/dual/optional auth, tenant guard, CSRF)
 - `crates/adapteros-server-api/src/auth_common.rs` (token TTLs, cookie attributes, dev login gating)

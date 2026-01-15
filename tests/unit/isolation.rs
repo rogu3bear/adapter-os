@@ -1,7 +1,7 @@
 #![cfg(all(test, feature = "extended-tests"))]
 //! Component Isolation Helpers
 //!
-//! This module provides utilities for testing AdapterOS components in isolation,
+//! This module provides utilities for testing adapterOS components in isolation,
 //! with controlled dependencies and minimal external interactions.
 //!
 //! ## Key Features

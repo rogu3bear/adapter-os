@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate synthetic system metrics dataset for AdapterOS testing.
+Generate synthetic system metrics dataset for adapterOS testing.
 
 Purpose: Validates metrics ingestion + DB schema, tests /v1/metrics/summary endpoint
 Format: JSONL with timestamp, component, metric, value fields

@@ -153,9 +153,9 @@ def export_to_coreml(model_id: str, output_path: Path, seq_len: int = 128):
     print("✓ Conversion complete")
 
     # Add metadata
-    mlmodel.author = "AdapterOS"
+    mlmodel.author = "adapterOS"
     mlmodel.license = "Apache-2.0"
-    mlmodel.short_description = f"{model_id} - CoreML for AdapterOS LoRA inference"
+    mlmodel.short_description = f"{model_id} - CoreML for adapterOS LoRA inference"
     mlmodel.version = "1.0"
 
     # Save
@@ -175,14 +175,14 @@ def export_to_coreml(model_id: str, output_path: Path, seq_len: int = 128):
     print(f"\n✅ Export complete!")
     print(f"   Output: {output_path}")
     print(f"   Size: {size_gb:.2f} GB")
-    print(f"\nTo use with AdapterOS:")
+    print(f"\nTo use with adapterOS:")
     print(f"   AOS_MODEL_BACKEND=coreml ./target/release/aos-worker \\")
     print(f"       --model-path {output_path}")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Export Hugging Face model to CoreML for AdapterOS",
+        description="Export Hugging Face model to CoreML for adapterOS",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__
     )
@@ -211,7 +211,7 @@ def main():
     args = parser.parse_args()
 
     print("=" * 60)
-    print("AdapterOS CoreML Model Exporter")
+    print("adapterOS CoreML Model Exporter")
     print("=" * 60)
     print()
 

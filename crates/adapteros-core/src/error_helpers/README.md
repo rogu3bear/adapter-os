@@ -1,6 +1,6 @@
 # Error Helpers
 
-Extension traits for ergonomic error handling in AdapterOS.
+Extension traits for ergonomic error handling in adapterOS.
 
 ## Quick Reference
 

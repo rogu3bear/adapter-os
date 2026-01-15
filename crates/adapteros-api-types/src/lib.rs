@@ -1,4 +1,4 @@
-//! Shared API types for AdapterOS Control Plane
+//! Shared API types for adapterOS Control Plane
 //!
 //! This crate provides unified request/response types used across
 //! the control plane API, client libraries, and UI components.

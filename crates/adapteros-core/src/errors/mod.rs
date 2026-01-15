@@ -1,4 +1,4 @@
-//! Error types for AdapterOS
+//! Error types for adapterOS
 //!
 //! This module provides a structured error hierarchy with categorical sub-enums
 //! for type-safe error handling without string parsing.
@@ -61,7 +61,7 @@ use zip::result::ZipError;
 /// Result type alias for AosError
 pub type Result<T> = std::result::Result<T, AosError>;
 
-/// Core error type for AdapterOS operations
+/// Core error type for adapterOS operations
 ///
 /// This enum wraps categorical sub-enums for type-safe error handling.
 /// Each category preserves full structure for programmatic matching.

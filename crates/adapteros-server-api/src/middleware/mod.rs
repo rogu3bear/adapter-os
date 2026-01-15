@@ -1,4 +1,4 @@
-//! Middleware modules for AdapterOS API
+//! Middleware modules for adapterOS API
 //!
 //! Provides cross-cutting concerns:
 //! - Authentication and authorization

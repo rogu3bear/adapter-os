@@ -1,7 +1,7 @@
 import Foundation
 import UserNotifications
 
-/// Manages macOS notifications for AdapterOS status events
+/// Manages macOS notifications for adapterOS status events
 final class NotificationManager {
     static let shared = NotificationManager()
 
@@ -70,7 +70,7 @@ final class NotificationManager {
         guard isUserFacingService(service) else { return }
 
         let content = UNMutableNotificationContent()
-        content.title = "AdapterOS Service Failed"
+        content.title = "adapterOS Service Failed"
         content.body = "\(service.name) has failed. Check service logs for details."
         content.sound = .default
         content.categoryIdentifier = "SERVICE_FAILURE"
@@ -95,7 +95,7 @@ final class NotificationManager {
         guard isUserFacingService(service) else { return }
 
         let content = UNMutableNotificationContent()
-        content.title = "AdapterOS Service Recovered"
+        content.title = "adapterOS Service Recovered"
         content.body = "\(service.name) is now running normally."
         content.sound = .default
         content.categoryIdentifier = "SERVICE_RECOVERY"
@@ -119,7 +119,7 @@ final class NotificationManager {
         guard notifyTrustIssues else { return }
 
         let content = UNMutableNotificationContent()
-        content.title = "AdapterOS Trust Issue"
+        content.title = "adapterOS Trust Issue"
         content.body = "Trust verification failed: \(reason)"
         content.sound = .default
         content.categoryIdentifier = "TRUST_ISSUE"

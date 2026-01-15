@@ -621,7 +621,7 @@ fn get_tensor_any_name(tensors: &SafeTensors, names: &[&str]) -> Result<(Vec<f32
 /// Returns None, using default alpha = rank (scale = 1.0).
 ///
 /// Note: In the current safetensors API (0.4.x), the metadata field is private
-/// and not directly accessible. AdapterOS stores alpha in the .aos manifest
+/// and not directly accessible. adapterOS stores alpha in the .aos manifest
 /// file rather than in safetensors metadata, so this is rarely needed.
 /// The caller (load_lora_adapter) handles the fallback correctly.
 fn get_alpha_from_metadata(_tensors: &SafeTensors) -> Option<f32> {

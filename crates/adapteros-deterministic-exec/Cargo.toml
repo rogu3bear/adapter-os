@@ -5,7 +5,7 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Deterministic async executor for AdapterOS with serial task execution and event logging"
+description = "Deterministic async executor for adapterOS with serial task execution and event logging"
 
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }

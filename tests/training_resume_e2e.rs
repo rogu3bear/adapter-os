@@ -25,7 +25,7 @@ fn create_test_training_data(dir: &std::path::Path) -> std::io::Result<PathBuf> 
         &data_path,
         r#"[
             {"input": "What is Rust?", "output": "Rust is a systems programming language."},
-            {"input": "What is AdapterOS?", "output": "AdapterOS is a deterministic ML inference platform."},
+            {"input": "What is adapterOS?", "output": "adapterOS is a deterministic ML inference platform."},
             {"input": "What is a LoRA adapter?", "output": "A LoRA adapter is a low-rank approximation for fine-tuning."}
         ]"#,
     )?;
@@ -45,7 +45,7 @@ This is a test document for training.
 
 ## Overview
 
-AdapterOS provides deterministic ML inference.
+adapterOS provides deterministic ML inference.
 "#,
     )?;
 

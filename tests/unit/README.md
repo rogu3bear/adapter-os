@@ -1,10 +1,10 @@
-# AdapterOS Unit Testing Framework
+# adapterOS Unit Testing Framework
 
 A comprehensive unit testing framework designed specifically for the unique requirements of a deterministic inference runtime with async components, Metal kernels, and evidence-grounded responses.
 
 ## Overview
 
-The AdapterOS Unit Testing Framework provides specialized testing utilities that address the challenges of testing:
+The adapterOS Unit Testing Framework provides specialized testing utilities that address the challenges of testing:
 
 - **Deterministic systems** that must produce identical outputs for identical inputs
 - **Async components** with complex concurrency patterns
@@ -31,7 +31,7 @@ The framework is organized into specialized modules:
 2. **Isolation** - Components can be tested with minimal external dependencies
 3. **Composability** - Utilities can be combined for complex test scenarios
 4. **Performance** - Minimal overhead compared to real implementations
-5. **Cross-Crate** - Framework can be reused across all AdapterOS crates
+5. **Cross-Crate** - Framework can be reused across all adapterOS crates
 
 ## Quick Start
 
@@ -71,7 +71,7 @@ mod tests {
 
 ### Mocks Module
 
-Provides deterministic test doubles for AdapterOS components.
+Provides deterministic test doubles for adapterOS components.
 
 ```rust
 use adapteros_unit_testing::mocks::*;
@@ -303,5 +303,5 @@ When adding new testing utilities:
 
 ## License
 
-This framework is part of AdapterOS and follows the same licensing terms.</code>
+This framework is part of adapterOS and follows the same licensing terms.</code>
 </edit_file>

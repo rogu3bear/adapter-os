@@ -566,7 +566,7 @@ async fn migrate_data(
 pub async fn run_migrate(args: RegistryMigrateArgs, output: &OutputWriter) -> Result<()> {
     let start_time = Instant::now();
 
-    output.info("AdapterOS Registry Migration Tool");
+    output.info("adapterOS Registry Migration Tool");
     output.info("==================================");
 
     if !args.from_db.exists() {

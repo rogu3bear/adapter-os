@@ -28,7 +28,7 @@ use agent::NodeAgent;
 
 #[derive(Parser)]
 #[command(name = "aos-node")]
-#[command(about = "AdapterOS Node Agent", long_about = None)]
+#[command(about = "adapterOS Node Agent", long_about = None)]
 struct Cli {
     /// Agent listen port (ignored in production mode)
     #[arg(short, long, default_value = "9443")]
@@ -167,7 +167,7 @@ async fn main() -> Result<()> {
     // Start server based on mode
     if cli.production_mode {
         // Production mode: Use Unix Domain Socket only (egress policy compliance)
-        info!("AdapterOS Node Agent starting in PRODUCTION mode");
+        info!("adapterOS Node Agent starting in PRODUCTION mode");
 
         // Ensure parent directory exists
         if let Some(parent) = std::path::Path::new(&cli.uds_path).parent() {

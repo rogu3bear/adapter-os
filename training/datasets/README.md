@@ -1,4 +1,4 @@
-# AdapterOS Training Datasets
+# adapterOS Training Datasets
 
 **Canonical training data taxonomy for LoRA adapter training**
 
@@ -178,7 +178,7 @@ cargo run -p adapteros-cli -- dataset validate training/datasets/routing/my_data
 
 ## References
 
-- [AGENTS.md](../../AGENTS.md) - Canonical AdapterOS reference
+- [AGENTS.md](../../AGENTS.md) - Canonical adapterOS reference
 - [Training Pipeline](../../crates/adapteros-lora-worker/training/) - Trainer implementation
 - [Dataset Manager](../../crates/adapteros-orchestrator/src/training_dataset_integration.rs) - DB integration
 - [Evidence Policy](../../crates/adapteros-policy/src/packs/evidence.rs) - Quality enforcement

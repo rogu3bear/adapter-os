@@ -2,7 +2,7 @@
 name = "adapteros-lint"
 version.workspace = true
 edition = "2021"
-description = "Runtime guards for AdapterOS determinism enforcement"
+description = "Runtime guards for adapterOS determinism enforcement"
 
 [dependencies]
 rand = { workspace = true }

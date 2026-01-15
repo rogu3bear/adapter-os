@@ -42,7 +42,7 @@ fn default_max_changes() -> usize {
 }
 
 fn default_author_name() -> String {
-    "AdapterOS".to_string()
+    "adapterOS".to_string()
 }
 
 fn default_author_email() -> String {

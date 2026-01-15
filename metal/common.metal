@@ -1,4 +1,4 @@
-// AdapterOS Common Metal Functions
+// adapterOS Common Metal Functions
 // Shared utilities for all Metal kernels
 //
 // References:

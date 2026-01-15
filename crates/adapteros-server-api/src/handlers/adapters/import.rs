@@ -505,7 +505,7 @@ pub async fn import_adapter(
             StatusCode::BAD_REQUEST,
             Json(
                 ErrorResponse::new(format!(
-                    "Schema version {} is newer than supported {}. Update AdapterOS.",
+                    "Schema version {} is newer than supported {}. Update adapterOS.",
                     schema_version, MANIFEST_SCHEMA_VERSION
                 ))
                 .with_code("INCOMPATIBLE_SCHEMA_VERSION"),

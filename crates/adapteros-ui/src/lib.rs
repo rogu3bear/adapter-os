@@ -1,8 +1,8 @@
-//! AdapterOS Leptos UI
+//! adapterOS Leptos UI
 //!
-//! A Leptos-based web frontend for the AdapterOS control plane.
+//! A Leptos-based web frontend for the adapterOS control plane.
 //! This crate provides a CSR (Client-Side Rendered) application that
-//! communicates with the AdapterOS backend via REST and SSE.
+//! communicates with the adapterOS backend via REST and SSE.
 //!
 //! # Architecture
 //!
@@ -157,7 +157,7 @@ pub fn App() -> impl IntoView {
 
     view! {
         <>
-            <Title text="AdapterOS"/>
+            <Title text="adapterOS"/>
             <Meta charset="utf-8"/>
             <Meta name="viewport" content="width=device-width, initial-scale=1"/>
 
@@ -223,7 +223,7 @@ fn BaseUrlError(reason: String) -> impl IntoView {
         <div class="min-h-screen flex items-center justify-center bg-background">
             <div class="max-w-xl w-full mx-4 space-y-3 rounded-lg border border-destructive/40 bg-destructive/10 p-6 shadow-lg">
                 <div class="flex items-center gap-2">
-                    <span class="text-lg font-semibold text-destructive">"AdapterOS UI cannot start"</span>
+                    <span class="text-lg font-semibold text-destructive">"adapterOS UI cannot start"</span>
                 </div>
                 <p class="text-sm text-foreground/80">
                     "We couldn't determine the API base URL. Set AOS_API_BASE_URL at build time or serve the UI via ./start so the origin is correct."

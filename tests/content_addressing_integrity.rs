@@ -1,6 +1,6 @@
 //! Content Addressing Integrity Verification Tests
 //!
-//! This test suite verifies that AdapterOS's content addressing system
+//! This test suite verifies that adapterOS's content addressing system
 //! properly detects tampering and ensures data integrity through BLAKE3 hashing.
 
 use adapteros_artifacts::CasStore;

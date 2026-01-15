@@ -13,15 +13,15 @@ struct ServiceStatus: Codable {
     let last_error: String?           // Last error message if any
 }
 
-/// AdapterOS status model decoded from /var/run/adapteros_status.json
+/// adapterOS status model decoded from /var/run/adapteros_status.json
 /// Unknown keys are ignored by default Decodable behavior.
 /// Optional fields allow for backward compatibility with older JSON formats.
-struct AdapterOSStatus: Codable {
+struct adapterOSStatus: Codable {
     let schema_version: String?   // Schema version for compatibility (optional for legacy)
 =======
-/// AdapterOS status model decoded from /var/run/adapteros_status.json
+/// adapterOS status model decoded from /var/run/adapteros_status.json
 /// Unknown keys are ignored by default Decodable behavior.
-struct AdapterOSStatus: Decodable {
+struct adapterOSStatus: Decodable {
 >>>>>>> integration-branch
     let status: String            // "ok" | "degraded" | "error"
     let uptime_secs: UInt64

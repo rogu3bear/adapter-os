@@ -1,4 +1,4 @@
-//! AdapterOS Control Plane Server
+//! adapterOS Control Plane Server
 //!
 //! This is the main entry point for the control plane server. Boot logic is
 //! modularized in the `boot` module for testability.
@@ -367,7 +367,7 @@ async fn main() -> Result<()> {
                 duration_secs = format!("{:.1}", boot_duration.as_secs_f64()),
                 "╔═══════════════════════════════════════════════════════════════╗"
             );
-            info!(target: "boot", "║             BOOT COMPLETE - AdapterOS Ready                   ║");
+            info!(target: "boot", "║             BOOT COMPLETE - adapterOS Ready                   ║");
             info!(
                 target: "boot",
                 duration_secs = format!("{:.1}s", boot_duration.as_secs_f64()),

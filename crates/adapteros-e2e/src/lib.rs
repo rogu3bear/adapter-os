@@ -1,1 +1,1 @@
-//! End-to-end gate tests for AdapterOS.
+//! End-to-end gate tests for adapterOS.

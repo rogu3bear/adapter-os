@@ -345,7 +345,7 @@ DEFENSE: Full-File Hash
 
 ## Summary
 
-AdapterOS content addressing provides **defense in depth**:
+adapterOS content addressing provides **defense in depth**:
 
 1. **BLAKE3 hashing** - Cryptographic integrity
 2. **Ed25519 signatures** - Authentication and non-repudiation

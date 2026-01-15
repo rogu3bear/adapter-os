@@ -1,4 +1,4 @@
-# AdapterOS Service Supervisor Configuration
+# adapterOS Service Supervisor Configuration
 # Manages all core services, workers, and monitoring infrastructure
 # Citation: Complete service control system implementation
 
@@ -44,7 +44,7 @@ services:
 
   backend-server:
     name: "Backend Server"
-    description: "AdapterOS inference server"
+    description: "adapterOS inference server"
     command: "cargo"
     args: ["run", "-p", "adapteros-server", "--bin", "adapteros-server", "--", "--config", "configs/cp.toml", "--skip-pf-check", "--single-writer"]
     working_directory: "/Users/star/Dev/adapter-os"
@@ -255,7 +255,7 @@ services:
 
   # Node Management
   adapteros-node:
-    name: "AdapterOS Node Agent"
+    name: "adapterOS Node Agent"
     description: "Distributed node agent for federation"
     command: "cargo"
     args: ["run", "-p", "adapteros-node"]

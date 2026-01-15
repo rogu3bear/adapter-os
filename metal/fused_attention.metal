@@ -1,4 +1,4 @@
-// AdapterOS Fused Attention Kernel
+// adapterOS Fused Attention Kernel
 // Flash Attention implementation with Grouped Query Attention (GQA)
 //
 // References:

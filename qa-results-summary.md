@@ -1,7 +1,7 @@
 # Browser QA Test Results Summary
 
 **Date:** January 12, 2026  
-**System:** AdapterOS  
+**System:** adapterOS  
 **Base URL:** http://localhost:8080  
 **Auth Mode:** Dev bypass (AOS_DEV_NO_AUTH=1)
 

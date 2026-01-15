@@ -126,7 +126,7 @@
     }
   ],
   "deployment": {
-    "compatibility": "AdapterOS 2.0+",
+    "compatibility": "adapterOS 2.0+",
     "metal_kernel_support": true,
     "quantization": "Q15 supported",
     "hot_swap": true,

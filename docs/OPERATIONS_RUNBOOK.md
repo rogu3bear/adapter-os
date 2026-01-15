@@ -1,4 +1,4 @@
-## MVP Runbook: Repo → Dataset → Validate → Train → Publish
+## Operations Runbook: Repo → Dataset → Validate → Train → Publish
 
 Use backend on 8080 and UI on 3200. All routes are tenant-scoped; use your tenant token.
 

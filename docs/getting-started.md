@@ -1,8 +1,8 @@
-# Getting Started with AdapterOS
+# Getting Started with adapterOS
 
 > **This is the canonical getting started guide for basic backend setup.** For complete setup with UI, see [QUICKSTART.md](QUICKSTART.md).
 
-Get AdapterOS running in 5 minutes on your Apple Silicon Mac.
+Get adapterOS running in 5 minutes on your Apple Silicon Mac.
 
 ---
 
@@ -123,7 +123,7 @@ curl -s http://127.0.0.1:8080/readyz && echo " OK"
 
 ## Verify Your Installation
 
-AdapterOS provides built-in diagnostics commands:
+adapterOS provides built-in diagnostics commands:
 
 ### System Health Check
 

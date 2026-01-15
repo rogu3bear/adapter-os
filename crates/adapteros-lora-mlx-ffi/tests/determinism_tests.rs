@@ -2,7 +2,7 @@
 //!
 //! These tests verify that the MLX backend produces deterministic, bit-exact results
 //! across repeated runs when properly seeded with HKDF-derived seeds. This ensures
-//! reproducible execution for AdapterOS.
+//! reproducible execution for adapterOS.
 //!
 //! The tests operate in stub mode and do not require real MLX to be installed,
 //! verifying the determinism guarantees at the seeding and configuration level.

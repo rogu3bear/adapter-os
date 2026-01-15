@@ -1,6 +1,6 @@
-# AdapterOS Training Guide
+# adapterOS Training Guide
 
-Complete guide to training custom LoRA adapters in AdapterOS, covering the entire pipeline from dataset preparation through deployment.
+Complete guide to training custom LoRA adapters in adapterOS, covering the entire pipeline from dataset preparation through deployment.
 
 **Last Updated:** 2025-12-11
 
@@ -25,7 +25,7 @@ Complete guide to training custom LoRA adapters in AdapterOS, covering the entir
 
 ## Overview
 
-AdapterOS converts training data into production-ready LoRA adapters packaged as `.aos` archives. The system supports:
+adapterOS converts training data into production-ready LoRA adapters packaged as `.aos` archives. The system supports:
 
 - **Multiple Backends**: MLX (primary), CoreML/ANE (acceleration), Metal (kernels)
 - **Multi-format Datasets**: JSONL, JSON, plain text
@@ -107,7 +107,7 @@ flowchart TB
 
 ## Training Example Types
 
-AdapterOS supports two training paradigms through the `TrainingExample` enum:
+adapterOS supports two training paradigms through the `TrainingExample` enum:
 
 ### Supervised Fine-Tuning (SFT)
 
@@ -316,7 +316,7 @@ curl http://localhost:8080/v1/datasets
 
 ### Canonical 5-Step Pipeline
 
-AdapterOS training follows these steps:
+adapterOS training follows these steps:
 
 **1. Ingest** - `DocumentIngestor::new(opts, tokenizer).ingest_pdf_path(path)?`
 
@@ -602,7 +602,7 @@ From the user interface perspective, codebase adapter binding happens at session
 
 ### Available Backends
 
-AdapterOS supports multiple training backends with automatic selection:
+adapterOS supports multiple training backends with automatic selection:
 
 #### 1. MLX (Primary)
 
@@ -764,7 +764,7 @@ let config = TrainingConfig::default()
 
 ## MoE Training
 
-AdapterOS supports training LoRA adapters for Mixture of Experts (MoE) models like Qwen3-Coder-30B-A3B. MoE training uses routing-weighted shared LoRA, where the same LoRA weights are applied but scaled by expert routing weights.
+adapterOS supports training LoRA adapters for Mixture of Experts (MoE) models like Qwen3-Coder-30B-A3B. MoE training uses routing-weighted shared LoRA, where the same LoRA weights are applied but scaled by expert routing weights.
 
 ### MoE Architecture Overview
 
@@ -936,7 +936,7 @@ let moe_count = manager.moe_cache_count();
 
 ### Training Provenance System
 
-AdapterOS implements comprehensive training provenance tracking (Policy: `cp-evidence-004`).
+adapterOS implements comprehensive training provenance tracking (Policy: `cp-evidence-004`).
 
 #### T1 Adapter Requirements
 

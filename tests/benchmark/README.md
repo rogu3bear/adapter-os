@@ -1,6 +1,6 @@
-# AdapterOS Performance Benchmark Suite
+# adapterOS Performance Benchmark Suite
 
-A comprehensive performance benchmarking suite for AdapterOS components, focusing on the unique performance characteristics of a deterministic inference runtime with Metal kernels, multi-tenant isolation, and evidence-grounded responses.
+A comprehensive performance benchmarking suite for adapterOS components, focusing on the unique performance characteristics of a deterministic inference runtime with Metal kernels, multi-tenant isolation, and evidence-grounded responses.
 
 ## Overview
 
@@ -217,4 +217,4 @@ When adding new benchmarks:
 
 ## License
 
-This benchmark suite is part of AdapterOS and follows the same license terms (MIT OR Apache-2.0).
+This benchmark suite is part of adapterOS and follows the same license terms (MIT OR Apache-2.0).

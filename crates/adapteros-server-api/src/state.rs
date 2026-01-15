@@ -802,7 +802,7 @@ pub struct DatasetProgressEvent {
 
 /// Shared application state passed to all handlers
 ///
-/// Central state container for the AdapterOS API server, containing
+/// Central state container for the adapterOS API server, containing
 /// all services, configurations, and shared resources needed by handlers.
 ///
 /// [source: crates/adapteros-server-api/src/state.rs L76-115]

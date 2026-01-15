@@ -1,4 +1,4 @@
-//! Diagnostic event contract and producer API for AdapterOS.
+//! Diagnostic event contract and producer API for adapterOS.
 //!
 //! This crate provides:
 //! - Versioned diagnostic event schema

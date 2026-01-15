@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  AdapterOSInstaller
+//  adapterOSInstaller
 //
 //  Main navigation and screen management
 //
@@ -28,7 +28,7 @@ struct ContentView: View {
                 Image(systemName: "cpu")
                     .font(.system(size: 32))
                     .foregroundColor(.blue)
-                Text("AdapterOS Installer")
+                Text("adapterOS Installer")
                     .font(.title)
                     .fontWeight(.semibold)
                 Spacer()

@@ -3,7 +3,7 @@
 //! Tests comprehensive validation of adapter tier transitions, eviction priorities,
 //! and lifecycle state constraints based on tier.
 //!
-//! Adapter tiers in AdapterOS:
+//! Adapter tiers in adapterOS:
 //! - **persistent**: Long-lived, low eviction priority
 //! - **warm**: Moderate eviction priority (default tier)
 //! - **ephemeral**: Short-lived, high eviction priority, cannot be deprecated

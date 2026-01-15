@@ -1,4 +1,4 @@
-//! Background task spawning for AdapterOS control plane.
+//! Background task spawning for adapterOS control plane.
 //!
 //! This module contains the background task spawning logic for the boot sequence.
 //! It spawns background tasks that run throughout the server lifecycle.
@@ -69,7 +69,7 @@ pub fn orphaned_training_job_cleaned_count() -> u64 {
     ORPHANED_TRAINING_JOB_CLEANED.load(Ordering::Relaxed)
 }
 
-/// Spawns all background tasks for the AdapterOS control plane.
+/// Spawns all background tasks for the adapterOS control plane.
 ///
 /// This function spawns background tasks that run throughout the server lifecycle.
 /// Tasks are spawned using the `BackgroundTaskSpawner` which integrates with the

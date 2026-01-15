@@ -1,6 +1,6 @@
 # Dataset Upload Performance Optimization
 
-This document describes the comprehensive optimization suite for large dataset file uploads in the AdapterOS server API.
+This document describes the comprehensive optimization suite for large dataset file uploads in the adapterOS server API.
 
 ## Overview
 

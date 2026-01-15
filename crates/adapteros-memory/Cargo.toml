@@ -2,7 +2,7 @@
 name = "adapteros-memory"
 version = "0.2.0"
 edition = "2021"
-description = "Unified Memory Watchdog for AdapterOS - monitors page-outs and OS memory tricks"
+description = "Unified Memory Watchdog for adapterOS - monitors page-outs and OS memory tricks"
 
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }

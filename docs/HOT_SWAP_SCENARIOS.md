@@ -1,4 +1,4 @@
-# Hot-Swap Scenarios in AdapterOS
+# Hot-Swap Scenarios in adapterOS
 
 **Comprehensive guide to zero-downtime adapter hot-swapping with failure recovery**
 
@@ -23,7 +23,7 @@
 
 ## Overview
 
-AdapterOS implements a sophisticated **two-phase hot-swap protocol** that enables zero-downtime adapter updates with automatic rollback on failure. The system combines:
+adapterOS implements a sophisticated **two-phase hot-swap protocol** that enables zero-downtime adapter updates with automatic rollback on failure. The system combines:
 
 - **Two-phase commit**: Preload → Swap with validation
 - **RCU (Read-Copy-Update)**: Lock-free snapshot isolation for in-flight requests

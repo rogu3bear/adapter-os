@@ -1,6 +1,6 @@
 //
 //  ProcessRunner.swift
-//  AdapterOSInstaller
+//  adapterOSInstaller
 //
 //  Async process execution with streaming output and JSON parsing
 //
@@ -35,7 +35,7 @@ class ProcessRunner: ObservableObject {
         }
         
         let checkpointDir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/AdapterOS/installer", isDirectory: true)
+            .appendingPathComponent("Library/Application Support/adapterOS/installer", isDirectory: true)
         try? FileManager.default.createDirectory(at: checkpointDir, withIntermediateDirectories: true)
         let checkpointFile = checkpointDir.appendingPathComponent("adapteros_install.state").path
         let modeArg = mode.rawValue

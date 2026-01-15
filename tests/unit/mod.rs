@@ -1,5 +1,5 @@
 #![cfg(all(test, feature = "extended-tests"))]
-//! Unit Testing Framework for AdapterOS Core Components
+//! Unit Testing Framework for adapterOS Core Components
 //!
 //! This module provides comprehensive unit testing utilities designed specifically
 //! for the unique requirements of a deterministic inference runtime with async

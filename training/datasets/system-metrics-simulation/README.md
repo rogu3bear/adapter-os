@@ -10,7 +10,7 @@
 
 ## Overview
 
-This dataset contains synthetic system metrics simulating 24 hours of AdapterOS runtime telemetry. It covers all core components (router, lifecycle, memory, deterministic_exec, training, policy, telemetry) with realistic value distributions and temporal patterns.
+This dataset contains synthetic system metrics simulating 24 hours of adapterOS runtime telemetry. It covers all core components (router, lifecycle, memory, deterministic_exec, training, policy, telemetry) with realistic value distributions and temporal patterns.
 
 ## Dataset Schema
 
@@ -141,7 +141,7 @@ python3 validate_metrics_schema.py metrics_dataset.jsonl
 # ✓ All values match expected types
 ```
 
-## Integration with AdapterOS
+## Integration with adapterOS
 
 ### Database Schema Expectations
 

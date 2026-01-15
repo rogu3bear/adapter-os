@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-AdapterOS provides **two distinct paths** for integrating LoRA adapters with CoreML models on Apple Neural Engine:
+adapterOS provides **two distinct paths** for integrating LoRA adapters with CoreML models on Apple Neural Engine:
 
 | Path | Status | Use Case | Performance |
 |------|--------|----------|-------------|

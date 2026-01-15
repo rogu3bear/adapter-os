@@ -1,7 +1,7 @@
 #![cfg(all(test, feature = "extended-tests"))]
 //! End-to-end tests for determinism workflow validation
 //!
-//! Validates complete determinism guarantees across the entire AdapterOS pipeline,
+//! Validates complete determinism guarantees across the entire adapterOS pipeline,
 //! including CPID consistency, evidence ordering, adapter routing determinism,
 //! and temporal consistency.
 

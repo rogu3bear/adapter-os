@@ -16,7 +16,7 @@ This runbook standardizes rollout for database optimizations to prevent conflict
 
 **Goal**: Validate behavior under real workload patterns before broad exposure.
 
-For AdapterOS deployments that support multiple environments/nodes:
+For adapterOS deployments that support multiple environments/nodes:
 
 1. Apply the migration/optimization in the canary environment/node only.
 2. Verify:

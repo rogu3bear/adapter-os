@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "Boot lifecycle management for AdapterOS - phase-gated startup and worker auth"
+description = "Boot lifecycle management for adapterOS - phase-gated startup and worker auth"
 
 [dependencies]
 # Internal crates - NO axum, tower, or hyper dependencies

@@ -1,4 +1,4 @@
-//! Centralized Path Resolution for AdapterOS
+//! Centralized Path Resolution for adapterOS
 //!
 //! This module provides a single source of truth for .aos adapter file locations
 //! and other critical path resolution throughout the system.

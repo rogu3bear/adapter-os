@@ -2,7 +2,7 @@
 //! Audit Trail Completeness Tests
 //!
 //! This module tests audit logging, trail completeness, and compliance verification
-//! in AdapterOS. It ensures that all security-relevant events are properly logged,
+//! in adapterOS. It ensures that all security-relevant events are properly logged,
 //! audit trails are tamper-proof, and compliance requirements are met.
 
 use std::collections::HashMap;

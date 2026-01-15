@@ -1,4 +1,4 @@
-//! Federation daemon initialization for AdapterOS control plane.
+//! Federation daemon initialization for adapterOS control plane.
 //!
 //! This module handles the initialization of:
 //! - Policy hash watcher for continuous monitoring

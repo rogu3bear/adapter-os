@@ -1,7 +1,7 @@
 //! Serialization utilities and versioned record types for schema evolution
 //!
 //! Provides versioned storage records with timestamps and hierarchical key building
-//! for AdapterOS entities (adapters, datasets, documents, collections, etc.)
+//! for adapterOS entities (adapters, datasets, documents, collections, etc.)
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -14,7 +14,7 @@ pub const CURRENT_SCHEMA_VERSION: u8 = 1;
 
 /// Wrapper for versioned storage with automatic schema evolution support
 ///
-/// All records stored in AdapterOS should use this wrapper to enable:
+/// All records stored in adapterOS should use this wrapper to enable:
 /// - Schema version tracking for migration
 /// - Creation and update timestamps
 /// - Backward compatibility with older data
@@ -136,7 +136,7 @@ impl<T: for<'de> Deserialize<'de>> VersionedRecord<T> {
 /// Key builder for hierarchical storage keys
 ///
 /// Provides a fluent API for building consistent hierarchical keys used across
-/// AdapterOS for adapters, datasets, documents, collections, and other entities.
+/// adapterOS for adapters, datasets, documents, collections, and other entities.
 ///
 /// # Key Format
 ///
@@ -236,7 +236,7 @@ impl KeyBuilder {
     }
 }
 
-/// Common key patterns for AdapterOS entities
+/// Common key patterns for adapterOS entities
 impl KeyBuilder {
     /// Create a key for an adapter
     ///

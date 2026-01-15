@@ -1,4 +1,4 @@
-//! Startup recovery tasks for AdapterOS control plane.
+//! Startup recovery tasks for adapterOS control plane.
 //!
 //! This module handles recovery of orphaned or stuck resources that may have been
 //! left in inconsistent states due to previous server crashes or ungraceful shutdowns.

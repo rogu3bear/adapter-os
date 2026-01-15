@@ -1,6 +1,6 @@
 //! Unified search service using Tantivy for FTS and vector search
 //!
-//! Provides a comprehensive search solution for AdapterOS with:
+//! Provides a comprehensive search solution for adapterOS with:
 //! - Full-text search (FTS) for chat messages and documents
 //! - Vector similarity search for semantic retrieval
 //! - Hybrid search combining both approaches with re-ranking
@@ -773,7 +773,7 @@ mod tests {
             tenant_id: "tenant_001".to_string(),
             chunk_index: 0,
             page_number: Some(1),
-            text: "AdapterOS provides K-sparse routing for efficient adapter selection."
+            text: "adapterOS provides K-sparse routing for efficient adapter selection."
                 .to_string(),
             chunk_hash: "abc123".to_string(),
         };

@@ -1,4 +1,4 @@
-//! Unified Progress Service for AdapterOS
+//! Unified Progress Service for adapterOS
 //!
 //! Centralizes progress tracking across all operations (adapter loading, training,
 //! background tasks, etc.) with standardized event emission, filtering, and persistence.

@@ -1,10 +1,10 @@
 #!/bin/bash
-# AdapterOS Infrastructure Health Check
+# adapterOS Infrastructure Health Check
 # Prevents the issues that caused the recent rectification
 
 set -e
 
-echo "🔍 AdapterOS Infrastructure Health Check"
+echo "🔍 adapterOS Infrastructure Health Check"
 echo "========================================"
 
 # Get list of excluded crates

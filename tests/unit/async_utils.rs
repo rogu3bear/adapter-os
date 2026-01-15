@@ -2,7 +2,7 @@
 //! Async Component Testing Utilities
 //!
 //! This module provides utilities for testing async components and futures
-//! in the AdapterOS system, with support for deterministic execution and
+//! in the adapterOS system, with support for deterministic execution and
 //! timeout handling.
 //!
 //! ## Key Features

@@ -1,6 +1,6 @@
 //
 //  HardwareChecker.swift
-//  AdapterOSInstaller
+//  adapterOSInstaller
 //
 //  Hardware validation for Apple Silicon and system requirements
 //
@@ -47,7 +47,7 @@ class HardwareChecker: ObservableObject {
             return HardwareCheckResult(
                 name: "Apple Silicon",
                 passed: false,
-                message: "✗ Intel CPU detected. AdapterOS requires Apple Silicon (M1 or newer)",
+                message: "✗ Intel CPU detected. adapterOS requires Apple Silicon (M1 or newer)",
                 isRequired: true
             )
         }

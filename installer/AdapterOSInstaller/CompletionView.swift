@@ -1,6 +1,6 @@
 //
 //  CompletionView.swift
-//  AdapterOSInstaller
+//  adapterOSInstaller
 //
 //  Success screen with determinism explanation and next steps
 //
@@ -25,7 +25,7 @@ struct CompletionView: View {
                         .font(.title)
                         .fontWeight(.bold)
                     
-                    Text("AdapterOS has been successfully installed")
+                    Text("adapterOS has been successfully installed")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                 }
@@ -44,7 +44,7 @@ struct CompletionView: View {
                             .fontWeight(.semibold)
                     }
                     
-                    Text("AdapterOS runs bit-reproducible AI workloads. Every inference is cryptographically verified.")
+                    Text("adapterOS runs bit-reproducible AI workloads. Every inference is cryptographically verified.")
                         .font(.body)
                     
                     // What This Means

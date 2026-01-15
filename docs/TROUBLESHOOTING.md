@@ -1,10 +1,10 @@
-# AdapterOS Troubleshooting Guide
+# adapterOS Troubleshooting Guide
 
-**Comprehensive troubleshooting guide for common AdapterOS deployment, configuration, and runtime issues.**
+**Comprehensive troubleshooting guide for common adapterOS deployment, configuration, and runtime issues.**
 
 **Last Updated:** 2025-12-11
 **Version:** 2.0
-**Maintained By:** AdapterOS Support Team
+**Maintained By:** adapterOS Support Team
 
 ---
 
@@ -1190,6 +1190,6 @@ curl -s http://localhost:8080/api/v1/training/jobs | jq '.[] | {id, status}'
 
 ---
 
-**This troubleshooting guide should resolve most common AdapterOS issues. For issues not covered here, please escalate with complete diagnostic information.**
+**This troubleshooting guide should resolve most common adapterOS issues. For issues not covered here, please escalate with complete diagnostic information.**
 
 **MLNavigator Inc © 2025**

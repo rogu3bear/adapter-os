@@ -45,7 +45,7 @@ struct ProblemsView: View {
         case .fileMissing:
             message = "Status unavailable — server not running or no permission"
         case .decodeFailed(let details):
-            let reason = details.isEmpty ? "expecting AdapterOSStatus JSON" : details
+            let reason = details.isEmpty ? "expecting adapterOSStatus JSON" : details
             message = "Status corrupt — \(reason)"
         case .permissionDenied:
             message = "Permission denied — cannot read status file"
@@ -58,7 +58,7 @@ struct ProblemsView: View {
         self.content = Content(
             iconSystemName: "bolt.slash.circle.fill",
             iconColor: DesignTokens.errorColor,
-            title: "AdapterOS Problem",
+            title: "adapterOS Problem",
             message: message,
             primaryLabel: "Retry",
             primaryAction: retry,
@@ -75,7 +75,7 @@ struct ProblemsView: View {
         case .fileMissing:
             return "Status unavailable — server not running or no permission"
         case .decodeFailed:
-            return "Status corrupt — expecting AdapterOSStatus JSON"
+            return "Status corrupt — expecting adapterOSStatus JSON"
         case .permissionDenied:
             return "Permission denied — cannot read status file"
         default:
@@ -98,7 +98,7 @@ struct ProblemsView: View {
 =======
                 Image(systemName: "bolt.slash.circle.fill")
                     .foregroundColor(DesignTokens.errorColor)
-                Text("AdapterOS Problem")
+                Text("adapterOS Problem")
                     .font(DesignTokens.headerFont)
                     .foregroundColor(DesignTokens.errorColor)
             }

@@ -1,4 +1,4 @@
-//! Deterministic replay infrastructure for AdapterOS inference runs
+//! Deterministic replay infrastructure for adapterOS inference runs
 //!
 //! This module provides the ability to:
 //! - Load prior event logs (task order, tensor hashes, scheduler ticks)

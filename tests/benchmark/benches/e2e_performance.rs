@@ -1,6 +1,6 @@
 //! E2E Performance Benchmarks
 //!
-//! Comprehensive performance benchmarks for AdapterOS end-to-end workflows:
+//! Comprehensive performance benchmarks for adapterOS end-to-end workflows:
 //! - Inference latency (target: ≥40 tok/s)
 //! - Training time (target: <5 min for 1000 examples)
 //! - Hot-swap latency (target: <100ms p95)

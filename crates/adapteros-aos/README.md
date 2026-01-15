@@ -1,6 +1,6 @@
 # adapteros-aos
 
-Memory-mapped .aos file loading with LRU caching and hot-swap support for AdapterOS.
+Memory-mapped .aos file loading with LRU caching and hot-swap support for adapterOS.
 
 ## Features
 

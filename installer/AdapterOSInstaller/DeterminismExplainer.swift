@@ -1,6 +1,6 @@
 //
 //  DeterminismExplainer.swift
-//  AdapterOSInstaller
+//  adapterOSInstaller
 //
 //  Content and logic for determinism explanation
 //
@@ -9,9 +9,9 @@ import Foundation
 
 struct DeterminismExplainer {
     static let content = """
-# AdapterOS: Deterministic AI Execution
+# adapterOS: Deterministic AI Execution
 
-AdapterOS runs bit-reproducible AI workloads. Every inference is cryptographically verified.
+adapterOS runs bit-reproducible AI workloads. Every inference is cryptographically verified.
 
 ## What This Means
 

@@ -1,4 +1,4 @@
-//! Plan composition and determinism tests for AdapterOS
+//! Plan composition and determinism tests for adapterOS
 //!
 //! This test suite validates:
 //! 1. Plan determinism: same inputs → same plan hash

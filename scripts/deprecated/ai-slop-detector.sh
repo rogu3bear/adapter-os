@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# AI Slop Detector for AdapterOS
+# AI Slop Detector for adapterOS
 # Version: 1.2
 # Date: 2025-11-25
-# Description: Automated detection of AI slop patterns in AdapterOS codebase
+# Description: Automated detection of AI slop patterns in adapterOS codebase
 
 set -euo pipefail
 VERSION="1.2"
@@ -111,20 +111,20 @@ count_lines() {
 RUST_FILE_COUNT=$(find "$SEARCH_ROOT" -type d \( -path '*/target' -o -path '*/node_modules' -o -path '*/tests' -o -path '*/benches' -o -path '*/examples' -o -path '*/fixtures' -o -path '*/mocks' \) -prune -o -name '*.rs' -print | count_lines)
 CRATE_COUNT=$(find "$SEARCH_ROOT" -mindepth 1 -maxdepth 1 -type d | count_lines)
 
-log_info "🔍 Starting AI Slop Detection for AdapterOS"
+log_info "🔍 Starting AI Slop Detection for adapterOS"
 log_info "Report will be saved to: $REPORT_FILE"
 
 # Generate markdown report header
 cat > "$REPORT_FILE" << EOF
-# AI Slop Detection Report - AdapterOS
+# AI Slop Detection Report - adapterOS
 
 **Generated:** $(date)
 **Timestamp:** $TIMESTAMP
-**Target:** AdapterOS monorepo (${CRATE_COUNT} crates, ${RUST_FILE_COUNT} Rust files scanned; excluding tests/benches/examples/fixtures/mocks)
+**Target:** adapterOS monorepo (${CRATE_COUNT} crates, ${RUST_FILE_COUNT} Rust files scanned; excluding tests/benches/examples/fixtures/mocks)
 
 ## Executive Summary
 
-This report analyzes the AdapterOS codebase for AI slop indicators using automated pattern matching and quality heuristics.
+This report analyzes the adapterOS codebase for AI slop indicators using automated pattern matching and quality heuristics.
 
 ---
 
@@ -228,7 +228,7 @@ if [ "$STD_FROM_ENTROPY_COUNT" -gt 0 ]; then
     PLATFORM_COUNT=$((PLATFORM_COUNT + STD_FROM_ENTROPY_COUNT))
 fi
 
-add_check_result "platform_agnostic" "HIGH" "$PLATFORM_COUNT" "Platform-agnostic patterns that ignore AdapterOS deterministic requirements"
+add_check_result "platform_agnostic" "HIGH" "$PLATFORM_COUNT" "Platform-agnostic patterns that ignore adapterOS deterministic requirements"
 
 cat >> "$REPORT_FILE" << EOF
 
@@ -238,7 +238,7 @@ cat >> "$REPORT_FILE" << EOF
 
 **Count:** $PLATFORM_COUNT instances
 
-**Description:** Code should use AdapterOS-specific patterns (deterministic spawn, HKDF seeding) instead of generic platform APIs.
+**Description:** Code should use adapterOS-specific patterns (deterministic spawn, HKDF seeding) instead of generic platform APIs.
 
 EOF
 
@@ -393,7 +393,7 @@ cat >> "$REPORT_FILE" << EOF
 
 #### **Immediate (High Priority):**
 $(if [ "$GENERIC_ERROR_COUNT" -gt 0 ]; then echo "- Replace generic error types with \`AosError\` variants"; fi)
-$(if [ "$PLATFORM_COUNT" -gt 0 ]; then echo "- Update platform-agnostic code to use AdapterOS patterns"; fi)
+$(if [ "$PLATFORM_COUNT" -gt 0 ]; then echo "- Update platform-agnostic code to use adapterOS patterns"; fi)
 
 #### **Informational (noise-prone):**
 $(if [ "$DUPLICATION_COUNT" -gt 0 ]; then echo "- For duplication, prefer \`bash scripts/run_jscpd.sh\` or \`adapteros-lint\` for authoritative signal"; fi)

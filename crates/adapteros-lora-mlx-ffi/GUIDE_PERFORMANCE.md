@@ -2,7 +2,7 @@
 
 ## Overview
 
-This guide documents performance characteristics, optimization strategies, and benchmark results for the MLX FFI backend in AdapterOS.
+This guide documents performance characteristics, optimization strategies, and benchmark results for the MLX FFI backend in adapterOS.
 
 **Last Updated:** November 22, 2025
 **Benchmark Tool:** Criterion.rs

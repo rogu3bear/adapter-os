@@ -1,6 +1,6 @@
 //! Standardized Circuit Breaker Interface
 //!
-//! Provides a unified circuit breaker pattern across AdapterOS services for protecting
+//! Provides a unified circuit breaker pattern across adapterOS services for protecting
 //! against cascading failures. Implements configurable thresholds, automatic recovery,
 //! and comprehensive metrics.
 //!

@@ -1,6 +1,6 @@
 # Service Layer Architecture
 
-This directory contains service layer abstractions that extract business logic from HTTP handlers in AdapterOS.
+This directory contains service layer abstractions that extract business logic from HTTP handlers in adapterOS.
 
 ## Purpose
 
@@ -284,9 +284,9 @@ Handlers convert `AosError` to HTTP status codes:
 - `Validation` → 400
 - `Database` → 500
 
-## AdapterOS Standards
+## adapterOS Standards
 
-All services must follow AdapterOS standards:
+All services must follow adapterOS standards:
 
 - **Error Handling**: Use `Result<T, AosError>`, never `Option<T>` for errors
 - **Logging**: Use `tracing` macros (`info!`, `warn!`, `error!`)

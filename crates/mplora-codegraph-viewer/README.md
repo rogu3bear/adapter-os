@@ -249,4 +249,4 @@ See [CONTRIBUTING.md](../../CONTRIBUTING.md) in the project root.
 
 - [mplora-codegraph](../mplora-codegraph/): CodeGraph generation library
 - [CodeGraph Specification](../../docs/codegraph-spec.md): Full specification
-- [AdapterOS Documentation](../../docs/): Main documentation
+- [adapterOS Documentation](../../docs/): Main documentation

@@ -1,7 +1,7 @@
 //! Error recovery and corruption detection
 //!
 //! Provides error recovery mechanisms, corruption detection, and automatic
-//! retry mechanisms for AdapterOS filesystem operations.
+//! retry mechanisms for adapterOS filesystem operations.
 
 pub mod corruption;
 pub mod recovery;

@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document summarizes comprehensive edge case testing for Q15 fixed-point gate quantization in AdapterOS router.
+This document summarizes comprehensive edge case testing for Q15 fixed-point gate quantization in adapterOS router.
 
 **Q15 Format Specification:**
 - Uses signed 16-bit integers: range [-32768, 32767]

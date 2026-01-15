@@ -1,7 +1,7 @@
 //! Output Policy Pack
 //!
 //! Enforces LLM output format, safety, and citation requirements
-//! for AdapterOS responses.
+//! for adapterOS responses.
 //!
 //! Includes length enforcement with actual truncation (not just warnings).
 

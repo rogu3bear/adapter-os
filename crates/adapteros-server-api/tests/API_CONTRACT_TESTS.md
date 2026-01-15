@@ -1,4 +1,4 @@
-# API Contract Tests for AdapterOS
+# API Contract Tests for adapterOS
 
 **Author:** AI Assistant
 **Date:** 2025-11-18

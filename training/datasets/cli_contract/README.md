@@ -4,7 +4,7 @@
 
 ## Overview
 
-The AdapterOS CLI (`aosctl`) provides the primary interface for adapter management, training, and system operations. Training data captures command patterns, validation rules, and expected outputs.
+The adapterOS CLI (`aosctl`) provides the primary interface for adapter management, training, and system operations. Training data captures command patterns, validation rules, and expected outputs.
 
 ## Key Concepts
 

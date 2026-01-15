@@ -1,4 +1,4 @@
-//! AdapterOS CLI tool (aosctl)
+//! adapterOS CLI tool (aosctl)
 
 use adapteros_config::{BackendPreference, ModelConfig, DEFAULT_BASE_MODEL_ID};
 use anyhow::Result;
@@ -17,7 +17,7 @@ use crate::BackendType;
 
 #[derive(Parser)]
 #[command(name = "aosctl")]
-#[command(about = "AdapterOS command-line interface", long_about = None)]
+#[command(about = "adapterOS command-line interface", long_about = None)]
 #[command(version)]
 pub struct Cli {
     #[command(subcommand)]
@@ -946,7 +946,7 @@ pub enum Commands {
         display_name: Option<String>,
     },
 
-    /// Bootstrap AdapterOS installation
+    /// Bootstrap adapterOS installation
     #[command(after_help = r#"Examples:
   # Full installation
   aosctl bootstrap --mode full

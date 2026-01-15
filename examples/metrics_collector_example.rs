@@ -1,4 +1,4 @@
-//! Example demonstrating AdapterOS telemetry metrics collector
+//! Example demonstrating adapterOS telemetry metrics collector
 //!
 //! This example shows how to:
 //! - Create a metrics collector
@@ -18,7 +18,7 @@ use tokio::time::sleep;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("Starting AdapterOS metrics collector example");
+    println!("Starting adapterOS metrics collector example");
 
     // Create metrics collector wrapped in Mutex for interior mutability
     // (increment requires &mut self)

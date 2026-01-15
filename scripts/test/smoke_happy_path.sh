@@ -34,7 +34,7 @@ for arg in "$@"; do
         --help|-h)
             echo "Usage: $0 [--verbose] [--help]"
             echo ""
-            echo "Happy path smoke test for AdapterOS getting-started workflow."
+            echo "Happy path smoke test for adapterOS getting-started workflow."
             echo "Validates: build, migrate, seed, serve, health check."
             echo ""
             echo "Options:"

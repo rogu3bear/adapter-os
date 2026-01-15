@@ -266,7 +266,7 @@ pub fn write_weights_to_temp(weights_data: &[u8]) -> Result<PathBuf> {
     let temp_root = PlatformUtils::temp_dir().join("aos");
     std::fs::create_dir_all(&temp_root).map_err(|e| {
         AosError::Io(format!(
-            "Failed to create AdapterOS temp directory {}: {}",
+            "Failed to create adapterOS temp directory {}: {}",
             temp_root.display(),
             e
         ))

@@ -1,7 +1,7 @@
 #![cfg(all(test, feature = "extended-tests"))]
-//! # AdapterOS Performance Benchmarking Suite
+//! # adapterOS Performance Benchmarking Suite
 //!
-//! This crate provides comprehensive performance benchmarks for AdapterOS components,
+//! This crate provides comprehensive performance benchmarks for adapterOS components,
 //! focusing on the unique performance characteristics of a deterministic inference
 //! runtime with Metal kernels, multi-tenant isolation, and evidence-grounded responses.
 //!

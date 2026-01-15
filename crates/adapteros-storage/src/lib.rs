@@ -1,7 +1,7 @@
 //! Storage management and disk space enforcement
 //!
 //! Provides disk quota enforcement, storage cleanup policies, and monitoring
-//! for AdapterOS training and adapter storage.
+//! for adapterOS training and adapter storage.
 
 pub mod byte_store;
 pub mod cleanup;

@@ -1,4 +1,4 @@
-//! Boot infrastructure for AdapterOS.
+//! Boot infrastructure for adapterOS.
 //!
 //! This crate provides reusable boot lifecycle management without depending on
 //! Axum or other HTTP framework types. It can be used by any binary that needs

@@ -97,7 +97,7 @@ Expected: a table of checks with passes (health, meta, auth responding).
      - Adapter: `adapter-test` (or leave adapter as “none/auto” if you want routing to pick)
   3. Prompt (copy/paste):
      ```text
-     In one sentence: what is AdapterOS?
+     In one sentence: what is adapterOS?
      ```
   4. Click **Run**.
   5. Expect:

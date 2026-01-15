@@ -29,12 +29,12 @@ pub use wasm::WasmClient as DefaultClient;
 #[cfg(not(target_arch = "wasm32"))]
 pub use uds::{CancelTrainingResponse, ConnectionPool, Signal, UdsClient, UdsClientError};
 
-/// Unified client trait for all AdapterOS API access
+/// Unified client trait for all adapterOS API access
 ///
 /// # Citations
 /// - CONTRIBUTING.md L118-122: "Follow Rust naming conventions", "Use `cargo clippy` for linting"
 /// - Policy Pack #1 (Egress): "MUST NOT open listening TCP ports; use Unix domain sockets only"
-pub trait AdapterOSClient {
+pub trait adapterOSClient {
     // Health & Auth
     async fn health(&self) -> Result<HealthResponse>;
     async fn login(&self, req: LoginRequest) -> Result<LoginResponse>;

@@ -2,7 +2,7 @@
 
 ## Overview
 
-AdapterOS manages base models throughout their complete lifecycle: discovery, import, validation, loading, and unloading. Models are registered in the database with content-addressed hashes for integrity verification, and the system tracks load state across tenants with memory pressure awareness.
+adapterOS manages base models throughout their complete lifecycle: discovery, import, validation, loading, and unloading. Models are registered in the database with content-addressed hashes for integrity verification, and the system tracks load state across tenants with memory pressure awareness.
 
 The model management system supports:
 - Multiple model formats with backend auto-detection
@@ -13,7 +13,7 @@ The model management system supports:
 
 ## Model Formats
 
-AdapterOS automatically detects model format from directory contents and selects the appropriate backend:
+adapterOS automatically detects model format from directory contents and selects the appropriate backend:
 
 | Extension | Format | Backend | Description |
 |-----------|--------|---------|-------------|

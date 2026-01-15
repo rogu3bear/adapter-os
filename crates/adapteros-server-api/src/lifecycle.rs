@@ -289,7 +289,7 @@ pub enum ShutdownStatus {
     Timeout,
 }
 
-/// Coordinator for graceful shutdown of all AdapterOS components
+/// Coordinator for graceful shutdown of all adapterOS components
 ///
 /// This coordinator manages the lifecycle of background services, ensuring
 /// proper shutdown order and timeout handling for each component.

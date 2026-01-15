@@ -1,7 +1,7 @@
 //! Determinism policy enforcement using HKDF-SHA256 seeding
 //!
 //! This module provides deterministic seed derivation for all RNG operations
-//! in the AdapterOS system. Per Policy Ruleset #2 (Determinism), all randomness
+//! in the adapterOS system. Per Policy Ruleset #2 (Determinism), all randomness
 //! must be derived from a global seed using HKDF with domain separation labels.
 //!
 //! # Supported Domains
@@ -36,7 +36,7 @@ use rand_chacha::ChaCha20Rng;
 use std::path::Path;
 
 /// Domain labels for HKDF seed derivation
-/// Per AdapterOS Policy Ruleset #2 (Determinism)
+/// Per adapterOS Policy Ruleset #2 (Determinism)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SeedDomain {
     /// Router operations (adapter selection)

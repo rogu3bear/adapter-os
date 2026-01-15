@@ -1,7 +1,7 @@
 //! Explain error codes
 //!
 //! Use `aosctl explain <ERROR_CODE>` to get detailed information about any
-//! AdapterOS error code. For compile-time checked error code mapping from
+//! adapterOS error code. For compile-time checked error code mapping from
 //! actual errors, use `AosError::ecode()` from `adapteros_core::errors`.
 
 use crate::error_codes;
@@ -50,7 +50,7 @@ pub async fn list_error_codes(json: bool) -> Result<()> {
             serde_json::to_string_pretty(&codes).context("Failed to serialize error codes")?
         );
     } else {
-        println!("AdapterOS Error Code Registry");
+        println!("adapterOS Error Code Registry");
         println!("════════════════════════════════════════════════════════════════\n");
 
         let mut by_category: std::collections::BTreeMap<&str, Vec<_>> =

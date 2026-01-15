@@ -19,7 +19,7 @@ echo "# API Endpoint Audit Report" > "$REPORT_FILE"
 echo "" >> "$REPORT_FILE"
 echo "**Generated:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> "$REPORT_FILE"
 echo "**Task:** Team 6 (API & Integration) Tasks A1-A4" >> "$REPORT_FILE"
-echo "**Scope:** AdapterOS v0.3-alpha API Infrastructure" >> "$REPORT_FILE"
+echo "**Scope:** adapterOS v0.3-alpha API Infrastructure" >> "$REPORT_FILE"
 echo "" >> "$REPORT_FILE"
 
 echo "## Executive Summary" >> "$REPORT_FILE"

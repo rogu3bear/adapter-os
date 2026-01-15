@@ -1,10 +1,10 @@
 # API Type Generation Guide
 
-This document describes how API types are shared between the Rust backend and Leptos UI in AdapterOS.
+This document describes how API types are shared between the Rust backend and Leptos UI in adapterOS.
 
 ## Overview
 
-AdapterOS uses a **Rust-native** approach to API type sharing:
+adapterOS uses a **Rust-native** approach to API type sharing:
 
 ```
 Rust Types (adapteros-api-types) ─────> Backend (adapteros-server-api)

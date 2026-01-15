@@ -1,4 +1,4 @@
-# AdapterOS UI Style Allowlist
+# adapterOS UI Style Allowlist
 
 > **PRD-UI-001**: Utility Surface Freeze & Reduction
 >

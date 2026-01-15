@@ -1,5 +1,5 @@
 #!/bin/bash
-# AdapterOS Port Guard
+# adapterOS Port Guard
 # Shared helpers to keep dev ports stable across rebuilds and restarts.
 #
 # Safe to source from other scripts; does not modify shell options.
@@ -19,7 +19,7 @@ pg_port_in_use() {
     lsof -nP -i :"$port" -sTCP:LISTEN >/dev/null 2>&1
 }
 
-# List PIDs that look like AdapterOS-owned listeners for a port
+# List PIDs that look like adapterOS-owned listeners for a port
 pg_adapter_pids_for_port() {
     local port="$1"
     local pids
@@ -68,7 +68,7 @@ pg_stop_pid() {
     return 0
 }
 
-# Ensure a port is free; attempts graceful cleanup for AdapterOS-looking processes
+# Ensure a port is free; attempts graceful cleanup for adapterOS-looking processes
 ensure_port_free() {
     local port="$1"
     local service_name="${2:-Service}"
@@ -81,7 +81,7 @@ ensure_port_free() {
     adapter_pids=$(pg_adapter_pids_for_port "$port")
 
     if [ -z "$adapter_pids" ]; then
-        pg_warn "Port $port is in use by non-AdapterOS process; leaving untouched"
+        pg_warn "Port $port is in use by non-adapterOS process; leaving untouched"
         return 1
     fi
 

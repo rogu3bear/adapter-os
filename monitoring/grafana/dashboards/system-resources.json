@@ -394,7 +394,7 @@
   "time": { "from": "now-1h", "to": "now" },
   "timepicker": {},
   "timezone": "",
-  "title": "AdapterOS System Resources",
+  "title": "adapterOS System Resources",
   "uid": "adapteros-system-resources",
   "version": 1,
   "weekStart": ""

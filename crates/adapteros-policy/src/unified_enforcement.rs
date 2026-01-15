@@ -1,4 +1,4 @@
-//! Unified policy enforcement interface for AdapterOS
+//! Unified policy enforcement interface for adapterOS
 //!
 //! Provides a centralized interface for enforcing policy packs
 //! across the system with consistent validation and reporting.

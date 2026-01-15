@@ -1,4 +1,4 @@
-//! Boot lifecycle state management for AdapterOS server
+//! Boot lifecycle state management for adapterOS server
 //!
 //! Implements the lifecycle state machine for server boot, runtime, and shutdown.
 //!

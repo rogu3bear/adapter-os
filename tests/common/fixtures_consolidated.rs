@@ -1,4 +1,4 @@
-//! Consolidated test fixtures for AdapterOS
+//! Consolidated test fixtures for adapterOS
 //!
 //! Provides reusable test fixtures to eliminate duplication across test files.
 //! All fixtures follow consistent naming and behavior patterns.

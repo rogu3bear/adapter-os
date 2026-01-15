@@ -1,7 +1,7 @@
 //! API client infrastructure
 //!
 //! Provides typed HTTP client and SSE streaming for communicating
-//! with the AdapterOS backend.
+//! with the adapterOS backend.
 
 pub mod client;
 pub mod error;
@@ -84,7 +84,10 @@ pub fn api_base_url() -> String {
     api_base_url_checked().unwrap_or_else(|_| String::from("http://localhost:8080"))
 }
 
-/// UI build version (set via AOS_UI_BUILD_VERSION env at build time)
+/// UI build version for version skew detection against backend.
+///
+/// Automatically set from CARGO_PKG_VERSION by build.rs.
+/// Can be overridden by setting AOS_UI_BUILD_VERSION before compilation.
 pub fn ui_build_version() -> &'static str {
-    option_env!("AOS_UI_BUILD_VERSION").unwrap_or("dev")
+    option_env!("AOS_UI_BUILD_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))
 }

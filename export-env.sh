@@ -1,5 +1,5 @@
 #!/bin/bash
-# Export AdapterOS environment variables from .env file with validation
+# Export adapterOS environment variables from .env file with validation
 # Usage: source ./export-env.sh
 
 set -euo pipefail
@@ -33,6 +33,6 @@ if [ $VALIDATION_ERRORS -eq 0 ]; then
     print_env_summary
 else
     echo -e "${FG_RED}✗ Validation failed with $VALIDATION_ERRORS error(s)${FG_RESET}"
-    echo "  Fix the issues above before starting AdapterOS"
+    echo "  Fix the issues above before starting adapterOS"
     return 1 2>/dev/null || exit 1
 fi

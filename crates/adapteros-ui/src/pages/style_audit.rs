@@ -550,7 +550,7 @@ pub fn StyleAudit() -> impl IntoView {
 
                 // Footer
                 <div class="mt-12 pt-8 border-t text-center text-sm text-muted-foreground">
-                    <p>"AdapterOS Style Audit • PRD-UI-003"</p>
+                    <p>"adapterOS Style Audit • PRD-UI-003"</p>
                     <p class="mt-1">"Use browser screenshot tools to capture baseline visuals"</p>
                 </div>
             </div>

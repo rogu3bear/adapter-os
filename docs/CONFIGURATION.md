@@ -1,6 +1,6 @@
-# AdapterOS Configuration Guide
+# adapterOS Configuration Guide
 
-**Purpose:** Comprehensive reference for configuring AdapterOS development and deployment environments.
+**Purpose:** Comprehensive reference for configuring adapterOS development and deployment environments.
 
 **Last Updated:** 2026-01-02
 
@@ -75,7 +75,7 @@ vim .env
 
 ## Configuration File Formats
 
-AdapterOS supports TOML configuration files for structured settings.
+adapterOS supports TOML configuration files for structured settings.
 
 ### Example TOML Configuration
 
@@ -165,7 +165,7 @@ max_events_per_run = 10000
 
 ## Configuration Precedence Rules
 
-AdapterOS uses a deterministic configuration system with strict precedence ordering to ensure predictable behavior.
+adapterOS uses a deterministic configuration system with strict precedence ordering to ensure predictable behavior.
 
 ### Precedence Order
 
@@ -223,7 +223,7 @@ export AOS_POLICY_STRICT_MODE=true
 adapteros serve
 ```
 
-**Format:** `AOS_` prefix for AdapterOS-specific variables, underscore to dot conversion
+**Format:** `AOS_` prefix for adapterOS-specific variables, underscore to dot conversion
 
 ### 3. Configuration Files (Lower Priority)
 
@@ -681,7 +681,7 @@ export AOS_MODEL_BACKEND=auto     # Use priority chain (default)
 
 #### HuggingFace Hub Integration
 
-AdapterOS can automatically download models from HuggingFace Hub on startup.
+adapterOS can automatically download models from HuggingFace Hub on startup.
 
 | Variable | Default | Purpose | Example |
 |----------|---------|---------|---------|
@@ -786,7 +786,7 @@ $AOS_MODEL_CACHE_DIR/
 
 #### Legacy AOS Migration (Temporary)
 
-- `AOS_ALLOW_LEGACY_AOS` (default: off) — Emergency migration flag to allow legacy AOS 1.x bundles. Default off; do not use in steady state. Emits `LEGACY_AOS_*` warnings and metrics when used. Removal scheduled for AdapterOS v0.15.0; tracked in `docs/issues/AOS_ALLOW_LEGACY_AOS_REMOVAL.md`.
+- `AOS_ALLOW_LEGACY_AOS` (default: off) — Emergency migration flag to allow legacy AOS 1.x bundles. Default off; do not use in steady state. Emits `LEGACY_AOS_*` warnings and metrics when used. Removal scheduled for adapterOS v0.15.0.
 - Repackage adapters into AOS2: convert legacy bundles with `aosctl aos convert --input <legacy.aos> --output <adapter.aos> --format aos2` (or rerun packaging to emit AOS2 directly), then turn this flag off.
 
 #### Debug Flags (Development Only)
@@ -1230,7 +1230,7 @@ let config = loader.load(cli_args, manifest_path)?;
 
 ## See Also
 
-- [AdapterOS Configuration API](../crates/adapteros-config/src/lib.rs)
+- [adapterOS Configuration API](../crates/adapteros-config/src/lib.rs)
 - [Configuration Types](../crates/adapteros-config/src/types.rs)
 - [Precedence System](../crates/adapteros-config/src/precedence.rs)
 - [Configuration Loader](../crates/adapteros-config/src/loader.rs)

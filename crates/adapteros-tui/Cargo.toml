@@ -2,7 +2,7 @@
 name = "adapteros-tui"
 version = "0.2.0"
 edition = "2021"
-authors = ["AdapterOS Team"]
+authors = ["adapterOS Team"]
 description = "Terminal User Interface control system for adapterOS"
 license = "MIT OR Apache-2.0"
 

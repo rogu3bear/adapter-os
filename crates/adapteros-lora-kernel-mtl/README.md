@@ -1,4 +1,4 @@
-# AdapterOS Metal Kernel Backend
+# adapterOS Metal Kernel Backend
 
 High-performance, native Rust inference engine for production deployments on Apple Silicon.
 
@@ -16,7 +16,7 @@ High-performance, native Rust inference engine for production deployments on App
 
 ## Architecture
 
-This crate implements the "Kernel" layer of AdapterOS. It provides:
+This crate implements the "Kernel" layer of adapterOS. It provides:
 1.  **Memory Management:** `GpuMemoryPool` for efficient buffer reuse and `VramTracker` for strict accounting.
 2.  **Execution Engine:** `MetalKernels` struct that manages the command queue and kernel pipelines.
 3.  **Safety:** GPU buffer fingerprinting to prevent memory corruption during adapter hot-swaps.

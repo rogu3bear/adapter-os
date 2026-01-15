@@ -1,4 +1,4 @@
-# AdapterOS Service Supervisor Configuration
+# adapterOS Service Supervisor Configuration
 
 server:
   host: "127.0.0.1"
@@ -42,7 +42,7 @@ services:
 
   backend-server:
     name: "Backend Server"
-    description: "AdapterOS inference server"
+    description: "adapterOS inference server"
     command: "cargo"
     args: ["run", "-p", "adapteros-server", "--bin", "adapteros-server", "--", "--config", "configs/cp.toml", "--skip-pf-check", "--single-writer"]
     working_directory: "/Users/star/Dev/adapter-os"

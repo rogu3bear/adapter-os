@@ -1,7 +1,7 @@
 #!/bin/bash
-# Production deployment script for AdapterOS Control Plane
+# Production deployment script for adapterOS Control Plane
 #
-# This script deploys AdapterOS in production mode with UDS-only serving,
+# This script deploys adapterOS in production mode with UDS-only serving,
 # Ed25519 JWT signing, and zero-egress enforcement.
 
 set -euo pipefail
@@ -17,7 +17,7 @@ CONFIG_FILE="${AOS_CONFIG:-configs/production-multinode.toml}"
 UDS_SOCKET="${AOS_UDS_SOCKET:-/var/run/adapteros/control-plane.sock}"
 SERVICE_NAME="adapteros-cp"
 
-echo "🚀 AdapterOS Production Deployment"
+echo "🚀 adapterOS Production Deployment"
 echo "==================================="
 
 # Check if running as root (required for UDS socket creation)
@@ -118,7 +118,7 @@ echo "⚙️  Creating systemd service..."
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 cat > "$SERVICE_FILE" <<EOF
 [Unit]
-Description=AdapterOS Control Plane
+Description=adapterOS Control Plane
 After=network.target
 
 [Service]

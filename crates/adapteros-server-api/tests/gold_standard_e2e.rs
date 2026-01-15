@@ -1,6 +1,6 @@
 //! # Gold Standard E2E Inference Test
 //!
-//! This is the canonical end-to-end test for AdapterOS inference. It validates
+//! This is the canonical end-to-end test for adapterOS inference. It validates
 //! the complete inference pipeline from request to response with deterministic
 //! receipt validation.
 //!
@@ -225,7 +225,7 @@ fn assert_valid_b3_hash(value: &str, field_name: &str) {
 /// # Gold Standard E2E Inference Test
 ///
 /// This test validates the complete inference pipeline with deterministic outputs.
-/// It is the canonical test for verifying that AdapterOS produces reproducible
+/// It is the canonical test for verifying that adapterOS produces reproducible
 /// inference results.
 ///
 /// ## Test Properties

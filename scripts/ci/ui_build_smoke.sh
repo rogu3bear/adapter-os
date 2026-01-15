@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# AdapterOS UI Build Smoke Checks
+# adapterOS UI Build Smoke Checks
 # Static validation that component contracts are maintained.
 # Run as part of CI to catch UI regressions early.
 

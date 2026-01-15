@@ -2,7 +2,7 @@
 
 ## Overview
 
-The AdapterOS Menu Bar App is a lightweight macOS menu bar application that displays AdapterOS status by reading JSON written by the control plane. It uses zero network calls, native system APIs for metrics, and provides a clean, distraction-free interface.
+The adapterOS Menu Bar App is a lightweight macOS menu bar application that displays adapterOS status by reading JSON written by the control plane. It uses zero network calls, native system APIs for metrics, and provides a clean, distraction-free interface.
 
 ## Concurrency Model
 

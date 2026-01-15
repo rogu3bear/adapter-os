@@ -1,6 +1,6 @@
 //! Worker crash recovery chaos tests
 //!
-//! This module provides comprehensive chaos testing for worker crashes in AdapterOS.
+//! This module provides comprehensive chaos testing for worker crashes in adapterOS.
 //! Tests cover three critical crash scenarios:
 //! 1. Worker crashes during adapter load (partial state)
 //! 2. Worker crashes during hot-swap (mid-transition)

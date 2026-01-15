@@ -1,4 +1,4 @@
-# AdapterOS Troubleshooting Index
+# adapterOS Troubleshooting Index
 
 **Complete guide to troubleshooting resources and tools**
 
@@ -9,7 +9,7 @@
 
 ## Overview
 
-This index provides a navigable guide to all troubleshooting resources in the AdapterOS documentation. Use this as your starting point when encountering issues.
+This index provides a navigable guide to all troubleshooting resources in the adapterOS documentation. Use this as your starting point when encountering issues.
 
 ---
 
@@ -417,7 +417,7 @@ Yes. The [runbooks](./runbooks/) directory is specifically designed for producti
 
 ## Document Maintenance
 
-**Owners:** AdapterOS Support Team
+**Owners:** adapterOS Support Team
 **Review Cadence:** Monthly
 **Last Review:** 2025-12-20
 

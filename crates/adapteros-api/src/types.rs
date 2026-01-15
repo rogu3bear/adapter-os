@@ -1,6 +1,6 @@
 //! API types (OpenAPI compatible)
 //!
-//! This module provides serializable API types for the AdapterOS REST API.
+//! This module provides serializable API types for the adapterOS REST API.
 //! All types derive `Serialize` and `Deserialize` for JSON serialization.
 
 use serde::{Deserialize, Serialize};

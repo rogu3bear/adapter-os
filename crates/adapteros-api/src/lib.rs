@@ -1,4 +1,4 @@
-//! AdapterOS API Types and Error Handling
+//! adapterOS API Types and Error Handling
 //!
 //! This crate provides:
 //! - API request/response types
@@ -85,7 +85,7 @@ fn api_cors_layer() -> CorsLayer {
         .unwrap_or(false)
     {
         tracing::warn!(
-            "AdapterOS UDS CORS: AOS_PRODUCTION_MODE=true but ALLOWED_ORIGINS not set - CORS will block all origins"
+            "adapterOS UDS CORS: AOS_PRODUCTION_MODE=true but ALLOWED_ORIGINS not set - CORS will block all origins"
         );
         Vec::new()
     } else {
@@ -119,7 +119,7 @@ fn api_cors_layer() -> CorsLayer {
 /// Start UDS server with worker
 ///
 /// Creates a Unix Domain Socket HTTP server with streaming responses
-/// and proper error handling for AdapterOS inference requests.
+/// and proper error handling for adapterOS inference requests.
 pub async fn serve_uds_with_worker<
     K: FusedKernels + StrictnessControl + Send + Sync + 'static,
     P: AsRef<Path>,
@@ -161,7 +161,7 @@ pub async fn serve_uds_with_worker<
     tracing::info!(
         socket = %socket_path.display(),
         permissions = "0600",
-        "AdapterOS UDS server listening"
+        "adapterOS UDS server listening"
     );
 
     // Create API state with worker

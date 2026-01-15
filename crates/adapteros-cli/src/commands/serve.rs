@@ -86,7 +86,7 @@ pub async fn run(
     model_config: Option<&ModelConfig>,
     output: &OutputWriter,
 ) -> Result<()> {
-    output.section("Starting AdapterOS server");
+    output.section("Starting adapterOS server");
     output.kv("Tenant", tenant);
     output.kv("Plan", plan);
     output.kv("Socket", &socket.display().to_string());

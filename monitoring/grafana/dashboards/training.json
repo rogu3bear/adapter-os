@@ -279,7 +279,7 @@
   "time": { "from": "now-6h", "to": "now" },
   "timepicker": {},
   "timezone": "",
-  "title": "AdapterOS Training",
+  "title": "adapterOS Training",
   "uid": "adapteros-training",
   "version": 1,
   "weekStart": ""

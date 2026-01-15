@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `dataset_to_inference.rs` test suite provides comprehensive end-to-end testing for the complete dataset-to-inference workflow in AdapterOS. It validates the full pipeline from dataset creation through inference execution, including robust error handling for edge cases and failure scenarios.
+The `dataset_to_inference.rs` test suite provides comprehensive end-to-end testing for the complete dataset-to-inference workflow in adapterOS. It validates the full pipeline from dataset creation through inference execution, including robust error handling for edge cases and failure scenarios.
 
 ## Test Structure
 
@@ -326,7 +326,7 @@ RUST_BACKTRACE=1 cargo test --test dataset_to_inference -- --ignored --nocapture
 - Deterministic ordering for debugging
 
 ### Why JSON-based Telemetry?
-- Matches AdapterOS canonical JSON format
+- Matches adapterOS canonical JSON format
 - Human-readable event logs
 - Easy to parse and analyze
 - Matches production telemetry format

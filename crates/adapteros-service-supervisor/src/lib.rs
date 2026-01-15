@@ -1,4 +1,4 @@
-//! # AdapterOS Service Supervisor
+//! # adapterOS Service Supervisor
 //!
 //! Production-ready service supervisor with proper process management,
 //! JWT authentication, and comprehensive monitoring.

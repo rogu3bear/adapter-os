@@ -1,6 +1,6 @@
 # Documentation-Derived Training Data
 
-**Purpose:** Train adapters on canonical AdapterOS patterns from AGENTS.md and architecture docs
+**Purpose:** Train adapters on canonical adapterOS patterns from AGENTS.md and architecture docs
 
 ## Overview
 

@@ -1,10 +1,10 @@
-# AdapterOS Boot Sequence and Readiness Checks
+# adapterOS Boot Sequence and Readiness Checks
 
 > Comprehensive trace of boot phases and `/readyz` endpoint behavior.
 
 ## Boot Overview
 
-AdapterOS implements a 12-phase deterministic boot sequence with a configurable timeout (default: 300s). Each phase emits metrics via `BootStateManager`.
+adapterOS implements a 12-phase deterministic boot sequence with a configurable timeout (default: 300s). Each phase emits metrics via `BootStateManager`.
 
 **Entry Points:**
 - `/healthz` - Quick boot state check (no dependency validation)
@@ -295,7 +295,7 @@ AdapterOS implements a 12-phase deterministic boot sequence with a configurable 
 **Startup Banner:**
 ```
 ╔═══════════════════════════════════════════════════════════════╗
-║             BOOT COMPLETE - AdapterOS Ready                   ║
+║             BOOT COMPLETE - adapterOS Ready                   ║
 ╚═══════════════════════════════════════════════════════════════╝
 ```
 

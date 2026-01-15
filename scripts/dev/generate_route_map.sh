@@ -109,7 +109,7 @@ generate_doc() {
     extracted_count=$(extract_routes | wc -l | tr -d ' ')
 
     cat << EOF
-# AdapterOS API Route Map
+# adapterOS API Route Map
 
 > **Auto-generated:** Do not edit manually.
 > Run \`./scripts/dev/generate_route_map.sh\` to regenerate.

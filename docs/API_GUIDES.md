@@ -1,10 +1,10 @@
-# AdapterOS API Guides
+# adapterOS API Guides
 
 **Version:** 1.0.0
 **Last Updated:** 2025-12-11
 **Copyright:** 2025 MLNavigator Inc. All rights reserved.
 
-This document provides workflow guides, versioning information, and best practices for the AdapterOS API.
+This document provides workflow guides, versioning information, and best practices for the adapterOS API.
 
 ---
 
@@ -114,7 +114,7 @@ curl https://api.adapteros.local/adapters
 
 #### v1 Stability Promise
 
-AdapterOS commits to the following guarantees for v1 endpoints:
+adapterOS commits to the following guarantees for v1 endpoints:
 
 **No Breaking Changes:**
 - Existing fields will NOT be removed
@@ -157,7 +157,7 @@ A change is considered **breaking** if it requires client code modifications:
 
 ### Deprecation Process
 
-When functionality needs to be phased out, AdapterOS follows a structured deprecation process:
+When functionality needs to be phased out, adapterOS follows a structured deprecation process:
 
 #### Phase 1: Deprecation Announcement
 
@@ -220,7 +220,7 @@ Potential v2 improvements under consideration:
 
 **Good:**
 ```typescript
-const client = new AdapterOSClient({
+const client = new adapterOSClient({
   baseURL: 'https://api.adapteros.local/v1',
   // or
   headers: { 'Accept-Version': '1.0.0' }
@@ -229,7 +229,7 @@ const client = new AdapterOSClient({
 
 **Bad:**
 ```typescript
-const client = new AdapterOSClient({
+const client = new adapterOSClient({
   baseURL: 'https://api.adapteros.local', // No version!
 });
 ```
@@ -439,7 +439,7 @@ Authorization: Bearer <admin_token>
 {
   "schema_version": "1.0",
   "general": {
-    "system_name": "AdapterOS",
+    "system_name": "adapterOS",
     "environment": "production",
     "api_base_url": "https://api.adapteros.example.com"
   },
@@ -474,7 +474,7 @@ Content-Type: application/json
 
 {
   "general": {
-    "system_name": "AdapterOS Production",
+    "system_name": "adapterOS Production",
     "environment": "production"
   },
   "security": {

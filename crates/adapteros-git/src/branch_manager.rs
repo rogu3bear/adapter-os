@@ -427,7 +427,7 @@ impl BranchManager {
             .map_err(|e| AosError::Git(format!("Failed to find tree: {}", e)))?;
 
         // Create merge commit
-        let signature = git2::Signature::now("AdapterOS", "aos@localhost")
+        let signature = git2::Signature::now("adapterOS", "aos@localhost")
             .map_err(|e| AosError::Git(format!("Failed to create signature: {}", e)))?;
 
         let message = format!("Merge branch '{}' (adapter session)", branch_name);

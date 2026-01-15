@@ -1,6 +1,6 @@
 # MLX Backend KV Cache and Attention Verification Test Suite - Complete Index
 
-**Project:** AdapterOS MLX Backend Verification
+**Project:** adapterOS MLX Backend Verification
 **Component:** KV Cache and Attention Mechanisms
 **Completion Date:** 2025-11-22
 **Status:** ✓ DELIVERY COMPLETE
@@ -311,7 +311,7 @@ finished in 2.35s
 | Rust Edition | 2021 |
 | MSRV | 1.70+ |
 | Last Updated | 2025-11-22 |
-| Maintainer | AdapterOS Team |
+| Maintainer | adapterOS Team |
 
 ---
 
@@ -326,7 +326,7 @@ See also:
 
 ## License and Attribution
 
-These tests and utilities are part of the AdapterOS project.
+These tests and utilities are part of the adapterOS project.
 See the main project LICENSE file for details.
 
 ---

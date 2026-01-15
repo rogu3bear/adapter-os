@@ -326,7 +326,7 @@ pub fn StartMenu(
                         "AOS"
                     </div>
                     <div>
-                        <h2 class="text-sm font-semibold">"AdapterOS"</h2>
+                        <h2 class="text-sm font-semibold">"adapterOS"</h2>
                         <p class="text-xs text-muted-foreground">"Control Plane"</p>
                     </div>
                 </div>
@@ -387,7 +387,7 @@ pub fn Taskbar() -> impl IntoView {
 
             // Quick info area (placeholder)
             <div class="text-xs text-muted-foreground">
-                "AdapterOS v0.1.0"
+                "adapterOS v0.1.0"
             </div>
         </div>
     }

@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document describes the comprehensive chaos testing suite for worker crash scenarios in AdapterOS. The tests are located in `tests/executor_crash_recovery.rs` and provide deterministic, reproducible crash scenarios.
+This document describes the comprehensive chaos testing suite for worker crash scenarios in adapterOS. The tests are located in `tests/executor_crash_recovery.rs` and provide deterministic, reproducible crash scenarios.
 
 ## Test Architecture
 
@@ -319,4 +319,4 @@ When adding new chaos tests:
 
 ## License
 
-Same as AdapterOS project (see LICENSE file)
+Same as adapterOS project (see LICENSE file)

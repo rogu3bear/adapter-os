@@ -1,4 +1,4 @@
-# Example cron entries for AdapterOS backups (update paths for your host)
+# Example cron entries for adapterOS backups (update paths for your host)
 SHELL=/bin/bash
 PATH=/usr/local/bin:/usr/bin:/bin
 

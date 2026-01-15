@@ -1,8 +1,8 @@
 #!/bin/bash
 #
-# AdapterOS Complete System Startup Script
+# adapterOS Complete System Startup Script
 #
-# This script starts the complete AdapterOS system including:
+# This script starts the complete adapterOS system including:
 # - Backend REST API server
 # - MLX model backend
 # - Web UI development server
@@ -98,7 +98,7 @@ fi
 
 cleanup() {
     echo ""
-    log_info "Shutting down AdapterOS..."
+    log_info "Shutting down adapterOS..."
 
     if [ -n "$UI_PID" ] && kill -0 "$UI_PID" 2>/dev/null; then
         log_info "Stopping UI server (PID: $UI_PID)..."
@@ -112,7 +112,7 @@ cleanup() {
         wait "$SERVER_PID" 2>/dev/null || true
     fi
 
-    log_success "AdapterOS stopped"
+    log_success "adapterOS stopped"
 }
 
 trap cleanup EXIT INT TERM
@@ -160,7 +160,7 @@ log_header "System Requirements Check"
 
 # Check if running on macOS
 if [[ "$(uname)" != "Darwin" ]]; then
-    log_error "AdapterOS requires macOS with Apple Silicon"
+    log_error "adapterOS requires macOS with Apple Silicon"
     exit 1
 fi
 log_success "Platform: macOS"
@@ -168,7 +168,7 @@ log_success "Platform: macOS"
 # Check for Apple Silicon
 CHIP=$(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo "Unknown")
 if [[ "$CHIP" != *"Apple"* ]]; then
-    log_error "AdapterOS requires Apple Silicon (M1/M2/M3/M4)"
+    log_error "adapterOS requires Apple Silicon (M1/M2/M3/M4)"
     log_info "Detected: $CHIP"
     exit 1
 fi
@@ -346,12 +346,12 @@ log_success "Server binary: $SERVER_BIN"
 log_header "Port Check"
 
 if ! ensure_port_free "$API_PORT" "API Server"; then
-    log_error "Cannot start: port $API_PORT in use (non-AdapterOS process)"
+    log_error "Cannot start: port $API_PORT in use (non-adapterOS process)"
     exit 1
 fi
 if [ "$START_UI" = true ]; then
     if ! ensure_port_free "$UI_PORT" "UI Server"; then
-        log_error "Cannot start: port $UI_PORT in use (non-AdapterOS process)"
+        log_error "Cannot start: port $UI_PORT in use (non-adapterOS process)"
         exit 1
     fi
 fi
@@ -360,7 +360,7 @@ fi
 # Start Services
 # =============================================================================
 
-log_header "Starting AdapterOS"
+log_header "Starting adapterOS"
 
 # Set environment
 export AOS_MLX_FFI_MODEL="$MODEL_PATH"
@@ -438,7 +438,7 @@ fi
 # Print Summary
 # =============================================================================
 
-log_header "AdapterOS Running"
+log_header "adapterOS Running"
 
 echo -e "${GREEN}${BOLD}Services:${NC}"
 echo "  API Server:  http://localhost:$API_PORT"

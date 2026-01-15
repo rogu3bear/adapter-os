@@ -1,4 +1,4 @@
-# AdapterOS UI Contract
+# adapterOS UI Contract
 
 This document codifies the UI system design standards established during the UI stabilization work (PRs 1-6).
 

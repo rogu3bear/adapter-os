@@ -1,4 +1,4 @@
-# CoreML ANE Acceleration Layer for AdapterOS
+# CoreML ANE Acceleration Layer for adapterOS
 
 **Copyright:** © 2025 JKCA / James KC Auchterlonie. All rights reserved.
 
@@ -188,7 +188,7 @@ CoreML models are **compiled and opaque** - we cannot access intermediate layer 
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│               AdapterOS LoRA System                     │
+│               adapterOS LoRA System                     │
 ├─────────────────────────────────────────────────────────┤
 │                                                         │
 │  ┌─────────────────┐         ┌──────────────────┐     │

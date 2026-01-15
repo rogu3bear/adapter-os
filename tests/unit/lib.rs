@@ -1,5 +1,5 @@
 #![cfg(all(test, feature = "extended-tests"))]
-//! # AdapterOS Unit Testing Framework
+//! # adapterOS Unit Testing Framework
 //!
 //! A comprehensive unit testing framework designed specifically for the unique
 //! requirements of a deterministic inference runtime with async components,
@@ -22,7 +22,7 @@
 //! 2. **Isolation**: Components can be tested with minimal external dependencies
 //! 3. **Composability**: Utilities can be combined for complex test scenarios
 //! 4. **Performance**: Minimal overhead compared to real implementations
-//! 5. **Cross-Crate**: Framework can be reused across all AdapterOS crates
+//! 5. **Cross-Crate**: Framework can be reused across all adapterOS crates
 //!
 //! ## Usage Examples
 //!
@@ -108,7 +108,7 @@ pub fn framework_info() -> FrameworkInfo {
             "metal".to_string(),
             "evidence".to_string(),
         ],
-        description: "Comprehensive unit testing framework for AdapterOS".to_string(),
+        description: "Comprehensive unit testing framework for adapterOS".to_string(),
     }
 }
 

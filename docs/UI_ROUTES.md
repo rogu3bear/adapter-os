@@ -1,6 +1,6 @@
 # UI Routes
 
-High-level route map for the AdapterOS Leptos UI. Use this to trace which components mount, which API calls are expected, and what permissions are needed.
+High-level route map for the adapterOS Leptos UI. Use this to trace which components mount, which API calls are expected, and what permissions are needed.
 
 ## Routes
 

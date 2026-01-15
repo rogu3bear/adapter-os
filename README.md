@@ -1,4 +1,4 @@
-# AdapterOS: Deterministic ML Inference Platform
+# adapterOS: Deterministic ML Inference Platform
 
 [![Rust](https://img.shields.io/badge/rust-stable-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-Apache%202.0%2FMIT-blue.svg)](LICENSE)
@@ -9,13 +9,13 @@
 
 **Deterministic ML Inference Platform** — High-performance inference with K-sparse LoRA routing, Metal-optimized kernels, and comprehensive policy enforcement for production environments.
 
-AdapterOS (0.12.0) is a Rust-based ML inference platform optimized for Apple Silicon, delivered as licensed local software for on-prem or air-gapped deployments. Features deterministic execution across multiple backends (CoreML, MLX, Metal), modular Metal kernels, centralized policy enforcement, and memory-efficient adapter management with zero network egress during serving.
+adapterOS (0.12.0) is a Rust-based ML inference platform optimized for Apple Silicon, delivered as licensed local software for on-prem or air-gapped deployments. Features deterministic execution across multiple backends (CoreML, MLX, Metal), modular Metal kernels, centralized policy enforcement, and memory-efficient adapter management with zero network egress during serving.
 
 ---
 
-## [TARGET] What is AdapterOS?
+## [TARGET] What is adapterOS?
 
-AdapterOS is an ML inference platform that enables **deterministic multi-adapter inference** on Apple Silicon by:
+adapterOS is an ML inference platform that enables **deterministic multi-adapter inference** on Apple Silicon by:
 
 ### Core Technologies
 
@@ -50,11 +50,11 @@ AdapterOS is an ML inference platform that enables **deterministic multi-adapter
 ## Architecture
 
 <details>
-<summary>AdapterOS Architecture</summary>
+<summary>adapterOS Architecture</summary>
 
 ```mermaid
 graph TB
-    subgraph Runtime[AdapterOS Runtime v0.11.0]
+    subgraph Runtime[adapterOS Runtime v0.11.0]
         subgraph Control[Control Layer]
             Policy[Policy Registry<br/>25 Canonical Packs]
             Router[K-Sparse Router<br/>Q15 Quantized Gates]
@@ -114,7 +114,7 @@ graph TB
 
 ### 🚀 **Getting Started**
 
-**New to AdapterOS?** Start here: **[docs/getting-started.md](docs/getting-started.md)** - Get running in 5 minutes with:
+**New to adapterOS?** Start here: **[docs/getting-started.md](docs/getting-started.md)** - Get running in 5 minutes with:
 - Prerequisites and system requirements
 - Build, migrate, seed, and serve workflow
 - Verification with `aosctl doctor` and `aosctl preflight`
@@ -178,7 +178,7 @@ cargo build --release
 ```
 
 **Fresh Build System**: `./scripts/fresh-build.sh` ensures clean rebuilds by:
-- Stopping any running AdapterOS services
+- Stopping any running adapterOS services
 - Freeing occupied ports (8080, 3200)
 - Cleaning orphaned processes
 - Removing stale build artifacts
@@ -288,7 +288,7 @@ export AOS_MLX_FFI_MODEL=var/models/qwen2.5-7b-mlx
 
 ### 1. **K-Sparse LoRA Routing**
 
-AdapterOS uses learned gates to select the top-K most relevant LoRA adapters per token:
+adapterOS uses learned gates to select the top-K most relevant LoRA adapters per token:
 
 ```rust
 // Router selects K=3 adapters with highest gate values
@@ -383,7 +383,7 @@ See [docs/LIFECYCLE.md](docs/LIFECYCLE.md) for detailed state machine documentat
 
 ## 🖼️ Visual Diagrams
 
-AdapterOS includes comprehensive visual documentation. Here are key diagrams:
+adapterOS includes comprehensive visual documentation. Here are key diagrams:
 
 ### **System Architecture**
 - **[System Architecture](docs/ARCHITECTURE.md)**: Architecture documentation
@@ -501,7 +501,7 @@ evict_order = ["ephemeral_ttl", "cold_lru", "warm_lru"]
 
 ## 🛠️ Alpha Release Features
 
-AdapterOS 0.12.0 includes:
+adapterOS 0.12.0 includes:
 
 ### Completed Features
 - ✅ **Naming Unification**: All crates renamed to `adapteros-*` with compatibility shims
@@ -629,13 +629,13 @@ See [LICENSE](LICENSE) for the complete license text.
 
 ---
 
-**AdapterOS 0.12.0 - Built with ❤️ for Apple Silicon**
+**adapterOS 0.12.0 - Built with ❤️ for Apple Silicon**
 
 *Deterministic ML inference with policy enforcement and zero network egress*
 
 ## Plugins
 
-AdapterOS supports pluggable extensions via the PluginRegistry.
+adapterOS supports pluggable extensions via the PluginRegistry.
 
 ### Registering Custom Plugins
 

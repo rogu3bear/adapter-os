@@ -8,7 +8,7 @@ use adapteros_core::{BackendKind, SeedMode};
 use adapteros_db::Db;
 use adapteros_metrics_exporter::MetricsExporter;
 use adapteros_orchestrator::TrainingService;
-use adapteros_server::status_writer::{write_status, AdapterOSStatus};
+use adapteros_server::status_writer::{write_status, adapterOSStatus};
 use adapteros_server_api::config::PathsConfig;
 use adapteros_server_api::state::ApiConfig;
 use adapteros_server_api::AppState;
@@ -42,7 +42,7 @@ async fn test_status_writer_integration() {
 
     // Read and validate content
     let content = fs::read_to_string(status_path).unwrap();
-    let status: AdapterOSStatus = serde_json::from_str(&content).unwrap();
+    let status: adapterOSStatus = serde_json::from_str(&content).unwrap();
 
     // Validate schema version
     assert_eq!(status.schema_version, "1.0");
@@ -121,7 +121,7 @@ async fn test_schema_compatibility() {
     }"#;
 
     // Should deserialize successfully (unknown fields ignored)
-    let result: Result<AdapterOSStatus, _> = serde_json::from_str(legacy_json);
+    let result: Result<adapterOSStatus, _> = serde_json::from_str(legacy_json);
     assert!(result.is_ok(), "Should handle missing fields gracefully");
 }
 
@@ -153,7 +153,7 @@ async fn test_concurrent_writes() {
     assert!(status_path.exists());
 
     let content = fs::read_to_string(status_path).unwrap();
-    let _: AdapterOSStatus = serde_json::from_str(&content).unwrap();
+    let _: adapterOSStatus = serde_json::from_str(&content).unwrap();
 
     // Cleanup
     let _ = fs::remove_file(status_path);

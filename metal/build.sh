@@ -20,7 +20,7 @@ source "${SCRIPT_DIR}/common.sh"
 # Set deterministic timestamp for reproducible builds
 export SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-1704067200}
 
-echo "🔨 Building modular Metal shaders for AdapterOS..."
+echo "🔨 Building modular Metal shaders for adapterOS..."
 
 # Create output directory
 mkdir -p ../crates/adapteros-lora-kernel-mtl/shaders

@@ -1,4 +1,4 @@
-//! Quantization API for AdapterOS
+//! Quantization API for adapterOS
 //!
 //! This module was merged from adapteros-lora-quant crate.
 

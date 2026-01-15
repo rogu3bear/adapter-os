@@ -1,4 +1,4 @@
-//! Unified API error type for AdapterOS handlers
+//! Unified API error type for adapterOS handlers
 //!
 //! Provides a single `ApiError` type that implements `IntoResponse` directly,
 //! enabling cleaner error handling without manual tuple construction.
@@ -232,7 +232,7 @@ impl ApiError {
             StatusCode::BAD_REQUEST,
             "INCOMPATIBLE_SCHEMA_VERSION",
             format!(
-                "Schema version {} is newer than supported {}. Update AdapterOS.",
+                "Schema version {} is newer than supported {}. Update adapterOS.",
                 file_version, current_version
             ),
         )
@@ -1257,7 +1257,7 @@ mod tests {
         assert_eq!(error.code, "INCOMPATIBLE_SCHEMA_VERSION");
         assert!(error.message.contains("2.0"));
         assert!(error.message.contains("1.5"));
-        assert!(error.message.contains("Update AdapterOS"));
+        assert!(error.message.contains("Update adapterOS"));
     }
 
     #[test]

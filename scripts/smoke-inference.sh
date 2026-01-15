@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Smoke test validating full inference readiness
 #
-# This script verifies that AdapterOS is ready for inference:
+# This script verifies that adapterOS is ready for inference:
 # - /healthz returns 200 (server is alive)
 # - /readyz returns 200 with all checks passing (server, DB, worker, models)
 # - Optionally tests inference endpoint
@@ -54,7 +54,7 @@ FG_RESET="\033[0m"
 
 echo ""
 echo "==============================================="
-echo "  AdapterOS Inference Smoke Test"
+echo "  adapterOS Inference Smoke Test"
 echo "==============================================="
 echo ""
 echo "  Target: $BASE_URL (api: $API_BASE)"

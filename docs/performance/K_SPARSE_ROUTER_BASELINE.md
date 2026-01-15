@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document establishes the performance baseline for the K-sparse router in AdapterOS, measuring routing latency across different K values (number of top adapters selected) and adapter pool sizes.
+This document establishes the performance baseline for the K-sparse router in adapterOS, measuring routing latency across different K values (number of top adapters selected) and adapter pool sizes.
 
 **Date**: 2025-12-24
 **Environment**: Release build (optimized)

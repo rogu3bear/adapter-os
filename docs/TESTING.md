@@ -1,6 +1,6 @@
 # Testing Guide
 
-This document provides a comprehensive guide to testing in AdapterOS, covering unit tests, integration tests, E2E tests, and determinism verification.
+This document provides a comprehensive guide to testing in adapterOS, covering unit tests, integration tests, E2E tests, and determinism verification.
 
 ## Table of Contents
 
@@ -18,7 +18,7 @@ This document provides a comprehensive guide to testing in AdapterOS, covering u
 
 ## Testing Overview
 
-AdapterOS has a comprehensive test suite covering multiple layers:
+adapterOS has a comprehensive test suite covering multiple layers:
 
 - **Unit Tests**: Individual crate functionality
 - **Integration Tests**: API handlers, database interactions, multi-component workflows

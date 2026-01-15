@@ -1,8 +1,8 @@
-% aosctl — AdapterOS CLI Manual
+% aosctl — adapterOS CLI Manual
 
 This manual provides an overview of the `aosctl` command‑line interface, including command groups, flag conventions, and usage examples. It is intended as a stable high‑level reference; for exhaustive per‑flag help, run `aosctl <command> --help`.
 
-**New to AdapterOS?** Start with [docs/CONCEPTS.md](../../../docs/CONCEPTS.md) to learn about Tenants, Adapters, Stacks, Router, Telemetry, and Replay.
+**New to adapterOS?** Start with [docs/CONCEPTS.md](../../../docs/CONCEPTS.md) to learn about Tenants, Adapters, Stacks, Router, Telemetry, and Replay.
 
 ---
 
@@ -81,7 +81,7 @@ For more detail, the sections below organize commands by responsibility: tenants
 
 ## 2. Tenant Management
 
-**What is a Tenant?** A tenant is the top-level isolation unit in AdapterOS, representing a user, organization, or environment. Tenants own adapters and stacks, and enforce resource limits.
+**What is a Tenant?** A tenant is the top-level isolation unit in adapterOS, representing a user, organization, or environment. Tenants own adapters and stacks, and enforce resource limits.
 
 Tenant commands create and manage isolated tenants on a node.
 
@@ -261,7 +261,7 @@ aosctl infer --adapter my_adapter \
 
 ## 6a. Interactive Chat
 
-**What is Interactive Chat?** The `chat` command provides an interactive REPL-style interface for chatting with the AdapterOS inference runtime, with support for streaming responses, model/stack selection, and session management.
+**What is Interactive Chat?** The `chat` command provides an interactive REPL-style interface for chatting with the adapterOS inference runtime, with support for streaming responses, model/stack selection, and session management.
 
 **Commands:**
 
@@ -350,7 +350,7 @@ aosctl dev logs --service api --lines 100
 
 ## 6c. Scenario Utilities
 
-**What are Scenario Utilities?** The `scenario` command provides utilities for managing and testing scenarios in AdapterOS.
+**What are Scenario Utilities?** The `scenario` command provides utilities for managing and testing scenarios in adapterOS.
 
 **Commands:**
 
@@ -388,11 +388,11 @@ aosctl train-docs --docs-dir ./my-docs --dry-run
 
 ## 6e. Bootstrap Workflow
 
-**What is Bootstrap?** The `bootstrap` command initializes a new AdapterOS installation with required configuration and setup.
+**What is Bootstrap?** The `bootstrap` command initializes a new adapterOS installation with required configuration and setup.
 
 **Commands:**
 
-- `aosctl bootstrap` - Bootstrap AdapterOS installation
+- `aosctl bootstrap` - Bootstrap adapterOS installation
   - Key flags:
     - `--mode <mode>` - Bootstrap mode: `full` or `minimal`
     - `--air-gapped` - Air-gapped installation mode
@@ -438,7 +438,7 @@ aosctl backend-status --detailed --json
 
 ## 6g. Terminal UI Dashboard
 
-**What is the TUI?** The `tui` command launches an interactive terminal UI dashboard for monitoring AdapterOS services, logs, and configuration (requires `--features tui` build).
+**What is the TUI?** The `tui` command launches an interactive terminal UI dashboard for monitoring adapterOS services, logs, and configuration (requires `--features tui` build).
 
 **Commands:**
 
@@ -547,7 +547,7 @@ aosctl chat interactive --stack my-stack
 aosctl chat interactive --owner-system
 
 # Send a single prompt and get JSON response
-aosctl chat prompt --text "What is AdapterOS?" --json
+aosctl chat prompt --text "What is adapterOS?" --json
 
 # List all chat sessions
 aosctl chat list --json

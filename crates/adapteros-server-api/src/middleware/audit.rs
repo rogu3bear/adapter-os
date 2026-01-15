@@ -1,4 +1,4 @@
-//! Automatic audit logging middleware for AdapterOS API handlers
+//! Automatic audit logging middleware for adapterOS API handlers
 //!
 //! This middleware automatically logs audit events based on handler outcomes,
 //! removing the need for manual `audit_helper::log_*` calls in handlers.

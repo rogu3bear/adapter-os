@@ -50,7 +50,7 @@ impl From<BackendType> for adapteros_config::BackendPreference {
 
 #[derive(Parser)]
 #[command(name = "aos")]
-#[command(about = "AdapterOS CLI", long_about = None)]
+#[command(about = "adapterOS CLI", long_about = None)]
 pub struct Cli {
     /// Tenant ID
     #[arg(short, long, default_value = "default")]

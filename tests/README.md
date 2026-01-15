@@ -1,4 +1,4 @@
-# AdapterOS Test Suite
+# adapterOS Test Suite
 
 Comprehensive test coverage for deterministic inference, hot-swap, concurrency, and policy enforcement.
 

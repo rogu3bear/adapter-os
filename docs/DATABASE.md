@@ -1,4 +1,4 @@
-# AdapterOS Database Documentation
+# adapterOS Database Documentation
 
 **Purpose:** Comprehensive database architecture, schema, operations, and troubleshooting guide
 
@@ -27,7 +27,7 @@
 
 ## Overview
 
-AdapterOS uses a **hybrid database architecture** supporting both relational (SQLite/PostgreSQL) and key-value (redb) backends. The system is designed for:
+adapterOS uses a **hybrid database architecture** supporting both relational (SQLite/PostgreSQL) and key-value (redb) backends. The system is designed for:
 
 - **Multi-tenant isolation** with strict tenant boundaries
 - **Adapter lifecycle management** with versioning and state tracking
@@ -60,7 +60,7 @@ AdapterOS uses a **hybrid database architecture** supporting both relational (SQ
 
 ### Database Backend Abstraction
 
-AdapterOS abstracts database operations through the `DatabaseBackend` trait:
+adapterOS abstracts database operations through the `DatabaseBackend` trait:
 
 ```rust
 pub trait DatabaseBackend: Send + Sync {
@@ -74,7 +74,7 @@ pub trait DatabaseBackend: Send + Sync {
 
 ### Storage Modes
 
-AdapterOS supports **four storage modes**:
+adapterOS supports **four storage modes**:
 
 | Mode | Description | Use Case |
 |------|-------------|----------|
@@ -303,7 +303,7 @@ GROUP BY m.id, m.name;
 
 ### Overview
 
-AdapterOS enforces tenant isolation at multiple layers: handler validation, database constraints, and composite foreign keys. However, **current implementation has gaps** that require rectification.
+adapterOS enforces tenant isolation at multiple layers: handler validation, database constraints, and composite foreign keys. However, **current implementation has gaps** that require rectification.
 
 ### Handler-Level Enforcement
 
@@ -1051,7 +1051,7 @@ CREATE TABLE audit_logs (
 
 ### Storage Modes
 
-AdapterOS supports **four storage modes** for flexible deployment:
+adapterOS supports **four storage modes** for flexible deployment:
 
 | Mode | Read From | Write To | Use Case |
 |------|-----------|----------|----------|
@@ -1890,5 +1890,5 @@ For critical lookups, covering indexes include all selected columns to avoid pri
 
 ---
 
-**Maintained by:** AdapterOS Engineering Team
+**Maintained by:** adapterOS Engineering Team
 **MLNavigator Inc** 2025-12-17

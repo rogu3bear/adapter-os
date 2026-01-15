@@ -1,5 +1,5 @@
 // Synthetic Repository for Code Ingestion Testing
-// This file contains various Rust patterns for testing AdapterOS code ingestion
+// This file contains various Rust patterns for testing adapterOS code ingestion
 
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};

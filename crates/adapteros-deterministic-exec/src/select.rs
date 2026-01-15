@@ -8,7 +8,7 @@
 macro_rules! ban_tokio_select {
     () => {
         compile_error!(
-            "tokio::select! is nondeterministic and banned in AdapterOS deterministic execution. \
+            "tokio::select! is nondeterministic and banned in adapterOS deterministic execution. \
              Use deterministic polling with DeterministicExecutor::delay() or channel::DeterministicReceiver::recv() instead."
         );
     };

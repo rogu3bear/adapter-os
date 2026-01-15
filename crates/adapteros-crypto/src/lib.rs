@@ -1,4 +1,4 @@
-//! Cryptographic primitives for AdapterOS
+//! Cryptographic primitives for adapterOS
 
 pub mod audit;
 pub mod bundle_sign;

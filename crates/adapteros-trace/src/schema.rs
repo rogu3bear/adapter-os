@@ -1,4 +1,4 @@
-//! Event schema definitions for AdapterOS trace system
+//! Event schema definitions for adapterOS trace system
 
 use std::collections::HashMap;
 
@@ -9,7 +9,7 @@ use uuid::Uuid;
 // Re-export canonical TraceBundleMetadata from adapteros-telemetry-types
 pub use adapteros_telemetry_types::TraceBundleMetadata as BundleMetadata;
 
-/// Core event schema for AdapterOS traces
+/// Core event schema for adapterOS traces
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Event {
     /// Unique event identifier
@@ -359,7 +359,7 @@ impl BundleData {
     }
 }
 
-/// Event types used in AdapterOS traces
+/// Event types used in adapterOS traces
 pub mod event_types {
     /// Inference start event
     pub const INFERENCE_START: &str = "inference.start";

@@ -1,7 +1,7 @@
 # Plan System Architecture
 
 ## Overview
-The AdapterOS Plan System provides deterministic, composable plan building from manifests, adapters, and kernel libraries.
+The adapterOS Plan System provides deterministic, composable plan building from manifests, adapters, and kernel libraries.
 
 ## Architecture Diagram
 
@@ -43,7 +43,7 @@ The AdapterOS Plan System provides deterministic, composable plan building from 
 │  manifest_hash:      <blake3_hash>                              │
 │  kernel_hashes:      [<metallib_blake3>]                        │
 │  layout_hash:        <blake3_hash>                              │
-│  toolchain_version:  0.11.0                                     │
+│  toolchain_version:  0.12.1                                     │
 │  rustc_version:      1.75.0                                     │
 └─────────────────────────────────────────────────────────────────┘
                               │
@@ -186,7 +186,7 @@ aos build-plan \
   "manifest_hash": "af94e3...",
   "kernel_hashes": ["6f2a1b..."],
   "layout_hash": "3d8f9c...",
-  "toolchain_version": "0.11.0"
+  "toolchain_version": "0.12.1"
 }
 ```
 

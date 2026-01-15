@@ -3,7 +3,7 @@
 
 SERVER="${AOS_SERVER_URL:-http://localhost:8080}"
 
-echo "Testing AdapterOS Inference Pipeline"
+echo "Testing adapterOS Inference Pipeline"
 echo "======================================"
 echo ""
 

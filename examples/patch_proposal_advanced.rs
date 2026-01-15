@@ -41,7 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
     tracing_subscriber::fmt::init();
 
-    println!("[ROCKET] AdapterOS Patch Proposal System - Advanced Example");
+    println!("[ROCKET] adapterOS Patch Proposal System - Advanced Example");
     println!("====================================================");
 
     // 1. Set up telemetry with writer

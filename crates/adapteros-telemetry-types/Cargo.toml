@@ -5,7 +5,7 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Shared telemetry metric types for AdapterOS"
+description = "Shared telemetry metric types for adapterOS"
 
 [features]
 default = ["server"]

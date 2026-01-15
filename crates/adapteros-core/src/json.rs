@@ -1,4 +1,4 @@
-//! Reusable JSON serialization utilities for AdapterOS
+//! Reusable JSON serialization utilities for adapterOS
 //!
 //! Provides consistent JSON serialization/deserialization with proper `AosError` mapping.
 //!

@@ -1,4 +1,4 @@
-//! Base LLM integration for AdapterOS
+//! Base LLM integration for adapterOS
 //!
 //! Implements Layer 1 of the five-tier adapter hierarchy.
 //! Provides foundation model (Qwen2.5-7B-Instruct) integration with
@@ -26,7 +26,7 @@ pub use qwen::QwenBaseLLM;
 /// Base LLM trait for foundation models
 ///
 /// All base LLMs must implement this trait to ensure deterministic behavior
-/// and integration with the AdapterOS runtime.
+/// and integration with the adapterOS runtime.
 pub trait BaseLLM: Send + Sync {
     /// Load model with deterministic initialization
     fn load(&mut self, executor: &mut DeterministicExecutor) -> Result<()>;

@@ -1,4 +1,4 @@
-# Adapter Lifecycle States in AdapterOS
+# Adapter Lifecycle States in adapterOS
 
 **Canonical reference for adapter and base model lifecycle management**
 
@@ -25,7 +25,7 @@
 
 ## Overview
 
-AdapterOS manages the complete lifecycle of **base models** (Layer 1) and **adapters** (Layer 2) through two complementary lifecycle systems:
+adapterOS manages the complete lifecycle of **base models** (Layer 1) and **adapters** (Layer 2) through two complementary lifecycle systems:
 
 1. **Business Lifecycle** - Tracks the maturity and availability of adapters from creation through retirement
 2. **Runtime Lifecycle** - Tracks the memory/GPU state of adapters for hot-swap and inference
@@ -58,7 +58,7 @@ The lifecycle systems ensure:
 
 ## Two Lifecycle Systems
 
-AdapterOS uses two distinct but complementary lifecycle systems:
+adapterOS uses two distinct but complementary lifecycle systems:
 
 ### Business Lifecycle (Adapter Maturity)
 
@@ -834,7 +834,7 @@ if let Err(evict_err) = lifecycle.handle_memory_pressure(&profiler) {
 
 ## Unloaded → Loaded → Active Progression
 
-AdapterOS describes adapter activation performance along the runtime progression:
+adapterOS describes adapter activation performance along the runtime progression:
 
 ### Unloaded Adapter
 
@@ -1918,4 +1918,4 @@ Tests for lifecycle enforcement are in:
 
 **Document Version:** 2.0
 **Last Updated:** 2025-12-29
-**Maintained By:** AdapterOS Core Team
+**Maintained By:** adapterOS Core Team

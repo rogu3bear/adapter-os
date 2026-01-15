@@ -1,6 +1,6 @@
 #![cfg(all(test, feature = "extended-tests"))]
 
-//! AdapterOS Integration Tests
+//! adapterOS Integration Tests
 //!
 //! Comprehensive integration tests covering multi-tenant scenarios,
 //! policy enforcement, resource isolation, alert streaming, and operation tracking.

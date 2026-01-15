@@ -4,7 +4,7 @@ Status: Draft.
 
 ## Definition
 
-AdapterOS inference is "prod ready" when the prod gate suite passes with no failed checks
+adapterOS inference is "prod ready" when the prod gate suite passes with no failed checks
 and emits a report artifact.
 
 ## Gate Command

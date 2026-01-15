@@ -6,11 +6,11 @@
 
 **Date:** January 15, 2025
 
-**Authors:** AI Assistant (following AdapterOS Developer Guide)
+**Authors:** AI Assistant (following adapterOS Developer Guide)
 
 ## Context
 
-The AdapterOS Menu Bar App is a lightweight macOS menu bar application that displays AdapterOS status by reading JSON from the control plane. During development, several critical bugs and testing gaps were identified that needed immediate attention before production deployment.
+The adapterOS Menu Bar App is a lightweight macOS menu bar application that displays adapterOS status by reading JSON from the control plane. During development, several critical bugs and testing gaps were identified that needed immediate attention before production deployment.
 
 ### Problem Statement
 
@@ -26,7 +26,7 @@ The menu bar app exhibited several race conditions, error handling issues, and t
 
 1. **Fix all identified bugs** with minimal code changes
 2. **Add comprehensive test coverage** (unit + integration + stress tests)
-3. **Create complete documentation** following AdapterOS standards
+3. **Create complete documentation** following adapterOS standards
 4. **Maintain performance and reliability** standards
 
 ## Proposed Solution
@@ -44,7 +44,7 @@ The menu bar app exhibited several race conditions, error handling issues, and t
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  AdapterOSMenu (SwiftUI app)                                 │
+│  adapterOSMenu (SwiftUI app)                                 │
 │  ├── StatusReader: Reads JSON with timeout + fallback       │
 │  ├── StatusViewModel: @MainActor with watcher + polling     │
 │  ├── ResponseCache: Thread-safe HTTP response caching       │
@@ -56,7 +56,7 @@ The menu bar app exhibited several race conditions, error handling issues, and t
 ### Key Components
 
 #### StatusReader
-- **Purpose**: Reads AdapterOS status JSON with robust error handling
+- **Purpose**: Reads adapterOS status JSON with robust error handling
 - **Features**:
   - Multiple path discovery (/var/run, current dir, common locations)
   - Timeout protection (configurable, default 2s)
@@ -80,7 +80,7 @@ The menu bar app exhibited several race conditions, error handling issues, and t
   - TTL-based expiration
 
 #### ServicePanelClient
-- **Purpose**: Communicates with AdapterOS Service Panel API
+- **Purpose**: Communicates with adapterOS Service Panel API
 - **Features**:
   - Circuit breaker pattern for cascade prevention
   - Exponential backoff retry logic
@@ -320,7 +320,7 @@ func testConcurrentReads() async throws {
 - ✅ UI updates only when necessary
 
 ### Maintainability
-- ✅ Code follows AdapterOS patterns
+- ✅ Code follows adapterOS patterns
 - ✅ Comprehensive documentation exists
 - ✅ Tests provide regression protection
 - ✅ Architecture clearly documented
@@ -385,7 +385,7 @@ func testConcurrentReads() async throws {
 
 ## Conclusion
 
-This design document successfully addressed all identified issues in the menu bar app while maintaining AdapterOS architectural principles. The implementation provides:
+This design document successfully addressed all identified issues in the menu bar app while maintaining adapterOS architectural principles. The implementation provides:
 
 - **Robust error handling** with detailed context preservation
 - **Comprehensive test coverage** for reliability assurance
@@ -397,7 +397,7 @@ The menu bar app is now production-ready with enterprise-grade reliability and m
 ---
 
 **References:**
-- [AdapterOS Developer Guide](docs/DEVELOPER_GUIDE.md)
+- [adapterOS Developer Guide](docs/DEVELOPER_GUIDE.md)
 - [Menu Bar App Architecture](ARCHITECTURE.md)
 - [Testing Guide](TESTING.md)
 

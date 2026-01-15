@@ -1,7 +1,7 @@
 -- Migration: Add kernel_version to adapters table
 -- This enables exact-match validation at adapter load time (PRD-RECT-005)
 --
--- kernel_version: The AdapterOS kernel version this adapter was packaged with.
+-- kernel_version: The adapterOS kernel version this adapter was packaged with.
 -- Must exactly match runtime version for loading.
 
 ALTER TABLE adapters ADD COLUMN kernel_version TEXT;

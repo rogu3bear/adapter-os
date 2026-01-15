@@ -9,7 +9,7 @@
 //! - [[source: crates/adapteros-client/src/uds.rs L1-L50]†ipc-integration-test†end-to-end-validation]
 //! - [[source: crates/adapteros-server/src/main.rs L120-L140]†server-startup-test†live-process-communication]
 
-use adapteros_client::{uds::UdsClientError, AdapterOSClient, DefaultClient};
+use adapteros_client::{uds::UdsClientError, adapterOSClient, DefaultClient};
 use adapteros_core::Result;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};

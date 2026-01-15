@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-AdapterOS has solid security foundations (tenant isolation, policy enforcement, deterministic execution) but requires several fixes before production deployment. This plan prioritizes issues by severity and provides clear action items.
+adapterOS has solid security foundations (tenant isolation, policy enforcement, deterministic execution) but requires several fixes before production deployment. This plan prioritizes issues by severity and provides clear action items.
 
 ---
 

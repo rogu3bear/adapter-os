@@ -1,7 +1,7 @@
 //! Cross-platform filesystem operations
 //!
 //! Provides cross-platform filesystem operations with platform-specific
-//! optimizations and features for AdapterOS.
+//! optimizations and features for adapterOS.
 
 pub mod common;
 pub mod linux;

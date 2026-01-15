@@ -43,7 +43,7 @@ The Metal backend enables **GPU acceleration** for LoRA inference on macOS devic
 
 ## Architecture
 
-### Metal Integration in AdapterOS Stack
+### Metal Integration in adapterOS Stack
 
 ```mermaid
 graph TB
@@ -193,7 +193,7 @@ xcrun -sdk macosx metallib test.air -o test.metallib
 ls -lh test.metallib
 ```
 
-#### Verify AdapterOS Build
+#### Verify adapterOS Build
 
 ```bash
 # Clean build to force Metal compilation
@@ -810,7 +810,7 @@ use: xcodebuild -downloadComponent MetalToolchain
    ```
 
 2. Verify Metal standard:
-   - AdapterOS uses Metal 3.1 (`-std=metal3.1`)
+   - adapterOS uses Metal 3.1 (`-std=metal3.1`)
    - Requires Xcode 14.0+ and macOS 12.5+
 
 3. Update Xcode:

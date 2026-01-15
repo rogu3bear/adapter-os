@@ -1,4 +1,4 @@
-//! Git utilities for AdapterOS
+//! Git utilities for adapterOS
 
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};

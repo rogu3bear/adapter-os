@@ -1,7 +1,7 @@
-# Visual Inspection Report - AdapterOS UI
+# Visual Inspection Report - adapterOS UI
 
 **Date:** January 12, 2026  
-**System:** AdapterOS UI (Leptos WASM)  
+**System:** adapterOS UI (Leptos WASM)  
 **Base URL:** http://localhost:8080  
 **Browser:** Open in default browser
 

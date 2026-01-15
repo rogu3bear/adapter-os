@@ -1,4 +1,4 @@
-//! Background task spawner for AdapterOS control plane.
+//! Background task spawner for adapterOS control plane.
 //!
 //! This module provides a unified interface for spawning and managing background
 //! tasks during the boot sequence. It consolidates the common pattern of:

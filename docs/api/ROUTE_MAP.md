@@ -1,4 +1,4 @@
-# AdapterOS API Route Map
+# adapterOS API Route Map
 
 > **Auto-generated:** Do not edit manually.
 > Run `./scripts/dev/generate_route_map.sh` to regenerate.

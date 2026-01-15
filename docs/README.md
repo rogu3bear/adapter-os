@@ -1,6 +1,6 @@
-# AdapterOS Documentation
+# adapterOS Documentation
 
-> **AdapterOS** — Offline-capable, UMA-optimized multi-LoRA orchestration on Apple Silicon
+> **adapterOS** — Offline-capable, UMA-optimized multi-LoRA orchestration on Apple Silicon
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com/mlnavigator/adapter-os)
 [![License](https://img.shields.io/badge/license-Apache%202.0%20%7C%20MIT-blue)](../LICENSE-APACHE)
@@ -23,7 +23,7 @@
 
 ## Overview
 
-AdapterOS is a **single-node, locally deployed ML inference platform** optimized for Apple Silicon, licensed for on-prem or air-gapped installations, and built around workspace isolation. It enables hot-swappable LoRA adapters with deterministic execution, zero network egress during serving, and enterprise-grade security.
+adapterOS is a **single-node, locally deployed ML inference platform** optimized for Apple Silicon, licensed for on-prem or air-gapped installations, and built around workspace isolation. It enables hot-swappable LoRA adapters with deterministic execution, zero network egress during serving, and enterprise-grade security.
 
 ### Core Technologies
 
@@ -484,7 +484,7 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md) in the project root for general contri
 
 ## License
 
-AdapterOS is dual-licensed under Apache 2.0 or MIT at your option.
+adapterOS is dual-licensed under Apache 2.0 or MIT at your option.
 
 - [Apache License 2.0](../LICENSE-APACHE)
 - [MIT License](../LICENSE-MIT)
@@ -492,6 +492,6 @@ AdapterOS is dual-licensed under Apache 2.0 or MIT at your option.
 ---
 
 **Last Updated**: December 11, 2025
-**AdapterOS Version**: 0.12.0
+**adapterOS Version**: 0.12.0
 **Maintained by**: [@rogu3bear](https://github.com/rogu3bear)
 **MLNavigator Inc**

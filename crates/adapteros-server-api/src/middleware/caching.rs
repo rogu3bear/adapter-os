@@ -1,4 +1,4 @@
-//! Caching middleware for AdapterOS
+//! Caching middleware for adapterOS
 //!
 //! Implements HTTP caching with:
 //! - ETags for cache validation

@@ -1,4 +1,4 @@
-//! Progress Service Trait for AdapterOS
+//! Progress Service Trait for adapterOS
 //!
 //! Defines the interface for progress tracking that can be implemented
 //! by different services (server-api, orchestrator, etc.)

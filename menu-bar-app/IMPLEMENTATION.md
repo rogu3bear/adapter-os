@@ -2,7 +2,7 @@
 
 ## Overview
 
-A lightweight macOS menu bar application that displays AdapterOS status with zero network calls, no CPU mystery, and cold precision. The implementation follows the "context-coherence instrument" design: minimal distraction, maximum helpfulness.
+A lightweight macOS menu bar application that displays adapterOS status with zero network calls, no CPU mystery, and cold precision. The implementation follows the "context-coherence instrument" design: minimal distraction, maximum helpfulness.
 
 ## Architecture
 
@@ -17,7 +17,7 @@ A lightweight macOS menu bar application that displays AdapterOS status with zer
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  AdapterOSMenu (SwiftUI app)                                 │
+│  adapterOSMenu (SwiftUI app)                                 │
 │  ├── Reads JSON (5s poll)                                    │
 │  ├── Polls native macOS APIs (IOKit, ProcessInfo)           │
 │  └── Updates menu bar icon + tooltip + dropdown             │
@@ -29,7 +29,7 @@ A lightweight macOS menu bar application that displays AdapterOS status with zer
 ### Rust Components
 
 #### `crates/mplora-server/src/status_writer.rs`
-- **AdapterOSStatus struct**: Serializable status with all key metrics
+- **adapterOSStatus struct**: Serializable status with all key metrics
 - **Background writer**: Runs on 5-second interval via tokio::spawn
 - **Atomic file writes**: Temp file + rename for safety
 - **Fallback paths**: Tries `/var/run/`, falls back to `var/` if needed
@@ -45,18 +45,18 @@ A lightweight macOS menu bar application that displays AdapterOS status with zer
 
 ### Swift Components
 
-#### `menu-bar-app/Sources/AdapterOSMenu/Models.swift`
-- **AdapterOSStatus**: Codable struct matching Rust JSON schema
+#### `menu-bar-app/Sources/adapterOSMenu/Models.swift`
+- **adapterOSStatus**: Codable struct matching Rust JSON schema
 - **SystemMetrics**: Native system metric container
 - **Helper methods**: Uptime formatting, health checks
 
-#### `menu-bar-app/Sources/AdapterOSMenu/SystemMetrics.swift`
+#### `menu-bar-app/Sources/adapterOSMenu/SystemMetrics.swift`
 - **CPU usage**: Uses `host_cpu_load_info` with delta calculations
 - **Memory info**: Uses `vm_statistics64` for active/wired/compressed memory
 - **GPU usage**: Placeholder (Metal doesn't expose real-time metrics)
 - **Native APIs only**: No third-party dependencies
 
-#### `menu-bar-app/Sources/AdapterOSMenu/StatusViewModel.swift`
+#### `menu-bar-app/Sources/adapterOSMenu/StatusViewModel.swift`
 - **5-second polling**: Timer-based refresh of both JSON and system metrics
 - **Multi-path reading**: Tries both `/var/run/` and `var/` locations
 - **Icon logic**: 
@@ -66,7 +66,7 @@ A lightweight macOS menu bar application that displays AdapterOS status with zer
 - **Tooltip generation**: Dynamic status string
 - **Console.app integration**: "View Logs" opens system console
 
-#### `menu-bar-app/Sources/AdapterOSMenu/AdapterOSMenuApp.swift`
+#### `menu-bar-app/Sources/adapterOSMenu/adapterOSMenuApp.swift`
 - **MenuBarExtra**: Native SwiftUI menu bar integration
 - **Offline detection**: Shows clear "OFFLINE" state
 - **Status display**: Color-coded status indicators
@@ -79,12 +79,12 @@ A lightweight macOS menu bar application that displays AdapterOS status with zer
 ```bash
 cd menu-bar-app && swift build -c release
 cd menu-bar-app && swift run
-cd menu-bar-app && swift build -c release && cp .build/release/AdapterOSMenu /usr/local/bin/aos-menu
+cd menu-bar-app && swift build -c release && cp .build/release/adapterOSMenu /usr/local/bin/aos-menu
 ```
 
 ### Security & Deployment
 
-#### `menu-bar-app/AdapterOSMenu.entitlements`
+#### `menu-bar-app/adapterOSMenu.entitlements`
 - No network access (explicitly disabled)
 - No app sandbox (to access system files)
 - Minimal permissions
@@ -139,7 +139,7 @@ cargo build --release && (cd menu-bar-app && swift build -c release)
 cd menu-bar-app && swift run
 
 # Or install and run in background
-cd menu-bar-app && swift build -c release && cp .build/release/AdapterOSMenu /usr/local/bin/aos-menu
+cd menu-bar-app && swift build -c release && cp .build/release/adapterOSMenu /usr/local/bin/aos-menu
 /usr/local/bin/aos-menu
 ```
 
@@ -147,7 +147,7 @@ cd menu-bar-app && swift build -c release && cp .build/release/AdapterOSMenu /us
 
 ```bash
 # Install binary
-cd menu-bar-app && swift build -c release && cp .build/release/AdapterOSMenu /usr/local/bin/aos-menu
+cd menu-bar-app && swift build -c release && cp .build/release/adapterOSMenu /usr/local/bin/aos-menu
 
 # Copy launchd plist
 cp menu-bar-app/com.adapteros.menu.plist.template \
@@ -165,7 +165,7 @@ launchctl load ~/Library/LaunchAgents/com.adapteros.menu.plist
 # 1. Create dedicated user (recommended)
 sudo dscl . -create /Users/_adapteros
 sudo dscl . -create /Users/_adapteros UserShell /usr/bin/false
-sudo dscl . -create /Users/_adapteros RealName "AdapterOS Menu Bar"
+sudo dscl . -create /Users/_adapteros RealName "adapterOS Menu Bar"
 sudo dscl . -create /Users/_adapteros UniqueID 502
 sudo dscl . -create /Users/_adapteros PrimaryGroupID 20
 
@@ -252,7 +252,7 @@ ps aux | grep mplora-server
 ```
 
 **Solutions:**
-1. **Daemon not running**: Start the AdapterOS control plane
+1. **Daemon not running**: Start the adapterOS control plane
 2. **File permissions**: Ensure status file is readable (0644 permissions)
 3. **JSON corruption**: Check for valid JSON format
 4. **Path issues**: Verify both `/var/run/` and `var/` fallback paths
@@ -412,13 +412,13 @@ chmod 644 /var/run/adapteros_status.json
 
 ### Tooltip (hover over icon)
 ```
-AdapterOS OK · 45% CPU · 62% GPU · 18GB RAM
+adapterOS OK · 45% CPU · 62% GPU · 18GB RAM
 ```
 
 ### Dropdown Menu
 ```
 ╔════════════════════════════════════════╗
-║  ● AdapterOS OK                        ║
+║  ● adapterOS OK                        ║
 ║                                        ║
 ║  Adapters: 3      Workers: 2          ║
 ║                                        ║
@@ -484,11 +484,11 @@ crates/mplora-server/src/lib.rs (modified)
 crates/mplora-server/src/main.rs (modified)
 menu-bar-app/Package.swift
 menu-bar-app/README.md
-menu-bar-app/Sources/AdapterOSMenu/Models.swift
-menu-bar-app/Sources/AdapterOSMenu/SystemMetrics.swift
-menu-bar-app/Sources/AdapterOSMenu/StatusViewModel.swift
-menu-bar-app/Sources/AdapterOSMenu/AdapterOSMenuApp.swift
-menu-bar-app/AdapterOSMenu.entitlements
+menu-bar-app/Sources/adapterOSMenu/Models.swift
+menu-bar-app/Sources/adapterOSMenu/SystemMetrics.swift
+menu-bar-app/Sources/adapterOSMenu/StatusViewModel.swift
+menu-bar-app/Sources/adapterOSMenu/adapterOSMenuApp.swift
+menu-bar-app/adapterOSMenu.entitlements
 menu-bar-app/com.adapteros.menu.plist.template
 menu-bar-app/.gitignore
 ```
@@ -630,7 +630,7 @@ See [TESTING.md](TESTING.md) for complete test documentation.
 
 ### Compliance Alignment
 
-**AdapterOS Security Policies:**
+**adapterOS Security Policies:**
 - ✅ **Egress Policy**: Zero network calls enforced
 - ✅ **Isolation Policy**: Separate process with minimal permissions
 - ✅ **Evidence Policy**: Status data provides operational visibility
@@ -715,7 +715,7 @@ See [TESTING.md](TESTING.md) for complete test documentation.
 
 ### Performance Compliance
 
-**AdapterOS Performance Policies:**
+**adapterOS Performance Policies:**
 - ✅ **Resource constraints**: Sub-1% CPU, sub-20MB memory
 - ✅ **Predictable latency**: <10ms status update propagation
 - ✅ **Battery efficiency**: Minimal power draw
@@ -797,7 +797,7 @@ ALERT MenuBarStatusStale
   LABELS { severity = "critical" }
   ANNOTATIONS {
     summary = "Menu bar status file is stale",
-    description = "AdapterOS menu bar status not updated for 30+ seconds"
+    description = "adapterOS menu bar status not updated for 30+ seconds"
   }
 
 # High error rate

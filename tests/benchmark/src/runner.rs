@@ -59,7 +59,7 @@ impl BenchmarkRunner {
 
     /// Run all configured benchmarks
     pub fn run_all_benchmarks(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        println!("Starting AdapterOS performance benchmarks...");
+        println!("Starting adapterOS performance benchmarks...");
 
         // Create output directory
         fs::create_dir_all(&self.config.output_dir)?;
@@ -371,7 +371,7 @@ impl BenchmarkRunner {
             r#"<!DOCTYPE html>
 <html>
 <head>
-    <title>AdapterOS Benchmark Report</title>
+    <title>adapterOS Benchmark Report</title>
     <style>
         body {{ font-family: Arial, sans-serif; margin: 40px; }}
         .header {{ background: #f0f0f0; padding: 20px; border-radius: 5px; }}
@@ -386,7 +386,7 @@ impl BenchmarkRunner {
 </head>
 <body>
     <div class="header">
-        <h1>AdapterOS Performance Benchmark Report</h1>
+        <h1>adapterOS Performance Benchmark Report</h1>
         <p>Generated: {}</p>
         <p>System: {} | CPU: {} | Memory: {:.1} GB | GPU: {}</p>
     </div>
@@ -455,7 +455,7 @@ impl BenchmarkRunner {
     /// Print summary to console
     fn print_summary(&self, report: &BenchmarkReport) {
         println!("\n{}", "=".repeat(60));
-        println!("AdapterOS Benchmark Report Summary");
+        println!("adapterOS Benchmark Report Summary");
         println!("{}", "=".repeat(60));
         println!("Timestamp: {}", report.timestamp.format("%Y-%m-%d %H:%M:%S UTC"));
         println!("System: {}", report.system_info.os);

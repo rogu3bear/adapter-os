@@ -9,7 +9,7 @@ pub use adapteros_db::users::Role;
 use std::{fmt, str::FromStr};
 use tracing::{debug, warn};
 
-/// Granular permissions for operations in AdapterOS
+/// Granular permissions for operations in adapterOS
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Permission {
     // Adapter permissions

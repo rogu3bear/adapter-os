@@ -1,6 +1,6 @@
 # Documentation Drift: Implementation Validation Framework
 
-**Purpose:** Comprehensive documentation of the documentation drift concept, systematic validation framework, and current findings for AdapterOS.
+**Purpose:** Comprehensive documentation of the documentation drift concept, systematic validation framework, and current findings for adapterOS.
 
 **Last Updated:** 2025-12-13
 **Status:** Active validation framework
@@ -28,7 +28,7 @@ Traditional documentation maintenance focuses on keeping docs current with code 
 
 ### Why It Matters
 
-AdapterOS implements critical security and correctness invariants:
+adapterOS implements critical security and correctness invariants:
 
 - **Tenant isolation** prevents cross-tenant data leakage
 - **Path security** prevents persistent data in `/tmp` (or macOS `/private/tmp`)
@@ -256,7 +256,7 @@ cargo audit
 ## Historical Context
 
 ### Origin
-Documentation drift validation was implemented to prevent silent divergence between AdapterOS's documented security invariants and actual implementation. Early detection revealed gaps in path security and tenant isolation enforcement.
+Documentation drift validation was implemented to prevent silent divergence between adapterOS's documented security invariants and actual implementation. Early detection revealed gaps in path security and tenant isolation enforcement.
 
 ### Evolution
 - **2025-12-10:** Initial drift findings generated

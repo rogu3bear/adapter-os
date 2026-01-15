@@ -1,6 +1,6 @@
-//! AdapterOS TUI - Terminal User Interface dashboard
+//! adapterOS TUI - Terminal User Interface dashboard
 //!
-//! Provides an interactive terminal dashboard for monitoring and controlling AdapterOS.
+//! Provides an interactive terminal dashboard for monitoring and controlling adapterOS.
 //!
 //! # Usage
 //!

@@ -133,9 +133,9 @@ def convert_to_coreml(
     print(f"Conversion completed in {elapsed/60:.1f} minutes")
 
     # Add metadata
-    mlmodel.author = "AdapterOS"
+    mlmodel.author = "adapterOS"
     mlmodel.license = "Apache-2.0"
-    mlmodel.short_description = f"{model_id} - CoreML FP16 for AdapterOS (seq_len={seq_len})"
+    mlmodel.short_description = f"{model_id} - CoreML FP16 for adapterOS (seq_len={seq_len})"
     mlmodel.version = "1.0"
 
     # Add custom metadata
@@ -336,7 +336,7 @@ Examples:
         print(f"ERROR: seq_len must be multiple of 8 for ANE optimization (got {args.seq_len})")
         sys.exit(1)
 
-    print_banner("AdapterOS CoreML Production Export")
+    print_banner("adapterOS CoreML Production Export")
     print(f"PyTorch: {torch.__version__}")
     print(f"NumPy: {np.__version__}")
     print(f"coremltools: {ct.__version__}")
@@ -385,7 +385,7 @@ Examples:
             sys.exit(1)
 
     print()
-    print("To use with AdapterOS:")
+    print("To use with adapterOS:")
     print("  AOS_MODEL_BACKEND=coreml ./target/release/aos-worker \\")
     print("      --model-path models/qwen2.5-7b-instruct-fp16-2048.mlpackage")
 

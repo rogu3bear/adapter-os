@@ -1,4 +1,4 @@
-//! Web Browse Service for AdapterOS
+//! Web Browse Service for adapterOS
 //!
 //! Provides controlled web browsing capabilities for live data retrieval,
 //! enabling AI responses to be grounded in current information.

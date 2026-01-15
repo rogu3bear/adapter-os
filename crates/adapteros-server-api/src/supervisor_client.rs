@@ -1,4 +1,4 @@
-//! HTTP client for the AdapterOS Service Supervisor
+//! HTTP client for the adapterOS Service Supervisor
 ///
 /// Provides a typed interface to the supervisor API with retry logic,
 /// timeout handling, and proper error propagation.

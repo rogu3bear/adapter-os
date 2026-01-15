@@ -1,4 +1,4 @@
-//! Trace schema and event definitions for AdapterOS replay system
+//! Trace schema and event definitions for adapterOS replay system
 
 pub mod events;
 pub mod reader;

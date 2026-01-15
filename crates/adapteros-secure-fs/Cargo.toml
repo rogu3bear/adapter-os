@@ -2,8 +2,8 @@
 name = "adapteros-secure-fs"
 version.workspace = true
 edition = "2021"
-authors = ["AdapterOS Team"]
-description = "Secure filesystem operations with cap-std integration for AdapterOS"
+authors = ["adapterOS Team"]
+description = "Secure filesystem operations with cap-std integration for adapterOS"
 license = "MIT OR Apache-2.0"
 
 [dependencies]

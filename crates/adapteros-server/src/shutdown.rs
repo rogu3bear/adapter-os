@@ -79,7 +79,7 @@ pub enum ShutdownStatus {
     Timeout,
 }
 
-/// Coordinator for graceful shutdown of all AdapterOS components
+/// Coordinator for graceful shutdown of all adapterOS components
 pub struct ShutdownCoordinator {
     shutdown_tx: broadcast::Sender<()>,
     background_handles: Vec<DeterministicJoinHandle>,

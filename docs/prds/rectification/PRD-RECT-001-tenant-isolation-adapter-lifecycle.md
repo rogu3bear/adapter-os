@@ -2,7 +2,7 @@
 
 ## Problem / Motivation
 
-AdapterOS claims strong multi-tenant isolation, but we still have **tenant-unsafe adapter lifecycle access paths** called out in drift tracking (see `plan/drift-summary.md:10`). The codebase has tenant-scoped DB helpers (e.g. `get_adapter_for_tenant`), but some call sites still use tenant-unscoped reads and/or return cross-tenant errors that leak existence.
+adapterOS claims strong multi-tenant isolation, but we still have **tenant-unsafe adapter lifecycle access paths** called out in drift tracking (see `plan/drift-summary.md:10`). The codebase has tenant-scoped DB helpers (e.g. `get_adapter_for_tenant`), but some call sites still use tenant-unscoped reads and/or return cross-tenant errors that leak existence.
 
 This PRD closes the remaining gaps for **adapter lifecycle** at the handler/service + DB call-site level, and adds regression tests.
 

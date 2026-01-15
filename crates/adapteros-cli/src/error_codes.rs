@@ -516,7 +516,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
         error_code!(
             ECode::E7004,
             "Server Not Running",
-            "The AdapterOS control plane server is not running or not reachable.",
+            "The adapterOS control plane server is not running or not reachable.",
             "Start the server:\n\n\
              \x1b[1m  ./start\x1b[0m\n\n\
              Or start in development mode:\n\n\

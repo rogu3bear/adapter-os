@@ -1,4 +1,4 @@
-//! Main binary for the AdapterOS Service Supervisor
+//! Main binary for the adapterOS Service Supervisor
 
 use adapteros_service_supervisor::{Result, ServiceSupervisor, SupervisorConfig, SupervisorServer};
 use std::sync::Arc;
@@ -16,7 +16,7 @@ async fn main() -> Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    info!("Starting AdapterOS Service Supervisor");
+    info!("Starting adapterOS Service Supervisor");
 
     // Load configuration
     let config = match SupervisorConfig::load() {
@@ -76,6 +76,6 @@ async fn main() -> Result<()> {
         }
     }
 
-    info!("AdapterOS Service Supervisor stopped");
+    info!("adapterOS Service Supervisor stopped");
     Ok(())
 }

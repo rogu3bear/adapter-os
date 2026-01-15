@@ -5,7 +5,7 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Core type definitions for AdapterOS (no framework dependencies)"
+description = "Core type definitions for adapterOS (no framework dependencies)"
 
 [features]
 default = ["server"]

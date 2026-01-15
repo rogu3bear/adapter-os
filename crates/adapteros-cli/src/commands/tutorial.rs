@@ -15,7 +15,7 @@ pub struct TutorialArgs {
 }
 
 pub async fn run_tutorial(mut out: OutputWriter, args: TutorialArgs) -> Result<()> {
-    out.section("AdapterOS Tutorial");
+    out.section("adapterOS Tutorial");
 
     if !args.advanced {
         out.info("Quickstart: init → verify → diag");

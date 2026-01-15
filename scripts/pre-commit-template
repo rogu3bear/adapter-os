@@ -1,5 +1,5 @@
 #!/bin/bash
-# Pre-commit hook for AdapterOS
+# Pre-commit hook for adapterOS
 # Prevents commits with formatting issues, lint errors, or failing unit tests
 
 set -e

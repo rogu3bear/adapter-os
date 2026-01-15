@@ -61,7 +61,7 @@ fn test_error_codes_list() {
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     // Verify error code categories are listed
-    assert!(stdout.contains("AdapterOS Error Code Registry"));
+    assert!(stdout.contains("adapterOS Error Code Registry"));
     assert!(stdout.contains("Crypto/Signing"));
     assert!(stdout.contains("Policy/Determinism"));
     assert!(stdout.contains("Kernels/Build/Manifest"));

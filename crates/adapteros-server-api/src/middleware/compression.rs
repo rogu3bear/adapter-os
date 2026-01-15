@@ -1,4 +1,4 @@
-//! Response compression middleware for AdapterOS
+//! Response compression middleware for adapterOS
 //!
 //! Implements transparent compression of API responses:
 //! - Supports gzip and brotli compression

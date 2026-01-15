@@ -1,6 +1,6 @@
-# AdapterOS Script Libraries
+# adapterOS Script Libraries
 
-Shared libraries for AdapterOS shell scripts.
+Shared libraries for adapterOS shell scripts.
 
 ## env-loader.sh
 

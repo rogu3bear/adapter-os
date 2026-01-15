@@ -1,4 +1,4 @@
-# AdapterOS MLX development config
+# adapterOS MLX development config
 # Uses real MLX backend with a local 4-bit quantized model for Apple Silicon dev machines.
 
 [server]

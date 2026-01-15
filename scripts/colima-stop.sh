@@ -1,5 +1,5 @@
 #!/bin/bash
-# Stop Colima and cleanup for AdapterOS development
+# Stop Colima and cleanup for adapterOS development
 
 echo "Stopping Colima development environment..."
 

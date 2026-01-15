@@ -1,4 +1,4 @@
-// AdapterOS Kernel Utilities
+// adapterOS Kernel Utilities
 // Shared utility functions for all Metal kernels
 //
 // Features:

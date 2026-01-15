@@ -1,4 +1,4 @@
-//! Security initialization and preflight checks for AdapterOS control plane.
+//! Security initialization and preflight checks for adapterOS control plane.
 //!
 //! This module handles:
 //! - PID file lock acquisition for single-writer mode

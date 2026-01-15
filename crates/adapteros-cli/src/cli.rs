@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(name = "aos")]
-#[command(about = "AdapterOS CLI", long_about = None)]
+#[command(about = "adapterOS CLI", long_about = None)]
 pub struct Cli {
     /// Tenant ID (default: default)
     #[arg(short, long, default_value = "default")]

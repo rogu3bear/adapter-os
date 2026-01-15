@@ -34,7 +34,7 @@ static TENANT_ID_REGEX: Lazy<Regex> =
 
 /// Strongly-typed tenant identifier
 ///
-/// TenantId is the primary isolation boundary in AdapterOS. All tenant-scoped
+/// TenantId is the primary isolation boundary in adapterOS. All tenant-scoped
 /// resources (adapters, datasets, documents, RAG indices) must be associated
 /// with a TenantId.
 ///

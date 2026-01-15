@@ -1,4 +1,4 @@
-use crate::{types::*, AdapterOSClient, TelemetryBundleResponse, TelemetryEvent};
+use crate::{types::*, adapterOSClient, TelemetryBundleResponse, TelemetryEvent};
 use anyhow::{Context, Result};
 
 pub struct NativeClient {
@@ -6,7 +6,7 @@ pub struct NativeClient {
     client: reqwest::Client,
 }
 
-impl AdapterOSClient for NativeClient {
+impl adapterOSClient for NativeClient {
     // Health & Auth
     async fn health(&self) -> Result<HealthResponse> {
         let url = format!("{}/healthz", self.base_url);

@@ -1,6 +1,6 @@
 //! Status writer for menu bar application
 //!
-//! Writes a JSON snapshot of AdapterOS state to `./var/run/adapteros_status.json`
+//! Writes a JSON snapshot of adapterOS state to `./var/run/adapteros_status.json`
 //! for consumption by the macOS menu bar app.
 
 use adapteros_config::resolve_status_path;
@@ -14,7 +14,7 @@ use tracing::{debug, warn};
 
 /// Status reported to menu bar app
 #[derive(Debug, Serialize)]
-pub struct AdapterOSStatus {
+pub struct adapterOSStatus {
     /// System status: "ok" | "degraded" | "error"
     pub status: String,
     /// Uptime in seconds since control plane started
@@ -90,7 +90,7 @@ pub async fn write_status(state: &AppState) -> Result<()> {
 }
 
 /// Collect current status from the system
-async fn collect_status(state: &AppState) -> Result<AdapterOSStatus> {
+async fn collect_status(state: &AppState) -> Result<adapterOSStatus> {
     // Query database for adapter and worker counts
     let adapters_loaded = query_adapter_count(&state.db).await.unwrap_or(0);
     let worker_count = query_worker_count(&state.db).await.unwrap_or(0);
@@ -117,7 +117,7 @@ async fn collect_status(state: &AppState) -> Result<AdapterOSStatus> {
     // Check if deterministic mode is enabled
     let deterministic = check_deterministic_mode().await.unwrap_or(true);
 
-    Ok(AdapterOSStatus {
+    Ok(adapterOSStatus {
         status,
         uptime_secs: get_uptime_secs(),
         adapters_loaded,
@@ -223,7 +223,7 @@ async fn check_deterministic_mode() -> Option<bool> {
 }
 
 /// Atomically write status to file
-async fn write_status_file(status: &AdapterOSStatus) -> Result<()> {
+async fn write_status_file(status: &adapterOSStatus) -> Result<()> {
     let json = serde_json::to_string_pretty(status).context("Failed to serialize status")?;
 
     let resolved_status = match resolve_status_path() {
@@ -285,7 +285,7 @@ async fn write_status_file(status: &AdapterOSStatus) -> Result<()> {
 }
 
 /// Fallback: write to local var/ directory
-async fn write_status_file_local(status: &AdapterOSStatus) -> Result<()> {
+async fn write_status_file_local(status: &adapterOSStatus) -> Result<()> {
     let json = serde_json::to_string_pretty(status)?;
 
     // Use local var directory
@@ -337,7 +337,7 @@ mod tests {
 
     #[test]
     fn test_status_serialization() {
-        let status = AdapterOSStatus {
+        let status = adapterOSStatus {
             status: "ok".to_string(),
             uptime_secs: 1337,
             adapters_loaded: 3,

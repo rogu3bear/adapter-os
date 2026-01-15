@@ -286,7 +286,7 @@ aosctl chat interactive --local \
 ```
 $ aosctl chat interactive --local --model-path ./var/models/Qwen2.5-7B-Instruct
 
-AdapterOS Chat (Local Mode)
+adapterOS Chat (Local Mode)
 Model: ./var/models/Qwen2.5-7B-Instruct
 Backend: MLX FFI
 Type 'exit' or Ctrl-D to quit

@@ -56,7 +56,7 @@
 
 ## Prerequisites
 
-1. **AdapterOS Server Running**
+1. **adapterOS Server Running**
    ```bash
    # Start the server first
    cargo run --bin adapteros-server
@@ -115,7 +115,7 @@ Request Latency Metrics:
 
 ### Server Not Running
 ```
-Warning: Cannot reach AdapterOS server at http://localhost:9443
+Warning: Cannot reach adapterOS server at http://localhost:9443
 ```
 **Fix**: Start the server with `cargo run --bin adapteros-server`
 

@@ -2,8 +2,8 @@
 name = "adapteros-service-supervisor"
 version.workspace = true
 edition = "2021"
-description = "Production-ready service supervisor for AdapterOS with proper process management and security"
-authors = ["AdapterOS Team"]
+description = "Production-ready service supervisor for adapterOS with proper process management and security"
+authors = ["adapterOS Team"]
 
 [dependencies]
 # Async runtime

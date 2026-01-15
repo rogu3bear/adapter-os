@@ -1,4 +1,4 @@
-//! Performance benchmarks for Metal kernels in AdapterOS
+//! Performance benchmarks for Metal kernels in adapterOS
 //!
 //! This module provides comprehensive benchmarks for:
 //! - MLP kernel execution times across various matrix sizes (4x4, 16x16, 64x64, 256x256)

@@ -5,7 +5,7 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Base LLM integration for AdapterOS Layer 1"
+description = "Base LLM integration for adapterOS Layer 1"
 
 [dependencies]
 # Internal crates

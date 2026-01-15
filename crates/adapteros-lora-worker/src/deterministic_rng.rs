@@ -1,6 +1,6 @@
 //! Deterministic RNG implementation using HKDF
 //!
-//! Per AdapterOS Policy Ruleset #2 (Determinism):
+//! Per adapterOS Policy Ruleset #2 (Determinism):
 //! - MUST derive all RNG from `seed_global` and HKDF labels
 //! - MUST ensure identical inputs produce identical outputs
 //! - MUST record toolchain version strings and kernel hashes in Plan metadata

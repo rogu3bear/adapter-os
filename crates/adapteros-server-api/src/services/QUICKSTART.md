@@ -1,6 +1,6 @@
 # Service Layer Quick Start
 
-Fast guide to using the service layer in AdapterOS.
+Fast guide to using the service layer in adapterOS.
 
 ## TL;DR
 
@@ -327,7 +327,7 @@ async fn test_handler_with_mock() {
 - [ ] Add unit tests for business logic
 - [ ] Export from `mod.rs`
 - [ ] Document public methods with `///` comments
-- [ ] Follow AdapterOS error handling patterns
+- [ ] Follow adapterOS error handling patterns
 
 ## Common Mistakes
 
@@ -398,5 +398,5 @@ async fn my_operation(&self) -> Result<MyResult> {
 
 - Check existing services: `adapter_service.rs`, `training_service.rs`
 - Read handler code: `handlers/adapters.rs`, `handlers/training.rs`
-- See [AGENTS.md](../../../../AGENTS.md) for AdapterOS standards
+- See [AGENTS.md](../../../../AGENTS.md) for adapterOS standards
 - Look at [docs/ARCHITECTURE.md#core-concepts](../../../../docs/ARCHITECTURE.md#core-concepts)

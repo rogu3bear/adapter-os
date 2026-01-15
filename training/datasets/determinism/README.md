@@ -4,7 +4,7 @@
 
 ## Overview
 
-Determinism is a core policy in AdapterOS. All randomness must be seeded via HKDF, and execution must be reproducible given identical inputs and seeds.
+Determinism is a core policy in adapterOS. All randomness must be seeded via HKDF, and execution must be reproducible given identical inputs and seeds.
 
 ## Key Concepts
 

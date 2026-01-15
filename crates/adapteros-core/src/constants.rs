@@ -1,4 +1,4 @@
-//! System-wide constants for AdapterOS
+//! System-wide constants for adapterOS
 //!
 //! This module provides canonical constants to eliminate magic numbers
 //! and ensure consistency across the codebase.

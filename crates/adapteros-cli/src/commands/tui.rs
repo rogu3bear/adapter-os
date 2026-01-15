@@ -1,6 +1,6 @@
 //! TUI dashboard command for aosctl
 //!
-//! Launches an interactive terminal dashboard for monitoring and controlling AdapterOS.
+//! Launches an interactive terminal dashboard for monitoring and controlling adapterOS.
 
 use anyhow::Result;
 use clap::Args;

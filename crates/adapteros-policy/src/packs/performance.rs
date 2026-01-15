@@ -1,7 +1,7 @@
 //! Performance Policy Pack
 //!
 //! Enforces performance budgets and latency requirements
-//! for the AdapterOS inference pipeline.
+//! for the adapterOS inference pipeline.
 
 use crate::{Audit, Policy, PolicyContext, PolicyId, Severity, Violation};
 use adapteros_core::{AosError, Result};

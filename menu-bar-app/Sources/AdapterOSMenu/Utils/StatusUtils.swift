@@ -21,9 +21,9 @@ public struct StatusUtils {
     /// Copy status JSON to pasteboard
     /// 【2025-11-07†refactor(swift)†extract-status-utils】
     ///
-    /// - Parameter status: The AdapterOSStatus to encode and copy
+    /// - Parameter status: The adapterOSStatus to encode and copy
     /// - Returns: Success status and optional error message
-    public static func copyStatusJSON(_ status: AdapterOSStatus) -> (success: Bool, error: String?) {
+    public static func copyStatusJSON(_ status: adapterOSStatus) -> (success: Bool, error: String?) {
         do {
             let data = try JSONEncoder().encode(status)
             guard let string = String(data: data, encoding: .utf8) else {

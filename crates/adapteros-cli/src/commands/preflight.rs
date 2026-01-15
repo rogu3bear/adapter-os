@@ -1,4 +1,4 @@
-//! Pre-flight system readiness checker for AdapterOS
+//! Pre-flight system readiness checker for adapterOS
 //!
 //! Provides comprehensive environment verification before launching the server:
 //! - Model availability and configuration
@@ -252,7 +252,7 @@ fn extract_branch_from_metadata(metadata_json: &Option<String>) -> Option<String
 
 /// Run the preflight command
 pub async fn run(cmd: PreflightCommand, output: &OutputWriter) -> Result<()> {
-    output.info("🚀 Running AdapterOS preflight checks...\n");
+    output.info("🚀 Running adapterOS preflight checks...\n");
 
     let mut results = Vec::new();
 

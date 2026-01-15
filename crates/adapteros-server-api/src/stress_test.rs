@@ -1,4 +1,4 @@
-//! Stress testing infrastructure for AdapterOS
+//! Stress testing infrastructure for adapterOS
 //!
 //! Provides tools for testing concurrent operations, memory pressure scenarios,
 //! and system resilience under load.

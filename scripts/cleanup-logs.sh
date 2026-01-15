@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Standalone log cleanup script for AdapterOS
+# Standalone log cleanup script for adapterOS
 #
 # This script deletes log files older than the specified retention period.
 # Can be run manually or via cron for additional safety.

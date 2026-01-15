@@ -1,7 +1,7 @@
 import Foundation
 import os.log
 
-/// Structured logging utility for the AdapterOS menu bar
+/// Structured logging utility for the adapterOS menu bar
 final class Logger {
     static let shared = Logger()
 

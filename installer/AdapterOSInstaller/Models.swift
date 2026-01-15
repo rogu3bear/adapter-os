@@ -1,6 +1,6 @@
 //
 //  Models.swift
-//  AdapterOSInstaller
+//  adapterOSInstaller
 //
 //  Data models for installation state and configuration
 //

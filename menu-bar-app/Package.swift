@@ -4,28 +4,28 @@
 import PackageDescription
 
 let package = Package(
-    name: "AdapterOSMenu",
+    name: "adapterOSMenu",
     platforms: [
         .macOS(.v13)
     ],
     products: [
         .executable(
-            name: "AdapterOSMenu",
-            targets: ["AdapterOSMenu"]
+            name: "adapterOSMenu",
+            targets: ["adapterOSMenu"]
         ),
     ],
     targets: [
         .executableTarget(
-            name: "AdapterOSMenu",
+            name: "adapterOSMenu",
             dependencies: [],
-            path: "Sources/AdapterOSMenu",
+            path: "Sources/adapterOSMenu",
             resources: [
                 .process("Resources")
             ]
         ),
         .testTarget(
-            name: "AdapterOSMenuTests",
-            dependencies: ["AdapterOSMenu"],
+            name: "adapterOSMenuTests",
+            dependencies: ["adapterOSMenu"],
             path: "Tests"
         ),
     ]

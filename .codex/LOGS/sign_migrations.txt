@@ -1,4 +1,4 @@
-AdapterOS Migration Signing Tool
+adapterOS Migration Signing Tool
 =================================
 
 [0;32m✓ Using existing signing key: /Users/mln-dev/Dev/adapter-os/var/migration_signing_key.txt[0m

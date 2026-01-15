@@ -1,4 +1,4 @@
-//! Git integration for AdapterOS
+//! Git integration for adapterOS
 
 #![allow(unused_imports)]
 #![allow(unused_variables)]

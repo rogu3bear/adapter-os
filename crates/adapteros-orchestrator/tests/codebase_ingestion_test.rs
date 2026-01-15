@@ -736,7 +736,7 @@ fn test_normalize_repo_slug_for_scan_roots() {
 
     // Basic repo names
     assert_eq!(normalize_repo_slug("my-repo"), "my_repo");
-    assert_eq!(normalize_repo_slug("AdapterOS-Core"), "adapteros_core");
+    assert_eq!(normalize_repo_slug("adapterOS-Core"), "adapteros_core");
 
     // Repo names that might include scan-root context
     assert_eq!(
@@ -1206,8 +1206,8 @@ async fn test_create_dataset_from_repo_defaults() {
         .await
         .expect("Failed to create tenant");
 
-    let repo_name = "AdapterOS/Repo-Utils!!";
-    let repo_path = "/var/repos/AdapterOS/Repo-Utils";
+    let repo_name = "adapterOS/Repo-Utils!!";
+    let repo_path = "/var/repos/adapterOS/Repo-Utils";
     let commit_sha = "abcdef1234567890";
     let tenant_id = "test-tenant";
 

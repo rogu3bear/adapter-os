@@ -1,4 +1,4 @@
--- AdapterOS Control Plane Database Schema
+-- adapterOS Control Plane Database Schema
 -- SQLite with WAL mode for concurrent reads
 
 -- Users table: local authentication and RBAC

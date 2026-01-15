@@ -526,7 +526,7 @@ GROUP BY date(timestamp);
 EOF
 
 # Email report to team
-mail -s "AdapterOS Memory Report ${REPORT_DATE}" sre-team@company.com < var/reports/memory-report-${REPORT_DATE}.txt
+mail -s "adapterOS Memory Report ${REPORT_DATE}" sre-team@company.com < var/reports/memory-report-${REPORT_DATE}.txt
 ```
 
 ---
@@ -546,7 +546,7 @@ mail -s "AdapterOS Memory Report ${REPORT_DATE}" sre-team@company.com < var/repo
 - Customer SLA at risk
 
 ### Notify Platform Team If:
-- System-wide memory issue (not AdapterOS-specific)
+- System-wide memory issue (not adapterOS-specific)
 - Need OS-level memory tuning
 - Swap configuration required
 - NUMA/memory architecture questions

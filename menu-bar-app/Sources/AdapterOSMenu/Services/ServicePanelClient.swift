@@ -102,7 +102,7 @@ enum CircuitBreakerError: Error, LocalizedError {
     }
 }
 
-/// Client for communicating with the AdapterOS Service Panel API
+/// Client for communicating with the adapterOS Service Panel API
 final class ServicePanelClient {
     private let baseURL: URL
     private let session: URLSession
@@ -362,7 +362,7 @@ final class ServicePanelClient {
         var request = URLRequest(url: endpoint)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("AdapterOSMenu/1.0", forHTTPHeaderField: "User-Agent")
+        request.setValue("adapterOSMenu/1.0", forHTTPHeaderField: "User-Agent")
 
         // Use operation-specific timeout if provided
         if let timeout = timeout {

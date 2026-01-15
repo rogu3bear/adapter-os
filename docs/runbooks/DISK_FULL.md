@@ -39,7 +39,7 @@
 # Check overall disk space
 df -h
 
-# Focus on AdapterOS data directory
+# Focus on adapterOS data directory
 df -h var/
 
 # Check inode usage (can cause "disk full" even with space)
@@ -252,7 +252,7 @@ ls -lh var/logs/
 # Create cleanup script
 cat > scripts/cleanup-logs.sh <<'EOF'
 #!/bin/bash
-# AdapterOS Log Cleanup Script
+# adapterOS Log Cleanup Script
 
 LOG_DIR="var/logs"
 RETENTION_DAYS=30
@@ -284,7 +284,7 @@ chmod +x scripts/cleanup-logs.sh
 # Create telemetry cleanup script
 cat > scripts/cleanup-telemetry.sh <<'EOF'
 #!/bin/bash
-# AdapterOS Telemetry Cleanup Script
+# adapterOS Telemetry Cleanup Script
 
 TELEMETRY_DIR="var/telemetry"
 ARCHIVE_DIR="var/telemetry-archive"

@@ -2949,7 +2949,7 @@ mod tests {
 
     #[test]
     fn normalize_repo_slug_handles_symbols() {
-        assert_eq!(normalize_repo_slug("AdapterOS-Core"), "adapteros_core");
+        assert_eq!(normalize_repo_slug("adapterOS-Core"), "adapteros_core");
         assert_eq!(normalize_repo_slug("__weird__"), "weird");
     }
 

@@ -1,14 +1,14 @@
 //
-//  AdapterOSInstallerApp.swift
-//  AdapterOSInstaller
+//  adapterOSInstallerApp.swift
+//  adapterOSInstaller
 //
-//  SwiftUI app entry point for AdapterOS graphical installer
+//  SwiftUI app entry point for adapterOS graphical installer
 //
 
 import SwiftUI
 
 @main
-struct AdapterOSInstallerApp: App {
+struct adapterOSInstallerApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()

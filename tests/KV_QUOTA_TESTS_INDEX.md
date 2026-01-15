@@ -1,6 +1,6 @@
 # KV Quota Tests - Complete Index
 
-This directory contains comprehensive test coverage for the KV quota enforcement feature in AdapterOS.
+This directory contains comprehensive test coverage for the KV quota enforcement feature in adapterOS.
 
 ## Test Files
 
@@ -290,4 +290,4 @@ For questions about these tests:
 
 **Last Updated**: 2025-12-12
 **Status**: Complete
-**Maintainer**: AdapterOS Team
+**Maintainer**: adapterOS Team

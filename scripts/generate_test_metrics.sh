@@ -1,5 +1,5 @@
 #!/bin/bash
-# Generate test metrics report for AdapterOS
+# Generate test metrics report for adapterOS
 
 set -e
 

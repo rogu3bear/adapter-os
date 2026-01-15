@@ -1,4 +1,4 @@
-//! Legacy policy pack manager (20 packs + FullPack example) for AdapterOS
+//! Legacy policy pack manager (20 packs + FullPack example) for adapterOS
 //!
 //! Canonical registry definitions live in `registry.rs` with
 //! implementations in `packs/`.

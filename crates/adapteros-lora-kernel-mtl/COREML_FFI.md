@@ -237,7 +237,7 @@ cargo run --example coreml_inference --features coreml-backend -- model.mlmodelc
 - **ANE Support**: macOS 13.0+ on Apple Silicon
 - **Xcode**: Command Line Tools (for `cc` crate)
 
-## Integration with AdapterOS
+## Integration with adapterOS
 
 ### Policy Compliance
 - **Egress**: CoreML runs locally (no network access)
@@ -271,7 +271,7 @@ lifecycle_manager.record_prediction(&model_id).await?;
 - [CoreML Documentation](https://developer.apple.com/documentation/coreml)
 - [MLModel API](https://developer.apple.com/documentation/coreml/mlmodel)
 - [Neural Engine Overview](https://github.com/hollance/neural-engine)
-- [AdapterOS AGENTS.md](../../AGENTS.md) - Project standards
+- [adapterOS AGENTS.md](../../AGENTS.md) - Project standards
 
 ## Authorship
 

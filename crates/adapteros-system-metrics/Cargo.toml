@@ -5,7 +5,7 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "System resource monitoring and metrics collection for AdapterOS"
+description = "System resource monitoring and metrics collection for adapterOS"
 
 [features]
 mlx = ["dep:adapteros-lora-mlx-ffi"]

@@ -2,7 +2,7 @@
 
 **Status:** Implemented
 **Date:** 2025-11-19
-**Author:** AdapterOS team
+**Author:** adapterOS team
 
 ## Overview
 
@@ -244,7 +244,7 @@ fn test_multi_lora_equivalence() {
 
 ## References
 
-- [AdapterOS Router Documentation](../../adapteros-lora-router/README.md)
+- [adapterOS Router Documentation](../../adapteros-lora-router/README.md)
 - [Q15 Fixed-Point Format](https://en.wikipedia.org/wiki/Q_(number_format))
 - [LoRA Paper](https://arxiv.org/abs/2106.09685)
 - [K-Sparse Routing](https://arxiv.org/abs/2101.03961)
@@ -255,7 +255,7 @@ fn test_multi_lora_equivalence() {
 ```bibtex
 @software{adapteros_mlx_routing,
   title = {K-Sparse Multi-Adapter Routing for MLX Backend},
-  author = {AdapterOS Team},
+  author = {adapterOS Team},
   year = {2025},
   url = {https://github.com/adapteros/adapteros}
 }

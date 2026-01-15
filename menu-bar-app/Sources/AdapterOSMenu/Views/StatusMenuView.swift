@@ -13,7 +13,7 @@ protocol StatusMenuPresenting: ObservableObject {
     var commandToastPublisher: Published<CommandToast?>.Publisher { get }
     var lastError: StatusReadError? { get }
     var isOffline: Bool { get }
-    var statusSnapshot: AdapterOSStatus? { get }
+    var statusSnapshot: adapterOSStatus? { get }
     var recentStatusSnapshots: [StatusSnapshot] { get }
     var totalRequests: Int { get }
     func refresh() async
@@ -27,7 +27,7 @@ protocol StatusMenuPresenting: ObservableObject {
 
 @MainActor
 extension StatusViewModel: StatusMenuPresenting {
-    var statusSnapshot: AdapterOSStatus? { status }
+    var statusSnapshot: adapterOSStatus? { status }
     var commandToastPublisher: Published<CommandToast?>.Publisher { $commandToast }
 }
 
@@ -121,7 +121,7 @@ private extension StatusMenuView where ViewModel: StatusMenuPresenting {
         HStack(alignment: .top, spacing: DesignTokens.spacingMD) {
             VStack(alignment: .leading, spacing: DesignTokens.spacingXS) {
                 HStack(spacing: DesignTokens.spacingSM) {
-                    Text("AdapterOS")
+                    Text("adapterOS")
                         .font(DesignTokens.headerFont)
                         .accessibilityIdentifier("status-title")
                     if let status = viewModel.appStatus {
@@ -338,7 +338,7 @@ private extension StatusMenuView where ViewModel: StatusMenuPresenting {
             return ProblemsView.Content(
                 iconSystemName: "exclamationmark.triangle.fill",
                 iconColor: DesignTokens.degradedColor,
-                title: "AdapterOS Degraded",
+                title: "adapterOS Degraded",
                 message: message,
                 primaryLabel: "Reverify",
                 primaryAction: { Task { await viewModel.refresh() } },
@@ -715,9 +715,9 @@ private extension StatusMenuView where ViewModel: StatusMenuPresenting {
         presentToast(CommandToast(message: "Formatted status copied", kind: .success), clearSource: false)
     }
 
-    private func formatStatusForSharing(_ status: AdapterOSStatus) -> String {
+    private func formatStatusForSharing(_ status: adapterOSStatus) -> String {
         var output = """
-        AdapterOS Status Report
+        adapterOS Status Report
         Generated: \(Date.now.formatted())
 
         System Health: \(status.status.capitalized)
@@ -976,7 +976,7 @@ class PreviewStatusMenuViewModel: StatusMenuPresenting {
     @Published var commandToast: CommandToast?
     var lastError: StatusReadError?
     var isOffline: Bool { false }
-    var statusSnapshot: AdapterOSStatus? { nil }
+    var statusSnapshot: adapterOSStatus? { nil }
     var recentStatusSnapshots: [StatusSnapshot] { [] }
     var commandToastPublisher: Published<CommandToast?>.Publisher { $commandToast }
 
@@ -1077,7 +1077,7 @@ struct StatusMenuView: View {
 >>>>>>> integration-branch
             Image(systemName: viewModel.iconName)
                 .foregroundColor(iconColor)
-            Text("AdapterOS")
+            Text("adapterOS")
                 .font(DesignTokens.headerFont)
             Spacer()
             if let status = viewModel.status {
@@ -1088,7 +1088,7 @@ struct StatusMenuView: View {
         }
     }
 
-    private func infoSections(status: AdapterOSStatus) -> some View {
+    private func infoSections(status: adapterOSStatus) -> some View {
 <<<<<<< HEAD
         VStack(alignment: .leading, spacing: DesignTokens.spacingSM) {
             // Chips line
@@ -1256,9 +1256,9 @@ struct StatusMenuView: View {
         }
     }
 
-    private func formatStatusForSharing(_ status: AdapterOSStatus) -> String {
+    private func formatStatusForSharing(_ status: adapterOSStatus) -> String {
         var output = """
-        AdapterOS Status Report
+        adapterOS Status Report
         Generated: \(Date.now.formatted())
 
         System Health: \(status.status.capitalized)

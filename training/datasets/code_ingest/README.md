@@ -68,14 +68,14 @@ Target: "The router selects top-K adapters using gate scores"
 
 ## Data Sources
 
-1. **Codebase:** AdapterOS Rust source code
+1. **Codebase:** adapterOS Rust source code
 2. **Documentation:** AGENTS.md, README.md, docs/
 3. **PDFs:** Technical papers, specifications
 4. **Tests:** Integration test patterns
 
 ## Example Datasets
 
-- `rust_patterns/` - AdapterOS Rust code
+- `rust_patterns/` - adapterOS Rust code
 - `policy_examples/` - Policy pack implementations
 - `api_contracts/` - REST API patterns
 - `test_patterns/` - Test code examples

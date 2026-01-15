@@ -1,6 +1,6 @@
-# AdapterOS Architectural Lint
+# adapterOS Architectural Lint
 
-Architectural lint rules for detecting violations of AdapterOS patterns.
+Architectural lint rules for detecting violations of adapterOS patterns.
 
 ## Purpose
 
@@ -37,7 +37,7 @@ for violation in violations {
 
 ### rustc / clippy Driver (IDE warnings)
 
-To surface AdapterOS architectural rules as standard warnings in VS Code / Cursor:
+To surface adapterOS architectural rules as standard warnings in VS Code / Cursor:
 
 ```bash
 # Use adapteros-lint as the rustc workspace wrapper

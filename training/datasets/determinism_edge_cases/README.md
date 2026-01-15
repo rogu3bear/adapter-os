@@ -7,7 +7,7 @@
 
 ## Purpose
 
-This dataset contains purely synthetic adversarial inputs designed to stress test the deterministic execution guarantees of AdapterOS. It exposes the router and kernel components to edge cases that might cause non-deterministic behavior in naive implementations.
+This dataset contains purely synthetic adversarial inputs designed to stress test the deterministic execution guarantees of adapterOS. It exposes the router and kernel components to edge cases that might cause non-deterministic behavior in naive implementations.
 
 ## Edge Case Categories
 
@@ -141,7 +141,7 @@ GROUP BY entry_hash
 
 ### Training
 ```bash
-# Create dataset in AdapterOS
+# Create dataset in adapterOS
 aosctl training dataset create \
   --name "determinism-edge-cases-v1" \
   --manifest training/datasets/determinism_edge_cases/manifest.json
@@ -260,7 +260,7 @@ The edge cases stress test:
 
 ## Related Documentation
 
-- [AGENTS.md](../../../AGENTS.md) - AdapterOS developer guide
+- [AGENTS.md](../../../AGENTS.md) - adapterOS developer guide
 - [PRD-04](../../../docs/architecture/PRD-04-lifecycle-versioning.md) - Lifecycle versioning
 - [MasterPlan](../../../docs/architecture/MasterPlan.md) - Deterministic execution engine
 

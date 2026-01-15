@@ -8,7 +8,7 @@ use tracing::{error, info};
 
 #[derive(Parser)]
 #[command(name = "mplora-orchestrator")]
-#[command(about = "AdapterOS promotion gate orchestrator")]
+#[command(about = "adapterOS promotion gate orchestrator")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -62,7 +62,7 @@ async fn main() -> Result<()> {
             report,
             format,
         } => {
-            info!(cpid = %cpid, "Starting AdapterOS Promotion Gate Orchestrator");
+            info!(cpid = %cpid, "Starting adapterOS Promotion Gate Orchestrator");
 
             let config = OrchestratorConfig {
                 continue_on_error,

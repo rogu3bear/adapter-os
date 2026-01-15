@@ -651,7 +651,7 @@ mod tests {
     fn test_write_and_read_archive_with_segments() -> Result<()> {
         let temp_root = std::path::PathBuf::from("var/tmp");
         std::fs::create_dir_all(&temp_root).map_err(|e| {
-            AosError::Io(format!("Failed to create AdapterOS temp directory: {}", e))
+            AosError::Io(format!("Failed to create adapterOS temp directory: {}", e))
         })?;
         let temp_file = NamedTempFile::new_in(&temp_root)
             .map_err(|e| AosError::Io(format!("Failed to create temp file: {}", e)))?;

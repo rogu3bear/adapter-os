@@ -11,7 +11,7 @@ pub fn normalize_jwt_mode(value: &str) -> String {
 
 #[derive(Parser)]
 #[command(name = "aos-cp")]
-#[command(about = "AdapterOS Control Plane", long_about = None)]
+#[command(about = "adapterOS Control Plane", long_about = None)]
 pub struct Cli {
     /// Path to configuration file
     #[arg(short, long, default_value = "configs/cp.toml")]

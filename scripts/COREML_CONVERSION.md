@@ -4,7 +4,7 @@ This guide explains how to convert models to CoreML `.mlpackage` format and inte
 
 ## Overview
 
-AdapterOS supports two CoreML workflows:
+adapterOS supports two CoreML workflows:
 
 1. **Base Model Conversion**: Convert MLX/safetensors models to CoreML (this guide)
 2. **LoRA Adapter Integration**: Two paths available:

@@ -1,6 +1,6 @@
-# AdapterOS Deployment Guide
+# adapterOS Deployment Guide
 
-**Complete deployment guide for AdapterOS, covering single-node production setup, air-gapped deployment, authentication, and verification.**
+**Complete deployment guide for adapterOS, covering single-node production setup, air-gapped deployment, authentication, and verification.**
 
 ---
 
@@ -23,7 +23,7 @@
 
 ## Deployment Overview
 
-AdapterOS is an ML inference platform with an offline-capable, UMA-optimized orchestration layer for multi-LoRA systems on Apple Silicon.
+adapterOS is an ML inference platform with an offline-capable, UMA-optimized orchestration layer for multi-LoRA systems on Apple Silicon.
 
 ### Core Technologies
 
@@ -93,7 +93,7 @@ flowchart TD
 
     PreCheck -->|Yes| ChooseMethod{Installation<br/>Method}
 
-    ChooseMethod -->|Graphical| Installer[GUI Installer<br/>xcodebuild AdapterOSInstaller]
+    ChooseMethod -->|Graphical| Installer[GUI Installer<br/>xcodebuild adapterOSInstaller]
     ChooseMethod -->|Manual| Build[Build from Source<br/>cargo build --release]
     ChooseMethod -->|Air-Gapped| Bundle[Transfer Bundle<br/>adapteros-airgap.tar.gz]
 
@@ -193,10 +193,10 @@ The native macOS installer provides guided setup with hardware validation:
 
 ```bash
 # Build the installer
-cd installer && xcodebuild -project AdapterOSInstaller.xcodeproj -scheme AdapterOSInstaller -configuration Release -derivedDataPath build clean build
+cd installer && xcodebuild -project adapterOSInstaller.xcodeproj -scheme adapterOSInstaller -configuration Release -derivedDataPath build clean build
 
 # Or open in Xcode for development
-open installer/AdapterOSInstaller.xcodeproj
+open installer/adapterOSInstaller.xcodeproj
 ```
 
 **Features:**
@@ -283,7 +283,7 @@ export DATABASE_URL="postgresql://localhost/adapteros_prod"
 export RAG_EMBED_DIM=3584
 ```
 
-### Build AdapterOS
+### Build adapterOS
 
 ```bash
 # Single-node build (SQLite)
@@ -588,7 +588,7 @@ curl http://localhost:8080/healthz
 
 ```bash
 ./aosctl infer \
-  --prompt "Explain how AdapterOS works in 50 words" \
+  --prompt "Explain how adapterOS works in 50 words" \
   --max-tokens 100 \
   --tenant production
 ```
@@ -607,7 +607,7 @@ curl -X POST http://localhost:8080/v1/inference \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
   -d '{
-    "prompt": "Explain how AdapterOS works",
+    "prompt": "Explain how adapterOS works",
     "max_tokens": 100,
     "tenant_id": "production"
   }'
@@ -802,7 +802,7 @@ pf_rules_path = "/etc/pf.anchors/adapteros"
 Create `/etc/pf.anchors/adapteros`:
 
 ```
-# Block all outbound traffic from AdapterOS process
+# Block all outbound traffic from adapterOS process
 block drop out proto tcp from any to any user adapteros
 block drop out proto udp from any to any user adapteros
 block drop out proto icmp from any to any user adapteros
@@ -1015,7 +1015,7 @@ spec:
           storage: 100Gi
 ```
 
-### 3. AdapterOS Deployment
+### 3. adapterOS Deployment
 
 Create `k8s/adapteros.yaml`:
 
@@ -1709,4 +1709,4 @@ curl http://localhost:8080/healthz
 **Version:** 2.0
 **Last Updated:** 2025-01-15
 **Consolidated from:** DEPLOYMENT.md, deployment-guide.md
-**Maintained By:** AdapterOS Team
+**Maintained By:** adapterOS Team

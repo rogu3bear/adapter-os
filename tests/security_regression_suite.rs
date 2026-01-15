@@ -1,4 +1,4 @@
-//! Comprehensive Security Regression Test Suite for AdapterOS
+//! Comprehensive Security Regression Test Suite for adapterOS
 //!
 //! This test suite provides automated detection of security regressions across the codebase.
 //! Tests cover:
@@ -656,7 +656,7 @@ fn test_security_test_coverage() {
 
 #[test]
 fn test_suite_summary() {
-    println!("\n=== AdapterOS Security Regression Test Suite ===\n");
+    println!("\n=== adapterOS Security Regression Test Suite ===\n");
     println!("Tests included:");
     println!("  1. test_no_unsafe_in_public_api - Scans for unsafe blocks");
     println!("  2. test_no_panics_in_crypto - Validates error handling");

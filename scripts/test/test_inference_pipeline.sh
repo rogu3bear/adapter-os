@@ -1,5 +1,5 @@
 #!/bin/bash
-# Test script for AdapterOS inference pipeline using web tools (curl)
+# Test script for adapterOS inference pipeline using web tools (curl)
 # Tests health, authentication, and inference endpoints
 
 set -e
@@ -54,7 +54,7 @@ run_test() {
 }
 
 echo "=========================================="
-echo "AdapterOS Inference Pipeline Test Suite"
+echo "adapterOS Inference Pipeline Test Suite"
 echo "=========================================="
 echo ""
 echo "Testing against: $BASE_URL"

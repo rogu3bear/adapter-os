@@ -1,4 +1,4 @@
-//! Critical component metrics for AdapterOS production monitoring
+//! Critical component metrics for adapterOS production monitoring
 //!
 //! Provides specialized metric collectors for:
 //! - Metal kernel execution time histograms

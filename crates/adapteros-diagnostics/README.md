@@ -1,4 +1,4 @@
-# AdapterOS Diagnostics
+# adapterOS Diagnostics
 
 This crate defines the diagnostics event schema and provides utilities to emit,
 buffer, and persist diagnostic events in a deterministic way.

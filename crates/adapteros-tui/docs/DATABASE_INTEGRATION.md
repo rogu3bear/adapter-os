@@ -7,7 +7,7 @@
 
 ## Summary
 
-The TUI now has **direct database access** to the AdapterOS SQLite database, bypassing the `adapteros-db` crate which had compile-time query validation errors.
+The TUI now has **direct database access** to the adapterOS SQLite database, bypassing the `adapteros-db` crate which had compile-time query validation errors.
 
 ### What Was Done
 
@@ -337,4 +337,4 @@ sqlite3 var/aos.db
 
 **Status:** ✅ Database integration 100% complete and tested!
 
-**Impact:** The TUI now has complete visibility into the AdapterOS database, showing real-time training job status, adapter registry contents, and tenant information directly on the dashboard.
+**Impact:** The TUI now has complete visibility into the adapterOS database, showing real-time training job status, adapter registry contents, and tenant information directly on the dashboard.

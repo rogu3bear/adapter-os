@@ -1,4 +1,4 @@
-//! Error types for AdapterOS
+//! Error types for adapterOS
 //!
 //! ## Error Message Standards
 //!
@@ -35,9 +35,9 @@ use zip::result::ZipError;
 
 pub type Result<T> = std::result::Result<T, AosError>;
 
-/// Core error type for AdapterOS operations
+/// Core error type for adapterOS operations
 ///
-/// All errors in AdapterOS should use this enum to ensure consistent
+/// All errors in adapterOS should use this enum to ensure consistent
 /// error handling, logging, and user experience.
 ///
 /// [source: crates/adapteros-core/src/error.rs L38-388]

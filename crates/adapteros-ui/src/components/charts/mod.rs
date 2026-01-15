@@ -1,6 +1,6 @@
 //! Liquid Glass Charts - Pure Rust SVG visualization components.
 //!
-//! This module provides a minimal chart kit for the AdapterOS dashboard:
+//! This module provides a minimal chart kit for the adapterOS dashboard:
 //!
 //! - **LineChart**: Time series visualization with tooltips and legends
 //! - **Sparkline**: Compact inline charts for metric cards

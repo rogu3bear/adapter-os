@@ -1,7 +1,7 @@
 //! Example demonstrating error helper extension traits
 //!
 //! This example shows how to use the error helper traits to simplify
-//! error handling in AdapterOS code.
+//! error handling in adapterOS code.
 //!
 //! Run with: cargo run --example error_helpers_demo -p adapteros-core
 
@@ -69,7 +69,7 @@ fn load_and_validate_adapter(id: &str, path: &Path) -> Result<String> {
 }
 
 fn main() {
-    println!("AdapterOS Error Helpers Demo\n");
+    println!("adapterOS Error Helpers Demo\n");
 
     // Example 1: Database error
     println!("Example 1: Database error");

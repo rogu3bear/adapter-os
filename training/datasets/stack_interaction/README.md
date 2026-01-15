@@ -1,6 +1,6 @@
 # Stack Interaction Dataset (Type 3)
 
-This dataset tests multi-adapter composition and stack interaction behaviors in AdapterOS. It validates that the adapter fusion engine correctly combines multiple specialized adapters in sequential stacks, preserving individual adapter behaviors while enabling emergent combined capabilities.
+This dataset tests multi-adapter composition and stack interaction behaviors in adapterOS. It validates that the adapter fusion engine correctly combines multiple specialized adapters in sequential stacks, preserving individual adapter behaviors while enabling emergent combined capabilities.
 
 ## Purpose
 
@@ -209,7 +209,7 @@ Expected: Expert knowledge → Executive framing → Case study format → Profe
 
 ## References
 
-- [AdapterOS Architecture](../../docs/architecture/ARCHITECTURE_INDEX.md)
+- [adapterOS Architecture](../../docs/architecture/ARCHITECTURE_INDEX.md)
 - [Adapter Fusion Engine](../../docs/architecture/MasterPlan.md#adapter-fusion-engine)
 - [Multi-Adapter Stacking](../../docs/architecture/MasterPlan.md#multi-adapter-stacking)
 - [Lineage Tracking](../../docs/architecture/MasterPlan.md#lineage-tracking)
@@ -218,5 +218,5 @@ Expected: Expert knowledge → Executive framing → Case study format → Profe
 
 **Dataset Version**: 1.0.0
 **Created**: 2025-11-18
-**Maintained by**: AdapterOS Core Team
+**Maintained by**: adapterOS Core Team
 **License**: Copyright © 2025 JKCA / James KC Auchterlonie. All rights reserved.

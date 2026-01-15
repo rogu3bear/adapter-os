@@ -1,7 +1,7 @@
 #![cfg(all(test, feature = "extended-tests"))]
 //! Isolation Verification Tests
 //!
-//! This module tests multi-tenant isolation in AdapterOS, ensuring that tenants
+//! This module tests multi-tenant isolation in adapterOS, ensuring that tenants
 //! cannot access each other's data, resources, or computational results. It covers
 //! memory isolation, file system isolation, network isolation, and evidence isolation.
 

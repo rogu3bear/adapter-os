@@ -1,6 +1,6 @@
 //! Quality metrics for model evaluation
 //!
-//! Implements metrics from the AdapterOS specification:
+//! Implements metrics from the adapterOS specification:
 //! - ARR: Abstention Rate (Responsible)
 //! - ECS: Evidence Coverage Score
 //! - HLR: Hallucination Rate

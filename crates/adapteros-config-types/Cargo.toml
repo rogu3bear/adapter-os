@@ -2,8 +2,8 @@
 name = "adapteros-config-types"
 version = "0.2.0"
 edition = "2021"
-description = "Shared configuration structs for AdapterOS services"
-authors = ["AdapterOS Contributors"]
+description = "Shared configuration structs for adapterOS services"
+authors = ["adapterOS Contributors"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/adapteros/adapteros"
 keywords = ["config", "types"]
