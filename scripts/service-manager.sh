@@ -1,6 +1,6 @@
 #!/bin/bash
-# AdapterOS Service Manager
-# Manages starting, stopping, and status of AdapterOS services
+# adapterOS Service Manager
+# Manages starting, stopping, and status of adapterOS services
 #
 # Copyright (c) 2025 JKCA / James KC Auchterlonie. All rights reserved.
 #
@@ -39,8 +39,9 @@ SCRIPT_LOG="$LOG_DIR/service-manager.log"
 # Canonical dev model (single source of truth)
 DEFAULT_MODEL_DIR="$PROJECT_ROOT/var/models/Qwen2.5-7B-Instruct-4bit"
 DEFAULT_MANIFEST_PATH="$PROJECT_ROOT/manifests/qwen7b-4bit-mlx.yaml"
-# Leave empty so the worker computes the manifest hash from the file by default.
-DEFAULT_MANIFEST_HASH="${DEFAULT_MANIFEST_HASH:-}"
+# Must match DEFAULT_MANIFEST_HASH in adapteros-server/src/boot/app_state.rs for worker routing
+# This is the hash of qwen7b-4bit-mlx.yaml computed via ManifestV3::compute_hash()
+DEFAULT_MANIFEST_HASH="${DEFAULT_MANIFEST_HASH:-8910e57445575ebf4b0dfb4dc92a26ea174edf13088ae7acacd3262be8bb8a20}"
 
 # Worker database tracking
 WORKER_ID_FILE="$PID_DIR/worker.id"
@@ -1460,7 +1461,7 @@ start_worker_with_restart() {
 show_status() {
     echo -e "${CYAN}
 ================================
-   AdapterOS Service Status
+   adapterOS Service Status
 ================================${NC}"
     echo ""
 
@@ -1596,7 +1597,7 @@ stop_all() {
 # =============================================================================
 
 usage() {
-    echo "AdapterOS Service Manager"
+    echo "adapterOS Service Manager"
     echo ""
     echo "USAGE:"
     echo "  $0 start <service>        Start a service"

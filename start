@@ -1,5 +1,5 @@
 #!/bin/bash
-# AdapterOS Boot Script
+# adapterOS Boot Script
 #
 # Usage:
 #   ./start              Start backend + worker
@@ -23,6 +23,14 @@ source scripts/lib/env-loader.sh
 
 # Set SCRIPT_DIR for path normalization
 export SCRIPT_DIR
+
+# Unified Run ID for traceability
+if command -v uuidgen > /dev/null; then
+    export AOS_RUN_ID=${AOS_RUN_ID:-$(uuidgen)}
+else
+    export AOS_RUN_ID=${AOS_RUN_ID:-$(date +%s)-$(head -c 4 /dev/urandom | od -An -t x4 | tr -d ' ')}
+fi
+export AOS_DEBUG_RUN_ID=$AOS_RUN_ID
 
 # Load .env file if it exists (provides default values)
 # Values can still be overridden by environment variables set before running ./start
@@ -61,7 +69,7 @@ BOOT_PROGRESS_STEPS=()
 # Animation & Progress Helpers
 # =============================================================================
 
-# Print the AdapterOS banner
+# Print the adapterOS banner
 print_banner() {
     echo ""
     printf "${FG_CYAN}"
@@ -374,14 +382,14 @@ check_aosctl_installation() {
                 shell_rc="$HOME/.bashrc"
             fi
 
-            local aos_path="export PATH=\"$(pwd):\$PATH\"  # AdapterOS"
+            local aos_path="export PATH=\"$(pwd):\$PATH\"  # adapterOS"
 
-            if grep -q "AdapterOS" "$shell_rc" 2>/dev/null; then
+            if grep -q "adapterOS" "$shell_rc" 2>/dev/null; then
                 print_step "success" "PATH already configured in $shell_rc"
             else
                 print_step "running" "Adding to $shell_rc..."
                 echo "" >> "$shell_rc"
-                echo "# AdapterOS CLI" >> "$shell_rc"
+                echo "# adapterOS CLI" >> "$shell_rc"
                 echo "$aos_path" >> "$shell_rc"
                 update_step "success" "Added to $shell_rc"
                 echo ""
@@ -431,7 +439,7 @@ append_debug_log() {
     if command -v jq >/dev/null 2>&1; then
         jq -nc \
             --arg session "debug-session" \
-            --arg runId "${AOS_DEBUG_RUN_ID:-pre-fix}" \
+            --arg runId "${AOS_RUN_ID:-pre-fix}" \
             --arg hyp "${hypothesis:-}" \
             --arg loc "$location" \
             --arg msg "$message" \
@@ -442,7 +450,7 @@ append_debug_log() {
     fi
 
     printf '{"sessionId":"%s","runId":"%s","hypothesisId":"%s","location":"%s","message":"%s","data":%s,"timestamp":%s}\n' \
-        "debug-session" "${AOS_DEBUG_RUN_ID:-pre-fix}" "${hypothesis:-}" "$location" "$message" "${data_json:-{}}" "$ts_ms" \
+        "debug-session" "${AOS_RUN_ID:-pre-fix}" "${hypothesis:-}" "$location" "$message" "${data_json:-{}}" "$ts_ms" \
         >>"$DEBUG_LOG_PATH"
 }
 
@@ -452,7 +460,7 @@ log_line() {
     ensure_var_dirs
     local ts
     ts=$(date -Iseconds)
-    local line="[$ts] [$level] [start] $msg"
+    local line="[$ts] [$level] [start] [$AOS_RUN_ID] $msg"
     echo -e "$line"
     echo -e "$line" >>"$SCRIPT_LOG"
 }
@@ -562,7 +570,7 @@ EOF
 
 show_status() {
     echo ""
-    echo -e "${FG_CYAN}AdapterOS Service Status${FG_RESET}"
+    echo -e "${FG_CYAN}adapterOS Service Status${FG_RESET}"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
 
@@ -788,7 +796,7 @@ start_all() {
     # Initialize boot progress tracking
     init_boot_progress
     echo ""
-    echo -e "${FG_CYAN}Starting AdapterOS${FG_RESET}"
+    echo -e "${FG_CYAN}Starting adapterOS${FG_RESET}"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
     print_progress_animated 0 100 "Initializing..."
@@ -992,7 +1000,7 @@ start_all() {
         echo ""
         echo -e "${FG_GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${FG_RESET}"
         echo ""
-        echo -e "  ${FG_GREEN}${CHECK_MARK} AdapterOS is ready!${FG_RESET}"
+        echo -e "  ${FG_GREEN}${CHECK_MARK} adapterOS is ready!${FG_RESET}"
         echo ""
         echo "  API: http://localhost:$AOS_SERVER_PORT"
         echo "  UI:  http://localhost:$AOS_SERVER_PORT  (served from static/)"
@@ -1025,7 +1033,7 @@ start_all() {
 do_shutdown() {
     print_banner
 
-    echo -e "${FG_CYAN}Stopping AdapterOS${FG_RESET}"
+    echo -e "${FG_CYAN}Stopping adapterOS${FG_RESET}"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
 
