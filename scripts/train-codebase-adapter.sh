@@ -378,7 +378,7 @@ step "Building local codebase dataset"
 [[ -f "${CODEBASE_MANIFEST}" ]] || die "missing manifest after dataset build: ${CODEBASE_MANIFEST}"
 [[ -d "${CODEBASE_CHUNKS_DIR}" ]] || die "missing chunks dir after dataset build: ${CODEBASE_CHUNKS_DIR}"
 
-step "Generating training JSONL (${MAX_CHUNKS} chunks, input == target)"
+step "Generating training JSONL (${MAX_CHUNKS} chunks, prompt == response)"
 python3 - "${CODEBASE_MANIFEST}" "${CODEBASE_DATASET_DIR}" "${TRAINING_JSONL}" "${MAX_CHUNKS}" "${EXAMPLE_MAX_CHARS}" <<'PY'
 import json
 import sys
@@ -412,10 +412,12 @@ with manifest_path.open("r", encoding="utf-8") as f:
             text = text[:max_chars].rstrip()
         if not text:
             continue
+        # Keep each JSONL row single-line by flattening newlines.
+        text = text.replace("\n", "\\n")
         examples.append(
             {
-                "input": text,
-                "target": text,
+                "prompt": text,
+                "response": text,
                 "metadata": {
                     "chunk_id": entry.get("chunk_id"),
                     "file_path": entry.get("file_path"),
@@ -436,7 +438,7 @@ if len(examples) < 10:
 out_path.parent.mkdir(parents=True, exist_ok=True)
 with out_path.open("w", encoding="utf-8", newline="\n") as f:
     for ex in examples:
-        f.write(json.dumps(ex, ensure_ascii=False))
+        f.write(json.dumps(ex, ensure_ascii=True))
         f.write("\n")
 
 print(f"wrote {len(examples)} examples to {out_path}")
@@ -444,7 +446,7 @@ PY
 
 step "Uploading dataset to control plane"
 DATASET_NAME="codebase-demo-$(date +%Y%m%d-%H%M%S)"
-DATASET_DESC="Demo: codebase chunks (input == target) from adapterOS repository"
+DATASET_DESC="Demo: codebase chunks (prompt == response) from adapterOS repository"
 DATASET_UPLOAD_RESP="$(api_multipart_upload_dataset "${TRAINING_JSONL}" "${DATASET_NAME}" "${DATASET_DESC}")"
 DATASET_ID="$(printf "%s" "$DATASET_UPLOAD_RESP" | jq -r '.dataset_id // empty')"
 [[ -n "${DATASET_ID}" ]] || die "dataset upload succeeded but no dataset_id found"
