@@ -63,6 +63,11 @@ impl B3Hash {
         hex::encode(self.0)
     }
 
+    /// Check if the hash is all zeros
+    pub fn is_zero(&self) -> bool {
+        self.0.iter().all(|&b| b == 0)
+    }
+
     /// Parse from hex string
     pub fn from_hex(s: &str) -> Result<Self> {
         let bytes =
