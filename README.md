@@ -234,7 +234,6 @@ export AOS_MLX_FFI_MODEL=var/models/qwen2.5-7b-mlx
 # Format: {tenant}/{domain}/{purpose}/{revision}
 ./aosctl register-adapter tenant-a/engineering/code-review/r001 b3:abc123... --tier persistent --rank 16
 
-# See docs/ADAPTER_TAXONOMY.md for naming conventions
 ```
 
 ### Start Serving
@@ -673,7 +672,6 @@ curl -X GET http://localhost:8080/v1/plugins \
 - [QUICKSTART.md](QUICKSTART.md) - Quick start guide for macOS
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - Full architecture documentation
 - [docs/ARCHITECTURE.md#architecture-components](docs/ARCHITECTURE.md#architecture-components) - Detailed architectural patterns
-- [AGENTS.md](AGENTS.md) - Developer quick reference guide
 - [docs/MLX_GUIDE.md](docs/MLX_GUIDE.md) - MLX backend integration
 - [docs/COREML_BACKEND.md](docs/COREML_BACKEND.md) - CoreML backend with ANE acceleration
 

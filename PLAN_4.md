@@ -1,7 +1,7 @@
 # PLAN_4
 
 ## Purpose
-Define the only supported dataset-to-training path. The goal is deterministic framing with recorded provenance, yielding adapters with verifiable metadata.
+This file defines the only supported dataset → training path. Its goal is to eliminate ambiguity and enable execution.
 
 ## Accepted Dataset Schemas (Locked)
 - Supervised JSONL: { "prompt": "string", "completion": "string" }
@@ -17,8 +17,8 @@ Any other schema must be rejected with a clear error.
   - target = completion
 - Raw (raw_continuation_v1):
   - Tokenize full text.
-  - Split into fixed chunks.
-  - For chunk i:
+  - Split into fixed chunks with stride = STRIDE_TOKENS.
+  - For chunk i (i += STRIDE_TOKENS):
     - input_tokens = tokens[i : i + MAX_INPUT_TOKENS]
     - target_tokens = tokens[i + MAX_INPUT_TOKENS : i + MAX_INPUT_TOKENS + MAX_TARGET_TOKENS]
 

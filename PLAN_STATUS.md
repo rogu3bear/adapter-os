@@ -6,28 +6,28 @@
 - Dataset contract: PLAN_4.md supervised + raw_continuation_v1 (locked)
 
 ## Coordination Index
-Cycle: 3
-Snapshot: 2026-01-15 22:43:16 CST
+Cycle: 5
+Snapshot: 2026-01-15 23:01:37 CST
 Plans last updated: PLAN.md 2026-01-15 22:34:43; PLAN_2.md 2026-01-15 22:16:53; PLAN_3.md 2026-01-15 22:23:07; PLAN_4.md 2026-01-15 22:42:52
-Changed files since last cycle: 157 tracked diffs across core/lora/worker, server-api, ui, tests/benchmarks, scripts, migrations, docs; untracked additions include PLAN.md, PLAN_2.md, PLAN_3.md, PLAN_4.md, scripts/dev-up.sh, scripts/golden_path_adapter_chat.sh, scripts/make_minimal_dataset.py, scripts/start_minimal_training.sh, scripts/upload_minimal_dataset.sh, docs/EXECUTION_CONTRACT.md, tests/hydration_gating_test.rs, and crates/adapteros-ui/src/pages/training/data/*.
+Changed files since last cycle: 0 tracked diffs; untracked additions include PLAN.md, PLAN_2.md, PLAN_3.md, crates/adapteros-lora-kernel-mtl/src/layout_validator.rs, crates/adapteros-ui/src/pages/training/data/*, docs/EXECUTION_CONTRACT.md, migrations/0284_placeholder.sql, migrations/0287_placeholder.sql, migrations/0289_placeholder.sql, migrations/0292_backend_compile_flags.sql, scripts/dev-up.sh, scripts/golden_path_adapter_chat.sh, scripts/make_minimal_dataset.py, scripts/start_minimal_training.sh, scripts/upload_minimal_dataset.sh, scripts/verify_migration_signatures.py, scripts/worker-up.sh, tests/benchmark/src/evidence_benchmarks.rs, tests/benchmark/src/isolation_benchmarks.rs, tests/benchmark/src/kernel_benchmarks.rs, tests/benchmark/src/memory_benchmarks.rs, tests/benchmark/src/system_benchmarks.rs, tests/benchmark/src/throughput_benchmarks.rs, and tests/hydration_gating_test.rs.
 
 ## Work Map
 | Area | Owner Agent | Plan reference | Current status | Evidence link |
 | --- | --- | --- | --- | --- |
-| Boot/UI | Agent 3 | PLAN.md Checklist items 5-8; PLAN_3.md "Golden Path Command" + "Truth Surface UI" | Done-Needs-Proof (reassigned from Agent 1; proof pending) | scripts/dev-up.sh; QUICKSTART.md |
-| Dataset | Agent 4 | PLAN_2.md "Dataset" | Not started (reassigned from Agent 2; prior owner unresponsive) | N/A |
-| Training | Agent 4 | PLAN_2.md "Training (MLX)" | Not started (reassigned from Agent 2; prior owner unresponsive) | N/A |
-| Adapter | Agent 1 | PLAN_2.md "Adapter Registration / Discovery" | Not started (reassigned from Agent 3; prior owner unresponsive) | N/A |
-| Hydration | Agent 1 | PLAN_2.md "Hydration" | Not started (reassigned from Agent 3; prior owner unresponsive) | N/A |
-| Chat | Agent 1 | PLAN_2.md "Chat / Inference / Receipt" | Not started (reassigned from Agent 3; prior owner unresponsive) | N/A |
-| Tests | Agent 2 | PLAN_2.md test bullets; PLAN_3.md "CI Regression Gate" | In progress (reassigned from Agent 4; test/bench changes unmapped) | tests/benchmark/*; crates/adapteros-server-api/tests/* |
-| Docs | Agent 2 | PLAN.md Checklist item 7; PLAN_2.md "Documentation"; PLAN_3.md "Short Runbook" | In progress (reassigned from Agent 4; Quickstart claim needs proof, runbook missing) | QUICKSTART.md |
+| Boot/UI | Agent 4 | PLAN.md Checklist items 5-8; PLAN_3.md "Golden Path Command" + "Truth Surface UI" | Done-Needs-Proof (reassigned from Agent 3; proof pending) | scripts/dev-up.sh; QUICKSTART.md |
+| Dataset | Agent 1 | PLAN_2.md "Dataset" | Not started (reassigned from Agent 4; prior owner unresponsive) | N/A |
+| Training | Agent 1 | PLAN_2.md "Training (MLX)" | Not started (reassigned from Agent 4; prior owner unresponsive) | N/A |
+| Adapter | Agent 2 | PLAN_2.md "Adapter Registration / Discovery" | Not started (reassigned from Agent 1; prior owner unresponsive) | N/A |
+| Hydration | Agent 2 | PLAN_2.md "Hydration" | Not started (reassigned from Agent 1; prior owner unresponsive) | N/A |
+| Chat | Agent 2 | PLAN_2.md "Chat / Inference / Receipt" | Not started (reassigned from Agent 1; prior owner unresponsive) | N/A |
+| Tests | Agent 3 | PLAN_2.md test bullets; PLAN_3.md "CI Regression Gate" | In progress (reassigned from Agent 2; test/bench changes unmapped) | tests/benchmark/*; crates/adapteros-server-api/tests/* |
+| Docs | Agent 3 | PLAN.md Checklist item 7; PLAN_2.md "Documentation"; PLAN_3.md "Short Runbook" | In progress (reassigned from Agent 2; Quickstart claim needs proof, runbook missing) | QUICKSTART.md |
 
 ## Unresponsive Agents
-- Agent 1: no acknowledgement this cycle; previous owner Boot/UI; reassigned Boot/UI to Agent 3.
-- Agent 2: no acknowledgement this cycle; previous owner Dataset/Training; reassigned Dataset/Training to Agent 4.
-- Agent 3: no acknowledgement this cycle; previous owner Adapter/Hydration/Chat; reassigned Adapter/Hydration/Chat to Agent 1.
-- Agent 4: no acknowledgement this cycle; previous owner Tests/Docs; reassigned Tests/Docs to Agent 2.
+- Agent 1: no acknowledgement this cycle; previous owner Adapter/Hydration/Chat; reassigned Adapter/Hydration/Chat to Agent 2.
+- Agent 2: no acknowledgement this cycle; previous owner Tests/Docs; reassigned Tests/Docs to Agent 3.
+- Agent 3: no acknowledgement this cycle; previous owner Boot/UI; reassigned Boot/UI to Agent 4.
+- Agent 4: no acknowledgement this cycle; previous owner Dataset/Training; reassigned Dataset/Training to Agent 1.
 
 ## Done Claims (Proof Required)
 - PLAN.md Checklist item 1: Baseline repository + guidance review. Status: Done-Needs-Proof.
@@ -69,7 +69,7 @@ Changed files since last cycle: 157 tracked diffs across core/lora/worker, serve
    18: Rules:
    19: - Field required.
    20: - UTF-8.
-   Action taken: contaminated file deleted; canonical PLAN_4.md recreated. Required action: commit.
+   Action taken: contaminated file deleted; canonical PLAN_4.md recreated and committed in 71b165cb35a87f6c14d013199a793eb9029b74a4 (resolved).
 2) Files: crates/adapteros-core/*, crates/adapteros-lora-*/*, crates/adapteros-lora-kernel-mtl/*, crates/adapteros-lora-worker/*, crates/adapteros-core/src/seed.rs, migrations/signatures.json. Nature: determinism-critical surface changed without mapped plan item. Recommended owner: Agent 1. Required action: claim ownership, map each change to PLAN_2 objective, or revert.
 3) Files: crates/adapteros-ui/src/pages/training/*, crates/adapteros-ui/src/pages/training/data/*, crates/adapteros-api-types/src/system_status.rs, crates/adapteros-server-api/src/handlers/system_status.rs, crates/adapteros-server-api/src/state.rs. Nature: UI status/training pages changed alongside API types and handlers; risk of schema/UI drift. Recommended owner: Agent 3. Required action: confirm shared types + compile path, map to PLAN_3 truth surface.
 4) Files: tests/benchmark/*, crates/adapteros-server-api/tests/*, scripts/test/all.sh. Nature: test/bench changes overlap with CI gate plan; ownership unclear. Recommended owner: Agent 2. Required action: define which changes belong to CI gate and which are unrelated; provide evidence or quarantine.
@@ -81,14 +81,13 @@ Changed files since last cycle: 157 tracked diffs across core/lora/worker, serve
 - No verified dataset fixture under test_data/ that matches the locked dataset contract.
 - Untracked tests/hydration_gating_test.rs exists without plan mapping or evidence.
 - No scripts/ci/golden_path_smoke.sh or equivalent CI gate evidence.
-- PLAN_4.md committed after recreation (closed).
 
 ## Critical Paths
 - Dashboard + blank chat: 1) scripts/dev-up.sh exists and is canonical; 2) run ./scripts/dev-up.sh and verify /healthz + /readyz 200 and / serves UI HTML; 3) load / and confirm dashboard renders with explicit blank chat state.
 - One adapter-trained chat response: 1) complete dashboard + blank chat; 2) create/ingest dataset fixture per PLAN_4 contract; 3) train with 0.5B default and capture adapter id + .aos; 4) register + hydrate adapter and verify inference_ready; 5) run chat/infer and capture receipt fields.
 
 ## Directives
-Agent 1: Own Adapter/Hydration/Chat (PLAN_2 sections). Next actions: map adapter discovery + hydration gating to plan; verify receipt fields via one inference; provide adapter list/load + /v1/system/status outputs. Evidence required: command outputs + file paths. Avoid touching: scripts/*, docs/*, crates/adapteros-ui/*, tests/benchmark/*.
-Agent 2: Own Tests + Docs (PLAN_2 tests + documentation; PLAN_3 CI gate + runbook). Next actions: classify test/bench changes; define CI gate script or harness; update runbook. Evidence required: script paths + test output snippets + doc paths. Avoid touching: crates/adapteros-core/*, crates/adapteros-lora-*/*, crates/adapteros-ui/*.
-Agent 3: Own Boot/UI (PLAN.md items 5-8; PLAN_3 truth surface). Next actions: verify scripts/dev-up.sh evidence; confirm QUICKSTART.md mention; verify UI blank state in / output. Evidence required: dev-up log + curl output + file paths. Avoid touching: crates/adapteros-core/*, crates/adapteros-lora-*/*, tests/*.
-Agent 4: Own Dataset + Training (PLAN_2 sections; dataset contract locked). Next actions: define dataset fixture per PLAN_4; map untracked dataset/training scripts; document ingest + training commands. Evidence required: file paths + command outputs. Avoid touching: crates/adapteros-ui/*, tests/benchmark/*, scripts/test/*.
+Agent 1: Own Dataset + Training (PLAN_2 sections; dataset contract locked). Next actions: define dataset fixture per PLAN_4; map untracked dataset/training scripts; document ingest + training commands. Evidence required: file paths + command outputs. Avoid touching: crates/adapteros-ui/*, tests/benchmark/*, scripts/test/*.
+Agent 2: Own Adapter/Hydration/Chat (PLAN_2 sections). Next actions: map adapter discovery + hydration gating to plan; verify receipt fields via one inference; provide adapter list/load + /v1/system/status outputs. Evidence required: command outputs + file paths. Avoid touching: scripts/*, docs/*, crates/adapteros-ui/*, tests/benchmark/*.
+Agent 3: Own Tests + Docs (PLAN_2 tests + documentation; PLAN_3 CI gate + runbook). Next actions: classify test/bench changes; define CI gate script or harness; update runbook. Evidence required: script paths + test output snippets + doc paths. Avoid touching: crates/adapteros-core/*, crates/adapteros-lora-*/*, crates/adapteros-ui/*.
+Agent 4: Own Boot/UI (PLAN.md items 5-8; PLAN_3 truth surface). Next actions: verify scripts/dev-up.sh evidence; confirm QUICKSTART.md mention; verify UI blank state in / output. Evidence required: dev-up log + curl output + file paths. Avoid touching: crates/adapteros-core/*, crates/adapteros-lora-*/*, tests/*.
