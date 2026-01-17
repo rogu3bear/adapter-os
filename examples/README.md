@@ -14,6 +14,9 @@ This directory contains example code and data files demonstrating how to use ada
 ### Calibration Examples
 - `router_calibration_example.json` - Sample calibration dataset for router weight optimization
 
+### Diagnostics Examples
+- `diagnostics/README.md` - Diagnostic bundle and export workflows
+
 ### Manifests
 - `manifests/qwen7b.json` - Qwen 2.5-7B model manifest example
 
@@ -152,4 +155,3 @@ When adding new examples:
 ## Questions?
 
 See the main documentation in `/docs/` or the P3 usage guide for detailed information on all features.
-

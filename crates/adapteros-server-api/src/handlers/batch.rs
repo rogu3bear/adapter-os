@@ -8,7 +8,7 @@ use crate::types::{
     BatchInferItemRequest, BatchInferItemResponse, BatchInferRequest, BatchInferResponse,
     BatchItemResultResponse, BatchItemsQuery, BatchItemsResponse, BatchJobResponse,
     BatchStatusResponse, CreateBatchJobRequest, ErrorResponse, InferResponse,
-    InferenceRequestInternal,
+    InferenceRequestInternal, MAX_REPLAY_TEXT_SIZE,
 };
 use adapteros_db::{CreateBatchItemParams, CreateBatchJobParams};
 use axum::{
@@ -108,6 +108,17 @@ pub async fn batch_infer(
                             ErrorResponse::new("prompt cannot be empty")
                                 .with_code("BAD_REQUEST")
                                 .with_string_details("Each batch item must include a prompt"),
+                        ),
+                    };
+                }
+                if item.request.prompt.len() > MAX_REPLAY_TEXT_SIZE {
+                    return BatchInferItemResponse {
+                        id: item.id,
+                        response: None,
+                        error: Some(
+                            ErrorResponse::new("prompt too long for context window")
+                                .with_code("BAD_REQUEST")
+                                .with_string_details("Prompt exceeds maximum size"),
                         ),
                     };
                 }

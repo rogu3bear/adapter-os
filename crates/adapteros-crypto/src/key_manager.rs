@@ -269,16 +269,16 @@ impl KeyManager {
 
     /// Get the fingerprint of the current key
     ///
-    /// Returns a BLAKE3 hash derived from a deterministic signature.
+    /// Returns a BLAKE3 hash of a deterministic signature for identification.
     pub async fn key_fingerprint(&self, key_id: &str) -> Result<String> {
         debug!(key_id = %key_id, "Computing key fingerprint");
 
-        // Generate a deterministic signature as a stable key fingerprint.
+        // Generate a deterministic signature to fingerprint the key material.
         let provider = self.provider.read().await;
         let test_msg = b"fingerprint-test";
         let signature = provider.sign(key_id, test_msg).await?;
-
-        Ok(B3Hash::hash(&signature).to_hex())
+        let hash = B3Hash::hash(&signature);
+        Ok(hex::encode(hash.as_bytes()))
     }
 
     /// Get the current provider mode

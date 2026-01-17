@@ -882,6 +882,21 @@ trait KeyringImpl: Send + Sync + std::any::Any {
     fn as_any(&self) -> &dyn std::any::Any;
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn lock_key_cache(
+    keys: &std::sync::Mutex<HashMap<String, KeyHandle>>,
+) -> Result<std::sync::MutexGuard<'_, HashMap<String, KeyHandle>>> {
+    keys.lock()
+        .map_err(|_| AosError::Crypto("Key cache lock poisoned".to_string()))
+}
+
+fn unix_timestamp() -> Result<u64> {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| AosError::Crypto(format!("System time before UNIX_EPOCH: {}", e)))
+        .map(|duration| duration.as_secs())
+}
+
 /// macOS Keychain implementation using Security Framework
 #[cfg(target_os = "macos")]
 struct MacKeychain {
@@ -898,12 +913,6 @@ impl MacKeychain {
         }
     }
 
-    fn lock_keys(&self) -> Result<std::sync::MutexGuard<'_, HashMap<String, KeyHandle>>> {
-        self.keys
-            .lock()
-            .map_err(|_| AosError::Crypto("Key cache lock poisoned".to_string()))
-    }
-
     /// Store Ed25519 private key in macOS Keychain using native APIs
     fn store_ed25519_private_key(
         &self,
@@ -913,7 +922,7 @@ impl MacKeychain {
         let key_data = signing_key.to_bytes();
 
         let account = format!("{}-ed25519", key_id);
-        let label = format!("adapterOS Ed25519 Key: {}", key_id);
+        let label = format!("AdapterOS Ed25519 Key: {}", key_id);
 
         self.store_keychain_item(&account, &label, &key_data)?;
 
@@ -1008,7 +1017,7 @@ impl MacKeychain {
     /// Store symmetric key in macOS Keychain using native APIs
     fn store_symmetric_key(&self, key_id: &str, key_data: &[u8]) -> Result<()> {
         let account = format!("{}-symmetric", key_id);
-        let label = format!("adapterOS Symmetric Key: {}", key_id);
+        let label = format!("AdapterOS Symmetric Key: {}", key_id);
 
         self.store_keychain_item(&account, &label, key_data)?;
 
@@ -1220,8 +1229,7 @@ impl KeyringImpl for MacKeychain {
                 );
 
                 // Cache handle in memory for faster lookups
-                let mut keys = self.lock_keys()?;
-                keys.insert(key_id.to_string(), handle.clone());
+                lock_key_cache(&self.keys)?.insert(key_id.to_string(), handle.clone());
 
                 info!(key_id = %key_id, algorithm = ?alg, "Generated Ed25519 key and stored in macOS Keychain");
                 Ok(handle)
@@ -1241,8 +1249,7 @@ impl KeyringImpl for MacKeychain {
                     KeyHandle::new(format!("{}:{}", self.service_name, key_id), alg.clone());
 
                 // Cache handle in memory for faster lookups
-                let mut keys = self.lock_keys()?;
-                keys.insert(key_id.to_string(), handle.clone());
+                lock_key_cache(&self.keys)?.insert(key_id.to_string(), handle.clone());
 
                 info!(key_id = %key_id, algorithm = ?alg, "Generated symmetric key and stored in macOS Keychain");
                 Ok(handle)
@@ -1356,7 +1363,7 @@ impl KeyringImpl for MacKeychain {
     async fn rotate_key(&self, key_id: &str) -> Result<RotationReceipt> {
         // Get previous handle and drop lock before await
         let previous_handle = {
-            let keys = self.lock_keys()?;
+            let keys = lock_key_cache(&self.keys)?;
             keys.get(key_id)
                 .cloned()
                 .ok_or_else(|| AosError::Crypto(format!("Key not found: {}", key_id)))?
@@ -1382,10 +1389,7 @@ impl KeyringImpl for MacKeychain {
         // Generate new key (will store in keychain)
         let new_handle = self.generate_key(key_id, algorithm.clone()).await?;
 
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|e| AosError::Crypto(format!("System time before UNIX_EPOCH: {}", e)))?
-            .as_secs();
+        let timestamp = unix_timestamp()?;
 
         // Create receipt data to sign
         let receipt_data = format!(
@@ -1409,16 +1413,14 @@ impl KeyringImpl for MacKeychain {
     }
 
     async fn attest(&self) -> Result<ProviderAttestation> {
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|e| AosError::Crypto(format!("System time before UNIX_EPOCH: {}", e)))?
-            .as_secs();
+        let timestamp = unix_timestamp()?;
 
         // Calculate policy hash from provider configuration and state
-        let keys_len = self.lock_keys()?.len();
         let policy_data = format!(
             "provider:macos-keychain|service:{}|timestamp:{}|keys:{}",
-            self.service_name, timestamp, keys_len
+            self.service_name,
+            timestamp,
+            lock_key_cache(&self.keys)?.len()
         );
         use sha2::{Digest, Sha256};
         let policy_hash = format!("{:x}", Sha256::digest(&policy_data));
@@ -1514,12 +1516,6 @@ impl LinuxKeyring {
         }
     }
 
-    fn lock_keys(&self) -> Result<std::sync::MutexGuard<'_, HashMap<String, KeyHandle>>> {
-        self.keys
-            .lock()
-            .map_err(|_| AosError::Crypto("Key cache lock poisoned".to_string()))
-    }
-
     /// Detect which backend to use with sophisticated retry logic
     fn detect_backend() -> LinuxKeyringBackend {
         #[cfg(feature = "linux-keychain")]
@@ -1613,23 +1609,29 @@ impl LinuxKeyring {
             LinuxKeyringBackend::KernelKeyring => {
                 #[cfg(feature = "linux-keychain")]
                 {
-                    // Test if kernel keyring is still available
-                    use nix::unistd::getuid;
-                    unsafe {
-                        if libc::keyctl_get_persistent(
-                            getuid().as_raw() as u32,
-                            libc::KEY_SPEC_USER_KEYRING as i32,
-                        ) == -1
-                        {
-                            let errno = std::io::Error::last_os_error();
-                            error!(error = %errno, "Kernel keyring backend became unhealthy");
-                            return Err(AosError::Crypto(
-                                "Kernel keyring backend is no longer available".to_string(),
-                            ));
-                        }
-                    }
+                    self.verify_kernel_keyring_available()?;
                 }
             }
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "linux-keychain")]
+    fn verify_kernel_keyring_available(&self) -> Result<()> {
+        // Test if kernel keyring is still available
+        use nix::unistd::getuid;
+        let keyring_id = unsafe {
+            libc::keyctl_get_persistent(
+                getuid().as_raw() as u32,
+                libc::KEY_SPEC_USER_KEYRING as i32,
+            )
+        };
+        if keyring_id == -1 {
+            let errno = std::io::Error::last_os_error();
+            error!(error = %errno, "Kernel keyring backend became unhealthy");
+            return Err(AosError::Crypto(
+                "Kernel keyring backend is no longer available".to_string(),
+            ));
         }
         Ok(())
     }
@@ -1686,7 +1688,7 @@ impl LinuxKeyring {
             attributes.insert("key-type".to_string(), "ed25519".to_string());
             attributes.insert("key-id".to_string(), key_id.to_string());
 
-            let label = format!("adapterOS Ed25519 Key: {}", key_id);
+            let label = format!("AdapterOS Ed25519 Key: {}", key_id);
 
             // Store the secret
             collection
@@ -2025,7 +2027,7 @@ impl LinuxKeyring {
             attributes.insert("key-type".to_string(), "symmetric".to_string());
             attributes.insert("key-id".to_string(), key_id.to_string());
 
-            let label = format!("adapterOS Symmetric Key: {}", key_id);
+            let label = format!("AdapterOS Symmetric Key: {}", key_id);
 
             // Store the secret
             collection.create_item(
@@ -2302,7 +2304,7 @@ impl LinuxKeyring {
         use tracing::warn;
         warn!(account = %account, "Linux keychain deletion not fully implemented");
         // Remove from in-memory cache
-        let mut keys = self.lock_keys()?;
+        let mut keys = lock_key_cache(&self.keys)?;
         keys.retain(|k, _| !k.contains(account));
         Ok(())
     }
@@ -2343,8 +2345,7 @@ impl KeyringImpl for LinuxKeyring {
         };
 
         // Cache handle in memory for faster lookups
-        let mut keys = self.lock_keys()?;
-        keys.insert(key_id.to_string(), handle.clone());
+        lock_key_cache(&self.keys)?.insert(key_id.to_string(), handle.clone());
 
         info!(key_id = %key_id, algorithm = ?handle.algorithm, "Generated key and stored in Linux keyring");
         Ok(handle)
@@ -2454,7 +2455,7 @@ impl KeyringImpl for LinuxKeyring {
     async fn rotate_key(&self, key_id: &str) -> Result<RotationReceipt> {
         // Get previous handle and drop lock before await
         let previous_handle = {
-            let keys = self.lock_keys()?;
+            let keys = lock_key_cache(&self.keys)?;
             keys.get(key_id)
                 .cloned()
                 .ok_or_else(|| AosError::Crypto(format!("Key not found: {}", key_id)))?
@@ -2480,10 +2481,7 @@ impl KeyringImpl for LinuxKeyring {
         // Generate new key (will store in keychain)
         let new_handle = self.generate_key(key_id, algorithm.clone()).await?;
 
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|e| AosError::Crypto(format!("System time before UNIX_EPOCH: {}", e)))?
-            .as_secs();
+        let timestamp = unix_timestamp()?;
 
         // Create receipt data to sign
         let receipt_data = format!(
@@ -2507,10 +2505,7 @@ impl KeyringImpl for LinuxKeyring {
     }
 
     async fn attest(&self) -> Result<ProviderAttestation> {
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|e| AosError::Crypto(format!("System time before UNIX_EPOCH: {}", e)))?
-            .as_secs();
+        let timestamp = unix_timestamp()?;
 
         // Determine provider type based on backend
         let provider_type = match self.backend {
@@ -2519,10 +2514,12 @@ impl KeyringImpl for LinuxKeyring {
         };
 
         // Calculate policy hash from provider configuration and state
-        let keys_len = self.lock_keys()?.len();
         let policy_data = format!(
             "provider:{}|service:{}|timestamp:{}|keys:{}",
-            provider_type, self.service_name, timestamp, keys_len
+            provider_type,
+            self.service_name,
+            timestamp,
+            lock_key_cache(&self.keys)?.len()
         );
         use sha2::{Digest, Sha256};
         let policy_hash = format!("{:x}", Sha256::digest(&policy_data));
@@ -2552,13 +2549,13 @@ impl KeyringImpl for LinuxKeyring {
         match self.backend {
             LinuxKeyringBackend::SecretService => {
                 // For secret-service, just verify we can access the keys map
-                let _guard = self.lock_keys()?;
+                let _guard = lock_key_cache(&self.keys)?;
                 drop(_guard);
                 Ok(())
             }
             LinuxKeyringBackend::KernelKeyring => {
                 // For kernel keyring, verify we can access the keys map
-                let _guard = self.lock_keys()?;
+                let _guard = lock_key_cache(&self.keys)?;
                 drop(_guard);
                 Ok(())
             }

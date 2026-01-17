@@ -400,13 +400,17 @@ mod tests {
 
     #[test]
     fn compat_env_alias_is_honored() {
-        let _lock = env_lock();
-        // Clear primary var first so compat can take effect
-        std::env::remove_var(ENV_ADAPTERS_ROOT);
-        std::env::set_var(ENV_ADAPTERS_DIR_COMPAT, "/env/compat");
+        let _guard = env_lock();
+        unsafe {
+            // Clear primary var first so compat can take effect
+            std::env::remove_var(ENV_ADAPTERS_ROOT);
+            std::env::set_var(ENV_ADAPTERS_DIR_COMPAT, "/env/compat");
+        }
         let paths = RepoAdapterPaths::from_env_and_config(None);
         assert_eq!(paths.repo_root, PathBuf::from("/env/compat"));
-        std::env::remove_var(ENV_ADAPTERS_DIR_COMPAT);
+        unsafe {
+            std::env::remove_var(ENV_ADAPTERS_DIR_COMPAT);
+        }
     }
 
     #[test]
@@ -560,23 +564,31 @@ mod tests {
 
     #[test]
     fn env_compat_alias_used_when_set() {
-        let _lock = env_lock();
-        // Clear primary var first so compat can take effect
-        std::env::remove_var(ENV_ADAPTERS_ROOT);
-        std::env::set_var(ENV_ADAPTERS_DIR_COMPAT, "/env/compat");
+        let _guard = env_lock();
+        unsafe {
+            // Clear primary var first so compat can take effect
+            std::env::remove_var(ENV_ADAPTERS_ROOT);
+            std::env::set_var(ENV_ADAPTERS_DIR_COMPAT, "/env/compat");
+        }
         let paths = RepoAdapterPaths::from_env_and_config(None);
         assert_eq!(paths.repo_root, PathBuf::from("/env/compat"));
-        std::env::remove_var(ENV_ADAPTERS_DIR_COMPAT);
+        unsafe {
+            std::env::remove_var(ENV_ADAPTERS_DIR_COMPAT);
+        }
     }
 
     #[test]
     fn env_primary_adapters_dir_is_used() {
-        let _lock = env_lock();
-        // Clear compat var to avoid interference
-        std::env::remove_var(ENV_ADAPTERS_DIR_COMPAT);
-        std::env::set_var(ENV_ADAPTERS_ROOT, "/env/primary");
+        let _guard = env_lock();
+        unsafe {
+            // Clear compat var to avoid interference
+            std::env::remove_var(ENV_ADAPTERS_DIR_COMPAT);
+            std::env::set_var(ENV_ADAPTERS_ROOT, "/env/primary");
+        }
         let paths = RepoAdapterPaths::from_env_and_config(None);
         assert_eq!(paths.repo_root, PathBuf::from("/env/primary"));
-        std::env::remove_var(ENV_ADAPTERS_ROOT);
+        unsafe {
+            std::env::remove_var(ENV_ADAPTERS_ROOT);
+        }
     }
 }

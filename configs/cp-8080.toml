@@ -17,7 +17,9 @@ path = "var/aos-cp.sqlite3"
 # MUST be true in production!
 require_pf_deny = false
 mtls_required = false
-jwt_secret = "CHANGE_ME_IN_PRODUCTION_USE_64_CHAR_RANDOM_STRING_HERE_XXXXXXXXX"
+# SECURITY: leave empty here and set AOS_SECURITY_JWT_SECRET in your env.
+# Generate with: openssl rand -base64 64
+jwt_secret = ""
 # 32-byte hex string for deterministic executor seeding
 global_seed = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 

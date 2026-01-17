@@ -4,29 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-adapterOS is a Rust-based deterministic ML inference platform for Apple Silicon. It provides K-sparse LoRA routing, Metal-optimized kernels, and policy enforcement for production environments. The system is designed for air-gapped deployments with zero network egress during serving.
-
-**Getting Started**: See [docs/getting-started.md](docs/getting-started.md) for the canonical setup guide (5-minute quick start, prerequisites, verification).
-
-## Code with Taste
-
-We value tasteful code. This means:
-
-- **Restraint**: Do only what's asked. A bug fix is a bug fix—not an opportunity to refactor adjacent code, add docstrings, or "improve" things that weren't broken.
-- **Contextual fit**: Match the existing codebase idioms. Don't impose new patterns when the code already has established conventions.
-- **Proportionality**: Match solution complexity to problem complexity. Three similar lines are better than a premature abstraction.
-- **Elegance over cleverness**: Prefer boring, readable solutions over clever ones. The goal is clarity for future readers, not impressiveness.
-- **Negative space**: Taste is as much about what you *don't* do. No unsolicited improvements, no "while I'm here" changes, no scope creep.
-
-When in doubt, do less. The right change is often the smallest one that solves the problem.
-
-### Opportunities Are Not Mandates
-
-Complex work surfaces many opportunities - a function that could be cleaner, a pattern that could be extracted, a bug adjacent to your change. Seeing an opportunity does not mean taking it.
-
-Most opportunities are traps. They feel productive. They expand the diff. They create the satisfying illusion of thoroughness. But they dilute focus, introduce risk, and burden reviewers with unrelated decisions.
-
-A tasteful agent sees the opportunity, evaluates whether it was asked for, and usually lets it pass. The restraint *is* the skill.
+AdapterOS is a Rust-based deterministic ML inference platform for Apple Silicon. It provides K-sparse LoRA routing, Metal-optimized kernels, and policy enforcement for production environments. The system is designed for air-gapped deployments with zero network egress during serving.
 
 ## Build Commands
 
@@ -116,28 +94,6 @@ cargo test -p adapteros-e2e --features prod-gate
 ./aosctl policy list             # List policy packs
 ./aosctl explain <error-code>    # Explain an error code
 
-# Diagnostics bundles
-./aosctl diag --system                           # Run system diagnostics
-./aosctl diag --bundle ./diag_bundle.zip         # Export diagnostic bundle
-./aosctl diag --bundle ./diag_bundle.zip --cpid <cpid>  # Filter telemetry to CPID (alias: --trace-id)
-./aosctl diag --bundle ./diag_bundle.zip --full-db      # Include full database state
-
-# Offline verification (air-gapped)
-unzip ./diag_bundle.zip -d ./diag_bundle
-./aosctl verify telemetry --bundle-dir ./diag_bundle/telemetry
-```
-
-Diagnostic verbosity levels (capture granularity)
-
-| Level | Captured events | Use case |
-|-------|-----------------|----------|
-| `off` | None | Production (minimal overhead) |
-| `errors` | Failures only | Production monitoring |
-| `stages` | Stage enter/exit | Performance profiling |
-| `router` | + Routing decisions | Adapter selection debugging |
-| `tokens` | + Token-level detail | Deep inference debugging |
-
-```bash
 # Train adapter on markdown documentation (end-to-end pipeline)
 ./aosctl train-docs --docs-dir ./my-docs --dry-run              # Preview what will be trained
 ./aosctl train-docs --docs-dir ./my-docs --register \
@@ -161,28 +117,15 @@ Diagnostic verbosity levels (capture granularity)
 ./aosctl serve --insecure-skip-egress-check            # Skip PF egress preflight (dev only)
 ```
 
-Minimal diagnostics config example (control plane TOML):
+### Stubbed/Partial CLI Commands
 
-```toml
-# configs/cp.toml
-[diagnostics]
-enabled = true
-level = "stages"
-```
-Full reference: `docs/CONFIGURATION.md#diagnostics-configuration`.
+The following CLI paths are intentionally stubbed or only partially implemented:
 
-## Command Status
-
-| Command | Status | Notes / Workaround |
-|---------|--------|--------------------|
-| `aosctl aos migrate` | ✓ Implemented | Migrates .aos files between format versions with backup support. |
-| `aosctl node sync export` | [NOT IMPLEMENTED] | Air-gap workflow is not available; use `aosctl node sync push/pull` on connected nodes. |
-| `aosctl node sync import` | [NOT IMPLEMENTED] | Air-gap workflow is not available; use `aosctl node sync push/pull` on connected nodes. |
-| `aosctl cdp list` | ✓ Implemented | Lists CDPs for a repository with table/JSON output. |
-| `aosctl adapter migrate-hashes` | ✓ Implemented | Batch migration for missing adapter hashes with dry-run support. |
-| `aosctl serve --backend coreml` | ✓ Implemented | CoreML backend for macOS Neural Engine acceleration. |
-
-Tracking: https://github.com/rogu3bear/adapter-os/issues/194
+- `aosctl agent spawn|worker` (orchestrator integration pending; list/status/cancel are mock)
+- `aosctl router safe-mode` (prints intent; RouterConfig lacks safe_mode field)
+- `aosctl metrics history|export|check|violations` (requires metrics DB integration; placeholder output)
+- `aosctl telemetry list --by-stack/--event-type` (bundle parsing pending; shows bundle metadata only)
+- `aosctl policy enforce` / `aosctl policy hash-verify` (dry-run/placeholder verification)
 
 ## UI (Leptos WASM)
 
@@ -212,7 +155,7 @@ cargo test -p adapteros-ui --lib
 - `src/components/` - Leptos components (Button, Card, Table, etc.)
 - `src/pages/` - Route pages (Dashboard, Adapters, Chat, etc.)
 - `src/hooks/` - Custom hooks (use_api_resource, use_polling, etc.)
-- `src/signals/` - State management and context providers (auth, chat, notifications)
+- `src/contexts/` - Context providers (AuthProvider)
 - `src/validation.rs` - Form validation rules (PRD-UI-150)
 
 ### Shared API Types
@@ -236,7 +179,7 @@ The `Trunk.toml` configures the WASM build:
 ### PRD Acceptance Criteria
 
 **PRD-UI-150: Forms & Validation**
-- [x] 10 validation rule types in `validation.rs`
+- [x] 11+ validation rule types in `validation.rs`
 - [x] Field-level error mapping via `FormErrors` signal
 - [x] Typed confirmation for destructive actions (`ConfirmationDialog`)
 - [x] DangerZone component for high-risk operations
@@ -286,7 +229,7 @@ See `dist/glass.css` header for full spec. Key rules:
 - **adapteros-cli**: Command-line tool (`aosctl`)
 
 ### Supporting Crates
-- **adapteros-policy**: 30 canonical policy packs
+- **adapteros-policy**: 25+ canonical policy packs
 - **adapteros-telemetry**: Event logging with Merkle trees
 - **adapteros-crypto**: Ed25519 signing, BLAKE3 hashing
 - **adapteros-config**: Deterministic configuration with precedence
@@ -425,7 +368,7 @@ cargo clippy --workspace -- -D warnings
 
 ## Human-in-the-Loop Review
 
-adapterOS supports a review workflow where the system surfaces items needing human review (inference pauses, dataset safety gates, promotion approvals). External reviewers—including AI assistants like Claude Code—can provide structured feedback.
+AdapterOS supports a review workflow where the system surfaces items needing human review (inference pauses, dataset safety gates, promotion approvals). External reviewers—including AI assistants like Claude Code—can provide structured feedback.
 
 See `docs/REVIEW_WORKFLOW.md` for the full architecture.
 

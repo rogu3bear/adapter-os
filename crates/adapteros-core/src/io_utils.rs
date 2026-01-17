@@ -8,11 +8,10 @@
 //!
 //! # Example
 //!
-//! ```rust,no_run
+//! ```rust
 //! use adapteros_core::io_utils::{check_disk_space, validate_path_characters, ensure_temp_dir};
 //! use std::path::Path;
 //!
-//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! // Check disk space with 10% margin before large write
 //! check_disk_space(Path::new("/tmp"), 1024 * 1024 * 100)?; // 100 MB
 //!
@@ -21,11 +20,9 @@
 //!
 //! // Ensure temp directory exists
 //! let temp_dir = ensure_temp_dir(Path::new("/tmp/my_app"))?;
-//! # Ok(())
-//! # }
+//! ```
 
 use crate::{AosError, Result};
-use fs2::available_space;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tracing::{debug, warn};
@@ -167,25 +164,14 @@ pub fn classify_and_convert_io_error(
 /// - Unix: Uses `statvfs`
 /// - Windows: Uses `GetDiskFreeSpaceExW`
 pub fn get_available_space(path: &Path) -> Result<u64> {
-    #[cfg(any(unix, windows))]
+    #[cfg(unix)]
     {
-        #[cfg(unix)]
-        let fallback_root = Path::new("/");
-        #[cfg(windows)]
-        let fallback_root = Path::new("C:\\");
+        get_available_space_unix(path)
+    }
 
-        // Find the actual mount point by traversing up until we find an existing directory
-        let check_path = if path.exists() {
-            path.to_path_buf()
-        } else {
-            path.ancestors()
-                .find(|p| p.exists())
-                .unwrap_or(fallback_root)
-                .to_path_buf()
-        };
-
-        available_space(&check_path)
-            .map_err(|err| classify_and_convert_io_error(err, path, "available_space"))
+    #[cfg(windows)]
+    {
+        get_available_space_windows(path)
     }
 
     #[cfg(not(any(unix, windows)))]
@@ -197,6 +183,87 @@ pub fn get_available_space(path: &Path) -> Result<u64> {
         );
         Ok(u64::MAX)
     }
+}
+
+#[cfg(unix)]
+fn get_available_space_unix(path: &Path) -> Result<u64> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+
+    // Find the actual mount point by traversing up until we find an existing directory
+    let check_path = if path.exists() {
+        path.to_path_buf()
+    } else {
+        path.ancestors()
+            .find(|p| p.exists())
+            .unwrap_or(Path::new("/"))
+            .to_path_buf()
+    };
+
+    let path_cstr = CString::new(check_path.as_os_str().as_bytes()).map_err(|e| {
+        AosError::InvalidPathCharacters {
+            path: path.display().to_string(),
+            details: format!("Path contains null byte: {}", e),
+            invalid_chars: vec!['\0'],
+        }
+    })?;
+
+    let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+    let result = unsafe { libc::statvfs(path_cstr.as_ptr(), &mut stat) };
+
+    if result != 0 {
+        let err = std::io::Error::last_os_error();
+        return Err(classify_and_convert_io_error(err, path, "statvfs"));
+    }
+
+    // Available space = available blocks * block size
+    let available = stat.f_bavail as u64 * stat.f_frsize;
+    Ok(available)
+}
+
+#[cfg(windows)]
+fn get_available_space_windows(path: &Path) -> Result<u64> {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+
+    let check_path = if path.exists() {
+        path.to_path_buf()
+    } else {
+        path.ancestors()
+            .find(|p| p.exists())
+            .unwrap_or(Path::new("C:\\"))
+            .to_path_buf()
+    };
+
+    let wide_path: Vec<u16> = check_path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+
+    let mut free_bytes: u64 = 0;
+    let mut total_bytes: u64 = 0;
+    let mut total_free_bytes: u64 = 0;
+
+    let result = unsafe {
+        windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW(
+            wide_path.as_ptr(),
+            &mut free_bytes as *mut _,
+            &mut total_bytes as *mut _,
+            &mut total_free_bytes as *mut _,
+        )
+    };
+
+    if result == 0 {
+        let err = std::io::Error::last_os_error();
+        return Err(classify_and_convert_io_error(
+            err,
+            path,
+            "GetDiskFreeSpaceExW",
+        ));
+    }
+
+    Ok(free_bytes)
 }
 
 /// Check if there is sufficient disk space for a write operation
@@ -211,15 +278,12 @@ pub fn get_available_space(path: &Path) -> Result<u64> {
 ///
 /// # Example
 ///
-/// ```rust,no_run
+/// ```rust
 /// use adapteros_core::io_utils::check_disk_space;
 /// use std::path::Path;
 ///
-/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// // Check for 100 MB of space (will actually require 110 MB with margin)
 /// check_disk_space(Path::new("/tmp"), 100 * 1024 * 1024)?;
-/// # Ok(())
-/// # }
 /// ```
 pub fn check_disk_space(path: &Path, required_bytes: u64) -> Result<()> {
     let required_with_margin =
@@ -280,19 +344,16 @@ const INVALID_PATH_CHARS: &[char] = &['\0'];
 ///
 /// # Example
 ///
-/// ```rust,no_run
+/// ```rust
 /// use adapteros_core::io_utils::validate_path_characters;
 /// use std::path::Path;
 ///
-/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// // Valid path
 /// validate_path_characters(Path::new("/home/user/file.txt"))?;
 ///
 /// // Invalid path (on Windows)
 /// let result = validate_path_characters(Path::new("/home/user/file<>.txt"));
 /// assert!(result.is_err()); // Contains < and >
-/// # Ok(())
-/// # }
 /// ```
 pub fn validate_path_characters(path: &Path) -> Result<()> {
     // First check if the path is valid UTF-8
@@ -336,15 +397,12 @@ pub fn validate_path_characters(path: &Path) -> Result<()> {
 ///
 /// # Example
 ///
-/// ```rust,no_run
+/// ```rust
 /// use adapteros_core::io_utils::ensure_temp_dir;
 /// use std::path::Path;
 ///
-/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let temp_dir = ensure_temp_dir(Path::new("/tmp/my_app/cache"))?;
 /// // temp_dir now exists and contains the canonical path
-/// # Ok(())
-/// # }
 /// ```
 pub fn ensure_temp_dir(path: &Path) -> Result<PathBuf> {
     if path.exists() {

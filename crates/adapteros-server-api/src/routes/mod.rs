@@ -2145,7 +2145,6 @@ pub fn build(state: AppState) -> Router {
             let store = idempotency_store.clone();
             async move { idempotency_middleware(store, req, next).await }
         })) // Idempotency for mutation requests
-        .layer(CompressionLayer::new()) // Response compression (gzip, br, deflate)
         .layer(cors_layer()) // CORS configuration
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
@@ -2179,6 +2178,7 @@ pub fn build(state: AppState) -> Router {
             state.clone(),
             crate::middleware::observability_middleware,
         )) // Logging + error envelope
+        .layer(CompressionLayer::new()) // Response compression (gzip, br, deflate)
         .layer(axum::middleware::from_fn(request_id::request_id_middleware)) // Request ID tracking (outermost)
         .with_state(state.clone());
 

@@ -1,4 +1,4 @@
-//! adapterOS CLI tool (aosctl)
+//! AdapterOS CLI tool (aosctl)
 
 #![allow(clippy::needless_borrow)]
 #![allow(clippy::needless_borrows_for_generic_args)]
@@ -35,18 +35,20 @@ use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 use std::path::{Path, PathBuf};
 
-mod auth_store;
-mod cdp;
 mod cli;
-mod cli_telemetry;
 mod cmd_replay;
 mod cmd_trace_export;
-mod commands;
-mod error_codes;
-mod formatting;
-mod http_client;
-mod logging;
-mod output;
+
+// Use commands from library crate to avoid duplicate module compilation
+use adapteros_cli::auth_store;
+use adapteros_cli::cli_telemetry;
+use adapteros_cli::commands;
+use adapteros_cli::error_codes;
+use adapteros_cli::formatting;
+use adapteros_cli::http_client;
+use adapteros_cli::local_inference;
+use adapteros_cli::logging;
+use adapteros_cli::output;
 
 use adapteros_lora_worker::memory::{MemoryPressureLevel, UmaPressureMonitor};
 use commands::golden::GoldenCmd;
@@ -55,33 +57,12 @@ use commands::*;
 use logging::init_logging;
 use output::{OutputMode, OutputWriter};
 
-/// Backend type selection for inference
-///
-/// This is a CLI-specific wrapper that converts to `BackendPreference` from `adapteros-config`.
-#[derive(Debug, Clone, clap::ValueEnum)]
-pub enum BackendType {
-    /// Metal backend (macOS GPU)
-    Metal,
-    /// MLX backend (C++ FFI)
-    #[clap(name = "mlx")]
-    MLX,
-    /// CoreML backend (macOS Neural Engine)
-    CoreML,
-}
-
-impl From<BackendType> for adapteros_config::BackendPreference {
-    fn from(bt: BackendType) -> Self {
-        match bt {
-            BackendType::Metal => adapteros_config::BackendPreference::Metal,
-            BackendType::MLX => adapteros_config::BackendPreference::Mlx,
-            BackendType::CoreML => adapteros_config::BackendPreference::CoreML,
-        }
-    }
-}
+// Use BackendType from library crate
+use adapteros_cli::BackendType;
 
 #[derive(Parser)]
 #[command(name = "aosctl")]
-#[command(about = "adapterOS command-line interface", long_about = None)]
+#[command(about = "AdapterOS command-line interface", long_about = None)]
 #[command(version)]
 struct Cli {
     #[command(subcommand)]
@@ -204,16 +185,19 @@ Examples:
     #[command(subcommand, visible_alias = "stacks")]
     Stack(stack::StackCommand),
 
-    /// .aos file management commands (create, load, verify, migrate)
-    #[command(subcommand)]
-    Aos(commands::aos::AosCmd),
-
     // ============================================================
     // Interactive Chat
     // ============================================================
     /// Interactive chat with streaming inference
     #[command(subcommand)]
     Chat(chat::ChatCommand),
+
+    // ============================================================
+    // Multi-Agent Operations
+    // ============================================================
+    /// Multi-agent spawn commands for parallel code modification strategies
+    #[command(subcommand)]
+    Agent(commands::agent::AgentCommand),
 
     // ============================================================
     // Development Commands
@@ -370,6 +354,13 @@ Examples:
     /// Database management commands (migrate, reset)
     #[command(subcommand)]
     Db(commands::db::DbCommand),
+
+    // ============================================================
+    // Review Management
+    // ============================================================
+    /// Human-in-the-loop review commands (list, submit, export)
+    #[command(subcommand)]
+    Review(commands::review::ReviewCommand),
 
     // ============================================================
     // Model Management
@@ -858,7 +849,7 @@ Examples:
         output: PathBuf,
     },
 
-    /// Bootstrap adapterOS installation
+    /// Bootstrap AdapterOS installation
     #[command(after_help = "\
 Examples:
   # Full installation
@@ -919,21 +910,6 @@ Examples:
     // ============================================================
     // Documentation & Help
     // ============================================================
-    /// Run system diagnostics
-    #[command(after_help = "\
-Examples:
-  # Full system diagnostics
-  aosctl diag --full
-
-  # System checks only
-  aosctl diag --system
-
-  # Tenant-specific checks
-  aosctl diag --tenant dev
-
-  # Create diagnostic bundle
-  aosctl diag --full --bundle ./diag_bundle.zip
-")]
     /// Show backend status and capabilities
     #[command(after_help = "\
 Examples:
@@ -948,68 +924,17 @@ Examples:
 ")]
     BackendStatus(commands::backend_status::BackendStatusArgs),
 
-    /// Run diagnostics and health checks
-    #[command(after_help = "\
-Examples:
-  # Full system diagnostics
-  aosctl diag
+    /// Run diagnostics, export bundles, and verify bundles
+    #[command(subcommand)]
+    Diag(diag::DiagCommand),
 
-  # System checks only
-  aosctl diag --system
-
-  # Tenant-specific checks
-  aosctl diag --tenant dev
-
-  # Export a diagnostic bundle
-  aosctl diag --bundle ./diag_bundle.zip
-
-  # Export bundle for a specific CPID
-  aosctl diag --bundle ./diag_bundle.zip --cpid <cpid>
-
-  # Include full database state in bundle
-  aosctl diag --bundle ./diag_bundle.zip --full-db
-
-  # Verify telemetry offline after export
-  unzip ./diag_bundle.zip -d ./diag_bundle
-  aosctl verify telemetry --bundle-dir ./diag_bundle/telemetry
-")]
-    Diag {
-        /// Diagnostic profile: system, tenant, or full
-        #[arg(long, default_value = "full")]
-        profile: Option<String>,
-
-        /// Tenant ID for tenant-specific checks
-        #[arg(long)]
-        tenant: Option<String>,
-
-        /// Output JSON format
-        #[arg(long)]
-        json: bool,
-
-        /// Create diagnostic bundle
-        #[arg(long)]
-        bundle: Option<PathBuf>,
-
-        /// Filter telemetry bundles to a specific CPID (alias: --trace-id)
-        #[arg(long, alias = "trace-id", requires = "bundle")]
-        cpid: Option<String>,
-
-        /// Include full database file in bundle (var/aos-cp.sqlite3)
-        #[arg(long, requires = "bundle")]
-        full_db: bool,
-
-        /// System checks only
-        #[arg(long, conflicts_with_all = ["tenant_only", "profile"])]
-        system: bool,
-
-        /// Tenant checks only
-        #[arg(long, conflicts_with_all = ["system", "profile"])]
-        tenant_only: bool,
-
-        /// Full diagnostics (default)
-        #[arg(long, conflicts_with_all = ["system", "tenant_only", "profile"])]
-        full: bool,
-    },
+    // NOTE: log_digest, log_triage, log_prompt modules not yet implemented
+    // /// Generate a log digest (WARN/ERROR summary)
+    // LogDigest(commands::log_digest::LogDigestCommand),
+    // /// Triage log digest with rule-based remediation hints
+    // LogTriage(commands::log_triage::LogTriageCommand),
+    // /// Build an LLM prompt from triage output
+    // LogPrompt(commands::log_prompt::LogPromptCommand),
 
     /// Targeted diagnostics for drift, health, and storage reconciler
     #[command(after_help = "\
@@ -1155,26 +1080,24 @@ Examples:
         args: commands::manual::ManualArgs,
     },
 
-    /// Dataset management commands (create, ingest, validate, build)
-    #[command(subcommand, visible_alias = "datasets")]
-    Dataset(commands::datasets::DatasetCommand),
-
     /// Training job commands (start/status/list) - control plane
-    #[command(subcommand)]
-    #[command(after_help = "\
+    #[command(
+        subcommand,
+        after_help = "\
 Examples:
-  # Start a training job
-  aosctl train start my/repo --base-model-id qwen2.5-7b --dataset-version-ids ds1,ds2
+  # Start a training job with dataset versions
+  aosctl train start repo-id --dataset-version-ids version-1 --base-model-id Qwen2.5-7B-Instruct
+
+  # Use synthetic mode (no datasets required)
+  aosctl train start repo-id --synthetic-mode
 
   # Check job status
-  aosctl train status JOB_ID
+  aosctl train status <job-id>
 
-  # List recent jobs
+  # List running jobs
   aosctl train list --status running
-
-  # Fetch a training report
-  aosctl train report --id JOB_ID --output ./report.json
-")]
+"
+    )]
     Train(commands::train_cli::TrainCommand),
 
     /// Train adapter on documentation markdown files
@@ -1194,7 +1117,7 @@ Examples:
         args: train_docs::TrainDocsArgs,
     },
 
-    /// Initialize adapterOS system (Owner Home setup)
+    /// Initialize AdapterOS system (Owner Home setup)
     #[command(after_help = "\
 Examples:
   # Initialize system with default settings
@@ -1225,9 +1148,6 @@ Examples:
     /// Code intelligence commands (init, update, list, status)
     #[command(subcommand)]
     Code(code::CodeCommand),
-
-    /// List Commit Delta Packs for a repository
-    CdpList(commands::cdp_list::CdpListArgs),
 
     // ============================================================
     // Deprecated Commands (hidden, for backward compatibility)
@@ -1310,9 +1230,6 @@ Examples:
         /// Directory containing adapters
         #[arg(short, long)]
         dir: PathBuf,
-        /// Path to trusted public key file (required)
-        #[arg(long)]
-        public_key: PathBuf,
         /// CAS root directory
         #[arg(long, default_value = "./var/cas")]
         cas_root: PathBuf,
@@ -1538,15 +1455,14 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             stack::handle_stack_command(cmd.clone(), &output).await?;
         }
 
-        // .aos File Management
-        Commands::Aos(cmd) => {
-            let args = commands::aos::AosArgs { cmd: cmd.clone() };
-            commands::aos::run(args, &output).await?;
-        }
-
         // Interactive Chat
         Commands::Chat(cmd) => {
             chat::handle_chat_command(cmd.clone(), &output).await?;
+        }
+
+        // Multi-Agent Operations
+        Commands::Agent(cmd) => {
+            commands::agent::handle_agent_command(cmd.clone(), &output).await?;
         }
 
         // Development Commands
@@ -1646,6 +1562,11 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         // Database Management
         Commands::Db(cmd) => {
             commands::db::handle_db_command(cmd.clone(), &output).await?;
+        }
+
+        // Review Management
+        Commands::Review(cmd) => {
+            commands::review::handle_review_command(cmd.clone(), &output).await?;
         }
 
         // Model Management
@@ -1907,49 +1828,14 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         }
 
         // Documentation & Help
-        Commands::Diag {
-            profile,
-            tenant,
-            json,
-            bundle,
-            cpid,
-            full_db,
-            system,
-            tenant_only,
-            full,
-        } => {
-            let diag_profile = if *system {
-                diag::DiagProfile::System
-            } else if *tenant_only {
-                diag::DiagProfile::Tenant
-            } else if *full {
-                diag::DiagProfile::Full
-            } else if let Some(p) = profile {
-                match p.as_str() {
-                    "system" => diag::DiagProfile::System,
-                    "tenant" => diag::DiagProfile::Tenant,
-                    "full" => diag::DiagProfile::Full,
-                    _ => {
-                        return Err(anyhow::anyhow!(
-                            "Invalid profile: {}. Use: system, tenant, or full",
-                            p
-                        ))
-                    }
-                }
-            } else {
-                diag::DiagProfile::Full
-            };
-
-            diag::run(
-                diag_profile,
-                tenant.clone(),
-                *json,
-                bundle.clone(),
-                cpid.clone(),
-                *full_db,
-            )
-            .await?;
+        Commands::Diag(cmd) => {
+            diag::handle_diag_command(cmd.clone(), &output).await?;
         }
+
+        // NOTE: log_digest, log_triage, log_prompt modules not yet implemented
+        // Commands::LogDigest(cmd) => { ... }
+        // Commands::LogTriage(cmd) => { ... }
+        // Commands::LogPrompt(cmd) => { ... }
 
         Commands::Health(cmd) => {
             commands::diag_health::run(cmd.clone(), &output).await?;
@@ -2008,10 +1894,6 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             commands::train_cli::run(cmd.clone(), &output).await?;
         }
 
-        Commands::Dataset(cmd) => {
-            commands::datasets::run(cmd.clone(), &output).await?;
-        }
-
         Commands::TrainDocs { args } => {
             args.execute().await?;
         }
@@ -2019,10 +1901,6 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         // Code Intelligence Commands
         Commands::Code(cmd) => {
             code::handle_code_command(cmd.clone(), &output).await?;
-        }
-
-        Commands::CdpList(args) => {
-            commands::cdp_list::execute(args.clone(), &output).await?;
         }
 
         // ============================================================
@@ -2127,7 +2005,6 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
 
         Commands::RegistrySyncDeprecated {
             dir,
-            public_key,
             cas_root,
             registry: registry_path,
         } => {
@@ -2137,7 +2014,7 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             registry::handle_registry_command(
                 registry::RegistryCommand::Sync {
                     dir: dir.clone(),
-                    public_key: public_key.clone(),
+                    public_key: None,
                     cas_root: cas_root.clone(),
                     registry: registry_path.clone(),
                 },
@@ -2312,9 +2189,9 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Adapter(_) => "adapter",
         Commands::Repo(_) => "repo",
         Commands::Stack(_) => "stack",
-        Commands::Aos(_) => "aos",
         Commands::Chat(_) => "chat",
         Commands::Dev { .. } => "dev",
+        Commands::Agent(_) => "agent",
         Commands::Scenario(_) => "scenario",
         Commands::Coreml(_) => "coreml",
         #[cfg(feature = "coreml-export")]
@@ -2332,6 +2209,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Registry(_) => "registry",
         Commands::Storage(_) => "storage",
         Commands::Db(_) => "db",
+        Commands::Review(_) => "review",
         Commands::Models(_) => "models",
         Commands::PlanBuild { .. } => "build-plan",
         Commands::ModelImport { .. } => "import-model",
@@ -2361,7 +2239,8 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Bootstrap { .. } => "bootstrap",
         Commands::Completions { .. } => "completions",
         Commands::Config(_) => "config",
-        Commands::Diag { .. } => "diag",
+        Commands::Diag(_) => "diag",
+        // NOTE: log_digest, log_triage, log_prompt not yet implemented
         Commands::Health { .. } => "health",
         Commands::Determinism { .. } => "determinism",
         Commands::Quarantine { .. } => "quarantine",
@@ -2369,11 +2248,9 @@ fn get_command_name(command: &Commands) -> String {
         Commands::ErrorCodes { .. } => "error-codes",
         Commands::Tutorial { .. } => "tutorial",
         Commands::Manual { .. } => "manual",
-        Commands::Dataset(_) => "dataset",
         Commands::Train(_) => "train",
         Commands::TrainDocs { .. } => "train-docs",
         Commands::Code(_) => "code",
-        Commands::CdpList(_) => "cdp-list",
         Commands::BackendStatus(_) => "backend-status",
         Commands::Tui { .. } => "tui",
         // Deprecated commands
@@ -2408,7 +2285,7 @@ fn get_command_name(command: &Commands) -> String {
 fn extract_tenant_from_command(command: &Commands) -> Option<String> {
     match command {
         Commands::Serve { tenant, .. } | Commands::Rollback { tenant, .. } => Some(tenant.clone()),
-        Commands::Diag { tenant, .. } => tenant.clone(),
+        Commands::Diag(diag::DiagCommand::Run { tenant, .. }) => tenant.clone(),
         Commands::Repo(commands::repo::RepoCommand::Repo(commands::repo::RepoOps::Create(
             args,
         ))) => Some(args.tenant.clone()),

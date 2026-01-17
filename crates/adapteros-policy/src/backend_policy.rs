@@ -43,6 +43,7 @@ pub struct BackendDowngradePolicy {
 
     /// If true, downgrades happen silently without telemetry.
     /// WARNING: Setting this to true violates audit requirements.
+    #[serde(default, deserialize_with = "deny_silent_downgrade")]
     pub allow_silent_downgrade: bool,
 
     /// Maximum acceptable latency multiplier for fallback.
@@ -55,6 +56,19 @@ pub struct BackendDowngradePolicy {
 
     /// Log level for downgrade events ("error", "warn", "info", "debug")
     pub downgrade_log_level: String,
+}
+
+fn deny_silent_downgrade<'de, D>(deserializer: D) -> std::result::Result<bool, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = bool::deserialize(deserializer)?;
+    if value {
+        return Err(serde::de::Error::custom(
+            "allow_silent_downgrade is forbidden; remove this setting from config",
+        ));
+    }
+    Ok(false)
 }
 
 impl BackendDowngradePolicy {
@@ -422,5 +436,13 @@ mod tests {
         assert!(!BackendDowngradePolicy::permissive().allow_silent_downgrade);
         assert!(!BackendDowngradePolicy::development().allow_silent_downgrade);
         assert!(!BackendDowngradePolicy::default().allow_silent_downgrade);
+    }
+
+    #[test]
+    fn silent_downgrade_deserialization_rejects_true() {
+        let mut value = serde_json::to_value(BackendDowngradePolicy::strict()).unwrap();
+        value["allow_silent_downgrade"] = serde_json::Value::Bool(true);
+        let err = serde_json::from_value::<BackendDowngradePolicy>(value).unwrap_err();
+        assert!(err.to_string().contains("allow_silent_downgrade"));
     }
 }

@@ -2039,7 +2039,13 @@ pub fn validate_aos_metadata(params: &StoreAdapterFileMetadataParams) -> AosMeta
     if let Some(ref category) = params.category {
         let valid_categories = [
             "code",
+            "framework",
+            "codebase",
+            "ephemeral",
+            "docs",
             "documentation",
+            "domain",
+            "domain-adapter",
             "creative",
             "conversation",
             "analysis",

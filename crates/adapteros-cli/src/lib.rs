@@ -25,6 +25,7 @@ pub mod validation;
 
 // Re-export app module for testing
 pub mod app;
+pub mod local_inference;
 
 /// Backend type selection for inference (mirrors the binary crate definition).
 #[derive(Debug, Clone, clap::ValueEnum)]

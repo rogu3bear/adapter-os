@@ -280,10 +280,11 @@ async fn list_reviews(
             output.error(format!("API error ({}): {}", status, body));
         }
         Err(e) => {
-            output.error(format!("Failed to connect to server: {}", e));
-            output.info("Ensure the server is running with: aosctl serve");
+            // API not available - show placeholder for development
+            output.warning(format!("API not available: {}", e));
+            output.info("Review API unavailable; ensure the server is running and review endpoints are enabled");
             println!();
-            output.kv("Endpoint", "GET /v1/reviews/paused");
+            output.info("Expected endpoint: GET /v1/reviews/paused");
         }
     }
 

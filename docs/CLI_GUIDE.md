@@ -2365,6 +2365,61 @@ aosctl infer --prompt <PROMPT> [OPTIONS]
 - `--show-citations` (optional): Show citations (trace.evidence) in output
 - `--show-trace` (optional): Show full trace (router summary, token counts)
 
+### `chat`
+
+Interactive chat and prompt inference commands.
+
+**Usage**:
+```bash
+aosctl chat <SUBCOMMAND>
+```
+
+**Subcommands**:
+- `interactive` - Start an interactive chat session
+- `prompt` - Run a single prompt inference
+
+### Local Chat Mode (No Server Required)
+
+The `chat` command supports a local mode that runs inference directly without requiring a running server. This is useful for quick testing and development.
+
+**Prerequisites**:
+- CLI built with `multi-backend` feature: `cargo build --release -p adapteros-cli --features multi-backend`
+- A model directory with `tokenizer.json` (e.g., `./var/models/Qwen2.5-7B-Instruct`)
+
+**Commands**:
+
+```bash
+# Interactive local chat
+aosctl chat interactive --local --model-path ./var/models/Qwen2.5-7B-Instruct
+
+# Single prompt local inference
+aosctl chat prompt --text "Hello" --local --model-path ./var/models/Qwen2.5-7B-Instruct
+
+# With custom parameters
+aosctl chat interactive --local \
+  --model-path ./var/models/Qwen2.5-7B-Instruct \
+  --temperature 0.8 \
+  --max-tokens 1024
+```
+
+**Flags**:
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--local` | Enable local mode (no server) | false |
+| `--model-path <PATH>` | Path to model directory | Required when `--local` |
+
+**Environment Variables**:
+
+| Variable | Description |
+|----------|-------------|
+| `AOS_MODEL_PATH` | Default model path for local mode |
+
+**Limitations**:
+- Local mode does not support adapter stacks (LoRA routing)
+- No session persistence or history
+- Requires `multi-backend` feature flag
+
 ---
 
 ## Development & Testing
@@ -2520,20 +2575,46 @@ aosctl bootstrap [OPTIONS]
 
 ### `diag`
 
-Run system diagnostics
+Run diagnostics and manage diagnostic bundles
 
 **Usage**:
 ```bash
-aosctl diag [OPTIONS]
+aosctl diag run [OPTIONS]
+aosctl diag export --trace-id <TRACE_ID> -o <PATH> [OPTIONS]
+aosctl diag verify <BUNDLE> [OPTIONS]
 ```
 
-**Parameters**:
+**Run Parameters**:
 - `--profile` (optional): Diagnostic profile: system, tenant, or full (default: full)
 - `--tenant` (optional): Tenant ID for tenant-specific checks
 - `--json` (optional): Output JSON format
-- `--bundle` (optional): Create diagnostic bundle
-- `--system-only` (optional): System checks only
+- `--bundle` (optional): Create a local diagnostic bundle at the given path
+- `--system` (optional): System checks only
 - `--tenant-only` (optional): Tenant checks only
+- `--full` (optional): Full diagnostics (default)
+
+**Export Parameters**:
+- `--trace-id` (required): Trace ID to export
+- `-o, --output` (required): Output file path
+- `--format` (optional): Bundle format: `tar.zst` or `zip` (default: `tar.zst`)
+- `--include-evidence` (optional): Include evidence payloads (requires token)
+- `--evidence-token` (optional): Evidence authorization token
+- `--base-url` (optional): API base URL (default: `http://127.0.0.1:8080`)
+
+**Verify Parameters**:
+- `--verbose` (optional): Verbose output
+
+**Examples**:
+```bash
+# Run local diagnostics
+aosctl diag run --full
+
+# Export signed bundle from server
+aosctl diag export --trace-id trace-abc123 -o bundle.tar.zst
+
+# Verify bundle offline
+aosctl diag verify bundle.tar.zst --verbose
+```
 
 ---
 

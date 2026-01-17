@@ -1,5 +1,23 @@
 {
+  "bundle_hash": "1af1bc73341508f60b0b30142a43ffefd8e7de2ea190a725674185f86eef7c0c",
+  "merkle_root": "d6217c6fb47f5898091aa090f3ca546c41fead76eaa7bed1d566e4545c91a054",
   "event_count": 3,
-  "merkle_root": "c82579e9e3c414ba7413e8ce19acbe480a8e098ae2accb5831c0c5d32f4a1158",
-  "signature": "9aa80430896b51eadb1719f7a009c92a86dae667d0341d3f3033d47d63c8779a5d003f75f634cd5d5ca16e4d9dc4499be667f83c65357c76cac78e9ac16b5e05"
+  "signature": "56501dc50e86b2b74e1329793c40a5f248a8544b5bc8958d08a902d9f88fe8bab9305bb2d6d86e3703c028c14316f10064da6c5b5d5b636019c3a2116561050a",
+  "public_key": "4fff1281fc74f38abb9cc23fcd5b947de391a9bb4f1e0e94ccbd978c82cad82e",
+  "key_id": "d1642cd4135055daea8d11ba2620a5f0",
+  "schema_version": 1,
+  "signed_at_us": 1767659386986129,
+  "cpid": null,
+  "tenant_id": null,
+  "sequence_no": null,
+  "created_at": {
+    "secs_since_epoch": 1767659386,
+    "nanos_since_epoch": 986129000
+  },
+  "prev_bundle_hash": null,
+  "is_incident_bundle": false,
+  "is_promotion_bundle": false,
+  "tags": [],
+  "stack_id": null,
+  "stack_version": null
 }

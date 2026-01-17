@@ -59,19 +59,17 @@ impl BenchDb {
                 .expect("Failed to set storage mode for benchmark");
         }
 
-        // Create default tenant
-        sqlx::query(
-            "INSERT INTO tenants (id, name) VALUES ('default-tenant', 'Default Test Tenant')",
-        )
-        .execute(db.pool())
-        .await
-        .expect("Failed to create test tenant");
+        // Create default tenant via API to ensure SQL/KV consistency.
+        let tenant_id = db
+            .create_tenant("Default Test Tenant", false)
+            .await
+            .expect("Failed to create test tenant");
 
         let db = ProtectedDb::new(db);
 
         Self {
             db,
-            tenant_id: "default-tenant".to_string(),
+            tenant_id,
             _temp_sql_dir: Some(temp_sql_dir),
             _temp_kv_dir: Some(temp_kv_dir),
         }
@@ -91,6 +89,7 @@ impl BenchDb {
                 .tier("warm")
                 .category("code")
                 .scope("global")
+                .tenant_id(&self.tenant_id)
                 .build()
                 .expect("Failed to build adapter params");
 
@@ -295,6 +294,7 @@ fn bench_register_adapter(c: &mut Criterion) {
                     .tier("warm")
                     .category("code")
                     .scope("global")
+                    .tenant_id(&db.tenant_id)
                     .build()
                     .unwrap();
 
@@ -320,6 +320,7 @@ fn bench_register_adapter(c: &mut Criterion) {
                     .tier("warm")
                     .category("code")
                     .scope("global")
+                    .tenant_id(&db.tenant_id)
                     .build()
                     .unwrap();
 
@@ -345,6 +346,7 @@ fn bench_register_adapter(c: &mut Criterion) {
                     .tier("warm")
                     .category("code")
                     .scope("global")
+                    .tenant_id(&db.tenant_id)
                     .build()
                     .unwrap();
 
@@ -370,6 +372,7 @@ fn bench_register_adapter(c: &mut Criterion) {
                     .tier("warm")
                     .category("code")
                     .scope("global")
+                    .tenant_id(&db.tenant_id)
                     .build()
                     .unwrap();
 
@@ -507,9 +510,14 @@ fn bench_adapter_lineage(c: &mut Criterion) {
             .tier("warm")
             .category("code")
             .scope("global")
+            .tenant_id(&bench_db.tenant_id)
             .build()
             .unwrap();
-        bench_db.db.register_adapter(parent_params).await.unwrap();
+        let parent_id = bench_db
+            .db
+            .register_adapter(parent_params)
+            .await
+            .unwrap();
 
         // Create children
         for i in 1..=2 {
@@ -521,10 +529,12 @@ fn bench_adapter_lineage(c: &mut Criterion) {
                 .tier("warm")
                 .category("code")
                 .scope("global")
-                .parent_id(Some("parent-adapter".to_string()))
+                .tenant_id(&bench_db.tenant_id)
+                .parent_id(Some(parent_id.clone()))
+                .fork_type(Some("extension"))
                 .build()
                 .unwrap();
-            bench_db.db.register_adapter(child_params).await.unwrap();
+            let child_id = bench_db.db.register_adapter(child_params).await.unwrap();
 
             // Create grandchildren
             let grandchild_params = AdapterRegistrationBuilder::new()
@@ -535,7 +545,9 @@ fn bench_adapter_lineage(c: &mut Criterion) {
                 .tier("warm")
                 .category("code")
                 .scope("global")
-                .parent_id(Some(format!("child-adapter-{}", i)))
+                .tenant_id(&bench_db.tenant_id)
+                .parent_id(Some(child_id))
+                .fork_type(Some("extension"))
                 .build()
                 .unwrap();
             bench_db
@@ -560,9 +572,14 @@ fn bench_adapter_lineage(c: &mut Criterion) {
             .tier("warm")
             .category("code")
             .scope("global")
+            .tenant_id(&bench_db.tenant_id)
             .build()
             .unwrap();
-        bench_db.db.register_adapter(parent_params).await.unwrap();
+        let parent_id = bench_db
+            .db
+            .register_adapter(parent_params)
+            .await
+            .unwrap();
 
         for i in 1..=2 {
             let child_params = AdapterRegistrationBuilder::new()
@@ -573,10 +590,12 @@ fn bench_adapter_lineage(c: &mut Criterion) {
                 .tier("warm")
                 .category("code")
                 .scope("global")
-                .parent_id(Some("parent-adapter".to_string()))
+                .tenant_id(&bench_db.tenant_id)
+                .parent_id(Some(parent_id.clone()))
+                .fork_type(Some("extension"))
                 .build()
                 .unwrap();
-            bench_db.db.register_adapter(child_params).await.unwrap();
+            let child_id = bench_db.db.register_adapter(child_params).await.unwrap();
 
             let grandchild_params = AdapterRegistrationBuilder::new()
                 .adapter_id(format!("grandchild-adapter-{}", i))
@@ -586,7 +605,9 @@ fn bench_adapter_lineage(c: &mut Criterion) {
                 .tier("warm")
                 .category("code")
                 .scope("global")
-                .parent_id(Some(format!("child-adapter-{}", i)))
+                .tenant_id(&bench_db.tenant_id)
+                .parent_id(Some(child_id))
+                .fork_type(Some("extension"))
                 .build()
                 .unwrap();
             bench_db

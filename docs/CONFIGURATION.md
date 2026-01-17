@@ -1,6 +1,6 @@
-# adapterOS Configuration Guide
+# AdapterOS Configuration Guide
 
-**Purpose:** Comprehensive reference for configuring adapterOS development and deployment environments.
+**Purpose:** Comprehensive reference for configuring AdapterOS development and deployment environments.
 
 **Last Updated:** 2026-01-02
 
@@ -32,7 +32,7 @@ cp .env.example .env
 vim .env
 
 # Step 3: Verify configuration
-./aosctl config show
+cargo run -p adapteros-orchestrator -- config show
 ```
 
 ### Platform Requirements
@@ -47,10 +47,10 @@ vim .env
 
 - [ ] Clone repository: `git clone https://github.com/rogu3bear/adapter-os.git`
 - [ ] Copy environment: `cp .env.example .env`
-- [ ] Download model: Use `aosctl models seed` or import via API
-- [ ] Initialize database: `./aosctl db migrate`
-- [ ] Create default tenant: `./aosctl init-tenant --id default --uid 1000 --gid 1000`
-- [ ] Verify configuration: `./aosctl config show`
+- [ ] Download model: `./scripts/download_model.sh`
+- [ ] Initialize database: `cargo run -p adapteros-orchestrator -- db migrate`
+- [ ] Create default tenant: `cargo run -p adapteros-orchestrator -- init-tenant --id default --uid 1000 --gid 1000`
+- [ ] Verify configuration: `cargo run -p adapteros-orchestrator -- config show`
 - [ ] Start backend: `cargo run --release -p adapteros-server-api`
 - [ ] Start UI: `cd ui && pnpm install && pnpm dev`
 - [ ] Access UI: Open http://localhost:3200
@@ -67,7 +67,7 @@ vim .env
 - [ ] Update `AOS_DATABASE_URL` to production path
 - [ ] Set `AOS_TELEMETRY_ENABLED=true`
 - [ ] Set `RUST_LOG=warn,adapteros=info`
-- [ ] Test configuration: `./aosctl config show`
+- [ ] Test configuration: `cargo run -p adapteros-orchestrator -- config show`
 - [ ] Build release binary: `cargo build --release -p adapteros-server-api`
 - [ ] Deploy and start service
 
@@ -75,7 +75,7 @@ vim .env
 
 ## Configuration File Formats
 
-adapterOS supports TOML configuration files for structured settings.
+AdapterOS supports TOML configuration files for structured settings.
 
 ### Example TOML Configuration
 
@@ -119,53 +119,21 @@ format = "json"
 - `logging.format` (string): Logging format (default: "json", enum: json,text)
 
 #### Diagnostics Configuration
+- `diag.enabled` (boolean): Enable diagnostics collection (default: false)
+- `diag.level` (string): Verbosity level (`off`, `errors`, `stages`, `router`, `tokens`)
+- `diag.channel_capacity` (integer): Bounded channel capacity (default: 1000)
+- `diag.max_events_per_run` (integer): Maximum events per run (default: 10000)
+- `diag.batch_size` (integer): Batch size for writer flushes (default: 100)
+- `diag.batch_timeout_ms` (integer): Flush timeout in milliseconds (default: 500)
 
-Diagnostics capture structured event traces during inference, routing, and failure handling.
-Configure these settings in your TOML config (for example, `configs/cp.toml`):
-
-```toml
-[diagnostics]
-enabled = true
-level = "stages"
-channel_capacity = 1000
-batch_size = 100
-batch_timeout_ms = 500
-max_events_per_run = 10000
-```
-
-- `diagnostics.enabled` (boolean, default: true, valid range: true/false): Enable diagnostics capture.
-  - Performance: when false, disables diagnostics overhead entirely.
-- `diagnostics.level` (string, default: "stages", enum: off, errors, stages, router, tokens): Capture depth.
-  - `off`: No events captured (zero overhead).
-  - `errors`: Failures and errors only.
-  - `stages`: Stage enter/exit events (recommended baseline).
-  - `router`: Includes routing decisions (useful for adapter debugging).
-  - `tokens`: Token-level detail (high volume; dev-only).
-  - Performance: higher levels increase event volume and storage pressure.
-- `diagnostics.channel_capacity` (integer, default: 1000, valid range: >= 1): Buffer size before backpressure or drops.
-  - Performance: higher values use more memory but reduce drops under load.
-- `diagnostics.batch_size` (integer, default: 100, valid range: >= 1): Events per persistence batch.
-  - Performance: higher values improve throughput but increase flush latency.
-- `diagnostics.batch_timeout_ms` (integer, default: 500, valid range: >= 1): Max wait before forcing a flush.
-  - Performance: lower values reduce latency but increase I/O.
-- `diagnostics.max_events_per_run` (integer, default: 10000, valid range: >= 1): Upper bound per inference run.
-  - Performance: prevents runaway runs from exhausting storage.
-
-**Example use cases (starting points):**
-
-| Scenario | Suggested Settings |
-| --- | --- |
-| Production (minimal overhead) | `level = "errors"`, `batch_size = 200` |
-| Production (auditable) | `level = "stages"`, `batch_size = 100` |
-| Debugging routing | `level = "router"` |
-| Deep debugging | `level = "tokens"`, `max_events_per_run = 25000` |
-| High-throughput | `channel_capacity = 5000`, `batch_size = 500`, `batch_timeout_ms = 2000` |
+**Schema reference:** `crates/adapteros-config/src/effective.rs` (diagnostics keys) and
+`crates/adapteros-config/src/schema.rs` (environment variable mappings).
 
 ---
 
 ## Configuration Precedence Rules
 
-adapterOS uses a deterministic configuration system with strict precedence ordering to ensure predictable behavior.
+AdapterOS uses a deterministic configuration system with strict precedence ordering to ensure predictable behavior.
 
 ### Precedence Order
 
@@ -223,7 +191,7 @@ export AOS_POLICY_STRICT_MODE=true
 adapteros serve
 ```
 
-**Format:** `AOS_` prefix for adapterOS-specific variables, underscore to dot conversion
+**Format:** `AOS_` prefix for AdapterOS-specific variables, underscore to dot conversion
 
 ### 3. Configuration Files (Lower Priority)
 
@@ -567,39 +535,6 @@ AOS_LOG_FORMAT=json
 # Output: {"timestamp":"2025-11-23T...","level":"INFO","module":"adapteros","message":"..."}
 ```
 
-#### Diagnostics Configuration
-
-Diagnostics settings control event capture and persistence for the diagnostics pipeline.
-
-**Example (TOML):**
-```toml
-[diagnostics]
-enabled = true
-level = "stages"
-channel_capacity = 1000
-batch_size = 100
-batch_timeout_ms = 500
-max_events_per_run = 10000
-```
-
-**Field Reference:**
-- `diagnostics.enabled` (bool, default: `true`, valid: `true|false`). Performance: `false` disables capture (lowest overhead). Example: disable in latency-critical or storage-constrained environments.
-- `diagnostics.level` (enum, default: `stages`, valid: `off|errors|stages|router|tokens`). Performance: higher verbosity increases event volume and I/O. Example: `errors` for minimal overhead; `router` for adapter debugging; `tokens` for deep debugging (dev only).
-- `diagnostics.channel_capacity` (int, default: `1000`, valid: `>= 1`). Performance: larger buffers reduce drops under load at the cost of memory. Example: raise to 5000 for bursty traffic.
-- `diagnostics.batch_size` (int, default: `100`, valid: `>= 1`). Performance: larger batches improve throughput but increase flush latency. Example: raise to 200 for high-throughput workloads.
-- `diagnostics.batch_timeout_ms` (int, default: `500`, valid: `>= 1`). Performance: lower values flush more often (fresh data, more I/O). Example: reduce to 100ms when monitoring live incidents.
-- `diagnostics.max_events_per_run` (int, default: `10000`, valid: `>= 1`). Performance: higher limits allow verbose runs but risk storage growth. Example: cap at 2000 for constrained storage.
-
-**Performance Tuning Guide:**
-
-| Scenario | Recommended Settings |
-|----------|----------------------|
-| Production (minimal overhead) | `level = "errors"`, `batch_size = 200` |
-| Production (auditable) | `level = "stages"`, `batch_size = 100` |
-| Debugging routing | `level = "router"` |
-| Deep debugging | `level = "tokens"`, `max_events_per_run = 50000` |
-| High-throughput | `channel_capacity = 5000`, `batch_size = 500` |
-
 #### Memory Configuration
 
 | Variable | Default | Purpose | Example |
@@ -681,7 +616,7 @@ export AOS_MODEL_BACKEND=auto     # Use priority chain (default)
 
 #### HuggingFace Hub Integration
 
-adapterOS can automatically download models from HuggingFace Hub on startup.
+AdapterOS can automatically download models from HuggingFace Hub on startup.
 
 | Variable | Default | Purpose | Example |
 |----------|---------|---------|---------|
@@ -786,7 +721,7 @@ $AOS_MODEL_CACHE_DIR/
 
 #### Legacy AOS Migration (Temporary)
 
-- `AOS_ALLOW_LEGACY_AOS` (default: off) — Emergency migration flag to allow legacy AOS 1.x bundles. Default off; do not use in steady state. Emits `LEGACY_AOS_*` warnings and metrics when used. Removal scheduled for adapterOS v0.15.0.
+- `AOS_ALLOW_LEGACY_AOS` (default: off) — Emergency migration flag to allow legacy AOS 1.x bundles. Default off; do not use in steady state. Emits `LEGACY_AOS_*` warnings and metrics when used. Removal scheduled for AdapterOS v0.15.0; tracked in `docs/issues/AOS_ALLOW_LEGACY_AOS_REMOVAL.md`.
 - Repackage adapters into AOS2: convert legacy bundles with `aosctl aos convert --input <legacy.aos> --output <adapter.aos> --format aos2` (or rerun packaging to emit AOS2 directly), then turn this flag off.
 
 #### Debug Flags (Development Only)
@@ -1037,7 +972,7 @@ echo $AOS_DATABASE_URL
 mkdir -p var
 
 # Run migrations
-./aosctl db migrate
+cargo run -p adapteros-orchestrator -- db migrate
 ```
 
 #### Model Not Found
@@ -1050,8 +985,7 @@ mkdir -p var
 echo $AOS_MODEL_PATH
 
 # Download model
-# Use aosctl to seed models
-aosctl models seed --model-path <path>
+./scripts/download_model.sh
 
 # Check model directory
 ls -la var/models/Qwen2.5-7B-Instruct-4bit/
@@ -1071,7 +1005,7 @@ brew install mlx
 export AOS_MODEL_BACKEND=metal
 
 # Verify available backends
-./aosctl config show | grep backend
+cargo run -p adapteros-orchestrator -- config show | grep backend
 ```
 
 ### Configuration Failure Modes
@@ -1230,15 +1164,15 @@ let config = loader.load(cli_args, manifest_path)?;
 
 ## See Also
 
-- [adapterOS Configuration API](../crates/adapteros-config/src/lib.rs)
+- [AdapterOS Configuration API](../crates/adapteros-config/src/lib.rs)
 - [Configuration Types](../crates/adapteros-config/src/types.rs)
 - [Precedence System](../crates/adapteros-config/src/precedence.rs)
 - [Configuration Loader](../crates/adapteros-config/src/loader.rs)
 - [Configuration Guards](../crates/adapteros-config/src/guards.rs)
 - [Policy Registry](../crates/adapteros-policy/src/registry.rs)
 - [Quick Start Guide](QUICKSTART.md)
-- [MLX Guide](MLX_GUIDE.md)
-- [CoreML Backend Guide](COREML_BACKEND.md)
+- [MLX Integration Guide](MLX_INTEGRATION.md)
+- [CoreML Integration Guide](COREML_INTEGRATION.md)
 
 ---
 

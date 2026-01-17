@@ -410,6 +410,7 @@ fn load_and_tokenize_examples(
             let metadata = ExampleMetadataV1::new(
                 entry_path.to_string_lossy().to_string(),
                 line_num as u64,
+                "", // source_hash - empty for synthetic data
                 provenance_from_map(&prov).unwrap_or_default(),
                 created_at,
             );

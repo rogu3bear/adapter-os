@@ -6,6 +6,8 @@ use adapteros_core::B3Hash;
 use adapteros_db::Db;
 use adapteros_platform::common::PlatformUtils;
 use anyhow::{Context, Result};
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine as _;
 use serde::Serialize;
 use std::fs;
 use std::path::Path;
@@ -29,7 +31,7 @@ pub async fn run(bundle_path: &Path, verify: bool, output: &OutputWriter) -> Res
     let temp_root = PlatformUtils::temp_dir();
     fs::create_dir_all(&temp_root).with_context(|| {
         format!(
-            "Failed to create adapterOS temp directory {}",
+            "Failed to create AdapterOS temp directory {}",
             temp_root.display()
         )
     })?;
@@ -49,30 +51,11 @@ pub async fn run(bundle_path: &Path, verify: bool, output: &OutputWriter) -> Res
     let sbom_path = temp_dir.path().join("sbom.json");
     let sbom_content = fs::read_to_string(&sbom_path).context("Failed to read SBOM file")?;
 
-    // Compute SBOM hash for signature context
-    let sbom_hash = B3Hash::hash(sbom_content.as_bytes());
-
-    // Load bundle signature file (required for cryptographic verification)
-    let signature_path = temp_dir.path().join("signature.sig");
-    let bundle_signature_b64 = if signature_path.exists() {
-        let sig_hex =
-            fs::read_to_string(&signature_path).context("Failed to read signature.sig file")?;
-        // Convert hex signature to base64 for storage
-        let sig_bytes = hex::decode(sig_hex.trim())
-            .context("Failed to decode signature hex from signature.sig")?;
-        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &sig_bytes)
-    } else {
-        return Err(anyhow::anyhow!(
-            "Bundle is missing signature.sig file. \
-            Imported artifacts require cryptographic signatures for chain-of-custody. \
-            Use `aosctl verify bundle` to check bundle integrity before import."
-        ));
-    };
-
-    output.success("Bundle signature file found");
-
     let sbom: serde_json::Value =
         serde_json::from_str(&sbom_content).context("Failed to parse SBOM JSON")?;
+
+    let sbom_hash_b3 = B3Hash::hash(sbom_content.as_bytes()).to_hex().to_string();
+    let signature_b64 = load_signature_b64(temp_dir.path(), verify, output)?;
 
     let artifacts = sbom["artifacts"]
         .as_array()
@@ -113,20 +96,15 @@ pub async fn run(bundle_path: &Path, verify: bool, output: &OutputWriter) -> Res
         fs::write(&cas_path, &content)
             .with_context(|| format!("Failed to write to CAS: {}", hash))?;
 
-        // Use the bundle signature for artifact provenance
-        // The bundle signature signs the SBOM which contains the artifact hash,
-        // providing cryptographic chain-of-custody for all artifacts in the bundle.
-        let artifact_signature = &bundle_signature_b64;
-
         // Get size
         let size_bytes = content.len() as i64;
 
-        // Insert into database with real signature and SBOM hash reference
+        // Insert into database
         db.create_artifact(
             hash,
             kind,
-            artifact_signature,
-            Some(sbom_hash.to_hex().as_str()),
+            signature_b64.as_str(),
+            Some(sbom_hash_b3.as_str()),
             size_bytes,
             cas_path
                 .to_str()
@@ -151,4 +129,40 @@ pub async fn run(bundle_path: &Path, verify: bool, output: &OutputWriter) -> Res
     }
 
     Ok(())
+}
+
+fn load_signature_b64(bundle_root: &Path, verify: bool, output: &OutputWriter) -> Result<String> {
+    let sig_path = bundle_root.join("signature.sig");
+    if !sig_path.exists() {
+        if verify {
+            return Err(anyhow::anyhow!("Signature file not found in bundle"));
+        }
+        output.warning("Signature file not found; recording unsigned bundle");
+        return Ok("unsigned".to_string());
+    }
+
+    let sig_data = fs::read(&sig_path).context("Failed to read signature file")?;
+    let sig_bytes = decode_signature_bytes(&sig_data)?;
+    Ok(STANDARD.encode(sig_bytes))
+}
+
+fn decode_signature_bytes(sig_data: &[u8]) -> Result<Vec<u8>> {
+    let bytes = if let Ok(sig_hex) = std::str::from_utf8(sig_data) {
+        let trimmed = sig_hex.trim();
+        match hex::decode(trimmed) {
+            Ok(decoded) => decoded,
+            Err(_) => sig_data.to_vec(),
+        }
+    } else {
+        sig_data.to_vec()
+    };
+
+    if bytes.len() != 64 {
+        return Err(anyhow::anyhow!(
+            "Invalid signature length: expected 64 bytes, got {}",
+            bytes.len()
+        ));
+    }
+
+    Ok(bytes)
 }

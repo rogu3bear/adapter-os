@@ -64,6 +64,8 @@ cargo test --package adapteros-lora-mlx-ffi
 
 - `MLX_PATH`: Path to MLX installation (default: `/opt/homebrew`)
 
+**Workspace tip:** If you build the full workspace (including `adapteros-mlx`), avoid mixing Homebrew MLX headers with `mlx-sys` libs. Set `MLX_PATH` to the `mlx-sys` build output (absolute path recommended) so headers and libs match.
+
 ## Policy Compliance
 
 - **Determinism Ruleset (#2)**: Training runs use HKDF-seeded RNG

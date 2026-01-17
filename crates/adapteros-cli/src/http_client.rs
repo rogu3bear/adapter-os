@@ -222,6 +222,7 @@ mod tests {
         assert_eq!(auth.refresh_token.as_deref(), Some("new-refresh"));
 
         handle.abort();
+        std::env::remove_var("AOSCTL_AUTH_PATH");
     }
 
     #[tokio::test]
@@ -260,5 +261,6 @@ mod tests {
         assert_eq!(auth.token, "old-token");
 
         handle.abort();
+        std::env::remove_var("AOSCTL_AUTH_PATH");
     }
 }

@@ -65,8 +65,8 @@ fn test_scope_hash_computation() {
 
 /// Test that scope hash mismatch in segment index is detectable.
 ///
-/// When the segment's scope_path doesn't match the manifest's scope_path,
-/// the archive write should fail with a validation error.
+/// When the index entry's scope_hash doesn't match the manifest's scope_path,
+/// the archive should be considered corrupted.
 #[test]
 fn test_scope_hash_mismatch_with_manifest() -> Result<()> {
     let temp_root = new_test_tempdir();
@@ -89,24 +89,18 @@ fn test_scope_hash_mismatch_with_manifest() -> Result<()> {
         &weights,
     )?;
 
-    // Write should fail because segment scope_path doesn't match manifest scope_path
-    let result = writer.write_archive(temp_file.path(), &manifest);
-
-    // Scope hash mismatch should be detected at write time
-    assert!(
-        result.is_err(),
-        "Scope hash mismatch should cause write to fail"
-    );
-
-    let err = result.unwrap_err();
-    let err_msg = err.to_string();
-    assert!(
-        err_msg.contains("scope hash")
-            || err_msg.contains("Corrupted")
-            || err_msg.contains("scope_path"),
-        "Error should mention scope hash mismatch: {}",
-        err_msg
-    );
+    let err = writer
+        .write_archive(temp_file.path(), &manifest)
+        .expect_err("scope hash mismatch should fail validation");
+    match err {
+        AosError::Validation(message) => {
+            assert!(
+                message.contains("segment scope hash does not match"),
+                "unexpected validation message: {message}"
+            );
+        }
+        other => panic!("expected validation error, got {other:?}"),
+    }
 
     Ok(())
 }

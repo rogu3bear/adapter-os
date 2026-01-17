@@ -10,8 +10,9 @@
 use adapteros_config::BackendPreference;
 use clap::Parser;
 use std::env;
+use std::fs;
 use std::path::PathBuf;
-use std::sync::{Mutex, MutexGuard, OnceLock};
+use tempfile::TempDir;
 
 // Helper to temporarily set env vars for tests
 struct EnvGuard {
@@ -29,7 +30,7 @@ impl EnvGuard {
         }
     }
 
-    fn clear(key: &str) -> Self {
+    fn unset(key: &str) -> Self {
         let old_value = env::var(key).ok();
         env::remove_var(key);
         Self {
@@ -52,77 +53,75 @@ fn parse_cli(args: Vec<&str>) -> adapteros_cli::app::Cli {
     adapteros_cli::app::Cli::parse_from(args)
 }
 
-fn env_lock() -> &'static Mutex<()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
-}
-
-fn lock_env() -> MutexGuard<'static, ()> {
-    env_lock().lock().unwrap_or_else(|err| err.into_inner())
-}
-
-fn test_model_dir(name: &str) -> PathBuf {
-    let base = env::current_dir()
-        .expect("test cwd")
-        .join("var/tmp/model-config-tests");
-    std::fs::create_dir_all(&base).expect("create model-config test base");
-    let path = base.join(name);
-    std::fs::create_dir_all(&path).expect("create model-config test dir");
-    path
-}
-
 #[cfg(test)]
 mod config_loading {
     use super::*;
+    use serial_test::serial;
+
+    fn new_temp_model_dir() -> TempDir {
+        let root = PathBuf::from("var").join("tmp");
+        fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("temp dir")
+    }
+
+    fn new_temp_model_subdir(name: &str) -> (TempDir, PathBuf) {
+        let root = new_temp_model_dir();
+        let path = root.path().join(name);
+        fs::create_dir_all(&path).expect("create model dir");
+        (root, path)
+    }
 
     #[test]
+    #[serial]
     fn test_model_config_from_cli_args() {
-        let _lock = lock_env();
-        let _clear_path = EnvGuard::clear("AOS_MODEL_PATH");
-        let _clear_backend = EnvGuard::clear("AOS_MODEL_BACKEND");
-        let model_dir = test_model_dir("cli-args");
-
+        let temp_dir = new_temp_model_dir();
         let cli = parse_cli(vec![
             "aosctl",
             "--model-path",
-            model_dir.to_str().unwrap(),
+            temp_dir.path().to_str().unwrap(),
             "--model-backend",
             "metal",
             "adapter-list",
         ]);
 
         let config = cli.get_model_config().expect("should build config");
-        assert_eq!(config.path.to_str().unwrap(), model_dir.to_str().unwrap());
+        assert_eq!(
+            config.path.to_str().unwrap(),
+            temp_dir.path().to_str().unwrap()
+        );
         assert!(matches!(config.backend, BackendPreference::Metal));
     }
 
     #[test]
+    #[serial]
     fn test_model_config_from_env_vars() {
-        let _lock = lock_env();
-        let model_dir = test_model_dir("env-vars");
-        let _model_path_guard = EnvGuard::set("AOS_MODEL_PATH", model_dir.to_str().unwrap());
+        let temp_dir = new_temp_model_dir();
+        let _model_path_guard = EnvGuard::set("AOS_MODEL_PATH", temp_dir.path().to_str().unwrap());
         let _backend_guard = EnvGuard::set("AOS_MODEL_BACKEND", "coreml");
 
         let cli = parse_cli(vec!["aosctl", "adapter-list"]);
 
         let config = cli.get_model_config().expect("should build config");
         // ENV vars are picked up via clap's env attribute
-        assert_eq!(cli.model_path.as_deref(), Some(model_dir.to_str().unwrap()));
+        assert_eq!(
+            cli.model_path.as_deref(),
+            Some(temp_dir.path().to_str().unwrap())
+        );
         assert_eq!(cli.model_backend, "coreml");
     }
 
     #[test]
+    #[serial]
     fn test_cli_overrides_env() {
-        let _lock = lock_env();
-        let env_dir = test_model_dir("env-override");
-        let cli_dir = test_model_dir("cli-override");
-        let _model_path_guard = EnvGuard::set("AOS_MODEL_PATH", env_dir.to_str().unwrap());
+        let env_dir = new_temp_model_dir();
+        let cli_dir = new_temp_model_dir();
+        let _model_path_guard = EnvGuard::set("AOS_MODEL_PATH", env_dir.path().to_str().unwrap());
         let _backend_guard = EnvGuard::set("AOS_MODEL_BACKEND", "coreml");
 
         let cli = parse_cli(vec![
             "aosctl",
             "--model-path",
-            cli_dir.to_str().unwrap(),
+            cli_dir.path().to_str().unwrap(),
             "--model-backend",
             "metal",
             "adapter-list",
@@ -130,15 +129,18 @@ mod config_loading {
 
         let config = cli.get_model_config().expect("should build config");
         // CLI args should override ENV
-        assert_eq!(config.path.to_str().unwrap(), cli_dir.to_str().unwrap());
+        assert_eq!(
+            config.path.to_str().unwrap(),
+            cli_dir.path().to_str().unwrap()
+        );
         assert!(matches!(config.backend, BackendPreference::Metal));
     }
 
     #[test]
+    #[serial]
     fn test_default_backend_preference() {
-        let _lock = lock_env();
-        let _clear_path = EnvGuard::clear("AOS_MODEL_PATH");
-        let _clear_backend = EnvGuard::clear("AOS_MODEL_BACKEND");
+        let _model_path_guard = EnvGuard::unset("AOS_MODEL_PATH");
+        let _backend_guard = EnvGuard::unset("AOS_MODEL_BACKEND");
         let cli = parse_cli(vec!["aosctl", "adapter-list"]);
 
         // Default should be "auto"
@@ -149,10 +151,10 @@ mod config_loading {
     }
 
     #[test]
+    #[serial]
     fn test_backend_preference_parsing() {
-        let _lock = lock_env();
-        let _clear_path = EnvGuard::clear("AOS_MODEL_PATH");
-        let _clear_backend = EnvGuard::clear("AOS_MODEL_BACKEND");
+        let _model_path_guard = EnvGuard::unset("AOS_MODEL_PATH");
+        let _backend_guard = EnvGuard::unset("AOS_MODEL_BACKEND");
         // Test all valid backend preferences
         let backends = vec![
             ("auto", BackendPreference::Auto),
@@ -179,10 +181,10 @@ mod config_loading {
     }
 
     #[test]
+    #[serial]
     fn test_invalid_backend_preference() {
-        let _lock = lock_env();
-        let _clear_path = EnvGuard::clear("AOS_MODEL_PATH");
-        let _clear_backend = EnvGuard::clear("AOS_MODEL_BACKEND");
+        let _model_path_guard = EnvGuard::unset("AOS_MODEL_PATH");
+        let _backend_guard = EnvGuard::unset("AOS_MODEL_BACKEND");
         let cli = parse_cli(vec![
             "aosctl",
             "--model-backend",
@@ -195,17 +197,13 @@ mod config_loading {
     }
 
     #[test]
+    #[serial]
     fn test_model_path_expansion() {
-        let _lock = lock_env();
-        let _clear_path = EnvGuard::clear("AOS_MODEL_PATH");
-        let _clear_backend = EnvGuard::clear("AOS_MODEL_BACKEND");
-        let relative_path = PathBuf::from("var/tmp/model-config-tests/relative/path");
-        std::fs::create_dir_all(&relative_path).expect("create relative model path");
-
+        let temp_dir = new_temp_model_dir();
         let cli = parse_cli(vec![
             "aosctl",
             "--model-path",
-            relative_path.to_str().unwrap(),
+            temp_dir.path().to_str().unwrap(),
             "adapter-list",
         ]);
 
@@ -213,66 +211,61 @@ mod config_loading {
         // Path should be stored as-is (PathBuf doesn't auto-expand)
         assert_eq!(
             config.path.to_str().unwrap(),
-            relative_path.to_str().unwrap()
+            temp_dir.path().to_str().unwrap()
         );
     }
 
     #[test]
+    #[serial]
     fn test_model_path_with_spaces() {
-        let _lock = lock_env();
-        let _clear_path = EnvGuard::clear("AOS_MODEL_PATH");
-        let _clear_backend = EnvGuard::clear("AOS_MODEL_BACKEND");
-        let spaced_path = test_model_dir("path with spaces/to model");
-
+        let (_temp_dir, path) = new_temp_model_subdir("path with spaces/to model");
         let cli = parse_cli(vec![
             "aosctl",
             "--model-path",
-            spaced_path.to_str().unwrap(),
+            path.to_str().unwrap(),
             "adapter-list",
         ]);
 
         let config = cli.get_model_config().expect("should build config");
-        assert_eq!(config.path.to_str().unwrap(), spaced_path.to_str().unwrap());
+        assert_eq!(config.path.to_str().unwrap(), path.to_str().unwrap());
     }
 
     #[test]
+    #[serial]
     fn test_model_path_with_special_chars() {
-        let _lock = lock_env();
-        let _clear_path = EnvGuard::clear("AOS_MODEL_PATH");
-        let _clear_backend = EnvGuard::clear("AOS_MODEL_BACKEND");
+        let root = new_temp_model_dir();
         let paths = vec![
-            test_model_dir("path-with-dashes/model"),
-            test_model_dir("path-with_underscores/model"),
-            test_model_dir("path-with.dots/model"),
-            test_model_dir("path-with$dollar/model"),
+            "with-dashes",
+            "with_underscores",
+            "with.dots",
+            "with$dollar",
         ];
 
         for path in paths {
+            let model_path = root.path().join(path).join("model");
+            fs::create_dir_all(&model_path).expect("create model dir");
             let cli = parse_cli(vec![
                 "aosctl",
                 "--model-path",
-                path.to_str().unwrap(),
+                model_path.to_str().unwrap(),
                 "adapter-list",
             ]);
 
             let config = cli.get_model_config().expect("should build config");
-            assert_eq!(config.path.to_str().unwrap(), path.to_str().unwrap());
+            assert_eq!(config.path.to_str().unwrap(), model_path.to_str().unwrap());
         }
     }
 
     #[test]
+    #[serial]
     fn test_config_independence_between_calls() {
-        let _lock = lock_env();
-        let _clear_path = EnvGuard::clear("AOS_MODEL_PATH");
-        let _clear_backend = EnvGuard::clear("AOS_MODEL_BACKEND");
-        let path1 = test_model_dir("path1");
-        let path2 = test_model_dir("path2");
-
+        let temp_dir1 = new_temp_model_dir();
+        let temp_dir2 = new_temp_model_dir();
         // First call with one config
         let cli1 = parse_cli(vec![
             "aosctl",
             "--model-path",
-            path1.to_str().unwrap(),
+            temp_dir1.path().to_str().unwrap(),
             "--model-backend",
             "metal",
             "adapter-list",
@@ -283,7 +276,7 @@ mod config_loading {
         let cli2 = parse_cli(vec![
             "aosctl",
             "--model-path",
-            path2.to_str().unwrap(),
+            temp_dir2.path().to_str().unwrap(),
             "--model-backend",
             "coreml",
             "adapter-list",
@@ -298,10 +291,10 @@ mod config_loading {
     }
 
     #[test]
+    #[serial]
     fn test_empty_model_path() {
-        let _lock = lock_env();
-        let _clear_path = EnvGuard::clear("AOS_MODEL_PATH");
-        let _clear_backend = EnvGuard::clear("AOS_MODEL_BACKEND");
+        let _model_path_guard = EnvGuard::unset("AOS_MODEL_PATH");
+        let _backend_guard = EnvGuard::unset("AOS_MODEL_BACKEND");
         // CLI with no model path should use env or defaults
         let cli = parse_cli(vec!["aosctl", "adapter-list"]);
         let result = cli.get_model_config();
@@ -311,11 +304,11 @@ mod config_loading {
     }
 
     #[test]
-    fn test_case_insensitive_backend() {
-        let _lock = lock_env();
-        let _clear_path = EnvGuard::clear("AOS_MODEL_PATH");
-        let _clear_backend = EnvGuard::clear("AOS_MODEL_BACKEND");
-        // Backend parsing should be case-insensitive.
+    #[serial]
+    fn test_case_sensitivity_backend() {
+        let _model_path_guard = EnvGuard::unset("AOS_MODEL_PATH");
+        let _backend_guard = EnvGuard::unset("AOS_MODEL_BACKEND");
+        // Backend names should be case-insensitive
         let cli = parse_cli(vec![
             "aosctl",
             "--model-backend",
@@ -323,23 +316,20 @@ mod config_loading {
             "adapter-list",
         ]);
 
-        let config = cli.get_model_config().expect("should parse backend");
+        let config = cli.get_model_config().expect("should build config");
         assert!(matches!(config.backend, BackendPreference::Metal));
     }
 
     #[test]
+    #[serial]
     fn test_global_flags_with_model_config() {
-        let _lock = lock_env();
-        let _clear_path = EnvGuard::clear("AOS_MODEL_PATH");
-        let _clear_backend = EnvGuard::clear("AOS_MODEL_BACKEND");
-        let model_dir = test_model_dir("global-flags");
-
+        let temp_dir = new_temp_model_dir();
         let cli = parse_cli(vec![
             "aosctl",
             "--json",
             "--verbose",
             "--model-path",
-            model_dir.to_str().unwrap(),
+            temp_dir.path().to_str().unwrap(),
             "--model-backend",
             "metal",
             "adapter-list",
@@ -347,7 +337,10 @@ mod config_loading {
 
         // Global flags shouldn't interfere with config loading
         let config = cli.get_model_config().expect("should build config");
-        assert_eq!(config.path.to_str().unwrap(), model_dir.to_str().unwrap());
+        assert_eq!(
+            config.path.to_str().unwrap(),
+            temp_dir.path().to_str().unwrap()
+        );
         assert!(matches!(config.backend, BackendPreference::Metal));
 
         // And flags should still be set

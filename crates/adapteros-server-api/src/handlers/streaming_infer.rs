@@ -397,6 +397,9 @@ pub async fn streaming_infer_with_progress(
     if req.prompt.is_empty() {
         return Err(ApiError::bad_request("Prompt cannot be empty").into());
     }
+    if req.prompt.len() > MAX_REPLAY_TEXT_SIZE {
+        return Err(ApiError::bad_request("Prompt too long for context window").into());
+    }
 
     // Extract adapter ID from request (for policy context)
     let adapter_id = if let Some(adapters) = &req.adapters {
@@ -574,6 +577,9 @@ pub async fn streaming_infer(
     // Validate request
     if req.prompt.is_empty() {
         return Err(ApiError::bad_request("Prompt cannot be empty").into());
+    }
+    if req.prompt.len() > MAX_REPLAY_TEXT_SIZE {
+        return Err(ApiError::bad_request("Prompt too long for context window").into());
     }
 
     check_uma_backpressure(&state)?;

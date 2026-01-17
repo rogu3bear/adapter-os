@@ -608,7 +608,7 @@ fn map_trust_error(err: &ErrorResponse, dataset_hint: Option<&String>) -> Option
             "Dataset trust_state is blocked; override or adjust the dataset to proceed. (dataset: {ds})"
         )),
         "DATASET_TRUST_NEEDS_APPROVAL" => Some(format!(
-            "Dataset trust_state requires approval or validation before training. (dataset: {ds})"
+            "Dataset trust_state needs approval before training. (dataset: {ds})"
         )),
         "LINEAGE_REQUIRED" => Some(
             "Non-synthetic training requires dataset_version_ids; use --dataset-version-ids or enable --synthetic-mode."

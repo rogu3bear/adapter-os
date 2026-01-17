@@ -26,8 +26,8 @@ mtls_required = false
 # SECURITY: JWT secret MUST be set via environment variable in production!
 # Generate with: openssl rand -base64 64
 # Set: AOS_SECURITY_JWT_SECRET=<your-64-char-random-string>
-# The placeholder below is for local development only and will be rejected in production mode.
-jwt_secret = "DEV_ONLY_NOT_FOR_PRODUCTION_CHANGE_VIA_ENV_VAR_AOS_SECURITY_JWT"
+# Leave empty here; dev mode will warn, production will fail fast.
+jwt_secret = ""
 jwt_mode = "hmac"
 dev_login_enabled = true
 
