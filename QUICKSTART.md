@@ -122,6 +122,16 @@ trunk serve
 
 ---
 
+### Golden Path (Scripts)
+
+Use these scripts for the verified end-to-end loop:
+
+- `./scripts/dev-up.sh` - Start backend + UI (health checks included)
+- `./scripts/worker-up.sh` - Start worker and verify registration
+- `./scripts/golden_path_adapter_chat.sh` - Dataset -> training -> adapter -> chat response
+
+---
+
 ## 6. Access the UI
 
 **Development Mode:**
@@ -197,6 +207,24 @@ Create `training_data.jsonl`:
 {"prompt": "Explain ownership", "completion": "Ownership is Rust's memory management..."}
 {"prompt": "What are lifetimes?", "completion": "Lifetimes are Rust's way of tracking..."}
 ```
+
+### Training dataset contract
+
+adapterOS accepts JSONL datasets in either schema:
+
+- Supervised: `{"prompt": "string", "completion": "string"}`
+- Raw: `{"text": "string"}`
+
+Raw framing policy: `raw_continuation_v1` with constants:
+
+- `MAX_INPUT_TOKENS=256`
+- `MAX_TARGET_TOKENS=128`
+- `STRIDE_TOKENS=256`
+
+Dataset fixtures created by scripts land in `var/datasets/`:
+
+- `scripts/build-codebase-dataset.sh` -> `var/datasets/codebase/`
+- `scripts/train-codebase-adapter.sh` -> `var/datasets/codebase/training.jsonl`
 
 **Step 2: Train via UI:**
 1. Go to `/training`
@@ -322,7 +350,6 @@ cd ui && pnpm dev
 
 ## See Also
 
-- [AGENTS.md](AGENTS.md) - Developer quick reference guide
 - [docs/CONFIGURATION.md](docs/CONFIGURATION.md) - Configuration and environment setup
 - [docs/COREML_BACKEND.md](docs/COREML_BACKEND.md) - CoreML backend with ANE acceleration
 - [docs/TRAINING.md](docs/TRAINING.md) - Training guide
