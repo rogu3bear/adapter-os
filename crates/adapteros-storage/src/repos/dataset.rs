@@ -735,6 +735,7 @@ mod tests {
             status: "ready".to_string(),
             validation_status: "valid".to_string(),
             validation_errors: None,
+            validation_errors_json: None,
             file_count: 10,
             total_size_bytes: 1048576,
             metadata_json: None,

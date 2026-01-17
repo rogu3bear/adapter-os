@@ -172,6 +172,18 @@ impl fmt::Debug for SensitiveData {
     }
 }
 
+impl From<&str> for SensitiveData {
+    fn from(s: &str) -> Self {
+        Self::new(s.as_bytes().to_vec())
+    }
+}
+
+impl From<String> for SensitiveData {
+    fn from(s: String) -> Self {
+        Self::new(s.into_bytes())
+    }
+}
+
 impl Serialize for SensitiveData {
     fn serialize<S>(&self, _serializer: S) -> Result<S::Ok, S::Error>
     where
