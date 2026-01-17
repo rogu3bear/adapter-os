@@ -2,19 +2,15 @@
 //!
 //! This module provides the bridge between document ingestion and adapter training:
 //! 1. Ingest documents (PDF, Markdown, code files)
-//! 2. Generate training examples using document ingestion
-//! 3. Save examples to JSONL format on disk
+//! 2. Extract deterministic text chunks
+//! 3. Save JSONL `{ "text": "..." }` rows on disk
 //! 4. Create training dataset record in database
 //! 5. Link dataset to training jobs
 
-use adapteros_config::resolve_tokenizer_path;
 use adapteros_core::seed::get_deterministic_unix_timestamp_millis;
-use adapteros_core::{AosError, Result};
+use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_db::ProtectedDb;
-use adapteros_ingest_docs::{
-    default_ingest_options, generate_training_data, load_tokenizer, DocumentIngestor,
-    TrainingExample as IngestTrainingExample, TrainingGenConfig, TrainingStrategy,
-};
+use adapteros_ingest_docs::{default_ingest_options, load_tokenizer, DocumentIngestor};
 use adapteros_lora_worker::tokenizer::QwenTokenizer;
 use adapteros_lora_worker::training::TrainingExample as WorkerTrainingExample;
 use adapteros_types::training::{provenance_from_map, ExampleMetadataV1};
@@ -25,7 +21,34 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
+
+const MAX_INPUT_TOKENS: usize = 256;
+const MAX_TARGET_TOKENS: usize = 128;
+const STRIDE_TOKENS: usize = 256;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrainingFramingPolicy {
+    Supervised,
+    RawContinuationV1,
+}
+
+impl TrainingFramingPolicy {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TrainingFramingPolicy::Supervised => "supervised",
+            TrainingFramingPolicy::RawContinuationV1 => "raw_continuation_v1",
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct LoadedDatasetExamples {
+    pub examples: Vec<WorkerTrainingExample>,
+    pub dataset_hash_b3: String,
+    pub dataset_id: String,
+    pub framing_policy: TrainingFramingPolicy,
+}
 
 /// Training dataset manager for creating and managing training datasets
 pub struct TrainingDatasetManager {
@@ -38,7 +61,7 @@ pub struct TrainingDatasetManager {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct SerializableTrainingConfig {
-    /// Strategy: "identity" or "question_answer"
+    /// Strategy: "identity" only (others rejected)
     pub strategy: String,
     /// Maximum sequence length
     pub max_seq_length: usize,
@@ -56,19 +79,18 @@ impl Default for SerializableTrainingConfig {
     }
 }
 
-impl From<SerializableTrainingConfig> for TrainingGenConfig {
-    fn from(config: SerializableTrainingConfig) -> Self {
-        let strategy = match config.strategy.as_str() {
-            "question_answer" => TrainingStrategy::QuestionAnswer,
-            _ => TrainingStrategy::Identity,
-        };
-
-        TrainingGenConfig {
-            strategy,
-            max_seq_length: config.max_seq_length,
-            add_special_tokens: config.add_special_tokens,
-        }
+fn ensure_default_training_config(config: &SerializableTrainingConfig) -> Result<()> {
+    let default = SerializableTrainingConfig::default();
+    if config.strategy != default.strategy
+        || config.max_seq_length != default.max_seq_length
+        || config.add_special_tokens != default.add_special_tokens
+    {
+        return Err(AosError::Validation(
+            "training_config is not supported for dataset creation; raw text schema only"
+                .to_string(),
+        ));
     }
+    Ok(())
 }
 
 /// Request to create a training dataset from ingested documents
@@ -121,7 +143,7 @@ impl TrainingDatasetManager {
     pub async fn load_dataset_version_examples(
         &self,
         dataset_version_id: &str,
-    ) -> Result<(Vec<WorkerTrainingExample>, String, String)> {
+    ) -> Result<LoadedDatasetExamples> {
         debug!("Loading training dataset version: {}", dataset_version_id);
 
         let version = self
@@ -150,9 +172,16 @@ impl TrainingDatasetManager {
             )));
         }
 
-        let examples = self.load_examples_from_jsonl(&storage_path).await?;
+        let (examples, framing_policy) = self
+            .load_examples_from_jsonl(&storage_path, &version.dataset_id)
+            .await?;
 
-        Ok((examples, actual_hash, version.dataset_id))
+        Ok(LoadedDatasetExamples {
+            examples,
+            dataset_hash_b3: actual_hash,
+            dataset_id: version.dataset_id,
+            framing_policy,
+        })
     }
 
     /// Create a training dataset from documents
@@ -165,6 +194,8 @@ impl TrainingDatasetManager {
             request.name,
             request.document_paths.len()
         );
+
+        ensure_default_training_config(&request.training_config)?;
 
         // Load tokenizer (required for training data generation)
         let tokenizer = if let Some(tok_path) = &self.tokenizer_path {
@@ -179,11 +210,9 @@ impl TrainingDatasetManager {
         let chunking_options = default_ingest_options();
         let ingestor = DocumentIngestor::new(chunking_options, Some(tokenizer.clone()));
 
-        // Convert serializable config to internal config
-        let training_config: TrainingGenConfig = request.training_config.into();
-
         // Ingest all documents and generate training examples
-        let mut all_examples = Vec::new();
+        let mut all_rows: Vec<String> = Vec::new();
+        let mut total_tokens = 0usize;
         let total_docs = request.document_paths.len();
 
         for (idx, doc_path) in request.document_paths.iter().enumerate() {
@@ -208,53 +237,44 @@ impl TrainingDatasetManager {
                     .context(format!("Failed to ingest Markdown {}", doc_path.display()))?
             };
 
-            // Generate training examples from the document
-            let training_data =
-                generate_training_data(&ingested_doc, &tokenizer, &training_config)?;
-
-            let examples_count = training_data.examples.len();
-            let tokens_count: usize = training_data
-                .examples
-                .iter()
-                .map(|ex| ex.input_tokens.len() + ex.target_tokens.len())
-                .sum();
+            let mut rows_count = 0usize;
+            for chunk in &ingested_doc.chunks {
+                let text = chunk.text.trim();
+                if text.is_empty() {
+                    warn!(
+                        source = %ingested_doc.source_name,
+                        chunk_index = chunk.chunk_index,
+                        "Skipping empty document chunk"
+                    );
+                    continue;
+                }
+                let encoding = tokenizer
+                    .encode(text, false)
+                    .map_err(|e| AosError::Validation(format!("Failed to tokenize chunk: {e}")))?;
+                total_tokens = total_tokens.saturating_add(encoding.get_ids().len());
+                all_rows.push(text.to_string());
+                rows_count += 1;
+            }
 
             info!(
-                "Generated {} examples ({} tokens) from {} | Total so far: {} examples",
-                examples_count,
-                tokens_count,
+                "Generated {} rows ({} tokens) from {} | Total so far: {} rows",
+                rows_count,
+                total_tokens,
                 doc_path.display(),
-                all_examples.len() + examples_count
+                all_rows.len()
             );
-
-            all_examples.extend(training_data.examples);
         }
 
-        if all_examples.is_empty() {
+        if all_rows.is_empty() {
             return Err(AosError::Validation(
-                "No training examples generated from documents".to_string(),
+                "No dataset rows generated from documents".to_string(),
             ));
         }
 
-        info!("Total training examples generated: {}", all_examples.len());
+        info!("Total dataset rows generated: {}", all_rows.len());
 
-        // Calculate statistics
-        let total_tokens: usize = all_examples
-            .iter()
-            .map(|ex| ex.input_tokens.len() + ex.target_tokens.len())
-            .sum();
-
-        let avg_input_length = all_examples
-            .iter()
-            .map(|ex| ex.input_tokens.len())
-            .sum::<usize>() as f64
-            / all_examples.len() as f64;
-
-        let avg_target_length = all_examples
-            .iter()
-            .map(|ex| ex.target_tokens.len())
-            .sum::<usize>() as f64
-            / all_examples.len() as f64;
+        let avg_input_length = total_tokens as f64 / all_rows.len() as f64;
+        let avg_target_length = 0.0;
 
         // Create storage directory if it doesn't exist
         tokio::fs::create_dir_all(&self.storage_root).await?;
@@ -265,8 +285,8 @@ impl TrainingDatasetManager {
         let dataset_filename = format!("dataset-{}.jsonl", timestamp_ms);
         let storage_path = self.storage_root.join(&dataset_filename);
 
-        // Save examples to JSONL format
-        self.save_examples_to_jsonl(&all_examples, &storage_path)
+        // Save rows to JSONL format
+        self.save_text_rows_to_jsonl(&all_rows, &storage_path)
             .await?;
 
         // Compute BLAKE3 hash of the file
@@ -295,7 +315,7 @@ impl TrainingDatasetManager {
         self.db
             .store_dataset_statistics(
                 &dataset_id,
-                all_examples.len() as i32,
+                all_rows.len() as i32,
                 avg_input_length,
                 avg_target_length,
                 None, // language_distribution
@@ -310,15 +330,15 @@ impl TrainingDatasetManager {
             .await?;
 
         info!(
-            "Training dataset created: {} ({} examples, {} tokens)",
+            "Training dataset created: {} ({} rows, {} tokens)",
             dataset_id,
-            all_examples.len(),
+            all_rows.len(),
             total_tokens
         );
 
         Ok(DatasetCreationResult {
             dataset_id,
-            num_examples: all_examples.len(),
+            num_examples: all_rows.len(),
             total_tokens,
             storage_path: storage_path.to_string_lossy().to_string(),
             hash_b3,
@@ -329,7 +349,7 @@ impl TrainingDatasetManager {
     pub async fn load_dataset_examples(
         &self,
         dataset_id: &str,
-    ) -> Result<Vec<WorkerTrainingExample>> {
+    ) -> Result<LoadedDatasetExamples> {
         debug!("Loading training dataset: {}", dataset_id);
 
         // Get dataset record from database
@@ -359,7 +379,8 @@ impl TrainingDatasetManager {
             )));
         }
 
-        let examples = self.load_examples_from_jsonl(&storage_path).await?;
+        let (examples, framing_policy) =
+            self.load_examples_from_jsonl(&storage_path, dataset_id).await?;
 
         info!(
             "Loaded {} training examples from dataset {} (hash verified)",
@@ -367,20 +388,20 @@ impl TrainingDatasetManager {
             dataset_id
         );
 
-        Ok(examples)
+        Ok(LoadedDatasetExamples {
+            examples,
+            dataset_hash_b3: actual_hash,
+            dataset_id: dataset_id.to_string(),
+            framing_policy,
+        })
     }
 
-    /// Save training examples to JSONL format
-    async fn save_examples_to_jsonl(
-        &self,
-        examples: &[IngestTrainingExample],
-        path: &Path,
-    ) -> Result<()> {
+    /// Save raw text rows to JSONL format
+    async fn save_text_rows_to_jsonl(&self, rows: &[String], path: &Path) -> Result<()> {
         let mut file = File::create(path).await?;
 
-        for example in examples {
-            // TrainingExample and WorkerTrainingExample are now the same type (TrainingExampleV1)
-            let json = serde_json::to_string(&example)?;
+        for text in rows {
+            let json = serde_json::to_string(&serde_json::json!({ "text": text }))?;
             file.write_all(json.as_bytes()).await?;
             file.write_all(b"\n").await?;
         }
@@ -388,8 +409,8 @@ impl TrainingDatasetManager {
         file.sync_all().await?;
 
         info!(
-            "Saved {} training examples to {}",
-            examples.len(),
+            "Saved {} dataset rows to {}",
+            rows.len(),
             path.display()
         );
 
@@ -397,134 +418,257 @@ impl TrainingDatasetManager {
     }
 
     /// Load training examples from JSONL format
-    async fn load_examples_from_jsonl(&self, path: &Path) -> Result<Vec<WorkerTrainingExample>> {
+    async fn load_examples_from_jsonl(
+        &self,
+        path: &Path,
+        dataset_id: &str,
+    ) -> Result<(Vec<WorkerTrainingExample>, TrainingFramingPolicy)> {
         let content = tokio::fs::read_to_string(path).await?;
+        let tokenizer = self.load_text_tokenizer()?;
+        let pad_token_id = tokenizer
+            .pad_token_id()
+            .ok_or_else(|| AosError::Validation("Tokenizer missing pad_token_id".to_string()))?;
 
         let mut examples = Vec::new();
-        let mut tokenizer: Option<QwenTokenizer> = None;
-        for (line_num, line) in content.lines().enumerate() {
+        let mut schema_mode: Option<TrainingFramingPolicy> = None;
+        let created_at = get_deterministic_unix_timestamp_millis() as u64;
+        let source_path = path.display().to_string();
+
+        for (line_idx, line) in content.lines().enumerate() {
+            let line_number = line_idx + 1;
             let trimmed = line.trim();
             if trimmed.is_empty() {
-                continue;
+                return Err(AosError::Validation(format!(
+                    "Empty JSONL line {} in {}",
+                    line_number,
+                    path.display()
+                )));
             }
 
-            if let Ok(example) = serde_json::from_str::<WorkerTrainingExample>(trimmed) {
-                examples.push(example);
-                continue;
-            }
-
+            let source_hash = B3Hash::hash(line.as_bytes()).to_hex();
             let value: Value = serde_json::from_str(trimmed).map_err(|e| {
-                AosError::Internal(format!(
+                AosError::Validation(format!(
                     "Failed to parse line {} in {}: {}",
-                    line_num + 1,
+                    line_number,
                     path.display(),
                     e
                 ))
             })?;
-
             let obj = value.as_object().ok_or_else(|| {
-                AosError::Internal(format!(
+                AosError::Validation(format!(
                     "Failed to parse line {} in {}: expected JSON object",
-                    line_num + 1,
+                    line_number,
                     path.display()
                 ))
             })?;
 
-            let prompt = obj
-                .get("prompt")
-                .or_else(|| obj.get("input"))
-                .or_else(|| obj.get("text"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-
-            let response = obj
-                .get("response")
-                .or_else(|| obj.get("output"))
-                .or_else(|| obj.get("completion"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-
-            if prompt.trim().is_empty() {
-                return Err(AosError::Internal(format!(
-                    "Failed to parse line {} in {}: prompt is empty",
-                    line_num + 1,
-                    path.display()
-                )));
-            }
-
-            let response = if response.trim().is_empty() {
-                prompt
+            let is_supervised =
+                obj.len() == 2 && obj.contains_key("prompt") && obj.contains_key("completion");
+            let is_raw = obj.len() == 1 && obj.contains_key("text");
+            let line_schema = if is_supervised {
+                TrainingFramingPolicy::Supervised
+            } else if is_raw {
+                TrainingFramingPolicy::RawContinuationV1
             } else {
-                response
+                let keys = obj.keys().cloned().collect::<Vec<_>>().join(", ");
+                return Err(AosError::Validation(format!(
+                    "Unsupported JSONL schema at line {} in {} (fields: {}). Expected {{\"prompt\",\"completion\"}} or {{\"text\"}} only",
+                    line_number,
+                    path.display(),
+                    keys
+                )));
             };
 
-            if tokenizer.is_none() {
-                tokenizer = Some(self.load_text_tokenizer()?);
-            }
-            let tokenizer_ref = tokenizer
-                .as_ref()
-                .ok_or_else(|| AosError::Internal("Failed to initialize tokenizer".to_string()))?;
-
-            let input = tokenizer_ref.encode(prompt)?;
-            let target = tokenizer_ref.encode(response)?;
-            let pad_token_id = tokenizer_ref
-                .pad_token_id()
-                .ok_or_else(|| AosError::Internal("Tokenizer missing pad_token_id".to_string()))?;
-
-            if input.is_empty() || target.is_empty() {
-                return Err(AosError::Internal(format!(
-                    "Failed to parse line {} in {}: empty token sequence",
-                    line_num + 1,
-                    path.display()
-                )));
-            }
-
-            let weight = obj
-                .get("weight")
-                .and_then(|v| v.as_f64())
-                .map(|v| v as f32)
-                .unwrap_or(1.0);
-
-            let source_str = path.display().to_string();
-            let mut provenance = BTreeMap::new();
-            provenance.insert(
-                "source_path".to_string(),
-                serde_json::Value::String(source_str.clone()),
-            );
-            if let Some(num) = serde_json::Number::from_f64(weight as f64) {
-                provenance.insert("weight".to_string(), serde_json::Value::Number(num));
+            if let Some(active) = schema_mode {
+                if active != line_schema {
+                    return Err(AosError::Validation(format!(
+                        "Mixed JSONL schemas in {}: expected {}, found {} on line {}",
+                        path.display(),
+                        active.as_str(),
+                        line_schema.as_str(),
+                        line_number
+                    )));
+                }
             } else {
-                provenance.insert(
-                    "weight".to_string(),
-                    serde_json::Value::String(weight.to_string()),
-                );
+                schema_mode = Some(line_schema);
             }
-            if let Some(metadata_obj) = obj.get("metadata").and_then(|v| v.as_object()) {
-                for (key, value) in metadata_obj {
-                    let flat_value = flatten_metadata_value(value);
-                    if !flat_value.is_empty() {
-                        provenance.insert(key.clone(), serde_json::Value::String(flat_value));
+
+            match line_schema {
+                TrainingFramingPolicy::Supervised => {
+                    let prompt = obj
+                        .get("prompt")
+                        .and_then(|v| v.as_str())
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .ok_or_else(|| {
+                            AosError::Validation(format!(
+                                "Line {} in {} has empty prompt",
+                                line_number,
+                                path.display()
+                            ))
+                        })?;
+                    let completion = obj
+                        .get("completion")
+                        .and_then(|v| v.as_str())
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .ok_or_else(|| {
+                            AosError::Validation(format!(
+                                "Line {} in {} has empty completion",
+                                line_number,
+                                path.display()
+                            ))
+                        })?;
+
+                    let input_tokens = tokenizer.encode(prompt)?;
+                    let target_tokens = tokenizer.encode(completion)?;
+                    if input_tokens.is_empty() || target_tokens.is_empty() {
+                        return Err(AosError::Validation(format!(
+                            "Line {} in {} produced empty token sequence",
+                            line_number,
+                            path.display()
+                        )));
+                    }
+
+                    let mut provenance = BTreeMap::new();
+                    provenance.insert(
+                        "schema".to_string(),
+                        serde_json::Value::String(line_schema.as_str().to_string()),
+                    );
+                    provenance.insert(
+                        "source_path".to_string(),
+                        serde_json::Value::String(source_path.clone()),
+                    );
+                    provenance.insert(
+                        "line_number".to_string(),
+                        serde_json::Value::String(line_number.to_string()),
+                    );
+                    let provenance = provenance_from_map(&provenance).map_err(|e| {
+                        AosError::Validation(format!("Failed to serialize provenance: {}", e))
+                    })?;
+                    let metadata = ExampleMetadataV1::new(
+                        dataset_id.to_string(),
+                        line_number as u64,
+                        source_hash,
+                        provenance,
+                        created_at,
+                    );
+                    let attention_mask =
+                        WorkerTrainingExample::attention_mask_from_tokens(&input_tokens, pad_token_id);
+                    examples.push(WorkerTrainingExample::new(
+                        input_tokens,
+                        target_tokens,
+                        attention_mask,
+                        metadata,
+                    ));
+                }
+                TrainingFramingPolicy::RawContinuationV1 => {
+                    let text = obj
+                        .get("text")
+                        .and_then(|v| v.as_str())
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .ok_or_else(|| {
+                            AosError::Validation(format!(
+                                "Line {} in {} has empty text",
+                                line_number,
+                                path.display()
+                            ))
+                        })?;
+                    let tokens = tokenizer.encode(text)?;
+                    if tokens.len() <= MAX_INPUT_TOKENS {
+                        tracing::warn!(
+                            dataset_id = %dataset_id,
+                            line_number,
+                            token_count = tokens.len(),
+                            "Raw text row too short for continuation framing; dropping row"
+                        );
+                        continue;
+                    }
+
+                    let mut produced = 0usize;
+                    let mut start = 0usize;
+                    while start < tokens.len() {
+                        let input_end = start + MAX_INPUT_TOKENS;
+                        if input_end >= tokens.len() {
+                            break;
+                        }
+                        let target_end = input_end + MAX_TARGET_TOKENS;
+                        let input_tokens = tokens[start..input_end].to_vec();
+                        let target_tokens = tokens[input_end..tokens.len().min(target_end)].to_vec();
+                        if input_tokens.is_empty() || target_tokens.is_empty() {
+                            break;
+                        }
+
+                        let mut provenance = BTreeMap::new();
+                        provenance.insert(
+                            "schema".to_string(),
+                            serde_json::Value::String(line_schema.as_str().to_string()),
+                        );
+                        provenance.insert(
+                            "source_path".to_string(),
+                            serde_json::Value::String(source_path.clone()),
+                        );
+                        provenance.insert(
+                            "line_number".to_string(),
+                            serde_json::Value::String(line_number.to_string()),
+                        );
+                        provenance.insert(
+                            "chunk_index".to_string(),
+                            serde_json::Value::String((produced).to_string()),
+                        );
+                        let provenance = provenance_from_map(&provenance).map_err(|e| {
+                            AosError::Validation(format!("Failed to serialize provenance: {}", e))
+                        })?;
+                        let metadata = ExampleMetadataV1::new(
+                            dataset_id.to_string(),
+                            line_number as u64,
+                            source_hash.clone(),
+                            provenance,
+                            created_at,
+                        );
+                        let attention_mask = WorkerTrainingExample::attention_mask_from_tokens(
+                            &input_tokens,
+                            pad_token_id,
+                        );
+                        examples.push(WorkerTrainingExample::new(
+                            input_tokens,
+                            target_tokens,
+                            attention_mask,
+                            metadata,
+                        ));
+
+                        produced += 1;
+                        start = start.saturating_add(STRIDE_TOKENS);
+                    }
+
+                    if produced == 0 {
+                        tracing::warn!(
+                            dataset_id = %dataset_id,
+                            line_number,
+                            token_count = tokens.len(),
+                            "Raw text row produced no training chunks"
+                        );
                     }
                 }
             }
-            let provenance = provenance_from_map(&provenance)
-                .map_err(|e| AosError::Internal(format!("Failed to serialize metadata: {}", e)))?;
-            // Use deterministic timestamp for metadata creation time
-            let created_at = get_deterministic_unix_timestamp_millis() as u64;
-            let metadata =
-                ExampleMetadataV1::new(source_str, line_num as u64, provenance, created_at);
-            let attention_mask =
-                WorkerTrainingExample::attention_mask_from_tokens(&input, pad_token_id);
-
-            examples.push(WorkerTrainingExample::new(
-                input,
-                target,
-                attention_mask,
-                metadata,
-            ));
         }
 
-        Ok(examples)
+        let framing_policy = schema_mode.ok_or_else(|| {
+            AosError::Validation(format!(
+                "Dataset {} contains no valid JSONL entries",
+                path.display()
+            ))
+        })?;
+
+        if examples.is_empty() {
+            return Err(AosError::Validation(format!(
+                "Dataset {} contains no valid training examples",
+                path.display()
+            )));
+        }
+
+        Ok((examples, framing_policy))
     }
 
     /// Compute BLAKE3 hash of a file
@@ -535,27 +679,10 @@ impl TrainingDatasetManager {
     }
 
     fn load_text_tokenizer(&self) -> Result<QwenTokenizer> {
-        let tokenizer_path = match self.tokenizer_path.as_ref() {
-            Some(path) => path.clone(),
-            None => resolve_tokenizer_path(None)?,
-        };
+        let tokenizer_path = self.tokenizer_path.as_ref().ok_or_else(|| {
+            AosError::Config("Tokenizer path required; set base_model_path".to_string())
+        })?;
         QwenTokenizer::from_file(tokenizer_path)
-    }
-}
-
-fn flatten_metadata_value(value: &Value) -> String {
-    match value {
-        Value::Null => String::new(),
-        Value::Bool(b) => b.to_string(),
-        Value::Number(n) => n.to_string(),
-        Value::String(s) => s.clone(),
-        Value::Array(arr) => arr
-            .iter()
-            .map(flatten_metadata_value)
-            .filter(|s| !s.is_empty())
-            .collect::<Vec<_>>()
-            .join(","),
-        Value::Object(_) => serde_json::to_string(value).unwrap_or_default(),
     }
 }
 
@@ -566,6 +693,7 @@ mod tests {
     use adapteros_db::sqlx;
     use adapteros_db::Db;
     use adapteros_platform::common::PlatformUtils;
+    use std::path::PathBuf;
     use tempfile::TempDir;
 
     fn new_test_tempdir() -> TempDir {
@@ -574,14 +702,9 @@ mod tests {
         TempDir::new_in(&root).expect("tempdir")
     }
 
-    fn make_example(
-        input_tokens: Vec<u32>,
-        target_tokens: Vec<u32>,
-        row_id: u64,
-    ) -> WorkerTrainingExample {
-        let metadata = ExampleMetadataV1::new("test", row_id, "{}", 0);
-        let attention_mask = WorkerTrainingExample::attention_mask_from_tokens(&input_tokens, 0);
-        WorkerTrainingExample::new(input_tokens, target_tokens, attention_mask, metadata)
+    fn fixture_tokenizer_path() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/models/tiny-test/tokenizer.json")
     }
 
     /// Minimal in-memory DB for dataset validation gates (no global migrations)
@@ -648,32 +771,70 @@ mod tests {
         let db_path = temp_dir.path().join("test.db");
         let db = Db::connect(db_path.to_str().unwrap()).await.unwrap();
 
-        let manager =
-            TrainingDatasetManager::new(ProtectedDb::new(db), temp_dir.path().to_path_buf(), None);
+        let tokenizer_path = fixture_tokenizer_path();
+        let manager = TrainingDatasetManager::new(
+            ProtectedDb::new(db),
+            temp_dir.path().to_path_buf(),
+            Some(tokenizer_path.clone()),
+        );
 
-        // Create test examples
-        let examples = vec![
-            make_example(vec![1, 2, 3], vec![4, 5, 6], 1),
-            make_example(vec![7, 8, 9], vec![10, 11, 12], 2),
+        let rows = vec![
+            serde_json::json!({"prompt": "Hello", "completion": "World"}).to_string(),
+            serde_json::json!({"prompt": "Good", "completion": "Morning"}).to_string(),
         ];
-
-        // Save examples
-        manager
-            .save_examples_to_jsonl(&examples, &storage_path)
+        tokio::fs::write(&storage_path, format!("{}\n{}\n", rows[0], rows[1]))
             .await
             .unwrap();
 
         // Load examples
-        let loaded = manager
-            .load_examples_from_jsonl(&storage_path)
+        let (loaded, framing_policy) = manager
+            .load_examples_from_jsonl(&storage_path, "ds-test")
             .await
             .unwrap();
 
+        assert_eq!(framing_policy, TrainingFramingPolicy::Supervised);
         assert_eq!(loaded.len(), 2);
-        assert_eq!(loaded[0].input_tokens, vec![1, 2, 3]);
-        assert_eq!(loaded[0].target_tokens, vec![4, 5, 6]);
-        assert_eq!(loaded[1].input_tokens, vec![7, 8, 9]);
-        assert_eq!(loaded[1].target_tokens, vec![10, 11, 12]);
+
+        let tokenizer = QwenTokenizer::from_file(&tokenizer_path).unwrap();
+        assert_eq!(loaded[0].input_tokens, tokenizer.encode("Hello").unwrap());
+        assert_eq!(loaded[0].target_tokens, tokenizer.encode("World").unwrap());
+        assert_eq!(loaded[1].input_tokens, tokenizer.encode("Good").unwrap());
+        assert_eq!(loaded[1].target_tokens, tokenizer.encode("Morning").unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_load_raw_text_examples() {
+        let temp_dir = new_test_tempdir();
+        let storage_path = temp_dir.path().join("raw.jsonl");
+
+        let db_path = temp_dir.path().join("test.db");
+        let db = Db::connect(db_path.to_str().unwrap()).await.unwrap();
+        let tokenizer_path = fixture_tokenizer_path();
+        let manager = TrainingDatasetManager::new(
+            ProtectedDb::new(db),
+            temp_dir.path().to_path_buf(),
+            Some(tokenizer_path),
+        );
+
+        let long_text = "hello ".repeat(600);
+        let row = serde_json::json!({"text": long_text}).to_string();
+        tokio::fs::write(&storage_path, format!("{}\n", row))
+            .await
+            .unwrap();
+
+        let (loaded, framing_policy) = manager
+            .load_examples_from_jsonl(&storage_path, "ds-raw")
+            .await
+            .unwrap();
+
+        assert_eq!(framing_policy, TrainingFramingPolicy::RawContinuationV1);
+        assert!(!loaded.is_empty());
+        for example in &loaded {
+            assert_eq!(example.input_tokens.len(), MAX_INPUT_TOKENS);
+            assert!(!example.target_tokens.is_empty());
+            assert!(example.target_tokens.len() <= MAX_TARGET_TOKENS);
+            assert_eq!(example.attention_mask.len(), example.input_tokens.len());
+        }
     }
 
     #[tokio::test]
@@ -681,8 +842,8 @@ mod tests {
         let temp_dir = new_test_tempdir();
         let dataset_path = temp_dir.path().join("dataset.jsonl");
 
-        // Prepare on-disk dataset file with a single training example
-        let example_json = serde_json::to_string(&make_example(vec![1, 2], vec![3, 4], 1)).unwrap();
+        let example_json =
+            serde_json::json!({"prompt": "Alpha", "completion": "Beta"}).to_string();
         tokio::fs::write(&dataset_path, format!("{}\n", example_json))
             .await
             .unwrap();
@@ -692,7 +853,7 @@ mod tests {
         let manager = TrainingDatasetManager::new(
             ProtectedDb::new(db.clone()),
             temp_dir.path().to_path_buf(),
-            None,
+            Some(fixture_tokenizer_path()),
         );
         let hash = manager.compute_file_hash(&dataset_path).await.unwrap();
 
@@ -722,14 +883,14 @@ mod tests {
         .await
         .unwrap();
 
-        let examples = manager
+        let loaded = manager
             .load_dataset_examples("ds-valid")
             .await
             .expect("valid dataset should load");
 
-        assert_eq!(examples.len(), 1);
-        assert_eq!(examples[0].input_tokens, vec![1, 2]);
-        assert_eq!(examples[0].target_tokens, vec![3, 4]);
+        assert_eq!(loaded.dataset_id, "ds-valid");
+        assert_eq!(loaded.framing_policy, TrainingFramingPolicy::Supervised);
+        assert_eq!(loaded.examples.len(), 1);
     }
 
     #[tokio::test]
@@ -737,7 +898,8 @@ mod tests {
         let temp_dir = new_test_tempdir();
         let dataset_path = temp_dir.path().join("dataset.jsonl");
 
-        let example_json = serde_json::to_string(&make_example(vec![1], vec![2], 1)).unwrap();
+        let example_json =
+            serde_json::json!({"prompt": "Gamma", "completion": "Delta"}).to_string();
         tokio::fs::write(&dataset_path, format!("{}\n", example_json))
             .await
             .unwrap();
@@ -746,7 +908,7 @@ mod tests {
         let manager = TrainingDatasetManager::new(
             ProtectedDb::new(db.clone()),
             temp_dir.path().to_path_buf(),
-            None,
+            Some(fixture_tokenizer_path()),
         );
         let hash = manager.compute_file_hash(&dataset_path).await.unwrap();
 

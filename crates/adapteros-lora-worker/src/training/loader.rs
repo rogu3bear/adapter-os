@@ -5,7 +5,7 @@
 
 use super::limits::DatasetSizeLimits;
 use crate::tokenizer::QwenTokenizer;
-use adapteros_core::{AosError, Result};
+use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_secure_fs::path_policy::{canonicalize_strict, canonicalize_strict_in_allowed_roots};
 use adapteros_types::training::{
     provenance_from_map, validate_training_examples, ExampleMetadataV1, TrainingDataContractConfig,
@@ -13,11 +13,18 @@ use adapteros_types::training::{
 };
 use serde::Deserialize;
 use serde_json::Value;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use tracing::warn;
+
+// Locked framing constants (Plan 4).
+const MAX_INPUT_TOKENS: usize = 256;
+const MAX_TARGET_TOKENS: usize = 128;
+const STRIDE_TOKENS: usize = 256;
+const SCHEMA_SUPERVISED: &str = "supervised";
+const SCHEMA_RAW_CONTINUATION: &str = "raw_continuation_v1";
 
 /// Dataset manifest describing positive/negative inputs.
 #[derive(Debug, Deserialize)]
@@ -47,17 +54,6 @@ pub struct DatasetEntry {
     pub notes: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
-struct JsonlSample {
-    #[serde(default)]
-    id: Option<String>,
-    prompt: String,
-    response: String,
-    #[serde(default = "default_sample_weight")]
-    weight: f32,
-    #[serde(default)]
-    metadata: Option<HashMap<String, Value>>,
-}
 
 /// Load training examples from a manifest using the provided tokenizer.
 pub fn load_examples_from_manifest<P: AsRef<Path>>(
@@ -124,6 +120,7 @@ where
     let mut total_tokens: u64 = 0;
     let mut total_bytes: u64 = 0;
     let created_at_unix_ms = chrono::Utc::now().timestamp_millis() as u64;
+    let mut schema_mode: Option<&'static str> = None;
 
     for entry in manifest.entries.iter() {
         if entry.format != "jsonl" {
@@ -165,72 +162,81 @@ where
         })?;
         let reader = BufReader::new(file);
 
+        let entry_weight = entry.weight;
+        if entry_weight.abs() < f32::EPSILON {
+            continue;
+        }
+
         for (line_idx, line) in reader.lines().enumerate() {
+            let line_number = line_idx + 1;
             let line = line.map_err(|e| {
                 AosError::Training(format!(
                     "Failed to read line {} in {}: {}",
-                    line_idx + 1,
+                    line_number,
                     entry_path.display(),
                     e
                 ))
             })?;
 
             if line.trim().is_empty() {
-                continue;
+                return Err(AosError::Training(format!(
+                    "Empty JSONL line {} in {}",
+                    line_number,
+                    entry_path.display()
+                )));
             }
 
-            let sample: JsonlSample = serde_json::from_str(&line).map_err(|e| {
+            let source_hash = B3Hash::hash(line.as_bytes()).to_hex();
+            let value: Value = serde_json::from_str(&line).map_err(|e| {
                 AosError::Training(format!(
                     "Failed to parse JSON line {} in {}: {}",
-                    line_idx + 1,
+                    line_number,
                     entry_path.display(),
                     e
                 ))
             })?;
+            let obj = value.as_object().ok_or_else(|| {
+                AosError::Training(format!(
+                    "Expected JSON object at {}:{}",
+                    entry_path.display(),
+                    line_number
+                ))
+            })?;
 
-            let entry_weight = entry.weight;
-            let combined_weight = sample.weight * entry_weight;
-            if combined_weight.abs() < f32::EPSILON {
-                continue;
-            }
+            let is_supervised = obj.len() == 2
+                && obj.contains_key("prompt")
+                && obj.contains_key("completion");
+            let is_raw = obj.len() == 1 && obj.contains_key("text");
 
-            let input_tokens = encoder(&sample.prompt)?;
-            let target_tokens = encoder(&sample.response)?;
-
-            total_tokens =
-                total_tokens.saturating_add((input_tokens.len() + target_tokens.len()) as u64);
-            if total_tokens > limits.max_tokens {
+            if !is_supervised && !is_raw {
                 return Err(AosError::Training(format!(
-                    "Dataset token count exceeds limit: {} > {}",
-                    total_tokens, limits.max_tokens
+                    "Unsupported JSONL schema at {}:{}; expected {{\"prompt\",\"completion\"}} or {{\"text\"}} only",
+                    entry_path.display(),
+                    line_number
                 )));
             }
 
-            if input_tokens.is_empty() || target_tokens.is_empty() {
-                warn!(
-                    "Skipping dataset example {} due to empty token sequence",
-                    sample.id.as_deref().unwrap_or("<unknown>")
-                );
-                continue;
-            }
-
-            if let Some(max_id) = input_tokens
-                .iter()
-                .chain(target_tokens.iter())
-                .copied()
-                .max()
-            {
-                if max_id > 10_000_000 {
-                    warn!(
-                        "Token id {} exceeds expected range for example {}",
-                        max_id,
-                        sample.id.as_deref().unwrap_or("<unknown>")
-                    );
+            let line_schema = if is_supervised {
+                SCHEMA_SUPERVISED
+            } else {
+                SCHEMA_RAW_CONTINUATION
+            };
+            if let Some(active) = schema_mode {
+                if active != line_schema {
+                    return Err(AosError::Training(format!(
+                        "Mixed JSONL schemas detected: expected {}, found {} at {}:{}",
+                        active,
+                        line_schema,
+                        entry_path.display(),
+                        line_number
+                    )));
                 }
+            } else {
+                schema_mode = Some(line_schema);
             }
 
-            let mut provenance = BTreeMap::new();
             let source_path = entry_path.to_string_lossy().to_string();
+            let mut provenance = BTreeMap::new();
             provenance.insert(
                 "source_path".to_string(),
                 serde_json::Value::String(source_path.clone()),
@@ -239,12 +245,10 @@ where
                 "dataset_name".to_string(),
                 serde_json::Value::String(manifest.name.clone()),
             );
-            if let Some(ref id) = sample.id {
-                provenance.insert(
-                    "example_id".to_string(),
-                    serde_json::Value::String(id.clone()),
-                );
-            }
+            provenance.insert(
+                "line_number".to_string(),
+                serde_json::Value::String(line_number.to_string()),
+            );
             if let Some(ref role) = entry.role {
                 provenance.insert(
                     "entry_role".to_string(),
@@ -257,44 +261,178 @@ where
                     serde_json::Value::String(notes.clone()),
                 );
             }
-            if let Some(map) = sample.metadata {
-                for (key, value) in map {
-                    provenance.insert(
-                        key,
-                        serde_json::Value::String(flatten_metadata_value(&value)),
-                    );
-                }
-            }
-            if let Some(num) = serde_json::Number::from_f64(combined_weight as f64) {
+            if let Some(num) = serde_json::Number::from_f64(entry_weight as f64) {
                 provenance.insert("weight".to_string(), serde_json::Value::Number(num));
             } else {
                 provenance.insert(
                     "weight".to_string(),
-                    serde_json::Value::String(combined_weight.to_string()),
+                    serde_json::Value::String(entry_weight.to_string()),
                 );
             }
 
-            let metadata = ExampleMetadataV1::new(
-                source_path,
-                line_idx as u64,
-                provenance_from_map(&provenance)
-                    .map_err(|e| AosError::Training(format!("Metadata error: {}", e)))?,
-                created_at_unix_ms,
-            );
-            let attention_mask =
-                TrainingExampleV1::attention_mask_from_tokens(&input_tokens, pad_token_id);
-            all_examples.push(TrainingExampleV1::new(
-                input_tokens,
-                target_tokens,
-                attention_mask,
-                metadata,
-            ));
-            if all_examples.len() > limits.max_samples {
-                return Err(AosError::Training(format!(
-                    "Dataset sample count exceeds limit: {} > {}",
-                    all_examples.len(),
-                    limits.max_samples
-                )));
+            if is_supervised {
+                let prompt = obj
+                    .get("prompt")
+                    .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .ok_or_else(|| {
+                        AosError::Training(format!(
+                            "Line {} in {} has empty prompt",
+                            line_number,
+                            entry_path.display()
+                        ))
+                    })?;
+                let completion = obj
+                    .get("completion")
+                    .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .ok_or_else(|| {
+                        AosError::Training(format!(
+                            "Line {} in {} has empty completion",
+                            line_number,
+                            entry_path.display()
+                        ))
+                    })?;
+
+                let input_tokens = encoder(prompt)?;
+                let target_tokens = encoder(completion)?;
+                if input_tokens.is_empty() || target_tokens.is_empty() {
+                    return Err(AosError::Training(format!(
+                        "Line {} in {} produced empty token sequence",
+                        line_number,
+                        entry_path.display()
+                    )));
+                }
+
+                total_tokens =
+                    total_tokens.saturating_add((input_tokens.len() + target_tokens.len()) as u64);
+                if total_tokens > limits.max_tokens {
+                    return Err(AosError::Training(format!(
+                        "Dataset token count exceeds limit: {} > {}",
+                        total_tokens, limits.max_tokens
+                    )));
+                }
+
+                provenance.insert(
+                    "schema".to_string(),
+                    serde_json::Value::String(SCHEMA_SUPERVISED.to_string()),
+                );
+                let metadata = ExampleMetadataV1::new(
+                    source_path,
+                    line_number as u64,
+                    source_hash,
+                    provenance_from_map(&provenance)
+                        .map_err(|e| AosError::Training(format!("Metadata error: {}", e)))?,
+                    created_at_unix_ms,
+                );
+                let attention_mask =
+                    TrainingExampleV1::attention_mask_from_tokens(&input_tokens, pad_token_id);
+                all_examples.push(TrainingExampleV1::new(
+                    input_tokens,
+                    target_tokens,
+                    attention_mask,
+                    metadata,
+                ));
+                if all_examples.len() > limits.max_samples {
+                    return Err(AosError::Training(format!(
+                        "Dataset sample count exceeds limit: {} > {}",
+                        all_examples.len(),
+                        limits.max_samples
+                    )));
+                }
+                continue;
+            }
+
+            let text = obj
+                .get("text")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| {
+                    AosError::Training(format!(
+                        "Line {} in {} has empty text",
+                        line_number,
+                        entry_path.display()
+                    ))
+                })?;
+            let tokens = encoder(text)?;
+            if tokens.len() <= MAX_INPUT_TOKENS {
+                warn!(
+                    line_number,
+                    token_count = tokens.len(),
+                    "Raw text row too short for continuation framing; dropping row"
+                );
+                continue;
+            }
+
+            let mut produced = 0usize;
+            let mut start = 0usize;
+            while start < tokens.len() {
+                let input_end = start + MAX_INPUT_TOKENS;
+                if input_end >= tokens.len() {
+                    break;
+                }
+                let target_end = input_end + MAX_TARGET_TOKENS;
+                let input_tokens = tokens[start..input_end].to_vec();
+                let target_tokens = tokens[input_end..tokens.len().min(target_end)].to_vec();
+                if input_tokens.is_empty() || target_tokens.is_empty() {
+                    break;
+                }
+
+                total_tokens = total_tokens
+                    .saturating_add((input_tokens.len() + target_tokens.len()) as u64);
+                if total_tokens > limits.max_tokens {
+                    return Err(AosError::Training(format!(
+                        "Dataset token count exceeds limit: {} > {}",
+                        total_tokens, limits.max_tokens
+                    )));
+                }
+
+                let mut chunk_provenance = provenance.clone();
+                chunk_provenance.insert(
+                    "schema".to_string(),
+                    serde_json::Value::String(SCHEMA_RAW_CONTINUATION.to_string()),
+                );
+                chunk_provenance.insert(
+                    "chunk_index".to_string(),
+                    serde_json::Value::String(produced.to_string()),
+                );
+                let metadata = ExampleMetadataV1::new(
+                    source_path.clone(),
+                    line_number as u64,
+                    source_hash.clone(),
+                    provenance_from_map(&chunk_provenance)
+                        .map_err(|e| AosError::Training(format!("Metadata error: {}", e)))?,
+                    created_at_unix_ms,
+                );
+                let attention_mask =
+                    TrainingExampleV1::attention_mask_from_tokens(&input_tokens, pad_token_id);
+                all_examples.push(TrainingExampleV1::new(
+                    input_tokens,
+                    target_tokens,
+                    attention_mask,
+                    metadata,
+                ));
+                if all_examples.len() > limits.max_samples {
+                    return Err(AosError::Training(format!(
+                        "Dataset sample count exceeds limit: {} > {}",
+                        all_examples.len(),
+                        limits.max_samples
+                    )));
+                }
+
+                produced += 1;
+                start = start.saturating_add(STRIDE_TOKENS);
+            }
+
+            if produced == 0 {
+                warn!(
+                    line_number,
+                    token_count = tokens.len(),
+                    "Raw text row produced no training chunks"
+                );
             }
         }
     }
@@ -313,40 +451,11 @@ where
     Ok(all_examples)
 }
 
-fn flatten_metadata_value(value: &Value) -> String {
-    match value {
-        Value::Null => String::new(),
-        Value::Bool(b) => b.to_string(),
-        Value::Number(n) => n.to_string(),
-        Value::String(s) => s.clone(),
-        Value::Array(arr) => arr
-            .iter()
-            .map(flatten_metadata_value)
-            .filter(|s| !s.is_empty())
-            .collect::<Vec<_>>()
-            .join(","),
-        Value::Object(obj) => {
-            let mut parts = Vec::new();
-            for (k, v) in obj {
-                let val = flatten_metadata_value(v);
-                if !val.is_empty() {
-                    parts.push(format!("{}={}", k, val));
-                }
-            }
-            parts.join(";")
-        }
-    }
-}
-
 fn default_format() -> String {
     "jsonl".to_string()
 }
 
 const fn default_entry_weight() -> f32 {
-    1.0
-}
-
-const fn default_sample_weight() -> f32 {
     1.0
 }
 
@@ -396,10 +505,8 @@ mod tests {
             positive_file,
             "{}",
             serde_json::json!({
-                "id": "pos1",
                 "prompt": "Say hello",
-                "response": "Hello!",
-                "metadata": { "tags": ["greeting"] }
+                "completion": "Hello!"
             })
         )
         .unwrap();
@@ -409,10 +516,8 @@ mod tests {
             negative_file,
             "{}",
             serde_json::json!({
-                "id": "neg1",
                 "prompt": "Do a bad thing",
-                "response": "I can't help with that.",
-                "weight": 0.5
+                "completion": "I can't help with that."
             })
         )
         .unwrap();
@@ -425,18 +530,18 @@ mod tests {
         let pos = &examples[0];
         let pos_prov: serde_json::Value = serde_json::from_str(&pos.metadata.provenance).unwrap();
         assert_eq!(
-            pos_prov.get("example_id").and_then(|v| v.as_str()),
-            Some("pos1")
+            pos_prov.get("schema").and_then(|v| v.as_str()),
+            Some(SCHEMA_SUPERVISED)
         );
         assert_eq!(weight_from_metadata(&pos.metadata), Some(1.0));
 
         let neg = &examples[1];
         let neg_prov: serde_json::Value = serde_json::from_str(&neg.metadata.provenance).unwrap();
         assert_eq!(
-            neg_prov.get("example_id").and_then(|v| v.as_str()),
-            Some("neg1")
+            neg_prov.get("schema").and_then(|v| v.as_str()),
+            Some(SCHEMA_SUPERVISED)
         );
-        assert_eq!(weight_from_metadata(&neg.metadata), Some(-0.5));
+        assert_eq!(weight_from_metadata(&neg.metadata), Some(-1.0));
         assert_eq!(neg.target_tokens.len(), "I can't help with that.".len());
     }
 
@@ -464,21 +569,8 @@ mod tests {
             weighted_file,
             "{}",
             serde_json::json!({
-                "id": "w1",
                 "prompt": "ping",
-                "response": "pong",
-                "weight": 0.25
-            })
-        )
-        .unwrap();
-        writeln!(
-            weighted_file,
-            "{}",
-            serde_json::json!({
-                "id": "w0",
-                "prompt": "skip",
-                "response": "ignored",
-                "weight": 0.0
+                "completion": "pong"
             })
         )
         .unwrap();
@@ -488,6 +580,6 @@ mod tests {
         let examples = load_examples_with_encoder(&manifest_path, 0, 1024, encoder).unwrap();
 
         assert_eq!(examples.len(), 1);
-        assert_eq!(weight_from_metadata(&examples[0].metadata), Some(0.125));
+        assert_eq!(weight_from_metadata(&examples[0].metadata), Some(0.5));
     }
 }

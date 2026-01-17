@@ -896,6 +896,27 @@ pub async fn upload_dataset(
             Some(&claims.sub),
         );
 
+        if parse_errors > 0 || dropped > 0 {
+            warn!(
+                dataset_id = %dataset_id,
+                dataset_version_id = %dataset_version_id,
+                parse_errors,
+                dropped,
+                "Dataset contains unsupported JSONL rows"
+            );
+            let _ = state.db.update_dataset_status(&dataset_id, "failed").await;
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new(format!(
+                        "Dataset contains invalid JSONL rows (parse_errors={}, dropped={})",
+                        parse_errors, dropped
+                    ))
+                    .with_code("DATASET_SCHEMA_INVALID"),
+                ),
+            ));
+        }
+
         if rows.is_empty() {
             warn!(
                 dataset_id = %dataset_id,

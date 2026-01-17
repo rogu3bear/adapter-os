@@ -53,13 +53,16 @@ pub use types::{
 
 /// Micro-LoRA trainer with multi-backend GPU support.
 ///
-/// IMPORTANT: Training requires a base model to be loaded. The trainer extracts
+/// IMPORTANT: GPU training requires a base model to be loaded. The trainer extracts
 /// real hidden states from the base model and computes cross-entropy loss on
-/// vocabulary logits for proper LoRA training.
+/// vocabulary logits for proper LoRA training. When `use_gpu_backward=false`,
+/// the CPU proxy path skips base model loading and uses scaled-token MSE loss.
 ///
 /// Only LoRA matrices are ever mutated or registered with optimizers.
 pub struct MicroLoRATrainer {
     pub config: TrainingConfig,
+    /// Whether to use cross-entropy loss instead of legacy MSE.
+    use_cross_entropy_loss: bool,
     /// GPU kernels for accelerated training
     kernels: Option<crate::backend_factory::KernelBox>,
     /// Selected backend for this training session
@@ -139,6 +142,8 @@ struct SplitExamplesResult {
     validation: Vec<TrainingExample>,
     split_hash_b3: String,
 }
+
+const DEFAULT_CE_MAX_VOCAB: usize = 100_000;
 
 impl BackendAvailability {
     fn any_gpu(&self) -> bool {
@@ -242,18 +247,25 @@ impl MicroLoRATrainer {
 
         let config_for_metrics = config.clone();
 
-        // REQUIRED: Validate base model path is configured
-        let base_model_path = config.base_model_path.clone().ok_or_else(|| {
-            AosError::Config(
-                "base_model_path is required for training. Training without a base model \
-                 produces incorrect adapters that don't match inference behavior. \
-                 Set via TrainingConfig::with_base_model() or --base-model CLI flag."
+        let requires_base_model = config.requires_base_model();
+        let base_model_path = config.base_model_path.clone();
+        if requires_base_model && base_model_path.is_none() {
+            return Err(AosError::Config(
+                "base_model_path is required when use_gpu_backward=true, validation_split>0, \
+                 or multi_module_training=true. Set via TrainingConfig::with_base_model() or \
+                 --base-model CLI flag."
                     .to_string(),
-            )
-        })?;
+            ));
+        }
+        if !requires_base_model && base_model_path.is_none() {
+            warn!(
+                "base_model_path is not set; tokenizer validation should be enforced before training"
+            );
+        }
 
         let mut trainer = Self {
             config,
+            use_cross_entropy_loss: true,
             kernels: None,
             selected_backend: None,
             backend_device: None,
@@ -314,9 +326,20 @@ impl MicroLoRATrainer {
             accumulated_gradients: HashMap::new(),
         };
 
-        // Load base model (required for multi-backend)
+        // Load base model when required (GPU backward, validation, or multi-module training).
         #[cfg(feature = "multi-backend")]
-        trainer.load_base_model(&base_model_path)?;
+        if requires_base_model {
+            let base_model_path = base_model_path.as_ref().ok_or_else(|| {
+                AosError::Config(
+                    "base_model_path is required for this training configuration".to_string(),
+                )
+            })?;
+            trainer.load_base_model(base_model_path)?;
+        } else {
+            info!(
+                "Skipping base model load (use_gpu_backward=false, validation_split=0, multi_module_training=false)"
+            );
+        }
 
         Ok(trainer)
     }
@@ -346,6 +369,7 @@ impl MicroLoRATrainer {
 
         Ok(Self {
             config,
+            use_cross_entropy_loss: true,
             kernels: None,
             selected_backend: None,
             backend_device: None,
@@ -2305,6 +2329,28 @@ Use --force-resume to override (may produce incorrect results).",
 
         let start = Instant::now();
         let adapter_id = Self::generate_adapter_id();
+        let (use_cross_entropy_loss, max_vocab, force_ce, force_legacy) =
+            self.resolve_cross_entropy_loss();
+        self.use_cross_entropy_loss = use_cross_entropy_loss;
+        if force_ce {
+            info!(
+                vocab_size = self.config.vocab_size,
+                max_vocab,
+                "Cross-entropy loss forced via AOS_TRAIN_FORCE_CE"
+            );
+        } else if force_legacy {
+            warn!(
+                vocab_size = self.config.vocab_size,
+                max_vocab,
+                "Legacy MSE loss forced via AOS_TRAIN_LEGACY_LOSS"
+            );
+        } else if !use_cross_entropy_loss {
+            warn!(
+                vocab_size = self.config.vocab_size,
+                max_vocab,
+                "Cross-entropy loss disabled for large vocab; using legacy MSE loss"
+            );
+        }
 
         // Use provided weights or initialize fresh
         let mut weights =
@@ -2628,12 +2674,27 @@ Use --force-resume to override (may produce incorrect results).",
     where
         C: FnMut(EpochMetrics),
     {
-        if self.selected_backend.is_none() {
+        if !self.config.use_gpu_backward {
+            self.validate_cpu_proxy_training()?;
+            info!(
+                "CPU proxy training enabled (use_gpu_backward=false); using scaled token targets with MSE loss"
+            );
+            if self.kernels.is_some() {
+                warn!(
+                    "GPU kernels initialized but use_gpu_backward=false; CPU proxy training will ignore GPU kernels"
+                );
+            }
+            self.append_backend_reason("cpu_proxy_training");
             self.selected_backend = Some(TrainingBackend::Cpu);
-        }
-        if self.backend_device.is_none() {
-            if let Some(backend) = self.selected_backend {
-                self.backend_device = self.resolve_backend_device(backend);
+            self.backend_device = self.resolve_backend_device(TrainingBackend::Cpu);
+        } else {
+            if self.selected_backend.is_none() {
+                self.selected_backend = Some(TrainingBackend::Cpu);
+            }
+            if self.backend_device.is_none() {
+                if let Some(backend) = self.selected_backend {
+                    self.backend_device = self.resolve_backend_device(backend);
+                }
             }
         }
 
@@ -2754,7 +2815,11 @@ Use --force-resume to override (may produce incorrect results).",
         let curve_capacity = target_epochs.saturating_sub(start_epoch);
         let mut loss_curve = Vec::with_capacity(curve_capacity);
         let mut train_perplexity_curve = Vec::with_capacity(curve_capacity);
-        let validation_enabled = !self.validation_examples.is_empty();
+        let validation_enabled =
+            !self.validation_examples.is_empty() && self.use_cross_entropy_loss;
+        if !self.use_cross_entropy_loss && !self.validation_examples.is_empty() {
+            warn!("Validation loss disabled for legacy MSE training");
+        }
         let mut validation_loss_curve = Vec::with_capacity(curve_capacity);
         let mut validation_perplexity_curve = Vec::with_capacity(curve_capacity);
         let mut best_validation: Option<(f32, u32)> = None;
@@ -2763,7 +2828,11 @@ Use --force-resume to override (may produce incorrect results).",
             validation_enabled && self.config.early_stopping.unwrap_or(false);
         let patience = self.config.patience.unwrap_or(5);
         let min_delta = self.config.min_delta.unwrap_or(0.001);
-        let training_loss_spec = loss::training_loss_spec(self.config.ignore_index);
+        let training_loss_spec = if self.use_cross_entropy_loss {
+            loss::training_loss_spec(self.config.ignore_index)
+        } else {
+            loss::legacy_training_loss_spec(self.config.ignore_index)
+        };
         info!(loss_spec = %training_loss_spec.summary(), "Training loss spec");
         if validation_enabled {
             let validation_loss_spec = loss::validation_loss_spec(self.config.ignore_index);
@@ -3204,6 +3273,11 @@ Use --force-resume to override (may produce incorrect results).",
         let targets = self.config.targets.clone();
         let rank = self.config.rank;
         let hidden_dim = self.config.hidden_dim;
+        if !self.use_cross_entropy_loss {
+            return Err(AosError::Training(
+                "Legacy MSE loss does not support multi-module training".to_string(),
+            ));
+        }
 
         // Determine layer indices: use configured list or fallback to single layer
         let layer_indices: Vec<usize> = if self.config.lora_layer_indices.is_empty() {
@@ -3309,6 +3383,22 @@ Use --force-resume to override (may produce incorrect results).",
             }
 
             for example in batch.examples.iter() {
+                if example.target_tokens.is_empty() {
+                    return Err(AosError::Training(
+                        "Training example missing target tokens".to_string(),
+                    ));
+                }
+                let mut target_tokens = example.target_tokens.as_slice();
+                let mut target_token_buf = [0u32; 1];
+                if target_tokens.len() > 1 {
+                    target_token_buf[0] = *target_tokens
+                        .last()
+                        .ok_or_else(|| {
+                            AosError::Training("Training example missing target tokens".to_string())
+                        })?;
+                    target_tokens = &target_token_buf;
+                }
+
                 // Get all hidden states from forward pass
                 let (_logits, hidden_states) =
                     model.forward_with_hidden_states(&example.input_tokens)?;
@@ -3327,6 +3417,18 @@ Use --force-resume to override (may produce incorrect results).",
                                 hidden_states.keys().collect::<Vec<_>>()
                             ))
                         })?;
+                        let hidden_slice = if hidden.len() == hidden_dim {
+                            hidden.as_slice()
+                        } else if hidden.len() > hidden_dim {
+                            &hidden[hidden.len().saturating_sub(hidden_dim)..]
+                        } else {
+                            return Err(AosError::Training(format!(
+                                "Hidden state '{}' size {} is smaller than hidden_dim {}",
+                                layer_key,
+                                hidden.len(),
+                                hidden_dim
+                            )));
+                        };
 
                         // Module key: include layer index if multi-layer mode
                         let module_key = if is_multi_layer {
@@ -3342,8 +3444,8 @@ Use --force-resume to override (may produce incorrect results).",
                         // Backward pass for this (layer, module) combination
                         let loss = self.backward_and_update_module_gpu_ce(
                             module_weights,
-                            hidden,
-                            &example.target_tokens,
+                            hidden_slice,
+                            target_tokens,
                             &model,
                             epoch_seed.wrapping_add(num_updates as u64),
                             &module_key,
@@ -3377,13 +3479,210 @@ Use --force-resume to override (may produce incorrect results).",
         batch: &[PreparedExample],
         epoch_seed: u64,
     ) -> Result<f32> {
-        if self.kernels.is_some() {
-            self.train_batch_gpu(weights, batch, epoch_seed)
+        if self.config.use_gpu_backward {
+            if self.kernels.is_some() {
+                self.train_batch_gpu(weights, batch, epoch_seed)
+            } else {
+                Err(AosError::Training(
+                    "GPU backward requested but no kernels are initialized. \
+                     Provide --plan or set use_gpu_backward=false for CPU proxy training."
+                        .to_string(),
+                ))
+            }
         } else {
-            Err(AosError::Training(
-                "GPU kernels are required for training. Configure a GPU backend.".to_string(),
-            ))
+            self.train_batch_cpu_proxy(weights, batch)
         }
+    }
+
+    fn validate_cpu_proxy_training(&self) -> Result<()> {
+        if self.config.require_gpu {
+            return Err(AosError::Training(
+                "CPU proxy training is incompatible with require_gpu=true".to_string(),
+            ));
+        }
+        if self.config.validation_split > 0.0 {
+            return Err(AosError::Training(
+                "CPU proxy training requires validation_split=0.0".to_string(),
+            ));
+        }
+        if self.config.multi_module_training {
+            return Err(AosError::Training(
+                "CPU proxy training does not support multi_module_training".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn train_batch_cpu_proxy(
+        &mut self,
+        weights: &mut LoRAWeights,
+        batch: &[PreparedExample],
+    ) -> Result<f32> {
+        let batch_start = Instant::now();
+        let mut batch_loss = 0.0;
+        let mut examples_used = 0usize;
+        let learning_rate = self.get_current_lr();
+        let scale = self.config.alpha / self.config.rank as f32;
+        let batch_tokens = self.tokens_in_batch(batch);
+
+        for example in batch {
+            let hidden = if let Some(ref preprocessed) = example.preprocessed {
+                preprocessed.as_slice()
+            } else {
+                example.scaled_input.as_slice()
+            };
+
+            if hidden.len() != self.config.hidden_dim {
+                return Err(AosError::Training(format!(
+                    "CPU proxy hidden state size mismatch: {} != {}",
+                    hidden.len(),
+                    self.config.hidden_dim
+                )));
+            }
+
+            let lora_output = self.apply_lora(hidden, weights);
+            let mut output = Vec::with_capacity(self.config.hidden_dim);
+            for i in 0..self.config.hidden_dim {
+                output.push(hidden[i] + lora_output[i] * scale);
+            }
+
+            let (loss, grad_output, valid_tokens) =
+                self.compute_proxy_loss_and_grad(&output, &example.target_tokens)?;
+            if valid_tokens == 0 {
+                warn!(
+                    "CPU proxy training skipped example with fully masked targets (ignore_index)"
+                );
+                continue;
+            }
+
+            batch_loss += loss;
+            examples_used += 1;
+            self.apply_proxy_update(weights, hidden, &grad_output, learning_rate)?;
+        }
+
+        if examples_used == 0 {
+            return Err(AosError::Training(
+                "CPU proxy training found no valid targets in batch".to_string(),
+            ));
+        }
+
+        let cpu_time_ms = batch_start.elapsed().as_millis() as u64;
+        {
+            let mut metrics = self.performance_metrics.write();
+            metrics.total_cpu_time_ms += cpu_time_ms;
+            metrics.cpu_operations += batch.len() as u64;
+            metrics.total_examples_processed += batch.len() as u64;
+            metrics.total_tokens_processed += batch_tokens;
+            metrics.total_batches += 1;
+        }
+
+        Ok(batch_loss / examples_used as f32)
+    }
+
+    fn compute_proxy_loss_and_grad(
+        &self,
+        output: &[f32],
+        target_tokens: &[u32],
+    ) -> Result<(f32, Vec<f32>, usize)> {
+        let usable = output.len().min(target_tokens.len());
+        if usable == 0 {
+            return Err(AosError::Training(
+                "CPU proxy training requires non-empty target tokens".to_string(),
+            ));
+        }
+
+        let mut grad_output = vec![0.0; output.len()];
+        let mut loss_sum = 0.0f32;
+        let mut count = 0usize;
+
+        for i in 0..usable {
+            let token = target_tokens[i];
+            if self.config.ignore_index >= 0 && token as i32 == self.config.ignore_index {
+                continue;
+            }
+            let target_val = self.scale_proxy_token(token);
+            let diff = output[i] - target_val;
+            loss_sum += diff * diff;
+            grad_output[i] = diff;
+            count += 1;
+        }
+
+        if count == 0 {
+            return Ok((0.0, grad_output, 0));
+        }
+
+        let loss = loss_sum / count as f32;
+        if !loss.is_finite() {
+            return Err(AosError::Training(
+                "CPU proxy loss is non-finite".to_string(),
+            ));
+        }
+
+        let scale = 2.0 / count as f32;
+        for grad in &mut grad_output[..usable] {
+            *grad *= scale;
+        }
+
+        Ok((loss, grad_output, count))
+    }
+
+    fn scale_proxy_token(&self, token: u32) -> f32 {
+        let denom = (self.config.vocab_size.saturating_sub(1)).max(1) as f32;
+        ((token as f32) / denom) * 2.0 - 1.0
+    }
+
+    fn apply_proxy_update(
+        &self,
+        weights: &mut LoRAWeights,
+        hidden: &[f32],
+        grad_output: &[f32],
+        learning_rate: f32,
+    ) -> Result<()> {
+        let mut grad_output = grad_output.to_vec();
+        let mut grad_norm = 0.0f32;
+        for grad in &grad_output {
+            grad_norm += grad * grad;
+        }
+        let grad_norm = grad_norm.sqrt();
+        if grad_norm > 1.0 {
+            let scale = 1.0 / grad_norm;
+            for grad in &mut grad_output {
+                *grad *= scale;
+            }
+        }
+
+        for grad in &mut grad_output {
+            if !grad.is_finite() {
+                *grad = 0.0;
+            }
+        }
+
+        const MAX_UPDATE: f32 = 0.1;
+        let hidden_len = hidden.len().min(self.config.hidden_dim);
+
+        for r in 0..self.config.rank {
+            for h_idx in 0..hidden_len {
+                if h_idx < weights.lora_a[r].len() {
+                    let update = (learning_rate * grad_output[h_idx] * hidden[h_idx])
+                        .clamp(-MAX_UPDATE, MAX_UPDATE);
+                    weights.lora_a[r][h_idx] -= update;
+                }
+            }
+        }
+
+        for h_idx in 0..self.config.hidden_dim {
+            if h_idx < weights.lora_b.len() {
+                for r in 0..self.config.rank {
+                    if r < weights.lora_b[h_idx].len() {
+                        let update = (learning_rate * grad_output[h_idx] * hidden[h_idx])
+                            .clamp(-MAX_UPDATE, MAX_UPDATE);
+                        weights.lora_b[h_idx][r] -= update;
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Train one batch on GPU (using FusedKernels)
@@ -3412,7 +3711,32 @@ Use --force-resume to override (may produce incorrect results).",
             } else {
                 // Prepare IO buffers for GPU inference
                 let mut io = IoBuffers::new(vocab_size);
-                io.input_ids = example.padded_input.clone();
+                // MLX backend expects unpadded sequences; CoreML/Metal kernels require fixed length.
+                io.input_ids = if self.selected_backend == Some(TrainingBackend::Mlx) {
+                    let mut effective_len = example.input_tokens.len();
+                    if let Some(max_seq) = self.config.max_seq_length {
+                        effective_len = effective_len.min(max_seq as usize);
+                    }
+                    if let Some(last_real) =
+                        example.input_mask.iter().rposition(|value| *value != 0)
+                    {
+                        effective_len = effective_len.min(last_real.saturating_add(1));
+                    }
+                    if effective_len == 0 {
+                        example.input_tokens.clone()
+                    } else if effective_len < example.input_tokens.len() {
+                        debug!(
+                            original_len = example.input_tokens.len(),
+                            trimmed_len = effective_len,
+                            "Trimming MLX training input to effective length"
+                        );
+                        example.input_tokens[..effective_len].to_vec()
+                    } else {
+                        example.input_tokens.clone()
+                    }
+                } else {
+                    example.padded_input.clone()
+                };
                 io.position = 0;
 
                 // Measure GPU forward pass time
@@ -3433,13 +3757,17 @@ Use --force-resume to override (may produce incorrect results).",
                 (hidden, forward_us)
             };
 
-            if hidden.len() != self.config.hidden_dim {
+            let hidden_slice = if hidden.len() == self.config.hidden_dim {
+                hidden.as_slice()
+            } else if hidden.len() > self.config.hidden_dim {
+                &hidden[hidden.len().saturating_sub(self.config.hidden_dim)..]
+            } else {
                 return Err(AosError::Training(format!(
-                    "Preprocessed hidden state size mismatch: {} != {}",
+                    "Preprocessed hidden state size mismatch: {} < {}",
                     hidden.len(),
                     self.config.hidden_dim
                 )));
-            }
+            };
 
             gpu_time_us += forward_us;
 
@@ -3458,10 +3786,26 @@ Use --force-resume to override (may produce incorrect results).",
                     )
                 })?;
 
+                if example.target_tokens.is_empty() {
+                    return Err(AosError::Training(
+                        "Training example missing target tokens".to_string(),
+                    ));
+                }
+                let mut target_tokens = example.target_tokens.as_slice();
+                let mut target_token_buf = [0u32; 1];
+                if target_tokens.len() > 1 {
+                    target_token_buf[0] = *target_tokens
+                        .last()
+                        .ok_or_else(|| {
+                            AosError::Training("Training example missing target tokens".to_string())
+                        })?;
+                    target_tokens = &target_token_buf;
+                }
+
                 let gpu_loss = self.backward_and_update_gpu_ce(
                     weights,
-                    &hidden,
-                    &example.target_tokens,
+                    hidden_slice,
+                    target_tokens,
                     &model,
                     epoch_seed,
                 )?;
@@ -4336,6 +4680,32 @@ Use --force-resume to override (may produce incorrect results).",
         {
             false
         }
+    }
+
+    /// Decide whether to use cross-entropy loss based on vocab size and env overrides.
+    fn resolve_cross_entropy_loss(&self) -> (bool, usize, bool, bool) {
+        let force_ce = std::env::var("AOS_TRAIN_FORCE_CE")
+            .ok()
+            .as_deref()
+            == Some("1");
+        let force_legacy = std::env::var("AOS_TRAIN_LEGACY_LOSS")
+            .ok()
+            .as_deref()
+            == Some("1");
+        let max_vocab = std::env::var("AOS_TRAIN_CE_MAX_VOCAB")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(DEFAULT_CE_MAX_VOCAB);
+
+        let use_cross_entropy = if force_ce {
+            true
+        } else if force_legacy {
+            false
+        } else {
+            self.config.vocab_size <= max_vocab
+        };
+
+        (use_cross_entropy, max_vocab, force_ce, force_legacy)
     }
 
     /// Create optimizer based on OptimizerConfig settings.

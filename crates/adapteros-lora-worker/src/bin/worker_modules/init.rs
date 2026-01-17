@@ -431,6 +431,7 @@ pub async fn run_worker() -> Result<()> {
                 "primary",
                 primary_kernels.as_mut(),
                 manifest.base.vocab_size as usize,
+                manifest.router.sample_tokens_full,
             )?;
         }
 
@@ -464,6 +465,7 @@ pub async fn run_worker() -> Result<()> {
                                         "fallback",
                                         k.as_mut(),
                                         manifest.base.vocab_size as usize,
+                                        manifest.router.sample_tokens_full,
                                     )?;
                                     fallback_coreml_runtime =
                                         Some(coreml_telemetry_from_settings(&settings));

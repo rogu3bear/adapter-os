@@ -726,6 +726,10 @@ fn derive_training_seed(seed_inputs_json: &str) -> u64 {
     derive_seed_u64(&global, "codebase-training")
 }
 
+fn hash_prompt_completion_row(prompt: &str, completion: &str) -> String {
+    B3Hash::hash_multi(&[prompt.as_bytes(), b"\0", completion.as_bytes()]).to_hex()
+}
+
 /// Encode Q&A samples to training examples
 fn encode_qa_samples(
     tokenizer: &QwenTokenizer,
@@ -756,13 +760,19 @@ fn encode_qa_samples(
         }
         let provenance = provenance_from_map(&provenance)
             .map_err(|e| AosError::Training(format!("Failed to serialize provenance: {}", e)))?;
-        let source_id = sample
+        let dataset_id = sample
             .metadata
             .get("file_path")
             .cloned()
             .unwrap_or_else(|| "codebase_ingestion".to_string());
-        let metadata =
-            ExampleMetadataV1::new(source_id, index as u64, provenance, created_at_unix_ms);
+        let source_hash = hash_prompt_completion_row(&sample.question, &sample.answer);
+        let metadata = ExampleMetadataV1::new(
+            dataset_id,
+            index as u64,
+            source_hash,
+            provenance,
+            created_at_unix_ms,
+        );
         let attention_mask = TrainingExample::attention_mask_from_tokens(&input, pad_token_id);
         examples.push(TrainingExample::new(
             input,

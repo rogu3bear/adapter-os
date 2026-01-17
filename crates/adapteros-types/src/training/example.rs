@@ -13,10 +13,13 @@ pub const TRAINING_DATA_CONTRACT_VERSION: &str = "1.0";
 #[cfg_attr(feature = "server", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct ExampleMetadataV1 {
-    /// Logical source identifier for the example (dataset or file origin).
-    pub source_id: String,
+    /// Dataset identifier for the example source.
+    #[serde(alias = "source_id")]
+    pub dataset_id: String,
     /// Stable row identifier within the source.
     pub row_id: u64,
+    /// Hash of the raw row payload.
+    pub source_hash: String,
     /// Provenance payload (canonical JSON string recommended).
     pub provenance: String,
     /// Created-at timestamp in Unix milliseconds.
@@ -26,14 +29,16 @@ pub struct ExampleMetadataV1 {
 impl ExampleMetadataV1 {
     /// Create new example metadata.
     pub fn new(
-        source_id: impl Into<String>,
+        dataset_id: impl Into<String>,
         row_id: u64,
+        source_hash: impl Into<String>,
         provenance: impl Into<String>,
         created_at_unix_ms: u64,
     ) -> Self {
         Self {
-            source_id: source_id.into(),
+            dataset_id: dataset_id.into(),
             row_id,
+            source_hash: source_hash.into(),
             provenance: provenance.into(),
             created_at_unix_ms,
         }
@@ -183,6 +188,12 @@ pub fn validate_training_example(
     vocab_size: usize,
     pad_token_id: u32,
 ) -> Result<(), TrainingExampleValidationError> {
+    if example.metadata.dataset_id.trim().is_empty() {
+        return Err(TrainingExampleValidationError::MissingDatasetId { index });
+    }
+    if example.metadata.source_hash.trim().is_empty() {
+        return Err(TrainingExampleValidationError::MissingSourceHash { index });
+    }
     if example.input_tokens.is_empty() {
         return Err(TrainingExampleValidationError::EmptyInput { index });
     }
@@ -313,8 +324,9 @@ where
 
 /// Build metadata using provenance derived from string pairs.
 pub fn metadata_from_pairs<I>(
-    source_id: impl Into<String>,
+    dataset_id: impl Into<String>,
     row_id: u64,
+    source_hash: impl Into<String>,
     created_at_unix_ms: u64,
     pairs: I,
 ) -> Result<ExampleMetadataV1, serde_json::Error>
@@ -323,8 +335,9 @@ where
 {
     let provenance = provenance_from_pairs(pairs)?;
     Ok(ExampleMetadataV1::new(
-        source_id,
+        dataset_id,
         row_id,
+        source_hash,
         provenance,
         created_at_unix_ms,
     ))
@@ -469,9 +482,14 @@ impl TrainingExample {
         }
     }
 
-    /// Get the source ID for this example.
+    /// Get the dataset ID for this example.
+    pub fn dataset_id(&self) -> &str {
+        &self.metadata().dataset_id
+    }
+
+    /// Back-compat accessor for source_id callers.
     pub fn source_id(&self) -> &str {
-        &self.metadata().source_id
+        self.dataset_id()
     }
 
     /// Get the row ID for this example.
@@ -643,6 +661,18 @@ pub enum TrainingExampleValidationError {
         /// Actual contract version.
         actual: String,
     },
+    /// Dataset id missing from metadata.
+    #[error("Example {index} metadata.dataset_id must be non-empty")]
+    MissingDatasetId {
+        /// Example index.
+        index: usize,
+    },
+    /// Source hash missing from metadata.
+    #[error("Example {index} metadata.source_hash must be non-empty")]
+    MissingSourceHash {
+        /// Example index.
+        index: usize,
+    },
     /// Input tokens were empty.
     #[error("Example {index} input_tokens must be non-empty")]
     EmptyInput {
@@ -725,7 +755,7 @@ mod tests {
     use std::collections::HashSet;
 
     fn metadata() -> ExampleMetadataV1 {
-        ExampleMetadataV1::new("source", 1, "{}", 0)
+        ExampleMetadataV1::new("dataset", 1, "row-hash", "{}", 0)
     }
 
     #[test]
@@ -740,6 +770,30 @@ mod tests {
         let contract = TrainingDataContractConfig::new(0, -1);
         let err = validate_training_examples(&[example], 10, &contract).unwrap_err();
         assert_eq!(err, TrainingExampleValidationError::EmptyInput { index: 0 });
+    }
+
+    #[test]
+    fn rejects_missing_dataset_id() {
+        let metadata = ExampleMetadataV1::new("", 1, "row-hash", "{}", 0);
+        let example = TrainingExampleV1::new(vec![1], vec![1], vec![1], metadata);
+        let contract = TrainingDataContractConfig::new(0, -1);
+        let err = validate_training_examples(&[example], 10, &contract).unwrap_err();
+        assert_eq!(
+            err,
+            TrainingExampleValidationError::MissingDatasetId { index: 0 }
+        );
+    }
+
+    #[test]
+    fn rejects_missing_source_hash() {
+        let metadata = ExampleMetadataV1::new("dataset", 1, "", "{}", 0);
+        let example = TrainingExampleV1::new(vec![1], vec![1], vec![1], metadata);
+        let contract = TrainingDataContractConfig::new(0, -1);
+        let err = validate_training_examples(&[example], 10, &contract).unwrap_err();
+        assert_eq!(
+            err,
+            TrainingExampleValidationError::MissingSourceHash { index: 0 }
+        );
     }
 
     #[test]
@@ -864,7 +918,13 @@ mod tests {
             .and_then(|v| v.as_array())
             .expect("metadata required");
         let metadata_fields: HashSet<&str> = metadata.iter().filter_map(|v| v.as_str()).collect();
-        for field in ["source_id", "row_id", "provenance", "created_at_unix_ms"] {
+        for field in [
+            "dataset_id",
+            "row_id",
+            "source_hash",
+            "provenance",
+            "created_at_unix_ms",
+        ] {
             assert!(metadata_fields.contains(field));
         }
     }

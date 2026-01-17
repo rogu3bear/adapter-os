@@ -104,6 +104,16 @@ inline std::string shape_str(const mx::array& arr) {
     return s;
 }
 
+inline mx::array select_last_token_logits(const mx::array& logits) {
+    if (logits.ndim() > 1) {
+        int axis = static_cast<int>(logits.ndim()) - 2;
+        int last_idx = logits.shape(axis) - 1;
+        mx::array sliced = mx::take(logits, mx::array(last_idx), axis);
+        return mx::reshape(sliced, {-1});
+    }
+    return mx::reshape(logits, {-1});
+}
+
 // GELU activation function implementation
 inline mx::array mlx_gelu_approx(const mx::array& x) {
     // GELU(x) = x * 0.5 * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
@@ -563,7 +573,7 @@ struct MLXModelWrapper {
             // Project to vocabulary: [batch_size, seq_len, hidden_size] -> [batch_size, seq_len, vocab_size]
             mx::array logits = mx::matmul(hidden, mx::transpose(lm_head));
 
-            return logits;
+            return select_last_token_logits(logits);
         } catch (const std::exception& e) {
             g_last_error = std::string("Forward pass failed: ") + e.what();
             throw;
@@ -953,7 +963,7 @@ struct MLXModelWrapper {
             mx::array lm_head = get_lm_head_weights();
 
             mx::array logits = mx::matmul(hidden, mx::transpose(lm_head));
-            return logits;
+            return select_last_token_logits(logits);
         } catch (const std::exception& e) {
             g_last_error = std::string("Forward with hidden states failed: ") + e.what();
             throw;
@@ -1261,6 +1271,16 @@ extern "C" mlx_array_t* mlx_model_get_weight(mlx_model_t* model, const char* wei
     try {
         auto model_w = reinterpret_cast<MLXModelWrapper*>(model);
         std::string name(weight_name);
+
+        if (name == "lm_head.weight") {
+            try {
+                mx::array lm_head = model_w->get_lm_head_weights();
+                return reinterpret_cast<mlx_array_t*>(new MLXArrayWrapper(lm_head));
+            } catch (const std::exception& e) {
+                g_last_error = std::string("Failed to get lm_head weights: ") + e.what();
+                return nullptr;
+            }
+        }
 
         // Look up the weight in the model's weight map
         auto it = model_w->weights.find(name);

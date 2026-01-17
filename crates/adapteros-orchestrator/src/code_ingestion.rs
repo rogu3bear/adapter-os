@@ -1936,13 +1936,19 @@ fn encode_samples(
         }
         let provenance = provenance_from_map(&provenance)
             .map_err(|e| AosError::Training(format!("Failed to serialize provenance: {}", e)))?;
-        let source_id = if sample.file_path.is_empty() {
+        let dataset_id = if sample.file_path.is_empty() {
             sample.qualified_name.clone()
         } else {
             sample.file_path.clone()
         };
-        let metadata =
-            ExampleMetadataV1::new(source_id, index as u64, provenance, created_at_unix_ms);
+        let source_hash = hash_prompt_completion_row(&sample.prompt, &sample.response);
+        let metadata = ExampleMetadataV1::new(
+            dataset_id,
+            index as u64,
+            source_hash,
+            provenance,
+            created_at_unix_ms,
+        );
         let attention_mask = TrainingExample::attention_mask_from_tokens(&input, pad_token_id);
         encoded.push(TrainingExample::new(
             input,
@@ -2049,6 +2055,10 @@ fn compute_canonical_row_id(
     ])
     .to_hex()
     .to_string())
+}
+
+fn hash_prompt_completion_row(prompt: &str, completion: &str) -> String {
+    B3Hash::hash_multi(&[prompt.as_bytes(), b"\0", completion.as_bytes()]).to_hex()
 }
 
 async fn store_codebase_dataset_artifact(

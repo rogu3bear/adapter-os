@@ -2,7 +2,7 @@
 //!
 //! Converts code patches into training examples with tokenization and context windows.
 
-use adapteros_core::{AosError, Result};
+use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_types::training::{provenance_from_map, ExampleMetadataV1, TrainingExampleV1};
 type TrainingExample = TrainingExampleV1;
 use blake3::Hasher;
@@ -137,6 +137,12 @@ impl DatasetGenerator {
                     let metadata = ExampleMetadataV1::new(
                         patch.file_path.clone(),
                         pair_idx as u64,
+                        B3Hash::hash_multi(&[
+                            patch.old_content.as_bytes(),
+                            b"\0",
+                            patch.new_content.as_bytes(),
+                        ])
+                        .to_hex(),
                         provenance_from_map(&provenance)
                             .map_err(|e| AosError::Training(format!("Metadata error: {}", e)))?,
                         0,
@@ -429,7 +435,7 @@ mod tests {
         target_tokens: Vec<u32>,
         row_id: u64,
     ) -> TrainingExampleV1 {
-        let metadata = ExampleMetadataV1::new("test", row_id, "{}", 0);
+        let metadata = ExampleMetadataV1::new("test", row_id, "row-hash", "{}", 0);
         let attention_mask = TrainingExampleV1::attention_mask_from_tokens(&input_tokens, 0);
         TrainingExampleV1::new(input_tokens, target_tokens, attention_mask, metadata)
     }

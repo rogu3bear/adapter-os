@@ -1,10 +1,7 @@
 //! Format parsers for dataset ingestion.
 //!
-//! Provides parsers for different input formats:
-//! - JSONL (instruction tuning format)
-//! - CSV (tabular data with column mapping)
-//! - Plain text (paragraph-based or heading-based)
-//! - Markdown (heading-content or paragraph pairs)
+//! Provides parsers for different input formats.
+//! PLAN_4 enforces JSONL-only ingestion; non-JSONL parsers are legacy.
 
 pub mod csv_parser;
 pub mod jsonl;
@@ -67,7 +64,7 @@ impl RawSample {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DatasetFormat {
-    /// JSONL with instruction/input/output fields.
+    /// JSONL with prompt/completion or text schema.
     Jsonl,
     /// CSV with configurable column mapping.
     Csv,

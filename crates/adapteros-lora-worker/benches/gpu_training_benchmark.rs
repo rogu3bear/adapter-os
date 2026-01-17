@@ -23,7 +23,7 @@ fn create_training_examples(count: usize) -> Vec<adapteros_lora_worker::training
                 adapteros_lora_worker::training::TrainingExample::attention_mask_from_tokens(
                     &input, 0,
                 );
-            let metadata = ExampleMetadataV1::new("bench", i as u64, "{}", 0);
+            let metadata = ExampleMetadataV1::new("bench", i as u64, "row-hash", "{}", 0);
             adapteros_lora_worker::training::TrainingExample::new(
                 input,
                 target,

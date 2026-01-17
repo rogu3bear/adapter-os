@@ -934,25 +934,13 @@ impl FileValidator {
         let path = Path::new(file_path);
         let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("");
 
-        match format {
-            "jsonl" => {
-                if !matches!(extension, "jsonl" | "ndjson" | "txt") {
-                    return Err(anyhow!("JSONL file must have .jsonl or .ndjson extension"));
-                }
-            }
-            "json" => {
-                if !matches!(extension, "json" | "jsonl" | "ndjson") {
-                    return Err(anyhow!("JSON file must have .json extension"));
-                }
-            }
-            "csv" => {
-                if !matches!(extension, "csv") {
-                    return Err(anyhow!("CSV file must have .csv extension"));
-                }
-            }
-            _ => {
-                debug!("Skipping extension validation for format: {}", format);
-            }
+        if format != "jsonl" {
+            return Err(anyhow!(
+                "Only jsonl datasets are supported by PLAN_4"
+            ));
+        }
+        if !matches!(extension, "jsonl" | "ndjson") {
+            return Err(anyhow!("JSONL file must have .jsonl or .ndjson extension"));
         }
 
         Ok(())
@@ -998,50 +986,31 @@ impl FileValidator {
             ));
         }
 
-        match format {
-            "jsonl" => {
-                for (line_num, line) in content.lines().enumerate() {
-                    if !line.trim().is_empty() {
-                        match serde_json::from_str::<serde_json::Value>(line) {
-                            Ok(_) => {}
-                            Err(e) => {
-                                // Try to extract column number from error (serde_json reports 0 when unavailable)
-                                let column = e.column();
-                                let col_info = if column > 0 {
-                                    format!("line {}, column {}", line_num + 1, column)
-                                } else {
-                                    format!("line {}", line_num + 1)
-                                };
-                                return Err(anyhow!(
-                                    "File {}: Invalid JSON at {}: {}",
-                                    file_name,
-                                    col_info,
-                                    e
-                                ));
-                            }
-                        }
+        if format != "jsonl" {
+            return Err(anyhow!(
+                "Only jsonl datasets are supported by PLAN_4"
+            ));
+        }
+        for (line_num, line) in content.lines().enumerate() {
+            if !line.trim().is_empty() {
+                match serde_json::from_str::<serde_json::Value>(line) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        // Try to extract column number from error (serde_json reports 0 when unavailable)
+                        let column = e.column();
+                        let col_info = if column > 0 {
+                            format!("line {}, column {}", line_num + 1, column)
+                        } else {
+                            format!("line {}", line_num + 1)
+                        };
+                        return Err(anyhow!(
+                            "File {}: Invalid JSON at {}: {}",
+                            file_name,
+                            col_info,
+                            e
+                        ));
                     }
                 }
-            }
-            "json" => match serde_json::from_str::<serde_json::Value>(&content) {
-                Ok(_) => {}
-                Err(e) => {
-                    let line = e.line();
-                    let line_info = if line > 0 {
-                        format!("line {}, column {}", line, e.column())
-                    } else {
-                        "unknown position".to_string()
-                    };
-                    return Err(anyhow!(
-                        "File {}: Invalid JSON at {}: {}",
-                        file_name,
-                        line_info,
-                        e
-                    ));
-                }
-            },
-            _ => {
-                // No validation for other formats
             }
         }
 

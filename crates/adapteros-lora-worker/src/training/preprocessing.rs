@@ -1496,7 +1496,7 @@ mod tests {
             vec![1, 2],
             vec![3],
             vec![1, 1],
-            ExampleMetadataV1::new("src", 0, "{}", 0),
+            ExampleMetadataV1::new("src", 0, "row-hash", "{}", 0),
         )];
 
         let result = preprocess_examples(
@@ -1600,13 +1600,13 @@ mod tests {
                 vec![1, 2, 3, 4],
                 vec![5, 6],
                 TrainingExampleV1::attention_mask_from_tokens(&[1, 2, 3, 4], 0),
-                ExampleMetadataV1::new("test", 0, "{}", 0),
+                ExampleMetadataV1::new("test", 0, "row-hash-0", "{}", 0),
             ),
             TrainingExampleV1::new(
                 vec![7, 8, 9, 10],
                 vec![11, 12],
                 TrainingExampleV1::attention_mask_from_tokens(&[7, 8, 9, 10], 0),
-                ExampleMetadataV1::new("test", 1, "{}", 0),
+                ExampleMetadataV1::new("test", 1, "row-hash-1", "{}", 0),
             ),
         ];
 

@@ -8,8 +8,8 @@ use adapteros_core::{AosError, Result};
 // Dataset Format and Status Validation
 // ============================================================================
 
-/// Valid dataset format types
-pub const VALID_FORMATS: &[&str] = &["patches", "jsonl", "txt", "custom", "parquet", "csv"];
+/// Valid dataset format types (PLAN_4: JSONL only)
+pub const VALID_FORMATS: &[&str] = &["jsonl"];
 
 /// Valid dataset status values
 pub const VALID_STATUSES: &[&str] = &["uploaded", "processing", "ready", "failed"];

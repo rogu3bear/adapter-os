@@ -4,7 +4,7 @@
 //! and flexible input/output formats for different training scenarios.
 
 use super::limits::DatasetSizeLimits;
-use adapteros_core::{AosError, Result};
+use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_secure_fs::path_policy::canonicalize_strict;
 use adapteros_types::training::{provenance_from_map, ExampleMetadataV1, TrainingExampleV1};
 use serde::Deserialize;
@@ -255,9 +255,13 @@ pub fn load_json_dataset<P: AsRef<Path>>(
             );
         }
 
+        let source_hash = serde_json::to_vec(example)
+            .map(|bytes| B3Hash::hash(&bytes).to_hex())
+            .unwrap_or_else(|_| B3Hash::hash(b"invalid-json-example").to_hex());
         let metadata = ExampleMetadataV1::new(
             dataset.name.clone(),
             idx as u64,
+            source_hash,
             provenance_from_map(&provenance)
                 .map_err(|e| AosError::Training(format!("Metadata error: {}", e)))?,
             created_at_unix_ms,

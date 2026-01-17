@@ -17,8 +17,9 @@ worker, server, CLI, and stored artifacts.
 - `metadata: ExampleMetadataV1`
 
 ### ExampleMetadataV1
-- `source_id: String`
+- `dataset_id: String`
 - `row_id: u64`
+- `source_hash: String`
 - `provenance: String`
 - `created_at_unix_ms: u64`
 

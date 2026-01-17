@@ -211,30 +211,9 @@ impl TrainFromCodeArgs {
 
     /// Validate command arguments
     fn validate(&self) -> Result<()> {
-        if !self.repo.exists() {
-            return Err(AosError::NotFound(format!(
-                "Repository path does not exist: {}",
-                self.repo.display()
-            )));
-        }
-
-        if !self.repo.is_dir() {
-            return Err(AosError::Validation(format!(
-                "Repository path is not a directory: {}",
-                self.repo.display()
-            )));
-        }
-
-        if self.register && self.db_path.is_none() {
-            return Err(AosError::Validation(
-                "--register requires --db-path to be specified".to_string(),
-            ));
-        }
-
-        // Validate common training args
-        self.common.validate()?;
-
-        Ok(())
+        Err(AosError::Validation(
+            "train-from-code is disabled by PLAN_4; use JSONL datasets only".to_string(),
+        ))
     }
 }
 
@@ -282,15 +261,8 @@ mod tests {
             scope_overrides: CodebaseScopeOverrides::default(),
         };
 
-        assert!(args.validate().is_ok());
-
-        // Invalid: register without db_path
-        let invalid_args = TrainFromCodeArgs {
-            register: true,
-            ..args
-        };
-
-        assert!(invalid_args.validate().is_err());
+        let err = args.validate().unwrap_err();
+        assert!(err.to_string().contains("disabled by PLAN_4"));
     }
 
     #[test]
@@ -326,6 +298,6 @@ mod tests {
         };
 
         let err = args.validate().unwrap_err();
-        assert!(err.to_string().contains("rank must be greater than zero"));
+        assert!(err.to_string().contains("disabled by PLAN_4"));
     }
 }

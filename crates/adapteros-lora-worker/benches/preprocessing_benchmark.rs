@@ -24,7 +24,7 @@ fn create_examples(count: usize, seq_len: usize, vocab_size: usize) -> Vec<Train
                 .map(|j| ((i + j + 1) % vocab_size) as u32)
                 .collect::<Vec<_>>();
             let attention_mask = TrainingExample::attention_mask_from_tokens(&input, 0);
-            let metadata = ExampleMetadataV1::new("bench", i as u64, "{}", 0);
+            let metadata = ExampleMetadataV1::new("bench", i as u64, "row-hash", "{}", 0);
             TrainingExample::new(input, target, attention_mask, metadata)
         })
         .collect()

@@ -25,7 +25,7 @@ fn create_examples(n: usize) -> Vec<TrainingExample> {
             let input_tokens = vec![(i % 100) as u32; 5];
             let target_tokens = vec![((i + 1) % 100) as u32; 5];
             let attention_mask = TrainingExample::attention_mask_from_tokens(&input_tokens, 0);
-            let metadata = ExampleMetadataV1::new("test", i as u64, "{}", 0);
+            let metadata = ExampleMetadataV1::new("test", i as u64, "row-hash", "{}", 0);
             TrainingExample::new(input_tokens, target_tokens, attention_mask, metadata)
         })
         .collect()

@@ -33,6 +33,7 @@ use crate::training::pipeline::{
 };
 use crate::training::report::write_training_report;
 use crate::training::versioning::VersioningSnapshot;
+use crate::training_dataset_integration::TrainingFramingPolicy;
 
 /// Background runner for a single training job. Converts orchestrator config into worker trainer
 /// config, runs training with per-epoch callback, packages weights, registers adapter, and
@@ -307,11 +308,13 @@ pub(crate) async fn run_training_job(
                 job.started_at = Some(chrono::Utc::now().to_rfc3339());
             }
         }
-        let tokenizer_path = worker_cfg
-            .base_model_path
-            .as_ref()
-            .map(|path| path.join("tokenizer.json"))
-            .filter(|path| path.exists());
+        let (tokenizer_path, tokenizer_hash_b3) = resolve_tokenizer_info(
+            worker_cfg.base_model_path.as_ref(),
+            db.as_ref(),
+            tenant_id.as_deref(),
+            base_model_id.as_deref(),
+        )
+        .await?;
 
         // Load training examples from dataset versions (if provided) or dataset_id, otherwise synthetic
         let dataset_phase_active = pipeline.current_phase() == PipelinePhase::DatasetBuild;
@@ -321,6 +324,8 @@ pub(crate) async fn run_training_job(
         let mut dataset_source = "synthetic";
         let mut dataset_ids_for_receipt: Vec<String> = Vec::new();
         let mut dataset_version_hashes: Vec<String> = Vec::new();
+        let mut dataset_framing_policy: Option<TrainingFramingPolicy> = None;
+        let mut dataset_file_hash_b3: Option<String> = None;
         let examples: Vec<WorkerTrainingExample> = match (
             dataset_version_ids_for_training.clone(),
             dataset_id.clone(),
@@ -332,7 +337,7 @@ pub(crate) async fn run_training_job(
                 let dataset_manager = TrainingDatasetManager::new(
                     ProtectedDb::new(database),
                     storage,
-                    tokenizer_path.clone(),
+                    Some(tokenizer_path.clone()),
                 );
                 dataset_source = "dataset_versions";
 
@@ -345,7 +350,7 @@ pub(crate) async fn run_training_job(
 
                 let mut per_version: Vec<(Vec<WorkerTrainingExample>, f32)> = Vec::new();
                 for sel in version_selections.iter() {
-                    let (examples, hash_b3, dataset_id_for_ver) = dataset_manager
+                    let loaded = dataset_manager
                         .load_dataset_version_examples(&sel.dataset_version_id)
                         .await
                         .map_err(|e| {
@@ -355,20 +360,33 @@ pub(crate) async fn run_training_job(
                                 e
                             ))
                         })?;
-                    dataset_version_hashes.push(hash_b3.clone());
-                    dataset_ids_for_receipt.push(dataset_id_for_ver);
+                    if let Some(active) = dataset_framing_policy {
+                        if active != loaded.framing_policy {
+                            return Err(AosError::Validation(format!(
+                                "Dataset version {} framing policy {} does not match {}",
+                                sel.dataset_version_id,
+                                loaded.framing_policy.as_str(),
+                                active.as_str()
+                            )));
+                        }
+                    } else {
+                        dataset_framing_policy = Some(loaded.framing_policy);
+                    }
+
+                    dataset_version_hashes.push(loaded.dataset_hash_b3.clone());
+                    dataset_ids_for_receipt.push(loaded.dataset_id.clone());
 
                     if let Some(ref expected_hash) = data_spec_hash_for_training {
-                        if expected_hash != &hash_b3 {
+                        if expected_hash != &loaded.dataset_hash_b3 {
                             return Err(AosError::Validation(format!(
                                 "Dataset version {} hash mismatch vs data_spec_hash (expected {}, got {})",
-                                sel.dataset_version_id, expected_hash, hash_b3
+                                sel.dataset_version_id, expected_hash, loaded.dataset_hash_b3
                             )));
                         }
                     }
 
                     let weight = if sel.weight <= 0.0 { 1.0 } else { sel.weight };
-                    per_version.push((examples, weight));
+                    per_version.push((loaded.examples, weight));
                 }
 
                 tracing::info!(
@@ -384,38 +402,63 @@ pub(crate) async fn run_training_job(
                 let dataset_manager = TrainingDatasetManager::new(
                     ProtectedDb::new(database),
                     storage,
-                    tokenizer_path.clone(),
+                    Some(tokenizer_path.clone()),
                 );
                 dataset_source = "dataset_id";
-                dataset_ids_for_receipt.push(ds_id.clone());
-                dataset_manager
+                let loaded = dataset_manager
                     .load_dataset_examples(&ds_id)
                     .await
-                    .map_err(|e| AosError::Internal(format!("Failed to load dataset: {}", e)))?
+                    .map_err(|e| AosError::Internal(format!("Failed to load dataset: {}", e)))?;
+                dataset_ids_for_receipt.push(loaded.dataset_id.clone());
+                dataset_framing_policy = Some(loaded.framing_policy);
+                dataset_file_hash_b3 = Some(loaded.dataset_hash_b3.clone());
+                loaded.examples
             }
             _ => {
-                // Fallback: tiny synthetic batch for testing
+                if !synthetic_mode {
+                    return Err(AosError::Validation(format!(
+                        "Training job {} missing dataset_id or dataset_version_ids (synthetic_mode=false)",
+                        job_id
+                    )));
+                }
+                // Explicit synthetic mode only.
                 tracing::warn!(
-                    "No dataset configured for job {}, using synthetic training data",
+                    "Synthetic training data requested for job {} (synthetic_mode=true)",
                     job_id
                 );
+                dataset_framing_policy = Some(TrainingFramingPolicy::Supervised);
                 vec![
                     WorkerTrainingExample::new(
                         vec![1, 2, 3],
                         vec![4, 5, 6],
                         vec![1, 1, 1],
-                        ExampleMetadataV1::new("synthetic", 0, "{}", 0),
+                        ExampleMetadataV1::new(
+                            "synthetic",
+                            0,
+                            B3Hash::hash(b"synthetic-0").to_hex(),
+                            "{}",
+                            0,
+                        ),
                     ),
                     WorkerTrainingExample::new(
                         vec![7, 8, 9],
                         vec![10, 11, 12],
                         vec![1, 1, 1],
-                        ExampleMetadataV1::new("synthetic", 1, "{}", 0),
+                        ExampleMetadataV1::new(
+                            "synthetic",
+                            1,
+                            B3Hash::hash(b"synthetic-1").to_hex(),
+                            "{}",
+                            0,
+                        ),
                     ),
                 ]
             }
         };
         let dataset_hash_b3 = hash_examples_for_receipt(&examples);
+        let framing_policy = dataset_framing_policy.ok_or_else(|| {
+            AosError::Internal("Dataset framing policy missing after load".to_string())
+        })?;
         let dataset_ids_receipt = if dataset_ids_for_receipt.is_empty() {
             None
         } else {
@@ -447,6 +490,14 @@ pub(crate) async fn run_training_job(
             let mut outputs = HashMap::new();
             outputs.insert("dataset_content_hash".to_string(), dataset_hash_b3.clone());
             outputs.insert("examples".to_string(), examples.len().to_string());
+            outputs.insert(
+                "framing_policy".to_string(),
+                framing_policy.as_str().to_string(),
+            );
+            outputs.insert("tokenizer_hash_b3".to_string(), tokenizer_hash_b3.clone());
+            if let Some(ref file_hash) = dataset_file_hash_b3 {
+                outputs.insert("dataset_file_hash_b3".to_string(), file_hash.clone());
+            }
 
             pipeline
                 .complete_phase(
@@ -463,7 +514,10 @@ pub(crate) async fn run_training_job(
                         "data_spec_hash": data_spec_hash_for_training.clone(),
                         "examples": examples.len(),
                         "dataset_hash_b3": dataset_hash_b3,
-                        "tokenizer_path": tokenizer_path.as_ref().map(|path| path.display().to_string()),
+                        "dataset_file_hash_b3": dataset_file_hash_b3,
+                        "framing_policy": framing_policy.as_str(),
+                        "tokenizer_hash_b3": tokenizer_hash_b3.clone(),
+                        "tokenizer_path": tokenizer_path.display().to_string(),
                     }),
                 )
                 .await?;
@@ -1415,6 +1469,7 @@ pub(crate) async fn run_training_job(
                     tenant,
                     tenant_id.as_deref(),
                     dataset_id.as_deref(),
+                    Some(framing_policy.as_str()),
                     synthetic_mode,
                     data_lineage_mode,
                     base_model_id.as_deref(),
@@ -1422,6 +1477,8 @@ pub(crate) async fn run_training_job(
                     versioning_snapshot.as_ref(),
                     dataset_version_ids_for_training.as_ref(),
                     data_spec_hash_for_training.as_deref(),
+                    Some(tokenizer_hash_b3.as_str()),
+                    Some(pipeline_training_config_hash.as_str()),
                     trainer.training_seed(),
                     db_for_packaging.as_ref(),
                 )
@@ -1625,6 +1682,46 @@ async fn resolve_base_model_hash(
     }
 }
 
+async fn resolve_tokenizer_info(
+    base_model_path: Option<&PathBuf>,
+    db: Option<&adapteros_db::Db>,
+    tenant_id: Option<&str>,
+    base_model_id: Option<&str>,
+) -> Result<(PathBuf, String)> {
+    let base_model_path = base_model_path.ok_or_else(|| {
+        AosError::Config("base_model_path is required for training".to_string())
+    })?;
+    let tokenizer_path = base_model_path.join("tokenizer.json");
+    if !tokenizer_path.exists() {
+        return Err(AosError::Validation(format!(
+            "Tokenizer not found at {}",
+            tokenizer_path.display()
+        )));
+    }
+    let tokenizer_hash_b3 = B3Hash::hash_file(&tokenizer_path)
+        .map_err(|e| {
+            AosError::Validation(format!(
+                "Failed to hash tokenizer at {}: {}",
+                tokenizer_path.display(),
+                e
+            ))
+        })?
+        .to_hex();
+
+    if let (Some(database), Some(tenant), Some(model_id)) = (db, tenant_id, base_model_id) {
+        if let Ok(Some(model)) = database.get_model_for_tenant(tenant, model_id).await {
+            if model.tokenizer_hash_b3 != tokenizer_hash_b3 {
+                return Err(AosError::Validation(format!(
+                    "Tokenizer hash mismatch for base model {}: expected {}, got {}",
+                    model_id, model.tokenizer_hash_b3, tokenizer_hash_b3
+                )));
+            }
+        }
+    }
+
+    Ok((tokenizer_path, tokenizer_hash_b3))
+}
+
 async fn resolve_training_config_hash(
     jobs_ref: &Arc<RwLock<HashMap<String, TrainingJob>>>,
     job_id: &str,
@@ -1658,9 +1755,9 @@ fn compute_pipeline_training_config_hash(worker_cfg: &WorkerTrainingConfig) -> R
 }
 
 fn compute_pipeline_base_model_hash(base_model_path: Option<&PathBuf>) -> Result<String> {
-    let Some(model_path) = base_model_path else {
-        return Ok("unknown".to_string());
-    };
+    let model_path = base_model_path.ok_or_else(|| {
+        AosError::Config("base_model_path is required for training".to_string())
+    })?;
     let config_path = model_path.join("config.json");
     let hash = if config_path.exists() {
         B3Hash::hash_file(&config_path).map_err(|e| {

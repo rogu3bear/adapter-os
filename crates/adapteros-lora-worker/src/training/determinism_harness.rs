@@ -276,7 +276,7 @@ mod tests {
         target_tokens: Vec<u32>,
         row_id: u64,
     ) -> TrainingExample {
-        let metadata = ExampleMetadataV1::new("test", row_id, "{}", 0);
+        let metadata = ExampleMetadataV1::new("test", row_id, "row-hash", "{}", 0);
         let attention_mask = TrainingExample::attention_mask_from_tokens(&input_tokens, 0);
         TrainingExample::new(input_tokens, target_tokens, attention_mask, metadata)
     }

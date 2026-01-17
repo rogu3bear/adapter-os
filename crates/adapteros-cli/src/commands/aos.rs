@@ -268,6 +268,49 @@ pub async fn create_aos(args: CreateArgs, output: &OutputWriter) -> Result<()> {
         config,
         lineage,
     )?;
+    if args.training_data.is_some() {
+        let metadata_path = resolve_adapter_metadata_path(&args.source)?;
+        if !metadata_path.exists() {
+            return Err(AosError::Validation(format!(
+                "adapter_metadata.json not found at {}",
+                metadata_path.display()
+            )));
+        }
+        let metadata_str = fs::read_to_string(&metadata_path).map_err(|e| {
+            AosError::Io(format!(
+                "Failed to read adapter metadata {}: {}",
+                metadata_path.display(),
+                e
+            ))
+        })?;
+        let metadata_value: serde_json::Value =
+            serde_json::from_str(&metadata_str).map_err(|e| {
+                AosError::Parse(format!(
+                    "Failed to parse adapter metadata {}: {}",
+                    metadata_path.display(),
+                    e
+                ))
+            })?;
+        let required = [
+            "dataset_hash_b3",
+            "framing_policy",
+            "tokenizer_hash_b3",
+            "training_config_hash",
+            "determinism_tier",
+        ];
+        for key in required {
+            let value = metadata_value
+                .get(key)
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| {
+                    AosError::Validation(format!(
+                        "adapter_metadata.json missing required field '{}'",
+                        key
+                    ))
+                })?;
+            adapter.manifest.metadata.insert(key.to_string(), value.to_string());
+        }
+    }
 
     // 6. Optionally sign with Ed25519
     if args.sign {
@@ -332,6 +375,19 @@ pub async fn create_aos(args: CreateArgs, output: &OutputWriter) -> Result<()> {
     output.kv("File Size", &format!("{} bytes", total_size));
 
     Ok(())
+}
+
+fn resolve_adapter_metadata_path(source: &PathBuf) -> Result<PathBuf> {
+    if source.is_dir() {
+        return Ok(source.join("adapter_metadata.json"));
+    }
+    let parent = source.parent().ok_or_else(|| {
+        AosError::Validation(format!(
+            "Source path {} has no parent directory",
+            source.display()
+        ))
+    })?;
+    Ok(parent.join("adapter_metadata.json"))
 }
 
 pub async fn load_aos(args: LoadArgs, output: &OutputWriter) -> Result<()> {

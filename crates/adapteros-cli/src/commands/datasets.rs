@@ -14,7 +14,7 @@ use adapteros_core::{AosError, Result};
 use adapteros_db::training_datasets::TrainingDatasetVersion;
 use adapteros_db::Db;
 use adapteros_lora_worker::training::{
-    ColumnMapping, DatasetBuilder, DatasetFormat, DatasetSource, GitAuth, TextStrategy,
+    DatasetBuilder, DatasetSource, GitAuth,
 };
 use clap::{Args, Subcommand};
 use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL};
@@ -91,9 +91,6 @@ pub enum DatasetSubcommand {
   # Build from JSONL
   aosctl dataset build ./data/train.jsonl --tokenizer ./models/Qwen/tokenizer.json
 
-  # Build from CSV with column mapping
-  aosctl dataset build ./data.csv --format csv --input-col question --target-col answer
-
   # Build from git repo (public)
   aosctl dataset build --git https://github.com/user/data.git --path data/
 
@@ -142,13 +139,13 @@ pub struct CreateArgs {
 
 #[derive(Debug, Args, Clone)]
 pub struct IngestArgs {
-    /// Files to upload (JSONL/CSV/TXT)
+    /// Files to upload (JSONL only)
     #[arg(required = true)]
     pub files: Vec<PathBuf>,
     /// Existing dataset id (omit to create new)
     #[arg(long)]
     pub dataset_id: Option<String>,
-    /// Format hint passed to backend (jsonl,csv,txt,patches)
+    /// Format hint passed to backend (jsonl only)
     #[arg(long)]
     pub format: Option<String>,
     /// Optional dataset name when creating
@@ -232,19 +229,19 @@ pub struct BuildArgs {
     #[arg(long, env = "AOS_TOKENIZER_PATH")]
     pub tokenizer: PathBuf,
 
-    /// Format hint (jsonl, csv, text, markdown)
+    /// Format hint (jsonl only)
     #[arg(long)]
     pub format: Option<String>,
 
-    /// Text parsing strategy (paragraph-pairs, heading-content)
+    /// Text parsing strategy (unsupported; JSONL only)
     #[arg(long, default_value = "paragraph-pairs")]
     pub text_strategy: String,
 
-    /// Input column name (for CSV)
+    /// Input column name (unsupported; JSONL only)
     #[arg(long)]
     pub input_col: Option<String>,
 
-    /// Target column name (for CSV)
+    /// Target column name (unsupported; JSONL only)
     #[arg(long)]
     pub target_col: Option<String>,
 
@@ -388,6 +385,14 @@ async fn ingest_dataset(args: IngestArgs, output: &OutputWriter) -> Result<()> {
         .ok_or_else(|| AosError::Validation("No stored auth; run `aosctl auth login`".into()))?;
 
     warn_if_tenant_mismatch(None, output);
+
+    if let Some(ref fmt) = args.format {
+        if fmt.to_ascii_lowercase() != "jsonl" {
+            return Err(AosError::Validation(
+                "Only jsonl format is supported by PLAN_4".to_string(),
+            ));
+        }
+    }
 
     let client = Client::builder()
         .cookie_store(true)
@@ -783,32 +788,24 @@ async fn build_dataset(args: BuildArgs, output: &OutputWriter) -> Result<()> {
         )));
     }
 
-    // Parse format if provided
-    let format = if let Some(ref fmt) = args.format {
-        Some(fmt.parse::<DatasetFormat>()?)
-    } else {
-        None
-    };
-
-    // Parse text strategy
-    let text_strategy: TextStrategy = args.text_strategy.parse()?;
-
-    // Build column mapping for CSV
-    let column_mapping = if args.input_col.is_some() || args.target_col.is_some() {
-        Some(ColumnMapping {
-            input_col: args
-                .input_col
-                .clone()
-                .unwrap_or_else(|| "input".to_string()),
-            target_col: args
-                .target_col
-                .clone()
-                .unwrap_or_else(|| "target".to_string()),
-            weight_col: None,
-        })
-    } else {
-        None
-    };
+    // Enforce PLAN_4 JSONL-only contract.
+    if let Some(ref fmt) = args.format {
+        if fmt.to_ascii_lowercase() != "jsonl" {
+            return Err(AosError::Validation(
+                "Only jsonl format is supported by PLAN_4".to_string(),
+            ));
+        }
+    }
+    if args.input_col.is_some() || args.target_col.is_some() {
+        return Err(AosError::Validation(
+            "CSV column mapping is not supported by PLAN_4 (JSONL only)".to_string(),
+        ));
+    }
+    if args.text_strategy.to_ascii_lowercase() != "paragraph-pairs" {
+        return Err(AosError::Validation(
+            "Text parsing strategies are not supported by PLAN_4 (JSONL only)".to_string(),
+        ));
+    }
 
     // Build git auth
     let git_auth = match args.git_auth.to_lowercase().as_str() {
@@ -858,15 +855,7 @@ async fn build_dataset(args: BuildArgs, output: &OutputWriter) -> Result<()> {
     };
 
     // Build the dataset builder
-    let mut builder = DatasetBuilder::new(args.tokenizer.clone(), args.output.clone())
-        .with_text_strategy(text_strategy);
-
-    if let Some(fmt) = format {
-        builder = builder.with_format(fmt);
-    }
-    if let Some(mapping) = column_mapping {
-        builder = builder.with_column_mapping(mapping);
-    }
+    let mut builder = DatasetBuilder::new(args.tokenizer.clone(), args.output.clone());
     if let Some(ref name) = args.name {
         builder = builder.with_name(name.clone());
     }
@@ -892,6 +881,7 @@ async fn build_dataset(args: BuildArgs, output: &OutputWriter) -> Result<()> {
                 "examples_path": result.examples_path.display().to_string(),
                 "example_count": result.example_count,
                 "tokenizer_hash": result.tokenizer_hash,
+                "dataset_hash": result.dataset_hash,
             }))?;
         } else {
             output.section("Dataset built");
@@ -899,6 +889,7 @@ async fn build_dataset(args: BuildArgs, output: &OutputWriter) -> Result<()> {
             output.kv("Examples", &result.examples_path.display().to_string());
             output.kv("Count", &result.example_count.to_string());
             output.kv("Tokenizer hash", &result.tokenizer_hash);
+            output.kv("Dataset hash", &result.dataset_hash);
         }
     }
 
