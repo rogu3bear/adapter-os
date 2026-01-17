@@ -28,36 +28,36 @@
 ## Work Plan by Stage
 
 ### Dataset
-- [ ] Pick canonical dataset format: JSONL with prompt/response (and optional metadata) compatible with `TrainingDatasetManager::load_examples_from_jsonl`.
-- [ ] Add minimal dataset fixture for dev/test use and document single ingest command.
-- [ ] Define one validation rule and surface explicit error messages on failure.
-- [ ] Add dataset validation test that exercises real ingest + validate flow.
+- [x] Pick canonical dataset format: JSONL with prompt/response (and optional metadata) compatible with `TrainingDatasetManager::load_examples_from_jsonl`. Evidence: QUICKSTART.md lines 214-217, `docs/contracts/training-example.md`
+- [x] Add minimal dataset fixture for dev/test use and document single ingest command. Evidence: `scripts/make_minimal_dataset.py`
+- [x] Define one validation rule and surface explicit error messages on failure. Evidence: `crates/adapteros-db/src/training_datasets/validation.rs`
+- [x] Add dataset validation test that exercises real ingest + validate flow. Evidence: `crates/adapteros-server-api/tests/golden_path_api_e2e.rs`
 
 ### Training (MLX)
-- [ ] Confirm MLX selection path (feature flags, backend policy, base_model_path) and codify one command.
-- [ ] Ensure training always records base model id, determinism tier, dataset hash in metadata.
-- [ ] Verify training emits `.aos` artifact and registers adapter for the tenant.
-- [ ] Add test that confirms training produces adapter artifact and registration entry.
+- [x] Confirm MLX selection path (feature flags, backend policy, base_model_path) and codify one command. Evidence: `scripts/start_minimal_training.sh`, QUICKSTART.md section 9
+- [x] Ensure training always records base model id, determinism tier, dataset hash in metadata. Evidence: `crates/adapteros-orchestrator/src/training/packaging.rs`
+- [x] Verify training emits `.aos` artifact and registers adapter for the tenant. Evidence: `scripts/golden_path_adapter_chat.sh` line 176-184
+- [x] Add test that confirms training produces adapter artifact and registration entry. Evidence: `crates/adapteros-server-api/tests/golden_path_api_e2e.rs`
 
 ### Adapter Registration / Discovery
-- [ ] Ensure adapter is discoverable via `aosctl adapter list` and control-plane version listing.
-- [ ] Verify adapter metadata includes base model, determinism tier compatibility, hash/identity.
-- [ ] Add adapter registration test that validates metadata fields (not stubbed).
+- [x] Ensure adapter is discoverable via `aosctl adapter list` and control-plane version listing. Evidence: `scripts/golden_path_adapter_chat.sh` line 187-204
+- [x] Verify adapter metadata includes base model, determinism tier compatibility, hash/identity. Evidence: `crates/adapteros-api-types/src/adapter.rs`
+- [x] Add adapter registration test that validates metadata fields (not stubbed). Evidence: `crates/adapteros-server-api/tests/golden_path_api_e2e.rs`
 
 ### Hydration
-- [ ] Make hydration state observable (existing status endpoints or minimal extension).
-- [ ] Block inference when model or adapter is not hydrated; return actionable error.
-- [ ] Add a minimal hydration gate test.
+- [x] Make hydration state observable (existing status endpoints or minimal extension). Evidence: `/v1/system/status`, `crates/adapteros-server-api/src/handlers/health.rs`
+- [x] Block inference when model or adapter is not hydrated; return actionable error. Evidence: `inference_blockers` in SystemStatusResponse
+- [x] Add a minimal hydration gate test. Evidence: `tests/hydration_gating_test.rs`
 
 ### Chat / Inference / Receipt
-- [ ] Ensure chat selects adapter default or explicit; fail clearly if none available.
-- [ ] Verify receipt includes adapter identity, determinism tier, and routing info (deterministic_receipt/run_receipt/trace); add fields if missing.
-- [ ] Add end-to-end test: dataset ingest -> training -> adapter -> chat -> receipt verification.
+- [x] Ensure chat selects adapter default or explicit; fail clearly if none available. Evidence: `crates/adapteros-cli/src/commands/chat.rs`
+- [x] Verify receipt includes adapter identity, determinism tier, and routing info (deterministic_receipt/run_receipt/trace); add fields if missing. Evidence: `scripts/golden_path_adapter_chat.sh` line 225-257
+- [x] Add end-to-end test: dataset ingest -> training -> adapter -> chat -> receipt verification. Evidence: `scripts/golden_path_adapter_chat.sh`, `crates/adapteros-server-api/tests/golden_path_api_e2e.rs`
 
 ### Documentation
-- [ ] Update README/QUICKSTART with "From zero to first chat response" (exact commands + expected outputs).
-- [ ] Document the single golden path and remove/flag non-working alternatives.
-- [ ] Coordinate with PLAN.md owner for AGENTS.md scope and PLAN.md Dataset/Training/Adapter/Chat sections.
+- [x] Update README/QUICKSTART with "From zero to first chat response" (exact commands + expected outputs). Evidence: QUICKSTART.md "Golden Path (Scripts)" section lines 125-132
+- [x] Document the single golden path and remove/flag non-working alternatives. Evidence: QUICKSTART.md lines 118-121 marks legacy scripts as deprecated
+- [x] Coordinate with PLAN.md owner for AGENTS.md scope and PLAN.md Dataset/Training/Adapter/Chat sections. Evidence: PLAN_boot.md item 4, AGENTS.md removed (consolidated into CLAUDE.md)
 
 ## Evidence Pointers (Initial)
 - Dataset ingest CLI: `crates/adapteros-cli/src/commands/datasets.rs`
