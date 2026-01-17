@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
+use adapteros_config::ModelConfig;
 use adapteros_core::{AosError, B3Hash, GuardLogLevel, Result, SeedMode, SeedScopeGuard};
 use adapteros_db::ProtectedDb;
 use adapteros_deterministic_exec::spawn_deterministic;
@@ -221,6 +222,44 @@ pub(crate) async fn run_training_job(
             multi_module_training: false,
             lora_layer_indices: vec![],
         };
+
+        if let Some(base_model_path) = resolve_base_model_path(
+            worker_cfg.base_model_path.clone(),
+            db.as_ref(),
+            tenant_id.as_deref(),
+            base_model_id.as_deref(),
+        )
+        .await
+        {
+            worker_cfg.base_model_path = Some(base_model_path.clone());
+            match ModelConfig::from_config_json(&base_model_path) {
+                Ok(model_cfg) => {
+                    if worker_cfg.hidden_dim != model_cfg.hidden_size {
+                        tracing::info!(
+                            worker_hidden_dim = worker_cfg.hidden_dim,
+                            model_hidden_dim = model_cfg.hidden_size,
+                            "Aligning training hidden_dim with base model config"
+                        );
+                        worker_cfg.hidden_dim = model_cfg.hidden_size;
+                    }
+                    if worker_cfg.vocab_size != model_cfg.vocab_size {
+                        tracing::info!(
+                            worker_vocab_size = worker_cfg.vocab_size,
+                            model_vocab_size = model_cfg.vocab_size,
+                            "Aligning training vocab_size with base model config"
+                        );
+                        worker_cfg.vocab_size = model_cfg.vocab_size;
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        path = %base_model_path.display(),
+                        error = %e,
+                        "Failed to load base model config.json; keeping default hidden_dim/vocab_size"
+                    );
+                }
+            }
+        }
 
         // If a CoreML placement is provided, align hidden_dim to the placement shapes for training.
         if let Some(placement) = orchestrator_cfg.coreml_placement.as_ref() {
@@ -1771,6 +1810,42 @@ fn compute_pipeline_base_model_hash(base_model_path: Option<&PathBuf>) -> Result
         B3Hash::hash(model_path.to_string_lossy().as_bytes())
     };
     Ok(hash.to_hex().to_string())
+}
+
+async fn resolve_base_model_path(
+    base_model_path: Option<PathBuf>,
+    db: Option<&adapteros_db::Db>,
+    tenant_id: Option<&str>,
+    base_model_id: Option<&str>,
+) -> Option<PathBuf> {
+    if let Some(path) = base_model_path {
+        return Some(path);
+    }
+
+    let (Some(database), Some(tenant), Some(model_id)) = (db, tenant_id, base_model_id) else {
+        return None;
+    };
+
+    match database.get_model_for_tenant(tenant, model_id).await {
+        Ok(Some(model)) => model.model_path.map(PathBuf::from),
+        Ok(None) => {
+            warn!(
+                tenant_id = %tenant,
+                model_id = %model_id,
+                "Base model not found while resolving model path"
+            );
+            None
+        }
+        Err(e) => {
+            warn!(
+                tenant_id = %tenant,
+                model_id = %model_id,
+                error = %e,
+                "Failed to resolve base model while resolving model path"
+            );
+            None
+        }
+    }
 }
 
 fn hash_preprocess_config(config: &WorkerPreprocessingConfig) -> Result<String> {
