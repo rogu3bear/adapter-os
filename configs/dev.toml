@@ -1,0 +1,71 @@
+# adapterOS Development Configuration
+#
+# Canonical dev settings - no absolute user paths.
+# For personal overrides, copy to configs/local.toml (gitignored).
+#
+# Usage: cargo run -p adapteros-server -- --config configs/dev.toml
+# Or:    AOS_CONFIG=configs/dev.toml ./start up
+
+[server]
+port = 8080
+bind = "127.0.0.1"
+production_mode = false
+
+[db]
+path = "sqlite://var/aos-cp.sqlite3"
+storage_mode = "sql_only"
+pool_size = 10
+kv_path = "var/aos-kv.redb"
+kv_tantivy_path = "var/aos-kv-index"
+
+[security]
+# Dev bypass: disables auth checks in debug builds
+dev_bypass = true
+dev_login_enabled = true
+require_pf_deny = false
+mtls_required = false
+# SECURITY: set AOS_SECURITY_JWT_SECRET in env, not here
+jwt_secret = ""
+jwt_mode = "hmac"
+
+[paths]
+# All paths relative to repo root - no /Users/... paths allowed
+artifacts_root = "var/artifacts"
+bundles_root = "var/bundles"
+adapters_root = "var/adapters"
+datasets_root = "var/datasets"
+documents_root = "var/documents"
+plan_dir = "plan"
+
+[model.cache]
+max.mb = 8192
+
+[worker.safety]
+inference_timeout_secs = 60
+evidence_timeout_secs = 10
+router_timeout_ms = 200
+policy_timeout_ms = 100
+circuit_breaker_threshold = 10
+circuit_breaker_timeout_secs = 30
+max_concurrent_requests = 5
+max_tokens_per_second = 20
+
+[logging]
+level = "info,adapteros=debug"
+log_dir = "var/logs"
+log_prefix = "aos-dev"
+json_format = false
+rotation = "daily"
+max_log_files = 7
+include_request_id = true
+capture_panics = true
+
+[metrics]
+enabled = false
+
+[alerting]
+enabled = false
+
+[diagnostics]
+enabled = true
+level = "stages"

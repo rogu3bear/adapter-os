@@ -33,3 +33,32 @@ Use backend on 8080 and UI on 3200. All routes are tenant-scoped; use your tenan
 - Multi-tenant: cross-tenant repo/dataset/health/promotion operations are forbidden.
 
 MLNavigator Inc Thursday Dec 11, 2025.
+
+---
+
+## Operationalization: Zero to First Chat
+
+### Quick Start (One Command)
+
+```bash
+./scripts/golden_path_adapter_chat.sh
+```
+
+This script runs the complete flow: boot system, seed model, create dataset, train adapter, run inference with receipts. Expected runtime: 5-30 minutes depending on hardware.
+
+### Common Blockers and Fixes
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `/readyz` returns 503 | Server still booting | Wait 10-30s, check `var/logs/server.log` |
+| "No models seeded" | Model DB empty | Run `aosctl models seed --model-path var/model-cache/models/<model>` |
+| "Worker not registered" | Worker not started | Run `./scripts/worker-up.sh` or check worker logs |
+| "Model not hydrated" | Worker hasn't loaded model | Wait for hydration or check worker memory |
+| "Dataset trust blocked" | Dataset not validated | `POST /v1/datasets/{id}/validate` or mark trusted |
+| "Training failed" | MLX/backend issue | Check `var/logs/worker.log`, ensure MLX installed |
+| Config path errors | Absolute paths in config | Use `configs/dev.toml` with relative `var/` paths |
+
+### CI Gate vs Full Golden Path
+
+- **CI gate** (`scripts/ci/golden_path_smoke.sh`): Boot + health checks, <60s, no training. Run on every commit.
+- **Full golden path** (`scripts/golden_path_adapter_chat.sh`): Complete training flow. Run manually or nightly.
