@@ -123,7 +123,7 @@ impl Db {
                 name: name.to_string(),
                 itar_flag,
             };
-            if let Err(e) = repo.create_tenant_kv(&params).await {
+            if let Err(e) = repo.create_tenant_kv_with_id(&id, &params).await {
                 self.record_kv_write_fallback("tenants.create");
                 warn!(error = %e, tenant_id = %id, "Failed to write tenant to KV backend (dual-write)");
             } else {

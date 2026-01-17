@@ -1990,15 +1990,30 @@ fn apply_allowlist(
         let allowed: HashSet<&String> = allow.iter().collect();
         let mut filtered_info = Vec::new();
         let mut filtered_priors = Vec::new();
+        let mut filtered_out = Vec::new();
 
         for (info, prior) in adapter_info.iter().zip(priors.iter()) {
             if allowed.contains(&info.id) {
                 filtered_info.push(info.clone());
                 filtered_priors.push(*prior);
+            } else {
+                filtered_out.push(info.id.clone());
             }
         }
 
+        if !filtered_out.is_empty() {
+            info!(
+                filtered_out_count = filtered_out.len(),
+                filtered_out = ?filtered_out,
+                "Adapters filtered by allowlist"
+            );
+        }
+
         if filtered_info.is_empty() {
+            warn!(
+                allowed_count = allowed.len(),
+                "No adapters allowed by routing policy"
+            );
             return Err(AosError::PolicyViolation(
                 "No adapters allowed by routing policy".to_string(),
             ));

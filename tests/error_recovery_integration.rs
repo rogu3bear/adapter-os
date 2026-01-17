@@ -1,7 +1,7 @@
-//! Comprehensive Error Recovery and Fault Tolerance Tests for adapterOS
+//! Comprehensive Error Recovery and Fault Tolerance Tests for AdapterOS
 //!
 //! This module implements chaos testing patterns to verify error paths are properly
-//! handled and recovered across critical adapterOS components:
+//! handled and recovered across critical AdapterOS components:
 //!
 //! - Circuit breaker error recovery (simulates network/service failures)
 //! - Hash verification failure handling (corrupted data detection)
@@ -168,8 +168,12 @@ mod circuit_breaker_error_recovery {
     /// Test concurrent circuit breaker access
     #[tokio::test]
     async fn test_concurrent_circuit_breaker_access() {
+        let success_tasks = 10;
+        let failure_tasks = 10;
+        let iterations = 100;
         let config = CircuitBreakerConfig {
-            failure_threshold: 10_000, // Keep closed for all concurrent requests
+            // Avoid opening during the test so all operations are counted.
+            failure_threshold: failure_tasks * iterations + 1,
             ..Default::default()
         };
         let breaker = Arc::new(StandardCircuitBreaker::new(
@@ -177,28 +181,28 @@ mod circuit_breaker_error_recovery {
             config,
         ));
 
-        let barrier = Arc::new(tokio::sync::Barrier::new(20));
+        let barrier = Arc::new(tokio::sync::Barrier::new(success_tasks + failure_tasks));
         let mut handles = vec![];
 
         // 10 success tasks
-        for _ in 0..10 {
+        for _ in 0..success_tasks {
             let b = breaker.clone();
             let barrier = barrier.clone();
             handles.push(tokio::spawn(async move {
                 barrier.wait().await;
-                for _ in 0..100 {
+                for _ in 0..iterations {
                     let _: Result<i32> = b.call(async { Ok(42) }).await;
                 }
             }));
         }
 
         // 10 failure tasks
-        for _ in 0..10 {
+        for _ in 0..failure_tasks {
             let b = breaker.clone();
             let barrier = barrier.clone();
             handles.push(tokio::spawn(async move {
                 barrier.wait().await;
-                for _ in 0..100 {
+                for _ in 0..iterations {
                     let _: Result<i32> = b
                         .call(async { Err(AosError::Network("Test".to_string())) })
                         .await;
@@ -212,8 +216,9 @@ mod circuit_breaker_error_recovery {
 
         // Verify metrics are sane
         let metrics = breaker.metrics();
-        assert!(
-            metrics.requests_total >= 2000,
+        let expected_requests = (success_tasks + failure_tasks) as u64 * iterations as u64;
+        assert_eq!(
+            metrics.requests_total, expected_requests,
             "Should have processed all requests"
         );
     }
@@ -452,6 +457,8 @@ mod error_type_construction {
         let error_str = error.to_string();
         assert!(error_str.contains("egress_policy"));
         assert!(error_str.contains("expected"));
+        assert!(error_str.contains("got"));
+        assert!(error_str.contains("abc123"));
         assert!(error_str.contains("def456"));
     }
 

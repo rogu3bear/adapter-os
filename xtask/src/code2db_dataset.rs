@@ -127,6 +127,7 @@ pub async fn run(args: Code2DbDatasetArgs) -> Result<()> {
             let metadata = ExampleMetadataV1::new(
                 path.to_string_lossy().to_string(),
                 examples.len() as u64,
+                "", // source_hash - empty for synthetic data
                 provenance_from_map(&prov).unwrap_or_default(),
                 created_at,
             );
@@ -179,6 +180,7 @@ pub async fn run(args: Code2DbDatasetArgs) -> Result<()> {
                 let metadata = ExampleMetadataV1::new(
                     path.to_string_lossy().to_string(),
                     examples.len() as u64,
+                    "", // source_hash - empty for synthetic data
                     provenance_from_map(&prov).unwrap_or_default(),
                     created_at,
                 );
@@ -214,7 +216,7 @@ pub async fn run(args: Code2DbDatasetArgs) -> Result<()> {
         .into_iter()
         .map(|e| {
             let mut map = std::collections::HashMap::new();
-            map.insert("source_id".to_string(), e.metadata.source_id);
+            map.insert("dataset_id".to_string(), e.metadata.dataset_id.clone());
             map.insert("row_id".to_string(), e.metadata.row_id.to_string());
             map.insert("provenance".to_string(), e.metadata.provenance);
             map.insert(

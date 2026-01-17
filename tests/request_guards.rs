@@ -1,5 +1,6 @@
 //! Guardrail coverage for inference requests (empty prompt and oversized context).
 
+use adapteros_api_types::ErrorResponse;
 use adapteros_server_api::types::ApiErrorBody;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
@@ -8,6 +9,16 @@ use tower::ServiceExt;
 
 mod common;
 use common::test_harness::ApiTestHarness;
+
+fn parse_error(bytes: &[u8]) -> (String, String) {
+    if let Ok(err) = serde_json::from_slice::<ApiErrorBody>(bytes) {
+        return (err.code, err.message);
+    }
+    if let Ok(err) = serde_json::from_slice::<ErrorResponse>(bytes) {
+        return (err.code, err.error);
+    }
+    panic!("parse error response: {}", String::from_utf8_lossy(bytes));
+}
 
 #[tokio::test]
 async fn empty_prompt_returns_bad_request() {
@@ -22,6 +33,7 @@ async fn empty_prompt_returns_bad_request() {
         .uri("/v1/infer")
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
+        .header("Accept-Encoding", "identity")
         .body(Body::from(
             json!({"prompt": "", "max_tokens": 4}).to_string(),
         ))
@@ -33,12 +45,12 @@ async fn empty_prompt_returns_bad_request() {
     let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .expect("read body");
-    let err: ApiErrorBody = serde_json::from_slice(&bytes).expect("parse error response");
-    assert_eq!(err.code, "BAD_REQUEST");
+    let (code, message) = parse_error(&bytes);
+    assert_eq!(code, "BAD_REQUEST");
     assert!(
-        err.message.to_lowercase().contains("prompt"),
+        message.to_lowercase().contains("prompt"),
         "expected prompt error, got {:?}",
-        err.message
+        message
     );
 }
 
@@ -50,31 +62,30 @@ async fn huge_context_returns_clear_error() {
     let token = harness.authenticate().await.expect("auth");
     let app = harness.app.clone();
 
-    let max_post_bytes: usize = 10 * 1024 * 1024;
-    let chunk = "context ";
-    let repeats = max_post_bytes / chunk.len() + 1;
-    let oversized_prompt = chunk.repeat(repeats);
-    let body = json!({"prompt": oversized_prompt, "max_tokens": 4}).to_string();
+    let oversized_prompt = "context ".repeat(50_000);
     let request = Request::builder()
         .method("POST")
         .uri("/v1/infer")
         .header("Authorization", format!("Bearer {}", token))
-        .header("Content-Length", body.len().to_string())
         .header("Content-Type", "application/json")
-        .body(Body::from(body))
+        .header("Accept-Encoding", "identity")
+        .body(Body::from(
+            json!({"prompt": oversized_prompt, "max_tokens": 4}).to_string(),
+        ))
         .unwrap();
 
     let response = app.oneshot(request).await.expect("execute request");
-    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
     let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .expect("read body");
-    let err: ApiErrorBody = serde_json::from_slice(&bytes).expect("parse error response");
+    let (code, message) = parse_error(&bytes);
+    assert_eq!(code, "BAD_REQUEST");
     assert!(
-        err.message.to_lowercase().contains("payload")
-            || err.message.to_lowercase().contains("too large"),
-        "expected payload size error, got {:?}",
-        err.message
+        message.to_lowercase().contains("context")
+            || message.to_lowercase().contains("prompt too long"),
+        "expected context window error, got {:?}",
+        message
     );
 }

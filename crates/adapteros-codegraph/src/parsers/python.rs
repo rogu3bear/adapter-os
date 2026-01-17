@@ -23,8 +23,6 @@ pub struct PythonParser {
     python_lang: TSLanguage,
     /// Query for function definitions
     function_query: Query,
-    /// Query for async function definitions
-    async_function_query: Query,
     /// Query for class definitions
     class_query: Query,
     /// Query for import statements
@@ -50,6 +48,7 @@ impl PythonParser {
             &python_lang,
             r#"
             (function_definition
+                ("async")? @async
                 name: (identifier) @name
                 parameters: (parameters) @params
                 return_type: (type)? @return_type
@@ -57,19 +56,6 @@ impl PythonParser {
             "#,
         )
         .map_err(|e| AosError::Parse(format!("Failed to create function query: {}", e)))?;
-
-        let async_function_query = Query::new(
-            &python_lang,
-            r#"
-            (function_definition
-                "async"
-                name: (identifier) @name
-                parameters: (parameters) @params
-                return_type: (type)? @return_type
-            ) @async_function
-            "#,
-        )
-        .map_err(|e| AosError::Parse(format!("Failed to create async function query: {}", e)))?;
 
         let class_query = Query::new(
             &python_lang,
@@ -96,8 +82,8 @@ impl PythonParser {
             &python_lang,
             r#"
             (import_from_statement
-                module_name: (dotted_name)? @module_name
-                name: (_) @imported_name
+                module_name: (dotted_name) @module_name
+                name: (dotted_name) @imported_name
             ) @import_from
             "#,
         )
@@ -134,7 +120,6 @@ impl PythonParser {
             parser,
             python_lang,
             function_query,
-            async_function_query,
             class_query,
             import_query,
             import_from_query,
@@ -164,7 +149,6 @@ impl PythonParser {
 
         // Extract symbols using queries
         self.extract_functions(&tree, &source_code, file_path, &mut symbols)?;
-        self.extract_async_functions(&tree, &source_code, file_path, &mut symbols)?;
         self.extract_classes(&tree, &source_code, file_path, &mut symbols)?;
         self.extract_methods(&tree, &source_code, file_path, &mut symbols)?;
         self.extract_imports(&tree, &source_code, file_path, &mut symbols)?;
@@ -192,32 +176,27 @@ impl PythonParser {
 
         while let Some(mat) = matches.next() {
             let mut name = None;
+            let mut name_node = None;
             let mut params = None;
             let mut _return_type = None;
-            let mut function_node = None;
+            let mut is_async = false;
 
             for capture in mat.captures {
                 let text = utils::extract_text(capture.node, source);
                 match capture.index {
-                    0 => name = Some(text),
-                    1 => params = Some(text),
-                    2 => _return_type = Some(text),
+                    0 => is_async = true,
+                    1 => {
+                        name_node = Some(capture.node);
+                        name = Some(text);
+                    }
+                    2 => params = Some(text),
+                    3 => _return_type = Some(text),
                     _ => {}
-                }
-                if capture.node.kind() == "function_definition" {
-                    function_node = Some(capture.node);
-                }
-            }
-
-            if let Some(node) = function_node {
-                let text = utils::extract_text(node, source);
-                if text.trim_start().starts_with("async") {
-                    continue;
                 }
             }
 
             if let Some(name) = name {
-                let span = utils::node_to_span(mat.captures[0].node);
+                let span = utils::node_to_span(name_node.unwrap_or_else(|| mat.captures[0].node));
                 let visibility = utils::parse_visibility(&name, Language::Python);
                 let mut symbol = utils::create_symbol_node(
                     name,
@@ -228,59 +207,9 @@ impl PythonParser {
                 )
                 .with_visibility(visibility);
 
-                if let Some(params) = params {
-                    symbol = symbol.with_signature(params);
+                if is_async {
+                    symbol = symbol.mark_async();
                 }
-
-                symbols.push(symbol);
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Extract async function definitions
-    fn extract_async_functions(
-        &self,
-        tree: &tree_sitter::Tree,
-        source: &str,
-        file_path: &Path,
-        symbols: &mut Vec<SymbolNode>,
-    ) -> Result<()> {
-        let mut cursor = QueryCursor::new();
-        let mut matches = cursor.matches(
-            &self.async_function_query,
-            tree.root_node(),
-            source.as_bytes(),
-        );
-
-        while let Some(mat) = matches.next() {
-            let mut name = None;
-            let mut params = None;
-            let mut _return_type = None;
-
-            for capture in mat.captures {
-                let text = utils::extract_text(capture.node, source);
-                match capture.index {
-                    0 => name = Some(text),
-                    1 => params = Some(text),
-                    2 => _return_type = Some(text),
-                    _ => {}
-                }
-            }
-
-            if let Some(name) = name {
-                let span = utils::node_to_span(mat.captures[0].node);
-                let visibility = utils::parse_visibility(&name, Language::Python);
-                let mut symbol = utils::create_symbol_node(
-                    name,
-                    SymbolKind::Function,
-                    Language::Python,
-                    span,
-                    file_path,
-                )
-                .with_visibility(visibility)
-                .mark_async();
 
                 if let Some(params) = params {
                     symbol = symbol.with_signature(params);

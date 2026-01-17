@@ -740,6 +740,14 @@ impl FusedKernels for MockKernels {
         // Mock kernels are deterministic for testing purposes
         Ok(attestation::DeterminismReport::for_mock())
     }
+
+    fn check_memory_footprint(
+        &self,
+        _id: u16,
+        _buffer_size: u64,
+    ) -> (bool, f64, Option<(f64, f64, usize)>) {
+        (true, 0.0, None)
+    }
 }
 
 impl Default for MockKernels {

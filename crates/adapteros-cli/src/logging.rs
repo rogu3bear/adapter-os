@@ -1,4 +1,4 @@
-//! Unified logging configuration for adapterOS CLI
+//! Unified logging configuration for AdapterOS CLI
 //!
 //! Provides centralized logging initialization and configuration for all CLI commands.
 //! Replaces println! usage with structured tracing throughout the CLI.
@@ -42,6 +42,7 @@ pub fn init_logging() -> Result<()> {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
     let fmt_layer = fmt::layer()
+        // Keep logs off stdout so JSON command output stays clean.
         .with_writer(std::io::stderr)
         .with_target(false)
         .with_thread_ids(true)

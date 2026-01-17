@@ -241,6 +241,7 @@ async fn test_keychain_key_generation_and_signing() {
         rotation_interval_secs: Some(86400),
     };
 
+    let expected_id = format!("{}:{}", "adapteros-test-keygen", "test-mac-key");
     let provider = KeychainProvider::new(config);
 
     if let Ok(provider) = provider {
@@ -252,7 +253,7 @@ async fn test_keychain_key_generation_and_signing() {
             .await;
 
         if let Ok(handle) = handle_result {
-            assert!(handle.provider_id.contains("test-mac-key"));
+            assert_eq!(handle.provider_id, expected_id);
 
             // Try to sign with the key
             let test_data = b"test message";

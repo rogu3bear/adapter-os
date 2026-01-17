@@ -1,6 +1,6 @@
-//! adapterOS Core Types
+//! AdapterOS Core Types
 //!
-//! Foundational types and utilities for the adapterOS system.
+//! Foundational types and utilities for the AdapterOS system.
 //!
 //! This crate provides:
 //! - Error handling with [`AosError`] and [`Result`]
@@ -28,7 +28,6 @@
 pub mod adapter_repo_paths;
 pub mod adapter_store;
 pub mod adapter_type;
-pub mod audit_chain;
 pub mod backend;
 pub mod build_info;
 pub mod circuit_breaker;
@@ -92,7 +91,7 @@ pub mod version;
 pub mod worker_status;
 
 #[cfg(test)]
-mod test_support;
+pub(crate) mod test_support;
 
 pub use adapter_repo_paths::{
     adapter_fs_path, adapter_fs_path_with_root, resolve_adapter_roots_from_strings,
@@ -102,10 +101,6 @@ pub use adapter_store::{
     AdapterCacheKey, AdapterPins, AdapterRecord, AdapterSnapshot, AdapterStore,
 };
 pub use adapter_type::{AdapterType, AdapterTypeParseError};
-pub use audit_chain::{
-    compute_entry_hash, verify_audit_chain, verify_audit_chains_by_tenant, AuditChainResult,
-    AuditEntry,
-};
 pub use backend::BackendKind;
 pub use build_info::BuildInfo;
 pub use circuit_breaker::{
@@ -113,7 +108,7 @@ pub use circuit_breaker::{
     SharedCircuitBreaker, StandardCircuitBreaker,
 };
 pub use circuit_breaker_registry::CircuitBreakerRegistry;
-pub use clock::{mock_clock, system_clock, Clock, MockClock, SystemClock};
+pub use clock::{Clock, SystemClock};
 pub use codebase_versioning::{
     evaluate_versioning, should_auto_version, VersionBump, VersioningContext, VersioningDecision,
     VersioningPolicy, VersioningReason, DEFAULT_VERSIONING_THRESHOLD, MAX_VERSIONING_THRESHOLD,
@@ -128,10 +123,7 @@ pub use context_manifest::{
     ContextAdapterEntry, ContextAdapterEntryV1, ContextManifest, ContextManifestV1,
 };
 pub use crypto_receipt::{
-    compute_adapter_config_hash, compute_input_digest as compute_input_digest_v2,
-    compute_output_digest as compute_output_digest_v2, equipment_profile_from_fingerprint,
-    receipt_generator_from_manifest, routing_record_from_decision, ContextId, CryptographicReceipt,
-    EquipmentProfile, ReceiptGenerator, ReceiptMetadata, RoutingDigest, RoutingRecord,
+    compute_adapter_config_hash, EquipmentProfile, ReceiptGenerator, RoutingRecord,
     CRYPTO_RECEIPT_SCHEMA_VERSION,
 };
 pub use deployment_verification::{
@@ -167,9 +159,7 @@ pub use io_utils::{
     get_available_space, validate_path_characters, IoErrorKind, TempFileGuard,
     DEFAULT_DISK_SPACE_MARGIN,
 };
-pub use jitter::{
-    check_probability, check_probability_by_id, compute_backoff_with_jitter, compute_jitter_delay,
-};
+pub use jitter::{check_probability_by_id, compute_backoff_with_jitter, compute_jitter_delay};
 pub use lifecycle::{
     validate_deterministic_transition, LifecycleError, LifecycleState, LifecycleTransition,
     SemanticVersion, TransitionReason,
@@ -198,6 +188,8 @@ pub use preflight::{
     PreflightAuditEvent, PreflightCheck, PreflightCheckFailure, PreflightConfig, PreflightDbOps,
     PreflightErrorCode, PreflightResult, SimpleAdapterData,
 };
+pub use receipt_digest::{compute_output_digest, hash_token_decision, update_run_head};
+pub use crypto_receipt::compute_input_digest as compute_input_digest_v2;
 pub use seed::{
     clear_seed_registry, derive_adapter_seed, derive_request_seed, derive_seed, derive_seed_full,
     derive_seed_indexed, derive_seed_typed, derive_typed_seed, derive_typed_seed_full,
@@ -231,14 +223,6 @@ pub use version::{
 };
 pub use worker_status::{WorkerStatus, WorkerStatusTransition};
 
-// Receipt digest computation (shared between production and CLI)
-pub use receipt_digest::{
-    compute_output_digest, compute_receipt_digest, decode_allowed_mask, encode_adapter_ids,
-    encode_allowed_mask, encode_gates_q15, hash_token_decision, update_run_head,
-    ReceiptDigestInput, RECEIPT_SCHEMA_CURRENT, RECEIPT_SCHEMA_V1, RECEIPT_SCHEMA_V2,
-    RECEIPT_SCHEMA_V3, RECEIPT_SCHEMA_V4,
-};
-
 // Invariant validation for determinism-critical operations
 pub use invariants::{
     canonical_adapter_sort, canonical_score_comparator, decode_q15_gate, encode_q15_gate,
@@ -264,12 +248,6 @@ pub mod prelude {
         TransitionReason, VersionInfo, WorkerStatus, WorkerStatusTransition, BYTES_PER_GB,
         BYTES_PER_KB, BYTES_PER_MB, CPID, DEFAULT_TIMEOUT_SECS, DETERMINISM_VIOLATION_METRIC,
         SLOW_TIMEOUT_SECS,
-    };
-
-    // Cryptographic receipt types for verifiable inference
-    pub use crate::crypto_receipt::{
-        CryptographicReceipt, EquipmentProfile, ReceiptGenerator, ReceiptMetadata, RoutingDigest,
-        RoutingRecord,
     };
 
     // Recovery orchestrator types

@@ -22,7 +22,7 @@ pub enum PolicyCommand {
 
     /// Explain a specific policy pack
     Explain {
-        /// Policy pack name or ID (1-20)
+        /// Policy pack name or ID
         policy: String,
     },
 
@@ -193,7 +193,11 @@ fn list_policy_packs(only_implemented: bool, format: OutputFormat) -> Result<()>
         }
     }
 
-    println!("\nTotal: {} / 20 policies", filtered.len());
+    println!(
+        "\nTotal: {} / {} policies",
+        filtered.len(),
+        list_policies().len()
+    );
 
     Ok(())
 }
@@ -201,14 +205,7 @@ fn list_policy_packs(only_implemented: bool, format: OutputFormat) -> Result<()>
 fn explain_policy_pack(policy_ref: &str) -> Result<()> {
     // Try to parse as ID number first, then as name
     let policy_id = if let Ok(id) = policy_ref.parse::<usize>() {
-        if !(1..=29).contains(&id) {
-            return Err(adapteros_core::AosError::Validation(
-                "Policy ID must be between 1 and 29".to_string(),
-            ));
-        }
-        PolicyId::try_from(id as u8).map_err(|_| {
-            adapteros_core::AosError::Validation("Policy ID must be between 1 and 29".to_string())
-        })?
+        policy_id_from_usize(id)?
     } else {
         // Try to match by name (case-insensitive)
         let name_lower = policy_ref.to_lowercase();
@@ -285,14 +282,7 @@ fn enforce_policies(pack: Option<&str>, all: bool, dry_run: bool) -> Result<()> 
 fn parse_policy_id(policy_ref: &str) -> Result<PolicyId> {
     // Try to parse as ID number first, then as name
     if let Ok(id) = policy_ref.parse::<usize>() {
-        if !(1..=29).contains(&id) {
-            return Err(adapteros_core::AosError::Validation(
-                "Policy ID must be between 1 and 29".to_string(),
-            ));
-        }
-        PolicyId::try_from(id as u8).map_err(|_| {
-            adapteros_core::AosError::Validation("Policy ID must be between 1 and 29".to_string())
-        })
+        policy_id_from_usize(id)
     } else {
         let name_lower = policy_ref.to_lowercase();
         list_policies()
@@ -303,6 +293,25 @@ fn parse_policy_id(policy_ref: &str) -> Result<PolicyId> {
                 adapteros_core::AosError::Validation(format!("Policy '{}' not found", policy_ref))
             })
     }
+}
+
+fn policy_id_from_usize(id: usize) -> Result<PolicyId> {
+    let max_id = PolicyId::all()
+        .iter()
+        .map(|policy_id| *policy_id as usize)
+        .max()
+        .unwrap_or(0);
+
+    PolicyId::all()
+        .iter()
+        .copied()
+        .find(|policy_id| *policy_id as usize == id)
+        .ok_or_else(|| {
+            adapteros_core::AosError::Validation(format!(
+                "Policy ID must be between 1 and {}",
+                max_id
+            ))
+        })
 }
 
 fn hash_status(cpid: Option<&str>, format: OutputFormat) -> Result<()> {

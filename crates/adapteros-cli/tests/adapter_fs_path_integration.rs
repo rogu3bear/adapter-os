@@ -1,10 +1,10 @@
 use adapteros_cli::commands::train_docs::TrainDocsArgs;
 use adapteros_core::{adapter_fs_path_with_root, B3Hash};
+use adapteros_db::models::ModelRegistrationBuilder;
 use adapteros_db::AdapterRegistrationBuilder;
 use clap::Parser;
 use std::collections::HashMap;
 use std::ffi::OsString;
-use std::path::PathBuf;
 use tempfile::tempdir;
 use tokio::fs;
 
@@ -19,7 +19,6 @@ async fn train_docs_and_worker_path_align() {
     let mut vocab = HashMap::new();
     vocab.insert("hello".to_string(), 0u32);
     vocab.insert("[UNK]".to_string(), 1u32);
-    vocab.insert("[PAD]".to_string(), 2u32);
     let model = tokenizers::models::wordlevel::WordLevel::builder()
         .vocab(vocab)
         .unk_token("[UNK]".to_string())
@@ -58,70 +57,27 @@ async fn train_docs_and_worker_path_align() {
     };
 
     let tenant_id = "tenant-fs";
-    let base_model_path = match std::env::var("AOS_TEST_MODEL_PATH")
-        .or_else(|_| std::env::var("AOS_MODEL_PATH"))
-    {
-        Ok(path) => PathBuf::from(path),
-        Err(_) => {
-            eprintln!("skipping: set AOS_TEST_MODEL_PATH or AOS_MODEL_PATH to run train_docs_and_worker_path_align");
-            return;
-        }
-    };
-    if !base_model_path.exists() {
-        eprintln!(
-            "skipping: base model path not found at {}",
-            base_model_path.display()
-        );
-        return;
-    }
-    if !base_model_path.join("config.json").exists() {
-        eprintln!(
-            "skipping: config.json not found at {}",
-            base_model_path.display()
-        );
-        return;
-    }
-    let weight_candidates = [
-        "model.safetensors",
-        "pytorch_model.bin.safetensors",
-        "model.safetensors.index.json",
-    ];
-    if !weight_candidates
-        .iter()
-        .any(|name| base_model_path.join(name).exists())
-    {
-        eprintln!(
-            "skipping: base model weights not found under {}",
-            base_model_path.display()
-        );
-        return;
-    }
-    let Some(base_model_id) = base_model_path
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-    else {
-        eprintln!(
-            "skipping: base model path missing directory name at {}",
-            base_model_path.display()
-        );
-        return;
-    };
-    let Some(model_cache_root) = base_model_path.parent() else {
-        eprintln!(
-            "skipping: base model path has no parent directory at {}",
-            base_model_path.display()
-        );
-        return;
-    };
+    let base_model_id = "base-model-test";
+    let revision = "rev1";
+    let adapter_id = format!("system/docs/adapteros/{revision}");
+    let safe_adapter_id = adapter_id.replace('/', "_");
+
+    // Ensure base model path resolution succeeds by pointing to a temp cache dir.
+    let model_cache_dir = tempdir().unwrap();
+    let model_dir = model_cache_dir.path().join(base_model_id);
+    fs::create_dir_all(&model_dir)
+        .await
+        .expect("create model cache dir");
+    let config_path = model_dir.join("config.json");
+    fs::write(&config_path, "{}")
+        .await
+        .expect("write model config");
     let prior_model_cache: Option<OsString> = std::env::var_os("AOS_MODEL_CACHE_DIR");
-    std::env::set_var("AOS_MODEL_CACHE_DIR", model_cache_root);
+    std::env::set_var("AOS_MODEL_CACHE_DIR", model_cache_dir.path());
     let _model_cache_guard = EnvGuard {
         key: "AOS_MODEL_CACHE_DIR",
         prev: prior_model_cache,
     };
-    let revision = "rev1";
-    let adapter_id = format!("system/docs/adapteros/{revision}");
-    let safe_adapter_id = adapter_id.replace('/', "_");
 
     // Skip migration signature verification for temp DBs
     let prior_skip_signatures: Option<OsString> = std::env::var_os("AOS_SKIP_MIGRATION_SIGNATURES");
@@ -217,6 +173,27 @@ async fn train_docs_and_worker_path_align() {
         .await
         .expect("count tenant");
     assert_eq!(tenant_count, 1, "tenant persisted in temp db");
+
+    let inserted_model_id = db
+        .register_model(
+            ModelRegistrationBuilder::new()
+                .name(base_model_id)
+                .hash_b3("model-hash")
+                .config_hash_b3("config-hash")
+                .tokenizer_hash_b3("tokenizer-hash")
+                .tokenizer_cfg_hash_b3("tokenizer-cfg-hash")
+                .build()
+                .expect("model params"),
+        )
+        .await
+        .expect("insert model");
+    sqlx::query("UPDATE models SET id = ?, tenant_id = ? WHERE id = ?")
+        .bind(base_model_id)
+        .bind(tenant_id)
+        .bind(inserted_model_id)
+        .execute(db.pool())
+        .await
+        .expect("assign model id");
     let file_bytes = fs::read(&expected_aos).await.expect("read aos");
     let file_view = adapteros_aos::open_aos(&file_bytes).expect("parse aos");
     let canonical_segment = file_view

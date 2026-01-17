@@ -1068,10 +1068,6 @@ pub async fn create_training_job_stub(
     let job_id = req.job_id.unwrap_or_else(|| "job-stub".to_string());
     let repo_id = req.repo_id.unwrap_or_else(|| "repo-e2e".to_string());
     let status = req.status.unwrap_or_else(|| "completed".to_string());
-    let repo_path = std::env::temp_dir()
-        .join("repo-e2e")
-        .to_string_lossy()
-        .to_string();
     let progress_json = serde_json::json!({
         "progress_pct": if status == "completed" { 100.0 } else { 0.0 },
         "current_epoch": 1,
@@ -1093,7 +1089,7 @@ pub async fn create_training_job_stub(
     )
     .bind("git-repo-e2e")
     .bind(&repo_id)
-    .bind(repo_path)
+    .bind("var/tmp/repo-e2e")
     .bind("main")
     .bind("{}")
     .bind("{}")

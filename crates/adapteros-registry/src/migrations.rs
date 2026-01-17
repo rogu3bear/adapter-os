@@ -2,7 +2,6 @@
 
 use adapteros_core::{AosError, Result};
 use rusqlite::Connection;
-use std::collections::HashSet;
 
 pub fn run_migrations(conn: &mut Connection) -> Result<()> {
     // Create adapters table
@@ -19,7 +18,7 @@ pub fn run_migrations(conn: &mut Connection) -> Result<()> {
             tenant_namespace TEXT,
             domain TEXT,
             purpose TEXT,
-            revision INTEGER,
+            revision TEXT,
             parent_id TEXT,
             fork_type TEXT,
             fork_reason TEXT
@@ -117,45 +116,61 @@ pub fn run_migrations(conn: &mut Connection) -> Result<()> {
     Ok(())
 }
 
-fn ensure_adapter_columns(conn: &Connection) -> Result<()> {
-    let mut columns = existing_columns(conn, "adapters")?;
-    for (name, sql_type) in [
+fn ensure_adapter_columns(conn: &mut Connection) -> Result<()> {
+    let columns = [
         ("adapter_name", "TEXT"),
         ("tenant_namespace", "TEXT"),
         ("domain", "TEXT"),
         ("purpose", "TEXT"),
-        ("revision", "INTEGER"),
+        ("revision", "TEXT"),
         ("parent_id", "TEXT"),
         ("fork_type", "TEXT"),
         ("fork_reason", "TEXT"),
-    ] {
-        if !columns.contains(name) {
-            conn.execute(
-                &format!("ALTER TABLE adapters ADD COLUMN {} {}", name, sql_type),
-                [],
-            )
-            .map_err(|e| AosError::Registry(format!("Failed to add adapters.{}: {}", name, e)))?;
-            columns.insert(name.to_string());
-        }
+    ];
+
+    for (name, definition) in columns {
+        add_column_if_missing(conn, "adapters", name, definition)?;
     }
 
     Ok(())
 }
 
-fn existing_columns(conn: &Connection, table: &str) -> Result<HashSet<String>> {
-    let mut stmt = conn
-        .prepare(&format!("PRAGMA table_info({})", table))
-        .map_err(|e| AosError::Registry(format!("Failed to read {} schema: {}", table, e)))?;
-    let rows = stmt
-        .query_map([], |row| row.get::<_, String>(1))
-        .map_err(|e| AosError::Registry(format!("Failed to read {} schema: {}", table, e)))?;
-
-    let mut columns = HashSet::new();
-    for row in rows {
-        columns.insert(
-            row.map_err(|e| AosError::Registry(format!("Failed to read {} schema: {}", table, e)))?,
-        );
+fn add_column_if_missing(
+    conn: &mut Connection,
+    table: &str,
+    column: &str,
+    definition: &str,
+) -> Result<()> {
+    if column_exists(conn, table, column)? {
+        return Ok(());
     }
 
-    Ok(columns)
+    let sql = format!("ALTER TABLE {table} ADD COLUMN {column} {definition}");
+    conn.execute(&sql, [])
+        .map_err(|e| AosError::Registry(format!("Failed to add column {column}: {}", e)))?;
+    Ok(())
+}
+
+fn column_exists(conn: &mut Connection, table: &str, column: &str) -> Result<bool> {
+    let sql = format!("PRAGMA table_info({table})");
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| AosError::Registry(format!("Failed to read schema for {table}: {}", e)))?;
+    let mut rows = stmt
+        .query([])
+        .map_err(|e| AosError::Registry(format!("Failed to query schema for {table}: {}", e)))?;
+
+    while let Some(row) = rows
+        .next()
+        .map_err(|e| AosError::Registry(format!("Failed to scan schema for {table}: {}", e)))?
+    {
+        let name: String = row
+            .get(1)
+            .map_err(|e| AosError::Registry(format!("Failed to read column name: {}", e)))?;
+        if name == column {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
 }

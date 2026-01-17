@@ -1,4 +1,4 @@
-//! adapterOS CLI tool (aosctl)
+//! AdapterOS CLI tool (aosctl)
 
 use adapteros_config::{BackendPreference, ModelConfig, DEFAULT_BASE_MODEL_ID};
 use anyhow::Result;
@@ -17,7 +17,7 @@ use crate::BackendType;
 
 #[derive(Parser)]
 #[command(name = "aosctl")]
-#[command(about = "adapterOS command-line interface", long_about = None)]
+#[command(about = "AdapterOS command-line interface", long_about = None)]
 #[command(version)]
 pub struct Cli {
     #[command(subcommand)]
@@ -337,25 +337,23 @@ pub enum Commands {
     // ============================================================
     /// Sync adapters from local directory to registry
     #[command(after_help = r#"Examples:
-  # Sync adapters from directory with signature verification
-  aosctl sync-registry --dir ./adapters --public-key ./keys/trusted.pub
+  # Sync adapters from directory
+  aosctl sync-registry --dir ./adapters
 
   # Sync with custom CAS root
-  aosctl sync-registry --dir ./adapters --public-key ./keys/trusted.pub --cas-root ./var/cas
+  aosctl sync-registry --dir ./adapters --cas-root ./var/cas
 
   # Sync to custom registry
-  aosctl sync-registry --dir ./adapters --public-key ./keys/trusted.pub --registry ./var/custom.db
+  aosctl sync-registry --dir ./adapters --registry ./var/custom.db
 "#)]
     RegistrySync {
         /// Directory containing adapters with SBOM and signatures
         #[arg(short, long)]
         dir: PathBuf,
 
-        /// Path to trusted public key file (hex-encoded Ed25519 public key, 64 hex chars).
-        /// Required for signature verification. Adapters will only be imported if their
-        /// signature validates against this public key.
+        /// Public key for signature verification (hex or PEM). Defaults to <dir>/public_key.hex.
         #[arg(long)]
-        public_key: PathBuf,
+        public_key: Option<PathBuf>,
 
         /// CAS root directory
         #[arg(long, default_value = "./var/cas")]
@@ -644,20 +642,6 @@ pub enum Commands {
     #[command(subcommand)]
     Verify(commands::verify::VerifyCommand),
 
-    /// Receipt management commands (backfill)
-    #[command(subcommand)]
-    #[command(after_help = r#"Examples:
-  # Backfill crypto receipt digests (dry-run)
-  aosctl receipt backfill --dry-run
-
-  # Backfill all pending receipts
-  aosctl receipt backfill
-
-  # Process specific number with batch size
-  aosctl receipt backfill --limit 1000 --batch-size 100
-"#)]
-    Receipt(commands::receipt_backfill::ReceiptCommand),
-
     // ============================================================
     // Policy Management
     // ============================================================
@@ -706,7 +690,7 @@ pub enum Commands {
         #[arg(short, long, default_value = "/var/run/aos/aos.sock")]
         socket: PathBuf,
 
-        /// Backend selection: metal (default), mlx (auto-selected implementation; requires --features multi-backend), or coreml [NOT IMPLEMENTED]
+        /// Backend selection: metal (default), mlx (auto-selected implementation; requires --features multi-backend), or coreml
         #[arg(short, long, default_value = "metal")]
         backend: BackendType,
 
@@ -946,7 +930,7 @@ pub enum Commands {
         display_name: Option<String>,
     },
 
-    /// Bootstrap adapterOS installation
+    /// Bootstrap AdapterOS installation
     #[command(after_help = r#"Examples:
   # Full installation
   aosctl bootstrap --mode full
@@ -1012,18 +996,8 @@ pub enum Commands {
   # Tenant-specific checks
   aosctl diag --tenant dev
 
-  # Export a diagnostic bundle
-  aosctl diag --bundle ./diag_bundle.zip
-
-  # Export bundle for a specific CPID
-  aosctl diag --bundle ./diag_bundle.zip --cpid <cpid>
-
-  # Include full database state in bundle
-  aosctl diag --bundle ./diag_bundle.zip --full-db
-
-  # Verify telemetry offline after export
-  unzip ./diag_bundle.zip -d ./diag_bundle
-  aosctl verify telemetry --bundle-dir ./diag_bundle/telemetry
+  # Create diagnostic bundle
+  aosctl diag --full --bundle ./diag_bundle.zip
 "#)]
     Diag {
         /// Diagnostic profile: system, tenant, or full
@@ -1041,14 +1015,6 @@ pub enum Commands {
         /// Create diagnostic bundle
         #[arg(long)]
         bundle: Option<PathBuf>,
-
-        /// Filter telemetry bundles to a specific CPID (alias: --trace-id)
-        #[arg(long, alias = "trace-id", requires = "bundle")]
-        cpid: Option<String>,
-
-        /// Include full database file in bundle (var/aos-cp.sqlite3)
-        #[arg(long, requires = "bundle")]
-        full_db: bool,
 
         /// System checks only
         #[arg(long, conflicts_with_all = ["tenant_only", "profile"])]
@@ -1438,14 +1404,14 @@ pub enum NodeSyncMode {
         adapters: Vec<String>,
     },
 
-    /// Export adapters for air-gap transfer [NOT IMPLEMENTED]
+    /// Export adapters for air-gap transfer
     Export {
         /// Output file path
         #[arg(long)]
         file: PathBuf,
     },
 
-    /// Import adapters from air-gap bundle [NOT IMPLEMENTED]
+    /// Import adapters from air-gap bundle
     Import {
         /// Input file path
         #[arg(long)]
@@ -1608,7 +1574,14 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             cas_root,
             registry,
         } => {
-            commands::registry::sync_registry(dir, public_key, cas_root, registry, output).await?;
+            commands::registry::sync_registry(
+                dir,
+                public_key.as_deref(),
+                cas_root,
+                registry,
+                output,
+            )
+            .await?;
         }
 
         // Database Management
@@ -1734,9 +1707,6 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         Commands::Verify(cmd) => {
             commands::verify::handle_verify_command(cmd.clone(), output).await?;
         }
-        Commands::Receipt(cmd) => {
-            commands::receipt_backfill::handle_receipt_command(cmd.clone(), output).await?;
-        }
 
         // Policy Management
         Commands::Policy(cmd) => {
@@ -1852,8 +1822,6 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             tenant,
             json,
             bundle,
-            cpid,
-            full_db,
             system,
             tenant_only,
             full,
@@ -1880,15 +1848,7 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
                 diag::DiagProfile::Full
             };
 
-            diag::run(
-                diag_profile,
-                tenant.clone(),
-                *json,
-                bundle.clone(),
-                cpid.clone(),
-                *full_db,
-            )
-            .await?;
+            diag::run(diag_profile, tenant.clone(), *json, bundle.clone(), None, false).await?;
         }
 
         Commands::Explain { code } => {
@@ -2028,7 +1988,6 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Import { .. } => "import",
         Commands::Dataset { .. } => "dataset",
         Commands::Verify { .. } => "verify",
-        Commands::Receipt(_) => "receipt",
         Commands::Policy(_) => "policy",
         Commands::Serve { .. } => "serve",
         Commands::Audit { .. } => "audit",

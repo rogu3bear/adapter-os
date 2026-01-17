@@ -49,6 +49,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(feature = "codegraph"), ignore = "codegraph feature disabled")]
     fn help_contains_examples_callgraph_export() {
         if !cfg!(feature = "codegraph") {
             eprintln!("Skipping codegraph help test: feature not enabled");
@@ -76,6 +77,10 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(
+        not(feature = "secd-support"),
+        ignore = "secd-support feature disabled"
+    )]
     fn help_contains_examples_secd_status() {
         if !cfg!(feature = "secd-support") {
             eprintln!("Skipping secd help test: feature not enabled");

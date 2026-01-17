@@ -1,15 +1,30 @@
 //! MLX Array abstraction layer
 //!
-//! This module provides a unified array interface with stub implementations
-//! for testing on non-MLX builds.
+//! This module provides a unified array interface. The mlx-rs backend is an
+//! experimental fallback; C++ FFI is the primary/production path.
+//!
+//! When the `mlx-rs-backend` feature is enabled (experimental), this re-exports from `adapteros-mlx`.
+//! When disabled, a stub implementation is provided for testing on non-MLX builds.
 
+#[cfg(not(feature = "mlx-rs-backend"))]
 use adapteros_core::{AosError, Result};
 
 // =========================================================================
-// Stub implementation for array operations
+// mlx-rs backend implementation via adapteros-mlx
 // =========================================================================
 
-/// Data types for MLX arrays
+#[cfg(feature = "mlx-rs-backend")]
+pub use adapteros_mlx::Dtype;
+
+#[cfg(feature = "mlx-rs-backend")]
+pub use adapteros_mlx::Array as MlxArray;
+
+// =========================================================================
+// Stub implementation when mlx-rs-backend is not enabled
+// =========================================================================
+
+/// Data types for MLX arrays (stub version)
+#[cfg(not(feature = "mlx-rs-backend"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Dtype {
     Float32,
@@ -22,6 +37,7 @@ pub enum Dtype {
     Bool,
 }
 
+#[cfg(not(feature = "mlx-rs-backend"))]
 impl Dtype {
     pub fn size_bytes(&self) -> usize {
         match self {
@@ -33,6 +49,7 @@ impl Dtype {
     }
 }
 
+#[cfg(not(feature = "mlx-rs-backend"))]
 #[derive(Debug, Clone)]
 pub struct MlxArray {
     data: Vec<f32>,
@@ -40,6 +57,7 @@ pub struct MlxArray {
     dtype: Dtype,
 }
 
+#[cfg(not(feature = "mlx-rs-backend"))]
 impl MlxArray {
     pub fn from_slice_f32(data: &[f32], shape: &[i32]) -> Result<Self> {
         Ok(Self {
@@ -266,7 +284,7 @@ impl MlxArray {
             .data
             .iter()
             .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+            .max_by(|(_, a), (_, b)| cmp_f32(**a, **b))
             .unwrap_or((0, &0.0));
         Ok(Self {
             data: vec![idx as f32],
@@ -404,7 +422,7 @@ impl MlxArray {
     pub fn topk(&self, k: i32, _axis: i32) -> Result<(Self, Self)> {
         let k = (k as usize).min(self.data.len());
         let mut indexed: Vec<(usize, f32)> = self.data.iter().copied().enumerate().collect();
-        indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        indexed.sort_by(|a, b| cmp_f32_desc(a.1, b.1));
 
         let values: Vec<f32> = indexed.iter().take(k).map(|(_, v)| *v).collect();
         let indices: Vec<f32> = indexed.iter().take(k).map(|(i, _)| *i as f32).collect();
@@ -482,8 +500,21 @@ impl MlxArray {
     }
 }
 
+fn cmp_f32(a: f32, b: f32) -> std::cmp::Ordering {
+    match (a.is_nan(), b.is_nan()) {
+        (true, true) => std::cmp::Ordering::Equal,
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        (false, false) => a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal),
+    }
+}
+
+fn cmp_f32_desc(a: f32, b: f32) -> std::cmp::Ordering {
+    cmp_f32(b, a)
+}
+
 // Tests for stub implementation (no GPU required)
-#[cfg(test)]
+#[cfg(all(test, not(feature = "mlx-rs-backend")))]
 mod tests {
     use super::*;
 
@@ -557,6 +588,32 @@ mod tests {
         assert_eq!(expanded.shape(), vec![1, 4]);
 
         let squeezed = expanded.squeeze(Some(0)).unwrap();
+        assert_eq!(squeezed.shape(), vec![4]);
+    }
+}
+
+// Tests for mlx-rs backend via adapteros-mlx
+#[cfg(all(test, feature = "mlx-rs-backend"))]
+mod mlx_rs_tests {
+    use super::*;
+
+    // Shape-only tests work in test harness
+    #[test]
+    fn test_array_transpose() {
+        let arr = MlxArray::from_f32(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3]).unwrap();
+        let transposed = arr.transpose().unwrap();
+        assert_eq!(transposed.shape(), vec![3, 2]);
+    }
+
+    #[test]
+    fn test_array_expand_squeeze() {
+        let arr = MlxArray::from_f32(&[1.0, 2.0, 3.0, 4.0], &[4]).unwrap();
+
+        let expanded = arr.expand_dims(0).unwrap();
+        assert_eq!(expanded.shape(), vec![1, 4]);
+
+        // Use squeeze_axis for specific axis, or squeeze() for all size-1 dims
+        let squeezed = expanded.squeeze_axis(0).unwrap();
         assert_eq!(squeezed.shape(), vec![4]);
     }
 }

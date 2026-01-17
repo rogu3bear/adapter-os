@@ -1,4 +1,4 @@
-//! Deterministic async executor for adapterOS
+//! Deterministic async executor for AdapterOS
 //!
 //! This module provides a deterministic async executor that:
 //! - Runs all async tasks in a fixed serial order
@@ -588,6 +588,11 @@ impl DeterministicExecutor {
 
     /// Run in normal mode (original behavior)
     async fn run_normal_mode(&self) -> Result<()> {
+        self.run_normal_mode_with_limit(None).await
+    }
+
+    /// Run in normal mode for a bounded number of task polls.
+    async fn run_normal_mode_with_limit(&self, max_steps: Option<u64>) -> Result<()> {
         self.running.store(1, Ordering::Relaxed);
         info!(mode = "normal", "Starting deterministic executor");
 
@@ -608,10 +613,21 @@ impl DeterministicExecutor {
             }
         }
 
-        while let Some(mut task) = {
-            let mut queue = self.task_queue.lock();
-            queue.pop_front()
-        } {
+        let mut steps = 0u64;
+        loop {
+            if let Some(limit) = max_steps {
+                if steps >= limit {
+                    break;
+                }
+            }
+            let mut task = {
+                // Drop the queue lock before polling to avoid deadlocks.
+                let mut queue = self.task_queue.lock();
+                match queue.pop_front() {
+                    Some(task) => task,
+                    None => break,
+                }
+            };
             let current_tick = self.tick_counter.load(Ordering::Relaxed);
 
             // Check for timeout
@@ -636,6 +652,7 @@ impl DeterministicExecutor {
                         self.event_log.lock().push(event);
                     }
 
+                    steps += 1;
                     continue;
                 }
             }
@@ -718,11 +735,23 @@ impl DeterministicExecutor {
                     }
                 }
             }
+
+            steps += 1;
         }
 
         self.running.store(0, Ordering::Relaxed);
         info!(mode = "normal", "Deterministic executor completed");
         Ok(())
+    }
+
+    /// Run a bounded number of task polls to support crash simulation.
+    pub async fn run_steps(&self, max_steps: u64) -> Result<()> {
+        if self.config.replay_mode {
+            return Err(DeterministicExecutorError::ReplayFailed {
+                reason: "run_steps not supported in replay mode".to_string(),
+            });
+        }
+        self.run_normal_mode_with_limit(Some(max_steps)).await
     }
 
     /// Run in replay mode using recorded events

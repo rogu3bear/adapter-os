@@ -257,7 +257,14 @@ fn find_mlx_with_version() -> Option<(PathBuf, PathBuf, String)> {
 
     // Method 1: Check MLX_PATH environment variable
     if let Ok(mlx_path) = env::var("MLX_PATH") {
-        let path = PathBuf::from(&mlx_path);
+        let path = resolve_mlx_path(&mlx_path);
+        if path != PathBuf::from(&mlx_path) {
+            println!(
+                "cargo:warning=Resolved relative MLX_PATH '{}' to '{}'",
+                mlx_path,
+                path.display()
+            );
+        }
         let include_dir = path.join("include");
         let lib_dir = path.join("lib");
 
@@ -271,7 +278,7 @@ fn find_mlx_with_version() -> Option<(PathBuf, PathBuf, String)> {
         } else {
             println!(
                 "cargo:warning=MLX_PATH set but MLX not found at: {}",
-                mlx_path
+                path.display()
             );
         }
     }
@@ -309,6 +316,47 @@ fn find_mlx_with_version() -> Option<(PathBuf, PathBuf, String)> {
     }
 
     None
+}
+
+fn resolve_mlx_path(mlx_path: &str) -> PathBuf {
+    let path = PathBuf::from(mlx_path);
+    if path.is_absolute() {
+        return path;
+    }
+
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").ok().map(PathBuf::from);
+    let mut candidates = Vec::new();
+
+    if let Some(dir) = &manifest_dir {
+        candidates.push(dir.join(mlx_path));
+        if let Some(workspace_root) = find_workspace_root(dir) {
+            candidates.push(workspace_root.join(mlx_path));
+        }
+    }
+
+    for candidate in candidates {
+        if candidate.exists() {
+            return candidate;
+        }
+    }
+
+    path
+}
+
+fn find_workspace_root(start: &Path) -> Option<PathBuf> {
+    for ancestor in start.ancestors() {
+        let manifest = ancestor.join("Cargo.toml");
+        if manifest.exists() && is_workspace_manifest(&manifest) {
+            return Some(ancestor.to_path_buf());
+        }
+    }
+    None
+}
+
+fn is_workspace_manifest(path: &Path) -> bool {
+    std::fs::read_to_string(path)
+        .map(|contents| contents.contains("[workspace]"))
+        .unwrap_or(false)
 }
 
 /// Try to find MLX using pkg-config with version detection

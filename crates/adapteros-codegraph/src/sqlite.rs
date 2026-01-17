@@ -12,7 +12,6 @@ use serde_json;
 use sqlx::{sqlite::SqliteConnectOptions, Row, SqlitePool};
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::str::FromStr;
 
 /// Database configuration
 #[derive(Debug, Clone)]
@@ -46,9 +45,10 @@ pub struct CodeGraphDb {
 impl CodeGraphDb {
     /// Create a new database connection
     pub async fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let path_str = path.as_ref().to_string_lossy().to_string();
-        let options = SqliteConnectOptions::from_str(&format!("sqlite://{}", path_str))
-            .map_err(|e| AosError::Database(format!("Invalid SQLite path: {}", e)))?
+        let path_ref = path.as_ref();
+        let path_str = path_ref.to_string_lossy().to_string();
+        let options = SqliteConnectOptions::new()
+            .filename(path_ref)
             .create_if_missing(true);
 
         let pool = SqlitePool::connect_with(options)

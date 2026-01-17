@@ -20,7 +20,6 @@ use tokio::time::{sleep, Duration};
 const STREAM_STEPS: usize = 100;
 const STREAM_DELAY_MS: u64 = 10;
 const STREAM_SEED: &[u8] = b"herd-stream-seed-for-tests-00000";
-const STREAM_CONTEXT: &str = "herd-stream-context";
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn thundering_herd_p99_under_200ms_and_deterministic() -> Result<()> {
@@ -28,11 +27,11 @@ async fn thundering_herd_p99_under_200ms_and_deterministic() -> Result<()> {
     let kv_cache = Arc::new(Mutex::new(KvCache::new(BYTES_PER_MB)));
 
     let (baseline_tokens, _) =
-        run_inference_stream(table.clone(), kv_cache.clone(), STREAM_CONTEXT).await?;
+        run_inference_stream(table.clone(), kv_cache.clone(), "herd-stream").await?;
 
     let churn_handle = tokio::spawn(churn_adapters(table.clone(), 120));
     let (herd_tokens, herd_latencies) =
-        run_inference_stream(table.clone(), kv_cache.clone(), STREAM_CONTEXT).await?;
+        run_inference_stream(table.clone(), kv_cache.clone(), "herd-stream").await?;
     churn_handle.await.expect("join churn task")?;
 
     assert_eq!(
@@ -56,13 +55,13 @@ async fn concurrent_training_load_degrades_linearly() -> Result<()> {
     let kv_cache = Arc::new(Mutex::new(KvCache::new(BYTES_PER_MB)));
 
     let (baseline_tokens, baseline_latencies) =
-        run_inference_stream(table.clone(), kv_cache.clone(), STREAM_CONTEXT).await?;
+        run_inference_stream(table.clone(), kv_cache.clone(), "training-stream").await?;
     let baseline_p99 = percentile_ms(&baseline_latencies, 99);
 
     let stop = Arc::new(AtomicBool::new(false));
     let training_handle = spawn_training_load(stop.clone());
     let (tokens_with_training, latencies_with_training) =
-        run_inference_stream(table.clone(), kv_cache.clone(), STREAM_CONTEXT).await?;
+        run_inference_stream(table.clone(), kv_cache.clone(), "training-stream").await?;
     stop.store(true, Ordering::Relaxed);
     training_handle.await.expect("join training load");
 
@@ -103,7 +102,7 @@ async fn thundering_herd_memory_leak_sentinel() -> Result<()> {
 
     while start.elapsed().as_secs() < duration_secs as u64 {
         let churn_handle = tokio::spawn(churn_adapters(table.clone(), 50));
-        let _ = run_inference_stream(table.clone(), kv_cache.clone(), STREAM_CONTEXT).await?;
+        let _ = run_inference_stream(table.clone(), kv_cache.clone(), "herd-leak").await?;
         churn_handle.await.expect("join churn task")?;
 
         sleep(Duration::from_secs(sample_secs as u64)).await;
@@ -190,7 +189,7 @@ fn percentile_ms(latencies: &[Duration], pct: usize) -> f64 {
         return 0.0;
     }
     let mut samples: Vec<f64> = latencies.iter().map(|d| d.as_secs_f64() * 1000.0).collect();
-    samples.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let idx = (((pct as f64 / 100.0) * (samples.len() as f64 - 1.0)).round() as usize)
         .min(samples.len() - 1);
     samples[idx]

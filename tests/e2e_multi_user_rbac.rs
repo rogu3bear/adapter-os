@@ -257,14 +257,12 @@ async fn test_audit_log_captures_all_actions() {
         .body(Body::from(
             json!({
                 "adapter_id": "audit-test-adapter",
-                "tenant_id": "default",
-                "name": "audit-test-adapter",
+                "name": "Audit Test Adapter",
                 "hash_b3": "c".repeat(64),
                 "tier": "persistent",
                 "rank": 8,
                 "languages": ["rust"],
-                "category": "code",
-                "acl": ["default"]
+                "category": "code"
             })
             .to_string(),
         ))

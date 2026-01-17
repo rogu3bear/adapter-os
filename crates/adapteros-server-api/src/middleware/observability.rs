@@ -13,7 +13,6 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use serde::Deserialize;
 use std::sync::Arc;
 use std::time::Instant;
 use tracing::{error, info};
@@ -213,57 +212,11 @@ fn ensure_request_id_header(response: &mut Response, request_id: &str) {
     }
 }
 
-#[derive(Deserialize)]
-struct EnvelopeLike {
-    code: Option<String>,
-    message: Option<String>,
-    error: Option<String>,
-    hint: Option<String>,
-    detail: Option<String>,
-    details: Option<serde_json::Value>,
-}
-
-#[derive(Deserialize)]
-struct LegacyErrorResponse {
-    error: Option<String>,
-    code: Option<String>,
-    details: Option<serde_json::Value>,
-}
-
 fn parse_error_payload(
     body: &[u8],
     status: StatusCode,
 ) -> (String, String, Option<String>, Option<String>) {
     if !body.is_empty() {
-        if let Ok(envelope) = serde_json::from_slice::<EnvelopeLike>(body) {
-            if envelope.code.is_some()
-                || envelope.message.is_some()
-                || envelope.error.is_some()
-                || envelope.hint.is_some()
-                || envelope.detail.is_some()
-                || envelope.details.is_some()
-            {
-                let code = envelope.code.unwrap_or_else(|| fallback_code(status));
-                let message = envelope
-                    .message
-                    .or(envelope.error)
-                    .unwrap_or_else(|| fallback_message(status));
-                let detail = envelope.detail.or_else(|| {
-                    envelope
-                        .details
-                        .and_then(|d| serde_json::to_string(&d).ok())
-                });
-                return (code, message, envelope.hint, detail);
-            }
-        }
-
-        if let Ok(legacy) = serde_json::from_slice::<LegacyErrorResponse>(body) {
-            let code = legacy.code.unwrap_or_else(|| fallback_code(status));
-            let message = legacy.error.unwrap_or_else(|| fallback_message(status));
-            let detail = legacy.details.and_then(|d| serde_json::to_string(&d).ok());
-            return (code, message, None, detail);
-        }
-
         if let Ok(value) = serde_json::from_slice::<serde_json::Value>(body) {
             if let Some(obj) = value.as_object() {
                 let code = obj
@@ -340,7 +293,7 @@ fn derive_hint(code: &str, message: &str, detail: Option<&str>, _status: StatusC
         || combined.contains("unable to open database file")
         || combined.contains("readonly database")
     {
-        return "Database unavailable: ensure `var/aos-cp.sqlite3` is readable/writable and not locked by another adapterOS process"
+        return "Database unavailable: ensure `var/aos-cp.sqlite3` is readable/writable and not locked by another AdapterOS process"
             .to_string();
     }
 

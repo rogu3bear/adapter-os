@@ -251,6 +251,46 @@
     border-color: var(--color-disabled);
 }
 
+.input-error {
+    border-color: var(--color-destructive);
+}
+
+.input-error:focus {
+    border-color: var(--color-destructive);
+    box-shadow: 0 0 0 2px hsl(0 84.2% 60.2% / 0.3);
+}
+
+.input-textarea {
+    height: auto;
+    min-height: 6rem;
+    line-height: 1.5;
+    resize: vertical;
+}
+
+.select {
+    display: flex;
+    height: 2.5rem;
+    width: 100%;
+    border-radius: var(--radius);
+    border: 1px solid var(--color-input);
+    background-color: var(--color-background);
+    padding: 0.5rem 2rem 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    transition-property: border-color, box-shadow;
+    transition-duration: 150ms;
+}
+
+.select:focus {
+    outline: none;
+    border-color: var(--color-ring);
+    box-shadow: 0 0 0 2px var(--color-ring);
+}
+
+.select:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
 /* ===== Spinner Component ===== */
 .spinner {
     animation: spin 1s linear infinite;
@@ -653,6 +693,93 @@
     gap: 1rem;
     padding: 0.75rem 1rem;
     border-radius: calc(var(--radius) - 0.125rem);
+    border: 1px solid hsl(0 84.2% 60.2% / 0.2);
+    background-color: var(--color-background);
+}
+
+.danger-zone-item-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.danger-zone-item-title {
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+.danger-zone-item-description {
+    font-size: 0.75rem;
+    color: var(--color-muted-foreground);
+}
+
+.danger-zone-item-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+@media (max-width: 640px) {
+    .danger-zone-item {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .danger-zone-item-actions {
+        width: 100%;
+        justify-content: flex-start;
+    }
+}
+
+/* ===== Offline Banner ===== */
+.offline-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.75rem 1rem;
+    margin: 0.75rem 1rem 0;
+    border-radius: var(--radius);
+    border: 1px solid hsl(0 84.2% 60.2% / 0.2);
+    background-color: hsl(0 84.2% 60.2% / 0.08);
+}
+
+.offline-banner-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+}
+
+.offline-banner-title {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--color-foreground);
+}
+
+.offline-banner-message {
+    font-size: 0.75rem;
+    color: var(--color-muted-foreground);
+}
+
+.offline-banner-action {
+    flex-shrink: 0;
+}
+
+@media (max-width: 640px) {
+    .offline-banner {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+}
+
+/* ===== Danger Zone ===== */
+.danger-zone-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.75rem 1rem;
+    border-radius: calc(var(--radius) - 2px);
     border: 1px solid hsl(0 84.2% 60.2% / 0.2);
     background-color: var(--color-background);
 }

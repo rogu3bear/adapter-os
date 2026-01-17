@@ -217,7 +217,8 @@ impl Registry {
             )
         } else {
             conn.execute(
-                "INSERT OR REPLACE INTO adapters (id, hash, tier, rank, acl, parent_id, fork_type, registered_at)
+                "INSERT OR REPLACE INTO adapters
+                 (id, hash, tier, rank, acl, parent_id, fork_type, registered_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, datetime('now'))",
                 params![
                     id,

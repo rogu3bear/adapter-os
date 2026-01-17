@@ -470,7 +470,7 @@ fn check_forbidden_paths(
         return Err(DatasetRootValidationError::new(
             "FORBIDDEN_TMP",
             format!(
-                "Dataset root cannot be under a temporary directory: {}",
+                "Dataset root cannot be under a forbidden temporary directory: {}",
                 path_str
             ),
         )
@@ -897,9 +897,9 @@ pub fn resolve_dataset_root(state: &crate::state::AppState) -> Result<PathBuf> {
     if adapteros_core::path_security::is_forbidden_tmp_path(&candidate) {
         return Err(AosError::Validation(format!(
             "Dataset root '{}' is in a forbidden temporary directory. \
-             Temporary directories (system temp paths) are not allowed for dataset storage \
-             because data may be lost on reboot. \
-             Please configure AOS_DATASETS_DIR or paths.datasets_root to a persistent location.",
+             Temporary directories are not allowed for dataset storage because data may be lost \
+             on reboot. Please configure AOS_DATASETS_DIR or paths.datasets_root to a persistent \
+             location.",
             candidate.display()
         )));
     }
@@ -996,9 +996,9 @@ fn resolve_dataset_root_candidate_validated(
     if adapteros_core::path_security::is_forbidden_tmp_path(&absolute_root) {
         return Err(AosError::Validation(format!(
             "Dataset root '{}' is in a forbidden temporary directory. \
-             Temporary directories (system temp paths) are not allowed for dataset storage \
-             because data may be lost on reboot. \
-             Please configure AOS_DATASETS_DIR or paths.datasets_root to a persistent location.",
+             Temporary directories are not allowed for dataset storage because data may be lost \
+             on reboot. Please configure AOS_DATASETS_DIR or paths.datasets_root to a persistent \
+             location.",
             absolute_root.display()
         )));
     }
@@ -1319,26 +1319,11 @@ mod tests {
         );
     }
 
-    fn tmp_dataset_path() -> String {
-        PathBuf::from("/")
-            .join("tmp")
-            .join("datasets")
-            .to_string_lossy()
-            .to_string()
-    }
-
-    fn private_tmp_dataset_path() -> String {
-        PathBuf::from("/")
-            .join("private")
-            .join("tmp")
-            .join("datasets")
-            .to_string_lossy()
-            .to_string()
-    }
-
     #[test]
     fn test_forbidden_tmp_path_returns_error() {
-        let result = resolve_dataset_root_from_strings(Some(tmp_dataset_path()), None);
+        let tmp_path = PathBuf::from("/").join("tmp").join("datasets");
+        let result =
+            resolve_dataset_root_from_strings(Some(tmp_path.to_string_lossy().to_string()), None);
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
         assert!(
@@ -1363,7 +1348,14 @@ mod tests {
     #[test]
     fn test_private_tmp_path_returns_error() {
         // macOS uses /private/tmp
-        let result = resolve_dataset_root_from_strings(Some(private_tmp_dataset_path()), None);
+        let private_tmp_path = PathBuf::from("/")
+            .join("private")
+            .join("tmp")
+            .join("datasets");
+        let result = resolve_dataset_root_from_strings(
+            Some(private_tmp_path.to_string_lossy().to_string()),
+            None,
+        );
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
         assert!(
@@ -1376,7 +1368,9 @@ mod tests {
     #[test]
     fn test_forbidden_tmp_path_from_config_returns_error() {
         // Test that config path is also rejected
-        let result = resolve_dataset_root_from_strings(None, Some(tmp_dataset_path()));
+        let tmp_path = PathBuf::from("/").join("tmp").join("datasets");
+        let result =
+            resolve_dataset_root_from_strings(None, Some(tmp_path.to_string_lossy().to_string()));
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
         assert!(

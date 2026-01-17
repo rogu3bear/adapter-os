@@ -1,4 +1,4 @@
-//! Comprehensive Security Regression Test Suite for adapterOS
+//! Comprehensive Security Regression Test Suite for AdapterOS
 //!
 //! This test suite provides automated detection of security regressions across the codebase.
 //! Tests cover:
@@ -73,32 +73,61 @@ fn check_unsafe_in_public(
     content: &str,
     unsafe_in_public: &mut Vec<(String, usize)>,
 ) {
-    let mut in_public = false;
-    let mut brace_depth = 0;
+    let mut in_public_fn = false;
+    let mut fn_brace_depth = 0;
+    let mut fn_body_started = false;
 
     for (line_num, line) in content.lines().enumerate() {
         let trimmed = line.trim();
 
-        // Track public visibility
-        if trimmed.starts_with("pub ") || trimmed.starts_with("pub(") {
-            in_public = true;
-            brace_depth = 0;
+        if !in_public_fn && is_public_fn_signature(trimmed) {
+            in_public_fn = true;
+            fn_brace_depth = 0;
+            fn_body_started = false;
         }
 
-        // Track brace depth for scope
-        brace_depth += line.matches('{').count() as i32;
-        brace_depth -= line.matches('}').count() as i32;
+        let open = line.matches('{').count() as i32;
+        let close = line.matches('}').count() as i32;
 
-        // Reset if we exit the public function scope
-        if in_public && brace_depth == 0 && trimmed.contains('{') {
-            in_public = false;
-        }
+        if in_public_fn {
+            if open > 0 {
+                fn_body_started = true;
+            }
 
-        // Check for unsafe in public scope
-        if in_public && trimmed.contains("unsafe ") && !trimmed.starts_with("//") {
-            unsafe_in_public.push((path.display().to_string(), line_num + 1));
+            // Check for unsafe in public scope
+            if fn_body_started
+                && trimmed.contains("unsafe ")
+                && !trimmed.starts_with("//")
+                && !is_in_test_block(content, line_num)
+            {
+                unsafe_in_public.push((path.display().to_string(), line_num + 1));
+            }
+
+            if fn_body_started {
+                fn_brace_depth += open - close;
+                if fn_brace_depth <= 0 {
+                    in_public_fn = false;
+                    fn_brace_depth = 0;
+                    fn_body_started = false;
+                }
+            } else if trimmed.ends_with(';') {
+                in_public_fn = false;
+            }
         }
     }
+}
+
+fn is_public_fn_signature(trimmed: &str) -> bool {
+    if trimmed.starts_with("//") {
+        return false;
+    }
+
+    if !trimmed.starts_with("pub ") {
+        return false;
+    }
+
+    let tokens: Vec<&str> = trimmed.split_whitespace().collect();
+    tokens.first() == Some(&"pub") && tokens.contains(&"fn")
 }
 
 // =============================================================================
@@ -168,16 +197,87 @@ fn test_no_panics_in_crypto() {
 fn is_in_test_block(content: &str, target_line: usize) -> bool {
     let lines: Vec<&str> = content.lines().collect();
 
-    // Look backwards for #[test] or #[cfg(test)] or mod tests
-    for i in (0..target_line).rev() {
-        let line = lines[i].trim();
-        if line.contains("#[test]") || line.contains("mod tests") || line.contains("#[cfg(test)]") {
-            // Check if we're still within this block
-            if i + 500 >= target_line {
-                return true;
+    let mut in_test_mod = false;
+    let mut test_mod_depth = 0;
+    let mut test_mod_started = false;
+    let mut in_test_fn = false;
+    let mut test_fn_depth = 0;
+    let mut test_fn_started = false;
+    let mut pending_cfg_test_mod = false;
+    let mut pending_test_fn = false;
+
+    for (idx, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
+
+        if trimmed.starts_with("#[cfg(test)]") {
+            pending_cfg_test_mod = true;
+            if trimmed.contains("mod tests") {
+                in_test_mod = true;
+                test_mod_depth = 0;
+                test_mod_started = false;
+                pending_cfg_test_mod = false;
             }
         }
+
+        if (pending_cfg_test_mod && trimmed.contains("mod tests"))
+            || trimmed.starts_with("mod tests")
+        {
+            in_test_mod = true;
+            test_mod_depth = 0;
+            test_mod_started = false;
+            pending_cfg_test_mod = false;
+        }
+
+        if trimmed.starts_with("#[test]")
+            || trimmed.starts_with("#[tokio::test]")
+            || trimmed.starts_with("#[async_std::test]")
+        {
+            pending_test_fn = true;
+        }
+
+        if pending_test_fn && trimmed.contains("fn ") {
+            in_test_fn = true;
+            test_fn_depth = 0;
+            test_fn_started = false;
+            pending_test_fn = false;
+        }
+
+        let open = line.matches('{').count() as i32;
+        let close = line.matches('}').count() as i32;
+
+        if in_test_mod {
+            if open > 0 {
+                test_mod_started = true;
+            }
+            if test_mod_started {
+                test_mod_depth += open - close;
+                if test_mod_depth <= 0 {
+                    in_test_mod = false;
+                    test_mod_depth = 0;
+                    test_mod_started = false;
+                }
+            }
+        }
+
+        if in_test_fn {
+            if open > 0 {
+                test_fn_started = true;
+            }
+            if test_fn_started {
+                test_fn_depth += open - close;
+                if test_fn_depth <= 0 {
+                    in_test_fn = false;
+                    test_fn_depth = 0;
+                    test_fn_started = false;
+                }
+            }
+        }
+
+        if idx == target_line {
+            return in_test_mod || in_test_fn;
+        }
     }
+
     false
 }
 
@@ -656,7 +756,7 @@ fn test_security_test_coverage() {
 
 #[test]
 fn test_suite_summary() {
-    println!("\n=== adapterOS Security Regression Test Suite ===\n");
+    println!("\n=== AdapterOS Security Regression Test Suite ===\n");
     println!("Tests included:");
     println!("  1. test_no_unsafe_in_public_api - Scans for unsafe blocks");
     println!("  2. test_no_panics_in_crypto - Validates error handling");

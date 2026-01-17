@@ -1,4 +1,4 @@
-//! Middleware modules for adapterOS API
+//! Middleware modules for AdapterOS API
 //!
 //! Provides cross-cutting concerns:
 //! - Authentication and authorization
@@ -158,6 +158,17 @@ fn token_signature_invalid(msg: impl Into<String>) -> (StatusCode, Json<ErrorRes
     )
 }
 
+fn session_corrupted(msg: impl Into<String>) -> (StatusCode, Json<ErrorResponse>) {
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(
+            ErrorResponse::new("Session storage entry is corrupted")
+                .with_code("SESSION_CORRUPTED")
+                .with_string_details(msg.into()),
+        ),
+    )
+}
+
 fn tenant_header_missing() -> (StatusCode, Json<ErrorResponse>) {
     (
         StatusCode::BAD_REQUEST,
@@ -183,7 +194,6 @@ pub mod caching;
 pub mod compression;
 pub mod context;
 pub mod error_code_enforcement;
-pub mod itar;
 pub mod observability;
 pub mod policy_enforcement;
 pub mod request_id;
@@ -194,7 +204,6 @@ pub mod versioning;
 pub use caching::{caching_middleware, CacheControl};
 pub use compression::compression_middleware;
 pub use error_code_enforcement::ErrorCodeEnforcementLayer;
-pub use itar::{itar_compliance_middleware, ItarEventType};
 pub use observability::observability_middleware;
 pub use policy_enforcement::policy_enforcement_middleware;
 pub use request_id::request_id_middleware;
@@ -214,6 +223,7 @@ fn dev_no_auth_claims() -> Claims {
         email: "dev-no-auth@adapteros.local".to_string(),
         role: "admin".to_string(),
         roles: vec!["admin".to_string()],
+        // Default tenant for dev no-auth (matches test harness seed data).
         tenant_id: "default".to_string(),
         // Dev mode: wildcard grants access to ALL tenants
         // SECURITY: This only works in debug builds via dev_no_auth_enabled() check
@@ -672,6 +682,7 @@ async fn validate_access_token_with_session(
         // SQL fallback
         match get_session_by_id(&state.db, &session_id).await {
             Ok(Some(session)) => {
+                // expires_at is already a Unix timestamp (i64)
                 let session_exp_ts = session.expires_at;
 
                 if session.locked != 0 || session_exp_ts <= now_ts {

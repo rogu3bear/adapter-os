@@ -174,7 +174,6 @@ mod tests {
         env::remove_var("AOS_TOKEN");
         env::remove_var("AOS_SERVER_URL");
         env::remove_var("AOS_TENANT_ID");
-        env::remove_var("AOSCTL_AUTH_PATH");
 
         let login_response = LoginResponse {
             schema_version: API_SCHEMA_VERSION.to_string(),
@@ -225,6 +224,7 @@ mod tests {
             !captured.contains("token-login-1"),
             "token must not be printed in success output"
         );
+        env::remove_var("AOSCTL_AUTH_PATH");
     }
 
     #[tokio::test]

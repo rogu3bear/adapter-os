@@ -72,6 +72,16 @@ pip install -e .
 otool -L target/debug/deps/libadapteros_lora_mlx_ffi.dylib | grep mlx
 ```
 
+#### Fix Undefined MLX Symbols in Workspace Builds
+If the linker reports undefined `mlx::core::*` symbols, you are likely mixing
+Homebrew MLX headers with `mlx-sys` static libs. Point `MLX_PATH` at the
+`mlx-sys` build output so headers and libs match:
+
+```bash
+MLX_PATH="$(pwd)/$(ls -d target/debug/build/mlx-sys-*/out/build | tail -n 1)" \
+  cargo test --workspace --all-targets --exclude adapteros-lora-mlx-ffi
+```
+
 ### 2. High Memory Usage
 
 **Symptoms:**
@@ -403,4 +413,3 @@ python3 /usr/local/bin/mlx_diagnostics.py
 - [ ] Enable debug logging
 - [ ] Collect diagnostic information
 - [ ] Escalate to engineering if needed
-

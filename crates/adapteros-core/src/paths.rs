@@ -210,10 +210,12 @@ pub fn get_adapter_path(adapter_id: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::env_lock;
     use tempfile::tempdir;
 
     #[test]
     fn test_default_paths() {
+        let _guard = env_lock();
         std::env::remove_var(AOS_ADAPTERS_ROOT_ENV);
         let paths = AdapterPaths::default();
         assert!(paths.root().ends_with("var/adapters") || paths.root().to_str().is_some());
@@ -250,6 +252,7 @@ mod tests {
 
     #[test]
     fn test_from_config_with_value() {
+        let _guard = env_lock();
         // Without ENV set, config should be used
         std::env::remove_var(AOS_ADAPTERS_ROOT_ENV);
         std::env::remove_var(AOS_ADAPTERS_DIR_ENV);
@@ -259,6 +262,7 @@ mod tests {
 
     #[test]
     fn test_from_config_without_value() {
+        let _guard = env_lock();
         // Should fall back to env or default
         std::env::remove_var(AOS_ADAPTERS_ROOT_ENV);
         std::env::remove_var(AOS_ADAPTERS_DIR_ENV);
@@ -268,6 +272,7 @@ mod tests {
 
     #[test]
     fn test_from_config_env_precedence() {
+        let _guard = env_lock();
         // ENV should take precedence over config
         std::env::remove_var(AOS_ADAPTERS_ROOT_ENV);
         std::env::set_var(AOS_ADAPTERS_DIR_ENV, "/env/path");
@@ -278,6 +283,7 @@ mod tests {
 
     #[test]
     fn test_from_config_env_only() {
+        let _guard = env_lock();
         // ENV without config should work
         std::env::remove_var(AOS_ADAPTERS_ROOT_ENV);
         std::env::set_var(AOS_ADAPTERS_DIR_ENV, "/env/only");
@@ -288,6 +294,7 @@ mod tests {
 
     #[test]
     fn test_from_config_config_only() {
+        let _guard = env_lock();
         // Config without ENV should work
         std::env::remove_var(AOS_ADAPTERS_ROOT_ENV);
         std::env::remove_var(AOS_ADAPTERS_DIR_ENV);
@@ -297,6 +304,7 @@ mod tests {
 
     #[test]
     fn test_from_config_default_fallback() {
+        let _guard = env_lock();
         // Neither ENV nor config should use default
         std::env::remove_var(AOS_ADAPTERS_ROOT_ENV);
         std::env::remove_var(AOS_ADAPTERS_DIR_ENV);
@@ -306,6 +314,7 @@ mod tests {
 
     #[test]
     fn test_get_default_adapters_root_env() {
+        let _guard = env_lock();
         let tmp = tempdir().unwrap();
         std::env::remove_var(AOS_ADAPTERS_ROOT_ENV);
         std::env::set_var(AOS_ADAPTERS_DIR_ENV, tmp.path());
@@ -316,6 +325,7 @@ mod tests {
 
     #[test]
     fn test_get_default_adapters_root_default() {
+        let _guard = env_lock();
         std::env::remove_var(AOS_ADAPTERS_ROOT_ENV);
         std::env::remove_var(AOS_ADAPTERS_DIR_ENV);
         let root = get_default_adapters_root();
@@ -324,6 +334,7 @@ mod tests {
 
     #[test]
     fn test_prefers_root_env_over_legacy() {
+        let _guard = env_lock();
         std::env::set_var(AOS_ADAPTERS_ROOT_ENV, "/root/env/path");
         std::env::set_var(AOS_ADAPTERS_DIR_ENV, "/legacy/env/path");
         let paths = AdapterPaths::from_env();

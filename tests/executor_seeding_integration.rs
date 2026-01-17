@@ -36,7 +36,7 @@ fn test_manifest_based_executor_seeding() {
         Ok(manifest) => manifest,
         Err(err) => {
             eprintln!(
-                "Manifest at {} is not a V3 manifest ({}). Set AOS_MANIFEST_PATH to a V3 manifest to run this test.",
+                "Manifest at {} is not a ManifestV3 ({}); set AOS_MANIFEST_PATH to a valid manifest to run this test.",
                 manifest_path.display(),
                 err
             );
@@ -105,7 +105,7 @@ fn test_manifest_vs_default_seed_differ() {
         Ok(manifest) => manifest,
         Err(err) => {
             eprintln!(
-                "Manifest at {} is not a V3 manifest ({}). Set AOS_MANIFEST_PATH to a V3 manifest to run this test.",
+                "Manifest at {} is not a ManifestV3 ({}); set AOS_MANIFEST_PATH to a valid manifest to run this test.",
                 manifest_path.display(),
                 err
             );

@@ -362,11 +362,9 @@ impl ResultMerger {
             ConflictResolution::RequireReview => None,
 
             ConflictResolution::HighestConfidence => {
-                let winner = mods.iter().max_by(|a, b| {
-                    a.2.confidence
-                        .partial_cmp(&b.2.confidence)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                })?;
+                let winner = mods
+                    .iter()
+                    .max_by(|a, b| Self::cmp_confidence(a.2.confidence, b.2.confidence))?;
 
                 Some(Resolution {
                     winner: ProposalRef {
@@ -412,6 +410,15 @@ impl ResultMerger {
                     modifications: vec![winner.1.clone()],
                 })
             }
+        }
+    }
+
+    fn cmp_confidence(a: f32, b: f32) -> std::cmp::Ordering {
+        match (a.is_nan(), b.is_nan()) {
+            (true, true) => std::cmp::Ordering::Equal,
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            (false, false) => a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal),
         }
     }
 

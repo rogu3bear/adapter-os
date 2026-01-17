@@ -101,7 +101,7 @@ pub enum AosCmd {
     Extract(ExtractArgs), // COORDINATION: Affects SingleFileAdapterLoader
     /// Show .aos file information
     Info(InfoArgs), // COORDINATION: Affects UI display components
-    /// Migrate .aos file to current format version
+    /// Migrate .aos file to current format version [NOT IMPLEMENTED]
     Migrate(MigrateArgs), // COORDINATION: Affects format version compatibility
 }
 

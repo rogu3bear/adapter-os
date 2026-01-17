@@ -80,8 +80,12 @@ impl TypeScriptParser {
             (class_declaration
                 name: (type_identifier) @name
                 (class_heritage
-                    (extends_clause)? @extends
-                    (implements_clause)? @implements
+                    (extends_clause
+                        value: (expression) @extends
+                    )?
+                    (implements_clause
+                        (type) @implements
+                    )?
                 )?
             ) @class
             "#,
@@ -93,7 +97,9 @@ impl TypeScriptParser {
             r#"
             (interface_declaration
                 name: (type_identifier) @name
-                (extends_type_clause)? @extends
+                (extends_type_clause
+                    type: (_) @extends
+                )?
             ) @interface
             "#,
         )
@@ -373,14 +379,10 @@ impl TypeScriptParser {
                 // Add inheritance information to signature
                 let mut signature_parts = Vec::new();
                 if let Some(extends) = extends {
-                    let normalized = extends.trim();
-                    let normalized = normalized.strip_prefix("extends ").unwrap_or(normalized);
-                    signature_parts.push(format!("extends {}", normalized));
+                    signature_parts.push(format!("extends {}", extends));
                 }
                 if let Some(implements) = implements {
-                    let normalized = implements.trim();
-                    let normalized = normalized.strip_prefix("implements ").unwrap_or(normalized);
-                    signature_parts.push(format!("implements {}", normalized));
+                    signature_parts.push(format!("implements {}", implements));
                 }
                 if !signature_parts.is_empty() {
                     symbol = symbol.with_signature(signature_parts.join(", "));
@@ -431,9 +433,7 @@ impl TypeScriptParser {
                 .with_visibility(visibility);
 
                 if let Some(extends) = extends {
-                    let normalized = extends.trim();
-                    let normalized = normalized.strip_prefix("extends ").unwrap_or(normalized);
-                    symbol = symbol.with_signature(format!("extends {}", normalized));
+                    symbol = symbol.with_signature(format!("extends {}", extends));
                 }
 
                 symbols.push(symbol);

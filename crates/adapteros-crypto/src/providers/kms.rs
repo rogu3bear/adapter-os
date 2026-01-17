@@ -18,6 +18,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// Cloud KMS backends are intentionally disabled in local/CI builds.
 const CLOUD_BACKEND_DISABLED_MSG: &str =
@@ -245,6 +246,45 @@ impl<'de> Deserialize<'de> for KmsCredentials {
         ))
     }
 }
+
+impl Zeroize for KmsCredentials {
+    fn zeroize(&mut self) {
+        match self {
+            KmsCredentials::None => {}
+            KmsCredentials::AwsIam {
+                access_key_id,
+                secret_access_key,
+                session_token,
+            } => {
+                access_key_id.zeroize();
+                secret_access_key.zeroize();
+                if let Some(token) = session_token.as_mut() {
+                    token.zeroize();
+                }
+            }
+            KmsCredentials::GcpServiceAccount { credentials_json } => {
+                credentials_json.zeroize();
+            }
+            KmsCredentials::AzureServicePrincipal {
+                tenant_id,
+                client_id,
+                client_secret,
+            } => {
+                tenant_id.zeroize();
+                client_id.zeroize();
+                client_secret.zeroize();
+            }
+            KmsCredentials::VaultToken { token } => {
+                token.zeroize();
+            }
+            KmsCredentials::Pkcs11Pin { pin, .. } => {
+                pin.zeroize();
+            }
+        }
+    }
+}
+
+impl ZeroizeOnDrop for KmsCredentials {}
 
 /// Backend trait for KMS implementations
 #[async_trait::async_trait]

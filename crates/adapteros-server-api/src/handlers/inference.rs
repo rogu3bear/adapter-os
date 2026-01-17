@@ -22,7 +22,7 @@ use crate::permissions::Permission;
 use crate::state::AppState;
 use crate::types::{
     new_run_envelope, set_policy_mask, ErrorResponse, InferRequest, InferResponse, InferenceError,
-    InferenceRequestInternal,
+    InferenceRequestInternal, MAX_REPLAY_TEXT_SIZE,
 };
 use adapteros_api_types::inference::InferenceTrace;
 use adapteros_api_types::FailureCode;
@@ -227,6 +227,13 @@ pub async fn infer(
         // No session, use prompt directly (single-turn)
         (req.prompt.clone(), None)
     };
+
+    if base_prompt.len() > MAX_REPLAY_TEXT_SIZE {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse::new("prompt too long for context window").with_code("BAD_REQUEST")),
+        ));
+    }
 
     // Convert to internal format with the (possibly multi-turn) prompt
     let mut internal = InferenceRequestInternal::from((&req, &claims));

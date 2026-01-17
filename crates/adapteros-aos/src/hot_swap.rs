@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
-use tracing::{debug, info, instrument};
+use tracing::{debug, info, instrument, warn};
 
 #[derive(Debug, Clone)]
 pub struct SwapOperation {
@@ -36,7 +36,7 @@ pub struct HotSwapManager {
     active: RwLock<HashMap<String, AdapterSlot>>,
     staged: RwLock<HashMap<String, AdapterSlot>>,
     rollback: RwLock<Option<HashMap<String, AdapterSlot>>>,
-    loader: AosLoader,
+    loader: Option<AosLoader>,
     metrics: Arc<SwapMetrics>,
 }
 
@@ -50,9 +50,25 @@ impl HotSwapManager {
             active: RwLock::new(HashMap::new()),
             staged: RwLock::new(HashMap::new()),
             rollback: RwLock::new(None),
-            loader: AosLoader::with_seed(seed)?,
+            loader: Some(AosLoader::with_seed(seed)?),
             metrics: Arc::new(SwapMetrics::new()),
         })
+    }
+
+    fn disabled() -> Self {
+        Self {
+            active: RwLock::new(HashMap::new()),
+            staged: RwLock::new(HashMap::new()),
+            rollback: RwLock::new(None),
+            loader: None,
+            metrics: Arc::new(SwapMetrics::new()),
+        }
+    }
+
+    fn loader(&self) -> Result<&AosLoader> {
+        self.loader
+            .as_ref()
+            .ok_or_else(|| AosError::Worker("HotSwapManager loader unavailable".to_string()))
     }
 
     /// Deprecated: AosLoader always validates format. Kept for API compatibility.
@@ -67,7 +83,7 @@ impl HotSwapManager {
     pub async fn preload<P: AsRef<Path>>(&self, slot: &str, path: P) -> Result<()> {
         debug!("Preloading adapter");
 
-        let adapter = self.loader.load_from_path(path.as_ref()).await?;
+        let adapter = self.loader()?.load_from_path(path.as_ref()).await?;
 
         let slot_state = AdapterSlot {
             adapter: Arc::new(adapter),
@@ -181,7 +197,7 @@ impl HotSwapManager {
     pub async fn preload_moe<P: AsRef<Path>>(&self, slot: &str, path: P) -> Result<()> {
         debug!("Preloading MoE adapter");
 
-        let adapter = self.loader.load_from_path(path.as_ref()).await?;
+        let adapter = self.loader()?.load_from_path(path.as_ref()).await?;
 
         // Validate that this is an MoE adapter
         if !adapter.is_moe_adapter() {
@@ -259,5 +275,17 @@ impl HotSwapManager {
             .filter(|slot| slot.adapter.is_moe_adapter())
             .map(|slot| slot.adapter.size_bytes())
             .sum()
+    }
+}
+
+impl Default for HotSwapManager {
+    fn default() -> Self {
+        match Self::new() {
+            Ok(manager) => manager,
+            Err(err) => {
+                warn!(error = %err, "HotSwapManager disabled (AosLoader unavailable)");
+                Self::disabled()
+            }
+        }
     }
 }

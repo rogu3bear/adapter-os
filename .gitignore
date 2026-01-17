@@ -122,6 +122,7 @@ tmp/
 temp/
 *.tmp
 *.tmp.*
+.codex/
 
 # Xcode / SwiftUI Installer
 installer/build/
@@ -144,8 +145,6 @@ installer/*.xcodeproj/*.perspectivev3
 .sqlx/
 !crates/adapteros-db/.sqlx/
 !crates/adapteros-db/.sqlx/**
-!crates/adapteros-server-api/.sqlx/
-!crates/adapteros-server-api/.sqlx/**
 
 # Metal compilation artifacts
 metal/*.metallib
@@ -316,7 +315,6 @@ aosctl
 
 # Agent coordination (local development only)
 .agents/
-.codex_ui/
 .claude/
 
 # Alternate target directories (clippy, etc.)
@@ -336,15 +334,7 @@ rust_out
 
 # Temporary debug binaries
 src/bin/test_*.rs
-# Auto-generated claude-mem context files
-**/CLAUDE.md
-\!CLAUDE.md
+.codex/
 
-# SQLite WAL files
-registry.db-shm
-registry.db-wal
-registry.db.bak-shm
-registry.db.bak-wal
-
-# Test orchestrator reports
-reports/test-orchestrator/
+# Harmony restoration artifacts
+.harmony/

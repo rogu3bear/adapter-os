@@ -76,7 +76,7 @@ pub struct KeyMaterial {
 
 impl Zeroize for KeyMaterial {
     fn zeroize(&mut self) {
-        self.inner.as_mut_slice().zeroize();
+        self.inner.fill(0);
     }
 }
 
@@ -140,7 +140,7 @@ pub struct SensitiveData {
 
 impl Zeroize for SensitiveData {
     fn zeroize(&mut self) {
-        self.inner.as_mut_slice().zeroize();
+        self.inner.fill(0);
     }
 }
 
@@ -160,30 +160,6 @@ impl SensitiveData {
     /// Extract the data bytes (caller takes ownership)
     pub fn into_bytes(self) -> Vec<u8> {
         self.inner
-    }
-}
-
-impl From<Vec<u8>> for SensitiveData {
-    fn from(value: Vec<u8>) -> Self {
-        Self::new(value)
-    }
-}
-
-impl From<&[u8]> for SensitiveData {
-    fn from(value: &[u8]) -> Self {
-        Self::new(value.to_vec())
-    }
-}
-
-impl From<String> for SensitiveData {
-    fn from(value: String) -> Self {
-        Self::new(value.into_bytes())
-    }
-}
-
-impl From<&str> for SensitiveData {
-    fn from(value: &str) -> Self {
-        Self::new(value.as_bytes().to_vec())
     }
 }
 

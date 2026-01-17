@@ -1,7 +1,7 @@
 //! Integration tests for the complete lifecycle system
 //!
 //! These tests verify the full startup → runtime → shutdown lifecycle
-//! of the adapterOS server with all major subsystems.
+//! of the AdapterOS server with all major subsystems.
 
 #[cfg(test)]
 mod lifecycle_tests {
@@ -223,16 +223,16 @@ mod lifecycle_tests {
         init_test_executor();
 
         let config = adapteros_server_api::ShutdownConfig {
-            uds_metrics_timeout: Duration::from_millis(50),
+            federation_timeout: Duration::from_millis(50),
             ..Default::default()
         };
         let mut coordinator = adapteros_server_api::ShutdownCoordinator::with_config(config);
 
-        // Register a non-critical component that will timeout
+        // Register a non-critical task that will timeout
         let mock_handle = tokio::spawn(async {
             tokio::time::sleep(Duration::from_secs(1)).await;
         });
-        coordinator.set_uds_metrics_handle(mock_handle);
+        coordinator.set_federation_handle(mock_handle);
 
         // Shutdown should report partial failure due to timeout
         let result = coordinator.shutdown().await;

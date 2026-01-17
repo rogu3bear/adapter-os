@@ -71,7 +71,6 @@ fn get_tenant_credentials(tenant: &str) -> Result<(u32, u32)> {
     }
 }
 
-use crate::commands::NOT_IMPLEMENTED_MESSAGE;
 use crate::output::OutputWriter;
 use crate::BackendType;
 
@@ -86,7 +85,7 @@ pub async fn run(
     model_config: Option<&ModelConfig>,
     output: &OutputWriter,
 ) -> Result<()> {
-    output.section("Starting adapterOS server");
+    output.section("Starting AdapterOS server");
     output.kv("Tenant", tenant);
     output.kv("Plan", plan);
     output.kv("Socket", &socket.display().to_string());
@@ -237,7 +236,6 @@ pub async fn run(
         let index_root = resolve_index_root()?;
         let index_dir = index_root.path.join(tenant);
         if index_dir.exists() {
-            // Use embedding hash from manifest RAG policy for determinism
             let embedding_hash = manifest.policies.rag.embedding_model_hash;
             match adapteros_lora_rag::RagSystem::new(index_dir, embedding_hash) {
                 Ok(rag_system) => {
@@ -333,12 +331,30 @@ pub async fn run(
                     "MLX detected (impl: {}, version: {})",
                     selected, mlx_version
                 ));
-                adapteros_lora_worker::BackendChoice::Mlx
+                adapteros_lora_worker::BackendChoice::Mlx {
+                    model_path: model_path.clone(),
+                }
             }
         }
         BackendType::CoreML => {
             output.verbose("Using CoreML backend (macOS Neural Engine)");
-            adapteros_lora_worker::BackendChoice::CoreML
+
+            #[cfg(not(feature = "multi-backend"))]
+            {
+                output.error("CoreML backend requires --features multi-backend");
+                output.info("Rebuild with: cargo build --features multi-backend");
+                return Err(anyhow::anyhow!(
+                    "CoreML backend not available in deterministic-only build"
+                ));
+            }
+
+            #[cfg(feature = "multi-backend")]
+            {
+                // CoreML backend not yet implemented
+                output.error("CoreML backend not yet implemented");
+                output.info("Please use Metal or MLX backend instead");
+                return Err(anyhow::anyhow!("CoreML backend not implemented"));
+            }
         }
     };
 
@@ -361,9 +377,6 @@ pub async fn run(
                     alpha: adapter_spec.alpha,
                     target_modules: adapter_spec.target_modules.clone(),
                     dropout: 0.0,
-                    language_affinities: vec![],
-                    framework: None,
-                    tier: None,
                 };
 
                 output.verbose(format!(
