@@ -1470,7 +1470,7 @@ pub async fn get_preprocess_status(
         TrainingDatasetManager::new(state.db.clone(), storage_root.clone(), tokenizer_path);
 
     let (examples, resolved_dataset_id) = if let Some(ref version_id) = dataset_version_id {
-        let (examples, _hash_b3, resolved_id) = dataset_manager
+        let loaded = dataset_manager
             .load_dataset_version_examples(version_id)
             .await
             .map_err(|e| {
@@ -1483,9 +1483,9 @@ pub async fn get_preprocess_status(
                     ),
                 )
             })?;
-        (examples, resolved_id)
+        (loaded.examples, loaded.dataset_id)
     } else {
-        let examples = dataset_manager
+        let loaded = dataset_manager
             .load_dataset_examples(&dataset_id)
             .await
             .map_err(|e| {
@@ -1498,7 +1498,7 @@ pub async fn get_preprocess_status(
                     ),
                 )
             })?;
-        (examples, dataset_id.clone())
+        (loaded.examples, loaded.dataset_id)
     };
 
     let contract = TrainingDataContractConfig::new(0, -1);
@@ -2768,6 +2768,8 @@ mod tests {
             base_model_path: None,
             preprocessing: None,
             force_resume: None,
+            multi_module_training: None,
+            lora_layer_indices: None,
         };
         let repo = dummy_repo(Some("model-1"));
         let model = dummy_model("model-1");
@@ -2808,6 +2810,8 @@ mod tests {
             base_model_path: None,
             preprocessing: None,
             force_resume: None,
+            multi_module_training: None,
+            lora_layer_indices: None,
         };
         let repo = dummy_repo(Some("expected-model"));
         let model = dummy_model("actual-model");
@@ -2842,6 +2846,8 @@ mod tests {
             base_model_path: None,
             preprocessing: None,
             force_resume: None,
+            multi_module_training: None,
+            lora_layer_indices: None,
         };
         let repo = dummy_repo(Some("model-1"));
         let model = dummy_model("model-1");
