@@ -86,6 +86,7 @@ default = []
 metal = []      # Metal kernel benchmarking (macOS only)
 gpu = []        # GPU-specific benchmarking
 deterministic = []  # Deterministic execution benchmarks
+extended-tests = []  # Extended test suite
 full = ["metal", "gpu", "deterministic"]  # All features
 
 [package.metadata.docs.rs]

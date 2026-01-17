@@ -20,6 +20,7 @@ pub mod throughput_benchmarks;
 pub mod system_benchmarks;
 pub mod isolation_benchmarks;
 pub mod evidence_benchmarks;
+pub mod runner;
 pub mod utils;
 
 /// Common benchmark configuration and utilities
