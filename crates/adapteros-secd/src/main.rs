@@ -83,7 +83,7 @@ async fn main() -> Result<(), AosError> {
     let config = ExecutorConfig {
         global_seed,
         enable_event_logging: true,
-        max_ticks_per_task: 10000,
+        max_ticks_per_task: 1_000_000,
         ..Default::default()
     };
     init_global_executor(config)

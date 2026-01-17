@@ -5,7 +5,7 @@
 #![allow(clippy::default_constructed_unit_structs)]
 
 use crate::types::{DocumentChunk, IngestedDocument};
-use adapteros_core::{AosError, Result};
+use adapteros_core::{AosError, B3Hash, Result};
 pub use adapteros_types::training::TrainingExampleV1 as TrainingExample;
 use adapteros_types::training::{provenance_from_map, ExampleMetadataV1};
 use serde::{Deserialize, Serialize};
@@ -20,6 +20,14 @@ fn current_unix_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+fn hash_source_text(text: &str) -> String {
+    B3Hash::hash(text.as_bytes()).to_hex()
+}
+
+fn hash_prompt_completion(prompt: &str, completion: &str) -> String {
+    B3Hash::hash_multi(&[prompt.as_bytes(), b"\0", completion.as_bytes()]).to_hex()
 }
 
 pub fn resolve_pad_token_id(tokenizer: &Tokenizer) -> Result<u32> {
@@ -131,6 +139,7 @@ fn generate_identity_example(
     let metadata = ExampleMetadataV1::new(
         document.source_name.clone(),
         chunk.chunk_index as u64,
+        hash_source_text(&chunk.text),
         provenance_from_map(&provenance)
             .map_err(|e| AosError::Validation(format!("Metadata error: {e}")))?,
         current_unix_ms(),
@@ -233,6 +242,7 @@ fn generate_qa_examples(
         let metadata = ExampleMetadataV1::new(
             document.source_name.clone(),
             (chunk.chunk_index as u64) * 1000 + idx as u64,
+            hash_prompt_completion(&question, sentence),
             provenance_from_map(&provenance_map)
                 .map_err(|e| AosError::Validation(format!("Metadata error: {e}")))?,
             created_at_unix_ms,
@@ -352,7 +362,7 @@ mod tests {
         assert!(!examples[0].input_tokens.is_empty());
 
         let metadata = &examples[0].metadata;
-        assert_eq!(metadata.source_id, "test.pdf");
+        assert_eq!(metadata.dataset_id, "test.pdf");
         let provenance: serde_json::Value =
             serde_json::from_str(&metadata.provenance).expect("provenance json");
         assert_eq!(

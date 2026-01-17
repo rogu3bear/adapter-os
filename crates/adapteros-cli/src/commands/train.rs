@@ -3,14 +3,16 @@
 #![allow(clippy::field_reassign_with_default)]
 
 use crate::commands::training_common::CommonTrainingArgs;
-use adapteros_core::{AosError, Result};
+use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_lora_worker::training::{
-    DeterminismConfig, MicroLoRATrainer, TrainingConfig, TrainingExample,
+    BuiltDatasetManifest, DeterminismConfig, MicroLoRATrainer, TrainingConfig, TrainingExample,
 };
 use adapteros_types::training::{ExampleMetadataV1, TRAINING_DATA_CONTRACT_VERSION};
 use clap::Args;
 use serde_json;
-use std::path::PathBuf;
+use std::fs::{self, File};
+use std::io::{BufRead, BufReader};
+use std::path::{Path, PathBuf};
 use tracing::{info, warn};
 
 /// Train a LoRA adapter
@@ -20,7 +22,7 @@ pub struct TrainArgs {
     #[arg(short, long)]
     config: Option<PathBuf>,
 
-    /// Training data file (JSON)
+    /// Training data path (dataset build output directory or examples.jsonl)
     #[arg(short, long)]
     data: PathBuf,
 
@@ -60,10 +62,19 @@ pub struct TrainArgs {
     common: CommonTrainingArgs,
 }
 
-/// Training data format
-#[derive(serde::Deserialize, serde::Serialize)]
-pub struct TrainingData {
+struct LoadedTrainingData {
     examples: Vec<TrainingExample>,
+    dataset_hash_b3: String,
+    tokenizer_hash_b3: String,
+    framing_policy: String,
+}
+
+struct TrainingRunMetadata {
+    dataset_hash_b3: String,
+    framing_policy: String,
+    tokenizer_hash_b3: String,
+    training_config_hash: String,
+    determinism_tier: String,
 }
 
 impl TrainArgs {
@@ -75,8 +86,19 @@ impl TrainArgs {
         let config = self.load_config()?;
 
         // Load training data
-        let examples = self.load_training_data()?;
+        let loaded = self.load_training_data()?;
+        let examples = loaded.examples;
         info!("Loaded {} training examples", examples.len());
+
+        let base_tokenizer_hash = compute_tokenizer_hash(&self.base_model)?;
+        if base_tokenizer_hash != loaded.tokenizer_hash_b3 {
+            return Err(AosError::Validation(format!(
+                "Tokenizer hash mismatch: dataset {} vs base model {}",
+                loaded.tokenizer_hash_b3, base_tokenizer_hash
+            )));
+        }
+        let training_config_hash = compute_training_config_hash(&config)?;
+        let use_gpu_backward = config.use_gpu_backward;
 
         // Create trainer
         let mut trainer = MicroLoRATrainer::new(config)?;
@@ -98,8 +120,13 @@ impl TrainArgs {
                 "Initialized Metal kernels from plan: {}",
                 plan_path.display()
             );
+        } else if use_gpu_backward {
+            warn!(
+                "No plan file provided; GPU backward requires a Metal plan. \
+                 Training will fail unless use_gpu_backward=false."
+            );
         } else {
-            warn!("No plan file provided, training will use CPU-only mode");
+            info!("No plan file provided; using CPU proxy training (use_gpu_backward=false)");
         }
 
         // Train the adapter (with resume if requested)
@@ -112,9 +139,8 @@ impl TrainArgs {
                 );
                 info!("Checkpoint loss at resume: {:.4}", checkpoint.loss);
                 let epoch = checkpoint.epoch;
-                let result = trainer
-                    .train_with_resume_state(&examples, |_| {}, Some(checkpoint))
-                    .await?;
+                let result =
+                    trainer.train_with_resume_state(&examples, |_| {}, Some(checkpoint)).await?;
                 (result, Some(epoch))
             } else {
                 info!("No checkpoint found, starting fresh training");
@@ -127,7 +153,15 @@ impl TrainArgs {
         };
 
         // Save the trained adapter
-        self.save_adapter(&result)?;
+        let determinism_tier = determinism_tier_for_backend(result.backend.as_deref());
+        let run_metadata = TrainingRunMetadata {
+            dataset_hash_b3: loaded.dataset_hash_b3,
+            framing_policy: loaded.framing_policy,
+            tokenizer_hash_b3: base_tokenizer_hash,
+            training_config_hash,
+            determinism_tier: determinism_tier.to_string(),
+        };
+        self.save_adapter(&result, &run_metadata)?;
 
         info!(
             "Training completed successfully: adapter_id={}, final_loss={:.4}, time={}ms ({}us)",
@@ -213,19 +247,104 @@ impl TrainArgs {
         }
     }
 
-    /// Load training data
-    fn load_training_data(&self) -> Result<Vec<TrainingExample>> {
-        let data_str = std::fs::read_to_string(&self.data)
-            .map_err(|e| AosError::Io(format!("Failed to read training data: {}", e)))?;
+    /// Load training data from dataset build output (examples.jsonl + DatasetManifest.json).
+    fn load_training_data(&self) -> Result<LoadedTrainingData> {
+        let (examples_path, manifest_path) = resolve_dataset_paths(&self.data)?;
 
-        let training_data: TrainingData = serde_json::from_str(&data_str)
-            .map_err(|e| AosError::Parse(format!("Failed to parse training data: {}", e)))?;
+        let manifest_str = fs::read_to_string(&manifest_path).map_err(|e| {
+            AosError::Io(format!(
+                "Failed to read DatasetManifest.json {}: {}",
+                manifest_path.display(),
+                e
+            ))
+        })?;
+        let manifest: BuiltDatasetManifest = serde_json::from_str(&manifest_str).map_err(|e| {
+            AosError::Parse(format!(
+                "Failed to parse DatasetManifest.json {}: {}",
+                manifest_path.display(),
+                e
+            ))
+        })?;
+        if manifest.training_contract_version != TRAINING_DATA_CONTRACT_VERSION {
+            return Err(AosError::Validation(format!(
+                "Dataset manifest contract mismatch: expected {}, got {}",
+                TRAINING_DATA_CONTRACT_VERSION, manifest.training_contract_version
+            )));
+        }
+        B3Hash::from_hex(&manifest.dataset_hash_b3).map_err(|e| {
+            AosError::Validation(format!(
+                "Invalid dataset_hash_b3 in DatasetManifest.json: {}",
+                e
+            ))
+        })?;
+        B3Hash::from_hex(&manifest.tokenizer_hash_b3).map_err(|e| {
+            AosError::Validation(format!(
+                "Invalid tokenizer_hash_b3 in DatasetManifest.json: {}",
+                e
+            ))
+        })?;
 
-        Ok(training_data.examples)
+        let file = File::open(&examples_path).map_err(|e| {
+            AosError::Io(format!(
+                "Failed to open examples file {}: {}",
+                examples_path.display(),
+                e
+            ))
+        })?;
+        let reader = BufReader::new(file);
+        let mut examples = Vec::new();
+
+        for (idx, line) in reader.lines().enumerate() {
+            let line_num = idx + 1;
+            let line = line.map_err(|e| {
+                AosError::Io(format!(
+                    "Failed to read examples line {} in {}: {}",
+                    line_num,
+                    examples_path.display(),
+                    e
+                ))
+            })?;
+            if line.trim().is_empty() {
+                return Err(AosError::Validation(format!(
+                    "Empty JSONL line {} in {}",
+                    line_num,
+                    examples_path.display()
+                )));
+            }
+            let example: TrainingExample = serde_json::from_str(&line).map_err(|e| {
+                AosError::Parse(format!(
+                    "Failed to parse examples line {} in {}: {}",
+                    line_num,
+                    examples_path.display(),
+                    e
+                ))
+            })?;
+            examples.push(example);
+        }
+
+        if examples.is_empty() {
+            return Err(AosError::Validation(format!(
+                "Examples file {} contains no entries",
+                examples_path.display()
+            )));
+        }
+
+        let framing_policy = resolve_framing_policy(&examples)?;
+
+        Ok(LoadedTrainingData {
+            examples,
+            dataset_hash_b3: manifest.dataset_hash_b3,
+            tokenizer_hash_b3: manifest.tokenizer_hash_b3,
+            framing_policy,
+        })
     }
 
     /// Save trained adapter
-    fn save_adapter(&self, result: &adapteros_lora_worker::training::TrainingResult) -> Result<()> {
+    fn save_adapter(
+        &self,
+        result: &adapteros_lora_worker::training::TrainingResult,
+        metadata: &TrainingRunMetadata,
+    ) -> Result<()> {
         // Create output directory if it doesn't exist
         std::fs::create_dir_all(&self.output)
             .map_err(|e| AosError::Io(format!("Failed to create output directory: {}", e)))?;
@@ -237,6 +356,11 @@ impl TrainArgs {
             "final_loss": result.final_loss,
             "training_time_ms": result.training_time_ms(),
             "training_time_us": result.training_time_us,
+            "dataset_hash_b3": metadata.dataset_hash_b3,
+            "framing_policy": metadata.framing_policy,
+            "tokenizer_hash_b3": metadata.tokenizer_hash_b3,
+            "training_config_hash": metadata.training_config_hash,
+            "determinism_tier": metadata.determinism_tier,
             "config": {
                 "rank": result.weights.lora_a.len(),
                 "hidden_dim": result.weights.lora_a[0].len(),
@@ -259,6 +383,126 @@ impl TrainArgs {
         info!("  Weights: {}", weights_path.display());
 
         Ok(())
+    }
+}
+
+const SCHEMA_SUPERVISED: &str = "supervised";
+const SCHEMA_RAW_CONTINUATION: &str = "raw_continuation_v1";
+
+fn resolve_dataset_paths(data_path: &Path) -> Result<(PathBuf, PathBuf)> {
+    let (examples_path, manifest_path) = if data_path.is_dir() {
+        (
+            data_path.join("examples.jsonl"),
+            data_path.join("DatasetManifest.json"),
+        )
+    } else {
+        let ext = data_path
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if ext != "jsonl" && ext != "ndjson" {
+            return Err(AosError::Validation(
+                "Training data must point to a dataset build output directory or examples.jsonl"
+                    .to_string(),
+            ));
+        }
+        let parent = data_path.parent().ok_or_else(|| {
+            AosError::Validation(format!(
+                "Training data path {} has no parent directory",
+                data_path.display()
+            ))
+        })?;
+        (data_path.to_path_buf(), parent.join("DatasetManifest.json"))
+    };
+
+    if !examples_path.exists() {
+        return Err(AosError::Io(format!(
+            "Examples file not found: {}",
+            examples_path.display()
+        )));
+    }
+    if !manifest_path.exists() {
+        return Err(AosError::Io(format!(
+            "DatasetManifest.json not found next to training data: {}",
+            manifest_path.display()
+        )));
+    }
+
+    Ok((examples_path, manifest_path))
+}
+
+fn resolve_framing_policy(examples: &[TrainingExample]) -> Result<String> {
+    let mut schema_mode: Option<String> = None;
+    for (idx, example) in examples.iter().enumerate() {
+        let provenance: serde_json::Value =
+            serde_json::from_str(&example.metadata.provenance).map_err(|e| {
+                AosError::Validation(format!(
+                    "Invalid provenance JSON at example {}: {}",
+                    idx, e
+                ))
+            })?;
+        let schema = provenance
+            .get("schema")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                AosError::Validation(format!(
+                    "Missing schema in provenance for example {}",
+                    idx
+                ))
+            })?;
+        if schema != SCHEMA_SUPERVISED && schema != SCHEMA_RAW_CONTINUATION {
+            return Err(AosError::Validation(format!(
+                "Unsupported schema '{}' in example {}",
+                schema, idx
+            )));
+        }
+        if let Some(active) = schema_mode.as_ref() {
+            if active != schema {
+                return Err(AosError::Validation(format!(
+                    "Mixed JSONL schemas detected: expected {}, found {} at example {}",
+                    active, schema, idx
+                )));
+            }
+        } else {
+            schema_mode = Some(schema.to_string());
+        }
+    }
+    schema_mode.ok_or_else(|| AosError::Validation("No schema detected in examples".to_string()))
+}
+
+fn compute_tokenizer_hash(base_model_path: &Path) -> Result<String> {
+    let tokenizer_path = base_model_path.join("tokenizer.json");
+    if !tokenizer_path.exists() {
+        return Err(AosError::Validation(format!(
+            "Tokenizer not found at {}",
+            tokenizer_path.display()
+        )));
+    }
+    let hash = B3Hash::hash_file(&tokenizer_path).map_err(|e| {
+        AosError::Io(format!(
+            "Failed to hash tokenizer at {}: {}",
+            tokenizer_path.display(),
+            e
+        ))
+    })?;
+    Ok(hash.to_hex().to_string())
+}
+
+fn compute_training_config_hash(config: &TrainingConfig) -> Result<String> {
+    let mut snapshot = config.clone();
+    snapshot.base_model_path = None;
+    let bytes = serde_json::to_vec(&snapshot).map_err(AosError::Serialization)?;
+    Ok(B3Hash::hash(&bytes).to_hex().to_string())
+}
+
+fn determinism_tier_for_backend(backend: Option<&str>) -> &'static str {
+    let label = backend.unwrap_or("cpu").to_ascii_lowercase();
+    match label.as_str() {
+        "mlx" | "metal" => "bit_exact",
+        "coreml" => "bounded_tolerance",
+        "cpu" | "mlxbridge" | "auto" => "none",
+        _ => "none",
     }
 }
 
@@ -319,32 +563,60 @@ mod tests {
     #[test]
     fn test_training_data_loading() {
         let temp_dir = new_test_tempdir();
-        let data_path = temp_dir.path().join("data.json");
+        let data_dir = temp_dir.path().join("data");
+        std::fs::create_dir_all(&data_dir).unwrap();
+        let examples_path = data_dir.join("examples.jsonl");
+        let manifest_path = data_dir.join("DatasetManifest.json");
 
-        let provenance =
-            serde_json::json!({"str": "hello", "num": "123", "bool": "true"}).to_string();
-        let training_data = TrainingData {
-            examples: vec![
-                TrainingExample::new(
-                    vec![1, 2, 3],
-                    vec![4, 5, 6],
-                    TrainingExample::attention_mask_from_tokens(&[1, 2, 3], 0),
-                    ExampleMetadataV1::new("test", 1, "{}", 0),
-                ),
-                TrainingExample::new(
-                    vec![7, 8, 9],
-                    vec![10, 11, 12],
-                    TrainingExample::attention_mask_from_tokens(&[7, 8, 9], 0),
-                    ExampleMetadataV1::new("test", 2, provenance, 0),
-                ),
-            ],
-        };
+        let provenance = serde_json::json!({
+            "schema": "supervised",
+            "str": "hello",
+            "num": "123",
+            "bool": "true"
+        })
+        .to_string();
+        let training_examples = vec![
+            TrainingExample::new(
+                vec![1, 2, 3],
+                vec![4, 5, 6],
+                TrainingExample::attention_mask_from_tokens(&[1, 2, 3], 0),
+                ExampleMetadataV1::new("test", 1, "row-hash-1", "{}", 0),
+            ),
+            TrainingExample::new(
+                vec![7, 8, 9],
+                vec![10, 11, 12],
+                TrainingExample::attention_mask_from_tokens(&[7, 8, 9], 0),
+                ExampleMetadataV1::new("test", 2, "row-hash-2", provenance, 0),
+            ),
+        ];
 
-        std::fs::write(&data_path, serde_json::to_string(&training_data).unwrap()).unwrap();
+        let examples_jsonl = training_examples
+            .iter()
+            .map(|ex| serde_json::to_string(ex).unwrap())
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(&examples_path, format!("{}\n", examples_jsonl)).unwrap();
+
+        let manifest = serde_json::json!({
+            "name": "test",
+            "version": "1.0",
+            "training_contract_version": TRAINING_DATA_CONTRACT_VERSION,
+            "tokenizer_hash_b3": B3Hash::hash(b"tokenizer").to_hex(),
+            "dataset_hash_b3": B3Hash::hash(b"dataset").to_hex(),
+            "build_config": {
+                "format": "jsonl",
+                "normalization": "none",
+                "ordering": "input_hash_asc"
+            },
+            "sample_count": training_examples.len(),
+            "source_files": [],
+            "created_at": "now"
+        });
+        std::fs::write(&manifest_path, serde_json::to_string(&manifest).unwrap()).unwrap();
 
         let args = TrainArgs {
             config: None,
-            data: data_path,
+            data: data_dir,
             output: PathBuf::from("dummy"),
             base_model: PathBuf::from("dummy-model"),
             plan: None,
@@ -362,7 +634,8 @@ mod tests {
             },
         };
 
-        let examples = args.load_training_data().unwrap();
+        let loaded = args.load_training_data().unwrap();
+        let examples = loaded.examples;
         assert_eq!(examples.len(), 2);
         assert_eq!(examples[0].input_tokens, vec![1, 2, 3]);
         assert_eq!(examples[0].target_tokens, vec![4, 5, 6]);

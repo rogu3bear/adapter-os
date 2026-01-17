@@ -8,6 +8,7 @@ pub const LOSS_IGNORE_INDEX: i32 = 0;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LossKind {
     CrossEntropy,
+    LegacyMse,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,6 +19,7 @@ pub enum LossNormalization {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LossLogitsSource {
     HiddenPlusLoraProjection,
+    HiddenPlusLora,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,9 +32,17 @@ pub struct LossSpec {
 
 impl LossSpec {
     pub fn summary(&self) -> String {
+        let kind = match self.kind {
+            LossKind::CrossEntropy => "cross_entropy",
+            LossKind::LegacyMse => "legacy_mse",
+        };
+        let logits = match self.logits_source {
+            LossLogitsSource::HiddenPlusLoraProjection => "hidden_plus_lora@lm_head",
+            LossLogitsSource::HiddenPlusLora => "hidden_plus_lora",
+        };
         format!(
-            "loss=cross_entropy normalization=mean_tokens ignore_index={} logits=hidden_plus_lora@lm_head",
-            self.ignore_index
+            "loss={} normalization=mean_tokens ignore_index={} logits={}",
+            kind, self.ignore_index, logits
         )
     }
 
@@ -83,6 +93,19 @@ pub fn training_loss_spec(ignore_index: i32) -> LossSpec {
 
 pub fn validation_loss_spec(ignore_index: i32) -> LossSpec {
     training_loss_spec(ignore_index)
+}
+
+pub fn legacy_training_loss_spec(ignore_index: i32) -> LossSpec {
+    LossSpec {
+        kind: LossKind::LegacyMse,
+        normalization: LossNormalization::MeanTokens,
+        ignore_index,
+        logits_source: LossLogitsSource::HiddenPlusLora,
+    }
+}
+
+pub fn legacy_validation_loss_spec(ignore_index: i32) -> LossSpec {
+    legacy_training_loss_spec(ignore_index)
 }
 
 fn audit_targets(targets: &[u32], spec: &LossSpec) -> (usize, usize, Vec<String>) {

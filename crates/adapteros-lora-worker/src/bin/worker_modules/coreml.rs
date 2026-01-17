@@ -407,16 +407,22 @@ pub fn run_coreml_boot_smoke(
     label: &str,
     kernels: &mut dyn FusedKernels,
     vocab_size: usize,
+    input_len: usize,
 ) -> Result<()> {
     if vocab_size == 0 {
         return Err(AosError::Config(
             "CoreML boot smoke requires non-zero vocab_size".to_string(),
         ));
     }
+    if input_len == 0 {
+        return Err(AosError::Config(
+            "CoreML boot smoke requires non-zero input_len".to_string(),
+        ));
+    }
 
     let mut ring = RouterRing::new(0);
     let mut io = IoBuffers::new(vocab_size);
-    io.input_ids = vec![0];
+    io.input_ids = vec![0; input_len];
 
     kernels
         .run_step(&ring, &mut io)
@@ -424,7 +430,9 @@ pub fn run_coreml_boot_smoke(
 
     info!(
         coreml_lane = label,
-        vocab_size, "CoreML boot smoke inference completed"
+        vocab_size,
+        input_len,
+        "CoreML boot smoke inference completed"
     );
 
     Ok(())

@@ -3,12 +3,13 @@
 //! Provides CPU-based embedding computation using averaged token embeddings.
 //! Future: Can be optimized with Metal-accelerated embedding model.
 
+use adapteros_config::{resolve_embedding_model_path, PathSource};
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_lora_rag::EmbeddingModel as RagEmbeddingModel;
 use memmap2::Mmap;
 use safetensors::SafeTensors;
 use std::fs::File;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Embedding model for computing query vectors
 pub struct EmbeddingModel {
@@ -51,48 +52,81 @@ impl EmbeddingModel {
         vocab_size: usize,
         hidden_dim: usize,
     ) -> Result<Vec<f32>> {
+        let resolve_safetensors_path = |base_path: &Path| -> Result<Option<PathBuf>> {
+            let single_model_path = base_path.join("model.safetensors");
+            if single_model_path.exists() {
+                return Ok(Some(single_model_path));
+            }
+
+            let index_path = base_path.join("model.safetensors.index.json");
+            if index_path.exists() {
+                // Parse the sharded model index to find the embeddings shard
+                let index_content = std::fs::read_to_string(&index_path)
+                    .map_err(|e| AosError::Worker(format!("Failed to read index file: {}", e)))?;
+                let index: serde_json::Value = serde_json::from_str(&index_content)
+                    .map_err(|e| AosError::Worker(format!("Failed to parse index JSON: {}", e)))?;
+
+                // Look for embedding tensor in weight_map
+                let weight_map = index
+                    .get("weight_map")
+                    .ok_or_else(|| AosError::Worker("Index missing weight_map".into()))?;
+
+                let shard_file = weight_map
+                    .get("model.embed_tokens.weight")
+                    .or_else(|| weight_map.get("transformer.wte.weight"))
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| {
+                        AosError::Worker("Could not find embedding tensor in index".into())
+                    })?;
+
+                tracing::info!(shard = %shard_file, "Loading embeddings from sharded model");
+                return Ok(Some(base_path.join(shard_file)));
+            }
+
+            Ok(None)
+        };
+
         // Load embedding layer from safetensors
         // Supports both single file (model.safetensors) and sharded models (model-XXXXX-of-YYYYY.safetensors)
-        let base_path = path.as_ref();
-        let single_model_path = base_path.join("model.safetensors");
-        let index_path = base_path.join("model.safetensors.index.json");
+        let mut base_path = path.as_ref().to_path_buf();
+        let mut model_path = resolve_safetensors_path(&base_path)?;
 
-        // Determine which safetensors file contains the embeddings
-        let model_path = if single_model_path.exists() {
-            single_model_path
-        } else if index_path.exists() {
-            // Parse the sharded model index to find the embeddings shard
-            let index_content = std::fs::read_to_string(&index_path)
-                .map_err(|e| AosError::Worker(format!("Failed to read index file: {}", e)))?;
-            let index: serde_json::Value = serde_json::from_str(&index_content)
-                .map_err(|e| AosError::Worker(format!("Failed to parse index JSON: {}", e)))?;
+        if model_path.is_none() {
+            if let Ok(resolved) = resolve_embedding_model_path() {
+                let candidate_path = resolved.path;
+                if candidate_path != base_path {
+                    if let Some(candidate_model) = resolve_safetensors_path(&candidate_path)? {
+                        tracing::info!(
+                            path = %candidate_path.display(),
+                            source = %resolved.source,
+                            "Using embedding model override"
+                        );
+                        base_path = candidate_path;
+                        model_path = Some(candidate_model);
+                    } else if !matches!(resolved.source, PathSource::Default(_)) {
+                        return Err(AosError::Worker(format!(
+                            "Embedding model override {} missing model.safetensors or model.safetensors.index.json",
+                            candidate_path.display()
+                        )));
+                    }
+                }
+            }
+        }
 
-            // Look for embedding tensor in weight_map
-            let weight_map = index
-                .get("weight_map")
-                .ok_or_else(|| AosError::Worker("Index missing weight_map".into()))?;
-
-            let shard_file = weight_map
-                .get("model.embed_tokens.weight")
-                .or_else(|| weight_map.get("transformer.wte.weight"))
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| {
-                    AosError::Worker("Could not find embedding tensor in index".into())
-                })?;
-
-            tracing::info!(shard = %shard_file, "Loading embeddings from sharded model");
-            base_path.join(shard_file)
-        } else {
-            // No model found - RAG operations require real embeddings
-            tracing::error!(
-                "No model.safetensors or model.safetensors.index.json found in {:?}. \
-                 RAG and semantic operations require a valid embedding model.",
-                base_path
-            );
-            return Err(AosError::Worker(
-                "Embedding model not found. RAG requires model.safetensors or sharded model files."
-                    .into(),
-            ));
+        let model_path = match model_path {
+            Some(path) => path,
+            None => {
+                // No model found - RAG operations require real embeddings
+                tracing::error!(
+                    "No model.safetensors or model.safetensors.index.json found in {:?}. \
+                     RAG and semantic operations require a valid embedding model.",
+                    base_path
+                );
+                return Err(AosError::Worker(
+                    "Embedding model not found. Set AOS_EMBEDDING_MODEL_PATH to a safetensors directory for RAG/semantic operations."
+                        .into(),
+                ));
+            }
         };
 
         let file = File::open(&model_path)

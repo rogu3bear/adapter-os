@@ -36,8 +36,8 @@ pub enum TrainCommand {
     /// Fetch a training report artifact
     Report(TrainReportArgs),
 
-    /// Legacy on-device training (kept for compatibility)
-    #[command(name = "local", hide = true)]
+    /// Local on-device training (Plan 4 dataset build output)
+    #[command(name = "local")]
     Local(LocalTrainArgs),
 }
 

@@ -478,7 +478,7 @@ mod tests {
         } else {
             serde_json::json!({ "weight": weight }).to_string()
         };
-        ExampleMetadataV1::new("test_source", row_id, provenance, 0)
+        ExampleMetadataV1::new("test_source", row_id, "row-hash", provenance, 0)
     }
 
     #[test]

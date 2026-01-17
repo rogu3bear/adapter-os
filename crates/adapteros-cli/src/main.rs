@@ -1155,6 +1155,10 @@ Examples:
         args: commands::manual::ManualArgs,
     },
 
+    /// Dataset management commands (create, ingest, validate, build)
+    #[command(subcommand, visible_alias = "datasets")]
+    Dataset(commands::datasets::DatasetCommand),
+
     /// Training job commands (start/status/list) - control plane
     #[command(subcommand)]
     #[command(after_help = "\
@@ -2004,6 +2008,10 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             commands::train_cli::run(cmd.clone(), &output).await?;
         }
 
+        Commands::Dataset(cmd) => {
+            commands::datasets::run(cmd.clone(), &output).await?;
+        }
+
         Commands::TrainDocs { args } => {
             args.execute().await?;
         }
@@ -2361,6 +2369,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::ErrorCodes { .. } => "error-codes",
         Commands::Tutorial { .. } => "tutorial",
         Commands::Manual { .. } => "manual",
+        Commands::Dataset(_) => "dataset",
         Commands::Train(_) => "train",
         Commands::TrainDocs { .. } => "train-docs",
         Commands::Code(_) => "code",

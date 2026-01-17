@@ -464,16 +464,18 @@ pub struct TrainingConfig {
     pub moe_config: Option<MoETrainingConfig>,
     /// Enable GPU-accelerated backward pass (gradient computation) via MLX.
     /// When true and using MLX backend, gradients and optimizer steps run on GPU.
-    /// When false (default), gradients are computed on CPU even with GPU forward pass.
+    /// When false, gradients are computed on CPU using the proxy loss path.
     /// Note: GPU backward may not be bit-exact with CPU backward.
-    #[serde(default)]
+    #[serde(default = "default_use_gpu_backward")]
     pub use_gpu_backward: bool,
     /// Optimizer configuration for GPU training.
     /// Only used when `use_gpu_backward` is true.
     #[serde(default)]
     pub optimizer_config: OptimizerConfig,
     /// Path to base model for real hidden state extraction during training.
-    /// REQUIRED: Training without a base model produces incorrect adapters.
+    /// REQUIRED for GPU backward or validation. CPU proxy training
+    /// (use_gpu_backward=false) skips base model loading and uses scaled-token
+    /// MSE loss instead.
     /// The trainer loads the base model and extracts actual hidden states
     /// from the specified layer for proper cross-entropy loss computation.
     #[serde(default)]
@@ -512,10 +514,19 @@ fn default_targets() -> Vec<String> {
     vec!["q_proj".to_string(), "v_proj".to_string()]
 }
 
+fn default_use_gpu_backward() -> bool {
+    true
+}
+
 impl TrainingConfig {
     /// Check if this configuration is for an MoE model
     pub fn is_moe(&self) -> bool {
         self.moe_config.is_some()
+    }
+
+    /// Whether this configuration requires a base model to run training.
+    pub fn requires_base_model(&self) -> bool {
+        self.use_gpu_backward || self.validation_split > 0.0 || self.multi_module_training
     }
 
     /// Get the number of experts (returns 1 for dense models)
@@ -656,9 +667,8 @@ impl TrainingConfig {
     }
 
     /// Configure base model path for real hidden state extraction during training.
-    /// REQUIRED: The trainer will load the specified model and extract actual hidden
-    /// states for proper cross-entropy loss computation. Training without a base model
-    /// will fail with an error.
+    /// REQUIRED for GPU backward or validation. CPU proxy training (use_gpu_backward=false)
+    /// does not load the base model and uses scaled-token MSE loss instead.
     pub fn with_base_model(mut self, path: impl Into<PathBuf>) -> Self {
         self.base_model_path = Some(path.into());
         self

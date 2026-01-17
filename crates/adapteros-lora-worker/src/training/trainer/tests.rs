@@ -41,7 +41,7 @@ fn make_prepared(example: &TrainingExample, hidden_dim: usize) -> coreml_pipelin
 }
 
 fn example(input_tokens: Vec<u32>, target_tokens: Vec<u32>) -> TrainingExample {
-    let metadata = ExampleMetadataV1::new("test", 0, "{}", 0);
+    let metadata = ExampleMetadataV1::new("test", 0, "row-hash", "{}", 0);
     let attention_mask = TrainingExample::attention_mask_from_tokens(&input_tokens, 0);
     TrainingExample::new(input_tokens, target_tokens, attention_mask, metadata)
 }
@@ -1185,8 +1185,7 @@ async fn test_determinism_child_process() {
     std::fs::write(&output_path, serialized).expect("write weights to output file");
 }
 
-/// Test that the deprecated CPU backward path is rejected.
-/// This ensures there is no silent fallback from GPU cross-entropy to CPU MSE loss.
+/// Test that the CPU proxy path is explicit and runnable when opted in.
 ///
 /// Requirements:
 /// - MLX hardware (Apple Silicon)
@@ -1238,7 +1237,7 @@ async fn test_gpu_cpu_loss_equivalence() {
         .await
         .expect("GPU training should complete");
 
-    // Train with CPU backward (deprecated)
+    // Train with CPU proxy backward (explicit opt-in)
     let cpu_config = TrainingConfig {
         rank: 4,
         hidden_dim: 3584,
@@ -1250,15 +1249,16 @@ async fn test_gpu_cpu_loss_equivalence() {
         preferred_backend: Some(TrainingBackend::Mlx), // Still use MLX for forward pass
         require_gpu: false,
         base_model_path: Some(model_path),
+        validation_split: 0.0,
         determinism: Some(determinism_config),
         ..Default::default()
     };
-    // CPU backward path also needs base model for forward pass
+    // CPU proxy path should run without GPU backward
     let mut cpu_trainer = MicroLoRATrainer::new(cpu_config).expect("CPU trainer should initialize");
     let cpu_result = cpu_trainer.train(&examples).await;
     assert!(
-        cpu_result.is_err(),
-        "CPU backward should be rejected to avoid deprecated loss usage"
+        cpu_result.is_ok(),
+        "CPU proxy training should run when explicitly requested"
     );
 }
 

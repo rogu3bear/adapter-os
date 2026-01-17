@@ -131,6 +131,18 @@ pub(crate) fn load_plan_bytes_for_training(require_gpu: bool, job_id: &str) -> R
     }
 }
 
+fn determinism_tier_for_backend(backend: &str) -> &'static str {
+    match backend {
+        "mlx" => "bit_exact",
+        "metal" => "bit_exact",
+        "coreml" => "bounded_tolerance",
+        "cpu" => "none",
+        "mlxbridge" => "none",
+        "auto" => "none",
+        _ => "none",
+    }
+}
+
 /// Package adapter and register it in the database.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn package_and_register_adapter(
@@ -145,6 +157,7 @@ pub(crate) async fn package_and_register_adapter(
     tenant: &str,
     tenant_id: Option<&str>,
     dataset_id: Option<&str>,
+    dataset_framing_policy: Option<&str>,
     synthetic_mode: bool,
     data_lineage_mode: DataLineageMode,
     base_model_id: Option<&str>,
@@ -152,6 +165,8 @@ pub(crate) async fn package_and_register_adapter(
     versioning_snapshot: Option<&VersioningSnapshot>,
     dataset_version_ids_for_training: Option<&Vec<DatasetVersionSelection>>,
     data_spec_hash_for_training: Option<&str>,
+    tokenizer_hash_b3: Option<&str>,
+    training_config_hash: Option<&str>,
     trainer_seed: u64,
     db: Option<&adapteros_db::Db>,
 ) -> Result<()> {
@@ -176,6 +191,15 @@ pub(crate) async fn package_and_register_adapter(
     package_metadata.insert("adapter_name".to_string(), adapter_name.to_string());
     if let Some(ds) = dataset_id {
         package_metadata.insert("dataset_id".to_string(), ds.to_string());
+    }
+    if let Some(policy) = dataset_framing_policy {
+        package_metadata.insert("framing_policy".to_string(), policy.to_string());
+    }
+    if let Some(hash) = tokenizer_hash_b3 {
+        package_metadata.insert("tokenizer_hash_b3".to_string(), hash.to_string());
+    }
+    if let Some(hash) = training_config_hash {
+        package_metadata.insert("training_config_hash".to_string(), hash.to_string());
     }
     if let Some(corr) = correlation_id.clone() {
         package_metadata.insert("correlation_id".to_string(), corr);
@@ -209,6 +233,7 @@ pub(crate) async fn package_and_register_adapter(
         .as_deref()
         .unwrap_or("CPU")
         .to_ascii_lowercase();
+    let determinism_tier = determinism_tier_for_backend(&backend_label);
     package_metadata.insert("training_backend".to_string(), backend_label);
     if let Some(device) = training_result.backend_device.clone() {
         package_metadata.insert("training_backend_device".to_string(), device);
@@ -223,6 +248,10 @@ pub(crate) async fn package_and_register_adapter(
         } else {
             "best-effort".to_string()
         },
+    );
+    package_metadata.insert(
+        "determinism_tier".to_string(),
+        determinism_tier.to_string(),
     );
     package_metadata.insert("quantization".to_string(), "q15".to_string());
     package_metadata.insert(
@@ -330,6 +359,9 @@ pub(crate) async fn package_and_register_adapter(
         } else {
             data_spec_hash_for_training.map(|s| s.to_string())
         };
+    if let Some(ref hash) = dataset_hash_for_metadata {
+        package_metadata.insert("dataset_hash_b3".to_string(), hash.clone());
+    }
 
     let seed_inputs_json = serde_json::to_string(&serde_json::json!({
         "dataset_version_ids": dataset_version_ids_for_training,
@@ -370,6 +402,19 @@ pub(crate) async fn package_and_register_adapter(
     artifact_metadata.insert(
         "dataset_hash_b3".to_string(),
         serde_json::json!(dataset_hash_for_metadata.clone()),
+    );
+    if let Some(policy) = dataset_framing_policy {
+        artifact_metadata.insert("framing_policy".to_string(), serde_json::json!(policy));
+    }
+    if let Some(hash) = tokenizer_hash_b3 {
+        artifact_metadata.insert("tokenizer_hash_b3".to_string(), serde_json::json!(hash));
+    }
+    if let Some(hash) = training_config_hash {
+        artifact_metadata.insert("training_config_hash".to_string(), serde_json::json!(hash));
+    }
+    artifact_metadata.insert(
+        "determinism_tier".to_string(),
+        serde_json::json!(determinism_tier),
     );
     if let Some(ref corr) = correlation_id {
         artifact_metadata.insert("correlation_id".to_string(), serde_json::json!(corr));

@@ -1,23 +1,22 @@
-//! JSONL format parser for instruction-tuning datasets.
+//! JSONL format parser for Plan 4 training datasets.
 //!
-//! Supports common field names:
-//! - Input: instruction, input, prompt, question
-//! - Target: output, response, answer, completion
+//! Accepted schemas (per-line JSON object only):
+//! - Supervised: {"prompt": "...", "completion": "..."}
+//! - Raw text: {"text": "..."}
 
 use super::RawSample;
-use crate::training::normalize::{normalize_text, validate_non_empty};
-use adapteros_core::{AosError, Result};
+use adapteros_core::{AosError, B3Hash, Result};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 
-/// Input field names in priority order.
-const INPUT_FIELDS: &[&str] = &["instruction", "input", "prompt", "question"];
-
-/// Target field names in priority order.
-const TARGET_FIELDS: &[&str] = &["output", "response", "answer", "completion"];
+const SUPERVISED_PROMPT_KEY: &str = "prompt";
+const SUPERVISED_COMPLETION_KEY: &str = "completion";
+const RAW_TEXT_KEY: &str = "text";
+const SCHEMA_SUPERVISED: &str = "supervised";
+const SCHEMA_RAW_CONTINUATION: &str = "raw_continuation_v1";
 
 /// Parse a JSONL file into raw samples.
 pub fn parse_jsonl_file(path: &Path) -> Result<Vec<RawSample>> {
@@ -32,6 +31,7 @@ pub fn parse_jsonl_file(path: &Path) -> Result<Vec<RawSample>> {
     let path_str = path.display().to_string();
 
     let mut samples = Vec::new();
+    let mut schema_mode: Option<String> = None;
 
     for (line_idx, line_result) in reader.lines().enumerate() {
         let line_num = line_idx + 1;
@@ -42,12 +42,30 @@ pub fn parse_jsonl_file(path: &Path) -> Result<Vec<RawSample>> {
             ))
         })?;
 
-        // Skip empty lines
         if line.trim().is_empty() {
-            continue;
+            return Err(AosError::Validation(format!(
+                "Empty JSONL line at {}:{}",
+                path_str, line_num
+            )));
         }
 
         let sample = parse_jsonl_line(&line, &path_str, line_num)?;
+        let schema = sample.metadata.get("schema").cloned().ok_or_else(|| {
+            AosError::Validation(format!(
+                "Missing schema in parsed JSONL sample at {}:{}",
+                path_str, line_num
+            ))
+        })?;
+        if let Some(active) = schema_mode.as_ref() {
+            if active != &schema {
+                return Err(AosError::Validation(format!(
+                    "Mixed JSONL schemas in {}: expected {}, found {} at line {}",
+                    path_str, active, schema, line_num
+                )));
+            }
+        } else {
+            schema_mode = Some(schema);
+        }
         samples.push(sample);
     }
 
@@ -72,84 +90,68 @@ fn parse_jsonl_line(line: &str, path: &str, line_num: usize) -> Result<RawSample
         AosError::Validation(format!("Expected JSON object at {}, got {}", context, obj))
     })?;
 
-    // Find input field
-    let input_raw = find_field(obj, INPUT_FIELDS).ok_or_else(|| {
-        AosError::Validation(format!(
-            "Missing input field at {}. Expected one of: {:?}",
-            context, INPUT_FIELDS
-        ))
-    })?;
+    let is_supervised = obj.len() == 2
+        && obj.contains_key(SUPERVISED_PROMPT_KEY)
+        && obj.contains_key(SUPERVISED_COMPLETION_KEY);
+    let is_raw = obj.len() == 1 && obj.contains_key(RAW_TEXT_KEY);
 
-    // Find target field
-    let target_raw = find_field(obj, TARGET_FIELDS).ok_or_else(|| {
-        AosError::Validation(format!(
-            "Missing target field at {}. Expected one of: {:?}",
-            context, TARGET_FIELDS
-        ))
-    })?;
-
-    // Normalize text
-    let input = normalize_text(&input_raw)?;
-    let target = normalize_text(&target_raw)?;
-
-    // Validate non-empty
-    validate_non_empty(&input, "input", &context)?;
-    validate_non_empty(&target, "target", &context)?;
-
-    // Extract weight if present (must be non-negative)
-    let weight = obj
-        .get("weight")
-        .and_then(|v| v.as_f64())
-        .map(|w| w as f32)
-        .unwrap_or(1.0);
-
-    if weight < 0.0 {
+    if !is_supervised && !is_raw {
         return Err(AosError::Validation(format!(
-            "Negative weight {} at {}. Weights must be >= 0.0",
-            weight, context
+            "Unsupported JSONL schema at {}. Expected {{\"prompt\",\"completion\"}} or {{\"text\"}} only",
+            context
         )));
     }
 
-    // Extract metadata
+    let source_hash = B3Hash::hash(line.as_bytes()).to_hex();
+
     let mut metadata = HashMap::new();
     metadata.insert("source_file".to_string(), path.to_string());
     metadata.insert("source_line".to_string(), line_num.to_string());
+    metadata.insert("source_hash".to_string(), source_hash);
+    metadata.insert("row_id".to_string(), line_num.to_string());
 
-    if let Some(id) = obj.get("id").and_then(|v| v.as_str()) {
-        metadata.insert("id".to_string(), id.to_string());
+    if is_supervised {
+        let prompt = obj
+            .get(SUPERVISED_PROMPT_KEY)
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| {
+                AosError::Validation(format!("Line {} has empty prompt", context))
+            })?;
+        let completion = obj
+            .get(SUPERVISED_COMPLETION_KEY)
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| {
+                AosError::Validation(format!("Line {} has empty completion", context))
+            })?;
+        metadata.insert("schema".to_string(), SCHEMA_SUPERVISED.to_string());
+        return Ok(RawSample {
+            input: prompt.to_string(),
+            target: completion.to_string(),
+            weight: 1.0,
+            metadata,
+        });
     }
 
-    // Copy any additional string fields as metadata
-    for (key, value) in obj {
-        if !INPUT_FIELDS.contains(&key.as_str())
-            && !TARGET_FIELDS.contains(&key.as_str())
-            && key != "weight"
-            && key != "id"
-        {
-            if let Some(s) = value.as_str() {
-                metadata.insert(key.clone(), s.to_string());
-            }
-        }
-    }
-
+    let text = obj
+        .get(RAW_TEXT_KEY)
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| AosError::Validation(format!("Line {} has empty text", context)))?;
+    metadata.insert(
+        "schema".to_string(),
+        SCHEMA_RAW_CONTINUATION.to_string(),
+    );
     Ok(RawSample {
-        input,
-        target,
-        weight,
+        input: text.to_string(),
+        target: String::new(),
+        weight: 1.0,
         metadata,
     })
-}
-
-/// Find the first matching field from a list of candidates.
-fn find_field(obj: &serde_json::Map<String, Value>, candidates: &[&str]) -> Option<String> {
-    for field in candidates {
-        if let Some(value) = obj.get(*field) {
-            if let Some(s) = value.as_str() {
-                return Some(s.to_string());
-            }
-        }
-    }
-    None
 }
 
 #[cfg(test)]
@@ -167,8 +169,8 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_instruction_output() {
-        let file = write_temp_jsonl(&[r#"{"instruction": "Hello", "output": "World"}"#]);
+    fn test_parse_prompt_completion() {
+        let file = write_temp_jsonl(&[r#"{"prompt": "Hello", "completion": "World"}"#]);
         let samples = parse_jsonl_file(file.path()).unwrap();
         assert_eq!(samples.len(), 1);
         assert_eq!(samples[0].input, "Hello");
@@ -176,67 +178,52 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_prompt_response() {
-        let file = write_temp_jsonl(&[r#"{"prompt": "Question?", "response": "Answer."}"#]);
+    fn test_parse_raw_text() {
+        let file = write_temp_jsonl(&[r#"{"text": "Hello world"}"#]);
         let samples = parse_jsonl_file(file.path()).unwrap();
         assert_eq!(samples.len(), 1);
-        assert_eq!(samples[0].input, "Question?");
-        assert_eq!(samples[0].target, "Answer.");
+        assert_eq!(samples[0].input, "Hello world");
     }
 
     #[test]
-    fn test_parse_with_weight() {
-        let file = write_temp_jsonl(&[r#"{"input": "a", "output": "b", "weight": 0.5}"#]);
-        let samples = parse_jsonl_file(file.path()).unwrap();
-        assert!((samples[0].weight - 0.5).abs() < f32::EPSILON);
-    }
-
-    #[test]
-    fn test_skip_empty_lines() {
+    fn test_empty_line_is_rejected() {
         let file = write_temp_jsonl(&[
-            r#"{"input": "a", "output": "b"}"#,
+            r#"{"prompt": "a", "completion": "b"}"#,
             "",
-            r#"{"input": "c", "output": "d"}"#,
         ]);
-        let samples = parse_jsonl_file(file.path()).unwrap();
-        assert_eq!(samples.len(), 2);
+        let err = parse_jsonl_file(file.path()).unwrap_err();
+        assert!(err.to_string().contains("Empty JSONL line"));
     }
 
     #[test]
-    fn test_missing_input_field() {
-        let file = write_temp_jsonl(&[r#"{"output": "b"}"#]);
-        let result = parse_jsonl_file(file.path());
-        assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Missing input field"));
+    fn test_rejects_extra_fields() {
+        let file =
+            write_temp_jsonl(&[r#"{"prompt": "a", "completion": "b", "extra": "nope"}"#]);
+        let err = parse_jsonl_file(file.path()).unwrap_err();
+        assert!(err.to_string().contains("Unsupported JSONL schema"));
     }
 
     #[test]
-    fn test_empty_input_rejected() {
-        let file = write_temp_jsonl(&[r#"{"input": "   ", "output": "b"}"#]);
-        let result = parse_jsonl_file(file.path());
-        assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Empty or whitespace-only"));
+    fn test_rejects_missing_fields() {
+        let file = write_temp_jsonl(&[r#"{"prompt": "a"}"#]);
+        let err = parse_jsonl_file(file.path()).unwrap_err();
+        assert!(err.to_string().contains("Unsupported JSONL schema"));
+    }
+
+    #[test]
+    fn test_rejects_mixed_schema() {
+        let file = write_temp_jsonl(&[
+            r#"{"prompt": "a", "completion": "b"}"#,
+            r#"{"text": "c"}"#,
+        ]);
+        let err = parse_jsonl_file(file.path()).unwrap_err();
+        assert!(err.to_string().contains("Mixed JSONL schemas"));
     }
 
     #[test]
     fn test_invalid_json() {
-        let file = write_temp_jsonl(&[r#"{"input": "a", "output": "b"}"#, r#"not valid json"#]);
-        let result = parse_jsonl_file(file.path());
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Invalid JSON"));
-    }
-
-    #[test]
-    fn test_negative_weight_rejected() {
-        let file = write_temp_jsonl(&[r#"{"input": "a", "output": "b", "weight": -0.5}"#]);
-        let result = parse_jsonl_file(file.path());
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Negative weight"));
+        let file = write_temp_jsonl(&[r#"{"prompt": "a", "completion": "b"}"#, r#"not json"#]);
+        let err = parse_jsonl_file(file.path()).unwrap_err();
+        assert!(err.to_string().contains("Invalid JSON"));
     }
 }

@@ -9,7 +9,7 @@ use super::formats::{
 use super::limits::DatasetSizeLimits;
 use super::normalize::NORMALIZATION_SCHEME;
 use crate::tokenizer::QwenTokenizer;
-use adapteros_core::{AosError, Result};
+use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_secure_fs::path_policy::{canonicalize_strict, canonicalize_strict_in_allowed_roots};
 use adapteros_secure_fs::traversal::check_path_traversal;
 use adapteros_types::training::{
@@ -21,8 +21,14 @@ use std::collections::{BTreeMap, HashMap};
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufReader, Read, Write};
 use std::path::{Path, PathBuf};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 use walkdir::WalkDir;
+
+// Locked framing constants (Plan 4).
+const MAX_INPUT_TOKENS: usize = 256;
+const MAX_TARGET_TOKENS: usize = 128;
+const STRIDE_TOKENS: usize = 256;
+const SCHEMA_RAW_CONTINUATION: &str = "raw_continuation_v1";
 
 /// Dataset source specification.
 #[derive(Debug, Clone)]
@@ -82,6 +88,8 @@ pub struct BuiltDatasetManifest {
     pub training_contract_version: String,
     /// BLAKE3 hash of the tokenizer.json file.
     pub tokenizer_hash_b3: String,
+    /// BLAKE3 hash of the raw dataset content.
+    pub dataset_hash_b3: String,
     /// Build configuration for reproducibility.
     pub build_config: BuildConfig,
     /// Number of samples.
@@ -114,6 +122,8 @@ pub struct BuildResult {
     pub example_count: usize,
     /// BLAKE3 hash of tokenizer.
     pub tokenizer_hash: String,
+    /// BLAKE3 hash of the raw dataset content.
+    pub dataset_hash: String,
 }
 
 /// Dataset builder for deterministic ingestion.
@@ -171,8 +181,27 @@ impl DatasetBuilder {
         self
     }
 
+    fn ensure_plan4_constraints(&self) -> Result<()> {
+        if let Some(format) = self.format {
+            if format != DatasetFormat::Jsonl {
+                return Err(AosError::Validation(
+                    "Only JSONL datasets are supported by PLAN_4".to_string(),
+                ));
+            }
+        }
+        if self.column_mapping.is_some() {
+            return Err(AosError::Validation(
+                "Column mapping is not supported by PLAN_4 (JSONL only)".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
     /// Build dataset from source (validates without writing).
     pub fn validate(&self, source: &DatasetSource) -> Result<usize> {
+        self.ensure_plan4_constraints()?;
+        let tokenizer_path = canonicalize_strict(&self.tokenizer_path)?;
+        ensure_tokenizer_in_base_model(&tokenizer_path)?;
         let (samples, _) = self.collect_samples(source)?;
         Ok(samples.len())
     }
@@ -180,6 +209,7 @@ impl DatasetBuilder {
     /// Build dataset from source.
     pub fn build(&self, source: &DatasetSource) -> Result<BuildResult> {
         info!("Building dataset from {:?}", source);
+        self.ensure_plan4_constraints()?;
 
         // Ensure output directory exists
         fs::create_dir_all(&self.output_dir).map_err(|e| {
@@ -193,6 +223,7 @@ impl DatasetBuilder {
 
         // Load tokenizer
         let tokenizer_path = canonicalize_strict(&self.tokenizer_path)?;
+        ensure_tokenizer_in_base_model(&tokenizer_path)?;
         let tokenizer = QwenTokenizer::from_file(&tokenizer_path)?;
         let pad_token_id = tokenizer.pad_token_id().ok_or_else(|| {
             AosError::Validation("Tokenizer missing pad_token_id for dataset build".to_string())
@@ -204,6 +235,7 @@ impl DatasetBuilder {
 
         // Collect and validate samples
         let (mut samples, source_files) = self.collect_samples(source)?;
+        let dataset_hash = compute_dataset_hash(&source_files);
 
         if samples.is_empty() {
             return Err(AosError::Validation(
@@ -237,7 +269,8 @@ impl DatasetBuilder {
         write_examples(&examples, &examples_path)?;
 
         // Generate manifest
-        let manifest = self.create_manifest(&tokenizer_hash, &source_files, examples.len());
+        let manifest =
+            self.create_manifest(&tokenizer_hash, &dataset_hash, &source_files, examples.len());
         let manifest_path = output_dir.join("DatasetManifest.json");
         write_manifest(&manifest, &manifest_path)?;
 
@@ -263,6 +296,7 @@ impl DatasetBuilder {
             examples_path,
             example_count: examples.len(),
             tokenizer_hash,
+            dataset_hash,
         })
     }
 
@@ -427,14 +461,20 @@ impl DatasetBuilder {
         let mut total_samples: usize = 0;
 
         for file_path in files {
-            let format = self.format.or_else(|| DatasetFormat::detect(file_path));
+            let ext = file_path
+                .extension()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            if ext != "jsonl" && ext != "ndjson" {
+                return Err(AosError::Validation(format!(
+                    "Unsupported dataset file extension '{}' at {}; only .jsonl/.ndjson are accepted",
+                    ext,
+                    file_path.display()
+                )));
+            }
 
-            let Some(format) = format else {
-                debug!("Skipping file with unknown format: {}", file_path.display());
-                continue;
-            };
-
-            let samples = parse_file(file_path, format, &config)?;
+            let samples = parse_file(file_path, DatasetFormat::Jsonl, &config)?;
             total_samples = total_samples.saturating_add(samples.len());
             if total_samples > self.limits.max_samples {
                 return Err(AosError::Validation(format!(
@@ -467,6 +507,7 @@ impl DatasetBuilder {
     fn create_manifest(
         &self,
         tokenizer_hash: &str,
+        dataset_hash: &str,
         source_files: &[SourceFileInfo],
         sample_count: usize,
     ) -> BuiltDatasetManifest {
@@ -485,12 +526,13 @@ impl DatasetBuilder {
             version: "1.0".to_string(),
             training_contract_version: TRAINING_DATA_CONTRACT_VERSION.to_string(),
             tokenizer_hash_b3: tokenizer_hash.to_string(),
+            dataset_hash_b3: dataset_hash.to_string(),
             build_config: BuildConfig {
                 format: format_name,
                 normalization: NORMALIZATION_SCHEME.to_string(),
                 ordering: "input_hash_asc".to_string(),
-                column_mapping: self.column_mapping.clone(),
-                text_strategy: Some(self.text_strategy.to_string()),
+                column_mapping: None,
+                text_strategy: None,
             },
             sample_count,
             source_files: source_files.to_vec(),
@@ -506,11 +548,6 @@ fn collect_files_sorted(dir: &Path) -> Result<Vec<PathBuf>> {
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().is_file())
-        .filter(|e| {
-            // Filter to supported formats
-            let path = e.path();
-            DatasetFormat::detect(path).is_some()
-        })
         .map(|e| e.path().to_path_buf())
         .collect();
 
@@ -569,15 +606,129 @@ fn tokenize_samples(
     let mut examples = Vec::with_capacity(samples.len());
     let mut total_tokens: u64 = 0;
     let created_at_unix_ms = chrono::Utc::now().timestamp_millis() as u64;
+    let mut schema_mode: Option<String> = None;
 
     for (i, sample) in samples.iter().enumerate() {
+        let schema = sample.metadata.get("schema").ok_or_else(|| {
+            AosError::Validation(format!(
+                "Missing schema metadata for sample {} (PLAN_4 requires explicit schema)",
+                i
+            ))
+        })?;
+        match schema.as_str() {
+            "supervised" | SCHEMA_RAW_CONTINUATION => {}
+            other => {
+                return Err(AosError::Validation(format!(
+                    "Unsupported schema '{}' for sample {}",
+                    other, i
+                )));
+            }
+        }
+        if let Some(active) = schema_mode.as_ref() {
+            if active != schema {
+                return Err(AosError::Validation(format!(
+                    "Mixed JSONL schemas detected: expected {}, found {} at sample {}",
+                    active, schema, i
+                )));
+            }
+        } else {
+            schema_mode = Some(schema.clone());
+        }
+        let row_id = sample
+            .metadata
+            .get("row_id")
+            .or_else(|| sample.metadata.get("source_line"))
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(i as u64);
+        let source_hash = sample.metadata.get("source_hash").cloned().unwrap_or_else(|| {
+            B3Hash::hash_multi(&[sample.input.as_bytes(), b"\0", sample.target.as_bytes()])
+                .to_hex()
+        });
+
+        if schema == SCHEMA_RAW_CONTINUATION {
+            let tokens = tokenizer.encode(&sample.input).map_err(|e| {
+                AosError::Validation(format!(
+                    "Failed to tokenize raw text at sample {}: {}",
+                    i, e
+                ))
+            })?;
+            if tokens.len() <= MAX_INPUT_TOKENS {
+                warn!(
+                    sample_index = i,
+                    token_count = tokens.len(),
+                    "Raw text row too short for continuation framing; dropping row"
+                );
+                continue;
+            }
+
+            let mut produced = 0usize;
+            let mut start = 0usize;
+            while start < tokens.len() {
+                let input_end = start + MAX_INPUT_TOKENS;
+                if input_end >= tokens.len() {
+                    break;
+                }
+                let target_end = input_end + MAX_TARGET_TOKENS;
+                let input_tokens = tokens[start..input_end].to_vec();
+                let target_tokens = tokens[input_end..tokens.len().min(target_end)].to_vec();
+                if input_tokens.is_empty() || target_tokens.is_empty() {
+                    break;
+                }
+
+                total_tokens = total_tokens
+                    .saturating_add((input_tokens.len() + target_tokens.len()) as u64);
+                if total_tokens > limits.max_tokens {
+                    return Err(AosError::Validation(format!(
+                        "Dataset token count exceeds limit: {} > {}",
+                        total_tokens, limits.max_tokens
+                    )));
+                }
+
+                let mut metadata = sample.metadata.clone();
+                metadata.insert("chunk_index".to_string(), produced.to_string());
+                let metadata = build_example_metadata(
+                    metadata,
+                    sample.weight,
+                    row_id,
+                    source_hash.clone(),
+                    created_at_unix_ms,
+                )?;
+                let attention_mask =
+                    TrainingExampleV1::attention_mask_from_tokens(&input_tokens, pad_token_id);
+                examples.push(TrainingExampleV1::new(
+                    input_tokens,
+                    target_tokens,
+                    attention_mask,
+                    metadata,
+                ));
+
+                produced += 1;
+                start = start.saturating_add(STRIDE_TOKENS);
+            }
+
+            if produced == 0 {
+                warn!(
+                    sample_index = i,
+                    token_count = tokens.len(),
+                    "Raw text row produced no training chunks"
+                );
+            }
+            continue;
+        }
+
         let input_tokens = tokenizer.encode(&sample.input).map_err(|e| {
             AosError::Validation(format!("Failed to tokenize input at sample {}: {}", i, e))
         })?;
-
         let target_tokens = tokenizer.encode(&sample.target).map_err(|e| {
             AosError::Validation(format!("Failed to tokenize target at sample {}: {}", i, e))
         })?;
+
+        if input_tokens.is_empty() || target_tokens.is_empty() {
+            return Err(AosError::Validation(format!(
+                "Sample {} produced empty token sequence",
+                i
+            )));
+        }
 
         total_tokens =
             total_tokens.saturating_add((input_tokens.len() + target_tokens.len()) as u64);
@@ -591,7 +742,8 @@ fn tokenize_samples(
         let metadata = build_example_metadata(
             sample.metadata.clone(),
             sample.weight,
-            i as u64,
+            row_id,
+            source_hash,
             created_at_unix_ms,
         )?;
         let attention_mask =
@@ -611,6 +763,7 @@ fn build_example_metadata(
     metadata: HashMap<String, String>,
     weight: f32,
     row_id: u64,
+    source_hash: String,
     created_at_unix_ms: u64,
 ) -> Result<ExampleMetadataV1> {
     let mut provenance = BTreeMap::new();
@@ -627,7 +780,8 @@ fn build_example_metadata(
     }
 
     let source_id = metadata
-        .get("source_path")
+        .get("dataset_id")
+        .or_else(|| metadata.get("source_path"))
         .or_else(|| metadata.get("dataset_name"))
         .or_else(|| metadata.get("source_file"))
         .cloned()
@@ -639,9 +793,39 @@ fn build_example_metadata(
     Ok(ExampleMetadataV1::new(
         source_id,
         row_id,
+        source_hash,
         provenance_json,
         created_at_unix_ms,
     ))
+}
+
+fn ensure_tokenizer_in_base_model(tokenizer_path: &Path) -> Result<()> {
+    let parent = tokenizer_path.parent().ok_or_else(|| {
+        AosError::Validation(format!(
+            "Tokenizer path {} has no parent directory",
+            tokenizer_path.display()
+        ))
+    })?;
+    let config_path = parent.join("config.json");
+    if !config_path.exists() {
+        return Err(AosError::Validation(format!(
+            "Tokenizer must come from the base model directory; missing {} next to {}",
+            config_path.display(),
+            tokenizer_path.display()
+        )));
+    }
+    Ok(())
+}
+
+fn compute_dataset_hash(source_files: &[SourceFileInfo]) -> String {
+    let mut hasher = blake3::Hasher::new();
+    for source in source_files {
+        hasher.update(source.path.as_bytes());
+        hasher.update(b"\0");
+        hasher.update(source.hash_b3.as_bytes());
+        hasher.update(b"\0");
+    }
+    hasher.finalize().to_hex().to_string()
 }
 
 /// Compute BLAKE3 hash of a file.
@@ -1058,9 +1242,9 @@ mod tests {
         let dir = tempdir().unwrap();
 
         // Create files in non-alphabetical order
-        create_test_jsonl(dir.path(), "c.jsonl", &[r#"{"input":"a","output":"b"}"#]);
-        create_test_jsonl(dir.path(), "a.jsonl", &[r#"{"input":"a","output":"b"}"#]);
-        create_test_jsonl(dir.path(), "b.jsonl", &[r#"{"input":"a","output":"b"}"#]);
+        create_test_jsonl(dir.path(), "c.jsonl", &[r#"{"prompt":"a","completion":"b"}"#]);
+        create_test_jsonl(dir.path(), "a.jsonl", &[r#"{"prompt":"a","completion":"b"}"#]);
+        create_test_jsonl(dir.path(), "b.jsonl", &[r#"{"prompt":"a","completion":"b"}"#]);
 
         let files = collect_files_sorted(dir.path()).unwrap();
 
@@ -1077,8 +1261,8 @@ mod tests {
             dir.path(),
             "data.jsonl",
             &[
-                r#"{"input":"one","output":"a"}"#,
-                r#"{"input":"two","output":"b"}"#,
+                r#"{"prompt":"one","completion":"a"}"#,
+                r#"{"prompt":"two","completion":"b"}"#,
             ],
         );
 
@@ -1089,7 +1273,9 @@ mod tests {
             max_tokens: 1000,
         };
 
-        let builder = DatasetBuilder::new(PathBuf::from("tokenizer.json"), dir.path().join("out"))
+        let tokenizer_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/models/tiny-test/tokenizer.json");
+        let builder = DatasetBuilder::new(tokenizer_path, dir.path().join("out"))
             .with_limits(limits);
         let err = builder
             .validate(&DatasetSource::Filesystem(data_path))
@@ -1138,9 +1324,9 @@ mod tests {
             dir.path(),
             "data.jsonl",
             &[
-                r#"{"input":"What is Rust?","output":"A systems programming language."}"#,
-                r#"{"input":"What is Python?","output":"A high-level programming language."}"#,
-                r#"{"input":"What is Go?","output":"A compiled language by Google."}"#,
+                r#"{"prompt":"What is Rust?","completion":"A systems programming language."}"#,
+                r#"{"prompt":"What is Python?","completion":"A high-level programming language."}"#,
+                r#"{"prompt":"What is Go?","completion":"A compiled language by Google."}"#,
             ],
         );
 
@@ -1193,9 +1379,9 @@ mod tests {
         let dir1 = tempdir().unwrap();
         let dir2 = tempdir().unwrap();
 
-        let sample_a = r#"{"input":"alpha","output":"first letter"}"#;
-        let sample_b = r#"{"input":"beta","output":"second letter"}"#;
-        let sample_c = r#"{"input":"gamma","output":"third letter"}"#;
+        let sample_a = r#"{"prompt":"alpha","completion":"first letter"}"#;
+        let sample_b = r#"{"prompt":"beta","completion":"second letter"}"#;
+        let sample_c = r#"{"prompt":"gamma","completion":"third letter"}"#;
 
         // Directory 1: create files in order a, b, c
         create_test_jsonl(dir1.path(), "a.jsonl", &[sample_a]);

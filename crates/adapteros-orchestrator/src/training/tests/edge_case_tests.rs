@@ -22,7 +22,7 @@ fn make_example(
     target_tokens: Vec<u32>,
     row_id: u64,
 ) -> WorkerTrainingExample {
-    let metadata = ExampleMetadataV1::new("test", row_id, "{}", 0);
+    let metadata = ExampleMetadataV1::new("test", row_id, "row-hash", "{}", 0);
     let attention_mask = WorkerTrainingExample::attention_mask_from_tokens(&input_tokens, 0);
     WorkerTrainingExample::new(input_tokens, target_tokens, attention_mask, metadata)
 }

@@ -23,7 +23,7 @@ fn create_examples(count: usize) -> Vec<adapteros_lora_worker::training::Trainin
                     &input_tokens,
                     0,
                 );
-            let metadata = ExampleMetadataV1::new("test", i as u64, "{}", 0);
+            let metadata = ExampleMetadataV1::new("test", i as u64, "row-hash", "{}", 0);
             adapteros_lora_worker::training::TrainingExample::new(
                 input_tokens,
                 target_tokens,

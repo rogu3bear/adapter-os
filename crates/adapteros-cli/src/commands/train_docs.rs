@@ -167,6 +167,12 @@ impl TrainDocsArgs {
         self.output.clone().unwrap_or_else(Self::default_output_dir)
     }
 
+    fn validate_plan4(&self) -> Result<()> {
+        Err(AosError::Validation(
+            "train-docs is disabled by PLAN_4; use JSONL datasets only".to_string(),
+        ))
+    }
+
     fn default_output_dir() -> PathBuf {
         adapteros_core::paths::get_default_adapters_root().join("docs-assistant")
     }
@@ -269,6 +275,7 @@ impl TrainDocsArgs {
     }
 
     pub async fn execute(&self) -> Result<()> {
+        self.validate_plan4()?;
         info!("=== Documentation Training Pipeline ===");
 
         // Resolve registration context first to surface errors early

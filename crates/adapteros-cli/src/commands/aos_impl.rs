@@ -146,7 +146,10 @@ pub fn load_training_data(path: &PathBuf) -> Result<Vec<TrainingExample>> {
             line.map_err(|e| AosError::Io(format!("Failed to read line {}: {}", line_num + 1, e)))?;
 
         if line.trim().is_empty() {
-            continue;
+            return Err(AosError::Validation(format!(
+                "Empty JSONL line {} in training data",
+                line_num + 1
+            )));
         }
 
         let example: TrainingExample = serde_json::from_str(&line).map_err(|e| {

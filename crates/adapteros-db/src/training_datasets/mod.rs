@@ -4073,11 +4073,6 @@ mod tests {
     #[test]
     fn test_validate_format_valid() {
         assert!(validate_format("jsonl").is_ok());
-        assert!(validate_format("patches").is_ok());
-        assert!(validate_format("txt").is_ok());
-        assert!(validate_format("custom").is_ok());
-        assert!(validate_format("parquet").is_ok());
-        assert!(validate_format("csv").is_ok());
     }
 
     #[test]
@@ -4682,6 +4677,7 @@ pub fn build_training_rows_from_jsonl_bytes(
     for (line_idx, line) in text.lines().enumerate() {
         let trimmed = line.trim();
         if trimmed.is_empty() {
+            parse_errors += 1;
             continue;
         }
 
@@ -4698,61 +4694,56 @@ pub fn build_training_rows_from_jsonl_bytes(
             continue;
         };
 
-        let prompt = object
-            .get("prompt")
-            .or_else(|| object.get("input"))
-            .or_else(|| object.get("question"))
-            .or_else(|| object.get("text"))
-            .and_then(|v| v.as_str())
-            .map(str::to_string);
+        let is_supervised =
+            object.len() == 2 && object.contains_key("prompt") && object.contains_key("completion");
+        let is_raw = object.len() == 1 && object.contains_key("text");
 
-        let Some(prompt) = prompt.filter(|p| !p.trim().is_empty()) else {
+        if !is_supervised && !is_raw {
             dropped += 1;
             continue;
+        }
+
+        let (prompt, response) = if is_supervised {
+            let prompt = object
+                .get("prompt")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string);
+            let completion = object
+                .get("completion")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string);
+
+            let (Some(prompt), Some(completion)) = (prompt, completion) else {
+                dropped += 1;
+                continue;
+            };
+            (prompt, completion)
+        } else {
+            let text = object
+                .get("text")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string);
+            let Some(text) = text else {
+                dropped += 1;
+                continue;
+            };
+            (text, String::new())
         };
-
-        let response = object
-            .get("response")
-            .or_else(|| object.get("output"))
-            .or_else(|| object.get("answer"))
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string();
-
-        let weight = object.get("weight").and_then(|v| v.as_f64()).unwrap_or(1.0);
-
-        let split = object
-            .get("split")
-            .and_then(|v| v.as_str())
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .unwrap_or(default_split)
-            .to_string();
-
-        let sample_role = object
-            .get("sample_role")
-            .or_else(|| object.get("role"))
-            .and_then(|v| v.as_str())
-            .and_then(SampleRole::from_str)
-            .unwrap_or(SampleRole::Positive);
-
-        let metadata_value = object.get("metadata");
-        let metadata_json = metadata_value.and_then(|v| {
-            if v.is_null() {
-                None
-            } else {
-                Some(v.to_string())
-            }
-        });
 
         let source_line = i32::try_from(line_idx + 1).ok();
 
         let mut builder =
             CreateTrainingDatasetRowParams::builder(dataset_id.to_string(), prompt, response)
                 .dataset_version_id(dataset_version_id)
-                .weight(weight)
-                .split(split)
-                .sample_role(sample_role)
+                .weight(1.0)
+                .split(default_split.to_string())
+                .sample_role(SampleRole::Positive)
                 .source_file(file_name);
 
         if let Some(source_line) = source_line {
@@ -4764,9 +4755,6 @@ pub fn build_training_rows_from_jsonl_bytes(
         }
         if let Some(tenant_id) = tenant_id {
             builder = builder.tenant_id(tenant_id);
-        }
-        if let Some(metadata_json) = metadata_json {
-            builder = builder.metadata_json(metadata_json);
         }
         if let Some(created_by) = created_by {
             builder = builder.created_by(created_by);

@@ -35,16 +35,26 @@
     },
     "metadata": {
       "type": "object",
-      "required": ["source_id", "row_id", "provenance", "created_at_unix_ms"],
+      "required": [
+        "dataset_id",
+        "row_id",
+        "source_hash",
+        "provenance",
+        "created_at_unix_ms"
+      ],
       "properties": {
-        "source_id": {
+        "dataset_id": {
           "type": "string",
-          "description": "Logical source identifier for the example."
+          "description": "Dataset identifier for the example source."
         },
         "row_id": {
           "type": "integer",
           "minimum": 0,
           "description": "Stable row identifier within the source."
+        },
+        "source_hash": {
+          "type": "string",
+          "description": "Hash of the raw row payload."
         },
         "provenance": {
           "type": "string",
