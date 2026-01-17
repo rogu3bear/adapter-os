@@ -1,4 +1,3 @@
-#![cfg(all(test, feature = "extended-tests"))]
 //! Benchmark utilities and helper functions
 
 use std::time::{Duration, Instant};
