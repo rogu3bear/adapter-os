@@ -711,6 +711,113 @@ jobs:
           ls -la crates/adapteros-server/static/
       - name: PRD-UI-000 Asset integrity check
         run: ./scripts/ci/check_ui_assets.sh
+      - name: Upload UI artifacts for TTI test
+        uses: actions/upload-artifact@v4
+        with:
+          name: leptos-wasm-build
+          path: crates/adapteros-server/static/
+          retention-days: 1
+
+  # ==========================================================================
+  # TTI Measurement (PRD-UI-170)
+  # ==========================================================================
+  tti-measurement:
+    name: TTI Measurement (PRD-UI-170)
+    runs-on: ubuntu-latest
+    needs: leptos-wasm-build
+    timeout-minutes: 10
+    env:
+      AOS_DEV_NO_AUTH: "1"
+      AOS_BACKEND: mock
+      AOS_SERVER_PORT: "8080"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install sqlx-cli
+        run: cargo install sqlx-cli --version 0.8.2 --no-default-features --features sqlite --locked
+      - name: Download UI artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: leptos-wasm-build
+          path: crates/adapteros-server/static/
+      - name: Build server
+        run: cargo build -p adapteros-server --release
+      - name: Setup test database
+        run: |
+          mkdir -p var
+          touch var/tti-test.sqlite3
+          SQLX_DISABLE_STATEMENT_CHECKS=1 \
+          AOS_SKIP_MIGRATION_SIGNATURES=1 \
+          DATABASE_URL="sqlite://./var/tti-test.sqlite3" \
+            cargo sqlx migrate run
+      - name: Start server
+        run: |
+          AOS_SKIP_MIGRATION_SIGNATURES=1 \
+          SQLX_DISABLE_STATEMENT_CHECKS=1 \
+          DATABASE_URL="sqlite://./var/tti-test.sqlite3" \
+          AOS_DATABASE_URL="sqlite://./var/tti-test.sqlite3" \
+          RUST_LOG=warn \
+            ./target/release/adapteros-server \
+              --config configs/cp.toml &
+          SERVER_PID=$!
+          echo $SERVER_PID > var/server.pid
+
+          # Wait for server to be ready
+          for i in {1..30}; do
+            if curl -fsS --max-time 2 http://127.0.0.1:8080/healthz >/dev/null 2>&1; then
+              echo "Server ready after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+
+          # Verify server is up
+          curl -fsS http://127.0.0.1:8080/healthz || (echo "Server failed to start"; exit 1)
+      - name: Measure TTI with Lighthouse
+        run: |
+          npx lighthouse http://127.0.0.1:8080 \
+            --only-categories=performance \
+            --output=json \
+            --output-path=./lighthouse.json \
+            --chrome-flags="--headless --no-sandbox --disable-gpu"
+
+          TTI=$(jq '.audits["interactive"].numericValue' lighthouse.json)
+          echo "TTI: ${TTI}ms"
+
+          # PRD-UI-170: Dashboard interactive in <2s
+          if (( $(echo "$TTI > 2000" | bc -l) )); then
+            echo "::error::TTI (${TTI}ms) exceeds 2s target (PRD-UI-170)"
+
+            # Show performance breakdown for debugging
+            echo ""
+            echo "=== Performance Breakdown ==="
+            jq -r '.audits | to_entries[] | select(.value.numericValue != null) | "\(.key): \(.value.numericValue)ms"' lighthouse.json | head -20
+
+            exit 1
+          fi
+
+          echo "::notice::TTI ${TTI}ms is within 2s target"
+
+          # Record to job summary
+          echo "## TTI Measurement (PRD-UI-170)" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value | Target |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Time to Interactive | ${TTI}ms | <2000ms |" >> $GITHUB_STEP_SUMMARY
+      - name: Stop server
+        if: always()
+        run: |
+          if [ -f var/server.pid ]; then
+            kill $(cat var/server.pid) 2>/dev/null || true
+          fi
+      - name: Upload Lighthouse report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lighthouse-report
+          path: lighthouse.json
 
   leptos-wasm-check:
     name: Leptos WASM Check
