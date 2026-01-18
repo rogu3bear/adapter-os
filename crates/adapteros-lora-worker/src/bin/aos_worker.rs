@@ -15,8 +15,8 @@ use adapteros_telemetry::unified_events::{
 };
 use tracing::error;
 use worker_modules::{
-    error_to_exit_code, run_worker, shutdown_worker_telemetry, EXIT_SUCCESS, EXIT_TRANSIENT_ERROR,
-    WORKER_IDENTITY, WORKER_TELEMETRY,
+    error_to_exit_code, run_worker, shutdown_worker_telemetry, EXIT_SUCCESS, WORKER_IDENTITY,
+    WORKER_TELEMETRY,
 };
 
 fn main() -> Result<()> {

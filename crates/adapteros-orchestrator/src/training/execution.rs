@@ -1618,7 +1618,7 @@ pub(crate) async fn run_training_job(
                     }
                 }
 
-                Err(e.into())
+                Err(e)
             }
         }
     }
@@ -1666,7 +1666,7 @@ fn hash_examples_for_receipt(examples: &[WorkerTrainingExample]) -> String {
 fn hash_training_result_for_receipt(
     training_result: &adapteros_lora_worker::training::trainer::TrainingResult,
 ) -> Result<String> {
-    let bytes = serde_json::to_vec(training_result).map_err(|e| AosError::Serialization(e))?;
+    let bytes = serde_json::to_vec(training_result).map_err(AosError::Serialization)?;
     Ok(B3Hash::hash(&bytes).to_hex().to_string())
 }
 
@@ -1789,7 +1789,7 @@ async fn resolve_training_config_hash(
 fn compute_pipeline_training_config_hash(worker_cfg: &WorkerTrainingConfig) -> Result<String> {
     let mut snapshot = worker_cfg.clone();
     snapshot.base_model_path = None;
-    let bytes = serde_json::to_vec(&snapshot).map_err(|e| AosError::Serialization(e))?;
+    let bytes = serde_json::to_vec(&snapshot).map_err(AosError::Serialization)?;
     Ok(B3Hash::hash(&bytes).to_hex().to_string())
 }
 
@@ -1849,7 +1849,7 @@ async fn resolve_base_model_path(
 }
 
 fn hash_preprocess_config(config: &WorkerPreprocessingConfig) -> Result<String> {
-    let bytes = serde_json::to_vec(config).map_err(|e| AosError::Serialization(e))?;
+    let bytes = serde_json::to_vec(config).map_err(AosError::Serialization)?;
     Ok(B3Hash::hash(&bytes).to_hex().to_string())
 }
 

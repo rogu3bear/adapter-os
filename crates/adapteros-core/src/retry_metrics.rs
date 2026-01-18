@@ -113,27 +113,29 @@ const OVERFLOW_THRESHOLD: u64 = u64::MAX / 2; // Conservative threshold for over
 /// Global timestamp counter for LRU tracking
 static ACCESS_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-/// Validate service name
+/// Validate service name using centralized validation builder
 fn validate_service_name(service_type: &str) -> Result<(), MetricsError> {
-    if service_type.is_empty() {
-        return Err(MetricsError::InvalidInput {
-            operation: "validate_service_name".to_string(),
-            message: "Service name cannot be empty".to_string(),
-        });
-    }
-    if service_type.len() > MAX_SERVICE_NAME_LENGTH {
-        return Err(MetricsError::InvalidInput {
-            operation: "validate_service_name".to_string(),
-            message: format!("Service name too long: {} > {}", service_type.len(), MAX_SERVICE_NAME_LENGTH),
-        });
-    }
-    if !service_type.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
-        return Err(MetricsError::InvalidInput {
-            operation: "validate_service_name".to_string(),
-            message: "Service name contains invalid characters (only alphanumeric, underscore, and hyphen allowed)".to_string(),
-        });
-    }
-    Ok(())
+    use crate::validation::ValidatorBuilder;
+
+    // Build a validator for service names:
+    // - Not empty
+    // - Max 100 characters
+    // - Alphanumeric plus hyphens and underscores
+    static SERVICE_NAME_VALIDATOR: std::sync::OnceLock<crate::validation::Validator> =
+        std::sync::OnceLock::new();
+
+    let validator = SERVICE_NAME_VALIDATOR.get_or_init(|| {
+        ValidatorBuilder::new("service_name")
+            .not_empty()
+            .max_length(MAX_SERVICE_NAME_LENGTH)
+            .with_chars("-_")
+            .build()
+    });
+
+    validator.validate(service_type).map_err(|e| MetricsError::InvalidInput {
+        operation: "validate_service_name".to_string(),
+        message: e.message,
+    })
 }
 
 /// Validate attempt number

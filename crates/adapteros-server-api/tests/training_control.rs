@@ -118,6 +118,8 @@ fn make_request(name: &str, repo_id: String, base_model_id: &str) -> StartTraini
             base_model_path: None,
             preprocessing: None,
             force_resume: None,
+            multi_module_training: None,
+            lora_layer_indices: None,
         },
         template_id: None,
         repo_id: Some(repo_id),

@@ -460,7 +460,7 @@ pub(crate) async fn package_and_register_adapter(
                 }
             }
 
-            return Err(e.into());
+            return Err(e);
         }
     };
 
@@ -1013,7 +1013,7 @@ pub(crate) async fn package_and_register_adapter(
                     warn!(job_id = %job_id, error = %db_err, "Failed to persist training failure status to DB (non-fatal)");
                 }
 
-                return Err(e.into());
+                return Err(e);
             }
         }
     } else {

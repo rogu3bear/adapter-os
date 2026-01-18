@@ -65,6 +65,8 @@ fn base_config() -> TrainingConfigRequest {
         base_model_path: None,
         preprocessing: None,
         force_resume: None,
+        multi_module_training: None,
+        lora_layer_indices: None,
     }
 }
 

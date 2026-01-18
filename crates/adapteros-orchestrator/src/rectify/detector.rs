@@ -130,7 +130,7 @@ impl ChangeDetector {
         }
 
         // Check for deleted documents
-        for (doc_id, _) in &self.known_hashes {
+        for doc_id in self.known_hashes.keys() {
             if !seen_docs.contains(doc_id) {
                 if let Some(change) = self.check_deleted(doc_id, doc_id) {
                     changes.push(change);

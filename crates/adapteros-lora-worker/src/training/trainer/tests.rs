@@ -340,14 +340,14 @@ fn test_describe_available_backends() {
 }
 
 #[test]
-fn test_initialize_weights() {
+fn test_init_weights() {
     let config = TrainingConfig {
         rank: 4,
         hidden_dim: 768,
         ..Default::default()
     };
     let trainer = MicroLoRATrainer::new_for_test(config).unwrap();
-    let weights = trainer.initialize_weights_deterministic().unwrap();
+    let weights = trainer.init_weights_deterministic().unwrap();
 
     assert_eq!(weights.lora_a.len(), 4);
     assert_eq!(weights.lora_a[0].len(), 768);
@@ -368,7 +368,7 @@ fn test_training_updates_only_lora_weights() {
     };
 
     let mut trainer = MicroLoRATrainer::new_for_test(config.clone()).unwrap();
-    let mut weights = trainer.initialize_weights_deterministic().unwrap();
+    let mut weights = trainer.init_weights_deterministic().unwrap();
     let initial_weights = weights.clone();
 
     let base_snapshot = vec![1.0f32, 2.0, 3.0, 4.0];
@@ -414,7 +414,7 @@ fn test_training_updates_only_lora_weights() {
 
     // Ensure deterministic RNG usage remains stable between runs
     let mut trainer_second = MicroLoRATrainer::new_for_test(config).unwrap();
-    let mut weights_second = trainer_second.initialize_weights_deterministic().unwrap();
+    let mut weights_second = trainer_second.init_weights_deterministic().unwrap();
     let dataset_second = trainer_second
         .prepare_dataset_for_training(&examples)
         .expect("dataset prep second");
@@ -440,7 +440,7 @@ fn test_forward_pass() {
         ..Default::default()
     };
     let mut trainer = MicroLoRATrainer::new_for_test(config).unwrap();
-    let weights = trainer.initialize_weights_deterministic().unwrap();
+    let weights = trainer.init_weights_deterministic().unwrap();
 
     let examples = vec![example(vec![1, 2, 3, 4, 5], vec![1, 2, 3, 4, 5])];
     let dataset = trainer
@@ -506,7 +506,7 @@ fn test_backward_only_updates_lora_weights() {
         ..Default::default()
     };
     let trainer = MicroLoRATrainer::new_for_test(config).unwrap();
-    let mut weights = trainer.initialize_weights_deterministic().unwrap();
+    let mut weights = trainer.init_weights_deterministic().unwrap();
     let original_weights = weights.clone();
 
     let example = example(vec![1, 2], vec![1, 2, 3, 4]);
@@ -827,7 +827,7 @@ async fn test_adapter_only_training_updates_lora_only() {
     let examples = vec![example(vec![1, 2, 3, 4], vec![5, 6, 7, 8])];
 
     // Snapshot initial LoRA weights and base (input-derived) hidden state.
-    let initial_weights = trainer.initialize_weights_deterministic().unwrap();
+    let initial_weights = trainer.init_weights_deterministic().unwrap();
     let initial_hash = hash_weights(&initial_weights);
     let prepared = make_prepared(&examples[0], trainer.config.hidden_dim);
     let (_out_before, base_hidden_before) = trainer.forward(&initial_weights, &prepared).unwrap();

@@ -1,6 +1,18 @@
 //! Key lifecycle tracking and age monitoring
 
 use adapteros_db::Db;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+/// Get current unix timestamp safely, returning 0 on system time misconfiguration
+fn current_unix_timestamp() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or_else(|_| {
+            tracing::error!("System time before UNIX epoch - key age calculations will be incorrect");
+            0
+        })
+}
 #[cfg(all(target_os = "macos", feature = "secure-enclave"))]
 use security_framework::item::{ItemClass, ItemSearchOptions, SearchResult};
 use std::sync::Arc;
@@ -35,29 +47,18 @@ impl KeyLifecycleManager {
                 }
                 Ok(None) => {
                     // New key - try to get creation date from keychain, else use now
+                    let now = current_unix_timestamp();
                     let created_at =
                         self.get_keychain_creation_date(key_label)
                             .unwrap_or_else(|| {
                                 tracing::warn!(
-                                "Could not get keychain creation date for {}, using current time",
-                                key_label
-                            );
-                                std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .expect("System time before UNIX epoch")
-                                    .as_secs() as i64
+                                    "Could not get keychain creation date for {}, using current time",
+                                    key_label
+                                );
+                                now
                             });
 
-                    let source = if created_at
-                        == std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .expect("System time before UNIX epoch")
-                            .as_secs() as i64
-                    {
-                        "manual"
-                    } else {
-                        "keychain"
-                    };
+                    let source = if created_at == now { "manual" } else { "keychain" };
 
                     if let Err(e) = db
                         .upsert_key_metadata(key_label, created_at, source, key_type)
@@ -139,12 +140,7 @@ impl KeyLifecycleManager {
             match db.list_old_keys(self.threshold_days).await {
                 Ok(old_keys) => {
                     for key in old_keys {
-                        let age_days = (std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .expect("System time before UNIX epoch")
-                            .as_secs() as i64
-                            - key.created_at)
-                            / 86400;
+                        let age_days = (current_unix_timestamp() - key.created_at) / 86400;
 
                         let key_label = key.key_label.clone();
                         warnings.push(KeyAgeWarning {
@@ -207,11 +203,7 @@ impl KeyLifecycleManager {
                     return None;
                 }
 
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .expect("System time before UNIX epoch")
-                    .as_secs() as i64;
-
+                let now = current_unix_timestamp();
                 keys.into_iter().map(|k| (now - k.created_at) / 86400).max()
             } else {
                 None

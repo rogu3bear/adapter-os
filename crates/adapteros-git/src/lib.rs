@@ -156,7 +156,8 @@ impl Plugin for GitSubsystem {
     }
 }
 
-// NOTE: The original GitSubsystem implementation (watcher, commit daemon, branch manager)
-// has been temporarily stubbed out to resolve a feature conflict. The primary
-// functionality of this crate is now the DiffAnalyzer. The GitSubsystem will be
-// fully implemented in a future iteration.
+// GitSubsystem provides full git integration including:
+// - File system watcher (watcher.rs) - monitors for changes via notify crate
+// - Commit daemon (commit_daemon.rs) - batches changes into deterministic commits
+// - Branch manager (branch_manager.rs) - handles adapter session lifecycle
+// - Diff analyzer (diff_analyzer.rs) - analyzes code changes for adapter priors

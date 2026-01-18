@@ -57,7 +57,7 @@ pub(crate) fn write_training_report(
         })?;
     }
 
-    let json = serde_json::to_string_pretty(&report).map_err(|e| AosError::Serialization(e))?;
+    let json = serde_json::to_string_pretty(&report).map_err(AosError::Serialization)?;
     std::fs::write(&report_path, json).map_err(|e| {
         AosError::Io(format!(
             "Failed to write training report to {}: {}",

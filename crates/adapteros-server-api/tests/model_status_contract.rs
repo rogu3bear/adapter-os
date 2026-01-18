@@ -162,6 +162,8 @@ fn minimal_request(tenant_id: &str, model_id: &str) -> InferenceRequestInternal 
         require_step: false,
         require_determinism: false,
         allow_fallback: true,
+        abstention_threshold: None,
+        citation_mode: None,
     }
 }
 

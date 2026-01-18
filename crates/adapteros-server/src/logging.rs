@@ -1,7 +1,7 @@
 //! Logging initialization and maintenance utilities.
 //!
 //! This module provides:
-//! - [`initialize_logging`]: Sets up tracing with console, file, and OpenTelemetry outputs
+//! - [`init_logging`]: Sets up tracing with console, file, and OpenTelemetry outputs
 //!   using a deterministic log profile switch.
 //! - [`cleanup_old_logs`]: Removes log files older than the retention period
 
@@ -330,7 +330,7 @@ pub async fn cleanup_old_logs(log_dir: &str, retention_days: u32) -> Result<usiz
 ///
 /// Returns guards that must be kept alive for the duration of the program
 /// to ensure log files are properly flushed and OpenTelemetry spans are exported.
-pub fn initialize_logging(
+pub fn init_logging(
     config: &LoggingConfig,
     otel_config: &OtelConfig,
 ) -> Result<(Option<WorkerGuard>, Option<OtelGuard>)> {

@@ -294,13 +294,14 @@ pub async fn infer(
 
             // Dev echo mode: when no worker is available in dev bypass mode,
             // return a mock echo response instead of failing
-            if is_dev_bypass_enabled() {
-                if matches!(
+            if is_dev_bypass_enabled()
+                && matches!(
                     e,
                     InferenceError::WorkerDegraded { .. }
                         | InferenceError::NoCompatibleWorker { .. }
                         | InferenceError::WorkerError(_)
-                ) {
+                )
+            {
                     info!(
                         request_id = %request_id_str,
                         tenant_id = %claims.tenant_id,
@@ -349,7 +350,6 @@ pub async fn infer(
                         stop_reason_token_index: None,
                         stop_policy_digest_b3: None,
                     }));
-                }
             }
 
             let failure_code = e.failure_code().map(|c| c.as_str().to_string());

@@ -34,6 +34,7 @@ pub use uds::{CancelTrainingResponse, ConnectionPool, Signal, UdsClient, UdsClie
 /// # Citations
 /// - CONTRIBUTING.md L118-122: "Follow Rust naming conventions", "Use `cargo clippy` for linting"
 /// - Policy Pack #1 (Egress): "MUST NOT open listening TCP ports; use Unix domain sockets only"
+#[allow(non_camel_case_types)] // Intentional: matches adapterOS branding
 pub trait adapterOSClient {
     // Health & Auth
     async fn health(&self) -> Result<HealthResponse>;

@@ -50,38 +50,20 @@ pub enum StorageError {
     ConflictError(String),
 }
 
-impl From<bincode::Error> for StorageError {
-    fn from(err: bincode::Error) -> Self {
+// ============================================================================
+// Error conversions using impl_error_from_for! macro
+// ============================================================================
+//
+// These conversions use the macro from adapteros-core to reduce boilerplate.
+
+// Manual bincode conversion (macro doesn't handle Box<T> generics well)
+impl From<Box<bincode::ErrorKind>> for StorageError {
+    fn from(err: Box<bincode::ErrorKind>) -> Self {
         StorageError::SerializationError(err.to_string())
     }
 }
-
-impl From<redb::Error> for StorageError {
-    fn from(err: redb::Error) -> Self {
-        StorageError::BackendError(err.to_string())
-    }
-}
-
-impl From<redb::TransactionError> for StorageError {
-    fn from(err: redb::TransactionError) -> Self {
-        StorageError::TransactionError(err.to_string())
-    }
-}
-
-impl From<redb::TableError> for StorageError {
-    fn from(err: redb::TableError) -> Self {
-        StorageError::BackendError(err.to_string())
-    }
-}
-
-impl From<redb::CommitError> for StorageError {
-    fn from(err: redb::CommitError) -> Self {
-        StorageError::TransactionError(err.to_string())
-    }
-}
-
-impl From<redb::StorageError> for StorageError {
-    fn from(err: redb::StorageError) -> Self {
-        StorageError::BackendError(err.to_string())
-    }
-}
+adapteros_core::impl_error_from_for!(StorageError: redb::Error => BackendError);
+adapteros_core::impl_error_from_for!(StorageError: redb::TransactionError => TransactionError);
+adapteros_core::impl_error_from_for!(StorageError: redb::TableError => BackendError);
+adapteros_core::impl_error_from_for!(StorageError: redb::CommitError => TransactionError);
+adapteros_core::impl_error_from_for!(StorageError: redb::StorageError => BackendError);

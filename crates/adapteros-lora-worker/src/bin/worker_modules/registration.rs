@@ -1,5 +1,4 @@
 use adapteros_api_types::workers::WorkerCapabilities;
-use adapteros_core::B3Hash;
 use tracing::{error, info, warn};
 
 // Schema and API versions for worker registration

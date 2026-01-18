@@ -1,3 +1,85 @@
+//! Centralized validation with a composable builder pattern
+//!
+//! This module provides a unified approach to string validation across AdapterOS.
+//! It offers both a fluent builder API for creating custom validators and pre-built
+//! validators for common use cases.
+//!
+//! # Design Goals
+//!
+//! - **Composability**: Build validators by combining reusable rules
+//! - **Consistency**: Same validation logic across crates
+//! - **Clarity**: Clear error messages with structured error types
+//! - **Performance**: Rules are object-safe but avoid heap allocation in hot paths
+//!
+//! # Quick Start
+//!
+//! ## Using Pre-built Validators
+//!
+//! ```rust
+//! use adapteros_core::validation::presets;
+//!
+//! let validator = presets::adapter_id_validator();
+//! assert!(validator.validate("my-adapter").is_ok());
+//! assert!(validator.validate("system-reserved").is_err());
+//! ```
+//!
+//! ## Building Custom Validators
+//!
+//! ```rust
+//! use adapteros_core::validation::ValidatorBuilder;
+//!
+//! let validator = ValidatorBuilder::new("my_field")
+//!     .not_empty()
+//!     .with_chars("-_")
+//!     .length(3, 64)
+//!     .starts_with_alphanumeric()
+//!     .build();
+//!
+//! assert!(validator.validate("abc-123").is_ok());
+//! ```
+//!
+//! # Module Structure
+//!
+//! - [`error`]: Validation error types with structured codes
+//! - [`rules`]: Individual validation rules implementing [`ValidationRule`]
+//! - [`builder`]: Fluent API for composing validators
+//! - [`presets`]: Ready-to-use validators for common identifiers
+//!
+//! # Migration from Legacy Validators
+//!
+//! This module also re-exports the original validation functions for backward
+//! compatibility. New code should prefer the builder pattern:
+//!
+//! ```rust
+//! use adapteros_core::validation::{validate_adapter_id, presets::adapter_id_validator};
+//!
+//! // Legacy approach (still supported)
+//! assert!(validate_adapter_id("my-adapter").is_ok());
+//!
+//! // New approach (preferred)
+//! assert!(adapter_id_validator().validate("my-adapter").is_ok());
+//! ```
+
+pub mod builder;
+pub mod error;
+pub mod presets;
+pub mod rules;
+
+// Re-export main types for convenient access
+pub use builder::{Validator, ValidatorBuilder};
+pub use error::{ValidationError, ValidationErrorCode};
+pub use rules::{
+    AllowedChars, EndsWithAlphanumeric, MaxLength, MinLength, NoConsecutive, NotBlank, NotEmpty,
+    NotReserved, Pattern, StartsWithAlphanumeric, ValidationRule,
+};
+
+// =============================================================================
+// Legacy Validation Functions (Backward Compatibility)
+// =============================================================================
+//
+// These functions provide backward compatibility with existing code.
+// New code should prefer the builder pattern via `presets` module.
+
 use crate::adapter_type::AdapterType;
 use crate::AosError;
 
@@ -9,6 +91,18 @@ const CODEBASE_REPO_SLUG_MAX_LEN: usize = 64;
 const CODEBASE_COMMIT_MIN_LEN: usize = 7;
 const CODEBASE_COMMIT_MAX_LEN: usize = 40;
 
+/// Validate an adapter ID.
+///
+/// **Deprecated**: Consider using `presets::adapter_id_validator()` instead.
+///
+/// # Rules
+///
+/// - Not empty
+/// - Maximum 64 characters
+/// - Alphanumeric with hyphens and underscores
+/// - Must start and end with alphanumeric character
+/// - No consecutive hyphens/underscores
+/// - Cannot use reserved prefixes
 pub fn validate_adapter_id(id: &str) -> Result<(), AosError> {
     // Check empty
     if id.is_empty() {
@@ -105,17 +199,9 @@ pub fn validate_codebase_adapter_id(id: &str) -> Result<(), AosError> {
     })?;
     let mut parts = rest.split('.');
 
-    // Edge case: fail fast with specific error messages instead of using unwrap_or_default
-    // which would mask the actual problem and defer to a generic error later
     let repo_slug = match parts.next() {
         Some(s) if !s.is_empty() => s,
-        Some(_) => {
-            return Err(AosError::Validation(
-                "Missing repo slug: codebase adapter ID must follow code.<repo_slug>.<commit>"
-                    .to_string(),
-            ))
-        }
-        None => {
+        Some(_) | None => {
             return Err(AosError::Validation(
                 "Missing repo slug: codebase adapter ID must follow code.<repo_slug>.<commit>"
                     .to_string(),
@@ -125,13 +211,7 @@ pub fn validate_codebase_adapter_id(id: &str) -> Result<(), AosError> {
 
     let commit = match parts.next() {
         Some(s) if !s.is_empty() => s,
-        Some(_) => {
-            return Err(AosError::Validation(
-                "Missing commit: codebase adapter ID must follow code.<repo_slug>.<commit>"
-                    .to_string(),
-            ))
-        }
-        None => {
+        Some(_) | None => {
             return Err(AosError::Validation(
                 "Missing commit: codebase adapter ID must follow code.<repo_slug>.<commit>"
                     .to_string(),
@@ -201,6 +281,7 @@ fn validate_codebase_commit(commit: &str) -> Result<(), AosError> {
     Ok(())
 }
 
+/// Validate a display name.
 pub fn validate_name(name: &str) -> Result<(), AosError> {
     if name.is_empty() {
         return Err(AosError::Validation("Name cannot be empty".to_string()));
@@ -225,6 +306,7 @@ pub fn validate_name(name: &str) -> Result<(), AosError> {
     Ok(())
 }
 
+/// Validate a BLAKE3 hash in b3:... format.
 pub fn validate_hash_b3(hash: &str) -> Result<(), AosError> {
     if !hash.starts_with("b3:") {
         return Err(AosError::Validation(format!(
@@ -248,6 +330,7 @@ pub fn validate_hash_b3(hash: &str) -> Result<(), AosError> {
     Ok(())
 }
 
+/// Validate a repository ID.
 pub fn validate_repo_id(repo_id: &str) -> Result<(), AosError> {
     if repo_id.is_empty() {
         return Err(AosError::Validation(
@@ -275,6 +358,7 @@ pub fn validate_repo_id(repo_id: &str) -> Result<(), AosError> {
     Ok(())
 }
 
+/// Validate a description field.
 pub fn validate_description(description: &str) -> Result<(), AosError> {
     if description.len() > 1024 {
         return Err(AosError::Validation(
@@ -285,6 +369,7 @@ pub fn validate_description(description: &str) -> Result<(), AosError> {
     Ok(())
 }
 
+/// Validate a list of file paths.
 pub fn validate_file_paths(paths: &[String]) -> Result<(), AosError> {
     if paths.is_empty() {
         return Err(AosError::Validation(
@@ -344,15 +429,6 @@ pub fn validate_file_paths(paths: &[String]) -> Result<(), AosError> {
 /// Codebase adapters have special requirements:
 /// - Must declare explicit `base_adapter_id` pointing to a core adapter
 /// - Session binding is optional at creation but required for activation
-///
-/// # Arguments
-///
-/// * `adapter_type` - The adapter type being validated
-/// * `base_adapter_id` - The base adapter ID (required for codebase type)
-///
-/// # Returns
-///
-/// Returns `Ok(())` if validation passes, `Err(AosError::Validation)` otherwise.
 pub fn validate_codebase_adapter_registration(
     adapter_type: AdapterType,
     base_adapter_id: Option<&str>,
@@ -377,15 +453,6 @@ pub fn validate_codebase_adapter_registration(
 /// Validate session binding requirements for codebase adapters.
 ///
 /// Only codebase adapters can be bound to sessions for exclusive access.
-///
-/// # Arguments
-///
-/// * `adapter_type` - The adapter type being validated
-/// * `session_id` - The session ID to bind to (optional)
-///
-/// # Returns
-///
-/// Returns `Ok(())` if validation passes, `Err(AosError::Validation)` otherwise.
 pub fn validate_session_binding(
     adapter_type: AdapterType,
     session_id: Option<&str>,
@@ -406,16 +473,6 @@ pub fn validate_session_binding(
 /// - Adapter must be of codebase type
 /// - Must have base_adapter_id set
 /// - Should have session binding for streaming context
-///
-/// # Arguments
-///
-/// * `adapter_type` - The adapter type being validated
-/// * `base_adapter_id` - The base adapter ID
-/// * `session_id` - The session ID (optional but recommended)
-///
-/// # Returns
-///
-/// Returns `Ok(())` if validation passes, `Err(AosError::Validation)` otherwise.
 pub fn validate_codebase_activation(
     adapter_type: AdapterType,
     base_adapter_id: Option<&str>,
@@ -442,14 +499,6 @@ pub fn validate_codebase_activation(
 }
 
 /// Validate versioning threshold for auto-versioning.
-///
-/// # Arguments
-///
-/// * `threshold` - The versioning threshold (number of activations)
-///
-/// # Returns
-///
-/// Returns `Ok(())` if valid, `Err(AosError::Validation)` otherwise.
 pub fn validate_versioning_threshold(threshold: Option<i32>) -> Result<(), AosError> {
     if let Some(t) = threshold {
         if t < 1 {

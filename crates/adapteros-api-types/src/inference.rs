@@ -429,7 +429,7 @@ fn merkle_root_from_hashes(hashes: &[B3Hash]) -> B3Hash {
     let mut current_level: Vec<B3Hash> = hashes.to_vec();
 
     while current_level.len() > 1 {
-        let mut next_level = Vec::with_capacity((current_level.len() + 1) / 2);
+        let mut next_level = Vec::with_capacity(current_level.len().div_ceil(2));
 
         for chunk in current_level.chunks(2) {
             let combined = if chunk.len() == 2 {

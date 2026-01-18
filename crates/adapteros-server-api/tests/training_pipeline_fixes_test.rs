@@ -46,6 +46,7 @@ async fn test_checkpoint_atomic_write_prevents_corruption() {
         lora_b: vec![vec![5.0, 6.0], vec![7.0, 8.0]],
         moe_config: None,
         precomputed_delta: None,
+        modules: Default::default(),
     };
 
     let checkpoint = TrainingCheckpoint::new(5, 100, 0.5, 0.001, config.clone(), weights.clone());
@@ -170,6 +171,7 @@ async fn test_checkpoint_manager_cleanup() {
         lora_b: vec![vec![2.0]],
         moe_config: None,
         precomputed_delta: None,
+        modules: Default::default(),
     };
 
     // Create 5 checkpoints

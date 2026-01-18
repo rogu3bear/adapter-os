@@ -544,6 +544,8 @@ async fn start_training_job(
         base_model_path: None,
         preprocessing: None,
         force_resume: None,
+        multi_module_training: None,
+        lora_layer_indices: None,
     };
 
     let request_body = CreateTrainingJobRequest {

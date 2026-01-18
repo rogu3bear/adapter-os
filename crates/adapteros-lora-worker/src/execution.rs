@@ -676,7 +676,7 @@ pub fn execute_pipeline<E: StepExecutor>(
     let result = ExecutionResult::new(
         output_tokens,
         decisions,
-        ctx.run_head().clone(),
+        *ctx.run_head(),
         ctx.context_digest(),
         ctx.input_token_count,
         ctx.cached_token_count,

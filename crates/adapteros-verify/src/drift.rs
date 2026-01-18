@@ -363,6 +363,9 @@ mod tests {
             path_hash: B3Hash::hash(b"path"),
             env_hash: B3Hash::hash(b"env"),
             cpu_features: vec!["aarch64".to_string()],
+            processor_id: None,
+            mlx_version: None,
+            ane_version: None,
             firmware_hash: None,
             boot_version_hash: None,
         };
@@ -390,6 +393,9 @@ mod tests {
             path_hash: B3Hash::hash(b"path"),
             env_hash: B3Hash::hash(b"env"),
             cpu_features: vec!["aarch64".to_string()],
+            processor_id: None,
+            mlx_version: None,
+            ane_version: None,
             firmware_hash: None,
             boot_version_hash: None,
         };

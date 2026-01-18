@@ -2354,7 +2354,7 @@ Use --force-resume to override (may produce incorrect results).",
 
         // Use provided weights or initialize fresh
         let mut weights =
-            initial_weights.unwrap_or_else(|| self.initialize_weights_deterministic().unwrap());
+            initial_weights.unwrap_or_else(|| self.init_weights_deterministic().unwrap());
 
         // Training loop starting from resume point with cancellation support
         let mut final_loss = 0.0;
@@ -2626,7 +2626,7 @@ Use --force-resume to override (may produce incorrect results).",
     }
 
     /// Initialize LoRA weight matrices with deterministic seeding
-    fn initialize_weights_deterministic(&self) -> Result<LoRAWeights> {
+    fn init_weights_deterministic(&self) -> Result<LoRAWeights> {
         use rand::{Rng, SeedableRng};
         use rand_chacha::ChaCha20Rng;
 
@@ -2764,7 +2764,7 @@ Use --force-resume to override (may produce incorrect results).",
 
         // Use provided weights or initialize fresh
         let mut weights =
-            initial_weights.unwrap_or_else(|| self.initialize_weights_deterministic().unwrap());
+            initial_weights.unwrap_or_else(|| self.init_weights_deterministic().unwrap());
 
         // Training loop with telemetry and cancellation support
         let mut final_loss = 0.0;
@@ -2801,7 +2801,7 @@ Use --force-resume to override (may produce incorrect results).",
             warmup_steps = warmup_steps,
             initial_lr = self.config.learning_rate,
             gradient_accumulation_steps = accumulation_steps,
-            effective_batch_size = accumulation_steps * dataset.summary.total_examples as usize
+            effective_batch_size = accumulation_steps * dataset.summary.total_examples
                 / total_training_steps as usize,
             "Learning rate scheduler initialized"
         );
@@ -3365,9 +3365,8 @@ Use --force-resume to override (may produce incorrect results).",
         let mut num_updates = 0;
 
         const CANCEL_CHECK_INTERVAL: usize = 10;
-        let mut batch_count = 0;
 
-        for batch in dataset.batches.iter() {
+        for (batch_count, batch) in dataset.batches.iter().enumerate() {
             // Check for cancellation
             if batch_count > 0 && batch_count % CANCEL_CHECK_INTERVAL == 0 && self.is_cancelled() {
                 debug!(
@@ -3459,8 +3458,6 @@ Use --force-resume to override (may produce incorrect results).",
                     }
                 }
             }
-
-            batch_count += 1;
         }
 
         if num_updates == 0 {

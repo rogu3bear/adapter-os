@@ -408,13 +408,13 @@ impl PolicyPackManager {
         };
 
         // Initialize all policy packs
-        manager.initialize_policy_packs();
+        manager.init_policy_packs();
 
         manager
     }
 
     /// Initialize all policy packs
-    fn initialize_policy_packs(&mut self) {
+    fn init_policy_packs(&mut self) {
         info!("Initializing all policy packs");
 
         // Register all policy pack validators

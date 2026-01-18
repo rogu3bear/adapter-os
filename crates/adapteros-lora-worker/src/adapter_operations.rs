@@ -11,7 +11,7 @@ use crate::{
 };
 use adapteros_core::{AosError, Result};
 use adapteros_lora_kernel_api::FusedKernels;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// Worker methods for adapter operations
 impl<K: FusedKernels + crate::StrictnessControl + Send + Sync + 'static> Worker<K> {
@@ -23,11 +23,13 @@ impl<K: FusedKernels + crate::StrictnessControl + Send + Sync + 'static> Worker<
         &self,
         request: &InferenceRequest,
     ) -> Result<Option<HashSet<usize>>> {
-        let manifest_ids: Vec<&str> = self
+        // Build HashMap for O(1) lookups instead of O(n) linear search
+        let manifest_id_map: HashMap<&str, usize> = self
             .manifest
             .adapters
             .iter()
-            .map(|a| a.id.as_str())
+            .enumerate()
+            .map(|(i, a)| (a.id.as_str(), i))
             .collect();
 
         let Some(effective_ids) = request.effective_adapter_ids.as_ref() else {
@@ -41,13 +43,10 @@ impl<K: FusedKernels + crate::StrictnessControl + Send + Sync + 'static> Worker<
         let mut allowed_indices = HashSet::new();
 
         for effective_id in effective_ids {
-            let Some(idx) = manifest_ids
-                .iter()
-                .position(|id| id == &effective_id.as_str())
-            else {
+            let Some(&idx) = manifest_id_map.get(effective_id.as_str()) else {
                 return Err(AosError::AdapterNotInManifest {
                     adapter_id: effective_id.clone(),
-                    available: manifest_ids.iter().map(|s| s.to_string()).collect(),
+                    available: manifest_id_map.keys().map(|s| s.to_string()).collect(),
                 });
             };
             allowed_indices.insert(idx);
@@ -55,10 +54,10 @@ impl<K: FusedKernels + crate::StrictnessControl + Send + Sync + 'static> Worker<
 
         if let Some(pinned_ids) = request.pinned_adapter_ids.as_ref() {
             for pinned in pinned_ids {
-                let Some(idx) = manifest_ids.iter().position(|id| id == &pinned.as_str()) else {
+                let Some(&idx) = manifest_id_map.get(pinned.as_str()) else {
                     return Err(AosError::AdapterNotInManifest {
                         adapter_id: pinned.clone(),
-                        available: manifest_ids.iter().map(|s| s.to_string()).collect(),
+                        available: manifest_id_map.keys().map(|s| s.to_string()).collect(),
                     });
                 };
                 if !allowed_indices.contains(&idx) {

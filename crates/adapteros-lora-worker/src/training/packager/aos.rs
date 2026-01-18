@@ -784,6 +784,7 @@ impl super::types::AdapterPackager {
             );
 
             // Collect all flattened bytes first (safetensors needs stable references)
+            #[allow(clippy::type_complexity)]
             let mut module_bytes: Vec<(String, Vec<u8>, Vec<u8>, usize, usize, usize, usize)> =
                 Vec::new();
             for (name, module_weights) in &deq.modules {

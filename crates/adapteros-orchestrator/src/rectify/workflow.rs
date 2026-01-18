@@ -149,11 +149,13 @@ impl RectifyWorkflow {
 }
 
 /// Batch rectification for multiple source changes
+#[allow(dead_code)]
 pub struct BatchRectifyWorkflow {
     changes: Vec<SourceChangeEvent>,
     auto_promote: bool,
 }
 
+#[allow(dead_code)]
 impl BatchRectifyWorkflow {
     /// Create a new batch workflow
     pub fn new(changes: Vec<SourceChangeEvent>) -> Self {
@@ -191,6 +193,7 @@ impl BatchRectifyWorkflow {
 
 /// Summary of a batch rectification
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct RectifyBatchSummary {
     /// Total changes processed
     pub total_changes: usize,
@@ -204,6 +207,7 @@ pub struct RectifyBatchSummary {
     pub new_versions_created: usize,
 }
 
+#[allow(dead_code)]
 impl RectifyBatchSummary {
     /// Create summary from results
     pub fn from_results(results: &[RectifyResult]) -> Self {

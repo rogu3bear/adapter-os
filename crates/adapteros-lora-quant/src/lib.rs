@@ -207,11 +207,8 @@ pub enum QuantizationError {
     DequantizationFailed(String),
 }
 
-impl From<QuantizationError> for AosError {
-    fn from(err: QuantizationError) -> Self {
-        AosError::Quantization(err.to_string())
-    }
-}
+// Error conversion using impl_error_from! macro
+adapteros_core::impl_error_from!(QuantizationError => Quantization);
 
 #[cfg(test)]
 mod tests {

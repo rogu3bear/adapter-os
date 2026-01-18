@@ -12,6 +12,7 @@ fn generate_adapter_info(count: usize) -> Vec<AdapterInfo> {
     (0..count)
         .map(|i| AdapterInfo {
             id: format!("adapter_{}", i),
+            stable_id: i as u64,
             framework: if i % 3 == 0 {
                 Some("django".to_string())
             } else if i % 3 == 1 {
@@ -28,6 +29,11 @@ fn generate_adapter_info(count: usize) -> Vec<AdapterInfo> {
             scope_path: Some(format!("/src/module_{}", i % 10)),
             lora_tier: Some(format!("tier_{}", i % 3)),
             base_model: Some("qwen-7b".to_string()),
+            recommended_for_moe: true,
+            reasoning_specialties: Vec::new(),
+            adapter_type: None,
+            stream_session_id: None,
+            base_adapter_id: None,
         })
         .collect()
 }
@@ -58,7 +64,7 @@ fn main() {
     println!("{:-<60}", "");
     let adapter_count = 50;
     let k_values = [1, 3, 5, 8];
-    let iterations = 1000;
+    let iterations: u128 = 1000;
 
     let adapter_info = generate_adapter_info(adapter_count);
     let features = generate_features();
@@ -140,7 +146,7 @@ fn main() {
     ];
 
     for (name, inference_us) in simulated_inference_times {
-        let total_time_us = inference_us + (routing_time.as_micros() as u64 / iterations);
+        let total_time_us = inference_us + (routing_time.as_micros() / iterations) as u64;
         let overhead_pct = ((routing_time.as_micros() as f64 / iterations as f64)
             / (total_time_us as f64))
             * 100.0;

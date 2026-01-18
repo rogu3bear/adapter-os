@@ -273,6 +273,9 @@ mod tests {
                 )
                 .unwrap(),
                 cpu_features: vec!["neon".to_string(), "fp".to_string()],
+                processor_id: None,
+                mlx_version: None,
+                ane_version: None,
                 firmware_hash: None,
                 boot_version_hash: None,
             },

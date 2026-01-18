@@ -73,6 +73,7 @@ impl ApiTestHarness {
             plan_dir: "plan".to_string(),
             datasets_root: "var/datasets".to_string(),
             documents_root: "var/documents".to_string(),
+            synthesis_model_path: None,
         };
 
         let api_config = Arc::new(std::sync::RwLock::new(ApiConfig {
@@ -88,6 +89,7 @@ impl ApiTestHarness {
             security: Default::default(),
             auth: Default::default(),
             performance: Default::default(),
+            streaming: Default::default(),
             paths: paths_config,
             chat_context: Default::default(),
             seed_mode: SeedMode::BestEffort,

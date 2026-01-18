@@ -85,7 +85,7 @@ impl ServiceSupervisor {
         };
 
         // Initialize services from config
-        supervisor.initialize_services().await?;
+        supervisor.init_services().await?;
 
         // Start health monitoring
         supervisor.health_monitor.start_monitoring();
@@ -94,7 +94,7 @@ impl ServiceSupervisor {
     }
 
     /// Initialize services from configuration
-    async fn initialize_services(&self) -> Result<()> {
+    async fn init_services(&self) -> Result<()> {
         let mut services = self.services.write().await;
 
         for (service_id, service_config) in &self.config.services {

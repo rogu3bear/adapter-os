@@ -874,6 +874,7 @@ impl ModuleOptimizerState {
     /// w = w - lr * m̂ / (√v̂ + ε)
     ///
     /// Returns updated weights (lora_a, lora_b) in flattened form.
+    #[allow(clippy::too_many_arguments)]
     pub fn adam_step(
         &mut self,
         lora_a_flat: &[f32],

@@ -42,6 +42,7 @@ pub mod defaults;
 pub mod deployment_verification;
 pub mod determinism;
 pub mod determinism_mode;
+pub mod error_macros;
 pub mod error;
 pub mod error_helpers;
 pub mod errors;
