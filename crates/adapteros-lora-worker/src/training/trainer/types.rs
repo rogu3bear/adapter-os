@@ -434,16 +434,32 @@ pub struct TrainingConfig {
     /// Checkpoint interval in epochs (None = no checkpoints, default = 5)
     #[serde(default)]
     pub checkpoint_interval: Option<u32>,
-    /// Warmup steps for learning rate schedule (optional)
-    /// TODO: Not yet implemented in MicroLoRATrainer - accepted from API but not used in training
+    /// Warmup steps before reaching target learning rate.
+    ///
+    /// When set to a value greater than 0, enables a cosine decay learning rate
+    /// schedule with linear warmup. The learning rate increases linearly from 0
+    /// to the target `learning_rate` over the specified warmup steps, then decays
+    /// following a cosine schedule.
+    ///
+    /// When unset or set to 0, training uses a constant learning rate.
     #[serde(default)]
     pub warmup_steps: Option<u32>,
-    /// Maximum sequence length (optional, default 2048)
-    /// TODO: Not yet implemented in MicroLoRATrainer - accepted from API but not used in training
+    /// Maximum sequence length for training examples.
+    ///
+    /// When set, truncates training sequences to this maximum length. Sequences
+    /// longer than this value are truncated from the end.
+    ///
+    /// Defaults to 2048 when not specified.
     #[serde(default)]
     pub max_seq_length: Option<u32>,
-    /// Gradient accumulation steps for larger effective batch size (optional)
-    /// TODO: Not yet implemented in MicroLoRATrainer - accepted from API but not used in training
+    /// Gradient accumulation steps for larger effective batch size.
+    ///
+    /// Accumulates gradients over N steps before updating weights. This enables
+    /// training with larger effective batch sizes without increasing memory usage.
+    ///
+    /// Effective batch size = `batch_size` × `gradient_accumulation_steps`.
+    ///
+    /// Defaults to 1 (no accumulation) when not specified.
     #[serde(default)]
     pub gradient_accumulation_steps: Option<u32>,
     /// Enable early stopping based on validation loss.

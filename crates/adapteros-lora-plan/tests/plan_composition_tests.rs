@@ -46,6 +46,7 @@ fn create_test_manifest() -> ManifestV3 {
             sample_tokens_full: 128,
             warmup: false,
             algorithm: "weighted".to_string(),
+            safe_mode: false,
             orthogonal_penalty: 0.1,
             shared_downsample: false,
             compression_ratio: 0.8,

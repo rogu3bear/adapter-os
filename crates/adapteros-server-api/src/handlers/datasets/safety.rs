@@ -1104,6 +1104,51 @@ pub async fn check_dataset_safety(
         &version.anomaly_status,
     );
 
+    // Escalate to review if dataset is not safe
+    if !result.is_safe {
+        if let Some(ref pause_tracker) = state.pause_tracker {
+            let pause_id = format!("dataset-safety-{}-{}", dataset_id, uuid::Uuid::new_v4());
+            let context = format!(
+                "Dataset '{}' (version {}) failed safety check. Trust state: {}. Blocking reasons: {}",
+                dataset_id,
+                version_id,
+                result.trust_state,
+                result.blocking_reasons.join("; ")
+            );
+
+            let metadata = serde_json::json!({
+                "dataset_id": dataset_id,
+                "dataset_version_id": version_id,
+                "trust_state": result.trust_state,
+                "blocking_reasons": result.blocking_reasons,
+                "warnings": result.warnings,
+                "safety_signals": {
+                    "pii_status": result.safety_signals.pii_status,
+                    "toxicity_status": result.safety_signals.toxicity_status,
+                    "leak_status": result.safety_signals.leak_status,
+                    "anomaly_status": result.safety_signals.anomaly_status,
+                    "overall_safety": result.safety_signals.overall_safety,
+                }
+            });
+
+            pause_tracker.register_server_pause(
+                pause_id.clone(),
+                format!("dataset:{}", dataset_id),
+                "policy_approval",
+                Some(context),
+                Some(metadata),
+            );
+
+            warn!(
+                dataset_id = %dataset_id,
+                version_id = %version_id,
+                pause_id = %pause_id,
+                trust_state = %result.trust_state,
+                "Dataset safety check failed - escalated to review"
+            );
+        }
+    }
+
     info!(
         dataset_id = %dataset_id,
         version_id = %version_id,
@@ -1192,6 +1237,51 @@ pub async fn check_dataset_version_safety(
         &version.leak_status,
         &version.anomaly_status,
     );
+
+    // Escalate to review if dataset version is not safe
+    if !result.is_safe {
+        if let Some(ref pause_tracker) = state.pause_tracker {
+            let pause_id = format!("dataset-safety-{}-{}-{}", dataset_id, version_id, uuid::Uuid::new_v4());
+            let context = format!(
+                "Dataset '{}' version '{}' failed safety check. Trust state: {}. Blocking reasons: {}",
+                dataset_id,
+                version_id,
+                result.trust_state,
+                result.blocking_reasons.join("; ")
+            );
+
+            let metadata = serde_json::json!({
+                "dataset_id": dataset_id,
+                "dataset_version_id": version_id,
+                "trust_state": result.trust_state,
+                "blocking_reasons": result.blocking_reasons,
+                "warnings": result.warnings,
+                "safety_signals": {
+                    "pii_status": result.safety_signals.pii_status,
+                    "toxicity_status": result.safety_signals.toxicity_status,
+                    "leak_status": result.safety_signals.leak_status,
+                    "anomaly_status": result.safety_signals.anomaly_status,
+                    "overall_safety": result.safety_signals.overall_safety,
+                }
+            });
+
+            pause_tracker.register_server_pause(
+                pause_id.clone(),
+                format!("dataset:{}:{}", dataset_id, version_id),
+                "policy_approval",
+                Some(context),
+                Some(metadata),
+            );
+
+            warn!(
+                dataset_id = %dataset_id,
+                version_id = %version_id,
+                pause_id = %pause_id,
+                trust_state = %result.trust_state,
+                "Dataset version safety check failed - escalated to review"
+            );
+        }
+    }
 
     info!(
         dataset_id = %dataset_id,

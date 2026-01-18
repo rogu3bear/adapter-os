@@ -251,7 +251,7 @@ This complexity serves the core constraint: **deterministic, auditable inference
 
 ## Training Checkpoints
 
-Training checkpoints enable resuming interrupted training sessions. Checkpoints are saved to `{output_dir}/checkpoints/` and contain weights, optimizer state, and loss history.
+Training checkpoints enable resuming interrupted training sessions. Checkpoints are saved to `{output_dir}/` and contain weights, optimizer state, and loss history.
 
 ### Checkpoint Format
 

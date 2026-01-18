@@ -67,6 +67,13 @@ else
     echo "Skipping wasm-opt (--skip-opt)"
 fi
 
+# Bundle analysis with twiggy (optional)
+if command -v twiggy &> /dev/null; then
+    echo ""
+    echo "=== Bundle Analysis ==="
+    twiggy top -n 20 "$WASM_FILE"
+fi
+
 # Compressed sizes
 FINAL_SIZE=$(stat -f%z "$WASM_FILE" 2>/dev/null || stat -c%s "$WASM_FILE" 2>/dev/null)
 

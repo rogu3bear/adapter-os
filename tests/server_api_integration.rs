@@ -198,6 +198,7 @@ fn build_test_manifest(adapter_id: &str) -> ManifestV3 {
             sample_tokens_full: 32,
             warmup: false,
             algorithm: "weighted".to_string(),
+            safe_mode: false,
             orthogonal_penalty: 0.1,
             shared_downsample: false,
             compression_ratio: 0.8,
