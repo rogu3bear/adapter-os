@@ -209,7 +209,8 @@ pub fn CreateJobWizard(
 
             let model = base_model_id.get();
             if model.trim().is_empty() {
-                form_errors.update(|e| e.set("base_model_id", "Base model is required".to_string()));
+                form_errors
+                    .update(|e| e.set("base_model_id", "Base model is required".to_string()));
                 valid = false;
             }
 
@@ -230,7 +231,10 @@ pub fn CreateJobWizard(
 
             if let Some(err) = validate_field(
                 &epochs.get(),
-                &[ValidationRule::Required, ValidationRule::IntRange { min: 1, max: 1000 }],
+                &[
+                    ValidationRule::Required,
+                    ValidationRule::IntRange { min: 1, max: 1000 },
+                ],
             ) {
                 form_errors.update(|e| e.set("epochs", err));
                 valid = false;
@@ -243,7 +247,10 @@ pub fn CreateJobWizard(
 
             if let Some(err) = validate_field(
                 &batch_size.get(),
-                &[ValidationRule::Required, ValidationRule::IntRange { min: 1, max: 256 }],
+                &[
+                    ValidationRule::Required,
+                    ValidationRule::IntRange { min: 1, max: 256 },
+                ],
             ) {
                 form_errors.update(|e| e.set("batch_size", err));
                 valid = false;
@@ -251,7 +258,10 @@ pub fn CreateJobWizard(
 
             if let Some(err) = validate_field(
                 &rank.get(),
-                &[ValidationRule::Required, ValidationRule::IntRange { min: 1, max: 256 }],
+                &[
+                    ValidationRule::Required,
+                    ValidationRule::IntRange { min: 1, max: 256 },
+                ],
             ) {
                 form_errors.update(|e| e.set("rank", err));
                 valid = false;
@@ -259,7 +269,10 @@ pub fn CreateJobWizard(
 
             if let Some(err) = validate_field(
                 &alpha.get(),
-                &[ValidationRule::Required, ValidationRule::IntRange { min: 1, max: 512 }],
+                &[
+                    ValidationRule::Required,
+                    ValidationRule::IntRange { min: 1, max: 512 },
+                ],
             ) {
                 form_errors.update(|e| e.set("alpha", err));
                 valid = false;

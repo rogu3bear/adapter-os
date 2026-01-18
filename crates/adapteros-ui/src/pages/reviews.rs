@@ -248,6 +248,7 @@ fn pause_kind_badge(kind: &PauseKind) -> (BadgeVariant, &'static str) {
         PauseKind::PolicyApproval => (BadgeVariant::Destructive, "Policy Approval"),
         PauseKind::ResourceWait => (BadgeVariant::Secondary, "Resource Wait"),
         PauseKind::UserRequested => (BadgeVariant::Default, "User Requested"),
+        PauseKind::ThreatEscalation => (BadgeVariant::Destructive, "Threat Escalation"),
     }
 }
 

@@ -286,10 +286,111 @@ impl Db {
         Ok(stats)
     }
 
-    /// Migrate document collections (stubbed).
+    /// Migrate document collections and memberships to KV storage.
+    ///
+    /// This migrates all document collections from SQL to KV storage, including:
+    /// - Collection metadata (id, tenant_id, name, description, metadata_json)
+    /// - Collection-document membership links
+    ///
+    /// # Returns
+    /// Migration statistics showing total, migrated, failed, and skipped counts.
     pub async fn migrate_collections_stub(&self) -> Result<MigrationStats> {
-        warn!("Collections migration stubbed; skipping");
-        Ok(MigrationStats::default())
+        let kv_backend = self.kv_backend().ok_or_else(|| {
+            AosError::Config("KV backend not attached - call init_kv_backend() first".into())
+        })?;
+        let pool = self.pool_opt().ok_or_else(|| {
+            AosError::Database("SQL backend unavailable for collections migration".to_string())
+        })?;
+        let repo = CollectionKvRepository::new(kv_backend.backend().clone());
+        let mut stats = MigrationStats::default();
+
+        // Query collections from SQL
+        #[derive(sqlx::FromRow)]
+        struct CollectionRow {
+            id: String,
+            tenant_id: String,
+            name: String,
+            description: Option<String>,
+            created_at: String,
+            updated_at: String,
+            metadata_json: Option<String>,
+        }
+
+        let cols: Vec<CollectionRow> = sqlx::query_as(
+            r#"SELECT id, tenant_id, name, description, created_at, updated_at, metadata_json
+             FROM document_collections
+             ORDER BY created_at DESC, id ASC"#,
+        )
+        .fetch_all(pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to query collections: {}", e)))?;
+
+        stats.total = cols.len();
+        info!(total = stats.total, "Starting collections migration to KV");
+
+        for row in cols {
+            let id = row.id.clone();
+            let tenant_id = row.tenant_id.clone();
+
+            // Create collection KV entry using put_collection (idempotent upsert)
+            let coll_kv = crate::collections_kv::DocumentCollectionKv {
+                id: row.id.clone(),
+                tenant_id: row.tenant_id.clone(),
+                name: row.name.clone(),
+                description: row.description.clone(),
+                created_at: row.created_at.clone(),
+                updated_at: row.updated_at.clone(),
+                metadata_json: row.metadata_json.clone(),
+            };
+
+            match repo.put_collection(&coll_kv).await {
+                Ok(_) => {
+                    // Migrate document memberships for this collection
+                    #[derive(sqlx::FromRow)]
+                    struct DocLink {
+                        document_id: String,
+                        added_at: Option<String>,
+                    }
+
+                    let doc_links: Vec<DocLink> = sqlx::query_as(
+                        "SELECT document_id, added_at FROM collection_documents WHERE collection_id = ? ORDER BY added_at ASC",
+                    )
+                    .bind(&id)
+                    .fetch_all(pool)
+                    .await
+                    .unwrap_or_default();
+
+                    for link in doc_links {
+                        if let Err(e) = repo
+                            .add_document_to_collection(&tenant_id, &id, &link.document_id, link.added_at)
+                            .await
+                        {
+                            debug!(
+                                error = %e,
+                                collection_id = %id,
+                                document_id = %link.document_id,
+                                "Failed to migrate collection-document link"
+                            );
+                        }
+                    }
+
+                    stats.migrated += 1;
+                }
+                Err(e) => {
+                    stats.failed += 1;
+                    stats.failed_ids.push(id.clone());
+                    warn!(error = %e, collection_id = %id, "Failed to migrate collection");
+                }
+            }
+        }
+
+        info!(
+            migrated = stats.migrated,
+            failed = stats.failed,
+            total = stats.total,
+            "Collections migration to KV complete"
+        );
+        Ok(stats)
     }
 
     /// Migrate policy audit decisions to KV storage.
@@ -1341,10 +1442,15 @@ impl Db {
         Ok(stats)
     }
 
-    /// Migrate chat sessions (stubbed).
+    /// Migrate chat sessions to KV storage.
+    ///
+    /// This is an alias for `migrate_chat_sessions_to_kv` that provides the full
+    /// implementation. Previously this was a stub that skipped migration.
+    ///
+    /// # Returns
+    /// Migration statistics showing total, migrated, failed, and skipped counts.
     pub async fn migrate_chat_sessions_stub(&self) -> Result<MigrationStats> {
-        warn!("Chat sessions migration stubbed; skipping");
-        Ok(MigrationStats::default())
+        self.migrate_chat_sessions_to_kv().await
     }
 
     /// Rollback KV data by deleting all adapter entries

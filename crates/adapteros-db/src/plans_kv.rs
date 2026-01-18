@@ -1,9 +1,12 @@
-//! Placeholder KV module for plans (not yet implemented).
 //! KV storage for plans
+//!
+//! Provides full KV-based operations for Metal execution plans, enabling dual-write
+//! consistency during SQL-to-KV migration.
 //!
 //! Keys:
 //! - `tenant/{tenant_id}/plan/{id}` -> PlanKv (JSON)
 //! - `tenant/{tenant_id}/plans` -> Vec<plan_id> for deterministic ordering (created_at DESC)
+//! - `plan-lookup/{id}` -> tenant_id (cross-tenant lookup for efficient get by id)
 
 use crate::models::Plan;
 use adapteros_core::{AosError, Result};
@@ -38,6 +41,11 @@ impl PlanKvRepository {
 
     fn tenant_index_key(tenant_id: &str) -> String {
         format!("tenant/{}/plans", tenant_id)
+    }
+
+    /// Reverse lookup key for cross-tenant plan lookups by ID
+    fn lookup_key(id: &str) -> String {
+        format!("plan-lookup/{}", id)
     }
 
     fn serialize(plan: &PlanKv) -> Result<Vec<u8>> {
@@ -104,6 +112,13 @@ impl PlanKvRepository {
             .set(&key, payload)
             .await
             .map_err(|e| AosError::Database(format!("Failed to store plan: {}", e)))?;
+
+        // Set reverse lookup index for cross-tenant queries
+        self.backend
+            .set(&Self::lookup_key(&plan.id), plan.tenant_id.as_bytes().to_vec())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to store plan lookup: {}", e)))?;
+
         self.append_to_tenant_index(&plan.tenant_id, &plan.id)
             .await?;
         Ok(())
@@ -122,6 +137,24 @@ impl PlanKvRepository {
         Ok(Some(Self::deserialize(&bytes)?))
     }
 
+    /// Get plan by ID using reverse lookup (cross-tenant efficient)
+    pub async fn get_plan_by_id(&self, id: &str) -> Result<Option<PlanKv>> {
+        // First, look up the tenant_id from the reverse index
+        let Some(tenant_bytes) = self
+            .backend
+            .get(&Self::lookup_key(id))
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to read plan lookup: {}", e)))?
+        else {
+            return Ok(None);
+        };
+        let tenant_id = String::from_utf8(tenant_bytes)
+            .map_err(|e| AosError::Database(format!("Invalid tenant_id in lookup: {}", e)))?;
+
+        // Now fetch the plan with the known tenant_id
+        self.get_plan(&tenant_id, id).await
+    }
+
     pub async fn delete_plan(&self, tenant_id: &str, id: &str) -> Result<bool> {
         let key = Self::primary_key(tenant_id, id);
         let deleted = self
@@ -131,6 +164,8 @@ impl PlanKvRepository {
             .map_err(|e| AosError::Database(format!("Failed to delete plan: {}", e)))?;
         if deleted {
             self.remove_from_tenant_index(tenant_id, id).await?;
+            // Clean up reverse lookup index
+            let _ = self.backend.delete(&Self::lookup_key(id)).await;
         }
         Ok(deleted)
     }

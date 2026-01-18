@@ -57,9 +57,7 @@ pub fn System() -> impl IntoView {
 
     // Fetch models status (admin-only endpoint; handled gracefully on error)
     let (models_status, refetch_models_status) =
-        use_api_resource(|client: Arc<ApiClient>| async move {
-            client.list_models_status().await
-        });
+        use_api_resource(|client: Arc<ApiClient>| async move { client.list_models_status().await });
 
     // Fetch system state (tenants, stacks, services)
     let (system_state, refetch_state) = use_api_resource(|client: Arc<ApiClient>| async move {

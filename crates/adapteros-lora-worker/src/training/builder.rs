@@ -1254,6 +1254,29 @@ mod tests {
         assert!(files[2].ends_with("c.jsonl"));
     }
 
+    /// Create a mock tokenizer directory with minimal tokenizer.json and config.json.
+    /// This avoids paths with ".." that trigger path traversal security checks.
+    fn create_mock_tokenizer_dir(base: &Path) -> PathBuf {
+        let model_dir = base.join("mock_model");
+        fs::create_dir_all(&model_dir).unwrap();
+
+        // Minimal tokenizer.json
+        fs::write(
+            model_dir.join("tokenizer.json"),
+            r#"{"version":"1.0","truncation":null,"padding":null,"added_tokens":[],"normalizer":null,"pre_tokenizer":null,"post_processor":null,"decoder":null,"model":{"type":"BPE","vocab":{},"merges":[]}}"#,
+        )
+        .unwrap();
+
+        // Minimal config.json (required by ensure_tokenizer_in_base_model)
+        fs::write(
+            model_dir.join("config.json"),
+            r#"{"model_type":"llama","hidden_size":256,"vocab_size":32000}"#,
+        )
+        .unwrap();
+
+        model_dir.join("tokenizer.json")
+    }
+
     #[test]
     fn test_validate_rejects_sample_limit() {
         let dir = tempdir().unwrap();
@@ -1273,14 +1296,19 @@ mod tests {
             max_tokens: 1000,
         };
 
-        let tokenizer_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../tests/fixtures/models/tiny-test/tokenizer.json");
+        // Create mock tokenizer in temp dir to avoid ".." path traversal
+        let tokenizer_path = create_mock_tokenizer_dir(dir.path());
         let builder = DatasetBuilder::new(tokenizer_path, dir.path().join("out"))
             .with_limits(limits);
         let err = builder
             .validate(&DatasetSource::Filesystem(data_path))
             .unwrap_err();
-        assert!(err.to_string().contains("sample count exceeds limit"));
+        let err_str = err.to_string();
+        assert!(
+            err_str.contains("sample count exceeds limit"),
+            "Expected error about sample count, got: {}",
+            err_str
+        );
     }
 
     #[test]

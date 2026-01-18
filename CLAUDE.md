@@ -121,11 +121,9 @@ cargo test -p adapteros-e2e --features prod-gate
 
 The following CLI paths are intentionally stubbed or only partially implemented:
 
-- `aosctl agent spawn|worker` (orchestrator integration pending; list/status/cancel are mock)
-- `aosctl router safe-mode` (prints intent; RouterConfig lacks safe_mode field)
-- `aosctl metrics history|export|check|violations` (requires metrics DB integration; placeholder output)
-- `aosctl telemetry list --by-stack/--event-type` (bundle parsing pending; shows bundle metadata only)
-- `aosctl policy enforce` / `aosctl policy hash-verify` (dry-run/placeholder verification)
+- `aosctl agent spawn|worker|list|status|cancel` (orchestrator integration pending; all operations are mock/placeholder)
+- `aosctl policy quarantine-clear|quarantine-rollback` (requires runtime policy manager connection; prints guidance only)
+- `aosctl metrics config --key --value` (config persistence not implemented; displays placeholder message)
 
 ## UI (Leptos WASM)
 

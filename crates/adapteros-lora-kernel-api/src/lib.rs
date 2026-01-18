@@ -1196,3 +1196,615 @@ pub trait MploraKernels: FusedKernels {
         config: &MploraConfig,
     ) -> Result<()>;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    // =========================================================================
+    // BackendHealth Tests
+    // =========================================================================
+
+    #[test]
+    fn backend_health_healthy_variant() {
+        let health = BackendHealth::Healthy;
+        match health {
+            BackendHealth::Healthy => (),
+            _ => panic!("Expected Healthy variant"),
+        }
+    }
+
+    #[test]
+    fn backend_health_degraded_with_reason() {
+        let reason = "High memory pressure".to_string();
+        let health = BackendHealth::Degraded {
+            reason: reason.clone(),
+        };
+        match health {
+            BackendHealth::Degraded { reason: r } => assert_eq!(r, reason),
+            _ => panic!("Expected Degraded variant"),
+        }
+    }
+
+    #[test]
+    fn backend_health_failed_recoverable() {
+        let health = BackendHealth::Failed {
+            reason: "GPU timeout".to_string(),
+            recoverable: true,
+        };
+        match health {
+            BackendHealth::Failed {
+                reason,
+                recoverable,
+            } => {
+                assert_eq!(reason, "GPU timeout");
+                assert!(recoverable);
+            }
+            _ => panic!("Expected Failed variant"),
+        }
+    }
+
+    #[test]
+    fn backend_health_failed_unrecoverable() {
+        let health = BackendHealth::Failed {
+            reason: "Hardware fault".to_string(),
+            recoverable: false,
+        };
+        match health {
+            BackendHealth::Failed {
+                reason,
+                recoverable,
+            } => {
+                assert_eq!(reason, "Hardware fault");
+                assert!(!recoverable);
+            }
+            _ => panic!("Expected Failed variant"),
+        }
+    }
+
+    // =========================================================================
+    // BackendMetrics Tests
+    // =========================================================================
+
+    #[test]
+    fn backend_metrics_default() {
+        let metrics = BackendMetrics::default();
+        assert_eq!(metrics.total_operations, 0);
+        assert_eq!(metrics.successful_operations, 0);
+        assert_eq!(metrics.failed_operations, 0);
+        assert_eq!(metrics.avg_latency, Duration::ZERO);
+        assert_eq!(metrics.memory_usage_bytes, 0);
+    }
+
+    #[test]
+    fn backend_metrics_with_values() {
+        let metrics = BackendMetrics {
+            total_operations: 100,
+            successful_operations: 95,
+            failed_operations: 5,
+            avg_latency: Duration::from_millis(42),
+            memory_usage_bytes: 1024 * 1024 * 512, // 512 MB
+        };
+        assert_eq!(metrics.total_operations, 100);
+        assert_eq!(metrics.successful_operations, 95);
+        assert_eq!(metrics.failed_operations, 5);
+        assert_eq!(metrics.avg_latency, Duration::from_millis(42));
+        assert_eq!(metrics.memory_usage_bytes, 512 * 1024 * 1024);
+    }
+
+    // =========================================================================
+    // RouterRing Tests
+    // =========================================================================
+
+    #[test]
+    fn router_ring_new_valid_k() {
+        for k in 0..=8 {
+            let ring = RouterRing::new(k);
+            assert_eq!(ring.k, k);
+            assert_eq!(ring.len(), k);
+            assert_eq!(ring.position, 0);
+            assert!(ring.indices.iter().all(|&i| i == 0));
+            assert!(ring.gates_q15.iter().all(|&g| g == 0));
+        }
+    }
+
+    #[test]
+    fn router_ring_is_empty() {
+        let ring = RouterRing::new(0);
+        assert!(ring.is_empty());
+
+        let ring = RouterRing::new(1);
+        assert!(!ring.is_empty());
+    }
+
+    #[test]
+    fn router_ring_set_valid_entries() {
+        let mut ring = RouterRing::new(4);
+        let indices: [u16; 4] = [1, 2, 3, 4];
+        let gates: [i16; 4] = [1000, 2000, 1500, 500];
+
+        ring.set(&indices, &gates);
+
+        assert_eq!(ring.active_indices(), &[1, 2, 3, 4]);
+        assert_eq!(ring.active_gates(), &[1000, 2000, 1500, 500]);
+        assert_eq!(ring.k, 4);
+    }
+
+    #[test]
+    fn router_ring_set_with_max_adapter_valid() {
+        let mut ring = RouterRing::new(3);
+        let indices: [u16; 3] = [0, 5, 9];
+        let gates: [i16; 3] = [100, 200, 300];
+
+        // All indices < 10, so this should succeed
+        ring.set_with_max_adapter(&indices, &gates, 10);
+
+        assert_eq!(ring.active_indices(), &[0, 5, 9]);
+        assert_eq!(ring.active_gates(), &[100, 200, 300]);
+    }
+
+    #[test]
+    fn router_ring_zero_fills_unused_entries() {
+        let mut ring = RouterRing::new(8);
+        ring.indices = [9, 9, 9, 9, 9, 9, 9, 9];
+        ring.gates_q15 = [999, 999, 999, 999, 999, 999, 999, 999];
+
+        let indices: [u16; 3] = [1, 2, 3];
+        let gates: [i16; 3] = [100, 200, 300];
+        ring.set(&indices, &gates);
+
+        // Active entries should be set
+        assert_eq!(ring.indices[..3], [1, 2, 3]);
+        assert_eq!(ring.gates_q15[..3], [100, 200, 300]);
+
+        // Unused entries should be zero-filled
+        assert_eq!(ring.indices[3..], [0, 0, 0, 0, 0]);
+        assert_eq!(ring.gates_q15[3..], [0, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn router_ring_active_slices() {
+        let mut ring = RouterRing::new(2);
+        ring.set(&[10, 20], &[500, 600]);
+
+        assert_eq!(ring.active_indices(), &[10, 20]);
+        assert_eq!(ring.active_gates(), &[500, 600]);
+        assert_eq!(ring.len(), 2);
+    }
+
+    // =========================================================================
+    // IoBuffers Tests
+    // =========================================================================
+
+    #[test]
+    fn io_buffers_new() {
+        let vocab_size = 32000;
+        let io = IoBuffers::new(vocab_size);
+
+        assert!(io.input_ids.is_empty());
+        assert_eq!(io.output_logits.len(), vocab_size);
+        assert!(io.output_logits.iter().all(|&l| l == 0.0));
+        assert_eq!(io.position, 0);
+    }
+
+    #[test]
+    fn io_buffers_small_vocab() {
+        let io = IoBuffers::new(100);
+        assert_eq!(io.output_logits.len(), 100);
+    }
+
+    // =========================================================================
+    // MockKernels Tests
+    // =========================================================================
+
+    #[test]
+    fn mock_kernels_new() {
+        let mock = MockKernels::new();
+        assert_eq!(mock.device_name(), "Mock Kernels (Test)");
+    }
+
+    #[test]
+    fn mock_kernels_default() {
+        let mock = MockKernels::default();
+        assert_eq!(mock.device_name(), "Mock Kernels (Test)");
+    }
+
+    #[test]
+    fn mock_kernels_load_succeeds() {
+        let mut mock = MockKernels::new();
+        assert!(mock.load(&[]).is_ok());
+        assert!(mock.load(&[1, 2, 3, 4]).is_ok());
+    }
+
+    #[test]
+    fn mock_kernels_run_step_deterministic() {
+        let mut mock = MockKernels::new();
+        let ring = RouterRing::new(2);
+        let mut io1 = IoBuffers::new(100);
+        let mut io2 = IoBuffers::new(100);
+
+        mock.run_step(&ring, &mut io1).unwrap();
+        mock.run_step(&ring, &mut io2).unwrap();
+
+        // The first run_step should produce identical logits patterns
+        // (but positions will differ since run_step increments position)
+        for i in 0..100 {
+            assert!(
+                (io1.output_logits[i] - io2.output_logits[i]).abs() < 1e-9,
+                "Logits should be deterministic"
+            );
+        }
+    }
+
+    #[test]
+    fn mock_kernels_run_step_increments_position() {
+        let mut mock = MockKernels::new();
+        let ring = RouterRing::new(1);
+        let mut io = IoBuffers::new(50);
+
+        assert_eq!(io.position, 0);
+        mock.run_step(&ring, &mut io).unwrap();
+        assert_eq!(io.position, 1);
+        mock.run_step(&ring, &mut io).unwrap();
+        assert_eq!(io.position, 2);
+    }
+
+    #[test]
+    fn mock_kernels_attest_determinism() {
+        let mock = MockKernels::new();
+        let report = mock.attest_determinism().unwrap();
+
+        assert!(report.deterministic);
+        assert_eq!(report.backend_type, attestation::BackendType::Mock);
+    }
+
+    #[test]
+    fn mock_kernels_supports_liquid_blending() {
+        let mock = MockKernels::new();
+        // Use FusedKernels trait method to disambiguate
+        assert!(FusedKernels::supports_liquid_blending(&mock));
+        assert_eq!(FusedKernels::liquid_max_adapters(&mock), liquid::LIQUID_MAX_ADAPTERS);
+    }
+
+    #[test]
+    fn mock_kernels_check_memory_footprint() {
+        let mock = MockKernels::new();
+        let (within_tolerance, z_score, baseline) = mock.check_memory_footprint(0, 1024);
+        assert!(within_tolerance);
+        assert_eq!(z_score, 0.0);
+        assert!(baseline.is_none());
+    }
+
+    // =========================================================================
+    // FailingKernel Tests
+    // =========================================================================
+
+    #[test]
+    fn failing_kernel_new() {
+        let kernel = FailingKernel::new("test failure");
+        assert_eq!(kernel.device_name(), "FailingKernel (Test)");
+    }
+
+    #[test]
+    fn failing_kernel_default() {
+        let kernel = FailingKernel::default();
+        assert!(kernel.fail_message.contains("intentional failure"));
+    }
+
+    #[test]
+    fn failing_kernel_load_succeeds() {
+        let mut kernel = FailingKernel::new("failure");
+        assert!(kernel.load(&[]).is_ok());
+    }
+
+    #[test]
+    fn failing_kernel_run_step_fails() {
+        let mut kernel = FailingKernel::new("expected failure");
+        let ring = RouterRing::new(1);
+        let mut io = IoBuffers::new(10);
+
+        let result = kernel.run_step(&ring, &mut io);
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("expected failure"));
+    }
+
+    #[test]
+    fn failing_kernel_attest_not_deterministic() {
+        let kernel = FailingKernel::new("failure");
+        let report = kernel.attest_determinism().unwrap();
+
+        assert!(!report.deterministic);
+        assert_eq!(report.determinism_level, attestation::DeterminismLevel::None);
+    }
+
+    // =========================================================================
+    // GpuBufferFingerprint Tests
+    // =========================================================================
+
+    #[test]
+    fn gpu_buffer_fingerprint_equality() {
+        let hash1 = adapteros_core::B3Hash::hash(b"test data");
+        let hash2 = adapteros_core::B3Hash::hash(b"test data");
+        let hash3 = adapteros_core::B3Hash::hash(b"different data");
+
+        let fp1 = GpuBufferFingerprint {
+            buffer_bytes: 1024,
+            checkpoint_hash: hash1,
+        };
+        let fp2 = GpuBufferFingerprint {
+            buffer_bytes: 1024,
+            checkpoint_hash: hash2,
+        };
+        let fp3 = GpuBufferFingerprint {
+            buffer_bytes: 1024,
+            checkpoint_hash: hash3,
+        };
+        let fp4 = GpuBufferFingerprint {
+            buffer_bytes: 2048,
+            checkpoint_hash: hash1,
+        };
+
+        assert_eq!(fp1, fp2);
+        assert_ne!(fp1, fp3); // Different hash
+        assert_ne!(fp1, fp4); // Different size
+    }
+
+    // =========================================================================
+    // GpuMemoryReportData Tests
+    // =========================================================================
+
+    #[test]
+    fn gpu_memory_report_data_default() {
+        let report = GpuMemoryReportData::default();
+        assert_eq!(report.total_gpu_bytes, 0);
+        assert_eq!(report.used_gpu_bytes, 0);
+        assert_eq!(report.adapter_count, 0);
+        assert_eq!(report.adapter_vram_total, 0);
+        assert!(report.adapter_allocations.is_empty());
+        assert!(report.pool_stats.is_none());
+    }
+
+    #[test]
+    fn gpu_memory_report_data_with_values() {
+        let report = GpuMemoryReportData {
+            total_gpu_bytes: 8 * 1024 * 1024 * 1024, // 8 GB
+            used_gpu_bytes: 4 * 1024 * 1024 * 1024,  // 4 GB
+            adapter_count: 3,
+            adapter_vram_total: 512 * 1024 * 1024, // 512 MB
+            adapter_allocations: vec![(0, 200 * 1024 * 1024), (1, 312 * 1024 * 1024)],
+            pool_stats: Some(GpuPoolStats {
+                total_allocations: 100,
+                active_bytes: 1024 * 1024,
+                pooled_bytes: 2048 * 1024,
+                hit_rate: 0.85,
+                peak_usage: 5 * 1024 * 1024 * 1024,
+            }),
+        };
+
+        assert_eq!(report.total_gpu_bytes, 8 * 1024 * 1024 * 1024);
+        assert_eq!(report.adapter_count, 3);
+        assert_eq!(report.adapter_allocations.len(), 2);
+        assert!(report.pool_stats.is_some());
+    }
+
+    // =========================================================================
+    // GpuPoolStats Tests
+    // =========================================================================
+
+    #[test]
+    fn gpu_pool_stats_default() {
+        let stats = GpuPoolStats::default();
+        assert_eq!(stats.total_allocations, 0);
+        assert_eq!(stats.active_bytes, 0);
+        assert_eq!(stats.pooled_bytes, 0);
+        assert_eq!(stats.hit_rate, 0.0);
+        assert_eq!(stats.peak_usage, 0);
+    }
+
+    // =========================================================================
+    // MploraConfig Tests
+    // =========================================================================
+
+    #[test]
+    fn mplora_config_default() {
+        let config = MploraConfig::default();
+        assert!(!config.shared_downsample);
+        assert!((config.compression_ratio - 0.8).abs() < 1e-6);
+        assert!(!config.orthogonal_constraints);
+        assert!((config.similarity_threshold - 0.7).abs() < 1e-6);
+        assert!((config.penalty_weight - 0.1).abs() < 1e-6);
+        assert_eq!(config.history_window, 10);
+    }
+
+    #[test]
+    fn mplora_config_serialize_deserialize() {
+        let config = MploraConfig {
+            shared_downsample: true,
+            compression_ratio: 0.5,
+            orthogonal_constraints: true,
+            similarity_threshold: 0.9,
+            penalty_weight: 0.2,
+            history_window: 20,
+        };
+
+        let json = serde_json::to_string(&config).unwrap();
+        let deserialized: MploraConfig = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(config.shared_downsample, deserialized.shared_downsample);
+        assert!((config.compression_ratio - deserialized.compression_ratio).abs() < 1e-6);
+        assert_eq!(
+            config.orthogonal_constraints,
+            deserialized.orthogonal_constraints
+        );
+        assert_eq!(config.history_window, deserialized.history_window);
+    }
+
+    // =========================================================================
+    // TextGenerationResult Tests
+    // =========================================================================
+
+    #[test]
+    fn text_generation_result_basic() {
+        let result = TextGenerationResult {
+            text: "Hello, world!".to_string(),
+            tokens_generated: 3,
+            finish_reason: "stop".to_string(),
+            usage_stats: None,
+            timing_stats: None,
+            moe_info: None,
+            expert_routing: None,
+            free_tokens_delivered: 0,
+            routing_hash: None,
+        };
+
+        assert_eq!(result.text, "Hello, world!");
+        assert_eq!(result.tokens_generated, 3);
+        assert_eq!(result.finish_reason, "stop");
+    }
+
+    #[test]
+    fn text_generation_result_with_stats() {
+        let result = TextGenerationResult {
+            text: "Generated text".to_string(),
+            tokens_generated: 10,
+            finish_reason: "length".to_string(),
+            usage_stats: Some(TextGenerationUsage {
+                prompt_tokens: 5,
+                completion_tokens: 10,
+                total_tokens: 15,
+            }),
+            timing_stats: Some(TextGenerationTiming {
+                ttft_ms: 50.0,
+                total_ms: 200.0,
+                tokens_per_second: 50.0,
+            }),
+            moe_info: Some(MoEInfo {
+                is_moe: true,
+                num_experts: 8,
+                experts_per_token: 2,
+            }),
+            expert_routing: None,
+            free_tokens_delivered: 2,
+            routing_hash: None,
+        };
+
+        assert!(result.usage_stats.is_some());
+        assert!(result.timing_stats.is_some());
+        assert!(result.moe_info.is_some());
+        assert_eq!(result.free_tokens_delivered, 2);
+    }
+
+    // =========================================================================
+    // TextToken Tests
+    // =========================================================================
+
+    #[test]
+    fn text_token_basic() {
+        let token = TextToken {
+            text: "hello".to_string(),
+            token_id: Some(12345),
+            index: 0,
+            expert_routing: None,
+            is_free: false,
+        };
+
+        assert_eq!(token.text, "hello");
+        assert_eq!(token.token_id, Some(12345));
+        assert_eq!(token.index, 0);
+        assert!(!token.is_free);
+    }
+
+    #[test]
+    fn text_token_free_token() {
+        let token = TextToken {
+            text: "cached".to_string(),
+            token_id: Some(100),
+            index: 5,
+            expert_routing: None,
+            is_free: true,
+        };
+
+        assert!(token.is_free);
+    }
+
+    // =========================================================================
+    // FusedKernels Default Method Tests
+    // =========================================================================
+
+    #[test]
+    fn fused_kernels_default_load_adapter_returns_error() {
+        // FailingKernel uses the default load_adapter implementation which returns error
+        let mut kernel = FailingKernel::new("test");
+        let result = kernel.load_adapter(0, &[]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn fused_kernels_default_unload_adapter_returns_error() {
+        let kernel = FailingKernel::new("test");
+        let mut boxed: Box<dyn FusedKernels> = Box::new(kernel);
+        let result = boxed.unload_adapter(0);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn fused_kernels_default_verify_adapter_buffers_returns_error() {
+        let mock = MockKernels::new();
+        let result = mock.verify_adapter_buffers(0);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn fused_kernels_default_health_check_returns_degraded() {
+        let kernel = FailingKernel::new("test");
+        let result = kernel.health_check().unwrap();
+        match result {
+            BackendHealth::Degraded { reason } => {
+                assert!(reason.contains("not implemented"));
+            }
+            _ => panic!("Expected Degraded health status"),
+        }
+    }
+
+    #[test]
+    fn fused_kernels_default_get_metrics() {
+        let kernel = FailingKernel::new("test");
+        let metrics = kernel.get_metrics();
+        assert_eq!(metrics.total_operations, 0);
+    }
+
+    #[test]
+    fn fused_kernels_default_supports_text_generation() {
+        let kernel = FailingKernel::new("test");
+        #[allow(deprecated)]
+        {
+            assert!(!kernel.supports_text_generation());
+        }
+        assert!(!kernel.supports_streaming_text_generation());
+    }
+
+    #[test]
+    fn fused_kernels_default_generate_text_returns_error() {
+        let kernel = FailingKernel::new("test");
+        let result = kernel.generate_text_complete("prompt", 10, 0.7, 0.9);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn fused_kernels_default_prewarm_experts() {
+        let kernel = FailingKernel::new("test");
+        let result = kernel.prewarm_experts(vec![(0, 1), (1, 2)]).unwrap();
+        assert_eq!(result, 0); // Default returns 0 (no-op)
+    }
+
+    #[test]
+    fn fused_kernels_default_moe_methods() {
+        let kernel = FailingKernel::new("test");
+        assert!(!kernel.is_moe());
+        assert_eq!(kernel.num_experts(), 0);
+        assert_eq!(kernel.experts_per_token(), 0);
+    }
+}
