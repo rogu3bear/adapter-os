@@ -24,6 +24,7 @@ use adapteros_policy::{
         DeterminismConfig, DeterminismPolicy, EnforcementMode, OperationValidation,
     },
     PolicyDecisionChain, PolicyEngine, QuarantineManager, QuarantineOperation,
+    ThreatAssessment, ThreatSeverity,
 };
 use adapteros_telemetry::events::{
     AbstainEvent, PerformanceBudgetViolationEvent, RouterCandidate, RouterDecisionEvent,
@@ -1947,6 +1948,108 @@ impl InferencePipeline {
         }
     }
 
+    /// Check if a threat assessment requires escalation to human review.
+    ///
+    /// Returns true if severity is High or Critical, triggering a pause.
+    fn should_escalate_threat(assessment: &ThreatAssessment) -> bool {
+        matches!(
+            assessment.severity,
+            ThreatSeverity::High | ThreatSeverity::Critical
+        )
+    }
+
+    /// Build a threat summary string from the assessment for review context.
+    fn build_threat_summary(assessment: &ThreatAssessment) -> String {
+        let mut summary = format!(
+            "Threat Assessment:\n  Severity: {:?}\n  Risk Score: {:.2}",
+            assessment.severity, assessment.risk_score
+        );
+        if !assessment.matched_patterns.is_empty() {
+            summary.push_str(&format!(
+                "\n  Matched Patterns: {}",
+                assessment.matched_patterns.join(", ")
+            ));
+        }
+        if !assessment.anomalies.is_empty() {
+            summary.push_str(&format!(
+                "\n  Anomalies: {}",
+                assessment.anomalies.join("; ")
+            ));
+        }
+        summary
+    }
+
+    /// Handle threat escalation by creating a pause token and waiting for human review.
+    ///
+    /// This implements the human-in-the-loop review protocol for high-severity threats.
+    /// When a ThreatAssessment has severity >= High, inference is paused until a human
+    /// reviewer approves continuation.
+    async fn handle_threat_escalation(
+        &self,
+        assessment: &ThreatAssessment,
+        inference_id: &str,
+    ) -> Result<()> {
+        let Some(ref registry) = self.pause_registry else {
+            // No pause registry configured, log warning and continue
+            warn!(
+                severity = ?assessment.severity,
+                risk_score = assessment.risk_score,
+                "High-severity threat detected but no pause registry configured, continuing without review"
+            );
+            return Ok(());
+        };
+
+        let severity_str = format!("{:?}", assessment.severity);
+        let summary = Self::build_threat_summary(assessment);
+        let evidence = serde_json::to_value(&assessment.evidence).ok();
+
+        info!(
+            severity = %severity_str,
+            risk_score = assessment.risk_score,
+            patterns = ?assessment.matched_patterns,
+            "High-severity threat detected, escalating to human review"
+        );
+
+        let (pause_token, _ctx) = crate::inference_pause::pause_for_threat_escalation(
+            inference_id,
+            &summary,
+            &severity_str,
+            evidence,
+        );
+
+        let resume_rx = registry.register(pause_token);
+
+        // Block until human submits review
+        match resume_rx.await {
+            Ok(review) => {
+                info!(
+                    assessment = ?review.assessment,
+                    "Threat escalation review received, resuming inference"
+                );
+                // Log the review decision
+                if let Err(e) = self.telemetry.log(
+                    "threat.escalation_reviewed",
+                    serde_json::json!({
+                        "inference_id": inference_id,
+                        "severity": severity_str,
+                        "review_assessment": format!("{:?}", review.assessment),
+                        "review_comments": review.comments,
+                    }),
+                ) {
+                    debug!(
+                        target: "telemetry",
+                        error = %e,
+                        "Telemetry emit failed (non-fatal)"
+                    );
+                }
+                Ok(())
+            }
+            Err(_) => Err(AosError::Worker(
+                "Threat escalation review channel closed before response".to_string(),
+            )),
+        }
+    }
+
     /// Batch inference for multiple prompts
     pub async fn infer_batch(
         &mut self,
@@ -1965,6 +2068,59 @@ impl InferencePipeline {
     /// Get model configuration
     pub fn config(&self) -> &InferencePipelineConfig {
         &self.config
+    }
+
+    /// Check a threat assessment and escalate to human review if severity is High or Critical.
+    ///
+    /// This method implements Task 8.2: Threat Detection -> Review Escalation.
+    /// When a ThreatAssessment has severity >= High, the inference pipeline will:
+    /// 1. Create a PauseReason with kind ThreatEscalation
+    /// 2. Register with the pause registry
+    /// 3. Block until human review is submitted
+    ///
+    /// # Arguments
+    /// * `assessment` - The threat assessment to check
+    /// * `inference_id` - The inference request ID for correlation
+    ///
+    /// # Returns
+    /// * `Ok(())` if no escalation needed or review was approved
+    /// * `Err` if the review channel was closed or review was rejected
+    ///
+    /// # Example
+    /// ```ignore
+    /// use adapteros_policy::{ThreatAssessment, ThreatSeverity};
+    ///
+    /// let assessment = ThreatAssessment {
+    ///     severity: ThreatSeverity::High,
+    ///     risk_score: 0.85,
+    ///     matched_patterns: vec!["egress-spike".to_string()],
+    ///     anomalies: vec!["Unusual network activity".to_string()],
+    ///     evidence: vec![],
+    /// };
+    ///
+    /// // This will pause and wait for human review
+    /// pipeline.check_threat_and_escalate(&assessment, "inference-123").await?;
+    /// ```
+    pub async fn check_threat_and_escalate(
+        &self,
+        assessment: &ThreatAssessment,
+        inference_id: &str,
+    ) -> Result<()> {
+        if Self::should_escalate_threat(assessment) {
+            self.handle_threat_escalation(assessment, inference_id)
+                .await
+        } else {
+            // Log low/medium threats for monitoring but don't pause
+            if !matches!(assessment.severity, ThreatSeverity::Low) {
+                debug!(
+                    severity = ?assessment.severity,
+                    risk_score = assessment.risk_score,
+                    inference_id = inference_id,
+                    "Threat detected but below escalation threshold"
+                );
+            }
+            Ok(())
+        }
     }
 }
 
