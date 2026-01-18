@@ -438,6 +438,7 @@ async fn send_streaming_inference(
 }
 
 /// Run single prompt (non-interactive)
+#[allow(clippy::too_many_arguments)]
 async fn run_single_prompt(
     text: &str,
     stack: Option<String>,

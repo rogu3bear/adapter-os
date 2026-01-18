@@ -377,7 +377,7 @@ pub async fn create_aos(args: CreateArgs, output: &OutputWriter) -> Result<()> {
     Ok(())
 }
 
-fn resolve_adapter_metadata_path(source: &PathBuf) -> Result<PathBuf> {
+fn resolve_adapter_metadata_path(source: &std::path::Path) -> Result<PathBuf> {
     if source.is_dir() {
         return Ok(source.join("adapter_metadata.json"));
     }

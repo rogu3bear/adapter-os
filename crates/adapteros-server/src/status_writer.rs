@@ -14,6 +14,7 @@ use tracing::{debug, warn};
 
 /// Status reported to menu bar app
 #[derive(Debug, Serialize)]
+#[allow(non_camel_case_types)] // Intentional: matches adapterOS branding
 pub struct adapterOSStatus {
     /// System status: "ok" | "degraded" | "error"
     pub status: String,

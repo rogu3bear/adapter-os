@@ -95,7 +95,7 @@ impl IngestDocsArgs {
                 "--tenant is required when --index-rag is enabled".to_string(),
             ));
         }
-        if self.generate_training && self.training_strategy.to_ascii_lowercase() != "identity" {
+        if self.generate_training && !self.training_strategy.eq_ignore_ascii_case("identity") {
             return Err(AosError::Validation(
                 "Only training_strategy=identity is supported by PLAN_4".to_string(),
             ));
