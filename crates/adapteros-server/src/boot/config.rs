@@ -197,7 +197,7 @@ pub async fn initialize_config(cli: &Cli) -> Result<ConfigContext> {
             })
             .unwrap();
 
-        logging::initialize_logging(&cfg.logging, &cfg.otel)
+        logging::init_logging(&cfg.logging, &cfg.otel)
             .map_err(|e| anyhow::anyhow!("Failed to initialize logging: {}", e))?
     };
     info!(

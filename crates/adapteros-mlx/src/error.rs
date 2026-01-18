@@ -41,14 +41,6 @@ pub enum MlxError {
     CoreMLError(String),
 }
 
-impl From<adapteros_core::AosError> for MlxError {
-    fn from(e: adapteros_core::AosError) -> Self {
-        MlxError::Upstream(e.to_string())
-    }
-}
-
-impl From<MlxError> for adapteros_core::AosError {
-    fn from(e: MlxError) -> Self {
-        adapteros_core::AosError::Mlx(e.to_string())
-    }
-}
+// Error conversions using impl_error_from! macros
+adapteros_core::impl_error_from_for!(MlxError: adapteros_core::AosError => Upstream);
+adapteros_core::impl_error_from!(MlxError => Mlx);

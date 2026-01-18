@@ -303,7 +303,7 @@ pub async fn complete_chunked_upload(
     // Check permission
     require_permission(&claims, Permission::DatasetUpload)?;
 
-    if request.format.to_ascii_lowercase() != "jsonl" {
+    if !request.format.eq_ignore_ascii_case("jsonl") {
         return Err(bad_request(
             "Only jsonl datasets are supported by PLAN_4".to_string(),
         ));

@@ -258,7 +258,7 @@ fn find_mlx_with_version() -> Option<(PathBuf, PathBuf, String)> {
     // Method 1: Check MLX_PATH environment variable
     if let Ok(mlx_path) = env::var("MLX_PATH") {
         let path = resolve_mlx_path(&mlx_path);
-        if path != PathBuf::from(&mlx_path) {
+        if path != std::path::Path::new(&mlx_path) {
             println!(
                 "cargo:warning=Resolved relative MLX_PATH '{}' to '{}'",
                 mlx_path,

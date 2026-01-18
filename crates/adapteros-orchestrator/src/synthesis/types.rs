@@ -317,9 +317,7 @@ impl SynthesisOutput {
             if relevance.map(|r| r < ABSTENTION_THRESHOLD).unwrap_or(false) {
                 examples.push(TrainingExample::new(
                     qa.question.clone(),
-                    format!(
-                        "I don't have enough information to answer this question confidently based on the available documentation."
-                    ),
+                    "I don't have enough information to answer this question confidently based on the available documentation.".to_string(),
                     ExampleType::QuestionAnswer,
                     source.to_string(),
                     i,

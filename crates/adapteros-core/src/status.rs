@@ -84,6 +84,7 @@ pub struct ServiceStatus {
 
 /// Status reported to menu bar app
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(non_camel_case_types)] // Intentional: matches adapterOS branding
 pub struct adapterOSStatus {
     /// Schema version for forward/backward compatibility
     pub schema_version: String,

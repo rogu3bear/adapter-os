@@ -188,7 +188,7 @@ impl SeparatedLoRATrainer {
         let start_time = Instant::now();
 
         // Initialize weights
-        let mut weights = self.initialize_weights();
+        let mut weights = self.init_weights();
 
         // Train for specified epochs
         let mut final_loss = 0.0;
@@ -397,7 +397,7 @@ impl SeparatedLoRATrainer {
     }
 
     /// Initialize LoRA weights with deterministic seeded RNG
-    fn initialize_weights(&self) -> LoRAWeights {
+    fn init_weights(&self) -> LoRAWeights {
         use rand::{Rng, SeedableRng};
         use rand_chacha::ChaCha20Rng;
 

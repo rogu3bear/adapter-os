@@ -199,6 +199,7 @@ pub async fn setup_state(_uds_path: Option<&PathBuf>) -> anyhow::Result<AppState
             plan_dir: plan_dir.to_string_lossy().to_string(),
             datasets_root: datasets_root.to_string_lossy().to_string(),
             documents_root: documents_root.to_string_lossy().to_string(),
+            synthesis_model_path: None,
         },
         chat_context: Default::default(),
         seed_mode: SeedMode::BestEffort,

@@ -3514,7 +3514,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                     gen.record_routing_step_full(
                         step_with_free as u32,
                         input_token_id,
-                        decision.indices.iter().map(|&i| i as u16).collect(),
+                        decision.indices.iter().copied().collect(),
                         adapter_ids_for_trace.clone(),
                         decision.gates_q15.iter().copied().collect(),
                         decision.entropy,

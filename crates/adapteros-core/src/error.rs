@@ -1127,24 +1127,63 @@ impl CacheBudgetExceededInfo {
 // Rusqlite conversions removed to avoid conflicts with sqlx
 // If needed, implement these conversions in aos-registry directly
 
+// ============================================================================
+// Error Chain Preservation
+// ============================================================================
+//
+// These `From` implementations preserve the full error chain by capturing
+// all causes in the error message. This is critical for debugging as it
+// prevents losing context when errors are converted.
+//
+// The pattern used is:
+// 1. Capture the root error message
+// 2. Walk the error chain via `.source()` or anyhow's `.chain()`
+// 3. Format as "root cause -> inner cause -> ... -> leaf cause"
+//
+// For structured error handling with proper `#[source]` support, use the
+// structured variants like `UdsConnectionFailed`, `DatabaseError`, or
+// `WithContext` which preserve the actual error objects.
+
+/// Helper to format an error chain into a single string.
+///
+/// Walks the error's source chain and joins all messages with " -> ".
+/// This preserves context that would otherwise be lost during error conversion.
+fn format_error_chain(err: &dyn std::error::Error) -> String {
+    let mut chain = vec![err.to_string()];
+    let mut current = err.source();
+    while let Some(cause) = current {
+        chain.push(cause.to_string());
+        current = cause.source();
+    }
+    chain.join(" -> ")
+}
+
 // Conversion from anyhow for CLI commands
+//
+// anyhow::Error provides `.chain()` which is more efficient than walking
+// `.source()` since it's already collected.
 impl From<anyhow::Error> for AosError {
     fn from(err: anyhow::Error) -> Self {
-        AosError::Internal(err.to_string())
+        let chain: String = err
+            .chain()
+            .map(|e| e.to_string())
+            .collect::<Vec<_>>()
+            .join(" -> ");
+        AosError::Internal(chain)
     }
 }
 
 // Conversion from rusqlite for aos-registry
 impl From<rusqlite::Error> for AosError {
     fn from(err: rusqlite::Error) -> Self {
-        AosError::Sqlite(err.to_string())
+        AosError::Sqlite(format_error_chain(&err))
     }
 }
 
 // Conversion from std::io::Error
 impl From<std::io::Error> for AosError {
     fn from(err: std::io::Error) -> Self {
-        AosError::Io(err.to_string())
+        AosError::Io(format_error_chain(&err))
     }
 }
 
@@ -1208,19 +1247,38 @@ impl From<crate::errors::AosValidationError> for AosError {
 #[cfg(feature = "sqlx")]
 impl From<sqlx::Error> for AosError {
     fn from(err: sqlx::Error) -> Self {
-        AosError::Sqlx(err.to_string())
+        AosError::Sqlx(format_error_chain(&err))
     }
 }
 
 // Conversion from ZipError for archive operations (zip v1.x)
 impl From<ZipError> for AosError {
     fn from(err: ZipError) -> Self {
-        AosError::Io(format!("Zip operation failed: {}", err))
+        AosError::Io(format!("Zip operation failed: {}", format_error_chain(&err)))
     }
 }
 
 // Note: DeterministicExecutorError conversion avoided to prevent circular dependency
 // Handle in calling code with manual mapping
+
+/// Format a full error chain into a human-readable string.
+///
+/// Walks the error's source chain and joins all messages with " -> ".
+/// This is useful for logging or displaying errors with full context.
+///
+/// # Example
+/// ```
+/// use std::io;
+/// use adapteros_core::error::error_chain_string;
+///
+/// let inner = io::Error::new(io::ErrorKind::NotFound, "file.txt");
+/// let outer = io::Error::new(io::ErrorKind::Other, inner);
+/// let chain = error_chain_string(&outer);
+/// assert!(chain.contains(" -> "));
+/// ```
+pub fn error_chain_string(err: &dyn std::error::Error) -> String {
+    format_error_chain(err)
+}
 
 /// Extension trait to attach context to results without disrupting error types
 pub trait ResultExt<T> {
@@ -1280,5 +1338,120 @@ mod tests {
         assert!(display.contains("processing request:"));
         assert!(display.contains("while doing A:"));
         assert!(display.contains("boom"));
+    }
+
+    #[test]
+    fn test_error_chain_string_single_error() {
+        let err = std::io::Error::new(std::io::ErrorKind::NotFound, "config.toml");
+        let chain = error_chain_string(&err);
+        assert_eq!(chain, "config.toml");
+    }
+
+    // Custom error type for testing error chains
+    #[derive(Debug)]
+    struct ChainedError {
+        message: String,
+        source: Option<Box<dyn std::error::Error + Send + Sync>>,
+    }
+
+    impl std::fmt::Display for ChainedError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}", self.message)
+        }
+    }
+
+    impl std::error::Error for ChainedError {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            self.source.as_ref().map(|e| e.as_ref() as &(dyn std::error::Error + 'static))
+        }
+    }
+
+    #[test]
+    fn test_error_chain_string_nested_errors() {
+        // Create a proper chain with source
+        let inner = ChainedError {
+            message: "missing file".to_string(),
+            source: None,
+        };
+        let outer = ChainedError {
+            message: "failed to read config".to_string(),
+            source: Some(Box::new(inner)),
+        };
+        let chain = error_chain_string(&outer);
+
+        // Should contain both messages joined by " -> "
+        assert!(chain.contains("missing file"), "chain was: {}", chain);
+        assert!(
+            chain.contains("failed to read config"),
+            "chain was: {}",
+            chain
+        );
+        assert!(chain.contains(" -> "), "chain was: {}", chain);
+        // Verify order: outer first, then inner
+        assert_eq!(chain, "failed to read config -> missing file");
+    }
+
+    #[test]
+    fn test_io_error_conversion_preserves_chain() {
+        // io::Error with a custom source that has its own source
+        let inner = ChainedError {
+            message: "database.sqlite not found".to_string(),
+            source: None,
+        };
+        let outer = std::io::Error::new(std::io::ErrorKind::Other, inner);
+
+        let aos_err: AosError = outer.into();
+
+        match aos_err {
+            AosError::Io(msg) => {
+                // The outer message is the inner error's Display
+                assert!(
+                    msg.contains("database.sqlite"),
+                    "inner cause should be preserved, got: {}",
+                    msg
+                );
+            }
+            _ => panic!("expected Io variant"),
+        }
+    }
+
+    #[test]
+    fn test_anyhow_error_conversion_preserves_chain() {
+        // Build an anyhow error chain
+        let root = anyhow::anyhow!("root cause");
+        let middle = root.context("middle context");
+        let outer = middle.context("outer context");
+
+        let aos_err: AosError = outer.into();
+
+        match aos_err {
+            AosError::Internal(msg) => {
+                assert!(
+                    msg.contains("outer context"),
+                    "outer context missing, got: {}",
+                    msg
+                );
+                assert!(
+                    msg.contains("middle context"),
+                    "middle context missing, got: {}",
+                    msg
+                );
+                assert!(
+                    msg.contains("root cause"),
+                    "root cause missing, got: {}",
+                    msg
+                );
+                assert!(msg.contains(" -> "), "chain separator missing, got: {}", msg);
+            }
+            _ => panic!("expected Internal variant"),
+        }
+    }
+
+    #[test]
+    fn test_error_chain_string_public_api() {
+        // Test the public API function
+        let err = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "access denied");
+        let formatted = error_chain_string(&err);
+        assert_eq!(formatted, "access denied");
     }
 }

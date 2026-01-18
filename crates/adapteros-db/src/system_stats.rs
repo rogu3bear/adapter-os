@@ -10,7 +10,19 @@
 
 use crate::Db;
 use adapteros_core::{AosError, Result};
+use adapteros_core::validation::{Validator, ValidatorBuilder};
 use tracing::warn;
+
+/// Validator for SQL table names to prevent injection attacks.
+/// Table names must be alphanumeric with underscores only.
+fn table_name_validator() -> Validator {
+    ValidatorBuilder::new("table_name")
+        .not_empty()
+        .max_length(128)
+        .with_chars("_") // Only underscores in addition to alphanumeric
+        .starts_with_alphanumeric()
+        .build()
+}
 
 impl Db {
     /// Count active chat sessions (sessions with activity in the last 24 hours)
@@ -83,13 +95,10 @@ impl Db {
     /// This method uses string interpolation for the table name. Only use with
     /// validated/trusted table names to prevent SQL injection.
     pub async fn count_table_rows(&self, table_name: &str) -> Result<i64> {
-        // Validate table name to prevent SQL injection
-        if !table_name.chars().all(|c| c.is_alphanumeric() || c == '_') {
-            return Err(AosError::Validation(format!(
-                "Invalid table name: {}",
-                table_name
-            )));
-        }
+        // Validate table name using centralized validator to prevent SQL injection
+        table_name_validator()
+            .validate(table_name)
+            .map_err(|e| AosError::Validation(e.message))?;
 
         let query = format!("SELECT COUNT(*) FROM {}", table_name);
         let count = sqlx::query_scalar::<_, i64>(&query)

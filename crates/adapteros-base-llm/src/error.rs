@@ -36,17 +36,9 @@ pub enum BaseLLMError {
 /// Result type for base LLM operations
 pub type Result<T> = std::result::Result<T, BaseLLMError>;
 
-impl From<serde_json::Error> for BaseLLMError {
-    fn from(err: serde_json::Error) -> Self {
-        BaseLLMError::SerializationError(err.to_string())
-    }
-}
-
-impl From<std::io::Error> for BaseLLMError {
-    fn from(err: std::io::Error) -> Self {
-        BaseLLMError::LoadingFailed(err.to_string())
-    }
-}
+// Error conversions using impl_error_from_for! macro
+adapteros_core::impl_error_from_for!(BaseLLMError: serde_json::Error => SerializationError);
+adapteros_core::impl_error_from_for!(BaseLLMError: std::io::Error => LoadingFailed);
 
 impl From<BaseLLMError> for AosError {
     fn from(err: BaseLLMError) -> Self {

@@ -200,6 +200,8 @@ fn test_inference_request_internal_with_pinned_adapters() {
         require_step: false,
         require_determinism: false,
         allow_fallback: true,
+        abstention_threshold: None,
+        citation_mode: None,
     };
 
     assert_eq!(request.pinned_adapter_ids, Some(pinned));
@@ -248,6 +250,7 @@ fn test_inference_result_with_unavailable_pinned_adapters() {
         stop_reason_code: None,
         stop_reason_token_index: None,
         stop_policy_digest_b3: None,
+        abstention: None,
     };
 
     assert_eq!(result.unavailable_pinned_adapters, Some(unavailable));
@@ -287,6 +290,7 @@ fn test_inference_result_without_unavailable_pinned_adapters() {
         stop_reason_code: None,
         stop_reason_token_index: None,
         stop_policy_digest_b3: None,
+        abstention: None,
     };
 
     assert!(result.unavailable_pinned_adapters.is_none());
@@ -333,6 +337,7 @@ fn test_inference_result_all_pins_unavailable_stack_only_fallback() {
         stop_reason_code: None,
         stop_reason_token_index: None,
         stop_policy_digest_b3: None,
+        abstention: None,
     };
 
     assert_eq!(result.unavailable_pinned_adapters, Some(unavailable));
@@ -378,6 +383,7 @@ fn test_inference_result_partial_pins_unavailable() {
         stop_reason_code: None,
         stop_reason_token_index: None,
         stop_policy_digest_b3: None,
+        abstention: None,
     };
 
     assert_eq!(result.unavailable_pinned_adapters, Some(unavailable));

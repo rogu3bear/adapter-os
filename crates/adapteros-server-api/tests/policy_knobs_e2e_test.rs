@@ -503,6 +503,7 @@ fn create_test_config(global_determinism: Option<&str>, use_session_stack: bool)
             plan_dir: "var/policy-knobs-test".to_string(),
             datasets_root: "var/policy-knobs-test".to_string(),
             documents_root: "var/policy-knobs-test".to_string(),
+            synthesis_model_path: None,
         },
         chat_context: Default::default(),
         seed_mode: SeedMode::BestEffort,

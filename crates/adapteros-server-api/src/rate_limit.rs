@@ -381,7 +381,7 @@ pub async fn evict_stale_buckets(rate_limiter: Arc<RateLimiterState>) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adapteros_core::MockClock;
+    use adapteros_core::clock::MockClock;
     use std::time::Duration;
 
     #[test]

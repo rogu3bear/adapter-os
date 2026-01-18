@@ -1749,25 +1749,25 @@ impl StreamState {
                                     Some(Err(err)) => {
                                         // Dev echo mode: return echo token instead of error
                                         // when worker is unavailable in dev bypass mode
-                                        if is_dev_bypass_enabled() {
-                                            if matches!(
+                                        if is_dev_bypass_enabled()
+                                            && matches!(
                                                 err,
                                                 InferenceError::WorkerDegraded { .. }
                                                     | InferenceError::NoCompatibleWorker { .. }
                                                     | InferenceError::WorkerError(_)
                                                     | InferenceError::WorkerNotAvailable(_)
-                                            ) {
-                                                info!(
-                                                    request_id = %self.request_id,
-                                                    error = %err,
-                                                    "Dev echo mode (stream): returning mock token"
-                                                );
-                                                self.phase = StreamPhase::Done;
-                                                // Return echo text as a single token
-                                                return Some(StreamEvent::Token(
-                                                    "[DEV ECHO] No inference worker available. Start a worker to enable real inference.".to_string()
-                                                ));
-                                            }
+                                            )
+                                        {
+                                            info!(
+                                                request_id = %self.request_id,
+                                                error = %err,
+                                                "Dev echo mode (stream): returning mock token"
+                                            );
+                                            self.phase = StreamPhase::Done;
+                                            // Return echo text as a single token
+                                            return Some(StreamEvent::Token(
+                                                "[DEV ECHO] No inference worker available. Start a worker to enable real inference.".to_string()
+                                            ));
                                         }
                                         self.phase = StreamPhase::Done;
                                         return Some(self.map_inference_error(err));
@@ -2020,6 +2020,7 @@ mod tests {
                 plan_dir: base_dir.join("plan").to_string_lossy().to_string(),
                 datasets_root: base_dir.join("datasets").to_string_lossy().to_string(),
                 documents_root: base_dir.join("documents").to_string_lossy().to_string(),
+                synthesis_model_path: None,
             },
             chat_context: Default::default(),
             seed_mode: SeedMode::BestEffort,

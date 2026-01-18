@@ -557,6 +557,8 @@ mod training_config_tests {
             base_model_path: None,
             preprocessing: None,
             force_resume: None,
+            multi_module_training: None,
+            lora_layer_indices: None,
         };
 
         let cfg = training_config_from_request(req);

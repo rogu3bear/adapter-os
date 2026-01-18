@@ -158,6 +158,7 @@ fn token_signature_invalid(msg: impl Into<String>) -> (StatusCode, Json<ErrorRes
     )
 }
 
+#[allow(dead_code)]
 fn session_corrupted(msg: impl Into<String>) -> (StatusCode, Json<ErrorResponse>) {
     (
         StatusCode::UNAUTHORIZED,

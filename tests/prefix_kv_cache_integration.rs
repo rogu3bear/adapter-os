@@ -524,6 +524,7 @@ fn test_prefix_kv_cache_stats_hit_rate() {
         used_bytes: 1000,
         max_bytes: 10000,
         in_flight_builds: 0,
+        integrity_failures: 0,
     };
 
     let hit_rate = stats.hit_rate_percent();

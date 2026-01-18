@@ -43,3 +43,8 @@ hostname.workspace = true
 blake3 = { workspace = true }
 hex = { workspace = true }
 ed25519-dalek = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "process", "io-util"] }
+tracing-test = "0.2"

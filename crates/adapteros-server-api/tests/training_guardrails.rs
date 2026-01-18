@@ -108,6 +108,8 @@ async fn start_training_rejects_base_model_mismatch() {
             base_model_path: None,
             preprocessing: None,
             force_resume: None,
+            multi_module_training: None,
+            lora_layer_indices: None,
         },
         template_id: None,
         repo_id: Some(repo_id.clone()),
@@ -210,7 +212,7 @@ async fn start_training_rejects_empty_dataset() {
         .expect("dataset");
     state
         .db
-        .update_dataset_validation(&dataset_id, "valid", None)
+        .update_dataset_validation(&dataset_id, "valid", None, None)
         .await
         .expect("dataset validation");
     state
@@ -257,6 +259,8 @@ async fn start_training_rejects_empty_dataset() {
             base_model_path: None,
             preprocessing: None,
             force_resume: None,
+            multi_module_training: None,
+            lora_layer_indices: None,
         },
         template_id: None,
         repo_id: Some(repo_id),

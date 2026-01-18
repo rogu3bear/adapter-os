@@ -238,6 +238,7 @@ fn test_inference_result_has_pinned_adapter_fields() {
         stop_reason_token_index: None,
         stop_policy_digest_b3: None,
         model_type: None,
+        abstention: None,
     };
 
     // Verify fields are present and correct
@@ -292,6 +293,7 @@ fn test_inference_result_omits_none_pinned_fields() {
         stop_reason_token_index: None,
         stop_policy_digest_b3: None,
         model_type: None,
+        abstention: None,
     };
 
     // Verify None fields are properly set
@@ -409,6 +411,7 @@ fn test_graceful_degradation_http_200_behavior() {
         stop_reason_token_index: None,
         stop_policy_digest_b3: None,
         model_type: None,
+        abstention: None,
     };
 
     // Key assertions for graceful degradation compliance:

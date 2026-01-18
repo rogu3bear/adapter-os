@@ -311,6 +311,7 @@ fn test_inference_result_determinism_fields_flow_through() {
         stop_reason_code: None,
         stop_reason_token_index: None,
         stop_policy_digest_b3: None,
+        abstention: None,
     };
 
     // Convert to InferResponse
@@ -366,6 +367,7 @@ fn test_inference_result_strict_mode_exact_guarantee() {
         stop_reason_code: None,
         stop_reason_token_index: None,
         stop_policy_digest_b3: None,
+        abstention: None,
     };
 
     let response: InferResponse = result.into();
@@ -416,6 +418,7 @@ fn test_inference_result_direct_mode_no_fallback() {
         stop_reason_code: None,
         stop_reason_token_index: None,
         stop_policy_digest_b3: None,
+        abstention: None,
     };
 
     let response: InferResponse = result.into();

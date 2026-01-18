@@ -139,12 +139,9 @@ metal-backend = []   # Metal GPU (production fallback)
 
 # MLX backend - C++ FFI (Homebrew MLX)
 mlx = []                             # MLX C++ FFI (primary backend)
-mlx-backend = []                     # Legacy stub backend (deprecated)
-real-mlx = ["mlx"]                   # Legacy alias (deprecated)
 mlx-bridge = ["adapteros-lora-worker/mlx-bridge"]  # MLX Python subprocess bridge
 
 # Combined feature sets
-stub-backends = ["mlx-backend"]  # All stub implementations (deprecated)
 multi-backend = ["mlx"]  # MLX primary backend
 full = ["telemetry", "metrics", "replay"]
 no-metal = []  # Explicitly disable Metal (for Linux/CI)

@@ -885,7 +885,7 @@ impl TrainingService {
 
             Ok(())
         } else {
-            Err(AosError::Internal(format!("Training job not found: {}", job_id)).into())
+            Err(AosError::Internal(format!("Training job not found: {}", job_id)))
         }
     }
 
@@ -1054,7 +1054,7 @@ impl TrainingService {
 
             Ok(())
         } else {
-            Err(AosError::Internal(format!("Training job not found: {}", job_id)).into())
+            Err(AosError::Internal(format!("Training job not found: {}", job_id)))
         }
     }
 
