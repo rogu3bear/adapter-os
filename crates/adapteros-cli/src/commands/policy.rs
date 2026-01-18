@@ -2,10 +2,14 @@
 
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_db::Db;
-use adapteros_policy::{explain_policy, list_policies, PolicyId};
+use adapteros_policy::{
+    explain_policy, list_policies, PolicyId, PolicyPackManager,
+    policy_packs::{PolicyRequest, PolicyContext, RequestType, Priority},
+};
 use clap::Subcommand;
 use comfy_table::{presets::UTF8_FULL, Cell, Color, Table};
 use std::sync::Arc;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum PolicyCommand {
@@ -237,17 +241,45 @@ fn enforce_policies(pack: Option<&str>, all: bool, dry_run: bool) -> Result<()> 
         println!("🔍 Running policy enforcement...\n");
     }
 
+    // Create a policy pack manager with default configuration
+    let pack_manager = PolicyPackManager::new();
+
+    // Create a synthetic request to validate policies
+    // In a real deployment, this would use actual runtime context
+    let request = PolicyRequest {
+        request_id: Uuid::new_v4().to_string(),
+        request_type: RequestType::SystemOperation,
+        tenant_id: Some("system".to_string()),
+        user_id: Some("cli".to_string()),
+        context: PolicyContext {
+            component: "aosctl".to_string(),
+            operation: "policy_enforce".to_string(),
+            data: Some(serde_json::json!({
+                "dry_run": dry_run,
+                "pack_filter": pack,
+                "enforce_all": all,
+            })),
+            priority: Priority::Normal,
+        },
+        metadata: None,
+    };
+
+    // Validate request against all policy packs
+    let validation_result = pack_manager.validate_request(&request)?;
+
+    let mut passed = 0;
+    let mut failed = 0;
+    let mut skipped = 0;
+    let mut violation_details: Vec<String> = Vec::new();
+
+    // Process policies to check
     let policies_to_check = if all {
-        list_policies().iter().map(|p| p.id).collect()
+        list_policies().iter().map(|p| p.id).collect::<Vec<_>>()
     } else if let Some(pack_name) = pack {
         vec![parse_policy_id(pack_name)?]
     } else {
         vec![]
     };
-
-    let mut passed = 0;
-    let failed = 0;
-    let mut skipped = 0;
 
     for policy_id in policies_to_check {
         let spec = adapteros_policy::get_policy(policy_id);
@@ -258,22 +290,49 @@ fn enforce_policies(pack: Option<&str>, all: bool, dry_run: bool) -> Result<()> 
             continue;
         }
 
-        // For now, just simulate enforcement since actual enforcement
-        // requires context from running system
-        println!("✓ {} - Passed (dry run)", spec.name);
-        passed += 1;
+        // Check if this policy had any violations in the validation result
+        let policy_violations: Vec<_> = validation_result.violations.iter()
+            .filter(|v| v.policy_pack.to_lowercase().contains(&spec.name.to_lowercase()))
+            .collect();
+
+        if policy_violations.is_empty() {
+            println!("✓ {} - Passed", spec.name);
+            passed += 1;
+        } else {
+            failed += 1;
+            println!("✗ {} - FAILED ({} violations)", spec.name, policy_violations.len());
+            for violation in &policy_violations {
+                println!("    - {}", violation.message);
+                violation_details.push(format!("{}: {}", spec.name, violation.message));
+            }
+        }
+    }
+
+    // Also report any warnings
+    if !validation_result.warnings.is_empty() {
+        println!("\n⚠️  Warnings:");
+        for warning in &validation_result.warnings {
+            println!("  - {}: {}", warning.policy_pack, warning.message);
+        }
     }
 
     println!("\n📊 Summary:");
     println!("  Passed: {}", passed);
     println!("  Failed: {}", failed);
     println!("  Skipped: {}", skipped);
+    println!("  Warnings: {}", validation_result.warnings.len());
+    println!("  Validation time: {}ms", validation_result.duration_ms);
 
     if failed > 0 && !dry_run {
         return Err(adapteros_core::AosError::PolicyViolation(format!(
-            "{} policy violations detected",
-            failed
+            "{} policy violations detected: {}",
+            failed,
+            violation_details.join("; ")
         )));
+    }
+
+    if failed > 0 && dry_run {
+        println!("\n⚠️  {} violations detected (dry run - not failing)", failed);
     }
 
     Ok(())
@@ -465,7 +524,7 @@ fn hash_verify(cpid: Option<&str>) -> Result<()> {
                 AosError::Database(format!("Failed to connect to database: {}", e))
             })?);
 
-        // Get all policy hash records
+        // Get all policy hash records from database
         let records = db
             .list_policy_hashes(cpid)
             .await
@@ -478,30 +537,107 @@ fn hash_verify(cpid: Option<&str>) -> Result<()> {
 
         println!("Verifying {} policy pack hashes...\n", records.len());
 
-        // Note: Full verification requires loading actual policy configs and computing their hashes
-        // For now, we just display the registered baselines
+        // Create policy pack manager to compute current hashes
+        let pack_manager = PolicyPackManager::new();
+        let configs = pack_manager.get_all_configs();
+
+        // Build lookup map from policy pack ID string to computed hash
+        let mut current_hashes: std::collections::HashMap<String, adapteros_core::B3Hash> =
+            std::collections::HashMap::new();
+        for (pack_id, config) in configs {
+            let hash = config.calculate_hash();
+            current_hashes.insert(pack_id.to_id_string().to_string(), hash);
+        }
+
         let mut table = comfy_table::Table::new();
         table.load_preset(comfy_table::presets::UTF8_FULL);
         table.set_header(vec![
             comfy_table::Cell::new("Policy Pack ID").fg(comfy_table::Color::Cyan),
             comfy_table::Cell::new("Status").fg(comfy_table::Color::Cyan),
             comfy_table::Cell::new("Baseline Hash").fg(comfy_table::Color::Cyan),
+            comfy_table::Cell::new("Current Hash").fg(comfy_table::Color::Cyan),
         ]);
 
-        for record in &records {
-            let status_cell =
-                comfy_table::Cell::new("✓ Baseline Set").fg(comfy_table::Color::Green);
+        let mut verified = 0;
+        let mut mismatched = 0;
+        let mut missing = 0;
+        let mut mismatch_details: Vec<String> = Vec::new();
 
-            table.add_row(vec![
-                comfy_table::Cell::new(&record.policy_pack_id),
-                status_cell,
-                comfy_table::Cell::new(&record.baseline_hash.to_hex()[..16]),
-            ]);
+        for record in &records {
+            let baseline_hex = record.baseline_hash.to_hex();
+            let baseline_short = &baseline_hex[..16];
+
+            if let Some(current_hash) = current_hashes.get(&record.policy_pack_id) {
+                let current_hex = current_hash.to_hex();
+                let current_short = &current_hex[..16];
+
+                if record.baseline_hash == *current_hash {
+                    // Hash matches
+                    table.add_row(vec![
+                        comfy_table::Cell::new(&record.policy_pack_id),
+                        comfy_table::Cell::new("✓ Verified").fg(comfy_table::Color::Green),
+                        comfy_table::Cell::new(baseline_short),
+                        comfy_table::Cell::new(current_short),
+                    ]);
+                    verified += 1;
+                } else {
+                    // Hash mismatch - potential tampering or drift
+                    table.add_row(vec![
+                        comfy_table::Cell::new(&record.policy_pack_id),
+                        comfy_table::Cell::new("✗ MISMATCH").fg(comfy_table::Color::Red),
+                        comfy_table::Cell::new(baseline_short),
+                        comfy_table::Cell::new(current_short).fg(comfy_table::Color::Red),
+                    ]);
+                    mismatched += 1;
+                    mismatch_details.push(format!(
+                        "{}: expected {}, got {}",
+                        record.policy_pack_id, baseline_short, current_short
+                    ));
+                }
+            } else {
+                // Policy pack not found in current configs
+                table.add_row(vec![
+                    comfy_table::Cell::new(&record.policy_pack_id),
+                    comfy_table::Cell::new("⚠ Not Found").fg(comfy_table::Color::Yellow),
+                    comfy_table::Cell::new(baseline_short),
+                    comfy_table::Cell::new("-"),
+                ]);
+                missing += 1;
+            }
         }
 
         println!("{table}");
-        println!("\n✓ All registered policy packs have baseline hashes set");
-        println!("\nNote: Full hash validation requires runtime policy manager integration.");
+
+        println!("\n📊 Verification Summary:");
+        println!("  Verified: {}", verified);
+        println!("  Mismatched: {}", mismatched);
+        println!("  Missing: {}", missing);
+
+        if mismatched > 0 {
+            println!("\n⚠️  Hash Mismatches Detected:");
+            for detail in &mismatch_details {
+                println!("  - {}", detail);
+            }
+            println!("\nPolicy configuration has changed since baseline was set.");
+            println!("This may indicate:");
+            println!("  - Legitimate policy updates (re-run hash-baseline to update)");
+            println!("  - Unauthorized policy modifications (investigate immediately)");
+            println!("  - Configuration drift (restore from known-good state)");
+
+            return Err(AosError::PolicyViolation(format!(
+                "{} policy hash mismatches detected (Determinism Ruleset #2)",
+                mismatched
+            )));
+        }
+
+        if missing > 0 {
+            println!("\n⚠️  Some registered policy packs were not found in current configuration.");
+            println!("This may indicate removed or renamed policy packs.");
+        }
+
+        if verified > 0 && mismatched == 0 {
+            println!("\n✓ All registered policy pack hashes verified successfully.");
+        }
 
         Ok(())
     })
