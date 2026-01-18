@@ -970,13 +970,19 @@ impl ApiClient {
     }
 
     /// List dataset versions
-    pub async fn list_dataset_versions(&self, dataset_id: &str) -> ApiResult<DatasetVersionsResponse> {
+    pub async fn list_dataset_versions(
+        &self,
+        dataset_id: &str,
+    ) -> ApiResult<DatasetVersionsResponse> {
         self.get(&format!("/v1/datasets/{}/versions", dataset_id))
             .await
     }
 
     /// List dataset files
-    pub async fn list_dataset_files(&self, dataset_id: &str) -> ApiResult<Vec<DatasetFileResponse>> {
+    pub async fn list_dataset_files(
+        &self,
+        dataset_id: &str,
+    ) -> ApiResult<Vec<DatasetFileResponse>> {
         self.get(&format!("/v1/datasets/{}/files", dataset_id))
             .await
     }
@@ -1014,8 +1020,11 @@ impl ApiClient {
         dataset_id: &str,
         request: &ValidateFileRequest,
     ) -> ApiResult<ValidateAllFilesResponse> {
-        self.post(&format!("/v1/datasets/{}/files/validate", dataset_id), request)
-            .await
+        self.post(
+            &format!("/v1/datasets/{}/files/validate", dataset_id),
+            request,
+        )
+        .await
     }
 
     /// Delete a dataset
@@ -1045,10 +1054,7 @@ impl ApiClient {
             query_parts.push(format!("shuffle_seed={}", encoded));
         }
         let path = if query_parts.is_empty() {
-            format!(
-                "/v1/training/dataset_versions/{}/rows",
-                dataset_version_id
-            )
+            format!("/v1/training/dataset_versions/{}/rows", dataset_version_id)
         } else {
             format!(
                 "/v1/training/dataset_versions/{}/rows?{}",

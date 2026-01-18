@@ -43,9 +43,7 @@ pub fn Skeleton(
     let full_class = format!("{} {}", variant.class(), class);
     let style = format!(
         "{}{}",
-        width
-            .map(|w| format!("width: {};", w))
-            .unwrap_or_default(),
+        width.map(|w| format!("width: {};", w)).unwrap_or_default(),
         height
             .map(|h| format!("height: {};", h))
             .unwrap_or_default()

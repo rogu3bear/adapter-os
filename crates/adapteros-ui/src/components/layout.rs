@@ -544,10 +544,7 @@ fn StartMenu(on_close: impl Fn() + Clone + 'static) -> impl IntoView {
         ),
         (
             "Developer",
-            vec![
-                ("Diff", "/diff"),
-                ("Style Audit", "/style-audit"),
-            ],
+            vec![("Diff", "/diff"), ("Style Audit", "/style-audit")],
         ),
     ];
 

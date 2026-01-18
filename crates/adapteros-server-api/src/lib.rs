@@ -1,3 +1,63 @@
+//! adapterOS Server API Layer
+//!
+//! This crate provides the REST API layer for the adapterOS control plane server.
+//! It handles HTTP routing, authentication, middleware, and request processing.
+//!
+//! # Architecture
+//!
+//! The API layer is built on Axum and follows a modular structure:
+//!
+//! ```text
+//! Request -> Middleware -> Route Handler -> Service Layer -> Database
+//!              |               |                |
+//!              v               v                v
+//!         - Auth          - handlers/      - AppState
+//!         - Rate limit    - validation     - Db / KvDb
+//!         - Request ID    - api_error      - Telemetry
+//! ```
+//!
+//! # Key Components
+//!
+//! - **Routes** (`routes.rs`): Axum router builder with all API endpoints
+//! - **Handlers** (`handlers/`): Request handlers organized by domain (adapters, chat, etc.)
+//! - **Middleware** (`middleware.rs`, `middleware_security.rs`): Auth, rate limiting, tracing
+//! - **State** (`state.rs`): `AppState` shared across all handlers
+//! - **Auth** (`auth.rs`, `auth_common.rs`): JWT validation, dev bypass, claims extraction
+//!
+//! # Request Flow
+//!
+//! 1. Request arrives at Axum router
+//! 2. Middleware stack processes request (auth, rate limit, request ID)
+//! 3. Route handler extracts parameters and validates input
+//! 4. Handler calls service layer or database directly
+//! 5. Response is serialized and returned
+//!
+//! # Authentication
+//!
+//! Two modes are supported:
+//! - **Production**: JWT Bearer token validation via `Claims`
+//! - **Development**: Bypass via `AOS_DEV_NO_AUTH=1` or `security.dev_bypass = true`
+//!
+//! Use `is_dev_bypass_enabled()` to check current mode.
+//!
+//! # Error Handling
+//!
+//! All errors flow through `ApiError` which implements `IntoResponse`.
+//! Errors are logged with correlation via request ID and return appropriate HTTP status codes.
+//!
+//! # SSE Streaming
+//!
+//! Server-Sent Events are supported via `SseEventManager` for:
+//! - Chat streaming responses
+//! - Training progress updates
+//! - Real-time telemetry
+//!
+//! # Health Checks
+//!
+//! - `/healthz`: Liveness probe (always returns 200 if process is running)
+//! - `/readyz`: Readiness probe (checks database connectivity)
+//! - `/system/ready`: Detailed system readiness with component status
+
 #![allow(unused_imports)]
 #![allow(clippy::items_after_test_module)]
 #![allow(clippy::unnecessary_to_owned)]

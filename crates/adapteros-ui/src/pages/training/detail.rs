@@ -65,7 +65,8 @@ pub fn TrainingJobDetail(
                 match client.cancel_training_job(&job_id).await {
                     Ok(_) => {
                         show_cancel_confirm.set(false);
-                        notifications.info("Training cancelled", "The training job has been stopped");
+                        notifications
+                            .info("Training cancelled", "The training job has been stopped");
                         on_cancelled();
                     }
                     Err(_) => {

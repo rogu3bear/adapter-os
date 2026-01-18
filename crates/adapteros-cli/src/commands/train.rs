@@ -583,7 +583,7 @@ mod tests {
                 vec![1, 2, 3],
                 vec![4, 5, 6],
                 TrainingExample::attention_mask_from_tokens(&[1, 2, 3], 0),
-                ExampleMetadataV1::new("test", 1, "row-hash-1", "{}", 0),
+                ExampleMetadataV1::new("test", 1, "row-hash-1", r#"{"schema":"supervised"}"#, 0),
             ),
             TrainingExample::new(
                 vec![7, 8, 9],

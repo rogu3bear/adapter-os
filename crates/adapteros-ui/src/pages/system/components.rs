@@ -1061,13 +1061,13 @@ fn ModelRuntimeRow(model: BaseModelStatusResponse) -> impl IntoView {
         .memory_usage_mb
         .map(|m| format!("{} MB", m))
         .unwrap_or_else(|| "-".to_string());
-    let loaded_at = model
-        .loaded_at
-        .clone()
-        .unwrap_or_else(|| "-".to_string());
+    let loaded_at = model.loaded_at.clone().unwrap_or_else(|| "-".to_string());
     let updated_at = format_timestamp(&model.updated_at);
     let has_error = model.error_message.is_some();
-    let error_text = model.error_message.clone().unwrap_or_else(|| "-".to_string());
+    let error_text = model
+        .error_message
+        .clone()
+        .unwrap_or_else(|| "-".to_string());
     let error_title = if has_error {
         error_text.clone()
     } else {

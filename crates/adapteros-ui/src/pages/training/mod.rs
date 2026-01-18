@@ -34,9 +34,9 @@ use std::sync::Arc;
 
 use components::{CoremlFilters, StatusFilter, TrainingJobList};
 use detail::TrainingJobDetail;
-use wizard::CreateJobWizard;
 use readiness::BackendReadinessPanel;
 use state::{matches_coreml_filters, CoremlFilterState};
+use wizard::CreateJobWizard;
 
 /// Training jobs page with list and detail panels
 #[component]

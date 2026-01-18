@@ -71,7 +71,7 @@ pub use status::{
     StatusIndicator,
 };
 pub use table::{
-    SortDirection, Table, TableBody, TableCell, TableHead, TableHeader, TableHeadSortable, TableRow,
+    SortDirection, Table, TableBody, TableCell, TableHead, TableHeadSortable, TableHeader, TableRow,
 };
 pub use tabs::{TabButton, TabButtonEnum, TabNav, TabNavEnum, TabPanel, TabPanelEnum};
 pub use toggle::{Select, Toggle};

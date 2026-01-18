@@ -2,6 +2,13 @@
 //!
 //! This module provides the KV storage implementation for adapter stacks,
 //! complementing the SQL implementation with dual-write support during migration.
+//!
+//! Keys:
+//! - `tenant/{tenant_id}/stack/{stack_id}` -> AdapterStackKv (JSON)
+//! - `tenant/{tenant_id}/stacks` -> Vec<stack_id> (tenant listing)
+//! - `tenant/{tenant_id}/stack-by-name/{name}` -> stack_id (name lookup)
+//! - `tenant/{tenant_id}/stacks-by-state/{state}` -> Vec<stack_id> (state filter)
+//! - `stack-lookup/{stack_id}` -> tenant_id (cross-tenant efficient lookup)
 
 use adapteros_core::{AosError, Result};
 use adapteros_storage::entities::stack::{AdapterStackKv, LifecycleState, WorkflowType};
@@ -115,6 +122,11 @@ impl StackKvRepository {
         format!("tenant/{}/stacks", tenant_id)
     }
 
+    /// Reverse lookup key for cross-tenant stack lookups by ID
+    fn lookup_key(stack_id: &str) -> String {
+        format!("stack-lookup/{}", stack_id)
+    }
+
     /// Serialize a stack to bytes
     fn serialize(stack: &AdapterStackKv) -> Result<Vec<u8>> {
         serde_json::to_vec(stack).map_err(AosError::Serialization)
@@ -167,6 +179,15 @@ impl StackKvRepository {
             self.add_to_set(&tenant_key, &stack.id).await?;
         }
 
+        // Reverse lookup index (stack-lookup/{stack_id} -> tenant_id)
+        self.backend
+            .set(
+                &Self::lookup_key(&stack.id),
+                stack.tenant_id.as_bytes().to_vec(),
+            )
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to update stack lookup index: {}", e)))?;
+
         Ok(())
     }
 
@@ -186,6 +207,9 @@ impl StackKvRepository {
         // Tenant index
         let tenant_key = Self::tenant_index_key(&stack.tenant_id);
         self.remove_from_set(&tenant_key, &stack.id).await?;
+
+        // Reverse lookup index
+        let _ = self.backend.delete(&Self::lookup_key(&stack.id)).await;
 
         Ok(())
     }
@@ -322,6 +346,39 @@ impl StackKvRepository {
         );
 
         Ok(())
+    }
+
+    /// Get stack by ID using reverse lookup (cross-tenant efficient)
+    ///
+    /// Uses the stack-lookup index to quickly find the tenant_id and retrieve
+    /// the stack without scanning all stacks.
+    pub async fn get_stack_by_id(&self, stack_id: &str) -> Result<Option<AdapterStackKv>> {
+        // First, look up the tenant_id from the reverse index
+        let lookup_key = Self::lookup_key(stack_id);
+        let Some(tenant_bytes) = self
+            .backend
+            .get(&lookup_key)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to read stack lookup: {}", e)))?
+        else {
+            return Ok(None);
+        };
+        let tenant_id = String::from_utf8(tenant_bytes)
+            .map_err(|e| AosError::Database(format!("Invalid tenant_id in stack lookup: {}", e)))?;
+
+        // Now fetch the stack with the known tenant_id
+        let key = Self::primary_key(&tenant_id, stack_id);
+        let Some(bytes) = self
+            .backend
+            .get(&key)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to get stack: {}", e)))?
+        else {
+            return Ok(None);
+        };
+
+        let stack = Self::deserialize(&bytes)?;
+        Ok(Some(stack))
     }
 
     /// Update stack version
@@ -591,15 +648,10 @@ impl StackKvOps for StackKvRepository {
     }
 
     async fn add_adapter_to_stack(&self, stack_id: &str, adapter_id: &str) -> Result<()> {
-        // We need tenant_id to construct the key, but it's not provided
-        // This would need to be retrieved from the stack first
-        // For now, this is a placeholder that would need enhancement
-
-        // Scan for the stack across all tenants
-        let all_stacks = self.list_all_stacks().await?;
-        let stack = all_stacks
-            .iter()
-            .find(|s| s.id == stack_id)
+        // Use efficient reverse lookup to find the stack
+        let stack = self
+            .get_stack_by_id(stack_id)
+            .await?
             .ok_or_else(|| AosError::Database(format!("Stack not found: {}", stack_id)))?;
 
         let mut updated_stack = stack.clone();
@@ -620,11 +672,10 @@ impl StackKvOps for StackKvRepository {
     }
 
     async fn remove_adapter_from_stack(&self, stack_id: &str, adapter_id: &str) -> Result<()> {
-        // Similar to add_adapter_to_stack, we need to find the stack first
-        let all_stacks = self.list_all_stacks().await?;
-        let stack = all_stacks
-            .iter()
-            .find(|s| s.id == stack_id)
+        // Use efficient reverse lookup to find the stack
+        let stack = self
+            .get_stack_by_id(stack_id)
+            .await?
             .ok_or_else(|| AosError::Database(format!("Stack not found: {}", stack_id)))?;
 
         let mut updated_stack = stack.clone();
@@ -642,10 +693,10 @@ impl StackKvOps for StackKvRepository {
     }
 
     async fn reorder_adapters(&self, stack_id: &str, adapter_ids: Vec<String>) -> Result<()> {
-        let all_stacks = self.list_all_stacks().await?;
-        let stack = all_stacks
-            .iter()
-            .find(|s| s.id == stack_id)
+        // Use efficient reverse lookup to find the stack
+        let stack = self
+            .get_stack_by_id(stack_id)
+            .await?
             .ok_or_else(|| AosError::Database(format!("Stack not found: {}", stack_id)))?;
 
         let mut updated_stack = stack.clone();
@@ -664,10 +715,10 @@ impl StackKvOps for StackKvRepository {
     }
 
     async fn activate_stack(&self, stack_id: &str) -> Result<()> {
-        let all_stacks = self.list_all_stacks().await?;
-        let stack = all_stacks
-            .iter()
-            .find(|s| s.id == stack_id)
+        // Use efficient reverse lookup to find the stack
+        let stack = self
+            .get_stack_by_id(stack_id)
+            .await?
             .ok_or_else(|| AosError::Database(format!("Stack not found: {}", stack_id)))?;
 
         let mut updated_stack = stack.clone();
@@ -684,7 +735,7 @@ impl StackKvOps for StackKvRepository {
 
         // Update state index
         if old_state != LifecycleState::Active {
-            self.update_indexes(&updated_stack, Some(stack)).await?;
+            self.update_indexes(&updated_stack, Some(&stack)).await?;
         }
 
         info!(stack_id = %stack_id, "Stack activated");
@@ -692,10 +743,10 @@ impl StackKvOps for StackKvRepository {
     }
 
     async fn deactivate_stack(&self, stack_id: &str) -> Result<()> {
-        let all_stacks = self.list_all_stacks().await?;
-        let stack = all_stacks
-            .iter()
-            .find(|s| s.id == stack_id)
+        // Use efficient reverse lookup to find the stack
+        let stack = self
+            .get_stack_by_id(stack_id)
+            .await?
             .ok_or_else(|| AosError::Database(format!("Stack not found: {}", stack_id)))?;
 
         let mut updated_stack = stack.clone();
@@ -712,7 +763,7 @@ impl StackKvOps for StackKvRepository {
 
         // Update state index
         if old_state != LifecycleState::Draft {
-            self.update_indexes(&updated_stack, Some(stack)).await?;
+            self.update_indexes(&updated_stack, Some(&stack)).await?;
         }
 
         info!(stack_id = %stack_id, "Stack deactivated");

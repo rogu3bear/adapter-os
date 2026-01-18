@@ -7,8 +7,8 @@ use super::items::{StatusItem, StatusItemMemory, StatusItemSeverity};
 use super::sections::{StatusDivider, StatusSection, StatusSectionBadgeVariant};
 use crate::components::Spinner;
 use adapteros_api_types::{
-    DataAvailability, InferenceBlocker, InferenceReadyState, MemoryPressureLevel,
-    RagStatus, ServiceHealthStatus, StatusIndicator as ApiStatusIndicator,
+    DataAvailability, InferenceBlocker, InferenceReadyState, MemoryPressureLevel, RagStatus,
+    ServiceHealthStatus, StatusIndicator as ApiStatusIndicator,
 };
 use leptos::prelude::*;
 
