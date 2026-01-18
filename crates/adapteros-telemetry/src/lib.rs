@@ -26,6 +26,7 @@ pub fn dropped_event_count() -> u64 {
 
 pub mod alerting;
 pub mod bundle;
+pub mod bundle_parser;
 pub mod bundle_store;
 pub mod compression;
 pub mod crash_journal;
@@ -54,6 +55,10 @@ pub use alerting::{
     NotificationChannel,
 };
 pub use bundle::BundleWriter;
+pub use bundle_parser::{
+    parse_bundle_events, parse_bundle_content, BundleEventFilter, BundleParseStats,
+    TelemetryEvent as ParsedTelemetryEvent,
+};
 pub use bundle_store::{
     BundleStore, ChainVerificationReport, EvictionStrategy, GarbageCollectionReport,
     RetentionPolicy, StorageStats,

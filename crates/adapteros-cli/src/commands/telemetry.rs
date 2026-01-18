@@ -8,6 +8,7 @@ use crate::output::OutputWriter;
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_crypto::signature::{PublicKey, Signature};
 use adapteros_telemetry::bundle::SignatureMetadata;
+use adapteros_telemetry::bundle_parser::{parse_bundle_events, BundleEventFilter, TelemetryEvent};
 use clap::Subcommand;
 use serde::Serialize;
 use serde_json::json;
@@ -107,16 +108,17 @@ pub async fn handle_telemetry_command(cmd: TelemetryCommand, output: &OutputWrit
 // ============================================================
 // Telemetry List Implementation
 // (consolidated from telemetry_list.rs)
+// Uses bundle_parser module for NDJSON parsing with compression support
 // ============================================================
 
 /// List telemetry events from database with optional stack filtering
 ///
 /// This function queries telemetry bundles and their events, filtering by stack_id if provided.
-/// Supports stack versioning and telemetry correlation.
+/// Supports stack versioning, telemetry correlation, and compressed bundle formats (zstd, gzip, lz4).
 pub async fn list_telemetry_events(
     database_path: &Path,
     by_stack: Option<&str>,
-    event_type: Option<&str>,
+    event_type_filter: Option<&str>,
     limit: u32,
     output: &OutputWriter,
 ) -> anyhow::Result<()> {
@@ -127,96 +129,167 @@ pub async fn list_telemetry_events(
     let db_url = format!("sqlite://{}", database_path.display());
     let pool = SqlitePool::connect(&db_url).await?;
 
-    // Query telemetry_bundles table
-    // Note: Actual event data is stored in bundle files, not database
-    // This queries bundle metadata with stack correlation
-    let bundles = if let Some(stack_id) = by_stack {
-        // Filter bundles by stack_id (requires bundle metadata to include stack info)
-        // For now, this is a placeholder - actual implementation needs bundle parsing
-        sqlx::query(
-            r#"
-            SELECT id, tenant_id, cpid, path, event_count, created_at
-            FROM telemetry_bundles
-            WHERE tenant_id = ?
-            ORDER BY created_at DESC
-            LIMIT ?
-            "#,
-        )
-        .bind(stack_id) // Temporary: using stack_id as tenant filter
-        .bind(limit as i64)
-        .fetch_all(&pool)
-        .await?
-    } else {
-        // List all bundles
-        sqlx::query(
-            r#"
-            SELECT id, tenant_id, cpid, path, event_count, created_at
-            FROM telemetry_bundles
-            ORDER BY created_at DESC
-            LIMIT ?
-            "#,
-        )
-        .bind(limit as i64)
-        .fetch_all(&pool)
-        .await?
-    };
+    // Query telemetry_bundles table to get bundle paths
+    let bundles = sqlx::query(
+        r#"
+        SELECT id, tenant_id, cpid, path, event_count, created_at
+        FROM telemetry_bundles
+        ORDER BY created_at DESC
+        LIMIT 100
+        "#,
+    )
+    .fetch_all(&pool)
+    .await?;
 
-    // Format output
-    let results: Vec<_> = bundles
-        .iter()
-        .map(|row| {
-            json!({
-                "bundle_id": row.get::<String, _>("id"),
-                "tenant_id": row.get::<String, _>("tenant_id"),
-                "cpid": row.get::<String, _>("cpid"),
-                "path": row.get::<String, _>("path"),
-                "event_count": row.get::<i64, _>("event_count"),
-                "created_at": row.get::<String, _>("created_at"),
-                // Note: stack_id and stack_version will be added when bundle metadata is updated
-                "note": "Full event-level filtering requires parsing bundle files"
+    // If no filters, show bundle-level summary
+    if by_stack.is_none() && event_type_filter.is_none() {
+        let results: Vec<_> = bundles
+            .iter()
+            .take(limit as usize)
+            .map(|row| {
+                json!({
+                    "bundle_id": row.get::<String, _>("id"),
+                    "tenant_id": row.get::<String, _>("tenant_id"),
+                    "cpid": row.get::<String, _>("cpid"),
+                    "path": row.get::<String, _>("path"),
+                    "event_count": row.get::<i64, _>("event_count"),
+                    "created_at": row.get::<String, _>("created_at"),
+                })
             })
-        })
-        .collect();
+            .collect();
+
+        if output.is_json() {
+            output.print_json(&json!({
+                "bundles": results,
+                "count": results.len(),
+                "limit": limit,
+                "filters": {
+                    "by_stack": by_stack,
+                    "event_type": event_type_filter
+                }
+            }))?;
+        } else {
+            output.print_line("Telemetry Bundles:")?;
+            output.print_line(format!(
+                "{:<36} {:<20} {:<12} {:>8}",
+                "Bundle ID", "Tenant ID", "CPID", "Events"
+            ))?;
+            output.print_line("-".repeat(80))?;
+
+            for bundle in &results {
+                output.print_line(format!(
+                    "{:<36} {:<20} {:<12} {:>8}",
+                    bundle["bundle_id"].as_str().unwrap_or(""),
+                    bundle["tenant_id"].as_str().unwrap_or(""),
+                    bundle["cpid"].as_str().unwrap_or(""),
+                    bundle["event_count"].as_i64().unwrap_or(0),
+                ))?;
+            }
+
+            output.print_line("")?;
+            output.print_line(format!("Total bundles: {}", results.len()))?;
+        }
+        return Ok(());
+    }
+
+    // Build filter from CLI arguments
+    let mut filter = BundleEventFilter::new().with_limit(limit as usize);
+    if let Some(stack) = by_stack {
+        filter = filter.by_stack(stack);
+    }
+    if let Some(event_type) = event_type_filter {
+        filter = filter.by_event_type(event_type);
+    }
+
+    // Parse bundle files and filter events
+    let mut filtered_events: Vec<TelemetryEvent> = Vec::new();
+    let mut bundles_scanned = 0;
+    let mut events_scanned = 0;
+
+    for row in &bundles {
+        if filtered_events.len() >= limit as usize {
+            break;
+        }
+
+        let bundle_path: String = row.get("path");
+        let bundle_path = Path::new(&bundle_path);
+
+        // Use the bundle_parser module to parse events (handles compression)
+        match parse_bundle_events(bundle_path) {
+            Ok(events) => {
+                bundles_scanned += 1;
+                events_scanned += events.len();
+
+                // Apply filter to this bundle's events
+                let remaining_limit = limit as usize - filtered_events.len();
+                let bundle_filter = BundleEventFilter {
+                    limit: Some(remaining_limit),
+                    ..filter.clone()
+                };
+                let matched = bundle_filter.apply(&events);
+                filtered_events.extend(matched);
+            }
+            Err(e) => {
+                tracing::debug!(
+                    bundle_path = %bundle_path.display(),
+                    error = %e,
+                    "Failed to parse bundle, skipping"
+                );
+                bundles_scanned += 1;
+            }
+        }
+    }
 
     if output.is_json() {
         output.print_json(&json!({
-            "bundles": results,
-            "count": results.len(),
+            "events": filtered_events,
+            "count": filtered_events.len(),
             "limit": limit,
+            "bundles_scanned": bundles_scanned,
+            "events_scanned": events_scanned,
             "filters": {
                 "by_stack": by_stack,
-                "event_type": event_type
+                "event_type": event_type_filter
             }
         }))?;
     } else {
-        output.print_line("Telemetry Bundles:")?;
-        output.print_line(format!(
-            "{:<36} {:<20} {:<12} {:>8}",
-            "Bundle ID", "Tenant ID", "CPID", "Events"
-        ))?;
-        output.print_line("-".repeat(80))?;
-
-        for bundle in &results {
+        if filtered_events.is_empty() {
+            output.print_line("No matching events found.")?;
             output.print_line(format!(
-                "{:<36} {:<20} {:<12} {:>8}",
-                bundle["bundle_id"].as_str().unwrap_or(""),
-                bundle["tenant_id"].as_str().unwrap_or(""),
-                bundle["cpid"].as_str().unwrap_or(""),
-                bundle["event_count"].as_i64().unwrap_or(0),
+                "Scanned {} bundles, {} events",
+                bundles_scanned, events_scanned
+            ))?;
+            return Ok(());
+        }
+
+        output.print_line("Telemetry Events:")?;
+        output.print_line(format!(
+            "{:<36} {:<25} {:<20} {}",
+            "Event ID", "Event Type", "Timestamp", "Message"
+        ))?;
+        output.print_line("-".repeat(100))?;
+
+        for event in &filtered_events {
+            let message_truncated = if event.message.len() > 30 {
+                format!("{}...", &event.message[..27])
+            } else {
+                event.message.clone()
+            };
+
+            output.print_line(format!(
+                "{:<36} {:<25} {:<20} {}",
+                if event.id.len() > 36 { &event.id[..36] } else { &event.id },
+                if event.event_type.len() > 25 { &event.event_type[..25] } else { &event.event_type },
+                if event.timestamp.len() > 20 { &event.timestamp[..20] } else { &event.timestamp },
+                message_truncated,
             ))?;
         }
 
         output.print_line("")?;
-        output.print_line(format!("Total bundles: {}", results.len()))?;
-
-        if by_stack.is_some() || event_type.is_some() {
-            output.print_line("")?;
-            output
-                .print_line("Note: Event-level stack filtering requires parsing bundle files.")?;
-            output.print_line(
-                "This currently shows bundle-level metadata. Full implementation pending.",
-            )?;
-        }
+        output.print_line(format!(
+            "Showing {} events (scanned {} bundles, {} total events)",
+            filtered_events.len(), bundles_scanned, events_scanned
+        ))?;
     }
 
     Ok(())
