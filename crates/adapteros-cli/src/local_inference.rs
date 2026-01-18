@@ -56,9 +56,9 @@ impl LocalInferenceEngine {
 
         #[cfg(not(feature = "multi-backend"))]
         {
-            return Err(AosError::Config(
+            Err(AosError::Config(
                 "Local inference requires 'multi-backend' feature. Rebuild with: cargo build --features multi-backend".to_string()
-            ));
+            ))
         }
 
         #[cfg(feature = "multi-backend")]

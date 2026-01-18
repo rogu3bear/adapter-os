@@ -387,7 +387,7 @@ async fn ingest_dataset(args: IngestArgs, output: &OutputWriter) -> Result<()> {
     warn_if_tenant_mismatch(None, output);
 
     if let Some(ref fmt) = args.format {
-        if fmt.to_ascii_lowercase() != "jsonl" {
+        if !fmt.eq_ignore_ascii_case("jsonl") {
             return Err(AosError::Validation(
                 "Only jsonl format is supported by PLAN_4".to_string(),
             ));
@@ -790,7 +790,7 @@ async fn build_dataset(args: BuildArgs, output: &OutputWriter) -> Result<()> {
 
     // Enforce PLAN_4 JSONL-only contract.
     if let Some(ref fmt) = args.format {
-        if fmt.to_ascii_lowercase() != "jsonl" {
+        if !fmt.eq_ignore_ascii_case("jsonl") {
             return Err(AosError::Validation(
                 "Only jsonl format is supported by PLAN_4".to_string(),
             ));
@@ -801,7 +801,7 @@ async fn build_dataset(args: BuildArgs, output: &OutputWriter) -> Result<()> {
             "CSV column mapping is not supported by PLAN_4 (JSONL only)".to_string(),
         ));
     }
-    if args.text_strategy.to_ascii_lowercase() != "paragraph-pairs" {
+    if !args.text_strategy.eq_ignore_ascii_case("paragraph-pairs") {
         return Err(AosError::Validation(
             "Text parsing strategies are not supported by PLAN_4 (JSONL only)".to_string(),
         ));
