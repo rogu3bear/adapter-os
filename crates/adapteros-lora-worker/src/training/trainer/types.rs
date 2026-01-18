@@ -434,16 +434,22 @@ pub struct TrainingConfig {
     /// Checkpoint interval in epochs (None = no checkpoints, default = 5)
     #[serde(default)]
     pub checkpoint_interval: Option<u32>,
-    /// Warmup steps for learning rate schedule (optional)
-    /// TODO: Not yet implemented in MicroLoRATrainer - accepted from API but not used in training
+    /// Warmup steps before reaching target learning rate.
+    ///
+    /// **Note:** This parameter is accepted but not yet implemented.
+    /// Training will proceed without warmup regardless of this value.
     #[serde(default)]
     pub warmup_steps: Option<u32>,
-    /// Maximum sequence length (optional, default 2048)
-    /// TODO: Not yet implemented in MicroLoRATrainer - accepted from API but not used in training
+    /// Maximum sequence length for training examples (optional, default 2048).
+    ///
+    /// **Note:** This parameter is accepted but not yet implemented.
+    /// Sequence length is currently determined by the tokenizer/model defaults.
     #[serde(default)]
     pub max_seq_length: Option<u32>,
-    /// Gradient accumulation steps for larger effective batch size (optional)
-    /// TODO: Not yet implemented in MicroLoRATrainer - accepted from API but not used in training
+    /// Gradient accumulation steps for larger effective batch size.
+    ///
+    /// **Note:** This parameter is accepted but not yet implemented.
+    /// Effective batch size equals `batch_size` regardless of this value.
     #[serde(default)]
     pub gradient_accumulation_steps: Option<u32>,
     /// Enable early stopping based on validation loss.
