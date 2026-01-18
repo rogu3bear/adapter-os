@@ -436,20 +436,30 @@ pub struct TrainingConfig {
     pub checkpoint_interval: Option<u32>,
     /// Warmup steps before reaching target learning rate.
     ///
-    /// **Note:** This parameter is accepted but not yet implemented.
-    /// Training will proceed without warmup regardless of this value.
+    /// When set to a value greater than 0, enables a cosine decay learning rate
+    /// schedule with linear warmup. The learning rate increases linearly from 0
+    /// to the target `learning_rate` over the specified warmup steps, then decays
+    /// following a cosine schedule.
+    ///
+    /// When unset or set to 0, training uses a constant learning rate.
     #[serde(default)]
     pub warmup_steps: Option<u32>,
-    /// Maximum sequence length for training examples (optional, default 2048).
+    /// Maximum sequence length for training examples.
     ///
-    /// **Note:** This parameter is accepted but not yet implemented.
-    /// Sequence length is currently determined by the tokenizer/model defaults.
+    /// When set, truncates training sequences to this maximum length. Sequences
+    /// longer than this value are truncated from the end.
+    ///
+    /// Defaults to 2048 when not specified.
     #[serde(default)]
     pub max_seq_length: Option<u32>,
     /// Gradient accumulation steps for larger effective batch size.
     ///
-    /// **Note:** This parameter is accepted but not yet implemented.
-    /// Effective batch size equals `batch_size` regardless of this value.
+    /// Accumulates gradients over N steps before updating weights. This enables
+    /// training with larger effective batch sizes without increasing memory usage.
+    ///
+    /// Effective batch size = `batch_size` × `gradient_accumulation_steps`.
+    ///
+    /// Defaults to 1 (no accumulation) when not specified.
     #[serde(default)]
     pub gradient_accumulation_steps: Option<u32>,
     /// Enable early stopping based on validation loss.
