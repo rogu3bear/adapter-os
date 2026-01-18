@@ -3,6 +3,59 @@
 //! This crate provides the persistence layer for adapterOS, including both SQL
 //! (SQLite) and KV (ReDB) backends with dual-write support for migration.
 //!
+//! # Dual-Write Architecture
+//!
+//! The database layer supports a gradual migration from SQL to KV storage via
+//! four storage modes controlled by `AOS_STORAGE_BACKEND`:
+//!
+//! ```text
+//! SqlOnly (current) -> DualWrite -> KvPrimary -> KvOnly (target)
+//!      |                  |            |            |
+//!      v                  v            v            v
+//!  SQL only         Write both     Write both    KV only
+//!                   Read SQL       Read KV
+//! ```
+//!
+//! ## Consistency Guarantees
+//!
+//! **DualWrite Mode**: SQL remains authoritative. KV writes are best-effort:
+//! - KV write failures are logged but don't block the operation
+//! - SQL transaction commits first, then KV write occurs
+//! - On KV failure, a warning is logged and operation succeeds
+//!
+//! **KvPrimary Mode**: Both backends written, KV is authoritative for reads:
+//! - If KV read fails, SQL fallback is available
+//! - Both writes must succeed for write operations
+//!
+//! ## Atomic Dual-Write Pattern
+//!
+//! For operations requiring atomicity across backends (configured via
+//! `AtomicDualWriteConfig`), the pattern is:
+//!
+//! 1. Begin SQL transaction
+//! 2. Execute SQL write
+//! 3. Execute KV write
+//! 4. If KV fails and rollback enabled: rollback SQL transaction
+//! 5. Otherwise: commit SQL, log KV failure
+//!
+//! See `adapters::AtomicDualWriteConfig` for configuration options.
+//!
+//! # Protected Database Access
+//!
+//! Write operations require a `ProtectedDb` wrapper that enforces:
+//! - Lifecycle token validation (prevents writes during shutdown)
+//! - Audit logging for write operations
+//! - Consistent error handling
+//!
+//! ```rust,ignore
+//! // Read-only access (always available)
+//! let adapters = db.list_adapters_for_tenant(tenant_id).await?;
+//!
+//! // Write access (requires lifecycle token)
+//! let protected = ProtectedDb::from_db(db, lifecycle_token);
+//! protected.create_adapter(params).await?;
+//! ```
+//!
 //! # Naming Conventions
 //!
 //! ## Function Naming
@@ -73,6 +126,7 @@ pub mod kv_backend;
 pub mod kv_diff;
 pub mod kv_isolation_scan;
 pub mod kv_metrics;
+pub mod metrics_db;
 pub mod policy_audit_kv;
 pub mod prefix_templates;
 pub mod rag;
@@ -135,6 +189,9 @@ pub use kv_metrics::{
     KvMetrics, KvMetricsSnapshot, KvOperationTimer, KvOperationType, KV_ALERT_METRIC_DEGRADATIONS,
     KV_ALERT_METRIC_DRIFT, KV_ALERT_METRIC_ERRORS, KV_ALERT_METRIC_FALLBACKS,
 };
+
+// Re-export system metrics database types
+pub use metrics_db::{MetricsViolation, SystemMetrics, SystemMetricsDbOps};
 
 // Re-export dual-write ack types
 pub use write_ack::{WriteAck, WriteAckStore, WriteStatus};

@@ -78,6 +78,8 @@ pub enum PauseKind {
     ResourceWait,
     /// Explicit user-requested pause
     UserRequested,
+    /// High-severity threat detected, requires human review before continuing
+    ThreatEscalation,
 }
 
 // =============================================================================
@@ -291,6 +293,16 @@ impl PauseReason {
     pub fn review_needed(pause_id: impl Into<String>, context: ReviewContext) -> Self {
         Self {
             kind: PauseKind::ReviewNeeded,
+            pause_id: pause_id.into(),
+            context,
+            created_at: None,
+        }
+    }
+
+    /// Create a new threat-escalation pause for high-severity threats
+    pub fn threat_escalation(pause_id: impl Into<String>, context: ReviewContext) -> Self {
+        Self {
+            kind: PauseKind::ThreatEscalation,
             pause_id: pause_id.into(),
             context,
             created_at: None,

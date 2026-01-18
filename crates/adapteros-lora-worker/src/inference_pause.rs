@@ -20,7 +20,7 @@ use parking_lot::RwLock;
 use tokio::sync::oneshot;
 
 use adapteros_api_types::review::{
-    InferenceState, PauseKind, PauseReason, Review, ReviewContext, SubmitReviewRequest,
+    InferenceState, PauseKind, PauseReason, Review, ReviewContext, ReviewScope, SubmitReviewRequest,
 };
 use adapteros_core::{AosError, Result};
 
@@ -279,6 +279,32 @@ pub fn pause_for_code_review(
     let context = ReviewContext::code_review(code, question);
     let reason = PauseReason::review_needed(&pause_id, context.clone());
 
+    let token = InferencePauseToken::new(inference_id.to_string(), reason);
+    (token, context)
+}
+
+/// Create a pause for high-severity threat escalation requiring human review
+pub fn pause_for_threat_escalation(
+    inference_id: &str,
+    threat_summary: &str,
+    severity: &str,
+    evidence: Option<serde_json::Value>,
+) -> (InferencePauseToken, ReviewContext) {
+    let pause_id = format!("threat_{}", uuid::Uuid::new_v4());
+    let question = format!(
+        "High-severity threat detected ({}). Human review required before inference can continue.",
+        severity
+    );
+    let mut context = ReviewContext {
+        code: Some(threat_summary.to_string()),
+        question: Some(question),
+        scope: vec![ReviewScope::Security],
+        metadata: evidence,
+    };
+    // Add security scope for threat-related reviews
+    context.scope = vec![ReviewScope::Security];
+
+    let reason = PauseReason::threat_escalation(&pause_id, context.clone());
     let token = InferencePauseToken::new(inference_id.to_string(), reason);
     (token, context)
 }

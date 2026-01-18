@@ -1,9 +1,10 @@
 //! Router calibration commands
 
 use adapteros_lora_router::{CalibrationDataset, Calibrator, OptimizationMethod, RouterWeights};
+use adapteros_manifest::RouterCfg;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Subcommand, Clone)]
 pub enum RouterCmd {
@@ -240,28 +241,30 @@ fn print_metrics(metrics: &adapteros_lora_router::ValidationMetrics) {
 }
 
 fn safe_mode(args: SafeModeArgs) -> Result<()> {
-    // Note: RouterConfig does not currently have a safe_mode field.
-    // This command is a placeholder for future implementation.
+    let config_path = &args.config;
+
+    // Read existing config or create default
+    let mut cfg: RouterCfg = if Path::new(config_path).exists() {
+        let content = std::fs::read_to_string(config_path)
+            .with_context(|| format!("Failed to read config file: {:?}", config_path))?;
+        serde_json::from_str(&content)
+            .with_context(|| format!("Failed to parse config file: {:?}", config_path))?
+    } else {
+        RouterCfg::default()
+    };
+
+    cfg.safe_mode = args.enable;
+
+    let content = serde_json::to_string_pretty(&cfg)
+        .context("Failed to serialize router config")?;
+    std::fs::write(config_path, content)
+        .with_context(|| format!("Failed to write config file: {:?}", config_path))?;
 
     println!(
-        "Safe mode {} requested for config {:?}",
-        if args.enable { "enable" } else { "disable" },
-        args.config
+        "Safe mode {} in {:?}",
+        if args.enable { "enabled" } else { "disabled" },
+        config_path
     );
-
-    println!("\n⚠ Note: Safe mode is not yet implemented in RouterConfig.");
-    println!("This feature will be added in a future release.");
-
-    if args.enable {
-        println!("\nWhen implemented, safe mode will:");
-        println!("  - Only use safety adapters for routing");
-        println!("  - Filter all queries through the safety layer");
-        println!("  - May reduce response quality for non-safety queries");
-    } else {
-        println!("\nWhen implemented, disabling safe mode will:");
-        println!("  - Make all adapters available for routing");
-        println!("  - Use standard K-sparse selection");
-    }
 
     Ok(())
 }

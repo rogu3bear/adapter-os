@@ -361,6 +361,73 @@ impl ServerPauseTracker {
         }
     }
 
+    /// Register a server-side pause (not from a worker).
+    ///
+    /// Use this for server-originated pauses such as:
+    /// - Dataset safety check failures requiring human review
+    /// - Policy approval gates
+    /// - Administrative holds
+    ///
+    /// Unlike `register_pause`, this does not require a worker UDS path
+    /// since the pause originates from the control plane itself.
+    pub fn register_server_pause(
+        &self,
+        pause_id: String,
+        resource_id: String,
+        trigger_kind: &str,
+        context: Option<String>,
+        metadata: Option<serde_json::Value>,
+    ) {
+        let now = Utc::now();
+
+        info!(
+            pause_id = %pause_id,
+            resource_id = %resource_id,
+            trigger_kind = %trigger_kind,
+            "Registered server-side pause for review"
+        );
+
+        // Emit diagnostic event for server-side pause
+        if let Some(ref diag) = self.diagnostics {
+            let context_hash = B3Hash::hash(context.as_deref().unwrap_or("").as_bytes());
+            let trace_ctx = TraceContext::new_root();
+            let run_id = DiagRunId::from_trace_context(&trace_ctx);
+            let envelope = DiagEnvelope::new(
+                &trace_ctx,
+                "default", // tenant_id
+                run_id,
+                DiagSeverity::Info,
+                0, // mono_us - relative to run start
+                DiagEvent::InferencePaused {
+                    pause_id: pause_id.clone(),
+                    inference_id: resource_id.clone(),
+                    pause_kind: format!("{:?}", parse_trigger_kind(trigger_kind)),
+                    trigger_kind: Some(trigger_kind.to_string()),
+                    context_hash,
+                    token_count: 0,
+                },
+            );
+            if let Err(e) = diag.emit(envelope) {
+                warn!(error = %e, "Failed to emit server-side pause diagnostic");
+            }
+        }
+
+        let entry = PausedEntry {
+            inference_id: resource_id,
+            pause_id: pause_id.clone(),
+            trigger_kind: trigger_kind.to_string(),
+            context,
+            text_so_far: metadata.map(|m| serde_json::to_string(&m).unwrap_or_default()),
+            token_count: 0,
+            // Server-side pauses don't have a worker UDS path
+            worker_uds_path: PathBuf::new(),
+            paused_at: Instant::now(),
+            created_at: now,
+        };
+
+        self.paused.write().insert(pause_id, entry);
+    }
+
     /// Remove a pause entry (e.g., if inference completes or errors)
     pub fn remove(&self, pause_id: &str) {
         self.paused.write().remove(pause_id);

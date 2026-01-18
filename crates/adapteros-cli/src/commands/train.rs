@@ -57,6 +57,10 @@ pub struct TrainArgs {
     )]
     force_resume: bool,
 
+    /// Name for checkpoint files (defaults to "training")
+    #[arg(long)]
+    adapter_name: Option<String>,
+
     /// Common training hyperparameters
     #[command(flatten)]
     common: CommonTrainingArgs,
@@ -105,7 +109,8 @@ impl TrainArgs {
         trainer.set_force_resume(self.force_resume);
 
         // Enable checkpointing for resume support
-        trainer.enable_checkpointing(&self.output, "training", 5);
+        let adapter_id = self.adapter_name.as_deref().unwrap_or("training");
+        trainer.enable_checkpointing(&self.output, adapter_id, 5);
 
         // Check for checkpoint availability
         let checkpoint_exists = trainer.has_checkpoint().await;
@@ -541,6 +546,7 @@ mod tests {
             seed: None,
             resume: false,
             force_resume: false,
+            adapter_name: None,
             common: CommonTrainingArgs {
                 rank: 4,
                 alpha: 16.0,
@@ -621,6 +627,7 @@ mod tests {
             seed: None,
             resume: false,
             force_resume: false,
+            adapter_name: None,
             common: CommonTrainingArgs {
                 rank: 4,
                 alpha: 16.0,
