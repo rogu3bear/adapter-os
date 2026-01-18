@@ -310,6 +310,10 @@ pub struct RouterCfg {
     #[serde(default = "default_algorithm")]
     pub algorithm: String, // "weighted" | "entropy_floor" | "plugin:<name>"
 
+    /// When enabled, routes only through safety-validated adapters.
+    #[serde(default)]
+    pub safe_mode: bool,
+
     // DIR (Deterministic Inference Runtime) enhancements
     // Reference: https://openreview.net/pdf?id=jqz6Msm3AF
     #[serde(default = "default_orthogonal_penalty")]
@@ -341,6 +345,27 @@ fn default_compression_ratio() -> f32 {
 
 fn default_diversity_threshold() -> f32 {
     0.05
+}
+
+impl Default for RouterCfg {
+    fn default() -> Self {
+        Self {
+            k_sparse: 3,
+            gate_quant: "q15".to_string(),
+            entropy_floor: 0.02,
+            tau: 1.0,
+            sample_tokens_full: 128,
+            warmup: false,
+            algorithm: default_algorithm(),
+            safe_mode: false,
+            orthogonal_penalty: default_orthogonal_penalty(),
+            shared_downsample: false,
+            compression_ratio: default_compression_ratio(),
+            multi_path_enabled: false,
+            diversity_threshold: default_diversity_threshold(),
+            orthogonal_constraints: false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -764,6 +789,7 @@ mod tests {
                 sample_tokens_full: 128,
                 warmup: false,
                 algorithm: "weighted".into(),
+                safe_mode: false,
                 orthogonal_penalty: 0.1,
                 shared_downsample: false,
                 compression_ratio: 0.8,
@@ -893,5 +919,11 @@ mod tests {
             .compute_hash()
             .expect("Test manifest hash computation should succeed");
         assert_eq!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_router_cfg_safe_mode_default() {
+        let cfg = RouterCfg::default();
+        assert!(!cfg.safe_mode);
     }
 }
