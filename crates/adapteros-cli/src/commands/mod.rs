@@ -54,7 +54,7 @@ pub mod manual;
 pub mod models;
 pub mod stack;
 pub mod status;
-// pub mod metrics;  // Temporarily disabled - depends on adapteros-system-metrics
+pub mod metrics;  // Now uses adapteros_db::SystemMetricsDbOps
 pub mod infer;
 pub mod node;
 // Legacy node commands - still used by app.rs standalone commands
